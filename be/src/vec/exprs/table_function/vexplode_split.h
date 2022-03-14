@@ -34,7 +34,7 @@ public:
     virtual Status process_row(size_t row_idx) override;
     virtual Status process_close() override;
     virtual Status get_value(void** output) override;
-    virtual Status get_value_length(int* length) override;
+    virtual Status get_value_length(int64_t* length) override;
 
 private:
     using ExplodeSplitTableFunction::process;

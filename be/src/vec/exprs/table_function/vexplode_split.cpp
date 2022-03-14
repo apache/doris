@@ -89,7 +89,7 @@ Status VExplodeSplitTableFunction::get_value(void** output) {
     return Status::OK();
 }
 
-Status VExplodeSplitTableFunction::get_value_length(int* length) {
+Status VExplodeSplitTableFunction::get_value_length(int64_t* length) {
     if (_is_current_empty) {
         *length = -1;
     } else {

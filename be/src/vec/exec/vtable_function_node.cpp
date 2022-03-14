@@ -81,10 +81,6 @@ Status VTableFunctionNode::prepare(RuntimeState* state) {
 Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (state == nullptr || block == nullptr || eos == nullptr) {
-        return Status::InternalError("input is NULL pointer");
-    }
-
     RETURN_IF_CANCELLED(state);
 
     RETURN_IF_ERROR(get_expanded_block(state, block, eos));

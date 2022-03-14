@@ -57,7 +57,7 @@ public:
     virtual Status reset() = 0;
 
     virtual Status get_value(void** output) = 0;
-    virtual Status get_value_length(int* length) {
+    virtual Status get_value_length(int64_t* length) {
         *length = -1;
         return Status::OK();
     }

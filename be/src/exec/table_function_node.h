@@ -63,7 +63,7 @@ protected:
 
     std::vector<TableFunction*> _fns;
     std::vector<void*> _fn_values;
-    std::vector<int> _fn_value_lengths;
+    std::vector<int64_t> _fn_value_lengths;
     int _fn_num = 0;
 
     // std::unordered_set<SlotId> _output_slot_ids;
