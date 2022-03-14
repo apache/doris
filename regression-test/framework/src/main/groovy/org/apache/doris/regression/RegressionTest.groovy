@@ -123,6 +123,11 @@ class RegressionTest {
     }
 
     static Recorder runSuites(Config config) {
+        runSuites(config, suiteName -> { suiteName == "load" } ) 
+        runSuites(config, suiteName -> { suiteName != "load" } )
+    }
+
+    static Recorder runSuites(Config config, Closure suiteNameMatch) {
         def files = findSuiteFiles(config.suitePath)
         def recorder = new Recorder()
         List<SuiteFile> runScripts = files.stream().map({ file ->
@@ -130,7 +135,7 @@ class RegressionTest {
             String group = parseGroup(config, file)
             return new SuiteFile(file, suiteName, group)
         }).filter({ sf ->
-            canRun(config, sf.suiteName, sf.group)
+            { suiteNameMatch(sf.suiteName) && canRun(config, sf.suiteName, sf.group) }
         }).collect(Collectors.toList())
 
         log.info('Start to run suites')
