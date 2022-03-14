@@ -129,6 +129,7 @@ protected:
     int64_t _version;
 
     std::vector<uint32_t> _return_columns;
+    std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
 
     RowCursor _read_row_cursor;
 
