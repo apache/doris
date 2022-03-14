@@ -281,6 +281,8 @@ OLAPStatus TabletReader::_init_params(const ReaderParams& read_params) {
 OLAPStatus TabletReader::_init_return_columns(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_QUERY) {
         _return_columns = read_params.return_columns;
+        _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
+
         if (!_delete_handler.empty()) {
             // We need to fetch columns which there are deletion conditions on them.
             set<uint32_t> column_set(_return_columns.begin(), _return_columns.end());
