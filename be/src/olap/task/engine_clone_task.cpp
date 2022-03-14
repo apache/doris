@@ -526,8 +526,8 @@ OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_di
     std::vector<string> linked_success_files;
     // clone and compaction operation should be performed sequentially
     {
-        std::lock_guard<std::mutex> base_lock(tablet->get_base_lock());
-        std::lock_guard<std::mutex> cumulative_lock(tablet->get_cumulative_lock());
+        std::lock_guard<std::mutex> base_compaction_lock(tablet->get_base_compaction_lock());
+        std::lock_guard<std::mutex> cumulative_compaction_lock(tablet->get_cumulative_compaction_lock());
         tablet->set_clone_occurred(true);
         std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
         WriteLock wrlock(tablet->get_header_lock());

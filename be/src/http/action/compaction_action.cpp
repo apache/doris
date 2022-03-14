@@ -184,7 +184,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
     
         {
             // use try lock to check this tablet is running cumulative compaction
-            std::unique_lock<std::mutex> lock_cumulative(tablet->get_cumulative_lock(), std::try_to_lock);
+            std::unique_lock<std::mutex> lock_cumulative(tablet->get_cumulative_compaction_lock(), std::try_to_lock);
             if (!lock_cumulative.owns_lock()) {
                 msg = "compaction task for this tablet is running";
                 compaction_type = "cumulative";
@@ -197,7 +197,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
     
         {
             // use try lock to check this tablet is running base compaction
-            std::unique_lock<std::mutex> lock_base(tablet->get_base_lock(), std::try_to_lock);
+            std::unique_lock<std::mutex> lock_base(tablet->get_base_compaction_lock(), std::try_to_lock);
             if (!lock_base.owns_lock()) {
                 msg = "compaction task for this tablet is running";
                 compaction_type = "base";

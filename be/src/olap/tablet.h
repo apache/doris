@@ -142,8 +142,8 @@ public:
     // meta lock
     inline std::shared_mutex& get_header_lock() { return _meta_lock; }
     inline std::mutex& get_push_lock() { return _ingest_lock; }
-    inline std::mutex& get_base_lock() { return _base_lock; }
-    inline std::mutex& get_cumulative_lock() { return _cumulative_lock; }
+    inline std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
+    inline std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
 
     inline std::shared_mutex& get_migration_lock() { return _migration_lock; }
 
@@ -291,9 +291,9 @@ private:
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
     // it will be used in econ-mode in the future
     std::shared_mutex _meta_store_lock;
-    Mutex _ingest_lock;
-    Mutex _base_lock;
-    Mutex _cumulative_lock;
+    std::mutex _ingest_lock;
+    std::mutex _base_compaction_lock;
+    std::mutex _cumulative_compaction_lock;
     std::mutex _schema_change_lock;
     std::shared_mutex _migration_lock;
 
