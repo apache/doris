@@ -17,12 +17,12 @@
 
 #include "exec/partitioned_aggregation_node.h"
 
-#include <math.h>
-
 #include <algorithm>
+#include <cmath>
 #include <set>
 #include <sstream>
 
+#include "common/utils.h"
 #include "exec/partitioned_hash_table.h"
 #include "exec/partitioned_hash_table.inline.h"
 #include "exprs/anyval_util.h"
@@ -163,14 +163,16 @@ Status PartitionedAggregationNode::init(const TPlanNode& tnode, RuntimeState* st
         build_exprs_.push_back(build_expr);
         // TODO chenhao
         RETURN_IF_ERROR(build_expr->prepare(state, intermediate_row_desc_, nullptr));
-        if (build_expr->type().is_var_len_string_type()) string_grouping_exprs_.push_back(i);
+        if (build_expr->type().is_var_len_string_type()) {
+            string_grouping_exprs_.push_back(i);
+        }
     }
 
     int j = grouping_exprs_.size();
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i, ++j) {
         SlotDescriptor* intermediate_slot_desc = intermediate_tuple_desc_->slots()[j];
         SlotDescriptor* output_slot_desc = output_tuple_desc_->slots()[j];
-        AggFn* agg_fn;
+        AggFn* agg_fn = nullptr;
         RETURN_IF_ERROR(AggFn::Create(tnode.agg_node.aggregate_functions[i], row_desc,
                                       *intermediate_slot_desc, *output_slot_desc, state, &agg_fn));
         agg_fns_.push_back(agg_fn);
@@ -255,7 +257,9 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(claim_buffer_reservation(state));
     }
 
-    if (ht_ctx_.get() != nullptr) RETURN_IF_ERROR(ht_ctx_->Open(state));
+    if (ht_ctx_.get() != nullptr) {
+        RETURN_IF_ERROR(ht_ctx_->Open(state));
+    }
     RETURN_IF_ERROR(NewAggFnEvaluator::Open(agg_fn_evals_, state));
     if (grouping_exprs_.empty()) {
         // Create the single output tuple for this non-grouping agg. This must happen after
@@ -276,7 +280,7 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
                         state, &intermediate_row_desc_, &_buffer_pool_client,
                         _resource_profile.spillable_buffer_size));
                 RETURN_IF_ERROR(serialize_stream_->Init(id(), false));
-                bool got_buffer;
+                bool got_buffer = false;
                 // Reserve the memory for 'serialize_stream_' so we don't need to scrounge up
                 // another buffer during spilling.
                 RETURN_IF_ERROR(serialize_stream_->PrepareForWrite(&got_buffer));
@@ -289,7 +293,9 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
     }
 
     // Streaming preaggregations do all processing in GetNext().
-    if (is_streaming_preagg_) return Status::OK();
+    if (is_streaming_preagg_) {
+        return Status::OK();
+    }
 
     RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
     // Read all the rows from the child and process them.
@@ -328,7 +334,9 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
     // the input from the child and transfered ownership of the resources we need. The
     // exception is if we are inside a subplan expecting to call Open()/GetNext() on the
     // child again,
-    if (!is_in_subplan()) child(0)->close(state);
+    if (!is_in_subplan()) {
+        child(0)->close(state);
+    }
     child_eos_ = true;
 
     // Done consuming child(0)'s input. Move all the partitions in hash_partitions_
@@ -369,7 +377,9 @@ Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_b
 }
 
 Status PartitionedAggregationNode::HandleOutputStrings(RowBatch* row_batch, int first_row_idx) {
-    if (!needs_finalize_ && !needs_serialize_) return Status::OK();
+    if (!needs_finalize_ && !needs_serialize_) {
+        return Status::OK();
+    }
     // String data returned by Serialize() or Finalize() is from local expr allocations in
     // the agg function contexts, and will be freed on the next GetNext() call by
     // FreeLocalAllocations(). The data either needs to be copied out now or sent up the
@@ -564,7 +574,7 @@ Status PartitionedAggregationNode::GetRowsStreaming(RuntimeState* state, RowBatc
                 PartitionedHashTable* ht = GetHashTable(i);
                 if (remaining_capacity[i] < child_batch_->num_rows()) {
                     SCOPED_TIMER(ht_resize_timer_);
-                    bool resized;
+                    bool resized = false;
                     RETURN_IF_ERROR(
                             ht->CheckAndResize(child_batch_->num_rows(), ht_ctx_.get(), &resized));
                     if (resized) {
@@ -743,7 +753,7 @@ Status PartitionedAggregationNode::Partition::InitStreams() {
             parent->state_, &parent->intermediate_row_desc_, &parent->_buffer_pool_client,
             parent->_resource_profile.spillable_buffer_size, external_varlen_slots));
     RETURN_IF_ERROR(aggregated_row_stream->Init(parent->id(), true));
-    bool got_buffer;
+    bool got_buffer = false;
     RETURN_IF_ERROR(aggregated_row_stream->PrepareForWrite(&got_buffer));
     DCHECK(got_buffer) << "Buffer included in reservation " << parent->_id << "\n"
                        << parent->_buffer_pool_client.DebugString() << "\n"
@@ -826,7 +836,7 @@ Status PartitionedAggregationNode::Partition::SerializeStreamForSpilling() {
                 parent->_resource_profile.spillable_buffer_size));
         status = parent->serialize_stream_->Init(parent->id(), false);
         if (status.ok()) {
-            bool got_buffer;
+            bool got_buffer = false;
             status = parent->serialize_stream_->PrepareForWrite(&got_buffer);
             DCHECK(!status.ok() || got_buffer) << "Accounted in min reservation";
         }
@@ -871,7 +881,7 @@ Status PartitionedAggregationNode::Partition::Spill(bool more_aggregate_rows) {
         //    aggregated_row_stream->UnpinStream(BufferedTupleStream3::UNPIN_ALL_EXCEPT_CURRENT);
     } else {
         //    aggregated_row_stream->UnpinStream(BufferedTupleStream3::UNPIN_ALL);
-        bool got_buffer;
+        bool got_buffer = false;
         RETURN_IF_ERROR(unaggregated_row_stream->PrepareForWrite(&got_buffer));
         DCHECK(got_buffer) << "Accounted in min reservation"
                            << parent->_buffer_pool_client.DebugString();
@@ -901,7 +911,9 @@ void PartitionedAggregationNode::Partition::Close(bool finalize_rows) {
         unaggregated_row_stream->Close(nullptr, RowBatch::FlushMode::NO_FLUSH_RESOURCES);
     }
 
-    for (NewAggFnEvaluator* eval : agg_fn_evals) eval->Close(parent->state_);
+    for (NewAggFnEvaluator* eval : agg_fn_evals) {
+        eval->Close(parent->state_);
+    }
     if (agg_fn_pool.get() != nullptr) agg_fn_pool->free_all();
 }
 
@@ -1140,7 +1152,7 @@ Status PartitionedAggregationNode::CreateHashPartitions(int level, int single_pa
             // Just continue with a nullptr hash table so rows will be passed through.
             DCHECK(is_streaming_preagg_);
         } else {
-            bool got_memory;
+            bool got_memory = false;
             RETURN_IF_ERROR(partition->InitHashTable(&got_memory));
             // Spill the partition if we cannot create a hash table for a merge aggregation.
             if (UNLIKELY(!got_memory)) {
@@ -1178,7 +1190,7 @@ Status PartitionedAggregationNode::CheckAndResizeHashPartitions(
         while (!partition->is_spilled()) {
             {
                 SCOPED_TIMER(ht_resize_timer_);
-                bool resized;
+                bool resized = false;
                 RETURN_IF_ERROR(partition->hash_tbl->CheckAndResize(num_rows, ht_ctx, &resized));
                 if (resized) break;
             }
@@ -1310,7 +1322,7 @@ Status PartitionedAggregationNode::RepartitionSpilledPartition() {
         // The aggregated rows have been repartitioned. Free up at least a buffer's worth of
         // reservation and use it to pin the unaggregated write buffer.
         //    hash_partition->aggregated_row_stream->UnpinStream(BufferedTupleStream3::UNPIN_ALL);
-        bool got_buffer;
+        bool got_buffer = false;
         RETURN_IF_ERROR(hash_partition->unaggregated_row_stream->PrepareForWrite(&got_buffer));
         DCHECK(got_buffer) << "Accounted in min reservation" << _buffer_pool_client.DebugString();
     }
@@ -1419,7 +1431,7 @@ Status PartitionedAggregationNode::MoveHashPartitions(int64_t num_input_rows) {
         // TODO: update counters to support doubles.
         COUNTER_SET(largest_partition_percent_, static_cast<int64_t>(percent));
 
-        if (total_rows == 0) {
+        if (double_eq(total_rows, 0.0)) {
             partition->Close(false);
         } else if (partition->is_spilled()) {
             PushSpilledPartition(partition);
@@ -1448,9 +1460,13 @@ void PartitionedAggregationNode::ClosePartitions() {
         if (partition != nullptr) partition->Close(true);
     }
     hash_partitions_.clear();
-    for (Partition* partition : aggregated_partitions_) partition->Close(true);
+    for (Partition* partition : aggregated_partitions_) {
+        partition->Close(true);
+    }
     aggregated_partitions_.clear();
-    for (Partition* partition : spilled_partitions_) partition->Close(true);
+    for (Partition* partition : spilled_partitions_) {
+        partition->Close(true);
+    }
     spilled_partitions_.clear();
     memset(hash_tbls_, 0, sizeof(hash_tbls_));
     partition_pool_->clear();
@@ -1666,10 +1682,10 @@ bool PartitionedAggregationNode::TryAddToHashTable(PartitionedHashTableCtx* ht_c
     DCHECK(remaining_capacity != nullptr);
     DCHECK_EQ(hash_tbl, partition->hash_tbl.get());
     DCHECK_GE(*remaining_capacity, 0);
-    bool found;
+    bool found = false;
     // This is called from ProcessBatchStreaming() so the rows are not aggregated.
     PartitionedHashTable::Iterator it = hash_tbl->FindBuildRowBucket(ht_ctx, &found);
-    Tuple* intermediate_tuple;
+    Tuple* intermediate_tuple = nullptr;
     if (found) {
         intermediate_tuple = it.GetTuple();
     } else if (*remaining_capacity == 0) {

@@ -18,9 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_HLL_H
 #define DORIS_BE_SRC_OLAP_HLL_H
 
-#include <math.h>
-#include <stdio.h>
-
+#include <cmath>
+#include <cstdio>
 #include <map>
 #include <set>
 #include <string>
@@ -300,7 +299,6 @@ private:
     uint8_t* _registers = nullptr;
 
 private:
-
     void _convert_explicit_to_register();
 
     // update one hash value into this registers

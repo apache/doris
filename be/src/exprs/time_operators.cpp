@@ -17,8 +17,7 @@
 
 #include "exprs/time_operators.h"
 
-#include <math.h>
-
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 

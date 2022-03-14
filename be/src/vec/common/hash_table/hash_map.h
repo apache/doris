@@ -79,10 +79,10 @@ struct HashMapCell {
     size_t get_hash(const Hash& hash) const { return hash(value.first); }
 
     bool is_zero(const State& state) const { return is_zero(value.first, state); }
-    static bool is_zero(const Key& key, const State& /*state*/) { return ZeroTraits::check(key); }
+    static bool is_zero(const Key& key, const State& /*state*/) { return zero_traits::check(key); }
 
     /// Set the key value to zero.
-    void set_zero() { ZeroTraits::set(value.first); }
+    void set_zero() { zero_traits::set(value.first); }
 
     /// Do I need to store the zero key separately (that is, can a zero key be inserted into the hash table).
     static constexpr bool need_zero_value_storage = true;
@@ -185,13 +185,17 @@ public:
     /// Call func(const Key &, Mapped &) for each hash map element.
     template <typename Func>
     void for_each_value(Func&& func) {
-        for (auto& v : *this) func(v.get_first(), v.get_second());
+        for (auto& v : *this) {
+            func(v.get_first(), v.get_second());
+        }
     }
 
     /// Call func(Mapped &) for each hash map element.
     template <typename Func>
     void for_each_mapped(Func&& func) {
-        for (auto& v : *this) func(v.get_second());
+        for (auto& v : *this) {
+            func(v.get_second());
+        }
     }
 
     size_t get_size() {

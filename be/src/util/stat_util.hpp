@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_STAT_UTIL_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_STAT_UTIL_HPP
 
-#include <math.h>
+#include <cmath>
 
 namespace doris {
 
@@ -46,6 +46,6 @@ public:
     }
 };
 
-}
+} // namespace doris
 
 #endif

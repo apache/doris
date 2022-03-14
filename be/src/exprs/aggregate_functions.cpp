@@ -18,12 +18,12 @@
 // include aggregate_functions.h first to make sure that all need includes is written in header files
 #include "exprs/aggregate_functions.h"
 
-#include <math.h>
-
+#include <cmath>
 #include <sstream>
 #include <unordered_set>
 
 #include "common/logging.h"
+#include "common/utils.h"
 #include "exprs/anyval_util.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/datetime_value.h"
@@ -204,7 +204,7 @@ void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal&
     DCHECK(dst->ptr != nullptr);
     DCHECK_EQ(sizeof(PercentileState), dst->len);
 
-    double quantile;
+    double quantile = 0;
     memcpy(&quantile, src.ptr, sizeof(double));
 
     PercentileState* src_percentile = new PercentileState();
@@ -213,7 +213,7 @@ void AggregateFunctions::percentile_merge(FunctionContext* ctx, const StringVal&
 
     PercentileState* dst_percentile = reinterpret_cast<PercentileState*>(dst->ptr);
     dst_percentile->counts.merge(&src_percentile->counts);
-    if (dst_percentile->quantile == -1.0) {
+    if (double_eq(dst_percentile->quantile, -1.0)) {
         dst_percentile->quantile = quantile;
     }
 
@@ -319,7 +319,7 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
     DCHECK(dst->ptr != nullptr);
     DCHECK_EQ(sizeof(PercentileApproxState), dst->len);
 
-    double quantile;
+    double quantile = 0;
     memcpy(&quantile, src.ptr, sizeof(double));
 
     PercentileApproxState* src_percentile = new PercentileApproxState();
@@ -347,7 +347,7 @@ DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx,
     double result = percentile->digest->quantile(quantile);
 
     delete percentile;
-    if (isnan(result)) {
+    if (std::isnan(result)) {
         return DoubleVal(result).null();
     } else {
         return DoubleVal(result);

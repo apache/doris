@@ -17,8 +17,8 @@
 
 #include "exprs/udf_builtins.h"
 
-#include <ctype.h>
-#include <math.h>
+#include <cctype>
+#include <cmath>
 
 #include "common/logging.h"
 

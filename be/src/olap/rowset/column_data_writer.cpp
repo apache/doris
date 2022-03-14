@@ -17,7 +17,7 @@
 
 #include "olap/rowset/column_data_writer.h"
 
-#include <math.h>
+#include <cmath>
 
 #include "olap/row.h"
 #include "olap/row_block.h"

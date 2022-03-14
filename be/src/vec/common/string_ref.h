@@ -291,14 +291,14 @@ template <>
 struct hash<StringRef> : public StringRefHash {};
 } // namespace std
 
-namespace ZeroTraits {
+namespace zero_traits {
 inline bool check(const StringRef& x) {
     return 0 == x.size;
 }
 inline void set(StringRef& x) {
     x.size = 0;
 }
-} // namespace ZeroTraits
+} // namespace zero_traits
 
 inline std::ostream& operator<<(std::ostream& os, const StringRef& str) {
     if (str.data) os.write(str.data, str.size);

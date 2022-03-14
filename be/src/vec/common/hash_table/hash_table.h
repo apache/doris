@@ -20,10 +20,9 @@
 
 #pragma once
 
-#include <math.h>
-#include <string.h>
-
 #include <boost/noncopyable.hpp>
+#include <cmath>
+#include <cstring>
 #include <utility>
 
 #include "common/status.h"
@@ -31,6 +30,7 @@
 #include "vec/common/exception.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
@@ -63,7 +63,7 @@ struct HashTableNoState {
 };
 
 /// These functions can be overloaded for custom types.
-namespace ZeroTraits {
+namespace zero_traits {
 
 template <typename T>
 bool check(const T x) {
@@ -75,7 +75,7 @@ void set(T& x) {
     x = 0;
 }
 
-} // namespace ZeroTraits
+} // namespace zero_traits
 
 /**
   * lookup_result_get_key/Mapped -- functions to get key/"mapped" values from the
@@ -193,10 +193,10 @@ struct HashTableCell {
     /// If zero keys can be inserted into the table, then the cell for the zero key is stored separately, not in the main buffer.
     /// Zero keys must be such that the zeroed-down piece of memory is a zero key.
     bool is_zero(const State& state) const { return is_zero(key, state); }
-    static bool is_zero(const Key& key, const State& /*state*/) { return ZeroTraits::check(key); }
+    static bool is_zero(const Key& key, const State& /*state*/) { return zero_traits::check(key); }
 
     /// Set the key value to zero.
-    void set_zero() { ZeroTraits::set(key); }
+    void set_zero() { zero_traits::set(key); }
 
     /// Do the hash table need to store the zero key separately (that is, can a zero key be inserted into the hash table).
     static constexpr bool need_zero_value_storage = true;
@@ -368,28 +368,24 @@ protected:
     //factor that will trigger growing the hash table on insert.
     static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.5f;
 
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    mutable size_t collisions = 0;
-#endif
-
     /// Find a cell with the same key or an empty cell, starting from the specified position and further along the collision resolution chain.
     size_t ALWAYS_INLINE find_cell(const Key& x, size_t hash_value, size_t place_value) const {
         while (!buf[place_value].is_zero(*this) &&
                !buf[place_value].key_equals(x, hash_value, *this)) {
             place_value = grower.next(place_value);
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-            ++collisions;
-#endif
         }
 
         return place_value;
     }
 
-    std::pair<bool, size_t> ALWAYS_INLINE find_cell_opt(const Key& x, size_t hash_value, size_t place_value) const {
+    std::pair<bool, size_t> ALWAYS_INLINE find_cell_opt(const Key& x, size_t hash_value,
+                                                        size_t place_value) const {
         bool is_zero = false;
         do {
             is_zero = buf[place_value].is_zero(*this);
-            if (is_zero || buf[place_value].key_equals(x, hash_value, *this)) break;
+            if (is_zero || buf[place_value].key_equals(x, hash_value, *this)) {
+                break;
+            }
             place_value = grower.next(place_value);
         } while (true);
 
@@ -400,9 +396,6 @@ protected:
     size_t ALWAYS_INLINE find_empty_cell(size_t place_value) const {
         while (!buf[place_value].is_zero(*this)) {
             place_value = grower.next(place_value);
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-            ++collisions;
-#endif
         }
 
         return place_value;
@@ -437,10 +430,14 @@ protected:
         Grower new_grower = grower;
         if (for_num_elems) {
             new_grower.set(for_num_elems);
-            if (new_grower.buf_size() <= old_size) return;
+            if (new_grower.buf_size() <= old_size) {
+                return;
+            }
         } else if (for_buf_size) {
             new_grower.set_buf_size(for_buf_size);
-            if (new_grower.buf_size() <= old_size) return;
+            if (new_grower.buf_size() <= old_size) {
+                return;
+            }
         } else
             new_grower.increase_size();
 
@@ -454,9 +451,11 @@ protected:
           *  or move to the left of the collision resolution chain, because the elements to the left of it have been moved to the new "right" location.
           */
         size_t i = 0;
-        for (; i < old_size; ++i)
-            if (!buf[i].is_zero(*this) && !buf[i].is_deleted())
+        for (; i < old_size; ++i) {
+            if (!buf[i].is_zero(*this) && !buf[i].is_deleted()) {
                 reinsert(buf[i], buf[i].get_hash(*this));
+            }
+        }
 
         /** There is also a special case:
           *    if the element was to be at the end of the old buffer,                  [        x]
@@ -466,8 +465,9 @@ protected:
           *    after transferring all the elements from the old halves you need to     [         o   x    ]
           *    process tail from the collision resolution chain immediately after it   [        o    x    ]
           */
-        for (; !buf[i].is_zero(*this) && !buf[i].is_deleted(); ++i)
+        for (; !buf[i].is_zero(*this) && !buf[i].is_deleted(); ++i) {
             reinsert(buf[i], buf[i].get_hash(*this));
+        }
 
 #ifdef DBMS_HASH_MAP_DEBUG_RESIZES
         watch.stop();
@@ -484,13 +484,17 @@ protected:
         size_t place_value = grower.place(hash_value);
 
         /// If the element is in its place.
-        if (&x == &buf[place_value]) return;
+        if (&x == &buf[place_value]) {
+            return;
+        }
 
         /// Compute a new location, taking into account the collision resolution chain.
         place_value = find_cell(Cell::get_key(x.get_value()), hash_value, place_value);
 
         /// If the item remains in its place in the old collision resolution chain.
-        if (!buf[place_value].is_zero(*this)) return;
+        if (!buf[place_value].is_zero(*this)) {
+            return;
+        }
 
         /// Copy to a new location and zero the old one.
         x.set_hash(hash_value);
@@ -502,7 +506,9 @@ protected:
 
     void destroy_elements() {
         if (!std::is_trivially_destructible_v<Cell>)
-            for (iterator it = begin(), it_end = end(); it != it_end; ++it) it.ptr->~Cell();
+            for (iterator it = begin(), it_end = end(); it != it_end; ++it) {
+                it.ptr->~Cell();
+            }
     }
 
     template <typename Derived, bool is_const>
@@ -531,7 +537,9 @@ protected:
 
             /// Skip empty cells in the main buffer.
             auto buf_end = container->buf + container->grower.buf_size();
-            while (ptr < buf_end && ptr->is_zero(*container)) ++ptr;
+            while (ptr < buf_end && ptr->is_zero(*container)) {
+                ++ptr;
+            }
 
             return static_cast<Derived&>(*this);
         }
@@ -579,12 +587,16 @@ public:
     size_t hash(const Key& x) const { return Hash::operator()(x); }
 
     HashTable() {
-        if (Cell::need_zero_value_storage) this->zero_value()->set_zero();
+        if (Cell::need_zero_value_storage) {
+            this->zero_value()->set_zero();
+        }
         alloc(grower);
     }
 
     HashTable(size_t reserve_for_num_elements) {
-        if (Cell::need_zero_value_storage) this->zero_value()->set_zero();
+        if (Cell::need_zero_value_storage) {
+            this->zero_value()->set_zero();
+        }
         grower.set(reserve_for_num_elements);
         alloc(grower);
     }
@@ -625,11 +637,15 @@ public:
     const_iterator begin() const {
         if (!buf) return end();
 
-        if (this->get_has_zero()) return iterator_to_zero();
+        if (this->get_has_zero()) {
+            return iterator_to_zero();
+        }
 
         const Cell* ptr = buf;
         auto buf_end = buf + grower.buf_size();
-        while (ptr < buf_end && ptr->is_zero(*this)) ++ptr;
+        while (ptr < buf_end && ptr->is_zero(*this)) {
+            ++ptr;
+        }
 
         return const_iterator(this, ptr);
     }
@@ -639,11 +655,15 @@ public:
     iterator begin() {
         if (!buf) return end();
 
-        if (this->get_has_zero()) return iterator_to_zero();
+        if (this->get_has_zero()) {
+            return iterator_to_zero();
+        }
 
         Cell* ptr = buf;
         auto buf_end = buf + grower.buf_size();
-        while (ptr < buf_end && ptr->is_zero(*this)) ++ptr;
+        while (ptr < buf_end && ptr->is_zero(*this)) {
+            ++ptr;
+        }
 
         return iterator(this, ptr);
     }
@@ -740,7 +760,9 @@ public:
             emplace_non_zero(Cell::get_key(x), res.first, res.second, hash_value);
         }
 
-        if (res.second) insert_set_mapped(lookup_result_get_mapped(res.first), x);
+        if (res.second) {
+            insert_set_mapped(lookup_result_get_mapped(res.first), x);
+        }
 
         return res;
     }
@@ -784,8 +806,9 @@ public:
     void ALWAYS_INLINE emplace(KeyHolder&& key_holder, LookupResult& it, bool& inserted,
                                size_t hash_value) {
         const auto& key = key_holder_get_key(key_holder);
-        if (!emplace_if_zero(key, it, inserted, hash_value))
+        if (!emplace_if_zero(key, it, inserted, hash_value)) {
             emplace_non_zero(key_holder, it, inserted, hash_value);
+        }
     }
 
     /// Copy the cell from another hash table. It is assumed that the cell is not zero, and also that there was no such key in the table yet.
@@ -795,7 +818,9 @@ public:
         memcpy(static_cast<void*>(&buf[place_value]), cell, sizeof(*cell));
         ++m_size;
 
-        if (UNLIKELY(grower.overflow(m_size))) resize();
+        if (UNLIKELY(grower.overflow(m_size))) {
+            resize();
+        }
     }
 
     LookupResult ALWAYS_INLINE find(Key x) {
@@ -826,7 +851,9 @@ public:
     }
 
     bool ALWAYS_INLINE has(Key x, size_t hash_value) const {
-        if (Cell::is_zero(x, *this)) return this->get_has_zero();
+        if (Cell::is_zero(x, *this)) {
+            return this->get_has_zero();
+        }
 
         size_t place_value = find_cell(x, hash_value, grower.place(hash_value));
         return !buf[place_value].is_zero(*this);
@@ -836,10 +863,13 @@ public:
         Cell::State::write(wb);
         doris::vectorized::write_var_uint(m_size, wb);
 
-        if (this->get_has_zero()) this->zero_value()->write(wb);
+        if (this->get_has_zero()) {
+            this->zero_value()->write(wb);
+        }
 
-        for (auto ptr = buf, buf_end = buf + grower.buf_size(); ptr < buf_end; ++ptr)
+        for (auto ptr = buf, buf_end = buf + grower.buf_size(); ptr < buf_end; ++ptr) {
             if (!ptr->is_zero(*this)) ptr->write(wb);
+        }
     }
 
     void read(doris::vectorized::BufferReadable& rb) {
@@ -870,9 +900,7 @@ public:
 
     float get_factor() const { return MAX_BUCKET_OCCUPANCY_FRACTION; }
 
-    bool should_be_shrink(int64_t valid_row) {
-        return valid_row < get_factor() * (size() / 2.0);
-    }
+    bool should_be_shrink(int64_t valid_row) { return valid_row < get_factor() * (size() / 2.0); }
 
     void init_buf_size(size_t reserve_for_num_elements) {
         free();
@@ -881,8 +909,9 @@ public:
     }
 
     void delete_zero_key(Key key) {
-        if (Cell::is_zero(key, *this))
-             this->clear_get_has_zero();
+        if (Cell::is_zero(key, *this)) {
+            this->clear_get_has_zero();
+        }
     }
     void clear() {
         destroy_elements();
@@ -908,7 +937,4 @@ public:
     bool add_elem_size_overflow(size_t add_size) const {
         return grower.overflow(add_size + m_size);
     }
-#ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
-    size_t getCollisions() const { return collisions; }
-#endif
 };
