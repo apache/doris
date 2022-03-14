@@ -79,7 +79,9 @@ private:
         RowInBlock(size_t i):_row_pos(i){}
         RowCursorCell cell(vectorized::MutableBlock* block, int cid){
             StringRef ref = block->mutable_columns()[cid]->get_data_at(_row_pos);
-            return RowCursorCell(ref.data);
+            bool is_null = block->mutable_columns()[cid]->is_null_at(_row_pos);
+            NullState null_state = is_null ? NullState::IS_NULL : NullState::NOT_NULL;
+            return RowCursorCell(ref.data, null_state);
         }
     };
     class RowInBlockComparator {
