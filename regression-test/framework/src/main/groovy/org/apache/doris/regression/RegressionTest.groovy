@@ -71,9 +71,9 @@ class RegressionTest {
             return new ArrayList<File>()
         }
         List<File> files = new ArrayList<>()
-        // 1. generate groovy for sql
+        // 1. generate groovy for sql, excluding ddl
         new File(root).eachFileRecurse { f ->
-            if (f.isFile() && f.name.endsWith('.sql')) {
+            if (f.isFile() && f.name.endsWith('.sql') && f.getParentFile().name != "ddl") {
                 genetate_groovy_from_sql(f)
             }
         }
