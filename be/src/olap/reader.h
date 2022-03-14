@@ -96,6 +96,7 @@ public:
 
         // use only in vec exec engine
         std::vector<uint32_t>* origin_return_columns = nullptr;
+        std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
 
         void check_validation() const;
 
@@ -189,6 +190,9 @@ protected:
     std::set<uint32_t> _load_bf_columns;
     std::set<uint32_t> _load_bf_all_columns;
     std::vector<uint32_t> _return_columns;
+    // only use in outer join which change the column nullable which must keep same in
+    // vec query engine
+    std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;
     std::vector<uint32_t> _seek_columns;
 
     TabletSharedPtr _tablet;
