@@ -1274,11 +1274,11 @@ visible_functions = [
     # quantile_function
     [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'],
         '_ZN5doris22QuantileStateFunctions17to_quantile_stateEPN9doris_udf15FunctionContextERKNS1_9StringValE',
-        '', '', 'vec', ''],
+        '_ZN5doris22QuantileStateFunctions25to_quantile_state_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE', '', 'vec', ''],
     
     [['quantile_percent'], 'DOUBLE', ['QUANTILE_STATE', 'FLOAT'],
         '_ZN5doris22QuantileStateFunctions16quantile_percentEPN9doris_udf15FunctionContextERNS1_9StringValE',
-        '', '', 'vec', ''],
+        '_ZN5doris22QuantileStateFunctions24quantile_percent_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE', '', 'vec', ''],
     
 
     # hash functions

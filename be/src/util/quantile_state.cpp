@@ -64,6 +64,8 @@ size_t QuantileState<T>::get_serialized_size() {
 
 template<typename T>
 void QuantileState<T>::set_compression(float compression) {
+    DCHECK(compression >= QUANTILE_STATE_COMPRESSION_MIN && 
+            compression <= QUANTILE_STATE_COMPRESSION_MAX);
     this->_compression = compression;
 }
 
@@ -76,7 +78,7 @@ bool QuantileState<T>::is_valid(const Slice& slice) {
     const uint8_t* ptr = (uint8_t*)slice.data;
     const uint8_t* end = (uint8_t*)slice.data + slice.size;
     float compress_value = *reinterpret_cast<const float*>(ptr);
-    if (compress_value < 2048 || compress_value > 10000) {
+    if (compress_value < QUANTILE_STATE_COMPRESSION_MIN || compress_value > QUANTILE_STATE_COMPRESSION_MAX) {
         return false;
     }
     ptr += sizeof(float);
@@ -119,10 +121,6 @@ bool QuantileState<T>::is_valid(const Slice& slice) {
 template<typename T>
 T QuantileState<T>::get_explicit_value_by_percentile(float percentile) {
     DCHECK(_type == EXPLICIT);
-    if (percentile < 0 || percentile > 1) {
-        LOG(WARNING) << "get_explicit_value_by_percentile failed caused by percentile:" << percentile <<" is invalid";
-        return NAN;
-    }
     int n = _explicit_data.size();
     std::sort(_explicit_data.begin(), _explicit_data.end());
 
@@ -136,6 +134,7 @@ T QuantileState<T>::get_explicit_value_by_percentile(float percentile) {
 
 template<typename T>
 T QuantileState<T>::get_value_by_percentile(float percentile) {
+    DCHECK(percentile >= 0 && percentile <= 1);
     switch(_type) {
     case EMPTY: {
         return NAN;
