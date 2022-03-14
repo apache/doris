@@ -143,9 +143,6 @@ public:
                 if (data_type == nullptr) {
                     return Status::RuntimeError("invalid data type");
                 }
-                if (column_desc->is_nullable()) {
-                    data_type = std::make_shared<vectorized::DataTypeNullable>(std::move(data_type));
-                }
                 auto column = data_type->create_column();
                 column->reserve(_block_row_max);
                 _block.insert(ColumnWithTypeAndName(std::move(column), data_type, column_desc->name()));

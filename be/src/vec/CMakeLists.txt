@@ -109,6 +109,8 @@ set(VEC_FILES
   exprs/vcase_expr.cpp
   exprs/vinfo_func.cpp
   exprs/table_function/vexplode_split.cpp
+  functions/array/function_array_index.cpp
+  functions/array/function_array_register.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
   functions/function_bitmap_variadic.cpp
