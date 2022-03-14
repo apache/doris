@@ -87,13 +87,19 @@ class RegressionTest {
     }
 
     static String parseGroup(Config config, File suiteFile) {
+        // ./run-regression-test.sh -g group_name runs all groups
+        // whose name starting with ${group_name}.
         String group = new File(config.suitePath).relativePath(suiteFile)
         int separatorIndex = group.lastIndexOf(File.separator)
-        if (separatorIndex == -1) {
-            return ''
-        } else {
-            return group.substring(0, separatorIndex)
+        String groups = ",";
+        while (separatorIndex != -1) {
+            group = group.substring(0, separatorIndex)
+            groups += "${group},"
+            separatorIndex = group.lastIndexOf(File.separator)
         }
+        // remove ',' at head and trail
+        groups = groups.substring(1, groups.length() - 1);
+        return groups;
     }
 
     static void runSuite(Config config, SuiteFile sf, Recorder recorder) {
