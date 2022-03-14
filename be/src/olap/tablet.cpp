@@ -1270,8 +1270,6 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
         // still sets the state to normal when reporting. Note that every task has an timeout,
         // so if the task corresponding to this change hangs, when the task timeout, FE will know
         // and perform state modification operations.
-    } else {
-        tablet_info->__set_version_miss(check_version_integrity({0, max_rowset->version().second}, true));
     }
 
     // the report version is the largest continuous version, same logic as in FE side
