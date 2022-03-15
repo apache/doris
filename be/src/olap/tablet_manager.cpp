@@ -1042,9 +1042,9 @@ void TabletManager::get_partition_related_tablets(int64_t partition_id,
 void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
     std::vector<TabletSharedPtr> related_tablets;
     {
-        for (const auto& tablets_shard : _tablets_shards) {
+        for (auto& tablets_shard : _tablets_shards) {
             ReadLock rdlock(tablets_shard.lock);
-            for (const auto& item : tablets_shard.tablet_map) {
+            for (auto& item : tablets_shard.tablet_map) {
                 TabletSharedPtr& tablet_ptr = item.second;
                 if (tablet_ptr->tablet_state() != TABLET_RUNNING) {
                     continue;
@@ -1209,11 +1209,11 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id, bo
         // If update meta directly here, other thread may override the meta
         // and the tablet will be loaded at restart time.
         // To avoid this exception, we first set the state of the tablet to `SHUTDOWN`.
-        tablet->set_tablet_state(TABLET_SHUTDOWN);
-        tablet->save_meta();
+        dropped_tablet->set_tablet_state(TABLET_SHUTDOWN);
+        dropped_tablet->save_meta();
         {
             WriteLock wrdlock(_shutdown_tablets_lock);
-            _shutdown_tablets.push_back(tablet);
+            _shutdown_tablets.push_back(dropped_tablet);
         }
     }
 
@@ -1236,7 +1236,7 @@ void TabletManager::_add_tablet_to_partition(const TabletSharedPtr& tablet) {
     _partition_tablet_map[tablet->partition_id()].insert(tablet->get_tablet_info());
 }
 
-void TabletManager::_remove_tablet_from_partition(TabletSharedPtr& tablet) {
+void TabletManager::_remove_tablet_from_partition(const TabletSharedPtr& tablet) {
     WriteLock wrlock(_partition_tablet_map_lock);
     _partition_tablet_map[tablet->partition_id()].erase(tablet->get_tablet_info());
     if (_partition_tablet_map[tablet->partition_id()].empty()) {
