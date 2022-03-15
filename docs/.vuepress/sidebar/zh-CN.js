@@ -765,6 +765,7 @@ module.exports = [
       "be-vscode-dev",
       "java-format-code",
       "cpp-format-code",
+      "cpp-diagnostic-code",
       "How-to-Share-blogs",
       "minidump",
       "bitmap-hll-file-format",
