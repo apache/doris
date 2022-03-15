@@ -36,11 +36,11 @@ for (String table in tables) {
     sql new File("""${scriptDir}/ddl/${table}.sql""").text
 }
 
-for (String table_name in tables) {
+for (String table in tables) {
     streamLoad {
         // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
         // db 'regression_test'
-        table table_name 
+        table table
 
         // default label is UUID:
         // set 'label' UUID.randomUUID().toString()
