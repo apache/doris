@@ -36,6 +36,10 @@ public:
 
 private:
     OLAPStatus _migrate();
+    OLAPStatus _get_versions(int32_t start_version,
+                                 int32_t* end_version,
+                                 std::vector<RowsetSharedPtr> *consistent_rowsets);
+    OLAPStatus _check_running_txns();
 
     void _generate_new_header(uint64_t new_shard,
                               const std::vector<RowsetSharedPtr>& consistent_rowsets,

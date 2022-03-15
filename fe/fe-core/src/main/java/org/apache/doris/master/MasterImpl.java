@@ -47,6 +47,7 @@ import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.task.SnapshotTask;
+import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TBackend;
@@ -115,8 +116,8 @@ public class MasterImpl {
         
         AgentTask task = AgentTaskQueue.getTask(backendId, taskType, signature);
         if (task == null) {
-            if (taskType != TTaskType.DROP && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
-                    && taskType != TTaskType.RELEASE_SNAPSHOT && taskType != TTaskType.CLEAR_TRANSACTION_TASK) {
+            if (taskType != TTaskType.DROP && taskType != TTaskType.RELEASE_SNAPSHOT
+                    && taskType != TTaskType.CLEAR_TRANSACTION_TASK) {
                 String errMsg = "cannot find task. type: " + taskType + ", backendId: " + backendId
                         + ", signature: " + signature;
                 LOG.warn(errMsg);
@@ -137,7 +138,8 @@ public class MasterImpl {
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
                         && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
-                        && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO) {
+                        && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO
+                        && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE) {
                     return result;
                 }
             }
@@ -174,6 +176,9 @@ public class MasterImpl {
                     throw new RuntimeException("Schema change and rollup job is not used any more, use alter task instead");
                 case CLONE:
                     finishClone(task, request);
+                    break;
+                case STORAGE_MEDIUM_MIGRATE:
+                    finishStorageMediumMigrate(task, request);
                     break;
                 case CHECK_CONSISTENCY:
                     finishConsistencyCheck(task, request);
@@ -697,6 +702,12 @@ public class MasterImpl {
         }
 
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLONE, task.getSignature());
+    }
+
+    private void finishStorageMediumMigrate(AgentTask task, TFinishTaskRequest request) {
+        StorageMediaMigrationTask migrationTask = (StorageMediaMigrationTask) task;
+        Catalog.getCurrentCatalog().getTabletScheduler().finishStorageMediaMigrationTask(migrationTask, request);
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.STORAGE_MEDIUM_MIGRATE, task.getSignature());
     }
 
     private void finishConsistencyCheck(AgentTask task, TFinishTaskRequest request) {

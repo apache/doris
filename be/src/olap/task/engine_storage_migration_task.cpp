@@ -32,6 +32,47 @@ OLAPStatus EngineStorageMigrationTask::execute() {
     return _migrate();
 }
 
+OLAPStatus EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t* end_version,
+                                        std::vector<RowsetSharedPtr> *consistent_rowsets) {
+    ReadLock rdlock(_tablet->get_header_lock());
+    const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
+    if (last_version == nullptr) {
+        LOG(WARNING) << "failed to get rowset with max version, tablet="
+                        << _tablet->full_name();
+        return OLAP_ERR_VERSION_NOT_EXIST;
+    }
+
+    *end_version = last_version->end_version();
+    if (*end_version < start_version) {
+        // rowsets are empty
+        VLOG_DEBUG << "consistent rowsets empty. tablet=" << _tablet->full_name()
+                        << ", start_version=" << start_version << ", end_version=" << *end_version;
+        return OLAP_SUCCESS;
+    }
+    _tablet->capture_consistent_rowsets(Version(start_version, *end_version), consistent_rowsets);
+    if (consistent_rowsets->empty()) {
+        LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
+                        << ", version=" << *end_version;
+        return OLAP_ERR_VERSION_NOT_EXIST;
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus EngineStorageMigrationTask::_check_running_txns() {
+    // need hold migration lock outside
+    int64_t partition_id;
+    std::set<int64_t> transaction_ids;
+    // check if this tablet has related running txns. if yes, can not do migration.
+    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(
+            _tablet->tablet_id(), _tablet->schema_hash(), _tablet->tablet_uid(), &partition_id, &transaction_ids);
+    if (transaction_ids.size() > 0) {
+        LOG(WARNING) << "could not migration because has unfinished txns, "
+                    << " tablet=" << _tablet->full_name();
+        return OLAP_ERR_HEADER_HAS_PENDING_DATA;
+    }
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus EngineStorageMigrationTask::_migrate() {
     int64_t tablet_id = _tablet->tablet_id();
     int32_t schema_hash = _tablet->schema_hash();
@@ -39,82 +80,96 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
               << "tablet_id=" << tablet_id << ", dest_store=" << _dest_store->path();
 
     DorisMetrics::instance()->storage_migrate_requests_total->increment(1);
+    int32_t start_version = 0;
+    int32_t end_version = 0;
+    std::vector<RowsetSharedPtr> consistent_rowsets;
 
     // try hold migration lock first
     OLAPStatus res = OLAP_SUCCESS;
-    UniqueWriteLock migration_wlock(_tablet->get_migration_lock(), std::try_to_lock);
-    if (!migration_wlock.owns_lock()) {
-        return OLAP_ERR_RWLOCK_ERROR;
-    }
-
-    // check if this tablet has related running txns. if yes, can not do migration.
-    int64_t partition_id;
-    std::set<int64_t> transaction_ids;
-    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(
-            tablet_id, schema_hash, _tablet->tablet_uid(), &partition_id, &transaction_ids);
-    if (transaction_ids.size() > 0) {
-        LOG(WARNING) << "could not migration because has unfinished txns, "
-                     << " tablet=" << _tablet->full_name();
-        return OLAP_ERR_HEADER_HAS_PENDING_DATA;
-    }
-
-    std::lock_guard<std::mutex> lock(_tablet->get_push_lock());
-    // TODO(ygl): the tablet should not under schema change or rollup or load
-    do {
-        std::vector<RowsetSharedPtr> consistent_rowsets;
-        {
-            ReadLock rdlock(_tablet->get_header_lock());
-            // get all versions to be migrate
-            const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
-            if (last_version == nullptr) {
-                res = OLAP_ERR_VERSION_NOT_EXIST;
-                LOG(WARNING) << "failed to get rowset with max version, tablet="
-                             << _tablet->full_name();
-                break;
-            }
-            int32_t end_version = last_version->end_version();
-            res = _tablet->capture_consistent_rowsets(Version(0, end_version), &consistent_rowsets);
-            if (consistent_rowsets.empty()) {
-                res = OLAP_ERR_VERSION_NOT_EXIST;
-                LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
-                             << ", version=" << end_version;
-                break;
-            }
+    {
+        UniqueWriteLock migration_wlock(_tablet->get_migration_lock(), std::try_to_lock);
+        if (!migration_wlock.owns_lock()) {
+            return OLAP_ERR_RWLOCK_ERROR;
         }
 
-        uint64_t shard = 0;
-        res = _dest_store->get_shard(&shard);
+        // check if this tablet has related running txns. if yes, can not do migration.
+        res = _check_running_txns();
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to get shard from store: " << _dest_store->path();
-            break;
-        }
-        FilePathDescStream root_path_desc_s;
-        root_path_desc_s << _dest_store->path_desc() << DATA_PREFIX << "/" << shard;
-        FilePathDesc full_path_desc = SnapshotManager::instance()->get_schema_hash_full_path(
-                _tablet, root_path_desc_s.path_desc());
-        string full_path = full_path_desc.filepath;
-        // if dir already exist then return err, it should not happen.
-        // should not remove the dir directly, for safety reason.
-        if (FileUtils::check_exist(full_path)) {
-            LOG(INFO) << "schema hash path already exist, skip this path. "
-                      << "full_path=" << full_path;
-            res = OLAP_ERR_FILE_ALREADY_EXIST;
-            break;
+            return res;
         }
 
-        Status st = FileUtils::create_dir(full_path);
-        if (!st.ok()) {
-            res = OLAP_ERR_CANNOT_CREATE_DIR;
-            LOG(WARNING) << "fail to create path. path=" << full_path
-                         << ", error:" << st.to_string();
-            break;
+        std::lock_guard<std::mutex> lock(_tablet->get_push_lock());
+        // get versions to be migrate
+        res = _get_versions(start_version, &end_version, &consistent_rowsets);
+        if (res != OLAP_SUCCESS) {
+            return res;
         }
+    }
 
+    // TODO(ygl): the tablet should not under schema change or rollup or load
+    uint64_t shard = 0;
+    res = _dest_store->get_shard(&shard);
+    if (res != OLAP_SUCCESS) {
+        LOG(WARNING) << "fail to get shard from store: " << _dest_store->path();
+        return res;
+    }
+    FilePathDescStream root_path_desc_s;
+    root_path_desc_s << _dest_store->path_desc() << DATA_PREFIX << "/" << shard;
+    FilePathDesc full_path_desc = SnapshotManager::instance()->get_schema_hash_full_path(
+            _tablet, root_path_desc_s.path_desc());
+    string full_path = full_path_desc.filepath;
+    // if dir already exist then return err, it should not happen.
+    // should not remove the dir directly, for safety reason.
+    if (FileUtils::check_exist(full_path)) {
+        LOG(INFO) << "schema hash path already exist, skip this path. "
+                    << "full_path=" << full_path;
+        return OLAP_ERR_FILE_ALREADY_EXIST;
+    }
+
+    Status st = FileUtils::create_dir(full_path);
+    if (!st.ok()) {
+        res = OLAP_ERR_CANNOT_CREATE_DIR;
+        LOG(WARNING) << "fail to create path. path=" << full_path
+                        << ", error:" << st.to_string();
+        return res;
+    }
+
+    do {
         // migrate all index and data files but header file
         res = _copy_index_and_data_files(full_path, consistent_rowsets);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to copy index and data files when migrate. res=" << res;
+            // we should remove the dir directly for avoid disk full of junk data, and it's safe to remove
+            FileUtils::remove_all(full_path);
+            return res;
+        }
+        UniqueWriteLock migration_wlock(_tablet->get_migration_lock(), std::try_to_lock);
+        if (!migration_wlock.owns_lock()) {
+            LOG(WARNING) << "get migration lock fail.";
+            FileUtils::remove_all(full_path);
+            return OLAP_ERR_RWLOCK_ERROR;
+        }
+        res = _check_running_txns();
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "check running txns fail. res=" << res;
+            FileUtils::remove_all(full_path);
+            return res;
+        }
+        std::lock_guard<std::mutex> lock(_tablet->get_push_lock());
+        start_version = end_version;
+        std::vector<RowsetSharedPtr> temp_consistent_rowsets;
+        // get remaining versions
+        res = _get_versions(end_version + 1, &end_version, &temp_consistent_rowsets);
+        if (res != OLAP_SUCCESS) {
             break;
+        }
+        if (start_version < end_version) {
+            // we have remaining versions to be migrated
+            consistent_rowsets.insert(consistent_rowsets.end(),
+                        temp_consistent_rowsets.begin(), temp_consistent_rowsets.end());
+            LOG(INFO) << "we have remaining versions to be migrated. start_version="
+                << start_version << " end_version=" << end_version;
+            continue;
         }
 
         // generate new tablet meta and write to hdr file
@@ -161,9 +216,14 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
             LOG(WARNING) << "tablet not found. tablet_id=" << tablet_id
                          << " schema_hash=" << schema_hash;
             res = OLAP_ERR_TABLE_NOT_FOUND;
-            break;
         }
-    } while (0);
+        break;
+    } while (true);
+
+    if (res != OLAP_SUCCESS) {
+        // avoid disk full of junk data, and it's safe to remove
+        FileUtils::remove_all(full_path);
+    }
     return res;
 }
 
