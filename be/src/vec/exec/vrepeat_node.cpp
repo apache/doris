@@ -207,7 +207,7 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         _repeat_id_idx = 0;
     }
 
-    _num_rows_returned += block->rows();
+    reached_limit(block, eos);
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     VLOG_ROW << "VRepeatNode output rows: " << block->rows();
     return Status::OK();

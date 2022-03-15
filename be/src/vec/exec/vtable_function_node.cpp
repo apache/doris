@@ -40,7 +40,7 @@ Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
         VExpr* root = ctx->root();
         const std::string& tf_name = root->fn().name.function_name;
         TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(TableFunctionFactory::get_fn("v" + tf_name, _pool, &fn));
+        RETURN_IF_ERROR(TableFunctionFactory::get_fn(tf_name, true, _pool, &fn));
         fn->set_vexpr_context(ctx);
         _fns.push_back(fn);
     }
@@ -85,7 +85,8 @@ Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos
 
     RETURN_IF_ERROR(get_expanded_block(state, block, eos));
 
-    _num_rows_returned += block->rows();
+    reached_limit(block, eos);
+
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 
     return Status::OK();

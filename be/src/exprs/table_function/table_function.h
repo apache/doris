@@ -41,14 +41,19 @@ public:
 
     virtual Status process(TupleRow* tuple_row) = 0;
 
+    // only used for vectorized.
     virtual Status process_init(vectorized::Block* block) {
         return Status::NotSupported(
                 fmt::format("vectorized table function {} not supported now.", _fn_name));
     }
+
+    // only used for vectorized.
     virtual Status process_row(size_t row_idx) {
         return Status::NotSupported(
                 fmt::format("vectorized table function {} not supported now.", _fn_name));
     }
+
+    // only used for vectorized.
     virtual Status process_close() {
         return Status::NotSupported(
                 fmt::format("vectorized table function {} not supported now.", _fn_name));
@@ -57,6 +62,8 @@ public:
     virtual Status reset() = 0;
 
     virtual Status get_value(void** output) = 0;
+
+    // only used for vectorized.
     virtual Status get_value_length(int64_t* length) {
         *length = -1;
         return Status::OK();

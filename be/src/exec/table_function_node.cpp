@@ -46,7 +46,7 @@ Status TableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
         Expr* root = ctx->root();
         const std::string& tf_name = root->fn().name.function_name;
         TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(TableFunctionFactory::get_fn(tf_name, _pool, &fn));
+        RETURN_IF_ERROR(TableFunctionFactory::get_fn(tf_name, false, _pool, &fn));
         fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }
@@ -353,7 +353,9 @@ Status TableFunctionNode::close(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     Expr::close(_fn_ctxs, state);
 
-    COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
+    if (_num_rows_filtered_counter != nullptr) {
+        COUNTER_SET(_num_rows_filtered_counter, static_cast<int64_t>(_num_rows_filtered));
+    }
 
     return ExecNode::close(state);
 }

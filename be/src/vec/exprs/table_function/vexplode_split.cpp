@@ -46,9 +46,6 @@ Status VExplodeSplitTableFunction::process_init(vectorized::Block* block) {
     _text_column = block->get_by_position(text_column_idx).column;
     _delimiter_column = block->get_by_position(delimiter_column_idx).column;
 
-    _text_column = _text_column->convert_to_full_column_if_const();
-    _delimiter_column = _delimiter_column->convert_to_full_column_if_const();
-
     return Status::OK();
 }
 
@@ -64,6 +61,7 @@ Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
         StringRef text = _text_column->get_data_at(row_idx);
         StringRef delimiter = _delimiter_column->get_data_at(row_idx);
 
+        //TODO: implement non-copy split string reference
         _backup = strings::Split(StringPiece((char*)text.data, text.size),
                                  StringPiece((char*)delimiter.data, delimiter.size));
 
