@@ -1408,16 +1408,15 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2&
               << ", alter_version=" << request.alter_version;
 
     // Lock schema_change_lock util schema change info is stored in tablet header
-    if (!StorageEngine::instance()->tablet_manager()->try_schema_change_lock(
-                request.base_tablet_id)) {
+    WriteLock schema_change_lock(_tablet->get_schema_change_lock(), std::try_to_lock);
+    if (!schema_change_lock.owns_lock()) {
         LOG(WARNING) << "failed to obtain schema change lock. "
                      << "base_tablet=" << request.base_tablet_id;
-        return OLAP_ERR_TRY_LOCK_FAILED;
+        return OLAP_ERR_RWLOCK_ERROR;
     }
 
     OLAPStatus res = _do_process_alter_tablet_v2(request);
     LOG(INFO) << "finished alter tablet process, res=" << res;
-    StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
     return res;
 }
 

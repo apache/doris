@@ -161,6 +161,8 @@ public:
 
     inline std::shared_mutex& get_migration_lock() { return _migration_lock; }
 
+    inline std::mutex& get_schema_change_lock() { return _schema_change_lock; }
+
     // operation for compaction
     bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
     uint32_t calc_compaction_score(
@@ -306,6 +308,7 @@ private:
     Mutex _ingest_lock;
     Mutex _base_lock;
     Mutex _cumulative_lock;
+    std::mutex _schema_change_lock;
     std::shared_mutex _migration_lock;
 
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
