@@ -455,7 +455,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
 
 OLAPStatus TabletManager::drop_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                       bool keep_files) {
-    WriteLock wrdlock(_get_tablets_shard_lock(tablet_id));
+    WriteLock wrlock(_get_tablets_shard_lock(tablet_id));
     return _drop_tablet_unlocked(tablet_id, schema_hash, keep_files);
 }
 
@@ -497,7 +497,7 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
         if (local_tmp_vector[i].empty()) {
             continue;
         }
-        WriteLock wrdlock(_tablets_shards[i].lock);
+        WriteLock wrlock(_tablets_shards[i].lock);
         for (size_t idx : local_tmp_vector[i]) {
             const TabletInfo& tablet_info = tablet_info_vec[idx];
             TTabletId tablet_id = tablet_info.tablet_id;
@@ -764,7 +764,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         LOG(INFO) << "fail to load tablet because it is to be deleted. tablet_id=" << tablet_id
                   << " schema_hash=" << schema_hash << ", path=" << data_dir->path();
         {
-            WriteLock shutdown_tablets_wrdlock(_shutdown_tablets_lock);
+            WriteLock shutdown_tablets_wrlock(_shutdown_tablets_lock);
             _shutdown_tablets.push_back(tablet);
         }
         return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR;
@@ -781,7 +781,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
     RETURN_NOT_OK_LOG(tablet->init(),
                       strings::Substitute("tablet init failed. tablet=$0", tablet->full_name()));
 
-    WriteLock wrdlock(_get_tablets_shard_lock(tablet_id));
+    WriteLock wrlock(_get_tablets_shard_lock(tablet_id));
     RETURN_NOT_OK_LOG(_add_tablet_unlocked(tablet_id, schema_hash, tablet, update_meta, force),
                       strings::Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
 
@@ -1054,13 +1054,13 @@ OLAPStatus TabletManager::start_trash_sweep() {
 
 void TabletManager::register_clone_tablet(int64_t tablet_id) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
-    WriteLock wrdlock(shard.lock);
+    WriteLock wrlock(shard.lock);
     shard.tablets_under_clone.insert(tablet_id);
 }
 
 void TabletManager::unregister_clone_tablet(int64_t tablet_id) {
     tablets_shard& shard = _get_tablets_shard(tablet_id);
-    WriteLock wrdlock(shard.lock);
+    WriteLock wrlock(shard.lock);
     shard.tablets_under_clone.erase(tablet_id);
 }
 
@@ -1317,7 +1317,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id,
         it = candidate_tablets.erase(it);
         if (!keep_files) {
             // drop tablet will update tablet meta, should lock
-            WriteLock wrdlock(tablet->get_header_lock());
+            WriteLock wrlock(tablet->get_header_lock());
             LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
                       << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
                       << ", tablet_path=" << dropped_tablet->tablet_path_desc().filepath;
@@ -1329,7 +1329,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id,
             tablet->set_tablet_state(TABLET_SHUTDOWN);
             tablet->save_meta();
             {
-                WriteLock wrdlock(_shutdown_tablets_lock);
+                WriteLock wrlock(_shutdown_tablets_lock);
                 _shutdown_tablets.push_back(tablet);
             }
         }
@@ -1363,12 +1363,12 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
 }
 
 void TabletManager::_add_tablet_to_partition(const Tablet& tablet) {
-    WriteLock wrdlock(_partition_tablet_map_lock);
+    WriteLock wrlock(_partition_tablet_map_lock);
     _partition_tablet_map[tablet.partition_id()].insert(tablet.get_tablet_info());
 }
 
 void TabletManager::_remove_tablet_from_partition(const Tablet& tablet) {
-    WriteLock wrdlock(_partition_tablet_map_lock);
+    WriteLock wrlock(_partition_tablet_map_lock);
     _partition_tablet_map[tablet.partition_id()].erase(tablet.get_tablet_info());
     if (_partition_tablet_map[tablet.partition_id()].empty()) {
         _partition_tablet_map.erase(tablet.partition_id());
