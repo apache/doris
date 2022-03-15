@@ -269,6 +269,8 @@ enum TFunctionBinaryType {
 
   // call udfs by rpc service
   RPC,
+
+  JAVA_UDF,
 }
 
 // Represents a fully qualified function name.
