@@ -580,7 +580,7 @@ OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
 
 OLAPStatus Tablet::check_version_integrity(const Version& version, bool quiet) {
     ReadLock rdlock(_meta_lock);
-    return capture_consistent_versions(version, nullptr);
+    return capture_consistent_versions(version, nullptr, quiet);
 }
 
 // If any rowset contains the specific version, it means the version already exist
@@ -840,7 +840,7 @@ void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, V
 }
 
 void Tablet::calculate_cumulative_point() {
-    ReadLock wrlock(_meta_lock);
+    WriteLock wrlock(_meta_lock);
     int64_t ret_cumulative_point;
     _cumulative_compaction_policy->calculate_cumulative_point(
             this, _tablet_meta->all_rs_metas(), _cumulative_point, &ret_cumulative_point);
