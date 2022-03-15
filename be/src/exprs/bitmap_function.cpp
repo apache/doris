@@ -156,6 +156,11 @@ void read_from(const char** src, StringValue* result) {
 } // namespace detail
 
 static StringVal serialize(FunctionContext* ctx, BitmapValue* value) {
+    BitmapValue empty_bitmap;
+    if (!value) {
+        value = &empty_bitmap;
+    }
+
     StringVal result(ctx, value->getSizeInBytes());
     value->write((char*)result.ptr);
     return result;
