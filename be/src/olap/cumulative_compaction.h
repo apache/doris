@@ -27,7 +27,7 @@ namespace doris {
 
 class CumulativeCompaction : public Compaction {
 public:
-    CumulativeCompaction(TabletSharedPtr tablet, const std::shared_ptr<MemTracker>& parent_tracker);
+    CumulativeCompaction(TabletSharedPtr tablet);
     ~CumulativeCompaction() override;
 
     OLAPStatus prepare_compact() override;

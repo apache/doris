@@ -142,9 +142,9 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     DCHECK(child(0)->row_desc().is_prefix_of(row_desc()));
     _child_tuple_desc = child(0)->row_desc().tuple_descriptors()[0];
-    _curr_tuple_pool.reset(new MemPool(mem_tracker().get()));
-    _prev_tuple_pool.reset(new MemPool(mem_tracker().get()));
-    _mem_pool.reset(new MemPool(mem_tracker().get()));
+    _curr_tuple_pool.reset(new MemPool());
+    _prev_tuple_pool.reset(new MemPool());
+    _mem_pool.reset(new MemPool());
 
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     DCHECK_EQ(_result_tuple_desc->slots().size(), _evaluators.size());
@@ -236,10 +236,8 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
 
     // Fetch the first input batch so that some _prev_input_row can be set here to avoid
     // special casing in GetNext().
-    _prev_child_batch.reset(
-            new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
-    _curr_child_batch.reset(
-            new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    _prev_child_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
+    _curr_child_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
 
     while (!_input_eos && _prev_input_row == nullptr) {
         RETURN_IF_ERROR(child(0)->get_next(state, _curr_child_batch.get(), &_input_eos));
@@ -738,7 +736,7 @@ Status AnalyticEvalNode::get_next_output_batch(RuntimeState* state, RowBatch* ou
     ExprContext** ctxs = &_conjunct_ctxs[0];
     int num_ctxs = _conjunct_ctxs.size();
 
-    RowBatch input_batch(child(0)->row_desc(), output_batch->capacity(), mem_tracker().get());
+    RowBatch input_batch(child(0)->row_desc(), output_batch->capacity());
     int64_t stream_idx = _input_stream->rows_returned();
     RETURN_IF_ERROR(_input_stream->get_next(&input_batch, eos));
 

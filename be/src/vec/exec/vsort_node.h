@@ -84,6 +84,8 @@ private:
     // only valid in TOP-N node
     uint64_t _num_rows_in_block = 0;
     std::priority_queue<SortBlockCursor> _block_priority_queue;
+
+    std::shared_ptr<MemTracker> _block_mem_tracker;
 };
 
 } // namespace doris::vectorized

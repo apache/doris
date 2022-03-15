@@ -82,8 +82,8 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
                 // the negative number of the current value of consume.
                 LOG(WARNING) << "Task memory tracker memory leak:" << it->second->debug_string();
             }
-            it->second->parent()->consume(-it->second->consumption(),
-                                          MemTracker::get_process_tracker().get());
+            it->second->parent()->consume_local(-it->second->consumption(),
+                                                MemTracker::get_process_tracker().get());
             expired_tasks.emplace_back(it->first);
         }
     }

@@ -92,7 +92,7 @@ Status OlapScanner::prepare(
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
             OLAPStatus acquire_reader_st =
-                    _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers, _mem_tracker);
+                    _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
             if (acquire_reader_st != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
@@ -266,7 +266,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool());
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     {
@@ -281,7 +281,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             }
             // Read one row from reader
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
-                                                          batch->agg_object_pool(), eof);
+                                                                 batch->agg_object_pool(), eof);
             if (res != OLAP_SUCCESS) {
                 std::stringstream ss;
                 ss << "Internal Error: read storage fail. res=" << res

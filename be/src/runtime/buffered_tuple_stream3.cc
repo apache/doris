@@ -20,7 +20,6 @@
 #include "runtime/buffered_tuple_stream3.inline.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
@@ -668,8 +667,7 @@ void BufferedTupleStream3::UnpinStream(UnpinMode mode) {
   CHECK_CONSISTENCY_FULL();
 }
 */
-Status BufferedTupleStream3::GetRows(const std::shared_ptr<MemTracker>& tracker,
-                                     std::unique_ptr<RowBatch>* batch, bool* got_rows) {
+Status BufferedTupleStream3::GetRows(std::unique_ptr<RowBatch>* batch, bool* got_rows) {
     if (num_rows() > numeric_limits<int>::max()) {
         // RowBatch::num_rows_ is a 32-bit int, avoid an overflow.
         return Status::InternalError(
@@ -686,7 +684,7 @@ Status BufferedTupleStream3::GetRows(const std::shared_ptr<MemTracker>& tracker,
     // TODO chenhao
     // capacity in RowBatch use int, but _num_rows is int64_t
     // it may be precision loss
-    batch->reset(new RowBatch(*desc_, num_rows(), tracker.get()));
+    batch->reset(new RowBatch(*desc_, num_rows()));
     bool eos = false;
     // Loop until GetNext fills the entire batch. Each call can stop at page
     // boundaries. We generally want it to stop, so that pages can be freed

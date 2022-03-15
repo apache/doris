@@ -24,6 +24,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/sorter.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "util/debug_util.h"
 #include "util/defer_op.h"
@@ -123,8 +124,9 @@ public:
     // Retrieves the first batch of sorted rows from the run.
     Status init(bool* done) override {
         *done = false;
-        _pull_task_thread = std::thread(
-                &SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task, this);
+        _pull_task_thread =
+        std::thread(&SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task,
+                    this, thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker());
 
         RETURN_IF_ERROR(next(nullptr, done));
         return Status::OK();
@@ -177,7 +179,8 @@ private:
     // signal of new batch or the eos/cancelled condition
     std::condition_variable _batch_prepared_cv;
 
-    void process_sorted_run_task() {
+    void process_sorted_run_task(const std::shared_ptr<MemTracker>& mem_tracker) {
+        SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::QUERY, mem_tracker);
         std::unique_lock<std::mutex> lock(_mutex);
         while (true) {
             _batch_prepared_cv.wait(lock, [this]() { return !_backup_ready.load(); });
@@ -307,11 +310,9 @@ Status SortedRunMerger::get_next(RowBatch* output_batch, bool* eos) {
 
 ChildSortedRunMerger::ChildSortedRunMerger(const TupleRowComparator& compare_less_than,
                                            RowDescriptor* row_desc, RuntimeProfile* profile,
-                                           MemTracker* parent, uint32_t row_batch_size,
-                                           bool deep_copy_input)
+                                           uint32_t row_batch_size, bool deep_copy_input)
         : SortedRunMerger(compare_less_than, row_desc, profile, deep_copy_input),
           _eos(false),
-          _parent(parent),
           _row_batch_size(row_batch_size) {
     _get_next_timer = ADD_TIMER(profile, "ChildMergeGetNext");
     _get_next_batch_timer = ADD_TIMER(profile, "ChildMergeGetNextBatch");
@@ -323,7 +324,7 @@ Status ChildSortedRunMerger::get_batch(RowBatch** output_batch) {
         return Status::OK();
     }
 
-    _current_row_batch.reset(new RowBatch(*_input_row_desc, _row_batch_size, _parent));
+    _current_row_batch.reset(new RowBatch(*_input_row_desc, _row_batch_size));
 
     bool eos = false;
     RETURN_IF_ERROR(get_next(_current_row_batch.get(), &eos));

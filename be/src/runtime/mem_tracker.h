@@ -95,6 +95,8 @@ public:
     static std::shared_ptr<MemTracker> get_process_tracker();
     static MemTracker* get_raw_process_tracker();
 
+    static std::shared_ptr<MemTracker> get_process_calibrate_tracker();
+
     inline Status check_sys_mem_info(int64_t bytes) {
         if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
             return Status::MemoryLimitExceeded(fmt::format(
@@ -105,17 +107,12 @@ public:
     }
 
     // Increases consumption of this tracker and its ancestors by 'bytes'.
-    // up to (but not including) end_tracker.
-    // This is useful if we want to move tracking between trackers that share a common (i.e. end_tracker)
-    // ancestor. This happens when we want to update tracking on a particular mem tracker but the consumption
-    // against the limit recorded in one of its ancestors already happened.
-    void consume(int64_t bytes, MemTracker* end_tracker = nullptr) {
+    void consume(int64_t bytes) {
         if (bytes <= 0) {
-            release(-bytes, end_tracker);
+            release(-bytes);
             return;
         }
         for (auto& tracker : _all_trackers) {
-            if (tracker == end_tracker) return;
             tracker->_consumption->add(bytes);
         }
     }
@@ -159,17 +156,15 @@ public:
     }
 
     // Decreases consumption of this tracker and its ancestors by 'bytes'.
-    // up to (but not including) end_tracker.
-    void release(int64_t bytes, MemTracker* end_tracker = nullptr) {
+    void release(int64_t bytes) {
         if (bytes < 0) {
-            consume(-bytes, end_tracker);
+            consume(-bytes);
             return;
         }
         if (bytes == 0) {
             return;
         }
         for (auto& tracker : _all_trackers) {
-            if (tracker == end_tracker) return;
             tracker->_consumption->add(-bytes);
         }
     }
@@ -233,6 +228,29 @@ public:
         return Status::OK();
     }
 
+    // up to (but not including) end_tracker.
+    // This is useful if we want to move tracking between trackers that share a common (i.e. end_tracker)
+    // ancestor. This happens when we want to update tracking on a particular mem tracker but the consumption
+    // against the limit recorded in one of its ancestors already happened.
+    void consume_local(int64_t bytes, MemTracker* end_tracker) {
+        DCHECK(end_tracker);
+        if (bytes == 0) return;
+        for (auto& tracker : _all_trackers) {
+            if (tracker == end_tracker) return;
+            tracker->_consumption->add(bytes);
+        }
+    }
+
+    // up to (but not including) end_tracker.
+    void release_local(int64_t bytes, MemTracker* end_tracker) {
+        DCHECK(end_tracker);
+        if (bytes == 0) return;
+        for (auto& tracker : _all_trackers) {
+            if (tracker == end_tracker) return;
+            tracker->_consumption->add(-bytes);
+        }
+    }
+
     // Transfer 'bytes' of consumption from this tracker to 'dst'.
     // updating all ancestors up to the first shared ancestor. Must not be used if
     // 'dst' has a limit, or an ancestor with a limit, that is not a common
@@ -241,6 +259,7 @@ public:
 
     WARN_UNUSED_RESULT
     Status try_transfer_to(MemTracker* dst, int64_t bytes) {
+        if (id() == dst->id()) return Status::OK();
         // Must release first, then consume
         release_cache(bytes);
         Status st = dst->try_consume_cache(bytes);
@@ -253,6 +272,7 @@ public:
 
     // Forced transfer, 'dst' may limit exceed, and more ancestor trackers will be updated.
     void transfer_to(MemTracker* dst, int64_t bytes) {
+        if (id() == dst->id()) return;
         release_cache(bytes);
         dst->consume_cache(bytes);
     }
@@ -434,6 +454,8 @@ private:
 
     // Creates the process tracker.
     static void create_process_tracker();
+    // Creates the process calibrate tracker.
+    static void create_process_calibrate_tracker();
 
     // Limit on memory consumption, in bytes. If limit_ == -1, there is no consumption limit.
     int64_t _limit;

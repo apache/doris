@@ -152,8 +152,7 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
         // Child row batch was either never set or we're moving on to a different child.
         if (_child_batch.get() == nullptr) {
             DCHECK_LT(_child_idx, _children.size());
-            _child_batch.reset(new RowBatch(child(_child_idx)->row_desc(), state->batch_size(),
-                                            mem_tracker().get()));
+            _child_batch.reset(new RowBatch(child(_child_idx)->row_desc(), state->batch_size()));
             _child_row_idx = 0;
             // open the current child unless it's the first child, which was already opened in
             // UnionNode::open().

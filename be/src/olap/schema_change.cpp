@@ -37,6 +37,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 
 using std::deque;
@@ -78,7 +79,7 @@ public:
     virtual ~RowBlockMerger();
 
     bool merge(const std::vector<RowBlock*>& row_block_arr, RowsetWriter* rowset_writer,
-               std::shared_ptr<MemTracker> parent, uint64_t* merged_rows);
+               uint64_t* merged_rows);
 
 private:
     struct MergeElement {
@@ -741,10 +742,9 @@ bool RowBlockSorter::sort(RowBlock** row_block) {
     return true;
 }
 
-RowBlockAllocator::RowBlockAllocator(const TabletSchema& tablet_schema,
-                                     std::shared_ptr<MemTracker> parent, size_t memory_limitation)
+RowBlockAllocator::RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation)
         : _tablet_schema(tablet_schema),
-          _mem_tracker(MemTracker::create_tracker(-1, "RowBlockAllocator", parent)),
+          _mem_tracker(MemTracker::create_virtual_tracker(-1, "RowBlockAllocator")),
           _row_len(tablet_schema.row_size()),
           _memory_limitation(memory_limitation) {
     VLOG_NOTICE << "RowBlockAllocator(). row_len=" << _row_len;
@@ -805,7 +805,7 @@ void RowBlockAllocator::release(RowBlock* row_block) {
     delete row_block;
 }
 
-bool RowBlockAllocator::is_memory_enough_for_sorting(size_t num_rows, size_t allocated_rows){
+bool RowBlockAllocator::is_memory_enough_for_sorting(size_t num_rows, size_t allocated_rows) {
     if (num_rows <= allocated_rows) {
         return true;
     }
@@ -813,18 +813,15 @@ bool RowBlockAllocator::is_memory_enough_for_sorting(size_t num_rows, size_t all
     return _mem_tracker->consumption() + row_block_size < _memory_limitation;
 }
 
-
 RowBlockMerger::RowBlockMerger(TabletSharedPtr tablet) : _tablet(tablet) {}
 
 RowBlockMerger::~RowBlockMerger() {}
 
 bool RowBlockMerger::merge(const std::vector<RowBlock*>& row_block_arr, RowsetWriter* rowset_writer,
-                           std::shared_ptr<MemTracker> parent, uint64_t* merged_rows) {
+                           uint64_t* merged_rows) {
     uint64_t tmp_merged_rows = 0;
     RowCursor row_cursor;
-    std::shared_ptr<MemTracker> tracker(
-            MemTracker::create_tracker(-1, "RowBlockMerger", parent));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool("RowBlockMerger"));
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
     if (row_cursor.init(_tablet->tablet_schema()) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init row cursor.";
@@ -938,7 +935,7 @@ OLAPStatus LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader,
     if (rowset_reader->type() != new_rowset_writer->type()) {
         LOG(INFO) << "the type of rowset " << rowset_reader->rowset()->rowset_id() << " in base tablet " << base_tablet->tablet_id()
                 << " is not same as type " << new_rowset_writer->type() << ", use direct schema change.";
-        SchemaChangeDirectly scd(_row_block_changer, _mem_tracker);
+        SchemaChangeDirectly scd(_row_block_changer);
         return scd.process(rowset_reader, new_rowset_writer, new_tablet, base_tablet);
     } else {
         OLAPStatus status = new_rowset_writer->add_rowset_for_linked_schema_change(
@@ -954,9 +951,8 @@ OLAPStatus LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader,
     }
 }
 
-SchemaChangeDirectly::SchemaChangeDirectly(const RowBlockChanger& row_block_changer,
-                                           std::shared_ptr<MemTracker> mem_tracker)
-        : SchemaChange(mem_tracker),
+SchemaChangeDirectly::SchemaChangeDirectly(const RowBlockChanger& row_block_changer)
+        : SchemaChange(),
           _row_block_changer(row_block_changer),
           _row_block_allocator(nullptr),
           _cursor(nullptr) {}
@@ -1001,7 +997,7 @@ OLAPStatus SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader,
                                          RowsetWriter* rowset_writer, TabletSharedPtr new_tablet,
                                          TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
-        _row_block_allocator = new RowBlockAllocator(new_tablet->tablet_schema(), _mem_tracker, 0);
+        _row_block_allocator = new RowBlockAllocator(new_tablet->tablet_schema(), 0);
         if (_row_block_allocator == nullptr) {
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -1100,9 +1096,8 @@ OLAPStatus SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader,
 }
 
 SchemaChangeWithSorting::SchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
-                                                 std::shared_ptr<MemTracker> mem_tracker,
                                                  size_t memory_limitation)
-        : SchemaChange(mem_tracker),
+        : SchemaChange(),
           _row_block_changer(row_block_changer),
           _memory_limitation(memory_limitation),
           _row_block_allocator(nullptr) {
@@ -1123,8 +1118,8 @@ OLAPStatus SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
                                             TabletSharedPtr new_tablet,
                                             TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
-        _row_block_allocator = new (nothrow)
-                RowBlockAllocator(new_tablet->tablet_schema(), _mem_tracker, _memory_limitation);
+        _row_block_allocator =
+                new (nothrow) RowBlockAllocator(new_tablet->tablet_schema(), _memory_limitation);
         if (_row_block_allocator == nullptr) {
             LOG(FATAL) << "failed to malloc RowBlockAllocator. size=" << sizeof(RowBlockAllocator);
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -1341,7 +1336,6 @@ bool SchemaChangeWithSorting::_internal_sorting(const std::vector<RowBlock*>& ro
     context.rowset_state = VISIBLE;
     context.version = version;
     context.segments_overlap = segments_overlap;
-    context.parent_mem_tracker = _mem_tracker;
 
     VLOG_NOTICE << "init rowset builder. tablet=" << new_tablet->full_name()
                 << ", block_row_size=" << new_tablet->num_rows_per_row_block();
@@ -1351,7 +1345,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const std::vector<RowBlock*>& ro
         return false;
     }
 
-    if (!merger.merge(row_block_arr, rowset_writer.get(), _mem_tracker, &merged_rows)) {
+    if (!merger.merge(row_block_arr, rowset_writer.get(), &merged_rows)) {
         LOG(WARNING) << "failed to merge row blocks.";
         new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
                                                    rowset_writer->rowset_id().to_string());
@@ -1370,7 +1364,7 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
     std::vector<RowsetReaderSharedPtr> rs_readers;
     for (auto& rowset : src_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        auto res = rowset->create_reader(_mem_tracker, &rs_reader);
+        auto res = rowset->create_reader(&rs_reader);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to create rowset reader.";
             return false;
@@ -1505,12 +1499,6 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         reader_context.seek_columns = &return_columns;
         reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
 
-        auto mem_tracker = MemTracker::create_tracker(
-                -1,
-                "AlterTablet:" + std::to_string(base_tablet->tablet_id()) + "-" +
-                        std::to_string(new_tablet->tablet_id()),
-                _mem_tracker, MemTrackerLevel::TASK);
-
         do {
             // get history data to be converted and it will check if there is hold in base tablet
             res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
@@ -1572,7 +1560,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
             }
 
             // acquire data sources correspond to history versions
-            base_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers, mem_tracker);
+            base_tablet->capture_rs_readers(versions_to_be_changed, &rs_readers);
             if (rs_readers.size() < 1) {
                 LOG(WARNING) << "fail to acquire all data sources. "
                              << "version_num=" << versions_to_be_changed.size()
@@ -1694,14 +1682,14 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting for base_tablet "
                   << base_tablet->full_name();
-        sc_procedure = new (nothrow) SchemaChangeWithSorting(
-                rb_changer, _mem_tracker, memory_limitation * 1024 * 1024 * 1024);
+        sc_procedure = new (nothrow)
+                SchemaChangeWithSorting(rb_changer, memory_limitation * 1024 * 1024 * 1024);
     } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly for base_tablet " << base_tablet->full_name();
-        sc_procedure = new (nothrow) SchemaChangeDirectly(rb_changer, _mem_tracker);
+        sc_procedure = new (nothrow) SchemaChangeDirectly(rb_changer);
     } else {
         LOG(INFO) << "doing linked schema change for base_tablet " << base_tablet->full_name();
-        sc_procedure = new (nothrow) LinkedSchemaChange(rb_changer, _mem_tracker);
+        sc_procedure = new (nothrow) LinkedSchemaChange(rb_changer);
     }
 
     if (sc_procedure == nullptr) {
@@ -1728,7 +1716,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
     reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
 
     RowsetReaderSharedPtr rowset_reader;
-    RETURN_NOT_OK((*base_rowset)->create_reader(_mem_tracker, &rowset_reader));
+    RETURN_NOT_OK((*base_rowset)->create_reader(&rowset_reader));
     RETURN_NOT_OK(rowset_reader->init(&reader_context));
 
     RowsetWriterContext writer_context;
@@ -1748,7 +1736,6 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
     writer_context.load_id.set_hi((*base_rowset)->load_id().hi());
     writer_context.load_id.set_lo((*base_rowset)->load_id().lo());
     writer_context.segments_overlap = (*base_rowset)->rowset_meta()->segments_overlap();
-    writer_context.parent_mem_tracker = _mem_tracker;
 
     std::unique_ptr<RowsetWriter> rowset_writer;
     RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
@@ -1846,16 +1833,16 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting for base_tablet "
                   << sc_params.base_tablet->full_name();
-        sc_procedure = new (nothrow) SchemaChangeWithSorting(
-                rb_changer, _mem_tracker, memory_limitation * 1024 * 1024 * 1024);
+        sc_procedure = new (nothrow)
+                SchemaChangeWithSorting(rb_changer, memory_limitation * 1024 * 1024 * 1024);
     } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly for base_tablet "
                   << sc_params.base_tablet->full_name();
-        sc_procedure = new (nothrow) SchemaChangeDirectly(rb_changer, _mem_tracker);
+        sc_procedure = new (nothrow) SchemaChangeDirectly(rb_changer);
     } else {
         LOG(INFO) << "doing linked schema change for base_tablet "
                   << sc_params.base_tablet->full_name();
-        sc_procedure = new (nothrow) LinkedSchemaChange(rb_changer, _mem_tracker);
+        sc_procedure = new (nothrow) LinkedSchemaChange(rb_changer);
     }
 
     if (sc_procedure == nullptr) {
@@ -1893,7 +1880,6 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.rowset_state = VISIBLE;
         writer_context.version = rs_reader->version();
         writer_context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
-        writer_context.parent_mem_tracker = _mem_tracker;
 
         std::unique_ptr<RowsetWriter> rowset_writer;
         OLAPStatus status = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);

@@ -74,7 +74,7 @@ Status OdbcScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a odbc scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool("OdbcScanNode"));
 
     if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");

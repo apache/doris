@@ -64,6 +64,8 @@ private:
     uint64_t _build_rows = 0;
     uint64_t _total_mem_usage = 0;
 
+    std::shared_ptr<MemTracker> _block_mem_tracker;
+
     // Build mutable columns to insert data.
     // if block can mem reuse, just clear data in block
     // else build a new block and alloc mem of column from left and right child block

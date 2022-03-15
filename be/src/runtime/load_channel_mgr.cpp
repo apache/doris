@@ -112,7 +112,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
 
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
-            channel.reset(new LoadChannel(load_id, job_max_memory, job_timeout_s, _mem_tracker, is_high_priority,
+            channel.reset(new LoadChannel(load_id, job_max_memory, job_timeout_s, is_high_priority,
                                           params.sender_ip()));
             _load_channels.insert({load_id, channel});
         }

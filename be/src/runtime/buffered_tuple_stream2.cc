@@ -484,7 +484,7 @@ Status BufferedTupleStream2::get_rows(unique_ptr<RowBatch>* batch, bool* got_row
         return Status::OK();
     }
     RETURN_IF_ERROR(prepare_for_read(false));
-    batch->reset(new RowBatch(_desc, num_rows(), _block_mgr->get_tracker(_block_mgr_client).get()));
+    batch->reset(new RowBatch(_desc, num_rows()));
     bool eos = false;
     // Loop until get_next fills the entire batch. Each call can stop at block
     // boundaries. We generally want it to stop, so that blocks can be freed

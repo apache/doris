@@ -137,6 +137,7 @@ private:
     UniqueId _fragment_instance_id;
     // protect _filter_map
     std::mutex _filter_map_mutex;
+    std::shared_ptr<MemTracker> _mem_tracker;
     // TODO: convert filter id to i32
     // filter-id -> val
     std::map<std::string, std::shared_ptr<RuntimeFilterCntlVal>> _filter_map;

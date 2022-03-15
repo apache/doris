@@ -43,7 +43,6 @@ class TextConverter;
 class TupleDescriptor;
 class TupleRow;
 class RowDescriptor;
-class MemTracker;
 class RuntimeProfile;
 
 struct EsScanCounter {
@@ -82,7 +81,6 @@ protected:
     std::vector<SlotDescriptor*> _slot_descs;
     std::unique_ptr<RowDescriptor> _row_desc;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
     MemPool _mem_pool;
 
     const TupleDescriptor* _tuple_desc;

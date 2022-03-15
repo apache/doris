@@ -82,8 +82,7 @@ Status ExchangeNode::open(RuntimeState* state) {
         // create_merger() will populate its merging heap with batches from the _stream_recvr,
         // so it is not necessary to call fill_input_row_batch().
         if (state->enable_exchange_node_parallel_merge()) {
-            RETURN_IF_ERROR(_stream_recvr->create_parallel_merger(less_than, state->batch_size(),
-                                                                  mem_tracker().get()));
+            RETURN_IF_ERROR(_stream_recvr->create_parallel_merger(less_than, state->batch_size()));
         } else {
             RETURN_IF_ERROR(_stream_recvr->create_merger(less_than));
         }

@@ -47,6 +47,7 @@ set(RUNTIME_FILES
     runtime_filter_mgr.cpp
     string_value.cpp
     thread_context.cpp
+    thread_mem_tracker_mgr.cpp
     thread_resource_mgr.cpp
     threadlocal.cc
     decimalv2_value.cpp

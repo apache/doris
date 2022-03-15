@@ -76,8 +76,7 @@ private:
 
 class RowBlockAllocator {
 public:
-    RowBlockAllocator(const TabletSchema& tablet_schema, std::shared_ptr<MemTracker> parent,
-                      size_t memory_limitation);
+    RowBlockAllocator(const TabletSchema& tablet_schema, size_t memory_limitation);
     virtual ~RowBlockAllocator();
 
     OLAPStatus allocate(RowBlock** row_block, size_t num_rows, bool null_supported);
@@ -93,8 +92,7 @@ private:
 
 class SchemaChange {
 public:
-    SchemaChange(std::shared_ptr<MemTracker> tracker)
-            : _mem_tracker(std::move(tracker)), _filtered_rows(0), _merged_rows(0) {}
+    SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() = default;
 
     virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader,
@@ -113,9 +111,6 @@ public:
 
     void reset_merged_rows() { _merged_rows = 0; }
 
-protected:
-    std::shared_ptr<MemTracker> _mem_tracker;
-
 private:
     uint64_t _filtered_rows;
     uint64_t _merged_rows;
@@ -123,9 +118,8 @@ private:
 
 class LinkedSchemaChange : public SchemaChange {
 public:
-    explicit LinkedSchemaChange(const RowBlockChanger& row_block_changer,
-                                std::shared_ptr<MemTracker> mem_tracker)
-            : SchemaChange(mem_tracker), _row_block_changer(row_block_changer) {}
+    explicit LinkedSchemaChange(const RowBlockChanger& row_block_changer)
+            : SchemaChange(), _row_block_changer(row_block_changer) {}
     ~LinkedSchemaChange() {}
 
     virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
@@ -141,8 +135,7 @@ class SchemaChangeDirectly : public SchemaChange {
 public:
     // @params tablet           the instance of tablet which has new schema.
     // @params row_block_changer    changer to modify the data of RowBlock
-    explicit SchemaChangeDirectly(const RowBlockChanger& row_block_changer,
-                                  std::shared_ptr<MemTracker> mem_tracker);
+    explicit SchemaChangeDirectly(const RowBlockChanger& row_block_changer);
     virtual ~SchemaChangeDirectly();
 
     virtual OLAPStatus process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
@@ -162,7 +155,6 @@ private:
 class SchemaChangeWithSorting : public SchemaChange {
 public:
     explicit SchemaChangeWithSorting(const RowBlockChanger& row_block_changer,
-                                     std::shared_ptr<MemTracker> mem_tracker,
                                      size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 

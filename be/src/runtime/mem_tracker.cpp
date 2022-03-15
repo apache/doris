@@ -25,6 +25,7 @@
 #include "gutil/once.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/pretty_printer.h"
 #include "util/string_util.h"
@@ -57,6 +58,23 @@ MemTracker* MemTracker::get_raw_process_tracker() {
     return raw_process_tracker;
 }
 
+// Without parent and child, process memory is recorded independently,
+// used to calibrate the accuracy of process_tracker consumption,
+// and can also be used to detect memory leaks.
+static std::shared_ptr<MemTracker> process_calibrate_tracker;
+static GoogleOnceType process_calibrate_tracker_once = GOOGLE_ONCE_INIT;
+
+void MemTracker::create_process_calibrate_tracker() {
+    process_calibrate_tracker.reset(
+            new MemTracker(-1, "ProcessCalibrate", nullptr, MemTrackerLevel::OVERVIEW, nullptr));
+    process_calibrate_tracker->init();
+}
+
+std::shared_ptr<MemTracker> MemTracker::get_process_calibrate_tracker() {
+    GoogleOnceInit(&process_calibrate_tracker_once, &MemTracker::create_process_calibrate_tracker);
+    return process_calibrate_tracker;
+}
+
 void MemTracker::list_process_trackers(std::vector<std::shared_ptr<MemTracker>>* trackers) {
     trackers->clear();
     std::deque<std::shared_ptr<MemTracker>> to_process;
@@ -85,7 +103,7 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker(int64_t byte_limit, const
                                                        const std::shared_ptr<MemTracker>& parent,
                                                        MemTrackerLevel level,
                                                        RuntimeProfile* profile) {
-    std::shared_ptr<MemTracker> reset_parent = parent ? parent : MemTracker::get_process_tracker();
+    std::shared_ptr<MemTracker> reset_parent = parent ? parent : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker();
     DCHECK(reset_parent);
 
     std::shared_ptr<MemTracker> tracker(
@@ -99,7 +117,7 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker(int64_t byte_limit, const
 std::shared_ptr<MemTracker> MemTracker::create_virtual_tracker(
         int64_t byte_limit, const std::string& label, const std::shared_ptr<MemTracker>& parent,
         MemTrackerLevel level) {
-    std::shared_ptr<MemTracker> reset_parent = parent ? parent : MemTracker::get_process_tracker();
+   std::shared_ptr<MemTracker> reset_parent = parent ? parent : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker();
     DCHECK(reset_parent);
 
     std::shared_ptr<MemTracker> tracker(
@@ -148,14 +166,11 @@ void MemTracker::init_virtual() {
 }
 
 MemTracker::~MemTracker() {
-    consume(_untracked_mem.exchange(0));
+    consume(_untracked_mem.exchange(0)); // before memory_leak_check
+    // TCMalloc hook will be triggered during destructor memtracker, may cause crash.
+    if (_label == "Process") GLOBAL_STOP_THREAD_LOCAL_MEM_TRACKER();
     if (!_virtual && config::memory_leak_detection) MemTracker::memory_leak_check(this);
     if (!_virtual && parent()) {
-        if (consumption() != 0) {
-            // TODO(zxy) delete after. Because some trackers do not manually release completely before destructing
-            _parent->release(consumption());
-        }
-
         // Do not call release on the parent tracker to avoid repeated releases.
         // Ensure that all consume/release are triggered by TCMalloc new/delete hook.
         lock_guard<SpinLock> l(_parent->_child_trackers_lock);
@@ -168,6 +183,7 @@ MemTracker::~MemTracker() {
 }
 
 void MemTracker::transfer_to_relative(MemTracker* dst, int64_t bytes) {
+    if (id() == dst->id()) return;
     DCHECK_EQ(_all_trackers.back(), dst->_all_trackers.back()) << "Must have same ancestor";
     DCHECK(!dst->has_limit());
     // Find the common ancestor and update trackers between 'this'/'dst' and
@@ -183,8 +199,8 @@ void MemTracker::transfer_to_relative(MemTracker* dst, int64_t bytes) {
         --dst_ancestor_idx;
     }
     MemTracker* common_ancestor = _all_trackers[ancestor_idx];
-    release(bytes, common_ancestor);
-    dst->consume(bytes, common_ancestor);
+    release_local(bytes, common_ancestor);
+    dst->consume_local(bytes, common_ancestor);
 }
 
 // Calling this on the query tracker results in output like:

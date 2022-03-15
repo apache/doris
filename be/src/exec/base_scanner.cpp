@@ -39,14 +39,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _counter(counter),
           _src_tuple(nullptr),
           _src_tuple_row(nullptr),
-#if BE_TEST
-          _mem_tracker(new MemTracker()),
-#else
-          _mem_tracker(MemTracker::create_tracker(
-                  -1, "BaseScanner:" + std::to_string(state->load_job_id()),
-                  state->instance_mem_tracker())),
-#endif
-          _mem_pool(_mem_tracker.get()),
+          _mem_pool("BaseScanner:" + std::to_string(state->load_job_id())),
           _dest_tuple_desc(nullptr),
           _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),

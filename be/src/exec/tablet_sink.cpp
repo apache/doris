@@ -29,6 +29,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "service/brpc.h"
@@ -48,6 +49,7 @@ NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int
     if (_parent->_transfer_data_by_brpc_attachment) {
         _tuple_data_buffer_ptr = &_tuple_data_buffer;
     }
+    _node_channel_tracker = MemTracker::create_tracker(-1, "NodeChannel");
 }
 
 NodeChannel::~NodeChannel() noexcept {
@@ -82,7 +84,7 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _row_desc.reset(new RowDescriptor(_tuple_desc, false));
     _batch_size = state->batch_size();
-    _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
+    _cur_batch.reset(new RowBatch(*_row_desc, _batch_size));
 
     _stub = state->exec_env()->brpc_internal_client_cache()->get_client(_node_info.host,
                                                                         _node_info.brpc_port);
@@ -266,7 +268,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
             _pending_batches_num++;
         }
 
-        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
+        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size));
         _cur_add_batch_request.clear_tablet_ids();
 
         row_no = _cur_batch->add_row();
@@ -318,7 +320,7 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
             _pending_batches_num++;
         }
 
-        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
+        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size));
         _cur_add_batch_request.clear_tablet_ids();
 
         row_no = _cur_batch->add_row();
@@ -429,7 +431,8 @@ void NodeChannel::cancel(const std::string& cancel_msg) {
     request.release_id();
 }
 
-int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
+int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
+                                           std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
     auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
         return 0;
@@ -437,7 +440,8 @@ int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thr
     bool is_finished = true;
     if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0 &&
         _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
-        auto s = thread_pool_token->submit_func(std::bind(&NodeChannel::try_send_batch, this));
+        auto s = thread_pool_token->submit_func(
+                std::bind(&NodeChannel::try_send_batch, this, state));
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
         }
@@ -445,7 +449,9 @@ int NodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thr
     return _send_finished ? 0 : 1;
 }
 
-void NodeChannel::try_send_batch() {
+void NodeChannel::try_send_batch(RuntimeState* state) {
+    SCOPED_ATTACH_TASK_THREAD(state->query_type(), print_id(state->query_id()),
+                              state->fragment_instance_id(), _node_channel_tracker);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     AddBatchReq send_batch;
     {
@@ -750,7 +756,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     }
 
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
-    _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size(), _mem_tracker.get()));
+    _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size()));
 
     _max_decimalv2_val.resize(_output_tuple_desc->slots().size());
     _min_decimalv2_val.resize(_output_tuple_desc->slots().size());
@@ -851,8 +857,8 @@ Status OlapTableSink::open(RuntimeState* state) {
     _send_batch_thread_pool_token = state->exec_env()->send_batch_thread_pool()->new_token(
             ThreadPool::ExecutionMode::CONCURRENT, send_batch_parallelism);
     RETURN_IF_ERROR(Thread::create(
-            "OlapTableSink", "send_batch_process", [this]() { this->_send_batch_process(); },
-            &_sender_thread));
+            "OlapTableSink", "send_batch_process",
+            [this, state]() { this->_send_batch_process(state); }, &_sender_thread));
 
     return Status::OK();
 }
@@ -1234,14 +1240,16 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
     return Status::OK();
 }
 
-void OlapTableSink::_send_batch_process() {
+void OlapTableSink::_send_batch_process(RuntimeState* state) {
     SCOPED_TIMER(_non_blocking_send_timer);
+    SCOPED_ATTACH_TASK_THREAD(state->query_type(), print_id(state->query_id()),
+                              state->fragment_instance_id(), _mem_tracker);
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num, this](const std::shared_ptr<NodeChannel>& ch) {
+            index_channel->for_each_node_channel([&running_channels_num, this, state](const std::shared_ptr<NodeChannel>& ch) {
                 running_channels_num +=
-                        ch->try_send_and_fetch_status(this->_send_batch_thread_pool_token);
+                        ch->try_send_and_fetch_status(state, this->_send_batch_thread_pool_token);
             });
         }
 

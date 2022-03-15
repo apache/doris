@@ -40,7 +40,7 @@ struct HashTableBuild {
         
         Defer defer {[&]() {
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-            _operation_node->_mem_tracker->consume(bucket_bytes - old_bucket_bytes);
+            _operation_node->_hash_table_mem_tracker->consume(bucket_bytes - old_bucket_bytes);
             _operation_node->_mem_used += bucket_bytes - old_bucket_bytes;
         }};
 
@@ -85,7 +85,7 @@ Status VSetOperationNode::close(RuntimeState* state) {
     for (auto& exprs : _child_expr_lists) {
         VExpr::close(exprs, state);
     }
-    _mem_tracker->release(_mem_used);
+    _hash_table_mem_tracker->release(_mem_used);
     return ExecNode::close(state);
 }
 
@@ -125,6 +125,7 @@ Status VSetOperationNode::open(RuntimeState* state) {
 
 Status VSetOperationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    _hash_table_mem_tracker = MemTracker::create_virtual_tracker(-1, "VSetOperationNode:HashTable");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
@@ -240,7 +241,7 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
         RETURN_IF_ERROR(child(0)->get_next(state, &block, &eos));
 
         size_t allocated_bytes = block.allocated_bytes();
-        _mem_tracker->consume(allocated_bytes);
+        _hash_table_mem_tracker->consume(allocated_bytes);
         _mem_used += allocated_bytes;
 
         RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Set Operation Node, while getting next from the child 0.");

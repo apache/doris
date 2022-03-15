@@ -23,7 +23,6 @@
 namespace doris {
 
 class MemPool;
-class MemTracker;
 class RuntimeState;
 
 class FunctionUtils {
@@ -39,7 +38,6 @@ public:
 
 private:
     RuntimeState* _state = nullptr;
-    std::shared_ptr<MemTracker> _mem_tracker;
     MemPool* _memory_pool = nullptr;
     doris_udf::FunctionContext* _fn_ctx = nullptr;
 };

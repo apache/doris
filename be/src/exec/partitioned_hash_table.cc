@@ -151,7 +151,7 @@ Status PartitionedHashTableCtx::Open(RuntimeState* state) {
 void PartitionedHashTableCtx::Close(RuntimeState* state) {
     free(scratch_row_);
     scratch_row_ = nullptr;
-    expr_values_cache_.Close(tracker_);
+    expr_values_cache_.Close();
     for (int i = 0; i < build_expr_evals_.size(); i++) {
         build_expr_evals_[i]->close(state);
     }
@@ -337,7 +337,7 @@ Status PartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
     return Status::OK();
 }
 
-void PartitionedHashTableCtx::ExprValuesCache::Close(const std::shared_ptr<MemTracker>& tracker) {
+void PartitionedHashTableCtx::ExprValuesCache::Close() {
     if (capacity_ == 0) return;
     cur_expr_values_ = nullptr;
     cur_expr_values_null_ = nullptr;
@@ -347,8 +347,6 @@ void PartitionedHashTableCtx::ExprValuesCache::Close(const std::shared_ptr<MemTr
     expr_values_null_array_.reset();
     expr_values_hash_array_.reset();
     null_bitmap_.Reset(0);
-    int mem_usage = MemUsage(capacity_, expr_values_bytes_per_row_, num_exprs_);
-    tracker->release(mem_usage);
 }
 
 int PartitionedHashTableCtx::ExprValuesCache::MemUsage(int capacity, int expr_values_bytes_per_row,

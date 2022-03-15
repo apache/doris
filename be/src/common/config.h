@@ -604,6 +604,9 @@ CONF_Int32(aws_log_level, "3");
 // the buffer size when read data from remote storage like s3
 CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
+// Whether to initialize TCmalloc new/delete Hook, MemTracker is currently counted in Hook.
+CONF_Bool(track_new_delete, "true");
+
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:
 //      OVERVIEW: 0

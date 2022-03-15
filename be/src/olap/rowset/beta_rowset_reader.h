@@ -30,8 +30,7 @@ namespace doris {
 
 class BetaRowsetReader : public RowsetReader {
 public:
-    BetaRowsetReader(BetaRowsetSharedPtr rowset,
-                     std::shared_ptr<MemTracker> parent_tracker = nullptr);
+    BetaRowsetReader(BetaRowsetSharedPtr rowset);
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
@@ -61,8 +60,6 @@ private:
 
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats;
-
-    std::shared_ptr<MemTracker> _parent_tracker;
 
     std::unique_ptr<RowwiseIterator> _iterator;
 

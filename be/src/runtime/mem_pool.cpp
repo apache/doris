@@ -24,6 +24,7 @@
 
 #include "runtime/mem_tracker.h"
 #include "runtime/memory/chunk_allocator.h"
+#include "runtime/thread_context.h"
 #include "util/bit_util.h"
 #include "util/doris_metrics.h"
 
@@ -54,6 +55,14 @@ MemPool::MemPool(const std::string& label)
     _mem_tracker_own = MemTracker::create_tracker(-1, label + ":MemPool");
     _mem_tracker = _mem_tracker_own.get();
 }
+
+MemPool::MemPool()
+        : current_chunk_idx_(-1),
+          next_chunk_size_(INITIAL_CHUNK_SIZE),
+          total_allocated_bytes_(0),
+          total_reserved_bytes_(0),
+          peak_allocated_bytes_(0),
+          _mem_tracker(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get()) {}
 
 MemPool::ChunkInfo::ChunkInfo(const Chunk& chunk_) : chunk(chunk_), allocated_bytes(0) {
     DorisMetrics::instance()->memory_pool_bytes_total->increment(chunk.size);

@@ -30,6 +30,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 
@@ -96,7 +97,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
-    _build_pool.reset(new MemPool(mem_tracker().get()));
+    _build_pool.reset(new MemPool());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
@@ -147,8 +148,7 @@ Status HashJoinNode::prepare(RuntimeState* state) {
                                   stores_nulls, _is_null_safe_eq_join, id(), mem_tracker(),
                                   state->batch_size() * 2));
 
-    _probe_batch.reset(
-            new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    _probe_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
 
     return Status::OK();
 }
@@ -177,6 +177,8 @@ Status HashJoinNode::close(RuntimeState* state) {
 }
 
 void HashJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
+    SCOPED_ATTACH_TASK_THREAD(state->query_type(), print_id(state->query_id()),
+                              state->fragment_instance_id(), mem_tracker());
     status->set_value(construct_hash_table(state));
 }
 
@@ -185,7 +187,7 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
     // The hash join node needs to keep in memory all build tuples, including the tuple
     // row ptrs.  The row ptrs are copied into the hash table's internal structure so they
     // don't need to be stored in the _build_pool.
-    RowBatch build_batch(child(1)->row_desc(), state->batch_size(), mem_tracker().get());
+    RowBatch build_batch(child(1)->row_desc(), state->batch_size());
     RETURN_IF_ERROR(child(1)->open(state));
 
     SCOPED_TIMER(_build_timer);

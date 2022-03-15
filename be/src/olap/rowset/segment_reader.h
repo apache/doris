@@ -51,8 +51,7 @@ public:
                   const std::vector<uint32_t>& used_columns,
                   const std::set<uint32_t>& load_bf_columns, const Conditions* conditions,
                   const DeleteHandler* delete_handler, const DelCondSatisfied delete_status,
-                  Cache* lru_cache, RuntimeState* runtime_state, OlapReaderStatistics* stats,
-                  const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
+                  Cache* lru_cache, RuntimeState* runtime_state, OlapReaderStatistics* stats);
 
     ~SegmentReader();
 
@@ -317,7 +316,6 @@ private:
     std::vector<Cache::Handle*> _cache_handle;
     const FileHeader<ColumnDataHeaderMessage>* _file_header;
 
-    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
 
     StorageByteBuffer* _shared_buffer;

@@ -23,6 +23,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/file_result_writer.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "runtime/mysql_result_writer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/row_batch.h"
@@ -100,6 +101,10 @@ Status ResultSink::open(RuntimeState* state) {
 }
 
 Status ResultSink::send(RuntimeState* state, RowBatch* batch) {
+    // The memory consumption in the process of sending the results is not recorded in the query memory.
+    // 1. Avoid the query being cancelled when the memory limit is reached after the query result comes out.
+    // 2. If record this memory, also need to record on the receiving end, need to consider the life cycle of MemTracker.
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     return _writer->append_row_batch(batch);
 }
 

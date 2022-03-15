@@ -211,8 +211,7 @@ public:
                     const std::vector<Expr*>& build_exprs);
 
         /// Frees up various resources and updates memory tracker with proper accounting.
-        /// 'tracker' should be the same memory tracker which was passed in for Init().
-        void Close(const std::shared_ptr<MemTracker>& tracker);
+        void Close();
 
         /// Resets the cache states (iterators, end pointers etc) before writing.
         void Reset() noexcept;

@@ -416,7 +416,7 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
         : _schema(schema),
           _t_param(t_param),
           _slots(_schema->tuple_desc()->slots()),
-          _mem_tracker(MemTracker::create_tracker(-1, "OlapTablePartitionParam")) {
+          _mem_tracker(MemTracker::create_virtual_tracker(-1, "OlapTablePartitionParam")) {
     for (auto slot : _slots) {
         _partition_block.insert({slot->get_empty_mutable_column(), slot->get_data_type_ptr(), slot->col_name()});
     }

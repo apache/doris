@@ -101,7 +101,7 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ScanNode::prepare(state));
 
     // new one mem pool
-    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool());
 
     if (nullptr == _tuple_pool.get()) {
         return Status::InternalError("Allocate MemPool failed.");

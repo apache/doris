@@ -39,9 +39,6 @@ public:
 
     OLAPStatus create_reader(RowsetReaderSharedPtr* result) override;
 
-    OLAPStatus create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
-                             std::shared_ptr<RowsetReader>* result) override;
-
     static FilePathDesc segment_file_path(const FilePathDesc& segment_dir_desc, const RowsetId& rowset_id,
                                          int segment_id);
 

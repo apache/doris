@@ -31,21 +31,14 @@
 
 namespace doris {
 
-BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset,
-                                   std::shared_ptr<MemTracker> parent_tracker)
+BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
         : _context(nullptr),
           _rowset(std::move(rowset)),
-          _stats(&_owned_stats),
-          _parent_tracker(std::move(parent_tracker)) {
+          _stats(&_owned_stats) {
     _rowset->acquire();
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
-    // If do not init the RowsetReader with a parent_tracker, use the runtime_state instance_mem_tracker
-    if (_parent_tracker == nullptr && read_context->runtime_state != nullptr) {
-        _parent_tracker = read_context->runtime_state->instance_mem_tracker();
-    }
-
     RETURN_NOT_OK(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
@@ -102,7 +95,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : _segment_cache_handle.get_segments()) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(*_schema, read_options, _parent_tracker, &iter);
+        auto s = seg_ptr->new_iterator(*_schema, read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return OLAP_ERR_ROWSET_READER_INIT;
@@ -120,15 +113,15 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     RowwiseIterator* final_iterator;
     if (config::enable_storage_vectorization && read_context->is_vec) {
         if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-            final_iterator = vectorized::new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx);
+            final_iterator = vectorized::new_merge_iterator(iterators, read_context->sequence_id_idx);
         } else {
-            final_iterator = vectorized::new_union_iterator(iterators, _parent_tracker);
+            final_iterator = vectorized::new_union_iterator(iterators);
         }
     } else {
         if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-            final_iterator = new_merge_iterator(iterators, _parent_tracker, read_context->sequence_id_idx);
+            final_iterator = new_merge_iterator(iterators, read_context->sequence_id_idx);
         } else {
-            final_iterator = new_union_iterator(iterators, _parent_tracker);
+            final_iterator = new_union_iterator(iterators);
         }
     }
 
@@ -141,11 +134,11 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
     // init input block
     _input_block.reset(new RowBlockV2(*_schema,
-            std::min(1024, read_context->batch_size), _parent_tracker));
+            std::min(1024, read_context->batch_size)));
 
     if (!read_context->is_vec) {
         // init input/output block and row
-        _output_block.reset(new RowBlock(read_context->tablet_schema, _parent_tracker));
+        _output_block.reset(new RowBlock(read_context->tablet_schema));
 
         RowBlockInfo output_block_info;
         output_block_info.row_num = std::min(1024, read_context->batch_size);

@@ -24,16 +24,13 @@
 
 namespace doris {
 
-ColumnData* ColumnData::create(SegmentGroup* segment_group,
-                               const std::shared_ptr<MemTracker>& parent_tracker) {
-    ColumnData* data = new (std::nothrow) ColumnData(segment_group, parent_tracker);
+ColumnData* ColumnData::create(SegmentGroup* segment_group) {
+    ColumnData* data = new (std::nothrow) ColumnData(segment_group);
     return data;
 }
 
-ColumnData::ColumnData(SegmentGroup* segment_group,
-                       const std::shared_ptr<MemTracker>& parent_tracker)
+ColumnData::ColumnData(SegmentGroup* segment_group)
         : _segment_group(segment_group),
-          _parent_tracker(parent_tracker),
           _eof(false),
           _conditions(nullptr),
           _col_predicates(nullptr),
@@ -138,7 +135,7 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
         _segment_reader = new (std::nothrow)
                 SegmentReader(file_name, segment_group(), block_pos.segment, _seek_columns,
                               _load_bf_columns, _conditions, _delete_handler, _delete_status,
-                              _lru_cache, _runtime_state, _stats, _parent_tracker);
+                              _lru_cache, _runtime_state, _stats);
         if (_segment_reader == nullptr) {
             OLAP_LOG_WARNING("fail to malloc segment reader.");
             return OLAP_ERR_MALLOC_ERROR;
@@ -435,14 +432,12 @@ void ColumnData::set_read_params(const std::vector<uint32_t>& return_columns,
     }
 
     _read_vector_batch.reset(new VectorizedRowBatch(&(_segment_group->get_tablet_schema()),
-                                                    _return_columns, _num_rows_per_block,
-                                                    _parent_tracker));
+                                                    _return_columns, _num_rows_per_block));
 
     _seek_vector_batch.reset(new VectorizedRowBatch(&(_segment_group->get_tablet_schema()),
-                                                    _seek_columns, _num_rows_per_block,
-                                                    _parent_tracker));
+                                                    _seek_columns, _num_rows_per_block));
 
-    _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema()), _parent_tracker));
+    _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema())));
     RowBlockInfo block_info;
     block_info.row_num = _num_rows_per_block;
     block_info.null_supported = true;
@@ -580,7 +575,7 @@ OLAPStatus ColumnData::schema_change_init() {
     _read_vector_batch.reset(new VectorizedRowBatch(&(_segment_group->get_tablet_schema()),
                                                     _return_columns, _num_rows_per_block));
 
-    _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema()), _parent_tracker));
+    _read_block.reset(new RowBlock(&(_segment_group->get_tablet_schema())));
 
     RowBlockInfo block_info;
     block_info.row_num = _num_rows_per_block;
