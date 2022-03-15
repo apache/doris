@@ -21,7 +21,7 @@
 
 def url = 'https://doris-build.oss-cn-beijing-internal.aliyuncs.com/regression/tpch/sf0.01/'
 
-def tables = ['lineitem', 'region', 'nation', 'part', 'supplier']
+def tables = ['lineitem', 'region', 'nation', 'part', 'supplier', 'partsupp']
 
 for (String table in tables) {
     sql """ DROP TABLE IF EXISTS tpch_tiny_${table} """
