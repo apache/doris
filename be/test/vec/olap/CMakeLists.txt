@@ -16,8 +16,7 @@
 # under the License.
 
 # where to put generated libraries
-set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/vec/runtime")
+set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/vec/olap")
 
-ADD_BE_TEST(vdata_stream_test)
-ADD_BE_TEST(vload_channel_mgr_test)
+ADD_BE_TEST(vdelta_writer_test)
 
