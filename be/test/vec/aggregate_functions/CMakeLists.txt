@@ -19,5 +19,4 @@
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/vec/aggregate_functions")
 
 ADD_BE_TEST(agg_test)
-
-
+ADD_BE_TEST(agg_min_max_test)
