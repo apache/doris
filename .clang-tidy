@@ -13,5 +13,6 @@ Checks: |
   readability-make-member-function-const,
   readability-non-const-parameter,
   readability-static-accessed-through-instance,
+  readability-braces-around-statements
 
 WarningsAsErrors: '*'

@@ -173,15 +173,17 @@ static inline T ALWAYS_INLINE pack_fixed(size_t i, size_t keys_size,
     for (size_t j = 0; j < keys_size; ++j) {
         bool is_null;
 
-        if (!has_bitmap)
+        if (!has_bitmap) {
             is_null = false;
-        else {
+        } else {
             size_t bucket = j / 8;
             size_t off = j % 8;
             is_null = ((bitmap[bucket] >> off) & 1) == 1;
         }
 
-        if (is_null) continue;
+        if (is_null) {
+            continue;
+        }
 
         switch (key_sizes[j]) {
         case 1:
@@ -230,7 +232,9 @@ static inline UInt128 ALWAYS_INLINE hash128(size_t i, size_t keys_size,
     UInt128 key;
     SipHash hash;
 
-    for (size_t j = 0; j < keys_size; ++j) key_columns[j]->update_hash_with_value(i, hash);
+    for (size_t j = 0; j < keys_size; ++j) {
+        key_columns[j]->update_hash_with_value(i, hash);
+    }
 
     hash.get128(key.low, key.high);
 
@@ -260,8 +264,9 @@ static inline StringRef ALWAYS_INLINE serialize_keys_to_pool_contiguous(
     const char* begin = nullptr;
 
     size_t sum_size = 0;
-    for (size_t j = 0; j < keys_size; ++j)
+    for (size_t j = 0; j < keys_size; ++j) {
         sum_size += key_columns[j]->serialize_value_into_arena(i, pool, begin).size;
+    }
 
     return {begin, sum_size};
 }
