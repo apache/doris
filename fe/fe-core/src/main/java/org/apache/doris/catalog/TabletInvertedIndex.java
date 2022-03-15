@@ -212,20 +212,8 @@ public class TabletInvertedIndex {
                                                     + "clear it from backend [{}]", transactionId, backendId);
                                         } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                                             TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tabletMeta.getTableId());
-                                            PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(partitionId);
-                                            if (partitionCommitInfo == null) {
-                                                /*
-                                                 * This may happen as follows:
-                                                 * 1. txn is committed on BE, and report commit info to FE
-                                                 * 2. FE received report and begin to assemble partitionCommitInfos.
-                                                 * 3. At the same time, some of partitions have been dropped, so partitionCommitInfos does not contain these partitions.
-                                                 * 4. So we will not able to get partitionCommitInfo here.
-                                                 *
-                                                 * Just print a log to observe
-                                                 */
-                                                LOG.info("failed to find partition commit info. table: {}, partition: {}, tablet: {}, txn id: {}",
-                                                        tabletMeta.getTableId(), partitionId, tabletId, transactionState.getTransactionId());
-                                            } else {
+                                            PartitionCommitInfo partitionCommitInfo = tableCommitInfo == null ? null : tableCommitInfo.getPartitionCommitInfo(partitionId);
+                                            if (partitionCommitInfo != null) {
                                                 TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(),
                                                         partitionCommitInfo.getVersion(), 0);
                                                 synchronized (transactionsToPublish) {
