@@ -296,6 +296,8 @@ Syntax:
         ```
         PROPERTIES (
             "storage_medium" = "[SSD|HDD]",
+            ["storage_cold_medium" = "[S3]"],
+            ["remote_storage" = "xxx"],
             ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
             ["replication_num" = "3"],
 			["replication_allocation" = "xxx"]
@@ -304,6 +306,10 @@ Syntax:
     
         storage_medium:         SSD or HDD, The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD.
                                 Note: when FE configuration 'enable_strict_storage_medium_check' is' True ', if the corresponding storage medium is not set in the cluster, the construction clause 'Failed to find enough host in all backends with storage medium is SSD|HDD'.
+        storage_cold_medium:    Used to specify the cold data storage medium for this partition, currently only S3 is 
+                                supported. Default is S3.
+        remote_storage:         The remote storage name, which needs to be used in conjunction with the storage_cold_medium 
+                                parameter.
         storage_cooldown_time:  If storage_medium is SSD, data will be automatically moved to HDD   when timeout.
                                 Default is 30 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
@@ -405,8 +411,28 @@ Syntax:
     "storage_cooldown_time" = "2015-06-04 00:00:00"
     );
     ```
+3. Create an olap table, distributed by hash, with aggregation type. Also set storage medium and cooldown time.
+   Setting up remote storage and cold data storage media.
+    ```
+    CREATE TABLE example_db.table_hash
+    (
+    k1 BIGINT,
+    k2 LARGEINT,
+    v1 VARCHAR(2048) REPLACE,
+    v2 SMALLINT SUM DEFAULT "10"
+    )
+    ENGINE=olap
+    AGGREGATE KEY(k1, k2)
+    DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
+    PROPERTIES(
+    "storage_medium" = "SSD",
+    "storage_cold_medium" = "S3",
+    "remote_storage" = "remote_s3",
+    "storage_cooldown_time" = "2015-06-04 00:00:00"
+    );
+   ```
 
-3. Create an olap table, with range partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
+4. Create an olap table, with range partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
 
 1) LESS THAN
 
@@ -466,7 +492,7 @@ Syntax:
     "storage_medium" = "SSD"
     );
     ```
-4. Create an olap table, with list partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
+5. Create an olap table, with list partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
 
     1) Single column partition
 
@@ -540,7 +566,7 @@ Syntax:
 
     Data that is not within these partition enumeration values will be filtered as illegal data
 
-5. Create a mysql table
+6. Create a mysql table
    5.1 Create MySQL table directly from external table information
 ```
     CREATE EXTERNAL TABLE example_db.table_mysql
@@ -593,7 +619,7 @@ Syntax:
     )
 ```
 
-6. Create a broker table, with file on HDFS, line delimit by "|", column separated by "\n"
+7. Create a broker table, with file on HDFS, line delimit by "|", column separated by "\n"
 
     ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -616,7 +642,7 @@ Syntax:
     );
     ```
 
-7. Create table will HLL column
+8. Create table will HLL column
 
     ```
     CREATE TABLE example_db.example_table
@@ -631,7 +657,7 @@ Syntax:
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
 
-8. Create a table will BITMAP_UNION column
+9. Create a table will BITMAP_UNION column
 
     ```
     CREATE TABLE example_db.example_table
@@ -645,7 +671,7 @@ Syntax:
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
-9. Create a table with QUANTILE_UNION column (the origin value of **v1** and **v2** columns must be **numeric** types）
+10. Create a table with QUANTILE_UNION column (the origin value of **v1** and **v2** columns must be **numeric** types）
     
     ```
     CREATE TABLE example_db.example_table
@@ -659,7 +685,8 @@ Syntax:
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
-10. Create 2 colocate join table.
+
+11. Create 2 colocate join table.
 
     ```
     CREATE TABLE `t1` (
@@ -682,7 +709,7 @@ Syntax:
     );
     ```
 
-11. Create a broker table, with file on BOS.
+12. Create a broker table, with file on BOS.
 
     ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -700,7 +727,7 @@ Syntax:
     );
     ```
 
-12. Create a table with a bitmap index 
+13. Create a table with a bitmap index 
 
     ```
     CREATE TABLE example_db.table_hash
@@ -717,7 +744,7 @@ Syntax:
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
     
-13. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
+14. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
 
     ```
     [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
@@ -747,7 +774,7 @@ Syntax:
         "dynamic_partition.buckets" = "32"
          );
      ```
-14. Create a table with rollup index
+15. Create a table with rollup index
 ```
     CREATE TABLE example_db.rolup_index_table
     (
@@ -767,7 +794,7 @@ Syntax:
     PROPERTIES("replication_num" = "3");
 ```
 
-15. Create a inmemory table:
+16. Create a inmemory table:
 
 ```
     CREATE TABLE example_db.table_hash
@@ -785,7 +812,7 @@ Syntax:
     PROPERTIES ("in_memory"="true");
 ```
 
-16. Create a hive external table
+17. Create a hive external table
 ```
     CREATE TABLE example_db.table_hive
     (
@@ -802,7 +829,7 @@ Syntax:
     );
 ```
 
-17. Specify the replica distribution of the table through replication_allocation
+18. Specify the replica distribution of the table through replication_allocation
 
 ```	
     CREATE TABLE example_db.table_hash
@@ -835,7 +862,7 @@ Syntax:
      );
 ```
 
-17. Create an Iceberg external table
+19. Create an Iceberg external table
 
 ```
     CREATE TABLE example_db.t_iceberg 

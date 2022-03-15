@@ -41,9 +41,18 @@ public class AlterSystemStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+        // Alter remote storage clause does not need `NODE` privilege
+        if (!(alterClause instanceof RemoteStorageClause) &&
+                (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                                                 "NODE");
+        }
+
+        // check privilege, need `ADMIN` to operate remote storage
+        if ((alterClause instanceof RemoteStorageClause) &&
+                (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN))) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    "ADMIN");
         }
 
         Preconditions.checkState((alterClause instanceof AddBackendClause)
@@ -55,7 +64,9 @@ public class AlterSystemStmt extends DdlStmt {
                 || (alterClause instanceof DropFollowerClause)
                 || (alterClause instanceof ModifyBrokerClause)
                 || (alterClause instanceof AlterLoadErrorUrlClause)
-                || (alterClause instanceof ModifyBackendClause));
+                || (alterClause instanceof ModifyBackendClause)
+                || (alterClause instanceof AddRemoteStorageClause)
+                || (alterClause instanceof DropRemoteStorageClause));
 
         alterClause.analyze(analyzer);
     }

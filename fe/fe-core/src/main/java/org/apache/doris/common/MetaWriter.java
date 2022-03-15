@@ -128,6 +128,7 @@ public class MetaWriter {
             checksum.setRef(writer.doWork("plugins", () -> catalog.savePlugins(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("deleteHandler", () -> catalog.saveDeleteHandler(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("sqlBlockRule", () -> catalog.saveSqlBlockRule(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("remoteStorage", () -> catalog.saveRemoteStorage(dos, checksum.getRef())));
         }
         MetaFooter.write(imageFile, metaIndices, checksum.getRef());
 

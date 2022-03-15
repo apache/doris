@@ -623,6 +623,7 @@ module.exports = [
               "SHOW INDEX",
               "SHOW MIGRATIONS",
               "SHOW PLUGINS",
+              "SHOW REMOTE STORAGES",
               "SHOW TABLE STATUS",
               "SHOW TRASH",
               "UNINSTALL PLUGIN",

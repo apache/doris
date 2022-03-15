@@ -412,6 +412,7 @@ public class Catalog {
 
     private BrokerMgr brokerMgr;
     private ResourceMgr resourceMgr;
+    private RemoteStorageMgr remoteStorageMgr;
 
     private GlobalTransactionMgr globalTransactionMgr;
 
@@ -576,6 +577,7 @@ public class Catalog {
 
         this.brokerMgr = new BrokerMgr();
         this.resourceMgr = new ResourceMgr();
+        this.remoteStorageMgr = new RemoteStorageMgr();
 
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
 
@@ -663,6 +665,10 @@ public class Catalog {
 
     public ResourceMgr getResourceMgr() {
         return resourceMgr;
+    }
+
+    public RemoteStorageMgr getRemoteStorageMgr() {
+        return remoteStorageMgr;
     }
 
     public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
@@ -4980,7 +4986,7 @@ public class Catalog {
                         if (dataProperty.getStorageMedium() == TStorageMedium.SSD
                                 && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.
-                            partitionInfo.setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
+                            partitionInfo.setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD, TStorageMedium.S3));
                             storageMediumMap.put(partitionId, TStorageMedium.HDD);
                             LOG.debug("partition[{}-{}-{}] storage medium changed from SSD to HDD",
                                     dbId, tableId, partitionId);
@@ -6629,6 +6635,29 @@ public class Catalog {
             brokerMgr.replayAddBrokers(brokerName, addrs);
         }
         LOG.info("finished replay brokerMgr from image");
+        return checksum;
+    }
+
+    public long saveRemoteStorage(CountingDataOutputStream dos, long checksum) throws IOException {
+        Map<String, RemoteStorageMgr.RemoteStorageInfo> storageInfoMap = remoteStorageMgr.getStorageInfoMap();
+        int size = storageInfoMap.size();
+        checksum ^= size;
+        dos.writeInt(size);
+
+        for (RemoteStorageMgr.RemoteStorageInfo info : storageInfoMap.values()) {
+            info.write(dos);
+        }
+        return checksum;
+    }
+
+    public long loadRemoteStorage(DataInputStream dis, long checksum) throws IOException {
+        int count = dis.readInt();
+        checksum ^= count;
+        for (long i = 0; i < count; ++i) {
+            RemoteStorageMgr.RemoteStorageInfo storageInfo = RemoteStorageMgr.RemoteStorageInfo.readIn(dis);
+            remoteStorageMgr.replayAddRemoteStorage(storageInfo);
+        }
+        LOG.info("finished replay RemoteStorageMgr from image.");
         return checksum;
     }
 

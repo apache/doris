@@ -34,8 +34,10 @@ public final class FeMetaVersion {
     public static final int VERSION_106 = 106;
     // support stream load 2PC
     public static final int VERSION_107 = 107;
+    // support remote storage
+    public static final int VERSION_108 = 108;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_107;
+    public static final int VERSION_CURRENT = VERSION_108;
     
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ... 

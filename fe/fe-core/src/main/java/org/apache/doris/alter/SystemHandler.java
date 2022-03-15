@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.AddFollowerClause;
 import org.apache.doris.analysis.AddObserverClause;
+import org.apache.doris.analysis.AddRemoteStorageClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterLoadErrorUrlClause;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
@@ -28,6 +29,7 @@ import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
 import org.apache.doris.analysis.DropObserverClause;
+import org.apache.doris.analysis.DropRemoteStorageClause;
 import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.catalog.Catalog;
@@ -173,6 +175,10 @@ public class SystemHandler extends AlterHandler {
             Catalog.getCurrentCatalog().getLoadInstance().setLoadErrorHubInfo(clause.getProperties());
         } else if (alterClause instanceof ModifyBackendClause) {
             Catalog.getCurrentSystemInfo().modifyBackends(((ModifyBackendClause) alterClause));
+        } else if (alterClause instanceof AddRemoteStorageClause) {
+            Catalog.getCurrentCatalog().getRemoteStorageMgr().addRemoteStorage((AddRemoteStorageClause) alterClause);
+        } else if (alterClause instanceof DropRemoteStorageClause) {
+            Catalog.getCurrentCatalog().getRemoteStorageMgr().dropRemoteStorage((DropRemoteStorageClause) alterClause);
         } else {
             Preconditions.checkState(false, alterClause.getClass());
         }

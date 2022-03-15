@@ -260,12 +260,12 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_PLUGIN, KW_PLUGINS,
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROFILE, KW_PROPERTIES, KW_PROPERTY,
     KW_QUERY, KW_QUOTA,
-    KW_RANDOM, KW_RANGE, KW_READ, KW_REBALANCE, KW_RECOVER, KW_REFRESH, KW_REGEXP, KW_RELEASE, KW_RENAME,
+    KW_RANDOM, KW_RANGE, KW_READ, KW_REBALANCE, KW_RECOVER, KW_REFRESH, KW_REGEXP, KW_RELEASE, KW_REMOTE, KW_RENAME,
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESOURCES, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
     KW_S3, KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW, KW_SIGNED,
     KW_SKEW,
-    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STATS, KW_STOP, KW_STORAGE, KW_STREAM, KW_STRING, KW_STRUCT,
+    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STATS, KW_STOP, KW_STORAGE, KW_STORAGES, KW_STREAM, KW_STRING, KW_STRUCT,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TABLETS, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_TEXT, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,KW_TRASH,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
@@ -1184,6 +1184,15 @@ alter_system_clause ::=
 	| KW_MODIFY KW_BACKEND string_list:hostPorts KW_SET LPAREN key_value_map:properties RPAREN
 	{:
 		RESULT = new ModifyBackendClause(hostPorts, properties);
+	:}
+	// remote storage
+	| KW_ADD KW_REMOTE KW_STORAGE ident_or_text:remoteStorageName opt_properties:properties
+	{:
+	    RESULT = new AddRemoteStorageClause(remoteStorageName, properties);
+	:}
+	| KW_DROP KW_REMOTE KW_STORAGE ident_or_text:remoteStorageName
+	{:
+	    RESULT = new DropRemoteStorageClause(remoteStorageName);
 	:}
     ;
 
@@ -2782,6 +2791,10 @@ show_param ::=
     | KW_BROKER
     {:
         RESULT = new ShowBrokerStmt();
+    :}
+    | KW_REMOTE KW_STORAGES
+    {:
+        RESULT = new ShowRemoteStoragesStmt();
     :}
     | KW_RESOURCES opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
@@ -5630,6 +5643,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_REFRESH:id
     {: RESULT = id; :}
+    | KW_REMOTE:id
+    {: RESULT = id; :}
     | KW_REPEATABLE:id
     {: RESULT = id; :}
     | KW_REPLACE:id
@@ -5673,6 +5688,8 @@ keyword ::=
     | KW_STATS:id
     {: RESULT = id; :}
     | KW_STORAGE:id
+    {: RESULT = id; :}
+    | KW_STORAGES:id
     {: RESULT = id; :}
     | KW_STREAM:id
     {: RESULT = id; :}

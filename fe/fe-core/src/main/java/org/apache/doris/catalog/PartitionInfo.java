@@ -303,7 +303,7 @@ public class PartitionInfo implements Writable {
         out.writeInt(idToDataProperty.size());
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             out.writeLong(entry.getKey());
-            if (entry.getValue().equals(new DataProperty(TStorageMedium.HDD))) {
+            if (entry.getValue().equals(new DataProperty(TStorageMedium.HDD, TStorageMedium.S3))) {
                 out.writeBoolean(true);
             } else {
                 out.writeBoolean(false);
@@ -323,7 +323,7 @@ public class PartitionInfo implements Writable {
             long partitionId = in.readLong();
             boolean isDefaultHddDataProperty = in.readBoolean();
             if (isDefaultHddDataProperty) {
-                idToDataProperty.put(partitionId, new DataProperty(TStorageMedium.HDD));
+                idToDataProperty.put(partitionId, new DataProperty(TStorageMedium.HDD, TStorageMedium.S3));
             } else {
                 idToDataProperty.put(partitionId, DataProperty.read(in));
             }
@@ -348,7 +348,7 @@ public class PartitionInfo implements Writable {
 
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             buff.append(entry.getKey()).append(" is HDD: ");
-            if (entry.getValue().equals(new DataProperty(TStorageMedium.HDD))) {
+            if (entry.getValue().equals(new DataProperty(TStorageMedium.HDD, TStorageMedium.S3))) {
                 buff.append(true);
             } else {
                 buff.append(false);

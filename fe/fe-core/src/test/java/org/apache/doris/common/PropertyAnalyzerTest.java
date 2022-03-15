@@ -147,7 +147,8 @@ public class PropertyAnalyzerTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, tomorrowTimeStr);
-        DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
+        DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties,
+                                        new DataProperty(TStorageMedium.SSD, TStorageMedium.S3));
         // avoid UT fail because time zone different
         DateLiteral dateLiteral = new DateLiteral(tomorrowTimeStr, Type.DATETIME);
         Assert.assertEquals(dateLiteral.unixTimestamp(TimeUtils.getTimeZone()), dataProperty.getCooldownTimeMs());

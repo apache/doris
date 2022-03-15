@@ -307,6 +307,8 @@ under the License.
     ```
        PROPERTIES (
            "storage_medium" = "[SSD|HDD]",
+           ["storage_cold_medium" = "[S3]"],
+           ["remote_storage" = "xxx"],
            ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
            ["replication_num" = "3"]
            ["replication_allocation" = "xxx"]
@@ -314,7 +316,9 @@ under the License.
     ```
 
        storage_medium：        用于指定该分区的初始存储介质，可选择 SSD 或 HDD。默认初始存储介质可通过fe的配置文件 `fe.conf` 中指定 `default_storage_medium=xxx`，如果没有指定，则默认为 HDD。
-                               注意：当FE配置项 `enable_strict_storage_medium_check` 为 `True` 时，若集群中没有设置对应的存储介质时，建表语句会报错 `Failed to find enough host in all backends with storage medium is SSD|HDD`. 
+                               注意：当FE配置项 `enable_strict_storage_medium_check` 为 `True` 时，若集群中没有设置对应的存储介质时，建表语句会报错 `Failed to find enough host in all backends with storage medium is SSD|HDD`.
+       storage_cold_medium:    用于指定该分区的冷数据存储介质，当前只支持 S3。默认为 S3。
+       remote_storage:         远端存储名称，需要与 storage_cold_medium 参数搭配使用。
        storage_cooldown_time： 当设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
                                默认存放 30 天。
                                格式为："yyyy-MM-dd HH:mm:ss"
@@ -429,7 +433,29 @@ under the License.
     );
    ```
 
-3. 创建一个 olap 表，使用 Range 分区，使用Hash分桶，默认使用列存，
+3. 创建一个 olap 表，使用 Hash 分桶，使用列存，相同key的记录进行覆盖，设置初始存储介质和冷却时间
+   设置远端存储和冷数据存储介质
+
+   ```
+    CREATE TABLE example_db.table_hash
+    (
+    k1 BIGINT,
+    k2 LARGEINT,
+    v1 VARCHAR(2048) REPLACE,
+    v2 SMALLINT SUM DEFAULT "10"
+    )
+    ENGINE=olap
+    AGGREGATE KEY(k1, k2)
+    DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
+    PROPERTIES(
+    "storage_medium" = "SSD",
+    "storage_cold_medium" = "S3",
+    "remote_storage" = "remote_s3",
+    "storage_cooldown_time" = "2015-06-04 00:00:00"
+    );
+   ```
+
+4. 创建一个 olap 表，使用 Range 分区，使用Hash分桶，默认使用列存，
    相同key的记录同时存在，设置初始存储介质和冷却时间
 
     1）LESS THAN
@@ -468,7 +494,7 @@ under the License.
 
     不在这些分区范围内的数据将视为非法数据被过滤
 
-   2) Fixed Range
+   1) Fixed Range
 
     ```
     CREATE TABLE table_range
@@ -492,7 +518,7 @@ under the License.
     );
     ```
 
-4. 创建一个 olap 表，使用 List 分区，使用Hash分桶，默认使用列存，
+5. 创建一个 olap 表，使用 List 分区，使用Hash分桶，默认使用列存，
    相同key的记录同时存在，设置初始存储介质和冷却时间
 
     1）单列分区
@@ -531,7 +557,7 @@ under the License.
 
     不在这些分区枚举值内的数据将视为非法数据被过滤
 
-    2) 多列分区
+    1) 多列分区
 
     ```
     CREATE TABLE example_db.table_list
@@ -567,7 +593,7 @@ under the License.
 
     不在这些分区枚举值内的数据将视为非法数据被过滤
 
-5. 创建一个 mysql 表
+6. 创建一个 mysql 表
 
    5.1 直接通过外表信息创建mysql表
 ```
@@ -621,7 +647,7 @@ under the License.
     )
 ```
 
-6. 创建一个数据文件存储在HDFS上的 broker 外部表, 数据使用 "|" 分割，"\n" 换行
+7. 创建一个数据文件存储在HDFS上的 broker 外部表, 数据使用 "|" 分割，"\n" 换行
 
 ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -644,7 +670,7 @@ under the License.
     )
 ```
 
-7. 创建一张含有HLL列的表
+8. 创建一张含有HLL列的表
 
 ```
     CREATE TABLE example_db.example_table
@@ -659,7 +685,7 @@ under the License.
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
-8. 创建一张含有BITMAP_UNION聚合类型的表（v1和v2列的原始数据类型必须是TINYINT,SMALLINT,INT）
+9. 创建一张含有BITMAP_UNION聚合类型的表（v1和v2列的原始数据类型必须是TINYINT,SMALLINT,INT）
 
 ```
     CREATE TABLE example_db.example_table
@@ -674,7 +700,7 @@ under the License.
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
-1. 创建一张含有QUANTILE_UNION聚合类型的表（v1和v2列的原始数据类型必须是数值类型）
+10. 创建一张含有QUANTILE_UNION聚合类型的表（v1和v2列的原始数据类型必须是数值类型）
 
 ```
     CREATE TABLE example_db.example_table
@@ -689,7 +715,7 @@ under the License.
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
-10. 创建两张支持Colocate Join的表t1 和t2
+11. 创建两张支持Colocate Join的表t1 和t2
 
 ```
     CREATE TABLE `t1` (
@@ -713,7 +739,7 @@ under the License.
     );
 ```
 
-11. 创建一个数据文件存储在BOS上的 broker 外部表
+12. 创建一个数据文件存储在BOS上的 broker 外部表
 
 ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -731,7 +757,7 @@ under the License.
     )
 ```
 
-12. 创建一个带有bitmap 索引的表
+13. 创建一个带有bitmap 索引的表
 
 ```
     CREATE TABLE example_db.table_hash
@@ -748,7 +774,7 @@ under the License.
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
-13. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，并删除3天前的分区。例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
+14. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，并删除3天前的分区。例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
 
 ```
 [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
@@ -780,7 +806,7 @@ under the License.
      );
 ```
 
-14. 创建一个带有rollup索引的表
+15. 创建一个带有rollup索引的表
 ```
     CREATE TABLE example_db.rollup_index_table
     (
@@ -799,7 +825,7 @@ under the License.
     )
     PROPERTIES("replication_num" = "3");
 ```
-15. 创建一个内存表
+16. 创建一个内存表
 
 ```
     CREATE TABLE example_db.table_hash
@@ -817,7 +843,7 @@ under the License.
     PROPERTIES ("in_memory"="true");
 ```
 
-16. 创建一个hive外部表
+17. 创建一个hive外部表
 
 ```
     CREATE TABLE example_db.table_hive
@@ -835,7 +861,7 @@ under the License.
     );
 ```
 
-17. 通过 replication_allocation 指定表的副本分布
+18. 通过 replication_allocation 指定表的副本分布
 
 ```	
     CREATE TABLE example_db.table_hash
@@ -869,7 +895,7 @@ under the License.
      );
 ```
 
-17. 创建一个 Iceberg 外表
+19. 创建一个 Iceberg 外表
 
 ```
     CREATE TABLE example_db.t_iceberg 

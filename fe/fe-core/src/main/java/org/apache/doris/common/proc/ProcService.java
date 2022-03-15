@@ -58,6 +58,7 @@ public final class ProcService {
         root.register("stream_loads", new StreamLoadProcNode());
         root.register("colocation_group", new ColocationGroupProcDir());
         root.register("bdbje", new BDBJEProcDir());
+        root.register("remote_storage", Catalog.getCurrentCatalog().getRemoteStorageMgr().getProcNode());
     }
 
     // 通过指定的路径获得对应的PROC Node

@@ -32,6 +32,7 @@ import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.RemoteStorageMgr;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -517,6 +518,18 @@ public class EditLog {
                 case OperationType.OP_DROP_ALL_BROKER: {
                     final String param = journal.getData().toString();
                     catalog.getBrokerMgr().replayDropAllBroker(param);
+                    break;
+                }
+                case OperationType.OP_ADD_REMOTE_STORAGE: {
+                    final RemoteStorageMgr.RemoteStorageInfo param =
+                            (RemoteStorageMgr.RemoteStorageInfo) journal.getData();
+                    catalog.getRemoteStorageMgr().replayAddRemoteStorage(param);
+                    break;
+                }
+                case OperationType.OP_DROP_REMOTE_STORAGE: {
+                    final RemoteStorageMgr.RemoteStorageInfo param =
+                            (RemoteStorageMgr.RemoteStorageInfo) journal.getData();
+                    catalog.getRemoteStorageMgr().replayDropRemoteStorage(param);
                     break;
                 }
                 case OperationType.OP_SET_LOAD_ERROR_HUB: {
@@ -1162,6 +1175,14 @@ public class EditLog {
 
     public void logDropBroker(BrokerMgr.ModifyBrokerInfo info) {
         logEdit(OperationType.OP_DROP_BROKER, info);
+    }
+
+    public void logAddRemoteStorage(RemoteStorageMgr.RemoteStorageInfo info) {
+        logEdit(OperationType.OP_ADD_REMOTE_STORAGE, info);
+    }
+
+    public void logDropRemoteStorage(RemoteStorageMgr.RemoteStorageInfo info) {
+        logEdit(OperationType.OP_DROP_REMOTE_STORAGE, info);
     }
 
     public void logDropAllBroker(String brokerName) {

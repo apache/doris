@@ -23,6 +23,8 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
+import static org.apache.doris.catalog.S3Property.S3_SECRET_KEY;
+
 public class PrintableMap<K, V> {
     private Map<K, V> map;
     private String keyValueSeparator;
@@ -37,6 +39,7 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.add("password");
         SENSITIVE_KEY.add("kerberos_keytab_content");
         SENSITIVE_KEY.add("bos_secret_accesskey");
+        SENSITIVE_KEY.add(S3_SECRET_KEY);
     }
     
     public PrintableMap(Map<K, V> map, String keyValueSeparator,

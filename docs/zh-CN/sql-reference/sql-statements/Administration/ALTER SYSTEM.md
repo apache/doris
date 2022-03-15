@@ -49,6 +49,10 @@ under the License.
             ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES ("key" = "value"[, ...]);
         10) 修改一个 BE 节点的属性
             ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
+        11）增加一个远端存储
+            ALTER SYSTEM ADD REMOTE STORAGE storage_name PROPERTIES ("key" = "value"[, ...]);
+        12) 删除一个远端存储
+            ALTER SYSTEM DROP REMOTE STORAGE storage_name;
 
     说明：
         1) host 可以是主机名或者ip地址
@@ -80,6 +84,18 @@ under the License.
             1. tag.location：资源标签
             2. disable_query: 查询禁用属性
             3. disable_load: 导入禁用属性
+        8）远端存储：
+            当前支持添加对象存储（S3，BOS）作为远端存储。
+            需要在 PROPERTIES 中指定 `type = s3`。
+            1）当使用S3作为远端存储时，需要设置以下参数
+                s3_endpoint：s3 endpoint
+                s3_region：s3 region
+                s3_root_path：s3 根目录
+                s3_access_key：s3 access key
+                s3_secret_key：s3 secret key
+                s3_max_connections：s3 最大连接数量，默认为 50
+                s3_request_timeout_ms：s3 请求超时时间，单位毫秒，默认为 3000
+                s3_connection_timeout_ms：s3 连接超时时间，单位毫秒，默认为 1000
         
 ## example
 
@@ -124,17 +140,31 @@ under the License.
         ("type"= "null");
 
     9. 修改 BE 的资源标签
-
         ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
     
     10. 修改 BE 的查询禁用属性
-        
         ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_query" = "true");
         
     11. 修改 BE 的导入禁用属性
-       
         ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_load" = "true"); 
        
+    12. 增加远端存储
+        ALTER SYSTEM ADD REMOTE STORAGE remote_s3 PROPERTIES
+        (
+         "type" = "s3",
+         "s3_endpoint" = "bj",
+         "s3_region" = "bj",
+         "s3_root_path" = "/path/to/root",
+         "s3_access_key" = "bbb",
+         "s3_secret_key" = "aaaa",
+         "s3_max_connections" = "50",
+         "s3_request_timeout_ms" = "3000",
+         "s3_connection_timeout_ms" = "1000"
+        );
+
+    13. 删除远端存储
+        ALTER SYSTEM DROP REMOTE STORAGE remote_s3;
+
 ## keyword
-    ALTER,SYSTEM,BACKEND,BROKER,FREE
+    ALTER,SYSTEM,BACKEND,BROKER,FREE,REMOTE STORAGE
 

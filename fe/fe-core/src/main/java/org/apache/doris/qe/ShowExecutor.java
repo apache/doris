@@ -60,6 +60,7 @@ import org.apache.doris.analysis.ShowPluginsStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
+import org.apache.doris.analysis.ShowRemoteStoragesStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
 import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowRestoreStmt;
@@ -277,6 +278,8 @@ public class ShowExecutor {
             handleShowMigrations();
         } else if (stmt instanceof ShowBrokerStmt) {
             handleShowBroker();
+        } else if (stmt instanceof ShowRemoteStoragesStmt) {
+            handleShowRemoteStorages();
         } else if (stmt instanceof ShowResourcesStmt) {
             handleShowResources();
         } else if (stmt instanceof ShowExportStmt) {
@@ -1572,6 +1575,12 @@ public class ShowExecutor {
 
         // Only success
         resultSet = new ShowResultSet(showStmt.getMetaData(), brokersInfo);
+    }
+
+    private void handleShowRemoteStorages() {
+        ShowRemoteStoragesStmt showStmt = (ShowRemoteStoragesStmt) stmt;
+        List<List<String>> storageInfo = Catalog.getCurrentCatalog().getRemoteStorageMgr().getRemoteStoragesInfo();
+        resultSet = new ShowResultSet(showStmt.getMetaData(), storageInfo);
     }
 
     // Handle show resources

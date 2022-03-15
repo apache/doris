@@ -19,11 +19,13 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RemoteStorageProperty;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -56,6 +58,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_REPLICATION_ALLOCATION = "replication_allocation";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
+    public static final String PROPERTIES_REMOTE_STORAGE = "remote_storage";
+    public static final String PROPERTIES_STORAGE_COLD_MEDIUM = "storage_cold_medium";
     public static final String PROPERTIES_STORAGE_COLDOWN_TIME = "storage_cooldown_time";
     // for 1.x -> 2.x migration
     public static final String PROPERTIES_VERSION_INFO = "version_info";
@@ -110,10 +114,15 @@ public class PropertyAnalyzer {
         }
 
         TStorageMedium storageMedium = null;
+        TStorageMedium coldStorageMedium = TStorageMedium.S3;
+        String remoteStorageName = "";
+        RemoteStorageProperty remotestorageProperty = null;
         long coolDownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
 
         boolean hasMedium = false;
         boolean hasCooldown = false;
+        boolean hasColdMedium = false;
+        boolean hasRemoteStorage = false;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
@@ -130,21 +139,48 @@ public class PropertyAnalyzer {
                 hasCooldown = true;
                 DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
                 coolDownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+            } else if (!hasColdMedium && key.equalsIgnoreCase(PROPERTIES_STORAGE_COLD_MEDIUM)) {
+                hasColdMedium = true;
+                if (value.equalsIgnoreCase(TStorageMedium.S3.name())) {
+                    coldStorageMedium = TStorageMedium.S3;
+                } else {
+                    throw new AnalysisException("Invalid cold storage medium: " + value);
+                }
+            } else if (!hasRemoteStorage && key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE)) {
+                hasRemoteStorage = true;
+                remoteStorageName = value;
             }
         } // end for properties
 
-        if (!hasCooldown && !hasMedium) {
+        if (!hasCooldown && !hasMedium && !hasRemoteStorage) {
             return oldDataProperty;
         }
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
         properties.remove(PROPERTIES_STORAGE_COLDOWN_TIME);
+        properties.remove(PROPERTIES_STORAGE_COLD_MEDIUM);
+        properties.remove(PROPERTIES_REMOTE_STORAGE);
+
+        if ((hasColdMedium && !hasRemoteStorage) || (!hasColdMedium && hasRemoteStorage)) {
+            throw new AnalysisException("Invalid data property, " +
+                    "`storage_cold_medium` must be used with `remote_storage`.");
+        }
+
+        if (hasColdMedium && hasRemoteStorage) {
+            remotestorageProperty = Catalog.getCurrentCatalog()
+                    .getRemoteStorageMgr().getRemoteStorageByName(remoteStorageName);
+
+            if (!coldStorageMedium.name().equalsIgnoreCase(remotestorageProperty.getStorageType().name())) {
+                throw new AnalysisException("Invalid data property, " +
+                        "`storage_cold_medium` is inconsistent with `remote_storage`.");
+            }
+        }
 
         if (hasCooldown && !hasMedium) {
             throw new AnalysisException("Invalid data property. storage medium property is not found");
         }
 
-        if (storageMedium == TStorageMedium.HDD && hasCooldown) {
+        if ((storageMedium == TStorageMedium.HDD && hasCooldown) && !(hasColdMedium && hasRemoteStorage)) {
             throw new AnalysisException("Can not assign cooldown timestamp to HDD storage medium");
         }
 
@@ -161,9 +197,9 @@ public class PropertyAnalyzer {
         }
 
         Preconditions.checkNotNull(storageMedium);
-        return new DataProperty(storageMedium, coolDownTimeStamp);
+        return new DataProperty(storageMedium, coolDownTimeStamp, remoteStorageName, coldStorageMedium);
     }
-    
+
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
         short shortKeyColumnCount = (short) -1;
         if (properties != null && properties.containsKey(PROPERTIES_SHORT_KEY)) {

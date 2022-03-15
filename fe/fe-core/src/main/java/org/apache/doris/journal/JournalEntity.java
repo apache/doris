@@ -30,6 +30,7 @@ import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
+import org.apache.doris.catalog.RemoteStorageMgr;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -399,6 +400,13 @@ public class JournalEntity implements Writable {
             case OperationType.OP_DROP_BROKER: {
                 data = new BrokerMgr.ModifyBrokerInfo();
                 ((BrokerMgr.ModifyBrokerInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ADD_REMOTE_STORAGE:
+            case OperationType.OP_DROP_REMOTE_STORAGE: {
+                data = new RemoteStorageMgr.RemoteStorageInfo();
+                ((RemoteStorageMgr.RemoteStorageInfo) data).readFields(in);
                 isRead = true;
                 break;
             }
