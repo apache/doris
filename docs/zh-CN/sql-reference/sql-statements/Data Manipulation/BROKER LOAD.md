@@ -29,7 +29,7 @@ under the License.
 
     Broker load 通过随 Doris 集群一同部署的 broker 进行，访问对应数据源的数据，进行数据导入。
     可以通过 show broker 命令查看已经部署的 broker。
-    目前支持以下4种数据源：
+    目前支持以下5种数据源：
 
     1. Baidu HDFS：百度内部的 hdfs，仅限于百度内部使用。
     2. Baidu AFS：百度内部的 afs，仅限于百度内部使用。
@@ -161,7 +161,7 @@ under the License.
 
              num_as_string： 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
 
-      3. broker_name
+    3. broker_name
 
         所使用的 broker 名称，可以通过 show broker 命令查看。
 
@@ -169,20 +169,20 @@ under the License.
 
         用于提供通过 broker 访问数据源的信息。不同的 broker，以及不同的访问方式，需要提供的信息不同。
 
-        1. Baidu HDFS/AFS
+        4.1. Baidu HDFS/AFS
 
             访问百度内部的 hdfs/afs 目前仅支持简单认证，需提供：
             username：hdfs 用户名
             password：hdfs 密码
 
-        2. BOS
+        4.2. BOS
 
             需提供：
             bos_endpoint：BOS 的endpoint
             bos_accesskey：公有云用户的 accesskey
             bos_secret_accesskey：公有云用户的 secret_accesskey
         
-        3. Apache HDFS
+        4.3. Apache HDFS
 
             社区版本的 hdfs，支持简单认证、kerberos 认证。以及支持 HA 配置。
             简单认证：
@@ -203,13 +203,13 @@ under the License.
             dfs.namenode.rpc-address.xxx.nn：指定 namenode 的rpc地址信息。其中 nn 表示 dfs.ha.namenodes.xxx 中配置的 namenode 的名字，如："dfs.namenode.rpc-address.my_ha.my_nn" = "host:port"
             dfs.client.failover.proxy.provider：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
 
-        4. Amazon S3
+        4.4. Amazon S3
 
             需提供：
             fs.s3a.access.key：AmazonS3的access key
             fs.s3a.secret.key：AmazonS3的secret key
             fs.s3a.endpoint：AmazonS3的endpoint 
-        5. 如果使用S3协议直接连接远程存储时需要指定如下属性
+        4.5. 如果使用S3协议直接连接远程存储时需要指定如下属性
 
             (
                 "AWS_ENDPOINT" = "",
@@ -217,7 +217,7 @@ under the License.
                 "AWS_SECRET_KEY"="",
                 "AWS_REGION" = ""
             )
-        6. 如果使用HDFS协议直接连接远程存储时需要指定如下属性
+        4.6. 如果使用HDFS协议直接连接远程存储时需要指定如下属性
             (
                 "fs.defaultFS" = "",
                 "hdfs_user"="",
@@ -236,7 +236,7 @@ under the License.
             dfs.namenode.rpc-address.xxx.nn：指定 namenode 的rpc地址信息。其中 nn 表示 dfs.ha.namenodes.xxx 中配置的 namenode 的名字，如："dfs.namenode.rpc-address.my_ha.my_nn" = "host:port"
             dfs.client.failover.proxy.provider：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
         
-    4. opt_properties
+    5. opt_properties
 
         用于指定一些特殊参数。
         语法：
@@ -251,7 +251,7 @@ under the License.
         send_batch_parallelism: 用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
         load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
 
-    5. 导入数据格式样例
+    6. 导入数据格式样例
 
         整型类（TINYINT/SMALLINT/INT/BIGINT/LARGEINT）：1, 1000, 1234
         浮点类（FLOAT/DOUBLE/DECIMAL）：1.1, 0.23, .356
@@ -331,7 +331,7 @@ under the License.
 
         LOAD LABEL example_db.label4
         (
-        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/old_file)
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/old_file")
         NEGATIVE
         INTO TABLE `my_table`
         COLUMNS TERMINATED BY "\t"
@@ -579,6 +579,7 @@ under the License.
             "fs.defaultFS"="hdfs://testFs",
             "hdfs_user"="user"
         );
+
      18. LOAD WITH HDFS, 带ha的HDFS集群
         LOAD LABEL example_db.label_filter
         (

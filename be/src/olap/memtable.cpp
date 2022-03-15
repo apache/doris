@@ -38,7 +38,7 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _tablet_schema(tablet_schema),
           _slot_descs(slot_descs),
           _keys_type(keys_type),
-          _mem_tracker(MemTracker::CreateTracker(-1, "MemTable", parent_tracker)),
+          _mem_tracker(MemTracker::create_tracker(-1, "MemTable", parent_tracker)),
           _buffer_mem_pool(new MemPool(_mem_tracker.get())),
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),

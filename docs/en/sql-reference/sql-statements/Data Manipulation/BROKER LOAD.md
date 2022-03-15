@@ -171,20 +171,20 @@ under the License.
 
         Used to provide Broker access to data sources. Different brokers, and different access methods, need to provide different information.
 
-        1. Baidu HDFS/AFS
+        4.1. Baidu HDFS/AFS
 
             Access to Baidu's internal hdfs/afs currently only supports simple authentication, which needs to be provided:
             
             username: hdfs username
             password: hdfs password
 
-        2. BOS
+        4.2. BOS
 
             bos_endpoint.
             bos_accesskey: cloud user's accesskey
             bos_secret_accesskey: cloud user's secret_accesskey
         
-        3. Apache HDFS
+        4.3. Apache HDFS
 
             Community version of HDFS supports simple authentication, Kerberos authentication, and HA configuration.
 
@@ -205,12 +205,12 @@ under the License.
             dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"
             dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
             dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
-        4. Amazon S3
+        4.4. Amazon S3
 
             fs.s3a.access.key：AmazonS3的access key
             fs.s3a.secret.key：AmazonS3的secret key
             fs.s3a.endpoint：AmazonS3的endpoint 
-        5. If using the S3 protocol to directly connect to the remote storage, you need to specify the following attributes 
+        4.5. If using the S3 protocol to directly connect to the remote storage, you need to specify the following attributes 
 
             (
                 "AWS_ENDPOINT" = "",
@@ -218,7 +218,7 @@ under the License.
                 "AWS_SECRET_KEY"="",
                 "AWS_REGION" = ""
             )
-        6. if using load with hdfs, you need to specify the following attributes 
+        4.6. if using load with hdfs, you need to specify the following attributes 
             (
                 "fs.defaultFS" = "",
                 "hdfs_user"="",
@@ -237,7 +237,7 @@ under the License.
             dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
             dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
 
-    4. opt_properties
+    5. opt_properties
 
         Used to specify some special parameters. 
         Syntax:
@@ -259,7 +259,7 @@ under the License.
         
         load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random partition. 
 
-    5. Load data format sample
+    6. Load data format sample
 
         Integer（TINYINT/SMALLINT/INT/BIGINT/LARGEINT）: 1, 1000, 1234
         Float（FLOAT/DOUBLE/DECIMAL）: 1.1, 0.23, .356

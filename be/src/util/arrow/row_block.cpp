@@ -23,7 +23,8 @@
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <arrow/type_fwd.h>
-#include <arrow/visitor_inline.h>
+#include <arrow/visit_array_inline.h>
+#include <arrow/visit_type_inline.h>
 
 #include "gutil/strings/substitute.h"
 #include "olap/column_block.h"

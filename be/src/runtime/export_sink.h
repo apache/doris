@@ -31,7 +31,6 @@ class TExpr;
 class RuntimeState;
 class RuntimeProfile;
 class ExprContext;
-class MemTracker;
 class FileWriter;
 class TupleRow;
 
@@ -74,8 +73,6 @@ private:
     std::unique_ptr<FileWriter> _file_writer;
 
     RuntimeProfile* _profile;
-
-    std::shared_ptr<MemTracker> _mem_tracker;
 
     RuntimeProfile::Counter* _bytes_written_counter;
     RuntimeProfile::Counter* _rows_written_counter;

@@ -27,8 +27,9 @@
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/visit_array_inline.h>
+#include <arrow/visit_type_inline.h>
 #include <arrow/visitor.h>
-#include <arrow/visitor_inline.h>
 
 #include <cstdlib>
 #include <ctime>

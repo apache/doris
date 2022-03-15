@@ -28,6 +28,7 @@
 #include "vec/exprs/vcompound_pred.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
+#include "vec/exprs/vtuple_is_null_predicate.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/exprs/vslot_ref.h"
 #include "vec/exprs/vinfo_func.h"
@@ -128,6 +129,10 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     }
     case TExprNodeType::INFO_FUNC: {
         *expr = pool->add(new VInfoFunc(texpr_node));
+        break;
+    }
+    case TExprNodeType::TUPLE_IS_NULL_PRED: {
+        *expr = pool->add(new VTupleIsNullPredicate(texpr_node));
         break;
     }
     default:

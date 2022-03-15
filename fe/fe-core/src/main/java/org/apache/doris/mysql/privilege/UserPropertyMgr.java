@@ -29,11 +29,11 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TFetchResourceResult;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -248,6 +248,22 @@ public class UserPropertyMgr implements Writable {
 
     public UserProperty getUserProperty(String qualifiedUserName) {
         return propertyMap.get(qualifiedUserName);
+    }
+
+    public long getExecMemLimit(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return -1;
+        }
+        return existProperty.getExecMemLimit();
+    }
+
+    public long getLoadMemLimit(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return -1;
+        }
+        return existProperty.getLoadMemLimit();
     }
 
     public static UserPropertyMgr read(DataInput in) throws IOException {

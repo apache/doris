@@ -28,11 +28,14 @@ namespace doris {
 
 Compaction::Compaction(TabletSharedPtr tablet, const std::string& label,
                        const std::shared_ptr<MemTracker>& parent_tracker)
-        : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker, true, false, MemTrackerLevel::TASK)),
-          _readers_tracker(MemTracker::CreateTracker(-1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
-                  true, false)),
-          _writer_tracker(MemTracker::CreateTracker(-1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
-                  true, false)),
+        : _mem_tracker(
+                  MemTracker::create_tracker(-1, label, parent_tracker, MemTrackerLevel::INSTANCE)),
+          _readers_tracker(MemTracker::create_tracker(
+                  -1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()),
+                  _mem_tracker)),
+          _writer_tracker(MemTracker::create_tracker(
+                  -1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()),
+                  _mem_tracker)),
           _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
@@ -133,7 +136,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
 
     int64_t current_max_version;
     {
-        ReadLock rdlock(_tablet->get_header_lock_ptr());
+        ReadLock rdlock(_tablet->get_header_lock());
         current_max_version = _tablet->rowset_with_max_version()->end_version();
     }
 
@@ -173,9 +176,9 @@ OLAPStatus Compaction::construct_input_rowset_readers() {
     for (auto& rowset : _input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
         RETURN_NOT_OK(rowset->create_reader(
-                MemTracker::CreateTracker(
+                MemTracker::create_tracker(
                         -1, "Compaction:RowsetReader:" + rowset->rowset_id().to_string(),
-                        _readers_tracker, true, true),
+                        _readers_tracker),
                 &rs_reader));
         _input_rs_readers.push_back(std::move(rs_reader));
     }
@@ -186,7 +189,7 @@ void Compaction::modify_rowsets() {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
 
-    WriteLock wrlock(_tablet->get_header_lock_ptr());
+    WriteLock wrlock(_tablet->get_header_lock());
     _tablet->modify_rowsets(output_rowsets, _input_rowsets);
     _tablet->save_meta();
 }

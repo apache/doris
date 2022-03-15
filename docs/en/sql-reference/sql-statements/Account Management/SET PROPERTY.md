@@ -42,9 +42,13 @@ max_user_connections: Maximum number of connections.
 max_query_instances: Maximum number of query instance user can use when query.
 sql_block_rules: set sql block rules。After setting, if the query user execute match the rules, it will be rejected.
 cpu_resource_limit: limit the cpu resource usage of a query. See session variable `cpu_resource_limit`.
+exec_mem_limit: Limit the memory usage of the query. See the description of the session variable `exec_mem_limit` for details. -1 means not set.
+load_mem_limit: Limit memory usage for imports. See the introduction of the session variable `load_mem_limit` for details. -1 means not set.
 resource.cpu_share: cpu resource assignment.(Derepcated)
 Load_cluster. {cluster_name}. priority: assigns priority to a specified cluster, which can be HIGH or NORMAL
 resource_tags: Specify the user's resource tag permissions.
+
+> Notice: The `cpu_resource_limit`, `exec_mem_limit`, and `load_mem_limit` properties default to the values in the session variables if they are not set.
 
 Ordinary user rights:
 Quota.normal: Resource allocation at the normal level.
@@ -92,6 +96,12 @@ SET PROPERTY FOR 'jack' 'cpu_resource_limit' = '2';
 
 11. Modify user's resource tag permission
 SET PROPERTY FOR 'jack' 'resource_tags.location' = 'group_a, group_b';
+
+12. modify the user's query memory usage limit in bytes
+SET PROPERTY FOR 'jack' 'exec_mem_limit' = '2147483648';
+
+13. modify the user's import memory usage limit in bytes
+SET PROPERTY FOR 'jack' 'load_mem_limit' = '2147483648';
 
 ## keyword
 SET, PROPERTY

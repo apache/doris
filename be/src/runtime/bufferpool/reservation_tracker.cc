@@ -60,7 +60,7 @@ void ReservationTracker::InitChildTracker(RuntimeProfile* profile, ReservationTr
     std::lock_guard<SpinLock> l(lock_);
     DCHECK(!initialized_);
     parent_ = parent;
-    mem_tracker_ = mem_tracker;
+    mem_tracker_ = nullptr; // TODO(zxy) remove ReservationTracker later
 
     reservation_limit_ = reservation_limit;
     reservation_ = 0;
@@ -75,8 +75,8 @@ void ReservationTracker::InitChildTracker(RuntimeProfile* profile, ReservationTr
             DCHECK_EQ(parent_mem_tracker, mem_tracker_->parent().get());
             // Make sure we don't have a lower limit than the ancestor, since we don't enforce
             // limits at lower links.
-            DCHECK_EQ(mem_tracker_->GetLowestLimit(MemLimit::HARD),
-                      parent_mem_tracker->GetLowestLimit(MemLimit::HARD));
+            DCHECK_EQ(mem_tracker_->get_lowest_limit(),
+                      parent_mem_tracker->get_lowest_limit());
         } else {
             // Make sure we didn't leave a gap in the links. E.g. this tracker's grandparent
             // shouldn't have a MemTracker.
@@ -110,7 +110,6 @@ void ReservationTracker::InitCounters(RuntimeProfile* profile, int64_t reservati
         counters_.reservation_limit = ADD_COUNTER(profile, "ReservationLimit", TUnit::BYTES);
         COUNTER_SET(counters_.reservation_limit, reservation_limit);
     }
-    if (mem_tracker_ != nullptr) mem_tracker_->EnableReservationReporting(counters_);
 }
 
 void ReservationTracker::Close() {
@@ -187,14 +186,14 @@ bool ReservationTracker::TryConsumeFromMemTracker(int64_t reservation_increase) 
     if (GetParentMemTracker() == nullptr) {
         // At the topmost link, which may be a MemTracker with a limit, we need to use
         // TryConsume() to check the limit.
-        Status st = mem_tracker_->TryConsume(reservation_increase);
+        Status st = mem_tracker_->try_consume(reservation_increase);
         WARN_IF_ERROR(st, "TryConsumeFromMemTracker failed");
         return st.ok();
     } else {
         // For lower links, there shouldn't be a limit to enforce, so we just need to
         // update the consumption of the linked MemTracker since the reservation is
         // already reflected in its parent.
-        mem_tracker_->ConsumeLocal(reservation_increase, GetParentMemTracker());
+        mem_tracker_->consume(reservation_increase, GetParentMemTracker());
         return true;
     }
 }
@@ -203,9 +202,9 @@ void ReservationTracker::ReleaseToMemTracker(int64_t reservation_decrease) {
     DCHECK_GE(reservation_decrease, 0);
     if (mem_tracker_ == nullptr) return;
     if (GetParentMemTracker() == nullptr) {
-        mem_tracker_->Release(reservation_decrease);
+        mem_tracker_->release(reservation_decrease);
     } else {
-        mem_tracker_->ReleaseLocal(reservation_decrease, GetParentMemTracker());
+        mem_tracker_->release(reservation_decrease, GetParentMemTracker());
     }
 }
 

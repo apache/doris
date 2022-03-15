@@ -60,7 +60,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     reader_params.version = Version(0, _version);
 
     {
-        ReadLock rdlock(tablet->get_header_lock_ptr());
+        ReadLock rdlock(tablet->get_header_lock());
         const RowsetSharedPtr message = tablet->rowset_with_max_version();
         if (message == nullptr) {
             LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;
@@ -87,8 +87,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     RowCursor row;
-    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool("EngineChecksumTask:_compute_checksum"));
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
     res = row.init(tablet->tablet_schema(), reader_params.return_columns);
     if (res != OLAP_SUCCESS) {

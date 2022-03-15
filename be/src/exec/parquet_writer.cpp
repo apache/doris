@@ -139,7 +139,7 @@ void ParquetWriterWrapper::parse_properties(
             if (property_value == "v1") {
                 builder.version(parquet::ParquetVersion::PARQUET_1_0);
             } else {
-                builder.version(parquet::ParquetVersion::PARQUET_2_0);
+                builder.version(parquet::ParquetVersion::PARQUET_2_LATEST);
             }
         }
     }

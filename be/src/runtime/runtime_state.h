@@ -84,7 +84,6 @@ public:
     // The instance tracker is tied to our profile.
     // Specific parts of the fragment (i.e. exec nodes, sinks, data stream senders, etc)
     // will add a fourth level when they are initialized.
-    // This function also initializes a user function mem tracker (in the fourth level).
     Status init_mem_trackers(const TUniqueId& query_id);
 
     // for ut only
@@ -113,6 +112,7 @@ public:
     int max_errors() const { return _query_options.max_errors; }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
     int num_scanner_threads() const { return _query_options.num_scanner_threads; }
+    TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
@@ -121,8 +121,6 @@ public:
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
-    const std::vector<std::shared_ptr<MemTracker>>& mem_trackers() { return _mem_trackers; }
-    std::shared_ptr<MemTracker> fragment_mem_tracker() { return _fragment_mem_tracker; }
     std::shared_ptr<MemTracker> query_mem_tracker() { return _query_mem_tracker; }
     std::shared_ptr<MemTracker> instance_mem_tracker() { return _instance_mem_tracker; }
     ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
@@ -157,22 +155,6 @@ public:
         std::lock_guard<std::mutex> l(_process_status_lock);
         return _process_status;
     };
-
-    //    MemPool* udf_pool() {
-    //        return _udf_pool.get();
-    //    };
-
-    // Create and return a stream receiver for _fragment_instance_id
-    // from the data stream manager. The receiver is added to _data_stream_recvrs_pool.
-    DataStreamRecvr* create_recvr(const RowDescriptor& row_desc, PlanNodeId dest_node_id,
-                                  int num_senders, int buffer_size, RuntimeProfile* profile);
-
-    // Sets the fragment memory limit and adds it to _mem_trackers
-    void set_fragment_mem_tracker(std::shared_ptr<MemTracker> tracker) {
-        DCHECK(_fragment_mem_tracker == nullptr);
-        _fragment_mem_tracker = tracker;
-        _mem_trackers.push_back(tracker);
-    }
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);
@@ -226,19 +208,11 @@ public:
         _process_status = status;
     }
 
-    // Sets query_status_ to MEM_LIMIT_EXCEEDED and logs all the registered trackers.
-    // Subsequent calls to this will be no-ops. Returns query_status_.
-    // If 'failed_allocation_size' is not 0, then it is the size of the allocation (in
-    // bytes) that would have exceeded the limit allocated for 'tracker'.
-    // This value and tracker are only used for error reporting.
+    // Sets _process_status to MEM_LIMIT_EXCEEDED.
+    // Subsequent calls to this will be no-ops. Returns _process_status.
     // If 'msg' is non-nullptr, it will be appended to query_status_ in addition to the
     // generic "Memory limit exceeded" error.
-    Status set_mem_limit_exceeded(MemTracker* tracker = nullptr, int64_t failed_allocation_size = 0,
-                                  const std::string* msg = nullptr);
-
-    Status set_mem_limit_exceeded(const std::string& msg) {
-        return set_mem_limit_exceeded(nullptr, 0, &msg);
-    }
+    Status set_mem_limit_exceeded(const std::string& msg = "Memory limit exceeded");
 
     // Returns a non-OK status if query execution should stop (e.g., the query was cancelled
     // or a mem limit was exceeded). Exec nodes should check this periodically so execution
@@ -396,12 +370,6 @@ private:
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 2048;
-
-    // all mem limits that apply to this query
-    std::vector<std::shared_ptr<MemTracker>> _mem_trackers;
-
-    // Fragment memory limit.  Also contained in _mem_trackers
-    std::shared_ptr<MemTracker> _fragment_mem_tracker;
 
     // MemTracker that is shared by all fragment instances running on this host.
     // The query mem tracker must be released after the _instance_mem_tracker.

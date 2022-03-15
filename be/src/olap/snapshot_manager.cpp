@@ -355,7 +355,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
         /// If some of them not exist in tablet, we will fall back to
         /// make the full snapshot of the tablet.
         {
-            ReadLock rdlock(ref_tablet->get_header_lock_ptr());
+            ReadLock rdlock(ref_tablet->get_header_lock());
             if (request.__isset.missing_version) {
                 for (int64_t missed_version : request.missing_version) {
                     Version version = {missed_version, missed_version};
@@ -379,7 +379,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
                 res = OLAP_SUCCESS;         // reset res
                 consistent_rowsets.clear(); // reset vector
 
-                ReadLock rdlock(ref_tablet->get_header_lock_ptr());
+                ReadLock rdlock(ref_tablet->get_header_lock());
                 // get latest version
                 const RowsetSharedPtr last_version = ref_tablet->rowset_with_max_version();
                 if (last_version == nullptr) {
