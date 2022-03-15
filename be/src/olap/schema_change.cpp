@@ -1407,8 +1407,14 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2&
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << request.alter_version;
 
+    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+            request.base_tablet_id, request.base_schema_hash);
+    if (base_tablet == nullptr) {
+        LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
+        return OLAP_ERR_TABLE_NOT_FOUND;
+    }
     // Lock schema_change_lock util schema change info is stored in tablet header
-    WriteLock schema_change_lock(_tablet->get_schema_change_lock(), std::try_to_lock);
+    std::lock_guard schema_change_lock(_tablet->get_schema_change_lock(), std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
         LOG(WARNING) << "failed to obtain schema change lock. "
                      << "base_tablet=" << request.base_tablet_id;

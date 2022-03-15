@@ -487,9 +487,9 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
                 LOG(WARNING) << "dropping tablet not exist, " << " tablet=" << tablet_id;
                 continue;
             } else {
+                _remove_tablet_from_partition(dropped_tablet);
                 tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
                 tablet_map.erase(tablet_id);
-                _remove_tablet_from_partition(dropped_tablet);
             }
         }
     }
@@ -1204,9 +1204,9 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id, bo
                      << " tablet_id=" << tablet_id;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
+    _remove_tablet_from_partition(dropped_tablet);
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map.erase(tablet_id);
-    _remove_tablet_from_partition(dropped_tablet);
     if (!keep_files) {
         // drop tablet will update tablet meta, should lock
         WriteLock wrlock(tablet->get_header_lock());
