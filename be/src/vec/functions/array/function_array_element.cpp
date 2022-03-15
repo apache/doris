@@ -14,20 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/registerFunctionsArray.cpp
-// and modified by Doris
 
+#include "vec/functions/array/function_array_element.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-void register_function_array_element(SimpleFunctionFactory&);
-void register_function_array_index(SimpleFunctionFactory&);
-
-void register_function_array(SimpleFunctionFactory& factory) {
-    register_function_array_element(factory);
-    register_function_array_index(factory);
+void register_function_array_element(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArrayElement>();
+    factory.register_alias(FunctionArrayElement::name, "%element_extract%");
 }
 
 } // namespace doris::vectorized

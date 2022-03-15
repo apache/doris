@@ -80,8 +80,9 @@ public abstract class Type {
     public static final ScalarType BITMAP = new ScalarType(PrimitiveType.BITMAP);
     // Only used for alias function, to represent any type in function args
     public static final ScalarType ALL = new ScalarType(PrimitiveType.ALL);
-    public static final MapType Map = new MapType();
+    public static final MapType MAP = new MapType();
     public static final ArrayType ARRAY = ArrayType.create();
+    public static final StructType STRUCT = new StructType();
 
     private static ArrayList<ScalarType> integerTypes;
     private static ArrayList<ScalarType> numericTypes;
@@ -370,7 +371,9 @@ public abstract class Type {
         }
         if (t1.isComplexType() || t2.isComplexType()) {
             if (t1.isArrayType() && t2.isArrayType()) {
-                return true;
+                // Subtype of Array do not support cast now, for example:
+                //     Array<Int8> can not cast to Array<Int32>
+                return t1.matchesType(t2);
             } else if (t1.isMapType() && t2.isMapType()) {
                 return true;
             } else if (t1.isStructType() && t2.isStructType()) {

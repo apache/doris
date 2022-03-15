@@ -60,7 +60,7 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(WhichDataType(arguments[0]).is_array());
+        DCHECK(is_array(arguments[0]));
         return std::make_shared<DataTypeNumber<ResultType>>();
     }
 
@@ -188,7 +188,9 @@ private:
                 execute_integral<INTEGRAL_TPL_PACK>(block, arguments, result, input_rows_count)) {
             return Status::OK();
         }
-        return Status::OK();
+        return Status::RuntimeError(fmt::format("unsupported types for function {}({}, {})", get_name(),
+                                    block.get_by_position(arguments[0]).type->get_name(),
+                                    block.get_by_position(arguments[1]).type->get_name()));
     }
 #undef INTEGRAL_TPL_PACK
 };

@@ -37,7 +37,7 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
     return nested;
 }
 
-DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc) {
+DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool is_nullable) {
     DataTypePtr nested = nullptr;
     if (col_desc.type() == OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(col_desc.get_subtype_count() == 1);
@@ -46,7 +46,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc) {
         nested = _create_primitive_data_type(col_desc.type());
     }
 
-    if (col_desc.is_nullable() && nested) {
+    if ((is_nullable || col_desc.is_nullable()) && nested) {
         return std::make_shared<DataTypeNullable>(nested);
     }
     return nested;
