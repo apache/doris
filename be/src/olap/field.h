@@ -91,6 +91,7 @@ public:
             if (dst_slice->size < src_slice->size) {
                 *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, src_slice->size));
                 dst_slice->data = *_long_text_buf;
+                dst_slice->size = src_slice->size;
             }
         }
         _agg_info->update(dest, src, mem_pool);
