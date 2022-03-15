@@ -57,7 +57,7 @@ public class ExportProcNode implements ProcNodeInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<String>> jobInfos = exportMgr.getExportJobInfosByIdOrState(db.getId(), 0, "", null, null, LIMIT);
+        List<List<String>> jobInfos = exportMgr.getExportJobInfosByIdOrState(db.getId(), 0, "",false, null, null, LIMIT);
         result.setRows(jobInfos);
         return result;
     }
