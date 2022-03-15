@@ -7,6 +7,7 @@ Checks: |
   modernize-use-equals-default,
   modernize-use-equals-delete,
   modernize-use-nullptr,
+  modernize-use-default-member-init,
   modernize-use-bool-literals,
   modernize-use-using
   readability-make-member-function-const,

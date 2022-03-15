@@ -2086,9 +2086,9 @@ DecimalV2Val AggregateFunctions::decimalv2_knuth_stddev_pop_finalize(FunctionCon
 }
 
 struct RankState {
-    int64_t rank;
-    int64_t count;
-    RankState() : rank(1), count(0) {}
+    int64_t rank {1};
+    int64_t count {0};
+    RankState() = default;
 };
 
 void AggregateFunctions::rank_init(FunctionContext* ctx, StringVal* dst) {
