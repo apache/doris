@@ -496,11 +496,10 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
 TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                           bool include_deleted, string* err) {
     ReadLock rdlock(_get_tablets_shard_lock(tablet_id));
-    return _get_tablet_unlocked(tablet_id, schema_hash, include_deleted, err);
+    return _get_tablet_unlocked(tablet_id, include_deleted, err);
 }
 
-TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id,
-                                                    bool include_deleted, string* err) {
+TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool include_deleted, string* err) {
     TabletSharedPtr tablet;
     tablet = _get_tablet_unlocked(tablet_id);
     if (tablet == nullptr && include_deleted) {
