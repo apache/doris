@@ -34,7 +34,7 @@ Grammar:
             WHERE
             [ID = your_job_id]
             [STATE = ["PENDING"|"EXPORTING"|"FINISHED"|"CANCELLED"]]
-			[LABEL = "your_label"]
+			[LABEL [ = "your_label" | LIKE "label_matcher"]]
         ]
         [ORDER BY ...]
         [LIMIT limit];
@@ -55,11 +55,14 @@ Explain:
 3. Show the export task of the specified db, state is "exporting" and sorted in descending order by StartTime
     SHOW EXPORT FROM example_db WHERE STATE = "exporting" ORDER BY StartTime DESC;
 
-4. Show the export task of specifying dB and job_id
+4. Show the export task of specifying DB and job_id
     SHOW EXPORT FROM example_db WHERE ID = job_id;
 
-5. Show the export task of specifying dB and label
+5. Show the export task of specifying DB and label
     SHOW EXPORT FROM example_db WHERE LABEL = "mylabel";
+
+6. Show the export task of specifying DB and label prefix is "labelprefix"
+    SHOW EXPORT FROM example_db WHERE LABEL LIKE "labelprefix%";
 
 ## keyword
 

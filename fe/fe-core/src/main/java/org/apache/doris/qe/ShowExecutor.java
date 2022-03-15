@@ -1631,7 +1631,7 @@ public class ShowExecutor {
             states = Sets.newHashSet(state);
         }
         List<List<String>> infos = exportMgr.getExportJobInfosByIdOrState(
-                dbId, showExportStmt.getJobId(), showExportStmt.getLabel(), states,
+                dbId, showExportStmt.getJobId(), showExportStmt.getLabel(),showExportStmt.isLabelUseLike(),  states,
                 showExportStmt.getOrderByPairs(), showExportStmt.getLimit());
 
         resultSet = new ShowResultSet(showExportStmt.getMetaData(), infos);

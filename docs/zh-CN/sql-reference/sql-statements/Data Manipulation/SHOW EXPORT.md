@@ -34,7 +34,7 @@ under the License.
             WHERE
             [ID = your_job_id]
             [STATE = ["PENDING"|"EXPORTING"|"FINISHED"|"CANCELLED"]]
-            [LABEL = your_label]
+            [LABEL [ = "your_label" | LIKE "label_matcher"]]
         ]
         [ORDER BY ...]
         [LIMIT limit];
@@ -55,11 +55,14 @@ under the License.
     3. 展示指定 db 的导出任务，state 为 "exporting", 并按 StartTime 降序排序
         SHOW EXPORT FROM example_db WHERE STATE = "exporting" ORDER BY StartTime DESC;
     
-    4. 展示指定db，指定job_id的导出任务
+    4. 展示指定 db，指定 job_id 的导出任务
         SHOW EXPORT FROM example_db WHERE ID = job_id;
 
-    5. 展示指定db，指定label的导出任务
+    5. 展示指定 db，指定 label 的导出任务
         SHOW EXPORT FROM example_db WHERE LABEL = "mylabel";
+
+    6. 展示指定 db，label 中前缀是 labelprefix 的导出任务
+        SHOW EXPORT FROM example_db WHERE LABEL LIKE "labelprefix%";
 
 ## keyword
     SHOW,EXPORT
