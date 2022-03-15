@@ -16,18 +16,15 @@
 // under the License.
 
 // The cases is copied from https://github.com/trinodb/trino/tree/master
-// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/tpcds
+// /testing/trino-product-tests/src/main/resources/sql-tests/testcases/window_functions
 // and modified by Doris.
 
-def url="https://doris-build.oss-cn-beijing-internal.aliyuncs.com/regression/tpcds/sf1/"
-def tables=["store", "store_returns", "customer", "date_dim", "web_sales",
-            "catalog_sales", "store_sales", "item", "web_returns", "catalog_returns",
-            "catalog_page", "web_site", "customer_address", "customer_demographics",
-            "ship_mode", "promotion", "inventory", "time_dim", "income_band",
-            "call_center", "reason", "household_demographics", "warehouse", "web_page"]
+def url = 'https://doris-build.oss-cn-beijing-internal.aliyuncs.com/regression/tpch/sf0.01/'
+
+def tables = ['lineitem', 'region', 'nation', 'part', 'supplier']
 
 for (String table in tables) {
-    sql """ DROP TABLE IF EXISTS $table """
+    sql """ DROP TABLE IF EXISTS tpch_tiny_${table} """
 }
 
 scriptDir = new File(getClass().protectionDomain.codeSource.location.path).parent
@@ -36,27 +33,21 @@ for (String table in tables) {
     sql new File("""${scriptDir}/ddl/${table}.sql""").text
 }
 
-for (String table in tables) {
+for (String table_name in tables) {
     streamLoad {
         // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
         // db 'regression_test'
-        table table
-
-        // default label is UUID:
-        // set 'label' UUID.randomUUID().toString()
+        table "tpch_tiny_${table_name}"
 
         // default column_separator is specify in doris fe config, usually is '\t'.
         // this line change to ','
         set 'column_separator', '|'
         set 'compress_type', 'GZ'
-
         // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
         // also, you can stream load a http stream, e.g. http://xxx/some.csv
         file """${url+table_name}.csv.gz"""
 
         time 10000 // limit inflight 10s
-
-        // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
 
         // if declared a check callback, the default check condition will ignore.
         // So you must check all condition
@@ -66,7 +57,7 @@ for (String table in tables) {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("success", json.Status.toLowerCase())
+            assertEquals('success', json.Status.toLowerCase())
             assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
