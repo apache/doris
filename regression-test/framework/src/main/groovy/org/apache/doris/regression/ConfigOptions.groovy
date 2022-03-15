@@ -42,6 +42,9 @@ class ConfigOptions {
     static Option confOpt
     static Option genOutOpt
     static Option forceGenOutOpt
+    static Option parallelOpt
+    static Option randomOrderOpt
+    static Option timesOpt
 
     static CommandLine initCommands(String[] args) {
         helpOption = Option.builder("h")
@@ -167,6 +170,29 @@ class ConfigOptions {
                 .longOpt("configurations, format: key=value")
                 .desc("set addition context configurations")
                 .build()
+        parallelOpt = Option.builder("parallel")
+                .argName("parallel")
+                .required(false)
+                .hasArg(true)
+                .optionalArg(true)
+                .type(String.class)
+                .longOpt("parallel")
+                .desc("the num of threads running test")
+                .build()
+        randomOrderOpt = Option.builder("randomOrder")
+                .required(false)
+                .hasArg(false)
+                .desc("run tests in random order")
+                .build()
+        timesOpt = Option.builder("times")
+                .argName("times")
+                .required(false)
+                .hasArg(true)
+                .optionalArg(true)
+                .type(String.class)
+                .longOpt("times")
+                .desc("the times tests run, load.groovy is run only one time.")
+                .build()
 
         Options options = new Options()
                 .addOption(helpOption)
@@ -184,6 +210,8 @@ class ConfigOptions {
                 .addOption(genOutOpt)
                 .addOption(confFileOpt)
                 .addOption(forceGenOutOpt)
+                .addOption(parallelOpt)
+                .addOption(randomOrderOpt)
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)
         if (cmd.hasOption(helpOption)) {
