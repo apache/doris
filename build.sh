@@ -257,6 +257,12 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
+    echo "Build Frontend Modules: java-udf"
+    cd ${DORIS_HOME}/fe
+    if [ ${CLEAN} -eq 1 ]; then
+        clean_fe
+    fi
+    ${MVN_CMD} package -pl fe-common,fe-core,java-udf -DskipTests
     cd ${DORIS_HOME}
 fi
 
@@ -369,6 +375,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/include/* ${DORIS_OUTPUT}/udf/include/
     cp -r -p ${DORIS_HOME}/webroot/be/* ${DORIS_OUTPUT}/be/www/
+    cp -r -p ${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar ${DORIS_OUTPUT}/be/lib/
 
     cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/be/www/
     mkdir -p ${DORIS_OUTPUT}/be/log

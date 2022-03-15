@@ -118,6 +118,7 @@ under the License.
         <module>spark-dpp</module>
         <module>fe-core</module>
         <module>hive-udf</module>
+        <module>java-udf</module>
     </modules>
     <properties>
         <doris.home>${basedir}/../</doris.home>

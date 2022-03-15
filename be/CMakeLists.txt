@@ -474,6 +474,17 @@ include_directories(
     ${THIRDPARTY_DIR}/include/breakpad/
 )
 
+set(DORIS_DEPENDENCIES
+    ${DORIS_DEPENDENCIES}
+    jvm
+)
+execute_process(COMMAND sh ${BASE_DIR}/../tools/find_libjvm.sh OUTPUT_VARIABLE LIBJVM_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
+add_library(jvm SHARED IMPORTED)
+FILE(GLOB_RECURSE LIB_JVM ${LIBJVM_PATH})
+set_target_properties(jvm PROPERTIES IMPORTED_LOCATION ${LIB_JVM})
+include_directories($ENV{JAVA_HOME}/include)
+include_directories($ENV{JAVA_HOME}/include/linux)
+
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 

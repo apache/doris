@@ -152,6 +152,7 @@ set(VEC_FILES
   functions/function_date_or_datetime_to_string.cpp
   functions/function_datetime_string_to_string.cpp
   functions/function_grouping.cpp
+  functions/function_java_udf.cpp
   functions/function_rpc.cpp
   functions/function_convert_tz.cpp
   functions/least_greast.cpp
