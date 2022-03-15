@@ -89,9 +89,8 @@ TabletManager::~TabletManager() {
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
-OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id,
-                                               const TabletSharedPtr& tablet, bool update_meta,
-                                               bool force) {
+OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet, 
+    bool update_meta, bool force) {
     OLAPStatus res = OLAP_SUCCESS;
     VLOG_NOTICE << "begin to add tablet to TabletManager. "
                 << "tablet_id=" << tablet_id
@@ -195,7 +194,7 @@ OLAPStatus TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet->register_tablet_into_dir();
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
-    _add_tablet_to_partition(*tablet);
+    _add_tablet_to_partition(tablet);
     // TODO: remove multiply 2 of tablet meta mem size
     // Because table schema will copy in tablet, there will be double mem cost
     // so here multiply 2
@@ -245,9 +244,8 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         base_tablet = _get_tablet_unlocked(request.base_tablet_id);
         if (base_tablet == nullptr) {
             LOG(WARNING) << "fail to create tablet(change schema), base tablet does not exist. "
-                         << "new_tablet_id=" << tablet_id << ", new_schema_hash=" << schema_hash
-                         << ", base_tablet_id=" << request.base_tablet_id
-                         << ", base_schema_hash=" << request.base_schema_hash;
+                         << "new_tablet_id=" << tablet_id 
+                         << ", base_tablet_id=" << request.base_tablet_id;
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
             return OLAP_ERR_TABLE_CREATE_META_ERROR;
         }
@@ -268,8 +266,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
     }
     TRACE("succeed to create tablet");
 
-    LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id
-              << ", schema_hash=" << schema_hash;
+    LOG(INFO) << "success to create tablet. tablet_id=" << tablet_id;
     return OLAP_SUCCESS;
 }
 
@@ -1240,16 +1237,16 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id) {
     return nullptr;
 }
 
-void TabletManager::_add_tablet_to_partition(const Tablet& tablet) {
+void TabletManager::_add_tablet_to_partition(TabletSharedPtr& tablet) {
     WriteLock wrlock(_partition_tablet_map_lock);
-    _partition_tablet_map[tablet.partition_id()].insert(tablet.get_tablet_info());
+    _partition_tablet_map[tablet->partition_id()].insert(tablet->get_tablet_info());
 }
 
-void TabletManager::_remove_tablet_from_partition(const Tablet& tablet) {
+void TabletManager::_remove_tablet_from_partition(TabletSharedPtr& tablet) {
     WriteLock wrlock(_partition_tablet_map_lock);
-    _partition_tablet_map[tablet.partition_id()].erase(tablet.get_tablet_info());
-    if (_partition_tablet_map[tablet.partition_id()].empty()) {
-        _partition_tablet_map.erase(tablet.partition_id());
+    _partition_tablet_map[tablet->partition_id()].erase(tablet->get_tablet_info());
+    if (_partition_tablet_map[tablet->partition_id()].empty()) {
+        _partition_tablet_map.erase(tablet->partition_id());
     }
 }
 

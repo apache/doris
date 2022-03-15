@@ -1414,7 +1414,7 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2&
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
     // Lock schema_change_lock util schema change info is stored in tablet header
-    std::lock_guard schema_change_lock(_tablet->get_schema_change_lock(), std::try_to_lock);
+    std::lock_guard schema_change_lock(base_tablet->get_schema_change_lock(), std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
         LOG(WARNING) << "failed to obtain schema change lock. "
                      << "base_tablet=" << request.base_tablet_id;

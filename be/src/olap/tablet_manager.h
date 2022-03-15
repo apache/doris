@@ -147,8 +147,7 @@ private:
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus _add_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
-                                    const TabletSharedPtr& tablet, bool update_meta, bool force);
+    OLAPStatus _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet, bool update_meta, bool force);
 
     OLAPStatus _add_tablet_to_map_unlocked(TTabletId tablet_id, 
                                            const TabletSharedPtr& tablet, bool update_meta,
@@ -157,8 +156,7 @@ private:
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
     OLAPStatus _create_initial_rowset_unlocked(const TCreateTabletReq& request, Tablet* tablet);
 
-    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, TSchemaHash schema_hash,
-                                              bool keep_files = false);
+    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, bool keep_files = false);
 
     OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, bool keep_files);
 
@@ -178,9 +176,9 @@ private:
                                             const Tablet* base_tablet,
                                             TabletMetaSharedPtr* tablet_meta);
     
-    void _add_tablet_to_partition(const Tablet& tablet);
+    void _add_tablet_to_partition(TabletSharedPtr& tablet);
 
-    void _remove_tablet_from_partition(const Tablet& tablet);
+    void _remove_tablet_from_partition(TabletSharedPtr& tablet);
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
