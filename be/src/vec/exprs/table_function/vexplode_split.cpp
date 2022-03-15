@@ -53,14 +53,14 @@ Status VExplodeSplitTableFunction::process_row(size_t row_idx) {
     _is_current_empty = false;
     _eos = false;
 
-    if (_text_column->is_null_at(row_idx)) {
+    StringRef text = _text_column->get_data_at(row_idx);
+    StringRef delimiter = _delimiter_column->get_data_at(row_idx);
+
+    if (text.data == nullptr) {
         _is_current_empty = true;
         _cur_size = 0;
         _cur_offset = 0;
     } else {
-        StringRef text = _text_column->get_data_at(row_idx);
-        StringRef delimiter = _delimiter_column->get_data_at(row_idx);
-
         //TODO: implement non-copy split string reference
         _backup = strings::Split(StringPiece((char*)text.data, text.size),
                                  StringPiece((char*)delimiter.data, delimiter.size));
