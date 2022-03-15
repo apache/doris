@@ -9,6 +9,4 @@ CREATE TABLE `workers` (
   salary INT
 )
 DISTRIBUTED BY HASH(`id_employee`) BUCKETS 1
-PROPERTIES (
-  "replication_num" = "1"
- );
+PROPERTIES ("replication_num" = "1");
