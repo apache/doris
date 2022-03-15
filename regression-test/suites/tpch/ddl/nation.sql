@@ -5,6 +5,4 @@ CREATE TABLE `nation` (
   `n_comment` varchar(152)
 )
 DISTRIBUTED BY HASH(`n_nationkey`) BUCKETS 1
-PROPERTIES (
-"replication_num" = "1"
-);
+PROPERTIES ("replication_num" = "1");
