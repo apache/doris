@@ -163,7 +163,7 @@ struct HashTableCell {
 
     Key key;
 
-    HashTableCell() {}
+    HashTableCell() = default;
 
     /// Create a cell with the given key / key and value.
     HashTableCell(const Key& key_, const State&) : key(key_) {}
@@ -522,7 +522,7 @@ protected:
         friend class HashTable;
 
     public:
-        iterator_base() {}
+        iterator_base() = default;
         iterator_base(Container* container_, cell_type* ptr_) : container(container_), ptr(ptr_) {}
 
         bool operator==(const iterator_base& rhs) const { return ptr == rhs.ptr; }

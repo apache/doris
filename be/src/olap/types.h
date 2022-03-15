@@ -162,7 +162,7 @@ class ArrayTypeInfo : public TypeInfo {
 public:
     explicit ArrayTypeInfo(std::shared_ptr<const TypeInfo> item_type_info)
             : _item_type_info(item_type_info), _item_size(item_type_info->size()) {}
-    ~ArrayTypeInfo() = default;
+    ~ArrayTypeInfo() override = default;
     inline bool equal(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const CollectionValue*>(left);
         auto r_value = reinterpret_cast<const CollectionValue*>(right);

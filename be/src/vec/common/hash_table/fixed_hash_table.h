@@ -30,7 +30,7 @@ struct FixedHashTableCell {
     using mapped_type = VoidMapped;
     bool full;
 
-    FixedHashTableCell() {}
+    FixedHashTableCell() = default;
     FixedHashTableCell(const Key&, const State&) : full(true) {}
 
     const VoidKey get_key() const { return {}; }
@@ -150,7 +150,7 @@ protected:
         friend class FixedHashTable;
 
     public:
-        iterator_base() {}
+        iterator_base() = default;
         iterator_base(Container* container_, cell_type* ptr_) : container(container_), ptr(ptr_) {
             cell.update(ptr - container->buf, ptr);
         }

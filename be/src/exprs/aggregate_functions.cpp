@@ -348,7 +348,7 @@ DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx,
 
     delete percentile;
     if (std::isnan(result)) {
-        return DoubleVal(result).null();
+        return DoubleVal::null();
     } else {
         return DoubleVal(result);
     }
@@ -1270,7 +1270,7 @@ public:
 
     // type:one byte  value:sizeof(T)
     StringVal serialize(FunctionContext* ctx) {
-        size_t type_size = sizeof(((T*)0)->val);
+        size_t type_size = sizeof(((T*)nullptr)->val);
         const size_t serialized_set_length = sizeof(uint8_t) + type_size * _set.size();
         StringVal result(ctx, serialized_set_length);
         uint8_t* type_writer = result.ptr;
@@ -1286,7 +1286,7 @@ public:
     }
 
     void unserialize(StringVal& src) {
-        size_t type_size = sizeof(((T*)0)->val);
+        size_t type_size = sizeof(((T*)nullptr)->val);
         const uint8_t* type_reader = src.ptr;
         const uint8_t* end = src.ptr + src.len;
         // type

@@ -108,7 +108,7 @@ public:
     void clear() { memset(_data, 0, _data_len * sizeof(uint64_t)); }
 
     void reset() {
-        _data = NULL;
+        _data = nullptr;
         _data_len = 0;
     }
 
@@ -120,7 +120,7 @@ private:
 class BloomFilter {
 public:
     BloomFilter() : _bit_num(0), _hash_function_num(0) {}
-    ~BloomFilter() {}
+    ~BloomFilter() = default;
 
     // Create BloomFilter with given entry num and fpp, which is used for loading data
     bool init(int64_t expected_entries, double fpp) {

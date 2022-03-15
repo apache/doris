@@ -358,7 +358,7 @@ public:
               _explicit_value(nullptr),
               _explicit_num(0) {}
 
-    ~HllSetResolver() {}
+    ~HllSetResolver() = default;
 
     typedef uint8_t SetTypeValueType;
     typedef uint8_t ExplicitLengthValueType;

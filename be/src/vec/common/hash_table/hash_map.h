@@ -36,7 +36,7 @@ struct PairNoInit {
     First first;
     Second second;
 
-    PairNoInit() {}
+    PairNoInit() = default;
 
     template <typename First_>
     PairNoInit(First_&& first_, NoInitTag) : first(std::forward<First_>(first_)) {}
@@ -57,7 +57,7 @@ struct HashMapCell {
 
     value_type value;
 
-    HashMapCell() {}
+    HashMapCell() = default;
     HashMapCell(const Key& key_, const State&) : value(key_, NoInitTag()) {}
     HashMapCell(const value_type& value_, const State&) : value(value_) {}
 
