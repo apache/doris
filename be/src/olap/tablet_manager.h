@@ -176,9 +176,9 @@ private:
                                             const Tablet* base_tablet,
                                             TabletMetaSharedPtr* tablet_meta);
     
-    void _add_tablet_to_partition(TabletSharedPtr& tablet);
+    void _add_tablet_to_partition(const TabletSharedPtr& tablet);
 
-    void _remove_tablet_from_partition(TabletSharedPtr& tablet);
+    void _remove_tablet_from_partition(const TabletSharedPtr& tablet);
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 

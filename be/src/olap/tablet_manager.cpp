@@ -68,10 +68,6 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "tablet_meta"}}));
 
-static bool _cmp_tablet_by_create_time(const TabletSharedPtr& a, const TabletSharedPtr& b) {
-    return a->creation_time() < b->creation_time();
-}
-
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
         : _mem_tracker(MemTracker::create_tracker(-1, "TabletManager", nullptr,
                                                           MemTrackerLevel::OVERVIEW)),
@@ -134,7 +130,7 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const Tablet
             // it seems useless to call unlock and return here.
             // it could prevent error when log level is changed in the future.
             LOG(FATAL) << "new tablet is empty and old tablet exists. it should not happen."
-                       << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash;
+                       << " tablet_id=" << tablet_id;
             return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
         }
         old_time = old_rowset == nullptr ? -1 : old_rowset->creation_time();
@@ -846,7 +842,6 @@ OLAPStatus TabletManager::build_all_report_tablets_info(
             tablet_version_num_hist.add(tablet_ptr->version_count());
             tablets_info->emplace(tablet_id, t_tablet);
             TTabletStat t_tablet_stat;
-            const auto& tablet_info = t_tablet.tablet_infos[0];
             t_tablet_stat.tablet_id = tablet_info.tablet_id;
             t_tablet_stat.data_size = tablet_info.data_size;
             t_tablet_stat.row_num = tablet_info.row_count;
@@ -1205,7 +1200,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id, bo
     tablet_map.erase(tablet_id);
     if (!keep_files) {
         // drop tablet will update tablet meta, should lock
-        WriteLock wrlock(tablet->get_header_lock());
+        WriteLock wrlock(dropped_tablet->get_header_lock());
         LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
                     << "tablet_id=" << tablet_id
                     << ", tablet_path=" << dropped_tablet->tablet_path_desc().filepath;
@@ -1236,7 +1231,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id) {
     return nullptr;
 }
 
-void TabletManager::_add_tablet_to_partition(TabletSharedPtr& tablet) {
+void TabletManager::_add_tablet_to_partition(const TabletSharedPtr& tablet) {
     WriteLock wrlock(_partition_tablet_map_lock);
     _partition_tablet_map[tablet->partition_id()].insert(tablet->get_tablet_info());
 }
