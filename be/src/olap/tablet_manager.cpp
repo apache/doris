@@ -110,7 +110,8 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
         return _add_tablet_to_map_unlocked(tablet_id, schema_hash, tablet, update_meta,
                                            false /*keep_files*/, false /*drop_old*/);
     }
-
+    // During restore process, the tablet is exist and snapshot loader will replace the tablet's rowsets 
+    // and then reload the tablet, the tablet's path will the same
     if (!force) {
         if (existed_tablet->tablet_path_desc().filepath == tablet->tablet_path_desc().filepath) {
             LOG(WARNING) << "add the same tablet twice! tablet_id=" << tablet_id
@@ -125,6 +126,9 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
         }
     }
 
+    // During storage migration, the tablet is moved to another disk, have to check
+    // if the new tablet's rowset version is larger than the old one to prvent losting data during
+    // migration
     int64_t old_time, new_time;
     int32_t old_version, new_version;
     {
@@ -153,6 +157,9 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
     // dropped when the origin Tablet deconstruct.
     // So we set keep_files == true to not delete files when the
     // origin Tablet deconstruct.
+    // During restore process, snapshot loader
+    // replaced the old tablet's rowset with new rowsets, but the tablet path is reused, if drop files
+    // here, the new rowset's file will also be dropped, so use keep files here
     bool keep_files = force ? true : false;
     if (force ||
         (new_version > old_version || (new_version == old_version && new_time > old_time))) {
