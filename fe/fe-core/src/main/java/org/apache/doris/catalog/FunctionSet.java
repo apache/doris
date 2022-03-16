@@ -1214,6 +1214,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
 
 
     public static final String COUNT = "count";
+    public static final String WINDOW_FUNNEL = "window_funnel";
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1248,7 +1249,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 null, false, true, true, true));
 
         // windowFunnel
-        addBuiltin(AggregateFunction.createBuiltin("window_funnel",
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
                 Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIME, Type.BOOLEAN),
                 Type.INT,
                 Type.VARCHAR,
@@ -1263,7 +1264,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 true, false, true));
 
         // Vectorization does not need symbol any more, we should clean it in the future.
-        addBuiltin(AggregateFunction.createBuiltin("window_funnel",
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
                 Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIME, Type.BOOLEAN),
                 Type.INT,
                 Type.VARCHAR,

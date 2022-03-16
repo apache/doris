@@ -729,7 +729,6 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-
         if (isMergeAggFn) {
             // This is the function call expr after splitting up to a merge aggregation.
             // The function has already been analyzed so just do the minimal sanity
@@ -793,7 +792,7 @@ public class FunctionCallExpr extends Expr {
 
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } else if (fnName.getFunction().equalsIgnoreCase("window_funnel")) {
+        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.WINDOW_FUNNEL)) {
             if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {
                 throw new AnalysisException("The " + fnName + " function must have at least four params");
             }
