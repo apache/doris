@@ -31,8 +31,8 @@ class Slice;
 class TDigest;
 
 const static int QUANTILE_STATE_EXPLICIT_NUM = 2048;
-const static int QUANTILE_STATE_COMPRESSION_MAX = 2048;
-const static int QUANTILE_STATE_COMPRESSION_MIN = 10000;
+const static int QUANTILE_STATE_COMPRESSION_MIN = 2048;
+const static int QUANTILE_STATE_COMPRESSION_MAX = 10000;
 
 enum QuantileStateType {
     EMPTY = 0,
