@@ -932,6 +932,10 @@ uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t week_
     } else {
         // January 1st belongs to the first week of this year
         first_weekday = daynr_first_day - weekday_first_day;
+    }
+
+    if (value._month == 12 && value._day >= 26) {
+        // the target date belongs to the last week of this year or the first week of next year
         daynr_first_day = calc_daynr((*year) + 1, 1, 1);
         weekday_first_day = calc_weekday(daynr_first_day, week_start);
         uint64_t next_year_first_weekday;
@@ -946,6 +950,7 @@ uint8_t VecDateTimeValue::calc_week(const VecDateTimeValue& value, uint8_t week_
             return 1;
         }
     }
+
     // the target date belongs to this year
     return (day_nr - first_weekday) / 7 + 1;
 }
