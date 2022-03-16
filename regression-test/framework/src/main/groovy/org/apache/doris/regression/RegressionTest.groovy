@@ -53,6 +53,7 @@ class RegressionTest {
             Recorder recorder = runSuites(config)
             printResult(config, recorder)
         }
+        executorService.shutdown()
     }
 
     static void initGroovyEnv(Config config) {
@@ -93,7 +94,11 @@ class RegressionTest {
         groovy_file.createNewFile()
         int separatorIndex = f.name.lastIndexOf('.')
         String action_name = f.name.substring(0, separatorIndex)
-        groovy_file.text = "qt_${action_name} \"\"\"${f.text}\"\"\""
+        if (action_name.endsWith('order')) {
+             groovy_file.text = "order_qt_${action_name} \"\"\"${f.text}\"\"\""
+        } else {
+             groovy_file.text = "qt_${action_name} \"\"\"${f.text}\"\"\""
+        }
     }
 
     static String parseGroup(Config config, File suiteFile) {
@@ -153,13 +158,20 @@ class RegressionTest {
         runScripts.eachWithIndex { sf, i ->
             log.info("[${i + 1}/${totalFile}] Run ${sf.suiteName} in ${sf.file}".toString())
             Future future = executorService.submit(
-                             ()-> { runSuite(config, sf, recorder)}
+                             ()-> {
+                                runSuite(config, sf, recorder)
+                             }
                              )
             futures.add(future)
         }
 
         for (Future<Integer> future : futures) {
-            future.get()
+            try {
+                future.get()
+            }
+            catch (Throwable t) {
+                log.info(" exception ${t.toString()}")
+            }
         }
     }
 
@@ -175,7 +187,9 @@ class RegressionTest {
         Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet()
         if (config.suiteWildcard.size() == 0 ||
                 (suiteName != null && (config.suiteWildcard.any {
-                    suiteWildcard -> Wildcard.match(suiteName, suiteWildcard)
+                    suiteWildcard -> {
+                        Wildcard.match(suiteName, suiteWildcard)
+                    }
                 }))) {
             if (config.groups == null || config.groups.isEmpty()
                     || !config.groups.intersect(suiteGroups).isEmpty()) {
@@ -205,7 +219,6 @@ class RegressionTest {
             }.join('\n')
             log.info("Failure suites:\n${failureList}".toString())
             printFailed()
-            throw new IllegalStateException('Test failed')
         } else {
             printPassed()
         }
