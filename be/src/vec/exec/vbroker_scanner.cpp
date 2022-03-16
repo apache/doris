@@ -270,16 +270,17 @@ Status VBrokerScanner::_fill_dest_columns(std::vector<MutableColumnPtr>& columns
             break;
         }
         case TYPE_DATETIME: {
-            uint64_t value = *reinterpret_cast<uint64_t*>(value_ptr);
-            VecDateTimeValue data(value);
+            DateTimeValue value = *reinterpret_cast<DateTimeValue*>(value_ptr);
+            VecDateTimeValue date;
+            date.convert_dt_to_vec_dt(&value);
             assert_cast<ColumnVector<Int64>*>(column_ptr)
-                    ->insert_data(reinterpret_cast<char*>(&data), 0);
+                    ->insert_data(reinterpret_cast<char*>(&date), 0);
             break;
         }
         case TYPE_DATE: {
-            uint64_t value = *reinterpret_cast<uint64_t*>(value_ptr);
+            DateTimeValue value = *reinterpret_cast<DateTimeValue*>(value_ptr);
             VecDateTimeValue date;
-            date.from_olap_date(value);
+            date.convert_dt_to_vec_dt(&value);
             assert_cast<ColumnVector<Int64>*>(column_ptr)
                     ->insert_data(reinterpret_cast<char*>(&date), 0);
             break;
