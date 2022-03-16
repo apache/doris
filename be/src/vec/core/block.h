@@ -37,13 +37,14 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
-class Status;
+
+class MemPool;
 class RowBatch;
 class RowDescriptor;
+class Status;
 class Tuple;
 class TupleDescriptor;
-class TypeDescriptor;
-class MemPool;
+struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -298,8 +299,12 @@ public:
 private:
     void erase_impl(size_t position);
     void initialize_index_by_name();
-    void deep_copy_slot(void* dst, const doris::TypeDescriptor& type_desc, MemPool* pool,
-                        const IColumn* column_with_type_and_name, int row, bool padding_char);
+    inline bool is_column_data_null(const doris::TypeDescriptor& type_desc,
+                                    const StringRef& data_ref,
+                                    const IColumn* column_with_type_and_name, int row);
+    void deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor& type_desc,
+                        const StringRef& data_ref, const IColumn* column, int row,
+                        bool padding_char);
 };
 
 using Blocks = std::vector<Block>;
@@ -393,5 +398,6 @@ public:
         _data_types.clear();
     }
 };
+
 } // namespace vectorized
 } // namespace doris

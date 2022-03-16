@@ -311,6 +311,7 @@ void ColumnArray::insert_range_from(const IColumn & src, size_t start, size_t le
         cur_offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
     } else {
         size_t old_size = cur_offsets.size();
+        // -1 is ok, because PaddedPODArray pads zeros on the left.
         size_t prev_max_offset = cur_offsets.back();
         cur_offsets.resize(old_size + length);
 

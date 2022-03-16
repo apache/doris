@@ -24,7 +24,8 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris::vectorized {
-VLiteral::VLiteral(const TExprNode& node) : VExpr(node), _expr_name(_data_type->get_name()) {
+
+void VLiteral::init(const TExprNode& node) {
     Field field;
     if (node.node_type != TExprNodeType::NULL_LITERAL) {
         switch (_type.type) {
@@ -112,11 +113,6 @@ VLiteral::VLiteral(const TExprNode& node) : VExpr(node), _expr_name(_data_type->
             field = DecimalField<Decimal128>(value.value(), value.scale());
             break;
         }
-        case TYPE_ARRAY: {
-            DCHECK_EQ(node.node_type, TExprNodeType::ARRAY_LITERAL);
-            // init in prepare
-            return;
-        }
         default: {
             DCHECK(false) << "Invalid type: " << _type.type;
             break;
@@ -124,25 +120,6 @@ VLiteral::VLiteral(const TExprNode& node) : VExpr(node), _expr_name(_data_type->
         }
     }
     _column_ptr = _data_type->create_column_const(1, field);
-}
-
-VLiteral::~VLiteral() {}
-
-Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                         VExprContext* context) {
-    RETURN_IF_ERROR(VExpr::prepare(state, row_desc, context));
-    if (type().type == TYPE_ARRAY) {
-        DCHECK_EQ(type().children.size(), 1) << "array children type not 1";
-        bool is_null = (_node_type == TExprNodeType::NULL_LITERAL);
-        Field array = is_null ? Field() : Array();
-        for (const auto child : _children) {
-            Field item;
-            child->get_const_col(context)->column_ptr->get(0, item);
-            array.get<Array>().push_back(item);
-        }
-        _column_ptr = _data_type->create_column_const(1, array);
-    }
-    return Status::OK();
 }
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {

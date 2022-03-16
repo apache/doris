@@ -24,6 +24,7 @@
 #include "exprs/anyval_util.h"
 #include "gen_cpp/Exprs_types.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exprs/varray_literal.h"
 #include "vec/exprs/vcase_expr.h"
 #include "vec/exprs/vcast_expr.h"
 #include "vec/exprs/vcompound_pred.h"
@@ -96,9 +97,12 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::DATE_LITERAL:
     case TExprNodeType::STRING_LITERAL:
-    case TExprNodeType::NULL_LITERAL:
-    case TExprNodeType::ARRAY_LITERAL: {
+    case TExprNodeType::NULL_LITERAL: {
         *expr = pool->add(new VLiteral(texpr_node));
+        return Status::OK();
+    }
+    case TExprNodeType::ARRAY_LITERAL: {
+        *expr = pool->add(new VArrayLiteral(texpr_node));
         return Status::OK();
     }
     case doris::TExprNodeType::SLOT_REF: {
