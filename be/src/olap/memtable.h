@@ -27,6 +27,7 @@
 #include "util/tuple_row_zorder_compare.h"
 #include "vec/core/block.h"
 #include "vec/common/string_ref.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 namespace doris {
 
 struct ContiguousRow;
@@ -174,6 +175,10 @@ private:
     vectorized::MutableBlock _output_mutable_block;
     vectorized::Block collect_skiplist_results();
     bool _is_first_insertion;
+
+    void _init_agg_functions();
+    std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
+
 }; // class MemTable
 
 
