@@ -63,11 +63,11 @@ public:
     }
 
     void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
-        resize(num);
         if constexpr (std::is_same_v<T, BitmapValue>) {
             for (size_t i = 0; i < num; i++) {
                 uint32_t len = len_array[i];
                 uint32_t start_offset = start_offset_array[i];
+                insert_default();
                 BitmapValue* pvalue = &get_element(size() - 1);
                 if (len != 0) {
                     BitmapValue value;
@@ -81,6 +81,7 @@ public:
             for (size_t i = 0; i < num; i++) {
                 uint32_t len = len_array[i];
                 uint32_t start_offset = start_offset_array[i];
+                insert_default();
                 HyperLogLog* pvalue = &get_element(size() - 1);
                 if (len != 0) {
                     HyperLogLog value;
