@@ -51,7 +51,9 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
         _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
         _vec_skip_list = new VecTable(_vec_row_comparator.get(), _table_mem_pool.get(),
                                 _keys_type == KeysType::DUP_KEYS);
-        _init_agg_functions();
+        if (_keys_type != KeysType::DUP_KEYS){
+            _init_agg_functions();
+        }
     }else{
         _vec_skip_list =nullptr;
         if (tablet_schema->sort_type() == SortType::ZORDER) {
@@ -277,6 +279,25 @@ vectorized::Block MemTable::collect_skiplist_results()
     return _output_mutable_block.to_block();
 }
 
+void dump(const vectorized::Block& block, int64_t tablet_id) {
+    std::ofstream out;
+    std::string file_name("/home/englefly/stream_load_test/dump.txt");
+    file_name += std::to_string(tablet_id);
+    out.open(file_name);
+    for (size_t row_num = 0; row_num < block.rows(); ++row_num) {
+        for (size_t i = 0; i < block.columns(); ++i) {
+            if (block.get_by_position(i).column) {
+                out << block.get_by_position(i).to_string(row_num);
+            }
+            if (i != block.columns() - 1) {
+                out << ", ";
+            }
+        }
+        out << "\n";
+    }
+    out.close();
+}
+
 OLAPStatus MemTable::_vflush(){
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
@@ -285,6 +306,7 @@ OLAPStatus MemTable::_vflush(){
     {
         SCOPED_RAW_TIMER(&duration_ns);
         vectorized::Block block = collect_skiplist_results();
+        dump(block, _tablet_id);
         OLAPStatus st = _rowset_writer->add_block(&block);
         RETURN_NOT_OK(st);
         _flush_size = block.allocated_bytes();
