@@ -108,9 +108,8 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
         const SlotDescriptor* slot = (*_slot_descs)[i];
 
         bool is_null = tuple->is_null(slot->null_indicator_offset());
-        const void* value = tuple->get_slot(slot->tuple_offset());
-        _schema->column(i)->consume(&cell, (const char*)value, is_null, mem_pool,
-                                    &_agg_buffer_pool);
+        const auto* value = (const char*)tuple->get_slot(slot->tuple_offset());
+        _schema->column(i)->consume(&cell, value, is_null, mem_pool, &_agg_buffer_pool);
     }
 }
 
