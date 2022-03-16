@@ -656,8 +656,8 @@ public:
     virtual ~TestRunLengthByte() {}
 
     virtual void SetUp() {
-        system("mkdir -p ./ut_dir");
-        system("rm -rf ./ut_dir/tmp_file");
+        ASSERT_EQ(system("mkdir -p ./ut_dir"), 0);
+        ASSERT_EQ(system("rm -rf ./ut_dir/tmp_file"), 0);
         _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, nullptr);
         ASSERT_TRUE(_out_stream != nullptr);
         _writer = new (std::nothrow) RunLengthByteWriter(_out_stream);

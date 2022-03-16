@@ -96,15 +96,18 @@ public:
         hostname = "http://127.0.0.1:" + std::to_string(real_port);
 
         // compile code to so
-        system("g++ -shared -fPIC ./be/test/runtime/test_data/user_function_cache/lib/my_add.cc -o "
-               "./be/test/runtime/test_data/user_function_cache/lib/my_add.so");
+        ASSERT_EQ(system("g++ -shared -fPIC "
+                         "./be/test/runtime/test_data/user_function_cache/lib/my_add.cc -o "
+                         "./be/test/runtime/test_data/user_function_cache/lib/my_add.so"),
+                  0);
 
         my_add_md5sum =
                 compute_md5("./be/test/runtime/test_data/user_function_cache/lib/my_add.so");
     }
     static void TearDownTestCase() {
         delete s_server;
-        system("rm -rf ./be/test/runtime/test_data/user_function_cache/lib/my_add.so");
+        ASSERT_EQ(system("rm -rf ./be/test/runtime/test_data/user_function_cache/lib/my_add.so"),
+                  0);
     }
     void SetUp() override { k_is_downloaded = false; }
 };

@@ -46,7 +46,9 @@ void char_split(std::vector<T>& res, const U& var, char p) {
     int pos = start;
     int end = var.length();
     while (pos < end) {
-        while (var[pos] != p && pos < end) pos++;
+        while (var[pos] != p && pos < end) {
+            pos++;
+        }
         res.emplace_back(&var[start], pos - start);
         pos++;
         start = pos;
