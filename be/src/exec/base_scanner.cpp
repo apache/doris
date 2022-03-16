@@ -39,7 +39,9 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _counter(counter),
           _src_tuple(nullptr),
           _src_tuple_row(nullptr),
-          _mem_pool("BaseScanner:" + std::to_string(state->load_job_id())),
+          _mem_pool(state->query_type() == TQueryType::LOAD
+                            ? "BaseScanner:" + std::to_string(state->load_job_id())
+                            : "BaseScanner:Select"),
           _dest_tuple_desc(nullptr),
           _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),
@@ -49,8 +51,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _read_timer(nullptr),
           _materialize_timer(nullptr),
           _success(false),
-          _scanner_eof(false) {
-}
+          _scanner_eof(false) {}
 
 Status BaseScanner::open() {
     RETURN_IF_ERROR(init_expr_ctxes());

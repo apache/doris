@@ -71,9 +71,8 @@ TEST_F(ArrowRowBatchTest, PrettyPrint) {
     RowDescriptor* row_desc;
     auto doris_st = convert_to_row_desc(&obj_pool, *record_batch->schema(), &row_desc);
     ASSERT_TRUE(doris_st.ok());
-    auto tracker = std::make_shared<MemTracker>(-1, "PrettyPrintTest");
     std::shared_ptr<RowBatch> row_batch;
-    doris_st = convert_to_row_batch(*record_batch, *row_desc, tracker, &row_batch);
+    doris_st = convert_to_row_batch(*record_batch, *row_desc, &row_batch);
     ASSERT_TRUE(doris_st.ok());
 
     {

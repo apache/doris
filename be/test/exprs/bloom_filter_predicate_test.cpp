@@ -31,9 +31,7 @@ public:
 };
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_func_int_test) {
-    auto tracker = MemTracker::create_tracker();
-    std::unique_ptr<IBloomFilterFuncBase> func(
-            create_bloom_filter(tracker.get(), PrimitiveType::TYPE_INT));
+    std::unique_ptr<IBloomFilterFuncBase> func(create_bloom_filter(PrimitiveType::TYPE_INT));
     ASSERT_TRUE(func->init(1024, 0.05).ok());
     const int data_size = 1024;
     int data[data_size];
@@ -53,9 +51,7 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_int_test) {
 }
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
-    auto tracker = MemTracker::create_tracker();
-    std::unique_ptr<IBloomFilterFuncBase> func(
-            create_bloom_filter(tracker.get(), PrimitiveType::TYPE_VARCHAR));
+    std::unique_ptr<IBloomFilterFuncBase> func(create_bloom_filter(PrimitiveType::TYPE_VARCHAR));
     ASSERT_TRUE(func->init(1024, 0.05).ok());
     ObjectPool obj_pool;
     const int data_size = 1024;
@@ -74,7 +70,7 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
     ASSERT_FALSE(func->find((const void*)&not_exist_val));
 
     // test fixed char
-    func.reset(create_bloom_filter(tracker.get(), PrimitiveType::TYPE_CHAR));
+    func.reset(create_bloom_filter(PrimitiveType::TYPE_CHAR));
     ASSERT_TRUE(func->init(1024, 0.05).ok());
 
     auto varchar_true_str = obj_pool.add(new std::string("true"));
@@ -104,9 +100,7 @@ TEST_F(BloomFilterPredicateTest, bloom_filter_func_stringval_test) {
 }
 
 TEST_F(BloomFilterPredicateTest, bloom_filter_size_test) {
-    auto tracker = MemTracker::create_tracker();
-    std::unique_ptr<IBloomFilterFuncBase> func(
-            create_bloom_filter(tracker.get(), PrimitiveType::TYPE_VARCHAR));
+    std::unique_ptr<IBloomFilterFuncBase> func(create_bloom_filter(PrimitiveType::TYPE_VARCHAR));
     int length = 4096;
     func->init_with_fixed_length(4096);
     char* data = nullptr;

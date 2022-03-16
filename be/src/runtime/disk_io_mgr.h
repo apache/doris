@@ -242,8 +242,12 @@ public:
         // Returns the offset within the scan range that this buffer starts at
         int64_t scan_range_offset() const { return _scan_range_offset; }
 
-        // Updates this buffer to be owned by the new tracker. Consumption is
-        // release from the current tracker and added to the new one.
+        // Updates this buffer to be owned by the new tracker.
+        // Transfer memory ownership between two trackers.
+        void update_mem_tracker(MemTracker* tracker);
+
+        // To set a tracker, make sure that in an external location,
+        // the desc buffer's memory must have transferred ownership,
         void set_mem_tracker(MemTracker* tracker);
 
         // Returns the buffer to the IoMgr. This must be called for every buffer

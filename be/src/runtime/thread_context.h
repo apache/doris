@@ -58,6 +58,9 @@ public:
 public:
     ThreadContext() : _thread_id(std::this_thread::get_id()), _type(TaskType::UNKNOWN) {
         _thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
+        std::stringstream ss;
+        ss << _thread_id;
+        _thread_id_str = ss.str();
     }
 
     void attach(const TaskType& type, const std::string& task_id,
@@ -80,6 +83,7 @@ public:
 
     const std::string& task_id() const { return _task_id; }
     const std::thread::id& thread_id() const { return _thread_id; }
+    const std::string& thread_id_str() const { return _thread_id_str; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
 
     inline static const std::string task_type_string(ThreadContext::TaskType type) {
@@ -96,13 +100,13 @@ public:
     }
 
     void consume_mem(int64_t size) {
-        if (thread_mem_tracker_mgr_init == true) {
+        if (start_thread_mem_tracker) {
             _thread_mem_tracker_mgr->cache_consume(size);
         }
     }
 
     void release_mem(int64_t size) {
-        if (thread_mem_tracker_mgr_init == true) {
+        if (start_thread_mem_tracker) {
             _thread_mem_tracker_mgr->cache_consume(-size);
         }
     }
@@ -117,6 +121,7 @@ public:
 
 private:
     std::thread::id _thread_id;
+    std::string _thread_id_str;
     TaskType _type;
     std::string _task_id;
     TUniqueId _fragment_instance_id;
@@ -205,11 +210,11 @@ public:
 class StopThreadMemTracker {
 public:
     explicit StopThreadMemTracker(const bool scope = true) : _scope(scope) {
-        thread_mem_tracker_mgr_init = false;
+        start_thread_mem_tracker = false;
     }
 
     ~StopThreadMemTracker() {
-        if (_scope == true) thread_mem_tracker_mgr_init = true;
+        if (_scope == true) start_thread_mem_tracker = true;
     }
 
 private:

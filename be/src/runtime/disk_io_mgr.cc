@@ -225,7 +225,7 @@ void DiskIoMgr::BufferDescriptor::return_buffer() {
     _io_mgr->return_buffer(this);
 }
 
-void DiskIoMgr::BufferDescriptor::set_mem_tracker(MemTracker* tracker) {
+void DiskIoMgr::BufferDescriptor::update_mem_tracker(MemTracker* tracker) {
     // Cached buffers don't count towards mem usage.
     if (_scan_range->_cached_buffer != nullptr) {
         return;
@@ -233,12 +233,15 @@ void DiskIoMgr::BufferDescriptor::set_mem_tracker(MemTracker* tracker) {
     if (_buffer_mem_tracker == tracker) {
         return;
     }
-    if (tracker != nullptr && _buffer_mem_tracker != nullptr) {
-        // Only when the current tracker of desc and the parameter tracker are not null,
-        // the memory ownership will be transferred. Otherwise, if the parameter's tracker is null,
-        // the desc buffer's memory must have transferred ownership elsewhere.
-        _buffer_mem_tracker->transfer_to(tracker, _buffer_len);
-    }
+    // Only when the current tracker of desc and the parameter tracker are not null,
+    // the memory ownership will be transferred. Otherwise.
+    DCHECK(_buffer_mem_tracker && tracker);
+    _buffer_mem_tracker->transfer_to(tracker, _buffer_len);
+    _buffer_mem_tracker = std::move(tracker);
+}
+
+void DiskIoMgr::BufferDescriptor::set_mem_tracker(MemTracker* tracker) {
+    DCHECK(!_buffer_mem_tracker);
     _buffer_mem_tracker = std::move(tracker);
 }
 
@@ -705,7 +708,7 @@ DiskIoMgr::BufferDescriptor* DiskIoMgr::get_buffer_desc(RequestContext* reader, 
     buffer_desc->reset(reader, range, buffer, buffer_size);
     // The buffer is consumed in the tls mem tracker, and we want to be recorded in the reader->_mem_tracker,
     // so if the two trackers are different, transfer memory ownership.
-    buffer_desc->set_mem_tracker(reader->_mem_tracker.get());
+    buffer_desc->update_mem_tracker(reader->_mem_tracker.get());
     return buffer_desc;
 }
 

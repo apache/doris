@@ -156,7 +156,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
     _string_buffer_len = 0;
     _mem_tracker = MemTracker::create_virtual_tracker(-1, "AggFnEvaluator", mem_tracker);
 
-    Status status = Expr::prepare(_input_exprs_ctxs, state, desc, _mem_tracker);
+    Status status = Expr::prepare(_input_exprs_ctxs, state, desc, mem_tracker);
     RETURN_IF_ERROR(status);
 
     ObjectPool* obj_pool = state->obj_pool();

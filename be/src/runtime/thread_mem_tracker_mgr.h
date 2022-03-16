@@ -57,7 +57,7 @@ struct ConsumeErrCallBackInfo {
 // otherwise the MemTracker statistics will be inaccurate.
 // In some cases, we want to turn off thread automatic memory statistics, manually call consume.
 // In addition, when ~RootTracker, TCMalloc delete hook release RootTracker will crash.
-inline thread_local bool thread_mem_tracker_mgr_init = false;
+inline thread_local bool start_thread_mem_tracker = false;
 
 // TCMalloc new/delete Hook is counted in the memory_tracker of the current thread.
 //
@@ -73,11 +73,11 @@ public:
         _new_mem_trackers = MemTracker::get_process_calibrate_tracker();
         _untracked_mems["process"] = 0;
         _tracker_id = "process";
-        thread_mem_tracker_mgr_init = true;
+        start_thread_mem_tracker = true;
     }
     ~ThreadMemTrackerMgr() {
         clear_untracked_mems();
-        thread_mem_tracker_mgr_init = false;
+        start_thread_mem_tracker = false;
     }
 
     void clear_untracked_mems() {
@@ -178,7 +178,10 @@ inline void ThreadMemTrackerMgr::cache_consume(int64_t size) {
             _untracked_mem += _untracked_mems[_tracker_id];
             _untracked_mems[_tracker_id] = 0;
         }
+        // Avoid getting stuck in infinite loop if there is memory allocation in noncache_consume.
+        start_thread_mem_tracker = false;
         noncache_consume();
+        start_thread_mem_tracker = true;
     }
 }
 

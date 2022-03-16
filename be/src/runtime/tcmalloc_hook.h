@@ -32,7 +32,7 @@
 //  in TCMalloc hook may cause crash.
 //  4. Modifying additional thread local variables in ThreadContext construction and
 //  destructor to control the behavior of consume can lead to unexpected behavior,
-//  like this: if (LIKELY(doris::thread_mem_tracker_mgr_init)) {
+//  like this: if (LIKELY(doris::start_thread_mem_tracker)) {
 void new_hook(const void* ptr, size_t size) {
     doris::thread_local_ctx.get()->consume_mem(tc_nallocx(size, 0));
 }

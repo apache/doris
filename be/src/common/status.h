@@ -17,7 +17,7 @@ namespace doris {
 
 class Status {
     enum { 
-        STATE_CAPACITY = 256,
+        STATE_CAPACITY = 1024,
         HEADER_LEN = 7,
         MESSAGE_LEN = STATE_CAPACITY - HEADER_LEN
     };

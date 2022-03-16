@@ -305,8 +305,7 @@ TEST_F(ArrowWorkFlowTest, NormalUse) {
     status = scan_node.open(_state);
     ASSERT_TRUE(status.ok());
 
-    auto mem_tracker = std::make_shared<MemTracker>(-1);
-    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), mem_tracker.get());
+    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {

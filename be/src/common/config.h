@@ -187,8 +187,8 @@ CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
-// memory_limitation_per_thread_for_schema_change unit GB
-CONF_mInt32(memory_limitation_per_thread_for_schema_change, "2");
+// memory_limitation_per_thread_for_schema_change_bytes unit bytes
+CONF_mInt32(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 
 // the clean interval of file descriptor cache and segment cache
 CONF_mInt32(cache_clean_interval, "1800");

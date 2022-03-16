@@ -49,7 +49,7 @@ NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int
     if (_parent->_transfer_data_by_brpc_attachment) {
         _tuple_data_buffer_ptr = &_tuple_data_buffer;
     }
-    _node_channel_tracker = MemTracker::create_tracker(-1, "NodeChannel");
+    _node_channel_tracker = MemTracker::create_tracker(-1, "NodeChannel" + thread_local_ctx.get()->thread_id_str());
 }
 
 NodeChannel::~NodeChannel() noexcept {

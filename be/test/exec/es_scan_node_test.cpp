@@ -133,8 +133,7 @@ TEST_F(EsScanNodeTest, normal_use) {
 
     status = scan_node.open(&_runtime_state);
     ASSERT_TRUE(status.ok());
-    std::shared_ptr<MemTracker> mem_tracker(new MemTracker(-1));
-    RowBatch row_batch(scan_node._row_descriptor, _runtime_state.batch_size(), mem_tracker.get());
+    RowBatch row_batch(scan_node._row_descriptor, _runtime_state.batch_size());
     bool eos = false;
     status = scan_node.get_next(&_runtime_state, &row_batch, &eos);
     ASSERT_TRUE(status.ok());

@@ -766,7 +766,7 @@ OLAPStatus RowBlockAllocator::allocate(RowBlock** row_block, size_t num_rows, bo
                      << "m_memory_allocated=" << _mem_tracker->consumption() << " "
                      << "mem limit for schema change=" << _memory_limitation << " "
                      << "You can increase the memory "
-                     << "by changing the Config.memory_limitation_per_thread_for_schema_change";
+                     << "by changing the Config.memory_limitation_per_thread_for_schema_change_bytes";
         *row_block = nullptr;
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -1679,11 +1679,11 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
     // b. Generate historical data converter
     SchemaChange* sc_procedure = nullptr;
     if (sc_sorting) {
-        size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting for base_tablet "
                   << base_tablet->full_name();
-        sc_procedure = new (nothrow)
-                SchemaChangeWithSorting(rb_changer, memory_limitation * 1024 * 1024 * 1024);
+        sc_procedure = new (nothrow) SchemaChangeWithSorting(
+                rb_changer,
+                config::memory_limitation_per_thread_for_schema_change_bytes * 1024 * 1024 * 1024);
     } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly for base_tablet " << base_tablet->full_name();
         sc_procedure = new (nothrow) SchemaChangeDirectly(rb_changer);
@@ -1830,11 +1830,11 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
 
     // b. Generate historical data converter
     if (sc_sorting) {
-        size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
         LOG(INFO) << "doing schema change with sorting for base_tablet "
                   << sc_params.base_tablet->full_name();
-        sc_procedure = new (nothrow)
-                SchemaChangeWithSorting(rb_changer, memory_limitation * 1024 * 1024 * 1024);
+        sc_procedure = new (nothrow) SchemaChangeWithSorting(
+                rb_changer,
+                config::memory_limitation_per_thread_for_schema_change_bytes * 1024 * 1024 * 1024);
     } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly for base_tablet "
                   << sc_params.base_tablet->full_name();

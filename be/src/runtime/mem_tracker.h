@@ -314,7 +314,15 @@ public:
 
     bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
     int64_t limit() const { return _limit; }
-    void set_limit(int64_t limit) { _limit = limit; }
+    void set_limit(int64_t limit) {
+        DCHECK_GE(limit, -1);
+        _limit = limit;
+        if (!_virtual) _limit_trackers.push_back(this);
+        for (const auto& tracker_weak : _child_trackers) {
+            std::shared_ptr<MemTracker> tracker = tracker_weak.lock();
+            if (tracker) tracker->_limit_trackers.push_back(this);
+        }
+    }
     bool has_limit() const { return _limit >= 0; }
 
     Status check_limit(int64_t bytes) {

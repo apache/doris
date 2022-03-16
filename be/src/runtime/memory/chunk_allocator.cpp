@@ -133,10 +133,10 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
 }
 
 Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, bool check_limits) {
-    // This means the chunk's memory ownership is transferred from ChunkAllocator to MemPool.
     MemTracker* reset_tracker =
             tracker ? tracker
                     : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get();
+    // This means the chunk's memory ownership is transferred from ChunkAllocator to MemPool.
     if (check_limits) {
         RETURN_IF_ERROR(_mem_tracker->try_transfer_to(reset_tracker, size));
     } else {

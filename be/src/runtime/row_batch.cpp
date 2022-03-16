@@ -338,7 +338,7 @@ void RowBatch::add_io_buffer(DiskIoMgr::BufferDescriptor* buffer) {
     DCHECK(buffer != nullptr);
     _io_buffers.push_back(buffer);
     _auxiliary_mem_usage += buffer->buffer_len();
-    buffer->set_mem_tracker(_mem_tracker.get());
+    buffer->update_mem_tracker(_mem_tracker.get());
 }
 
 Status RowBatch::resize_and_allocate_tuple_buffer(RuntimeState* state, int64_t* tuple_buffer_size,
@@ -417,7 +417,7 @@ void RowBatch::transfer_resource_ownership(RowBatch* dest) {
         DiskIoMgr::BufferDescriptor* buffer = _io_buffers[i];
         dest->_io_buffers.push_back(buffer);
         dest->_auxiliary_mem_usage += buffer->buffer_len();
-        buffer->set_mem_tracker(dest->_mem_tracker.get());
+        buffer->update_mem_tracker(dest->_mem_tracker.get());
     }
     _io_buffers.clear();
 
@@ -526,7 +526,7 @@ void RowBatch::acquire_state(RowBatch* src) {
         DiskIoMgr::BufferDescriptor* buffer = src->_io_buffers[i];
         _io_buffers.push_back(buffer);
         _auxiliary_mem_usage += buffer->buffer_len();
-        buffer->set_mem_tracker(_mem_tracker.get());
+        buffer->update_mem_tracker(_mem_tracker.get());
     }
     src->_io_buffers.clear();
     src->_auxiliary_mem_usage = 0;

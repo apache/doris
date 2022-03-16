@@ -48,8 +48,7 @@ TEST(TEST_VEXPR, ABSTEST) {
 
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
     doris::RowDescriptor row_desc(tuple_desc, false);
-    auto tracker_ptr = doris::MemTracker::create_tracker(-1, "BlockTest", nullptr);
-    doris::RowBatch row_batch(row_desc, 1024, tracker_ptr.get());
+    doris::RowBatch row_batch(row_desc, 1024);
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     doris::TExpr exprx = apache::thrift::from_json_string<doris::TExpr>(expr_json);
@@ -96,8 +95,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
     schema_scanner.init(&param, &object_pool);
     auto tuple_desc = const_cast<TupleDescriptor*>(schema_scanner.tuple_desc());
     RowDescriptor row_desc(tuple_desc, false);
-    auto tracker_ptr = MemTracker::create_tracker(-1, "BlockTest", nullptr);
-    RowBatch row_batch(row_desc, 1024, tracker_ptr.get());
+    RowBatch row_batch(row_desc, 1024);
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     TExpr exprx = apache::thrift::from_json_string<TExpr>(expr_json);

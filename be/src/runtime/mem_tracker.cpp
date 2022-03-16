@@ -290,7 +290,7 @@ Status MemTracker::mem_limit_exceeded(RuntimeState* state, const std::string& de
         detail = fmt::format(detail, _label, _consumption->current_value(), _limit,
                              PrettyPrinter::print(failed_allocation_size, TUnit::BYTES));
     }
-    detail += " If query, can change the limit by session variable exec_mem_limit.";
+    detail += " If this is a query, can change the limit by session variable exec_mem_limit.";
     Status status = Status::MemoryLimitExceeded(detail);
     if (state != nullptr) state->log_error(detail);
 

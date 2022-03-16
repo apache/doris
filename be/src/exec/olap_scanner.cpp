@@ -30,6 +30,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
@@ -49,8 +50,10 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _version(-1),
-          _mem_tracker(MemTracker::create_tracker(tracker->limit(),
-                                                  tracker->label() + ":OlapScanner", tracker)) {}
+          _mem_tracker(MemTracker::create_tracker(
+                  tracker->limit(),
+                  tracker->label() + ":OlapScanner:" + thread_local_ctx.get()->thread_id_str(),
+                  tracker)) {}
 
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
