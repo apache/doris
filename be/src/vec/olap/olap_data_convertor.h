@@ -21,16 +21,11 @@
 
 namespace doris::vectorized {
 
-struct OlapFieldData {
-    UInt8 null_flag;
-    const void* value;
-};
-
 class IOlapColumnDataAccessor {
 public:
     virtual const UInt8* get_nullmap() const = 0;
     virtual const void* get_data() const = 0;
-    virtual OlapFieldData get_data_at(size_t offset) const = 0;
+    virtual const void* get_data_at(size_t offset) const = 0;
     virtual ~IOlapColumnDataAccessor() {}
 };
 using IOlapColumnDataAccessorSPtr = std::shared_ptr<IOlapColumnDataAccessor>;
@@ -60,9 +55,10 @@ private:
         virtual Status convert_to_olap() = 0;
 
     protected:
-        ColumnWithTypeAndName m_typed_column;
-        size_t m_row_pos;
-        size_t m_num_rows;
+        ColumnWithTypeAndName _typed_column;
+        size_t _row_pos = 0;
+        size_t _num_rows = 0;
+        const UInt8* _nullmap = nullptr;
     };
     using OlapColumnDataConvertorBaseSPtr = std::shared_ptr<OlapColumnDataConvertorBase>;
 
@@ -74,12 +70,12 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        OlapFieldData get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override;
         Status convert_to_olap() override;
 
     private:
-        PaddedPODArray<Slice> m_slice;
-        PaddedPODArray<char> m_raw_data;
+        PaddedPODArray<Slice> _slice;
+        PaddedPODArray<char> _raw_data;
     };
 
     class OlapColumnDataConvertorHLL : public OlapColumnDataConvertorBase {
@@ -90,12 +86,12 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        OlapFieldData get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override;
         Status convert_to_olap() override;
 
     private:
-        PaddedPODArray<Slice> m_slice;
-        PaddedPODArray<char> m_raw_data;
+        PaddedPODArray<Slice> _slice;
+        PaddedPODArray<char> _raw_data;
     };
 
     class OlapColumnDataConvertorChar : public OlapColumnDataConvertorBase {
@@ -106,13 +102,13 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        OlapFieldData get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override;
         Status convert_to_olap() override;
 
     private:
-        size_t m_length;
-        PaddedPODArray<Slice> m_slice;
-        PaddedPODArray<char> m_raw_data;
+        size_t _length;
+        PaddedPODArray<Slice> _slice;
+        PaddedPODArray<char> _raw_data;
     };
 
     class OlapColumnDataConvertorVarChar : public OlapColumnDataConvertorBase {
@@ -123,12 +119,12 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        OlapFieldData get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override;
         Status convert_to_olap() override;
 
     private:
-        bool m_check_length;
-        PaddedPODArray<Slice> m_slice;
+        bool _check_length;
+        PaddedPODArray<Slice> _slice;
     };
 
     class OlapColumnDataConvertorDate : public OlapColumnDataConvertorBase {
@@ -139,11 +135,11 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        OlapFieldData get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override;
         Status convert_to_olap() override;
 
     private:
-        PaddedPODArray<uint24_t> m_values;
+        PaddedPODArray<uint24_t> _values;
     };
 
     class OlapColumnDataConvertorDateTime : public OlapColumnDataConvertorBase {
@@ -154,11 +150,11 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        OlapFieldData get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override;
         Status convert_to_olap() override;
 
     private:
-        PaddedPODArray<uint64_t> m_values;
+        PaddedPODArray<uint64_t> _values;
     };
 
     class OlapColumnDataConvertorDecimal : public OlapColumnDataConvertorBase {
@@ -169,11 +165,11 @@ private:
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
-        OlapFieldData get_data_at(size_t offset) const override;
+        const void* get_data_at(size_t offset) const override;
         Status convert_to_olap() override;
 
     private:
-        PaddedPODArray<decimal12_t> m_values;
+        PaddedPODArray<decimal12_t> _values;
     };
 
     // class OlapColumnDataConvertorSimple for simple types, which don't need to do any convert, like int, float, double, etc...
@@ -183,74 +179,40 @@ private:
         OlapColumnDataConvertorSimple() = default;
         ~OlapColumnDataConvertorSimple() override = default;
 
-        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
-                               size_t num_rows) override {
-            OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(
-                    typed_column, row_pos, num_rows);
-            m_values.resize(num_rows);
-        }
+        const void* get_data() const override { return _values; }
 
-        const void* get_data() const override { return m_values.data(); }
-
-        OlapFieldData get_data_at(size_t offset) const override {
-            assert(offset < m_num_rows && m_num_rows == m_values.size());
+        const void* get_data_at(size_t offset) const override {
+            assert(offset < _num_rows);
             UInt8 null_flag = 0;
-            auto null_map = get_nullmap();
-            if (null_map) {
-                null_flag = null_map[offset];
+            if (_nullmap) {
+                null_flag = _nullmap[offset];
             }
-            return {null_flag, m_values.data() + offset};
+            return null_flag ? nullptr : _values + offset;
         }
 
         Status convert_to_olap() override {
             const vectorized::ColumnVector<T>* column_data = nullptr;
-            const UInt8* nullmap = get_nullmap();
-            if (nullmap) {
+            if (_nullmap) {
                 auto nullable_column =
-                        assert_cast<const vectorized::ColumnNullable*>(m_typed_column.column.get());
+                        assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
                 column_data = assert_cast<const vectorized::ColumnVector<T>*>(
                         nullable_column->get_nested_column_ptr().get());
             } else {
                 column_data = assert_cast<const vectorized::ColumnVector<T>*>(
-                        m_typed_column.column.get());
+                        _typed_column.column.get());
             }
 
             assert(column_data);
-
-            const T* data_cur = (const T*)(column_data->get_data().data()) + m_row_pos;
-            const T* data_end = data_cur + m_num_rows;
-            T* value = m_values.data();
-            if (nullmap) {
-                const UInt8* nullmap_cur = nullmap + m_row_pos;
-                while (data_cur != data_end) {
-                    if (!*nullmap_cur) {
-                        *value = *data_cur;
-                    } else {
-                        // do nothing
-                    }
-                    ++value;
-                    ++data_cur;
-                    ++nullmap_cur;
-                }
-                assert(nullmap_cur == nullmap + m_row_pos + m_num_rows &&
-                       value == m_values.get_end_ptr());
-            } else {
-                while (data_cur != data_end) {
-                    *value = *data_cur;
-                    ++value;
-                    ++data_cur;
-                }
-                assert(value == m_values.get_end_ptr());
-            }
+            _values = (const T*)(column_data->get_data().data()) + _row_pos;
             return Status::OK();
         }
 
     private:
-        PaddedPODArray<T> m_values;
+        const T* _values = nullptr;
     };
 
 private:
-    std::vector<OlapColumnDataConvertorBaseSPtr> m_convertors;
+    std::vector<OlapColumnDataConvertorBaseSPtr> _convertors;
 };
 
 } // namespace doris::vectorized

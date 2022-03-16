@@ -138,7 +138,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     }
 
     // create short key indexes
-    std::vector<vectorized::OlapFieldData> key_column_fields;
+    std::vector<const void*> key_column_fields;
     for (const auto pos : short_key_pos) {
         for (const auto& column : short_key_columns) {
             key_column_fields.push_back(column->get_data_at(pos));
@@ -154,7 +154,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 }
 
 std::string SegmentWriter::encode_short_keys(
-        const std::vector<vectorized::OlapFieldData> key_column_fields, bool null_first) {
+        const std::vector<const void*> key_column_fields, bool null_first) {
     size_t num_key_columns = _tablet_schema->num_short_key_columns();
     assert(key_column_fields.size() == num_key_columns &&
            _short_key_coders.size() == num_key_columns &&
@@ -162,8 +162,8 @@ std::string SegmentWriter::encode_short_keys(
 
     std::string encoded_keys;
     for (size_t cid = 0; cid < num_key_columns; ++cid) {
-        const auto& field = key_column_fields[cid];
-        if (field.null_flag) {
+        auto field = key_column_fields[cid];
+        if (UNLIKELY(!field)) {
             if (null_first) {
                 encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
             } else {
@@ -172,7 +172,7 @@ std::string SegmentWriter::encode_short_keys(
             continue;
         }
         encoded_keys.push_back(KEY_NORMAL_MARKER);
-        _short_key_coders[cid]->encode_ascending(field.value, _short_key_index_size[cid],
+        _short_key_coders[cid]->encode_ascending(field, _short_key_index_size[cid],
                                                  &encoded_keys);
     }
     return encoded_keys;
