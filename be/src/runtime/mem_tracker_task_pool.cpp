@@ -67,7 +67,7 @@ void MemTrackerTaskPool::logout_task_mem_tracker() {
     for (auto it = _task_mem_trackers.begin(); it != _task_mem_trackers.end(); it++) {
         // No RuntimeState uses this task MemTracker, it is only referenced by this map, delete it
         if (it->second.use_count() == 1) {
-            if (config::memory_leak_detection && it->second->consumption() == 0) {
+            if (config::memory_leak_detection && it->second->consumption() != 0) {
                 // If consumption is not equal to 0 before query mem tracker is destructed,
                 // there are two possibilities in theory.
                 // 1. A memory leak occurs.

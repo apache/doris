@@ -16,6 +16,7 @@
 #include "olap/olap_index.h"
 #include "olap/row_block.h"
 #include "olap/utils.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 
 using std::string;
@@ -343,7 +344,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     return reinterpret_cast<Cache::Handle*>(e);
 }
 
-void LRUCache::erase(const CacheKey& key, uint32_t hash) {
+void LRUCache::erase(const CacheKey& key, uint32_t hash, MemTracker* tracker) {
     LRUHandle* e = nullptr;
     bool last_ref = false;
     {
@@ -365,6 +366,7 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash) {
     if (last_ref) {
         e->free();
     }
+    tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(), e->charge);
 }
 
 int64_t LRUCache::prune() {
@@ -465,12 +467,12 @@ ShardedLRUCache::~ShardedLRUCache() {
     }
     _entity->deregister_hook(_name);
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
-    _mem_tracker->release(_mem_tracker->consumption());
 }
 
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
                                        void (*deleter)(const CacheKey& key, void* value),
                                        CachePriority priority) {
+    thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(), charge);
     const uint32_t hash = _hash_slice(key);
     return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, priority);
 }
@@ -487,7 +489,7 @@ void ShardedLRUCache::release(Handle* handle) {
 
 void ShardedLRUCache::erase(const CacheKey& key) {
     const uint32_t hash = _hash_slice(key);
-    _shards[_shard(hash)]->erase(key, hash);
+    _shards[_shard(hash)]->erase(key, hash, _mem_tracker.get());
 }
 
 void* ShardedLRUCache::value(Handle* handle) {
@@ -538,8 +540,6 @@ void ShardedLRUCache::update_cache_metrics() const {
     usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
     hit_ratio->set_value(total_lookup_count == 0 ? 0
                                                  : ((double)total_hit_count / total_lookup_count));
-
-    _mem_tracker->consume(total_usage - _mem_tracker->consumption());
 }
 
 Cache* new_lru_cache(const std::string& name, size_t capacity) {

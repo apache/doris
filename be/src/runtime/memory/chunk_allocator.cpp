@@ -133,9 +133,18 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
 }
 
 Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, bool check_limits) {
+    // This means the chunk's memory ownership is transferred from ChunkAllocator to MemPool.
+    MemTracker* reset_tracker =
+            tracker ? tracker
+                    : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get();
+    if (check_limits) {
+        RETURN_IF_ERROR(_mem_tracker->try_transfer_to(reset_tracker, size));
+    } else {
+        _mem_tracker->transfer_to(reset_tracker, size);
+    }
+
     // fast path: allocate from current core arena
     int core_id = CpuInfo::get_current_core();
-    bool pop_free = false;
     chunk->size = size;
     chunk->core_id = core_id;
 
@@ -143,7 +152,7 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
         DCHECK_GE(_reserved_bytes, 0);
         _reserved_bytes.fetch_sub(size);
         chunk_pool_local_core_alloc_count->increment(1);
-        pop_free = true;
+        return Status::OK();
     }
     if (_reserved_bytes > size) {
         // try to allocate from other core's arena
@@ -155,21 +164,9 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
                 chunk_pool_other_core_alloc_count->increment(1);
                 // reset chunk's core_id to other
                 chunk->core_id = core_id % _arenas.size();
-                pop_free = true;
+                return Status::OK();
             }
         }
-    }
-    if (pop_free) {
-        // This means the chunk's memory ownership is transferred from ChunkAllocator to MemPool.
-        MemTracker* reset_tracker =
-                tracker ? tracker
-                        : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get();
-        if (check_limits) {
-            RETURN_IF_ERROR(_mem_tracker->try_transfer_to(reset_tracker, size));
-        } else {
-            _mem_tracker->transfer_to(reset_tracker, size);
-        }
-        return Status::OK();
     }
 
     int64_t cost_ns = 0;
@@ -177,9 +174,9 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
         SCOPED_RAW_TIMER(&cost_ns);
         // allocate from system allocator
         chunk->data = SystemAllocator::allocate(size);
-        // The allocated chunk is consumed in the tls mem tracker, we want to consume in the parameter tracker,
-        // so if the tls mem tracker and the parameter tracker are different, transfer memory ownership.
-        thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(tracker, size);
+        // The allocated chunk is consumed in the tls mem tracker, we want to consume in the ChunkAllocator tracker,
+        // transfer memory ownership. TODO(zxy) replace with switch tls tracker
+        thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(), size);
     }
     chunk_pool_system_alloc_count->increment(1);
     chunk_pool_system_alloc_cost_ns->increment(cost_ns);
@@ -206,7 +203,10 @@ void ChunkAllocator::free(const Chunk& chunk, MemTracker* tracker) {
                 // The freed chunk is released in the tls mem tracker. When the chunk was allocated,
                 // it was consumed in the parameter tracker, so if the tls mem tracker and the parameter
                 // tracker are different, transfer memory ownership.
-                tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(), chunk.size);
+                if (tracker)
+                    tracker->transfer_to(
+                            thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(),
+                            chunk.size);
             }
             chunk_pool_system_free_count->increment(1);
             chunk_pool_system_free_cost_ns->increment(cost_ns);
