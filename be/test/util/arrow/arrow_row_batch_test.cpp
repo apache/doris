@@ -28,6 +28,7 @@
 #include <arrow/json/api.h>
 #include <arrow/json/test_common.h>
 #include <arrow/pretty_print.h>
+#include <arrow/record_batch.h>
 #include <arrow/result.h>
 
 #include "common/object_pool.h"

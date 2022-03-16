@@ -156,9 +156,16 @@ void read_from(const char** src, StringValue* result) {
 } // namespace detail
 
 static StringVal serialize(FunctionContext* ctx, BitmapValue* value) {
-    StringVal result(ctx, value->getSizeInBytes());
-    value->write((char*)result.ptr);
-    return result;
+    if (!value) {
+        BitmapValue empty_bitmap;
+        StringVal result(ctx, empty_bitmap.getSizeInBytes());
+        empty_bitmap.write((char*)result.ptr);
+        return result;
+    } else {
+        StringVal result(ctx, value->getSizeInBytes());
+        value->write((char*)result.ptr);
+        return result;
+    }
 }
 
 // Calculate the intersection of two or more bitmaps
