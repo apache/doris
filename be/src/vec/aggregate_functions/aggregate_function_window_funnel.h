@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Refer to AggregateFunctionWindowFunnel.h in https://github.com/ClickHouse/ClickHouse.git
+// This file is copied from
+// https://github.com/ClickHouse/ClickHouse/blob/master/AggregateFunctionWindowFunnel.h
+// and modified by Doris
 
 #pragma once
 
