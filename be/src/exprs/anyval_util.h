@@ -193,6 +193,7 @@ public:
             StringVal max_val;
             max_val.ptr = ctx->allocate(sv.len);
             memcpy(max_val.ptr, sv.ptr, sv.len);
+            max_val.len = sv.len;
 
             return max_val;
         } else if constexpr (std::is_same_v<Val, DateTimeVal>) {
