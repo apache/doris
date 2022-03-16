@@ -85,7 +85,7 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
 
-    std::string encode_short_keys(const std::vector<vectorized::OlapFieldData> key_column_fields,
+    std::string encode_short_keys(const std::vector<const void*> key_column_fields,
                                   bool null_first = true);
 
 private:

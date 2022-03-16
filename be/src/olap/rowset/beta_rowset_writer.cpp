@@ -89,7 +89,7 @@ OLAPStatus BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
 }
 
 OLAPStatus BetaRowsetWriter::add_block(const vectorized::Block* block) {
-    if (PREDICT_FALSE(_segment_writer == nullptr)) {
+    if (UNLIKELY(_segment_writer == nullptr)) {
         RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
     }
     size_t block_size_in_bytes = block->bytes();
@@ -106,10 +106,11 @@ OLAPStatus BetaRowsetWriter::add_block(const vectorized::Block* block) {
     };
 
     refresh_segment_capacity();
-    if (PREDICT_FALSE(segment_capacity_in_bytes < row_avg_size_in_bytes ||
+    if (UNLIKELY(segment_capacity_in_bytes < row_avg_size_in_bytes ||
                       segment_capacity_in_rows <= 0)) {
         // no space for another signle row, need flush now
         RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
+        RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
         refresh_segment_capacity();
     }
 
@@ -126,15 +127,16 @@ OLAPStatus BetaRowsetWriter::add_block(const vectorized::Block* block) {
             input_row_num = std::min(segment_max_row_num, block_row_num - row_offset);
             assert(input_row_num > 0);
             auto s = _segment_writer->append_block(block, row_offset, input_row_num);
-            if (PREDICT_FALSE(!s.ok())) {
+            if (UNLIKELY(!s.ok())) {
                 LOG(WARNING) << "failed to append block: " << s.to_string();
                 return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
             }
 
             refresh_segment_capacity();
-            if (segment_capacity_in_bytes < row_avg_size_in_bytes ||
-                segment_capacity_in_rows <= 0) {
+            if (LIKELY(segment_capacity_in_bytes < row_avg_size_in_bytes ||
+                segment_capacity_in_rows <= 0)) {
                 RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
+                RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
                 refresh_segment_capacity();
             }
             row_offset += input_row_num;
@@ -142,7 +144,7 @@ OLAPStatus BetaRowsetWriter::add_block(const vectorized::Block* block) {
         } while (row_offset < block_row_num);
     } else {
         auto s = _segment_writer->append_block(block, 0, block_row_num);
-        if (PREDICT_FALSE(!s.ok())) {
+        if (UNLIKELY(!s.ok())) {
             LOG(WARNING) << "failed to append block: " << s.to_string();
             return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
         }
