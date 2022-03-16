@@ -144,7 +144,7 @@ public:
     inline bool has_sequence_col() const { return _sequence_col_idx != -1; }
     inline int32_t sequence_col_idx() const { return _sequence_col_idx; }
     vectorized::Block create_block(const std::vector<uint32_t>& return_columns,
-            const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const;
+            const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
 
 private:
     // Only for unit test

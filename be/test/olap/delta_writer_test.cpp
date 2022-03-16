@@ -367,7 +367,7 @@ TEST_F(TestDeltaWriter, open) {
     load_id.set_hi(0);
     load_id.set_lo(0);
     WriteRequest write_req = {10003, 270068375, WriteType::LOAD, 20001,
-                              30001, load_id,   false,           tuple_desc};
+                              30001, load_id, tuple_desc};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
@@ -401,7 +401,7 @@ TEST_F(TestDeltaWriter, write) {
     load_id.set_hi(0);
     load_id.set_lo(0);
     WriteRequest write_req = {10004, 270068376,  WriteType::LOAD,       20002, 30002, load_id,
-                              false, tuple_desc, &(tuple_desc->slots())};
+                              tuple_desc, &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
@@ -527,7 +527,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
     load_id.set_hi(0);
     load_id.set_lo(0);
     WriteRequest write_req = {10005, 270068377,  WriteType::LOAD,       20003, 30003, load_id,
-                              false, tuple_desc, &(tuple_desc->slots())};
+                              tuple_desc, &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
