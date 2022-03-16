@@ -15,16 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exprs/quantile_function.h"
+
 #include <gtest/gtest.h>
+
 #include <iostream>
 #include <string>
 #include <vector>
-#include "exprs/quantile_function.h"
-#include "udf/udf_internal.h"
+
 #include "exprs/anyval_util.h"
 #include "testutil/function_utils.h"
+#include "udf/udf_internal.h"
 #include "util/quantile_state.h"
-
 
 namespace doris {
 using DoubleQuantileState = QuantileState<double>;
@@ -35,7 +37,7 @@ StringVal convert_quantile_state_to_string(FunctionContext* ctx, DoubleQuantileS
     return result;
 }
 
-class QuantileStateFunctionsTest : public testing::Test{
+class QuantileStateFunctionsTest : public testing::Test {
 public:
     QuantileStateFunctionsTest() = default;
     void SetUp() {
@@ -47,7 +49,6 @@ public:
 private:
     FunctionUtils* utils;
     FunctionContext* ctx;
-
 };
 
 TEST_F(QuantileStateFunctionsTest, to_quantile_state) {
@@ -107,7 +108,6 @@ TEST_F(QuantileStateFunctionsTest, quantile_union) {
     ASSERT_EQ(result, expected);
 }
 
-
 TEST_F(QuantileStateFunctionsTest, quantile_percent) {
     FloatVal percentile = FloatVal(0.5);
     std::vector<doris_udf::AnyVal*> constant_args;
@@ -127,7 +127,7 @@ TEST_F(QuantileStateFunctionsTest, quantile_percent) {
     ASSERT_EQ(result, expected);
 }
 
-}// namespace doris
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

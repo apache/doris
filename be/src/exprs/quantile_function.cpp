@@ -16,12 +16,13 @@
 // under the License.
 
 #include "exprs/quantile_function.h"
+
 #include "exprs/anyval_util.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "util/quantile_state.h"
-#include "util/string_parser.hpp"
 #include "util/slice.h"
+#include "util/string_parser.hpp"
 
 namespace doris {
 
@@ -29,15 +30,16 @@ using doris_udf::DoubleVal;
 using doris_udf::StringVal;
 using doris_udf::FloatVal;
 
-void QuantileStateFunctions::init(){}
+void QuantileStateFunctions::init() {}
 
 void QuantileStateFunctions::quantile_state_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(QuantileState<double>);
-    dst->ptr = (uint8_t*) new QuantileState<double>();
+    dst->ptr = (uint8_t*)new QuantileState<double>();
 }
 
-void QuantileStateFunctions::quantile_percent_prepare(FunctionContext* ctx, FunctionContext::FunctionStateScope scope) {
+void QuantileStateFunctions::quantile_percent_prepare(FunctionContext* ctx,
+                                                      FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
@@ -48,16 +50,17 @@ void QuantileStateFunctions::quantile_percent_prepare(FunctionContext* ctx, Func
         return;
     }
     float percentile_value = reinterpret_cast<const FloatVal*>(ctx->get_constant_arg(1))->val;
-    if (percentile_value > 1 || percentile_value <0)
-    {
+    if (percentile_value > 1 || percentile_value < 0) {
         std::stringstream error_msg;
-        error_msg<< "The percentile must between 0 and 1, but input is:" << std::to_string(percentile_value);
+        error_msg << "The percentile must between 0 and 1, but input is:"
+                  << std::to_string(percentile_value);
         ctx->set_error(error_msg.str().c_str());
         return;
     }
 }
 
-void QuantileStateFunctions::to_quantile_state_prepare(FunctionContext* ctx, FunctionContext::FunctionStateScope scope) {
+void QuantileStateFunctions::to_quantile_state_prepare(FunctionContext* ctx,
+                                                       FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
@@ -66,12 +69,13 @@ void QuantileStateFunctions::to_quantile_state_prepare(FunctionContext* ctx, Fun
         return;
     }
     float compression = reinterpret_cast<const FloatVal*>(ctx->get_constant_arg(1))->val;
-    if (compression > QUANTILE_STATE_COMPRESSION_MAX || compression < QUANTILE_STATE_COMPRESSION_MIN)
-    {
+    if (compression > QUANTILE_STATE_COMPRESSION_MAX ||
+        compression < QUANTILE_STATE_COMPRESSION_MIN) {
         std::stringstream error_msg;
-        error_msg<< "The compression of to_quantile_state must between "  << QUANTILE_STATE_COMPRESSION_MIN
-                 << " and " << QUANTILE_STATE_COMPRESSION_MAX << std::endl
-                 << "but input is:" << std::to_string(compression);
+        error_msg << "The compression of to_quantile_state must between "
+                  << QUANTILE_STATE_COMPRESSION_MIN << " and " << QUANTILE_STATE_COMPRESSION_MAX
+                  << std::endl
+                  << "but input is:" << std::to_string(compression);
         ctx->set_error(error_msg.str().c_str());
         return;
     }
@@ -88,12 +92,12 @@ StringVal QuantileStateFunctions::to_quantile_state(FunctionContext* ctx, const 
     quantile_state.set_compression(QUANTILE_STATE_COMPRESSION_MIN);
     const AnyVal* digest_compression = ctx->get_constant_arg(1);
     if (digest_compression != nullptr) {
-        // compression will be between 2048 and 10000, promised by `to_quantile_state_prepare` 
+        // compression will be between 2048 and 10000, promised by `to_quantile_state_prepare`
         float compression = reinterpret_cast<const FloatVal*>(digest_compression)->val;
         quantile_state.set_compression(compression);
     }
-    
-    if(!src.is_null) {
+
+    if (!src.is_null) {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
         double double_value = StringParser::string_to_float<double>(
                 reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
@@ -110,12 +114,13 @@ StringVal QuantileStateFunctions::to_quantile_state(FunctionContext* ctx, const 
     return serialize(ctx, &quantile_state);
 }
 
-void QuantileStateFunctions::quantile_union(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
-    if(src.is_null) {
+void QuantileStateFunctions::quantile_union(FunctionContext* ctx, const StringVal& src,
+                                            StringVal* dst) {
+    if (src.is_null) {
         return;
     }
     auto dst_quantile = reinterpret_cast<QuantileState<double>*>(dst->ptr);
-    if(src.len == 0) {
+    if (src.len == 0) {
         dst_quantile->merge(*reinterpret_cast<QuantileState<double>*>(src.ptr));
     } else {
         QuantileState<double> state(Slice(src.ptr, src.len));
@@ -126,7 +131,7 @@ void QuantileStateFunctions::quantile_union(FunctionContext* ctx, const StringVa
 DoubleVal QuantileStateFunctions::quantile_percent(FunctionContext* ctx, StringVal& src) {
     const AnyVal* percentile = ctx->get_constant_arg(1);
     if (percentile != nullptr) {
-        // percentile_value will be between 0 and 1, promised by `quantile_percent_prepare` 
+        // percentile_value will be between 0 and 1, promised by `quantile_percent_prepare`
         float percentile_value = reinterpret_cast<const FloatVal*>(percentile)->val;
         if (src.len == 0) {
             auto quantile_state = reinterpret_cast<QuantileState<double>*>(src.ptr);
@@ -136,19 +141,19 @@ DoubleVal QuantileStateFunctions::quantile_percent(FunctionContext* ctx, StringV
             return {static_cast<double>(quantile_state.get_value_by_percentile(percentile_value))};
         }
 
-
     } else {
         std::stringstream error_msg;
-        error_msg << "quantile_percent function's second argument must be constant. eg: quantile_percent(col, 0.95)";
-        ctx->set_error(error_msg.str().c_str()); 
+        error_msg << "quantile_percent function's second argument must be constant. eg: "
+                     "quantile_percent(col, 0.95)";
+        ctx->set_error(error_msg.str().c_str());
     }
-    return  DoubleVal::null();
+    return DoubleVal::null();
 }
 
-StringVal QuantileStateFunctions::quantile_state_serialize(FunctionContext* ctx, const StringVal& src) {
-    if(src.is_null) {
+StringVal QuantileStateFunctions::quantile_state_serialize(FunctionContext* ctx,
+                                                           const StringVal& src) {
+    if (src.is_null) {
         return src;
-
     }
     auto tmp_ptr = reinterpret_cast<QuantileState<double>*>(src.ptr);
     StringVal result = serialize(ctx, tmp_ptr);
@@ -156,4 +161,4 @@ StringVal QuantileStateFunctions::quantile_state_serialize(FunctionContext* ctx,
     return result;
 }
 
-}
+} // namespace doris

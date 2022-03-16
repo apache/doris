@@ -28,11 +28,10 @@
 #include "util/date_func.h"
 #include "util/mysql_row_buffer.h"
 #include "util/types.h"
-
-#include "vec/core/block.h"
-#include "vec/columns/column_vector.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 

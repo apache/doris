@@ -17,15 +17,14 @@
 #ifndef DORIS_BE_SRC_OLAP_QUANTILE_STATE_H
 #define DORIS_BE_SRC_OLAP_QUANTILE_STATE_H
 
-
+#include <memory>
 #include <string>
 #include <vector>
-#include <memory>
-#include "tdigest.h"
+
 #include "slice.h"
+#include "tdigest.h"
 
 namespace doris {
-
 
 class Slice;
 class TDigest;
@@ -41,9 +40,8 @@ enum QuantileStateType {
     TDIGEST = 3   // TDIGEST object
 };
 
-template<typename T>
-class QuantileState
-{
+template <typename T>
+class QuantileState {
 public:
     QuantileState();
     explicit QuantileState(float compression);
@@ -66,9 +64,8 @@ private:
     T _single_data;
     std::vector<T> _explicit_data;
     float _compression;
-    
 };
 
-}// namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_QUANTILE_STATE_H

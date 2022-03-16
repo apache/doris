@@ -39,7 +39,8 @@ Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor
     const int anyval_size = AnyValUtil::any_val_size(type);
     const int anyval_alignment = AnyValUtil::any_val_alignment(type);
     Status rst;
-    *result = reinterpret_cast<AnyVal*>(pool->try_allocate_aligned(anyval_size, anyval_alignment, &rst));
+    *result = reinterpret_cast<AnyVal*>(
+            pool->try_allocate_aligned(anyval_size, anyval_alignment, &rst));
     if (*result == nullptr) {
         RETURN_LIMIT_EXCEEDED(pool->mem_tracker(), state, mem_limit_exceeded_msg, anyval_size, rst);
     }

@@ -618,12 +618,12 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_QUANTILE_UNION, OLAP_FIELD_TYP
     static void finalize(RowCursorCell* src, MemPool* mem_pool) {
         auto* slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
         auto* quantile_state = reinterpret_cast<QuantileState<double>*>(slice->data);
-        
+
         slice->data = (char*)mem_pool->allocate(quantile_state->get_serialized_size());
         slice->size = quantile_state->serialize((uint8_t*)slice->data);
         quantile_state->clear();
     }
-}; 
+};
 template <FieldAggregationMethod aggMethod, FieldType fieldType,
           FieldType subType = OLAP_FIELD_TYPE_NONE>
 struct AggregateTraits : public AggregateFuncTraits<aggMethod, fieldType, subType> {

@@ -69,9 +69,10 @@ WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_le
     if (rep == nullptr) {
         return nullptr;
     }
-    bool is_string_type = (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR ||
-                           type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
-                           type == OLAP_FIELD_TYPE_STRING || type == OLAP_FIELD_TYPE_QUANTILE_STATE);
+    bool is_string_type =
+            (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR ||
+             type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
+             type == OLAP_FIELD_TYPE_STRING || type == OLAP_FIELD_TYPE_QUANTILE_STATE);
     auto wrapper = new WrapperField(rep, var_length, is_string_type);
     return wrapper;
 }

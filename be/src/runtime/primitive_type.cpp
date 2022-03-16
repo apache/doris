@@ -168,7 +168,7 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_OBJECT:
         return TPrimitiveType::OBJECT;
-    
+
     case TYPE_QUANTILE_STATE:
         return TPrimitiveType::QUANTILE_STATE;
 
@@ -241,7 +241,7 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_OBJECT:
         return "OBJECT";
-    
+
     case TYPE_QUANTILE_STATE:
         return "QUANTILE_STATE";
 

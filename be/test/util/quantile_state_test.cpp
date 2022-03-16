@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
 #include "util/quantile_state.h"
 
-namespace doris{
+#include <gtest/gtest.h>
+
+namespace doris {
 using DoubleQuantileState = QuantileState<double>;
 
 TEST(QuantileStateTest, merge) {
@@ -33,7 +34,6 @@ TEST(QuantileStateTest, merge) {
     ASSERT_EQ(1, empty.get_value_by_percentile(0));
     ASSERT_EQ(2.5, empty.get_value_by_percentile(0.5));
     ASSERT_EQ(5, empty.get_value_by_percentile(1));
-
 
     DoubleQuantileState another;
     another.add_value(6);
@@ -51,5 +51,4 @@ TEST(QuantileStateTest, merge) {
     ASSERT_EQ(10, another.get_value_by_percentile(1));
 }
 
-
-}
+} // namespace doris

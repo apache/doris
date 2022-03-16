@@ -19,21 +19,18 @@
 
 #include "udf/udf.h"
 namespace doris {
-class QuantileStateFunctions
-{
+class QuantileStateFunctions {
 public:
     static void init();
     static void quantile_state_init(FunctionContext* ctx, StringVal* dst);
-    static void to_quantile_state_prepare(FunctionContext* ctx, FunctionContext::FunctionStateScope scope);
-    static void quantile_percent_prepare(FunctionContext* ctx, FunctionContext::FunctionStateScope scope);
+    static void to_quantile_state_prepare(FunctionContext* ctx,
+                                          FunctionContext::FunctionStateScope scope);
+    static void quantile_percent_prepare(FunctionContext* ctx,
+                                         FunctionContext::FunctionStateScope scope);
     static StringVal to_quantile_state(FunctionContext* ctx, const StringVal& src);
     static void quantile_union(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static DoubleVal quantile_percent(FunctionContext* ctx, StringVal& src);
     static StringVal quantile_state_serialize(FunctionContext* ctx, const StringVal& src);
-
 };
 
-}
-
-
-
+} // namespace doris

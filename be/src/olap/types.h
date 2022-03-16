@@ -1224,7 +1224,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_OBJECT> : public FieldTypeTraits<OLAP_FIE
 };
 
 template <>
-struct FieldTypeTraits<OLAP_FIELD_TYPE_QUANTILE_STATE> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
+struct FieldTypeTraits<OLAP_FIELD_TYPE_QUANTILE_STATE>
+        : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
     /*
      * quantile_state type only used as value, so
      * cmp/from_string/set_to_max/set_to_min function

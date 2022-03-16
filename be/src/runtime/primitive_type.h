@@ -28,7 +28,6 @@
 #include "runtime/large_int_value.h"
 #include "runtime/string_value.h"
 #include "udf/udf.h"
-
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
@@ -62,9 +61,9 @@ enum PrimitiveType {
     TYPE_HLL,       /* 19 */
     TYPE_DECIMALV2, /* 20 */
 
-    TYPE_TIME,   /* 21 */
-    TYPE_OBJECT, /* 22 */
-    TYPE_STRING, /* 23 */
+    TYPE_TIME,          /* 21 */
+    TYPE_OBJECT,        /* 22 */
+    TYPE_STRING,        /* 23 */
     TYPE_QUANTILE_STATE /* 24 */
 };
 
@@ -154,7 +153,8 @@ inline bool is_string_type(PrimitiveType type) {
 }
 
 inline bool has_variable_type(PrimitiveType type) {
-    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
+    return type == TYPE_CHAR || type == TYPE_VARCHAR || type == TYPE_OBJECT ||
+           type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
 }
 
 // Returns the byte size of 'type'  Returns 0 for variable length types.

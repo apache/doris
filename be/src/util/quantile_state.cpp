@@ -14,23 +14,24 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include <string.h>
-#include <cmath>
 #include "util/quantile_state.h"
-#include "util/coding.h"
+
+#include <string.h>
+
+#include <cmath>
+
 #include "common/logging.h"
+#include "util/coding.h"
 
+namespace doris {
 
-namespace doris{
+template <typename T>
+QuantileState<T>::QuantileState() : _type(EMPTY), _compression(QUANTILE_STATE_COMPRESSION_MIN) {}
 
-template<typename T>
-QuantileState<T>::QuantileState():_type(EMPTY),_compression(QUANTILE_STATE_COMPRESSION_MIN){}
+template <typename T>
+QuantileState<T>::QuantileState(float compression) : _type(EMPTY), _compression(compression) {}
 
-template<typename T>
-QuantileState<T>::QuantileState(float compression):_type(EMPTY),_compression(compression){}
-
-
-template<typename T>
+template <typename T>
 QuantileState<T>::QuantileState(const Slice& slice) {
     DCHECK(deserialize(slice));
     if (!deserialize(slice)) {
@@ -38,15 +39,15 @@ QuantileState<T>::QuantileState(const Slice& slice) {
     }
 }
 
-template<typename T>
+template <typename T>
 QuantileState<T>::~QuantileState() {
     delete _tdigest_ptr;
 }
 
-template<typename T>
+template <typename T>
 size_t QuantileState<T>::get_serialized_size() {
     size_t size = 1 + sizeof(float); // type(QuantileStateType) + compression(float)
-    switch(_type) {
+    switch (_type) {
     case EMPTY:
         break;
     case SINGLE:
@@ -62,33 +63,32 @@ size_t QuantileState<T>::get_serialized_size() {
     return size;
 }
 
-template<typename T>
+template <typename T>
 void QuantileState<T>::set_compression(float compression) {
-    DCHECK(compression >= QUANTILE_STATE_COMPRESSION_MIN && 
-            compression <= QUANTILE_STATE_COMPRESSION_MAX);
+    DCHECK(compression >= QUANTILE_STATE_COMPRESSION_MIN &&
+           compression <= QUANTILE_STATE_COMPRESSION_MAX);
     this->_compression = compression;
 }
 
-template<typename T>
+template <typename T>
 bool QuantileState<T>::is_valid(const Slice& slice) {
-
     if (slice.size < 1) {
         return false;
     }
     const uint8_t* ptr = (uint8_t*)slice.data;
     const uint8_t* end = (uint8_t*)slice.data + slice.size;
     float compress_value = *reinterpret_cast<const float*>(ptr);
-    if (compress_value < QUANTILE_STATE_COMPRESSION_MIN || compress_value > QUANTILE_STATE_COMPRESSION_MAX) {
+    if (compress_value < QUANTILE_STATE_COMPRESSION_MIN ||
+        compress_value > QUANTILE_STATE_COMPRESSION_MAX) {
         return false;
     }
     ptr += sizeof(float);
-    
 
     auto type = (QuantileStateType)*ptr++;
     switch (type) {
     case EMPTY:
         break;
-    case SINGLE:{
+    case SINGLE: {
         if ((ptr + sizeof(T)) > end) {
             return false;
         }
@@ -118,24 +118,25 @@ bool QuantileState<T>::is_valid(const Slice& slice) {
     return ptr == end;
 }
 
-template<typename T>
+template <typename T>
 T QuantileState<T>::get_explicit_value_by_percentile(float percentile) {
     DCHECK(_type == EXPLICIT);
     int n = _explicit_data.size();
     std::sort(_explicit_data.begin(), _explicit_data.end());
 
     double index = (n - 1) * percentile;
-    int intIdx = (int) index;
-    if (intIdx == n-1 ){
+    int intIdx = (int)index;
+    if (intIdx == n - 1) {
         return _explicit_data[intIdx];
     }
-    return _explicit_data[intIdx+1] * (index - intIdx) + _explicit_data[intIdx] * (intIdx + 1 - index);
+    return _explicit_data[intIdx + 1] * (index - intIdx) +
+           _explicit_data[intIdx] * (intIdx + 1 - index);
 }
 
-template<typename T>
+template <typename T>
 T QuantileState<T>::get_value_by_percentile(float percentile) {
     DCHECK(percentile >= 0 && percentile <= 1);
-    switch(_type) {
+    switch (_type) {
     case EMPTY: {
         return NAN;
     }
@@ -154,11 +155,11 @@ T QuantileState<T>::get_value_by_percentile(float percentile) {
     return NAN;
 }
 
-template<typename T>
+template <typename T>
 bool QuantileState<T>::deserialize(const Slice& slice) {
     DCHECK(_type == EMPTY);
 
-    // in case of insert error data caused be crashed 
+    // in case of insert error data caused be crashed
     if (slice.data == nullptr || slice.size <= 0) {
         return false;
     }
@@ -175,7 +176,7 @@ bool QuantileState<T>::deserialize(const Slice& slice) {
     _type = (QuantileStateType)*ptr++;
     switch (_type) {
     case EMPTY:
-        // 1: empty 
+        // 1: empty
         break;
     case SINGLE: {
         // 2: single_data value
@@ -188,10 +189,10 @@ bool QuantileState<T>::deserialize(const Slice& slice) {
         // make sure that num_explicit is positive
         uint16_t num_explicits = decode_fixed16_le(ptr);
         ptr += sizeof(uint16_t);
-        _explicit_data.reserve(std::min(num_explicits*2, QUANTILE_STATE_EXPLICIT_NUM));
+        _explicit_data.reserve(std::min(num_explicits * 2, QUANTILE_STATE_EXPLICIT_NUM));
         _explicit_data.resize(num_explicits);
-        memcpy(&_explicit_data[0], ptr, num_explicits*sizeof(T));
-        ptr += num_explicits*sizeof(T);
+        memcpy(&_explicit_data[0], ptr, num_explicits * sizeof(T));
+        ptr += num_explicits * sizeof(T);
         break;
     }
     case TDIGEST: {
@@ -206,13 +207,12 @@ bool QuantileState<T>::deserialize(const Slice& slice) {
         return false;
     }
     return true;
-
 }
 
-template<typename T>
-size_t QuantileState<T>::serialize(uint8_t* dst) const{
+template <typename T>
+size_t QuantileState<T>::serialize(uint8_t* dst) const {
     uint8_t* ptr = dst;
-    *reinterpret_cast<float *>(ptr) = _compression;
+    *reinterpret_cast<float*>(ptr) = _compression;
     ptr += sizeof(float);
     switch (_type) {
     case EMPTY: {
@@ -221,17 +221,17 @@ size_t QuantileState<T>::serialize(uint8_t* dst) const{
     }
     case SINGLE: {
         *ptr++ = SINGLE;
-        *reinterpret_cast<T *>(ptr) = _single_data;
+        *reinterpret_cast<T*>(ptr) = _single_data;
         ptr += sizeof(T);
         break;
     }
     case EXPLICIT: {
         *ptr++ = EXPLICIT;
         uint16_t size = _explicit_data.size();
-        *reinterpret_cast<uint16_t *>(ptr) = size;
+        *reinterpret_cast<uint16_t*>(ptr) = size;
         ptr += sizeof(uint16_t);
-        memcpy(ptr, &_explicit_data[0], size*sizeof(T));
-        ptr += size*sizeof(T);
+        memcpy(ptr, &_explicit_data[0], size * sizeof(T));
+        ptr += size * sizeof(T);
         break;
     }
     case TDIGEST: {
@@ -246,9 +246,9 @@ size_t QuantileState<T>::serialize(uint8_t* dst) const{
     return ptr - dst;
 }
 
-template<typename T>
+template <typename T>
 void QuantileState<T>::merge(QuantileState<T>& other) {
-    switch(other._type) {
+    switch (other._type) {
     case EMPTY:
         break;
     case SINGLE: {
@@ -256,7 +256,7 @@ void QuantileState<T>::merge(QuantileState<T>& other) {
         break;
     }
     case EXPLICIT: {
-        switch(_type) {
+        switch (_type) {
         case EMPTY:
             _type = EXPLICIT;
             _explicit_data.swap(other._explicit_data);
@@ -277,7 +277,8 @@ void QuantileState<T>::merge(QuantileState<T>& other) {
                     _tdigest_ptr->add(other._explicit_data[i]);
                 }
             } else {
-                _explicit_data.insert(_explicit_data.end(), other._explicit_data.begin(), other._explicit_data.end());            
+                _explicit_data.insert(_explicit_data.end(), other._explicit_data.begin(),
+                                      other._explicit_data.end());
             }
             break;
         case TDIGEST:
@@ -291,7 +292,7 @@ void QuantileState<T>::merge(QuantileState<T>& other) {
         break;
     }
     case TDIGEST: {
-        switch(_type) {
+        switch (_type) {
         case EMPTY:
             _type = TDIGEST;
             _tdigest_ptr = other._tdigest_ptr;
@@ -322,13 +323,11 @@ void QuantileState<T>::merge(QuantileState<T>& other) {
     default:
         return;
     }
-
-
 }
 
-template<typename T>
+template <typename T>
 void QuantileState<T>::add_value(const T& value) {
-    switch(_type) {
+    switch (_type) {
     case EMPTY:
         _single_data = value;
         _type = SINGLE;
@@ -356,19 +355,17 @@ void QuantileState<T>::add_value(const T& value) {
         _tdigest_ptr->add(value);
         break;
     }
-
 }
 
-template<typename T>
+template <typename T>
 void QuantileState<T>::clear() {
     _type = EMPTY;
     delete _tdigest_ptr;
     _tdigest_ptr = nullptr;
     _explicit_data.clear();
     _explicit_data.shrink_to_fit();
-
 }
 
 template class QuantileState<double>;
 
-}
+} // namespace doris

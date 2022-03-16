@@ -79,10 +79,9 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_OBJECT;
     } else if (0 == upper_type_str.compare("ARRAY")) {
         type = OLAP_FIELD_TYPE_ARRAY;
-    } else if (0 == upper_type_str.compare("QUANTILE_STATE")){
+    } else if (0 == upper_type_str.compare("QUANTILE_STATE")) {
         type = OLAP_FIELD_TYPE_QUANTILE_STATE;
-    }
-     else {
+    } else {
         LOG(WARNING) << "invalid type string. [type='" << type_str << "']";
         type = OLAP_FIELD_TYPE_UNKNOWN;
     }
@@ -227,7 +226,7 @@ std::string TabletColumn::get_string_by_aggregation_type(FieldAggregationMethod 
 
     case OLAP_FIELD_AGGREGATION_BITMAP_UNION:
         return "BITMAP_UNION";
-    
+
     case OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
         return "QUANTILE_UNION";
 
