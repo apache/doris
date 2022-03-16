@@ -184,6 +184,9 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
 
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
+        // TODO(zxy) There may be a problem here, pay attention later
+        // When the batch queue reaches the upper limit of memory, calling run to let
+        // brpc send data packets may cause additional memory to be released
         closure_pair.first->Run();
         _pending_closures.pop_front();
 
@@ -446,7 +449,8 @@ DataStreamRecvr::DataStreamRecvr(
           _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
-    _mem_tracker = MemTracker::CreateTracker(_profile, -1, "DataStreamRecvr", parent_tracker);
+    _mem_tracker = MemTracker::create_tracker(-1, "DataStreamRecvr", parent_tracker,
+                                              MemTrackerLevel::VERBOSE, _profile);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
@@ -503,8 +507,6 @@ void DataStreamRecvr::close() {
     _mgr->deregister_recvr(fragment_instance_id(), dest_node_id());
     _mgr = nullptr;
     _merger.reset();
-    // TODO: Maybe shared tracker doesn't need to be reset manually
-    _mem_tracker.reset();
 }
 
 DataStreamRecvr::~DataStreamRecvr() {

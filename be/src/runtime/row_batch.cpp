@@ -57,7 +57,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_
     _tuple_ptrs_size = _capacity * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
-    _mem_tracker->Consume(_tuple_ptrs_size);
+    _mem_tracker->consume(_tuple_ptrs_size);
     _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
     DCHECK(_tuple_ptrs != nullptr);
 }
@@ -85,7 +85,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch, 
     _tuple_ptrs_size = _num_rows * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
-    _mem_tracker->Consume(_tuple_ptrs_size);
+    _mem_tracker->consume(_tuple_ptrs_size);
     _tuple_ptrs = (Tuple**)(malloc(_tuple_ptrs_size));
     DCHECK(_tuple_ptrs != nullptr);
 
@@ -227,7 +227,7 @@ void RowBatch::clear() {
     }
     DCHECK(_tuple_ptrs != nullptr);
     free(_tuple_ptrs);
-    _mem_tracker->Release(_tuple_ptrs_size);
+    _mem_tracker->release(_tuple_ptrs_size);
     _tuple_ptrs = nullptr;
     _cleared = true;
 }

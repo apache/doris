@@ -53,7 +53,7 @@ HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
     _buckets.resize(num_buckets);
     _num_buckets = num_buckets;
     _num_buckets_till_resize = MAX_BUCKET_OCCUPANCY_FRACTION * _num_buckets;
-    _mem_tracker->Consume(_buckets.capacity() * sizeof(Bucket));
+    _mem_tracker->consume(_buckets.capacity() * sizeof(Bucket));
 
     // Compute the layout and buffer size to store the evaluated expr results
     _results_buffer_size = Expr::compute_results_layout(
@@ -70,7 +70,7 @@ HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
     _alloc_list.push_back(_current_nodes);
     _end_list.push_back(_current_nodes + _current_capacity * _node_byte_size);
 
-    _mem_tracker->Consume(_current_capacity * _node_byte_size);
+    _mem_tracker->consume(_current_capacity * _node_byte_size);
     if (_mem_tracker->limit_exceeded()) {
         mem_limit_exceeded(_current_capacity * _node_byte_size);
     }
@@ -85,8 +85,8 @@ void HashTable::close() {
     for (auto ptr : _alloc_list) {
         free(ptr);
     }
-    _mem_tracker->Release(_total_capacity * _node_byte_size);
-    _mem_tracker->Release(_buckets.size() * sizeof(Bucket));
+    _mem_tracker->release(_total_capacity * _node_byte_size);
+    _mem_tracker->release(_buckets.size() * sizeof(Bucket));
 }
 
 bool HashTable::eval_row(TupleRow* row, const std::vector<ExprContext*>& ctxs) {
@@ -180,7 +180,7 @@ Status HashTable::resize_buckets(int64_t num_buckets) {
 
     int64_t old_num_buckets = _num_buckets;
     int64_t delta_bytes = (num_buckets - old_num_buckets) * sizeof(Bucket);
-    Status st = _mem_tracker->TryConsume(delta_bytes);
+    Status st = _mem_tracker->try_consume(delta_bytes);
     if (!st) {
         LOG_EVERY_N(WARNING, 100) << "resize bucket failed: " << st.to_string();
         mem_limit_exceeded(delta_bytes);
@@ -244,7 +244,7 @@ void HashTable::grow_node_array() {
     _alloc_list.push_back(_current_nodes);
     _end_list.push_back(_current_nodes + alloc_size);
 
-    _mem_tracker->Consume(alloc_size);
+    _mem_tracker->consume(alloc_size);
     if (_mem_tracker->limit_exceeded()) {
         mem_limit_exceeded(alloc_size);
     }

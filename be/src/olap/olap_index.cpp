@@ -40,8 +40,7 @@ MemIndex::MemIndex()
           _index_size(0),
           _data_size(0),
           _num_rows(0),
-          _tracker(new MemTracker(-1)),
-          _mem_pool(new MemPool(_tracker.get())) {}
+          _mem_pool(new MemPool("MemIndex")) {}
 
 MemIndex::~MemIndex() {
     _num_entries = 0;

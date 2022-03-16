@@ -41,10 +41,14 @@ under the License.
         max_user_connections: 最大连接数。
         max_query_instances: 用户同一时间点执行查询可以使用的instance个数。
         sql_block_rules: 设置 sql block rules。设置后，该用户发送的查询如果匹配规则，则会被拒绝。
-        cpu_resource_limit: 限制查询的cpu资源。详见会话变量 `cpu_resource_limit` 的介绍。
+        cpu_resource_limit: 限制查询的cpu资源。详见会话变量 `cpu_resource_limit` 的介绍。-1 表示未设置。
+        exec_mem_limit: 限制查询的内存使用。详见会话变量 `exec_mem_limit` 的介绍。-1 表示未设置。
+        load_mem_limit: 限制导入的内存使用。详见会话变量 `load_mem_limit` 的介绍。-1 表示未设置。
         resource.cpu_share: cpu资源分配。（已废弃）
         load_cluster.{cluster_name}.priority: 为指定的cluster分配优先级，可以为 HIGH 或 NORMAL
         resource_tags：指定用户的资源标签权限。
+
+    注：`cpu_resource_limit`, `exec_mem_limit`, `load_mem_limit` 三个属性如果未设置，则默认使用会话变量中值。
 
     普通用户权限：
         quota.normal: normal级别的资源分配。
@@ -92,6 +96,12 @@ under the License.
 
     11. 修改用户的资源标签权限
     SET PROPERTY FOR 'jack' 'resource_tags.location' = 'group_a, group_b';
+
+    12. 修改用户的查询内存使用限制，单位字节
+    SET PROPERTY FOR 'jack' 'exec_mem_limit' = '2147483648';
+
+    13. 修改用户的导入内存使用限制，单位字节
+    SET PROPERTY FOR 'jack' 'load_mem_limit' = '2147483648';
 
 ## keyword
     SET, PROPERTY

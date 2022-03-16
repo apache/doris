@@ -39,7 +39,7 @@ namespace doris {
 
 RowBlock::RowBlock(const TabletSchema* schema, const std::shared_ptr<MemTracker>& parent_tracker)
         : _capacity(0), _schema(schema) {
-    _tracker = MemTracker::CreateTracker(-1, "RowBlock", parent_tracker, true, true, MemTrackerLevel::VERBOSE);
+    _tracker = MemTracker::create_tracker(-1, "RowBlock", parent_tracker, MemTrackerLevel::VERBOSE);
     _mem_pool.reset(new MemPool(_tracker.get()));
 }
 

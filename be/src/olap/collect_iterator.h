@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <queue>
+
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset_reader.h"

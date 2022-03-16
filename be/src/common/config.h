@@ -169,8 +169,10 @@ CONF_mInt32(doris_scan_range_row_count, "524288");
 CONF_mInt32(doris_scan_range_max_mb, "0");
 // size of scanner queue between scanner thread and compute thread
 CONF_mInt32(doris_scanner_queue_size, "1024");
-// single read execute fragment row size
+// single read execute fragment row number
 CONF_mInt32(doris_scanner_row_num, "16384");
+// single read execute fragment row bytes
+CONF_mInt32(doris_scanner_row_bytes, "10485760");
 // number of max scan keys
 CONF_mInt32(doris_max_scan_key_num, "1024");
 // the max number of push down values of a single column.
@@ -604,10 +606,23 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:
-//      RELEASE: 0
-//      DEBUG: 1
+//      OVERVIEW: 0
+//      TASK: 1
+//      INSTANCE: 2
+//      VERBOSE: 3
 // the level equal or lower than mem_tracker_level will show in web page
-CONF_Int16(mem_tracker_level, "0");
+CONF_mInt16(mem_tracker_level, "0");
+
+// The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
+// smaller than this value will continue to accumulate. specified as number of bytes.
+// Decreasing this value will increase the frequency of consume/release.
+// Increasing this value will cause MemTracker statistics to be inaccurate.
+CONF_mInt32(mem_tracker_consume_min_size_bytes, "2097152");
+
+// When MemTracker is a negative value, it is considered that a memory leak has occurred,
+// but the actual MemTracker records inaccurately will also cause a negative value,
+// so this feature is in the experimental stage.
+CONF_mBool(memory_leak_detection, "false");
 
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.

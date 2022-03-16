@@ -483,6 +483,9 @@ int main(int argc, char** argv) {
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
         doris::MemInfo::refresh_current_mem();
 #endif
+         // TODO(zxy) 10s is too long to clear the expired task mem tracker.
+         // It should be actively triggered at the end of query/load.
+        doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(10);
     }
 

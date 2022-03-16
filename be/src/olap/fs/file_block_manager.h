@@ -31,7 +31,6 @@ namespace doris {
 
 class BlockId;
 class Env;
-class MemTracker;
 class RandomAccessFile;
 
 namespace fs {
@@ -112,10 +111,6 @@ private:
     // Metric container for the block manager.
     // May be null if instantiated without metrics.
     std::unique_ptr<internal::BlockManagerMetrics> _metrics;
-
-    // Tracks memory consumption of any allocations numerous enough to be
-    // interesting.
-    std::shared_ptr<MemTracker> _mem_tracker;
 
     // DISALLOW_COPY_AND_ASSIGN(FileBlockManager);
 

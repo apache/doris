@@ -410,14 +410,16 @@ public class Database extends MetaObject implements Writable {
         return views;
     }
 
-    public List<Table> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
-        List<Table> tableList = Lists.newArrayList();
+    /**
+     *  this method is used for get existed table list by table id list, if table not exist, just ignore it.
+     */
+    public List<Table> getTablesOnIdOrderIfExist(List<Long> tableIdList) {
+        List<Table> tableList = Lists.newArrayListWithCapacity(tableIdList.size());
         for (Long tableId : tableIdList) {
             Table table = idToTable.get(tableId);
-            if (table == null) {
-                throw new MetaNotFoundException("unknown table, tableId=" + tableId);
+            if (table != null) {
+                tableList.add(table);
             }
-            tableList.add(table);
         }
         if (tableList.size() > 1) {
             return tableList.stream().sorted(Comparator.comparing(Table::getId)).collect(Collectors.toList());
@@ -425,13 +427,12 @@ public class Database extends MetaObject implements Writable {
         return tableList;
     }
 
-    public List<Table> getTablesOnIdOrderWithIgnoringWrongTableId(List<Long> tableIdList) {
-        List<Table> tableList = Lists.newArrayList();
+    public List<Table> getTablesOnIdOrderOrThrowException(List<Long> tableIdList) throws MetaNotFoundException {
+        List<Table> tableList = Lists.newArrayListWithCapacity(tableIdList.size());
         for (Long tableId : tableIdList) {
             Table table = idToTable.get(tableId);
             if (table == null) {
-                LOG.warn("unknown table, tableId=" + tableId);
-                continue;
+                throw new MetaNotFoundException("unknown table, tableId=" + tableId);
             }
             tableList.add(table);
         }

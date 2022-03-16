@@ -6938,6 +6938,14 @@ public class Catalog {
         List<BackendReplicasInfo.ReplicaReportInfo> replicaInfos = backendReplicasInfo.getReplicaReportInfos();
 
         for (BackendReplicasInfo.ReplicaReportInfo info : replicaInfos) {
+            if (tabletInvertedIndex.getTabletMeta(info.tabletId) == null) {
+                // The tablet has been deleted. Because the reporting of tablet and
+                // the deletion of tablet are two independent events,
+                // and directly do not do mutually exclusive processing,
+                // so it may appear that the tablet is deleted first, and the reporting information is processed later.
+                // Here we simply ignore the deleted tablet.
+                continue;
+            }
             Replica replica = tabletInvertedIndex.getReplica(info.tabletId, backendId);
             if (replica == null) {
                 LOG.warn("failed to find replica of tablet {} on backend {} when replaying backend report info",

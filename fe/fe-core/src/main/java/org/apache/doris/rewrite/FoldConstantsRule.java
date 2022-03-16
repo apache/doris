@@ -19,6 +19,7 @@ package org.apache.doris.rewrite;
 
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BetweenPredicate;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
@@ -206,6 +207,10 @@ public class FoldConstantsRule implements ExprRewriteRule {
             if (expr instanceof LiteralExpr) {
                 return;
             }
+            // skip BetweenPredicate need to be rewrite to CompoundPredicate
+            if (expr instanceof BetweenPredicate) {
+                return;
+            }
             // collect sysVariableDesc expr
             if (expr.contains(Predicates.instanceOf(SysVariableDesc.class))) {
                 getSysVarDescExpr(expr, sysVarMap);
@@ -385,7 +390,6 @@ public class FoldConstantsRule implements ExprRewriteRule {
             LOG.warn("failed to get const expr value from be: {}", e.getMessage());
         }
         return resultMap;
-
     }
 }
 

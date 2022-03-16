@@ -22,6 +22,7 @@
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/functions/function_totype.h"
 
 namespace doris::vectorized {
 
@@ -78,15 +79,39 @@ struct BitXorImpl {
     }
 };
 
+struct NameBitLength {
+    static constexpr auto name = "bit_length";
+};
+
+struct BitLengthImpl {
+    using ReturnType = DataTypeInt32;
+    static constexpr auto TYPE_INDEX = TypeIndex::String;
+    using Type = String;
+    using ReturnColumnType = ColumnVector<Int32>;
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         PaddedPODArray<Int32>& res) {
+        auto size = offsets.size();
+        res.resize(size);
+        for (int i = 0; i < size; ++i) {
+            int str_size = offsets[i] - offsets[i - 1] - 1;
+            res[i] = (str_size * 8);
+        }
+        return Status::OK();
+    }
+};
+
 using FunctionBitAnd = FunctionBinaryArithmetic<BitAndImpl, NameBitAnd>;
 using FunctionBitNot = FunctionUnaryArithmetic<BitNotImpl, NameBitNot, false>;
 using FunctionBitOr = FunctionBinaryArithmetic<BitOrImpl, NameBitOr>;
 using FunctionBitXor = FunctionBinaryArithmetic<BitXorImpl, NameBitXor>;
+using FunctionBitLength = FunctionUnaryToType<BitLengthImpl, NameBitLength>;
 
 void register_function_bit(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitAnd>();
     factory.register_function<FunctionBitNot>();
     factory.register_function<FunctionBitOr>();
     factory.register_function<FunctionBitXor>();
+    factory.register_function<FunctionBitLength>();
 }
 } // namespace doris::vectorized

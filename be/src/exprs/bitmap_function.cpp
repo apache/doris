@@ -156,9 +156,16 @@ void read_from(const char** src, StringValue* result) {
 } // namespace detail
 
 static StringVal serialize(FunctionContext* ctx, BitmapValue* value) {
-    StringVal result(ctx, value->getSizeInBytes());
-    value->write((char*)result.ptr);
-    return result;
+    if (!value) {
+        BitmapValue empty_bitmap;
+        StringVal result(ctx, empty_bitmap.getSizeInBytes());
+        empty_bitmap.write((char*)result.ptr);
+        return result;
+    } else {
+        StringVal result(ctx, value->getSizeInBytes());
+        value->write((char*)result.ptr);
+        return result;
+    }
 }
 
 // Calculate the intersection of two or more bitmaps
@@ -306,7 +313,8 @@ void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, S
 
 // the dst value could be null
 void BitmapFunctions::nullable_bitmap_init(FunctionContext* ctx, StringVal* dst) {
-    dst->is_null = true;
+    dst->ptr = nullptr;
+    dst->len = 0;
 }
 
 void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
@@ -314,7 +322,7 @@ void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& sr
         return;
     }
     // if dst is null, the src input is the first value
-    if (dst->is_null) {
+    if (UNLIKELY(dst->ptr == nullptr)) {
         dst->is_null = false;
         dst->len = sizeof(BitmapValue);
         dst->ptr = (uint8_t*)new BitmapValue((char*)src.ptr);
@@ -358,21 +366,17 @@ BigIntVal BitmapFunctions::bitmap_min(FunctionContext* ctx, const StringVal& src
 
 StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx,
                                      const doris_udf::StringVal& src) {
-    BitmapValue bitmap;
-    if (!src.is_null) {
-        StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
-                reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
-        if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-            std::stringstream error_msg;
-            error_msg << "The input: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
-                      << " is not valid, to_bitmap only support bigint value from 0 to "
-                         "18446744073709551615 currently";
-            ctx->set_error(error_msg.str().c_str());
-            return StringVal::null();
-        }
-        bitmap.add(int_value);
+    if (src.is_null) {
+        return StringVal::null();
     }
+    StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
+    uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+            reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
+    if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
+        return StringVal::null();
+    }
+    BitmapValue bitmap;
+    bitmap.add(int_value);
     return serialize(ctx, &bitmap);
 }
 
@@ -473,8 +477,8 @@ StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs,
     return serialize(ctx, &bitmap);
 }
 
-StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs,
-                                     int num_args, const StringVal* bitmap_strs) {
+StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                     const StringVal* bitmap_strs) {
     DCHECK_GE(num_args, 1);
     if (lhs.is_null || bitmap_strs->is_null) {
         return StringVal::null();
@@ -518,8 +522,8 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
-StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs,
-                                      int num_args, const StringVal* bitmap_strs) {
+StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                      const StringVal* bitmap_strs) {
     DCHECK_GE(num_args, 1);
     if (lhs.is_null || bitmap_strs->is_null) {
         return StringVal::null();
@@ -562,8 +566,8 @@ BigIntVal BitmapFunctions::bitmap_and_count(FunctionContext* ctx, const StringVa
     }
 }
 
-BigIntVal BitmapFunctions::bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
-                                           const StringVal* bitmap_strs) {
+BigIntVal BitmapFunctions::bitmap_and_count(FunctionContext* ctx, const StringVal& lhs,
+                                            int num_args, const StringVal* bitmap_strs) {
     DCHECK_GE(num_args, 1);
     if (lhs.is_null || bitmap_strs->is_null) {
         return BigIntVal::null();
@@ -653,8 +657,8 @@ StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs
     return serialize(ctx, &bitmap);
 }
 
-StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs,
-                                      int num_args, const StringVal* bitmap_strs) {
+StringVal BitmapFunctions::bitmap_xor(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                      const StringVal* bitmap_strs) {
     DCHECK_GE(num_args, 1);
     if (lhs.is_null || bitmap_strs->is_null) {
         return StringVal::null();
@@ -697,8 +701,8 @@ BigIntVal BitmapFunctions::bitmap_xor_count(FunctionContext* ctx, const StringVa
     }
 }
 
-BigIntVal BitmapFunctions::bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
-                                           const StringVal* bitmap_strs) {
+BigIntVal BitmapFunctions::bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs,
+                                            int num_args, const StringVal* bitmap_strs) {
     DCHECK_GE(num_args, 1);
     if (lhs.is_null || bitmap_strs->is_null) {
         return BigIntVal::null();

@@ -46,7 +46,6 @@ class ExprContext;
 class TupleDescriptor;
 class TupleRow;
 class RowDescriptor;
-class MemTracker;
 class RuntimeProfile;
 class StreamLoadPipe;
 
