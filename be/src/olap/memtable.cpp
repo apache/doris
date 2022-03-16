@@ -85,12 +85,12 @@ void MemTable::_init_agg_functions()
         vectorized::DataTypePtr dtptr = Schema::get_data_type_ptr(_schema->column(cid)->type());
         argument_types.push_back(dtptr);
         vectorized::Array params;
-        vectorized::AggregateFunctionPtr func = vectorized::AggregateFunctionSimpleFactory::instance().get(
+        vectorized::AggregateFunctionPtr function = vectorized::AggregateFunctionSimpleFactory::instance().get(
                 agg_name, argument_types, params,
                 dtptr->is_nullable());
 
-        DCHECK(func != nullptr);
-        _agg_functions[cid] = func;
+        DCHECK(function != nullptr);
+        _agg_functions[cid] = function;
     }
 }
 MemTable::~MemTable() {
@@ -149,6 +149,17 @@ void MemTable::insert_one_row_from_block(struct RowInBlock row_in_block)
     if (is_exist){
         _aggregate_two_rowInBlock(row_in_block, _vec_hint.curr->key);
     }else{
+        row_in_block.init_agg_places(_agg_functions, _schema->num_key_columns());
+        for ( auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++){
+            auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
+            auto place = row_in_block._agg_places[cid];
+            _agg_functions[cid]->add(place, 
+                    const_cast<const doris::vectorized::IColumn**>( &col_ptr),
+                    row_in_block._row_pos,
+                    nullptr
+                    );
+        }
+        
         _vec_skip_list->InsertWithHint(row_in_block, is_exist, &_vec_hint);
     }
 }
@@ -227,55 +238,41 @@ void MemTable::_aggregate_two_rowInBlock(RowInBlock new_row, RowInBlock row_in_s
                     cid < _schema->num_columns();
                     ++cid) 
     {
-        vectorized::AggregateDataPtr place = const_cast<vectorized::AggregateDataPtr>(
-                                                    _input_mutable_block.mutable_columns()[cid]
-                                                    ->get_data_at(row_in_skiplist._row_pos).data);
+        auto place = row_in_skiplist._agg_places[cid];
 
-        auto colptr = _input_mutable_block.mutable_columns()[cid].get();
+        auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
+
         _agg_functions[cid]->add(place, 
-                //static_cast<vectorized::IColumn**>(&_input_mutable_block.mutable_columns()[cid]),
-                const_cast<const doris::vectorized::IColumn**>( &colptr),
+                const_cast<const doris::vectorized::IColumn**>( &col_ptr),
                 new_row._row_pos,
                 nullptr
                 );
-    }
-
-
-        // StringRef ref = block->mutable_columns()[cid]->get_data_at(_row_pos);
-        //     bool is_null = block->mutable_columns()[cid]->is_null_at(_row_pos);
-        //     NullState null_state = is_null ? NullState::IS_NULL : NullState::NOT_NULL;
-        //     return RowCursorCell(ref.data, null_state);
-        
-        // auto dst_cell = row_in_skiplist.cell(&_input_mutable_block, cid);
-        // auto src_cell = new_row.cell(&_input_mutable_block, cid);
-        // _schema->column(cid)->agg_update(&dst_cell, &src_cell, _table_mem_pool.get());
-
-    // if (_tablet_schema->has_sequence_col()) {
-    //     auto sequence_idx = _tablet_schema->sequence_col_idx();
-    //     auto seq_dst_cell = row_in_skiplist.cell(&_input_mutable_block, sequence_idx);
-    //     auto seq_src_cell = new_row.cell(&_input_mutable_block, sequence_idx);
-    //     auto res = _schema->column(sequence_idx)->compare_cell(seq_dst_cell, seq_src_cell);
-    //     // dst sequence column larger than src, don't need to update
-    //     if (res > 0) {
-    //         return;
-    //     }
-    // }                       
-    // //dst is non-sequence row, or dst sequence is smaller
-    // for (uint32_t cid = _schema->num_key_columns(); 
-    //                 cid < _schema->num_columns();
-    //                 ++cid) {
-    //     auto dst_cell = row_in_skiplist.cell(&_input_mutable_block, cid);
-    //     auto src_cell = new_row.cell(&_input_mutable_block, cid);
-    //     _schema->column(cid)->agg_update(&dst_cell, &src_cell, _table_mem_pool.get());
-    // }
+    }   
     
 }
 vectorized::Block MemTable::collect_skiplist_results()
 {
     VecTable::Iterator it(_vec_skip_list);
     vectorized::Block in_block = _input_mutable_block.to_block();
-    for (it.SeekToFirst(); it.Valid(); it.Next()) {
-        _output_mutable_block.add_row(&in_block, it.key()._row_pos);
+    if (_keys_type == KeysType::DUP_KEYS){
+        for (it.SeekToFirst(); it.Valid(); it.Next()) {
+            _output_mutable_block.add_row(&in_block, it.key()._row_pos);
+        }
+    }else{
+        for (it.SeekToFirst(); it.Valid(); it.Next()) {
+            
+            auto& block_data = in_block.get_columns_with_type_and_name();
+            //move key columns
+            for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
+                _output_mutable_block.get_column_by_position(i)->insert_from(*block_data[i].column.get(), it.key()._row_pos);
+            }
+            //get value columns from agg_places
+            
+            for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
+                auto function = _agg_functions[i];
+                function->insert_result_into(it.key()._agg_places[i] , *(_output_mutable_block.get_column_by_position(i)));
+            }
+        }
     }
     return _output_mutable_block.to_block();
 }

@@ -77,7 +77,19 @@ private:
     //row pos in _input_mutable_block
     struct RowInBlock{
         size_t _row_pos;
-        RowInBlock(size_t i):_row_pos(i){}
+        std::vector<vectorized::AggregateDataPtr> _agg_places;
+        RowInBlock(size_t i):_row_pos(i) {}
+        void init_agg_places(std::vector<vectorized::AggregateFunctionPtr>& agg_functions,
+                            int key_column_count){
+            _agg_places.resize(agg_functions.size());
+            for(int cid = key_column_count; cid < agg_functions.size(); cid++)
+            {
+                auto function = agg_functions[cid];
+                _agg_places[cid] = new char[function->size_of_data()];
+                function->create( _agg_places[cid] );
+            }
+        }
+
         RowCursorCell cell(vectorized::MutableBlock* block, int cid){
             StringRef ref = block->mutable_columns()[cid]->get_data_at(_row_pos);
             bool is_null = block->mutable_columns()[cid]->is_null_at(_row_pos);
