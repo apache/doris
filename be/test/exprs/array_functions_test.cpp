@@ -47,7 +47,7 @@ public:
 TEST_F(ArrayFunctionsTest, array) {
     // Int array
     {
-        FunctionContext::TypeDesc childTypeDesc;
+        FunctionContext::TypeDesc childTypeDesc {};
         childTypeDesc.type = FunctionContext::TYPE_INT;
 
         _context->impl()->_return_type.type = FunctionContext::TYPE_ARRAY;
