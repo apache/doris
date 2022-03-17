@@ -45,6 +45,7 @@ class ConfigOptions {
     static Option parallelOpt
     static Option randomOrderOpt
     static Option timesOpt
+    static Option withOutLoadDataOpt
 
     static CommandLine initCommands(String[] args) {
         helpOption = Option.builder("h")
@@ -194,6 +195,13 @@ class ConfigOptions {
                 .desc("the times tests run, load.groovy is run only one time.")
                 .build()
 
+        withOutLoadDataOpt = Option.builder("w")
+                .required(false)
+                .hasArg(false)
+                .longOpt("withOutLoadData")
+                .desc("do not run load.groovy to reload data to Doris.")
+                .build()
+
         Options options = new Options()
                 .addOption(helpOption)
                 .addOption(jdbcOpt)
@@ -212,6 +220,7 @@ class ConfigOptions {
                 .addOption(forceGenOutOpt)
                 .addOption(parallelOpt)
                 .addOption(randomOrderOpt)
+                .addOption(withOutLoadDataOpt)
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)
         if (cmd.hasOption(helpOption)) {

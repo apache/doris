@@ -58,6 +58,7 @@ class Config {
     public InetSocketAddress feHttpInetSocketAddress
     public Integer parallel
     public Integer times
+    public boolean withOutLoadData
 
     Config() {}
 
@@ -125,6 +126,7 @@ class Config {
         config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "1"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
+        config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
 
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
@@ -226,7 +228,12 @@ class Config {
 
         if (config.randomOrder == null) {
             config.randomOrder = false
-            log.info("set randomOrder to false becasue not specify".toString())
+            log.info("set randomOrder to false because not specify.".toString())
+        }
+
+        if (config.withOutLoadData == null) {
+            config.withOutLoadData = false
+            log.info("set withOutLoadData to false because not specify.".toString())
         }
     }
     
