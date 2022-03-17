@@ -52,8 +52,9 @@ protected:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
+
         char buffer[MAX_PATH_LEN];
-        getcwd(buffer, MAX_PATH_LEN);
+        ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
         ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
