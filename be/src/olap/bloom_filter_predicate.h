@@ -65,6 +65,8 @@ public:
 
     void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override;
 
+    bool is_bloom_filter_predicate() override { return true; }
+
 private:
     std::shared_ptr<IBloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
