@@ -177,8 +177,10 @@ class RegressionTest {
 
     static Recorder runSuites(Config config) {
         def recorder = new Recorder()
-        runSuites(config, recorder, suiteName -> { suiteName == "load" } )
-        runSuites(config, recorder, suiteName -> { suiteName != "load" } )
+        if (!config.withOutLoadData) {
+            runSuites(config, recorder, suiteName -> { suiteName == "load" })
+        }
+        runSuites(config, recorder, suiteName -> { suiteName != "load" })
 
         return recorder
     }
