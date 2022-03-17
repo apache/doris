@@ -935,22 +935,16 @@ private:
     static uint64_t uniteBytes(const uint32_t highBytes, const uint32_t lowBytes) {
         return (uint64_t(highBytes) << 32) | uint64_t(lowBytes);
     }
-    // this is needed to tolerate gcc's C++11 libstdc++ lacking emplace
-    // prior to version 4.8
     void emplaceOrInsert(const uint32_t key, const roaring::Roaring& value) {
-#if defined(__GLIBCXX__) && __GLIBCXX__ < 20130322
-        roarings.insert(std::make_pair(key, value));
-#else
         roarings.emplace(std::make_pair(key, value));
-#endif
     }
 
-    void emplace(const uint32_t key, roaring::Roaring&& value) {
-        roarings.emplace(std::make_pair(key, std::move(value)));
+    void emplaceOrInsert(const uint32_t key, roaring::Roaring&& value) {
+        roarings.emplace(key, value);
     }
 };
 
-// Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.2.60/cpp/roaring64map.hh
+// Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.4.0/cpp/roaring64map.hh
 // Used to go through the set bits. Not optimally fast, but convenient.
 class Roaring64MapSetBitForwardIterator {
 public:

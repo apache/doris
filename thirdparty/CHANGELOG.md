@@ -2,6 +2,9 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
+## v20220316
+- Modified: CRoaring 0.3.4 -> 0.4.0
+
 ## v20220310
 - Modified: arrow 5.0.0 -> 7.0.0
 - Modified: aws-sdk-cpp 1.8.108 -> 1.9.211
