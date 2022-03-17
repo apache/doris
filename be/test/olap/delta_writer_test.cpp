@@ -51,7 +51,7 @@ std::shared_ptr<MemTracker> k_mem_tracker = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
-    getcwd(buffer, MAX_PATH_LEN);
+    ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = std::string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
     FileUtils::create_dir(config::storage_root_path);
@@ -75,7 +75,7 @@ void tear_down() {
         delete k_engine;
         k_engine = nullptr;
     }
-    system("rm -rf ./data_test");
+    ASSERT_EQ(system("rm -rf ./data_test"), 0);
     FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 

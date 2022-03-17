@@ -18,19 +18,19 @@
 #include "olap/options.h"
 
 #include <gtest/gtest.h>
-#include <filesystem>
 
+#include <filesystem>
 #include <string>
 
 namespace doris {
 
 void set_up() {
-    system("rm -rf ./test_run && mkdir -p ./test_run");
-    system("mkdir -p ./test_run/palo && mkdir -p ./test_run/palo.ssd");
+    ASSERT_EQ(system("rm -rf ./test_run && mkdir -p ./test_run"), 0);
+    ASSERT_EQ(system("mkdir -p ./test_run/palo && mkdir -p ./test_run/palo.ssd"), 0);
 }
 
 void tear_down() {
-    system("rm -rf ./test_run");
+    ASSERT_EQ(system("rm -rf ./test_run"), 0);
 }
 
 class OptionsTest : public testing::Test {

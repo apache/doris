@@ -47,7 +47,7 @@ static StorageEngine* k_engine = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
-    getcwd(buffer, MAX_PATH_LEN);
+    ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
     FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
@@ -67,7 +67,7 @@ void set_up() {
 
 void tear_down() {
     char buffer[MAX_PATH_LEN];
-    getcwd(buffer, MAX_PATH_LEN);
+    ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
     FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
@@ -244,7 +244,7 @@ protected:
     void SetUp() {
         // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
-        getcwd(buffer, MAX_PATH_LEN);
+        ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
         FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
@@ -257,7 +257,7 @@ protected:
         ASSERT_EQ(OLAP_SUCCESS, res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(tablet.get() != NULL);
+        ASSERT_NE(tablet.get(), nullptr);
         _tablet_path = tablet->tablet_path_desc().filepath;
 
         set_create_duplicate_tablet_request(&_create_dup_tablet);
@@ -415,7 +415,7 @@ protected:
     void SetUp() {
         // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
-        getcwd(buffer, MAX_PATH_LEN);
+        ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
         FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
@@ -782,7 +782,7 @@ protected:
         CpuInfo::init();
         // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
-        getcwd(buffer, MAX_PATH_LEN);
+        ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
         FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());

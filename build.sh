@@ -200,8 +200,8 @@ fi
 if [[ -z ${BUILD_META_TOOL} ]]; then
     BUILD_META_TOOL=ON
 fi
-if [[ -z ${USE_LDD} ]]; then
-    USE_LDD=OFF
+if [[ -z ${USE_LLD} ]]; then
+    USE_LLD=OFF
 fi
 
 echo "Get params:
@@ -218,7 +218,7 @@ echo "Get params:
     USE_AVX2            -- $USE_AVX2
     USE_LIBCPP          -- $USE_LIBCPP
     BUILD_META_TOOL     -- $BUILD_META_TOOL
-    USE_LDD             -- $USE_LDD
+    USE_LLD             -- $USE_LLD
 "
 
 # Clean and build generated code
@@ -253,7 +253,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DWITH_LZO=${WITH_LZO} \
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
-            -DUSE_LDD=${USE_LDD} \
+            -DUSE_LLD=${USE_LLD} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
