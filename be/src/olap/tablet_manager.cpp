@@ -842,10 +842,9 @@ OLAPStatus TabletManager::build_all_report_tablets_info(
             tablet_version_num_hist.add(tablet_ptr->version_count());
             tablets_info->emplace(tablet_id, t_tablet);
             TTabletStat t_tablet_stat;
-            t_tablet_stat.tablet_id = tablet_info.tablet_id;
-            t_tablet_stat.data_size = tablet_info.data_size;
-            t_tablet_stat.row_num = tablet_info.row_count;
-            t_tablet_stat.version_count = tablet_info.version_count;
+            t_tablet_stat.__set_data_size(tablet_info.data_size);
+            t_tablet_stat.__set_row_num(tablet_info.row_count);
+            t_tablet_stat.__set_version_count(tablet_info.version_count);
             local_cache->emplace_back(std::move(t_tablet_stat));
         }
     }
@@ -1256,10 +1255,7 @@ void TabletManager::obtain_specific_quantity_tablets(vector<TabletInfo>& tablets
             if (tablet == nullptr) {
                 continue;
             }
-            TabletInfo tablet_info(tablet->get_tablet_info().tablet_id,
-                                    tablet->get_tablet_info().schema_hash,
-                                    tablet->get_tablet_info().tablet_uid);
-            tablets_info.emplace_back(tablet_info);
+            tablets_info.push_back(tablet->get_tablet_info());
         }
     }
 }

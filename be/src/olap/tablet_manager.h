@@ -185,7 +185,6 @@ private:
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 
-    // tablet_id -> TabletInstances
     using tablet_map_t = std::unordered_map<int64_t, TabletSharedPtr>;
 
     struct tablets_shard {
