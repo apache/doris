@@ -77,8 +77,10 @@
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
 #include "vec/exec/vsort_node.h"
+#include "vec/exec/vtable_function_node.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/exprs/vexpr.h"
+
 namespace doris {
 
 const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
@@ -107,7 +109,9 @@ bool ExecNode::RowBatchQueue::AddBatchWithTimeout(RowBatch* batch, int64_t timeo
 
 RowBatch* ExecNode::RowBatchQueue::GetBatch() {
     RowBatch* result = nullptr;
-    if (blocking_get(&result)) return result;
+    if (blocking_get(&result)) {
+        return result;
+    }
     return nullptr;
 }
 
@@ -387,6 +391,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         case TPlanNodeType::ANALYTIC_EVAL_NODE:
         case TPlanNodeType::SELECT_NODE:
         case TPlanNodeType::REPEAT_NODE:
+        case TPlanNodeType::TABLE_FUNCTION_NODE:
             break;
         default: {
             const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -570,7 +575,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::TABLE_FUNCTION_NODE:
-        *node = pool->add(new TableFunctionNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VTableFunctionNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new TableFunctionNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     default:
