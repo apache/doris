@@ -146,14 +146,12 @@ public:
             offsets.push_back(new_size);
         }
     }
-    // 非谓词列
+
     void insert_data(const char* pos, size_t length) override {
-        // chars是连续的类似 vector<uint8>，PaddedPODArray<UInt8>
         const size_t old_size = chars.size();
         const size_t new_size = old_size + length + 1;
 
         chars.resize(new_size);
-        // 非谓词字符串列
         if (length) memcpy(chars.data() + old_size, pos, length);
         chars[old_size + length] = 0;
         offsets.push_back(new_size);
@@ -168,12 +166,8 @@ public:
     };
  
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict, size_t num) override {
-        // data_array是数组
         for (size_t end_index = start_index+num; start_index < end_index; ++start_index) {
-            // CODE WORD 编码
             int32_t codeword = data_array[start_index];
-            // 循环插入num次
-            // 插入字符串char* 字符串的长度
             insert_data(dict[codeword].data, dict[codeword].size);
         }
     }
