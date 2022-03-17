@@ -84,7 +84,6 @@ public class HashJoinNode extends PlanNode {
     // The instances of hashjoin which DistributionMode is HashJoinNode.DistributionMode.BROADCAST
     // share the same hash table within the one process.
     private HashTableId sharedHashTableId = new HashTableId(-1); // shared hash table id.
-    private boolean isSharedHashTableLeader = false;
 
     private List<SlotId> hashOutputSlotIds;
 

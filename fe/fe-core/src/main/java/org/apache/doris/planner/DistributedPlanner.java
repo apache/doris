@@ -379,7 +379,7 @@ public class DistributedPlanner {
             leftChildFragment.setPlanRoot(node);
 
             // Shared hash table not support right join.
-            if (ConnectContext.get().getSessionVariable().isEnableSharedHashTable() &&
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null && ConnectContext.get().getSessionVariable().isEnableSharedHashTable() &&
                     (node.getJoinOp() == JoinOperator.INNER_JOIN ||
                             node.getJoinOp() == JoinOperator.LEFT_OUTER_JOIN ||
                             node.getJoinOp() == JoinOperator.LEFT_SEMI_JOIN ||

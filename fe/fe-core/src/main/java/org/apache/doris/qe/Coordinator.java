@@ -42,6 +42,7 @@ import org.apache.doris.planner.DataStreamSink;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.HashTableId;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
@@ -122,7 +123,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import org.apache.doris.planner.HashTableId;
 
 public class Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);

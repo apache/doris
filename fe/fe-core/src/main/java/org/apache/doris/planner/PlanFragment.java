@@ -139,7 +139,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
 
-    // Shared hash table id in the fragment.if it's empty means shared hash table feature is close.
+    // Shared hash table id in the fragment. If it's empty means no hash table could be shared
     private List<HashTableId> sharedHashTableIds = Lists.newArrayList();
 
     private boolean sendToSharedHashTableFragment = false;
