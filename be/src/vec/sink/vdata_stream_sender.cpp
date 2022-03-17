@@ -339,9 +339,9 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
                                     _dest_node_id, instances);
     _profile = _pool->add(new RuntimeProfile(std::move(title)));
     SCOPED_TIMER(_profile->total_time_counter());
-    _mem_tracker = MemTracker::CreateTracker(
-            _profile, -1, "VDataStreamSender:" + print_id(state->fragment_instance_id()),
-            state->instance_mem_tracker());
+    _mem_tracker = MemTracker::create_tracker(
+            -1, "VDataStreamSender:" + print_id(state->fragment_instance_id()),
+            state->instance_mem_tracker(), MemTrackerLevel::VERBOSE, _profile);
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         std::random_device rd;

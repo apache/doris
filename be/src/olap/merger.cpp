@@ -48,9 +48,7 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
             "failed to init row cursor when merging rowsets of tablet " + tablet->full_name());
     row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
 
-    // TODO(yingchun): monitor
-    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool("Merger:merge_rowsets"));
 
     // The following procedure would last for long time, half of one day, etc.
     int64_t output_rows = 0;

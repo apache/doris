@@ -55,7 +55,7 @@ HttpService::HttpService(ExecEnv* env, int port, int num_threads)
 HttpService::~HttpService() {}
 
 Status HttpService::start() {
-    add_default_path_handlers(_web_page_handler.get(), _env->process_mem_tracker());
+    add_default_path_handlers(_web_page_handler.get(), MemTracker::get_process_tracker());
 
     // register load
     MiniLoadAction* miniload_action = _pool.add(new MiniLoadAction(_env));

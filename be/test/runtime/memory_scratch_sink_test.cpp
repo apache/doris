@@ -71,16 +71,16 @@ public:
         config::periodic_counter_update_period_ms = 500;
         config::storage_root_path = "./data";
 
-        system("mkdir -p ./test_run/output/");
-        system("pwd");
-        system("cp -r ./be/test/runtime/test_data/ ./test_run/.");
+        ASSERT_EQ(system("mkdir -p ./test_run/output/"), 0);
+        ASSERT_EQ(system("pwd"), 0);
+        ASSERT_EQ(system("cp -r ./be/test/runtime/test_data/ ./test_run/."), 0);
 
         init();
     }
 
     virtual void TearDown() {
         _obj_pool.clear();
-        system("rm -rf ./test_run");
+        ASSERT_EQ(system("rm -rf ./test_run"), 0);
     }
 
     void init();
@@ -115,7 +115,7 @@ void MemoryScratchSinkTest::init_runtime_state() {
     _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _env->exec_env());
     _state->init_instance_mem_tracker();
     _mem_tracker =
-            MemTracker::CreateTracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
+            MemTracker::create_tracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());

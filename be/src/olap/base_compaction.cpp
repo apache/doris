@@ -22,9 +22,8 @@
 
 namespace doris {
 
-BaseCompaction::BaseCompaction(TabletSharedPtr tablet, const std::string& label,
-                               const std::shared_ptr<MemTracker>& parent_tracker)
-        : Compaction(tablet, label, parent_tracker) {}
+BaseCompaction::BaseCompaction(TabletSharedPtr tablet, const std::shared_ptr<MemTracker>& parent_tracker)
+        : Compaction(tablet, "BaseCompaction:" + std::to_string(tablet->tablet_id()), parent_tracker) {}
 
 BaseCompaction::~BaseCompaction() {}
 

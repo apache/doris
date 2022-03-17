@@ -18,7 +18,6 @@
 #pragma once
 
 #include "exprs/table_function/table_function.h"
-
 #include "gutil/strings/stringpiece.h"
 #include "runtime/string_value.h"
 
@@ -38,8 +37,7 @@ public:
 
     virtual Status forward(bool* eos) override;
 
-private:
-
+protected:
     // The string value splitted from source, and will be referenced by
     // table function scan node.
     // the `_backup` saved the real string entity.
@@ -50,7 +48,6 @@ private:
     // if true, the constant delimiter will be saved in `_const_delimter`
     bool _is_delimiter_constant = false;
     StringPiece _const_delimter;
-
 };
 
 } // namespace doris

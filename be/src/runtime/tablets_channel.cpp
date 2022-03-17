@@ -35,7 +35,7 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key,
                                const std::shared_ptr<MemTracker>& mem_tracker,
                                bool is_high_priority)
         : _key(key), _state(kInitialized), _closed_senders(64), _is_high_priority(is_high_priority) {
-    _mem_tracker = MemTracker::CreateTracker(-1, "TabletsChannel", mem_tracker);
+    _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel:" + std::to_string(key.index_id), mem_tracker);
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -199,8 +199,6 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
             // tablet_vec will only contains success tablet, and then let FE judge it.
             writer->close_wait(tablet_vec, (_broken_tablets.find(writer->tablet_id()) != _broken_tablets.end()));
         }
-        // TODO(gaodayue) clear and destruct all delta writers to make sure all memory are freed
-        // DCHECK_EQ(_mem_tracker->consumption(), 0);
     }
     return Status::OK();
 }

@@ -793,22 +793,17 @@ public class DatabaseTransactionMgr {
             errorReplicaIds.addAll(originalErrorReplicas);
         }
 
-        Database db = catalog.getDbNullable(transactionState.getDbId());
-        if (db == null) {
-            writeLock();
-            try {
-                transactionState.setTransactionStatus(TransactionStatus.ABORTED);
-                transactionState.setReason("db is dropped");
-                LOG.warn("db is dropped during transaction, abort transaction {}", transactionState);
-                unprotectUpsertTransactionState(transactionState, false);
-                return;
-            } finally {
-                writeUnlock();
-            }
-        }
+        // case 1 If database is dropped, then we just throw MetaNotFoundException, because all related tables are already force dropped,
+        // we just ignore the transaction with all tables been force dropped.
+        // case 2 If at least one table lock successfully, which means that the transaction should be finished for the existed tables
+        // while just ignore tables which have been dropped forcefully.
+        // case 3 Database exist and all tables already been dropped, this case is same with case1, just finish the transaction with empty commit info
+        // only three cases mentioned above may happen, because user cannot drop table without force while there are committed transactions on table
+        // and writeLockTablesIfExist is a blocking function, the returned result would be the existed table list which hold write lock
+        Database db = catalog.getDbOrMetaException(transactionState.getDbId());
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        MetaLockUtils.writeLockTablesOrMetaException(tableList);
+        List<Table> tableList = db.getTablesOnIdOrderIfExist(tableIdList);
+        tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
         try {
             boolean hasError = false;
             Iterator<TableCommitInfo> tableCommitInfoIterator = transactionState.getIdToTableCommitInfos().values().iterator();
@@ -1650,11 +1645,19 @@ public class DatabaseTransactionMgr {
     }
 
     public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
+        boolean shouldAddTableListLock  = transactionState.getTransactionStatus() == TransactionStatus.COMMITTED ||
+                transactionState.getTransactionStatus() == TransactionStatus.VISIBLE;
+        Database db = null;
+        List<Table> tableList = null;
+        if (shouldAddTableListLock) {
+            db = catalog.getDbOrMetaException(transactionState.getDbId());
+            tableList = db.getTablesOnIdOrderIfExist(transactionState.getTableIdList());
+            tableList = MetaLockUtils.writeLockTablesIfExist(tableList);
+        }
         writeLock();
         try {
             // set transaction status will call txn state change listener
             transactionState.replaySetTransactionStatus();
-            Database db = catalog.getDbOrMetaException(transactionState.getDbId());
             if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
                 LOG.info("replay a committed transaction {}", transactionState);
                 updateCatalogAfterCommitted(transactionState, db);
@@ -1665,6 +1668,9 @@ public class DatabaseTransactionMgr {
             unprotectUpsertTransactionState(transactionState, true);
         } finally {
             writeUnlock();
+            if (shouldAddTableListLock) {
+                MetaLockUtils.writeUnlockTables(tableList);
+            }
         }
     }
 

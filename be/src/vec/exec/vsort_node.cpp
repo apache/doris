@@ -102,7 +102,7 @@ Status VSortNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    _mem_tracker->Release(_total_mem_usage);
+    _mem_tracker->release(_total_mem_usage);
     _vsort_exec_exprs.close(state);
     ExecNode::close(state);
     return Status::OK();
@@ -159,7 +159,7 @@ Status VSortNode::sort_input(RuntimeState* state) {
                 _sorted_blocks.emplace_back(std::move(block));
             }
 
-            _mem_tracker->Consume(mem_usage);
+            _mem_tracker->consume(mem_usage);
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
         }

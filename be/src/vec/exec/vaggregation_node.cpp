@@ -355,7 +355,7 @@ Status AggregationNode::open(RuntimeState* state) {
         }
         RETURN_IF_ERROR(_executor.execute(&block));
         _executor.update_memusage();
-        RETURN_IF_LIMIT_EXCEEDED(state, "aggregator, while execute open.");
+        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "aggregator, while execute open.");
     }
 
     return Status::OK();
@@ -395,7 +395,7 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     }
 
     _executor.update_memusage();
-    RETURN_IF_LIMIT_EXCEEDED(state, "aggregator, while execute get_next.");
+    RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "aggregator, while execute get_next.");
     return Status::OK();
 }
 
@@ -555,7 +555,7 @@ Status AggregationNode::_merge_without_key(Block* block) {
 }
 
 void AggregationNode::_update_memusage_without_key() {
-    mem_tracker()->Consume(_agg_arena_pool.size() - _mem_usage_record.used_in_arena);
+    mem_tracker()->consume(_agg_arena_pool.size() - _mem_usage_record.used_in_arena);
     _mem_usage_record.used_in_arena = _agg_arena_pool.size();
 }
 
@@ -1078,8 +1078,8 @@ void AggregationNode::_update_memusage_with_serialized_key() {
     std::visit(
             [&](auto&& agg_method) -> void {
                 auto& data = agg_method.data;
-                mem_tracker()->Consume(_agg_arena_pool.size() - _mem_usage_record.used_in_arena);
-                mem_tracker()->Consume(data.get_buffer_size_in_bytes() -
+                mem_tracker()->consume(_agg_arena_pool.size() - _mem_usage_record.used_in_arena);
+                mem_tracker()->consume(data.get_buffer_size_in_bytes() -
                                        _mem_usage_record.used_in_state);
                 _mem_usage_record.used_in_state = data.get_buffer_size_in_bytes();
                 _mem_usage_record.used_in_arena = _agg_arena_pool.size();
@@ -1103,7 +1103,7 @@ void AggregationNode::_close_with_serialized_key() {
 }
 
 void AggregationNode::release_tracker() {
-    mem_tracker()->Release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
+    mem_tracker()->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
 }
 
 } // namespace doris::vectorized

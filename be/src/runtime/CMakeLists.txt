@@ -46,7 +46,9 @@ set(RUNTIME_FILES
     runtime_state.cpp
     runtime_filter_mgr.cpp
     string_value.cpp
+    thread_context.cpp
     thread_resource_mgr.cpp
+    threadlocal.cc
     decimalv2_value.cpp
     large_int_value.cpp
     collection_value.cpp
@@ -66,6 +68,7 @@ set(RUNTIME_FILES
     disk_io_mgr_scan_range.cc 
     buffered_block_mgr2.cc
     mem_tracker.cpp
+    mem_tracker_task_pool.cpp
     spill_sorter.cc
     sorted_run_merger.cc
     data_stream_recvr.cc

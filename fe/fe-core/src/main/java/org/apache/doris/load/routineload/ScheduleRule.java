@@ -21,10 +21,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.system.SystemInfoService;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 /**
  * ScheduleRule: RoutineLoad PAUSED -> NEED_SCHEDULE
  */
 public class ScheduleRule {
+    private static final Logger LOG = LogManager.getLogger(ScheduleRule.class);
 
     private static int deadBeCount(String clusterName) {
         SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
@@ -43,17 +47,26 @@ public class ScheduleRule {
             return false;
         }
         if (jobRoutine.autoResumeLock) {//only manual resume for unlock
+            LOG.debug("routine load job {}'s autoResumeLock is true, skip", jobRoutine.id);
             return false;
         }
 
         /*
          * Handle all backends are down.
          */
+        LOG.debug("try to auto reschedule routine load {}, firstResumeTimestamp: {}, autoResumeCount: {}, " +
+                        "pause reason: {}",
+                jobRoutine.id, jobRoutine.firstResumeTimestamp, jobRoutine.autoResumeCount,
+                jobRoutine.pauseReason == null ? "null" : jobRoutine.pauseReason.getCode().name());
         if (jobRoutine.pauseReason != null && jobRoutine.pauseReason.getCode() == InternalErrorCode.REPLICA_FEW_ERR) {
             int dead = deadBeCount(jobRoutine.clusterName);
             if (dead > Config.max_tolerable_backend_down_num) {
+                LOG.debug("dead backend num {} is larger than config {}, " +
+                                "routine load job {} can not be auto rescheduled",
+                        dead, Config.max_tolerable_backend_down_num, jobRoutine.id);
                 return false;
             }
+
             if (jobRoutine.firstResumeTimestamp == 0) {//the first resume
                 jobRoutine.firstResumeTimestamp = System.currentTimeMillis();
                 jobRoutine.autoResumeCount = 1;

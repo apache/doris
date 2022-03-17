@@ -77,8 +77,10 @@
 #include "vec/exec/vschema_scan_node.h"
 #include "vec/exec/vselect_node.h"
 #include "vec/exec/vsort_node.h"
+#include "vec/exec/vtable_function_node.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/exprs/vexpr.h"
+
 namespace doris {
 
 const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
@@ -107,7 +109,9 @@ bool ExecNode::RowBatchQueue::AddBatchWithTimeout(RowBatch* batch, int64_t timeo
 
 RowBatch* ExecNode::RowBatchQueue::GetBatch() {
     RowBatch* result = nullptr;
-    if (blocking_get(&result)) return result;
+    if (blocking_get(&result)) {
+        return result;
+    }
     return nullptr;
 }
 
@@ -201,12 +205,11 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = MemTracker::CreateTracker(_runtime_profile.get(), -1,
-                                             "ExecNode:" + _runtime_profile->name(),
-                                             state->instance_mem_tracker());
-    _expr_mem_tracker = MemTracker::CreateTracker(-1, "ExecNode:Exprs:" + _runtime_profile->name(),
-                                                  _mem_tracker);
-    _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
+    _mem_tracker = MemTracker::create_tracker(-1, "ExecNode:" + _runtime_profile->name(),
+                                              state->instance_mem_tracker(),
+                                              MemTrackerLevel::VERBOSE, _runtime_profile.get());
+    _expr_mem_tracker = MemTracker::create_tracker(-1, "ExecNode:Exprs:" + _runtime_profile->name(),
+                                                   _mem_tracker);
 
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, row_desc(), expr_mem_tracker()));
@@ -267,10 +270,6 @@ Status ExecNode::close(RuntimeState* state) {
 
     if (_vconjunct_ctx_ptr) (*_vconjunct_ctx_ptr)->close(state);
     Expr::close(_conjunct_ctxs, state);
-
-    if (expr_mem_pool() != nullptr) {
-        _expr_mem_pool->free_all();
-    }
 
     if (_buffer_pool_client.is_registered()) {
         VLOG_FILE << _id << " returning reservation " << _resource_profile.min_reservation;
@@ -387,6 +386,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         case TPlanNodeType::ANALYTIC_EVAL_NODE:
         case TPlanNodeType::SELECT_NODE:
         case TPlanNodeType::REPEAT_NODE:
+        case TPlanNodeType::TABLE_FUNCTION_NODE:
             break;
         default: {
             const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -570,7 +570,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::TABLE_FUNCTION_NODE:
-        *node = pool->add(new TableFunctionNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VTableFunctionNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new TableFunctionNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     default:

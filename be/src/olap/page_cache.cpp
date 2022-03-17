@@ -29,14 +29,19 @@ void StoragePageCache::create_global_cache(size_t capacity, int32_t index_cache_
 
 StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percentage)
         : _index_cache_percentage(index_cache_percentage),
-          _mem_tracker(MemTracker::CreateTracker(capacity, "StoragePageCache", nullptr, true, true, MemTrackerLevel::OVERVIEW)) {
+          _mem_tracker(MemTracker::create_tracker(capacity, "StoragePageCache", nullptr,
+                                                  MemTrackerLevel::OVERVIEW)) {
     if (index_cache_percentage == 0) {
-        _data_page_cache = std::unique_ptr<Cache>(new_lru_cache("DataPageCache", capacity, _mem_tracker));
+        _data_page_cache =
+                std::unique_ptr<Cache>(new_lru_cache("DataPageCache", capacity));
     } else if (index_cache_percentage == 100) {
-        _index_page_cache = std::unique_ptr<Cache>(new_lru_cache("IndexPageCache", capacity, _mem_tracker));
+        _index_page_cache =
+                std::unique_ptr<Cache>(new_lru_cache("IndexPageCache", capacity));
     } else if (index_cache_percentage > 0 && index_cache_percentage < 100) {
-        _data_page_cache = std::unique_ptr<Cache>(new_lru_cache("DataPageCache", capacity * (100 - index_cache_percentage) / 100, _mem_tracker));
-        _index_page_cache = std::unique_ptr<Cache>(new_lru_cache("IndexPageCache", capacity * index_cache_percentage / 100, _mem_tracker));
+        _data_page_cache = std::unique_ptr<Cache>(new_lru_cache(
+                "DataPageCache", capacity * (100 - index_cache_percentage) / 100));
+        _index_page_cache = std::unique_ptr<Cache>(new_lru_cache(
+                "IndexPageCache", capacity * index_cache_percentage / 100));
     } else {
         CHECK(false) << "invalid index page cache percentage";
     }

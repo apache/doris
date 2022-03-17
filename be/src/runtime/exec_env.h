@@ -20,6 +20,8 @@
 
 #include "common/status.h"
 #include "olap/options.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/mem_tracker_task_pool.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -45,7 +47,7 @@ class LoadPathMgr;
 class LoadStreamMgr;
 class MemTracker;
 class StorageEngine;
-class PoolMemTrackerRegistry;
+class MemTrackerTaskPool;
 class PriorityThreadPool;
 class PriorityWorkStealingThreadPool;
 class ReservationTracker;
@@ -97,6 +99,7 @@ public:
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
+    const bool initialized() { return _is_init; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     DataStreamMgr* stream_mgr() { return _stream_mgr; }
@@ -116,8 +119,11 @@ public:
         return nullptr;
     }
 
-    std::shared_ptr<MemTracker> process_mem_tracker() { return _mem_tracker; }
-    PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
+    std::shared_ptr<MemTracker> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
+    std::shared_ptr<MemTracker> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
+    MemTrackerTaskPool* task_pool_mem_tracker_registry() {
+        return _task_pool_mem_tracker_registry.get();
+    }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
     ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
@@ -155,9 +161,6 @@ public:
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
 
-    // The root tracker should be set before calling ExecEnv::init();
-    void set_root_mem_tracker(std::shared_ptr<MemTracker> root_tracker);
-
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destroy();
@@ -184,9 +187,13 @@ private:
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
     ClientCache<TExtDataSourceServiceClient>* _extdatasource_client_cache = nullptr;
-    std::shared_ptr<MemTracker> _mem_tracker;
-    PoolMemTrackerRegistry* _pool_mem_trackers = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
+
+    // The ancestor for all querys tracker.
+    std::shared_ptr<MemTracker> _query_pool_mem_tracker = nullptr;
+    // The ancestor for all load tracker.
+    std::shared_ptr<MemTracker> _load_pool_mem_tracker = nullptr;
+    std::unique_ptr<MemTrackerTaskPool> _task_pool_mem_tracker_registry;
 
     // The following two thread pools are used in different scenarios.
     // _scan_thread_pool is a priority thread pool.

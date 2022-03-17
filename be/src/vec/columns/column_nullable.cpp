@@ -112,6 +112,11 @@ StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
     return StringRef(nested_ref.data - s, nested_ref.size + s);
 }
 
+    void ColumnNullable::insert_join_null_data() {
+        get_nested_column().insert_default();
+        get_null_map_data().push_back(JOIN_NULL_HINT);
+    }
+
 const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {
     UInt8 val = *reinterpret_cast<const UInt8*>(pos);
     pos += sizeof(val);

@@ -38,8 +38,7 @@ public:
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status close(RuntimeState* state);
 
-private:
-
+protected:
     Status _prepare_output_slot_ids(const TPlanNode& tnode);
 
     // return:
@@ -48,11 +47,9 @@ private:
     // >0: some of fns are eos
     int _find_last_fn_eos_idx();
 
-    Status _process_next_child_row();
+    virtual Status _process_next_child_row();
 
     bool _roll_table_functions(int last_eos_idx);
-
-private:
 
     int64_t _cur_child_offset = 0;
     TupleRow* _cur_child_tuple_row = nullptr;
@@ -62,8 +59,11 @@ private:
     bool _child_batch_exhausted = true;
 
     std::vector<ExprContext*> _fn_ctxs;
+    std::vector<vectorized::VExprContext*> _vfn_ctxs;
+
     std::vector<TableFunction*> _fns;
     std::vector<void*> _fn_values;
+    std::vector<int64_t> _fn_value_lengths;
     int _fn_num = 0;
 
     // std::unordered_set<SlotId> _output_slot_ids;

@@ -272,8 +272,24 @@ set_target_properties(aws-sdk-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR
 add_library(aws-sdk-s3 STATIC IMPORTED)
 set_target_properties(aws-sdk-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3.a)
 
+add_library(aws-sdk-transfer STATIC IMPORTED)
+set_target_properties(aws-sdk-transfer PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-transfer.a)
+
+add_library(aws-sdk-s3-crt STATIC IMPORTED)
+set_target_properties(aws-sdk-s3-crt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-cpp-sdk-s3-crt.a)
+
+
+add_library(aws-crt-cpp STATIC IMPORTED)
+set_target_properties(aws-crt-cpp PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-crt-cpp.a)
+
 add_library(aws-c-cal STATIC IMPORTED)
 set_target_properties(aws-c-cal PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-cal.a)
+
+add_library(aws-c-auth STATIC IMPORTED)
+set_target_properties(aws-c-auth PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-auth.a)
+
+add_library(aws-c-compression STATIC IMPORTED)
+set_target_properties(aws-c-compression PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-compression.a)
 
 add_library(aws-c-common STATIC IMPORTED)
 set_target_properties(aws-c-common PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-common.a)
@@ -284,8 +300,17 @@ set_target_properties(aws-c-event-stream PROPERTIES IMPORTED_LOCATION ${THIRDPAR
 add_library(aws-c-io STATIC IMPORTED)
 set_target_properties(aws-c-io PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-io.a)
 
+add_library(aws-c-http STATIC IMPORTED)
+set_target_properties(aws-c-http PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-http.a)
+
+add_library(aws-c-mqtt STATIC IMPORTED)
+set_target_properties(aws-c-mqtt PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-mqtt.a)
+
 add_library(aws-checksums STATIC IMPORTED)
 set_target_properties(aws-checksums PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-checksums.a)
+
+add_library(aws-c-s3 STATIC IMPORTED)
+set_target_properties(aws-c-s3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libaws-c-s3.a)
 
 add_library(aws-s2n STATIC IMPORTED)
 set_target_properties(aws-s2n PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libs2n.a)
@@ -338,7 +363,7 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
-if (USE_LDD)
+if (USE_LLD)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
 endif ()
 
@@ -352,11 +377,11 @@ if (COMPILER_GCC)
     # https://stackoverflow.com/questions/67584073/gcc-11-false-array-subscript-is-partly-outside-array-bounds-warning
     # https://stackoverflow.com/questions/69426070/gcc-11-order-of-arguments-triggers-false-positive-wstringop-overflow-is-this-bu
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-array-bounds -Wno-stringop-overread")
-    add_compile_options(-Wno-stringop-overflow)
+    add_compile_options(-Wno-stringop-overflow -fdiagnostics-color=always)
 endif ()
 
 if (COMPILER_CLANG)
-
+    add_compile_options (-fcolor-diagnostics)
     if(MAKE_TEST STREQUAL "OFF")
         add_compile_options(-Qunused-arguments)
     endif()
@@ -432,12 +457,6 @@ SET(CMAKE_CXX_FLAGS "${CXX_COMMON_FLAGS} ${CMAKE_CXX_FLAGS}")
 
 message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
 
-if (CMAKE_GENERATOR STREQUAL "Ninja" AND NOT DISABLE_COLORED_BUILD)
-    # Turn on colored output. https://github.com/ninja-build/ninja/wiki/FAQ
-    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
-    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
-endif ()
-
 # Thrift requires these two definitions for some types that we use
 add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 
@@ -452,15 +471,28 @@ include_directories(
     ${GENSRC_DIR}/
     ${THIRDPARTY_DIR}/include
     ${GPERFTOOLS_HOME}/include
-    ${THIRDPARTY_DIR}/include/thrift/
-    ${THIRDPARTY_DIR}/include/event/
     ${THIRDPARTY_DIR}/include/breakpad/
 )
 
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 
-set(AWS_LIBS aws-sdk-s3 aws-sdk-core aws-checksums aws-c-io aws-c-event-stream aws-c-common aws-c-cal aws-s2n)
+set(AWS_LIBS
+    aws-sdk-s3
+    aws-sdk-core
+    aws-checksums
+    aws-c-io
+    aws-c-event-stream
+    aws-c-common
+    aws-c-cal
+    aws-s2n
+    aws-c-s3
+    aws-c-auth
+    aws-crt-cpp
+    aws-c-compression
+    aws-c-http
+    aws-c-mqtt
+    aws-sdk-s3-crt)
 
 # Set Doris libraries
 set(DORIS_LINK_LIBS
@@ -645,6 +677,10 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
 set(BUILD_SHARED_LIBS OFF)
 
 if (${MAKE_TEST} STREQUAL "ON")
+    if (USE_LLD)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fuse-ld=lld")
+    endif ()
+
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
     SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
     add_definitions(-DBE_TEST)

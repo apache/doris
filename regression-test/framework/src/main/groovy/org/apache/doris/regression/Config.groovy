@@ -49,12 +49,16 @@ class Config {
     public String testSuites
     public boolean generateOutputFile
     public boolean forceGenerateOutputFile
+    public boolean randomOrder
 
     public Properties otherConfigs = new Properties()
 
     public Set<String> suiteWildcard = new HashSet<>()
     public Set<String> groups = new HashSet<>()
     public InetSocketAddress feHttpInetSocketAddress
+    public Integer parallel
+    public Integer times
+    public boolean withOutLoadData
 
     Config() {}
 
@@ -119,6 +123,11 @@ class Config {
         config.feHttpPassword = cmd.getOptionValue(feHttpPasswordOpt, config.feHttpPassword)
         config.generateOutputFile = cmd.hasOption(genOutOpt)
         config.forceGenerateOutputFile = cmd.hasOption(forceGenOutOpt)
+        config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "1"))
+        config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
+        config.randomOrder = cmd.hasOption(randomOrderOpt)
+        config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
+
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
 
@@ -210,6 +219,21 @@ class Config {
         if (config.testSuites == null) {
             config.testSuites = ""
             log.info("Set testSuites to empty because not specify.".toString())
+        }
+
+        if (config.parallel == null) {
+            config.parallel = 1
+            log.info("Set parallel to 1 because not specify.".toString())
+        }
+
+        if (config.randomOrder == null) {
+            config.randomOrder = false
+            log.info("set randomOrder to false because not specify.".toString())
+        }
+
+        if (config.withOutLoadData == null) {
+            config.withOutLoadData = false
+            log.info("set withOutLoadData to false because not specify.".toString())
         }
     }
     

@@ -14,7 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
 package org.apache.doris.regression
 
 import groovy.transform.CompileStatic
@@ -27,14 +26,19 @@ import org.apache.commons.cli.*
 import org.apache.doris.regression.util.SuiteInfo
 import org.codehaus.groovy.control.CompilerConfiguration
 
+import java.util.concurrent.Executors
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Future
 import java.util.stream.Collectors
 
 @Slf4j
 @CompileStatic
 class RegressionTest {
+
     static ClassLoader classloader
     static CompilerConfiguration compileConfig
     static GroovyShell shell
+    static ExecutorService executorService;
 
     static void main(String[] args) {
         CommandLine cmd = ConfigOptions.initCommands(args)
@@ -44,83 +48,151 @@ class RegressionTest {
 
         Config config = Config.fromCommandLine(cmd)
         initGroovyEnv(config)
-        Recorder recorder = runSuites(config)
-        printResult(config, recorder)
+        for (int i = 0; i < config.times; i++) {
+            log.info("=== run ${i} time ===")
+            Recorder recorder = runSuites(config)
+            printResult(config, recorder)
+        }
+        executorService.shutdown()
     }
 
     static void initGroovyEnv(Config config) {
+        log.info("parallel = ${config.parallel}")
         classloader = new GroovyClassLoader()
         compileConfig = new CompilerConfiguration()
         compileConfig.setScriptBaseClass((Suite as Class).name)
         shell = new GroovyShell(classloader, new Binding(), compileConfig)
+        log.info("starting ${config.parallel} threads")
+        executorService = Executors.newFixedThreadPool(config.parallel);
     }
 
     static List<File> findSuiteFiles(String root) {
         if (root == null) {
-            log.warn("Not specify suite path")
+            log.warn('Not specify suite path')
             return new ArrayList<File>()
         }
         List<File> files = new ArrayList<>()
+        // 1. generate groovy for sql, excluding ddl
         new File(root).eachFileRecurse { f ->
-            if (f.isFile() && f.name.endsWith(".groovy")) {
+            if (f.isFile() && f.name.endsWith('.sql') && f.getParentFile().name != "ddl") {
+                genetate_groovy_from_sql(f)
+            }
+        }
+
+        // 2. collect groovy files.
+        new File(root).eachFileRecurse { f ->
+            if (f.isFile() && f.name.endsWith('.groovy')) {
                 files.add(f)
             }
         }
         return files
     }
 
+    static void genetate_groovy_from_sql(File f) {
+        File groovy_file = new File(f.getAbsolutePath() + '.generated.groovy')
+        groovy_file.delete()
+        groovy_file.createNewFile()
+        int separatorIndex = f.name.lastIndexOf('.')
+        String action_name = f.name.substring(0, separatorIndex)
+        if (action_name.endsWith('order')) {
+             groovy_file.text = "order_qt_${action_name} \"\"\"${f.text}\"\"\""
+        } else {
+             groovy_file.text = "qt_${action_name} \"\"\"${f.text}\"\"\""
+        }
+    }
+
     static String parseGroup(Config config, File suiteFile) {
+        // ./run-regression-test.sh -g group_name runs all groups
+        // whose name starting with ${group_name}.
         String group = new File(config.suitePath).relativePath(suiteFile)
         int separatorIndex = group.lastIndexOf(File.separator)
-        if (separatorIndex == -1) {
-            return ""
-        } else {
-            return group.substring(0, separatorIndex)
+        String groups = ",";
+        while (separatorIndex != -1) {
+            group = group.substring(0, separatorIndex)
+            groups += "${group},"
+            separatorIndex = group.lastIndexOf(File.separator)
+        }
+        // remove ',' at head and trail
+        groups = groups.substring(1, groups.length() - 1);
+        return groups;
+    }
+
+    static Integer runSuite(Config config, SuiteFile sf, Recorder recorder) {
+        File file = sf.file
+        String suiteName = sf.suiteName
+        String group = sf.group
+        def suiteConn = config.getConnection()
+        new SuiteContext(file, suiteConn, config, recorder).withCloseable { context ->
+            try {
+                log.info("Run ${suiteName} in $file".toString())
+                Suite suite = shell.parse(file) as Suite
+                suite.init(suiteName, group, context)
+                suite.run()
+                recorder.onSuccess(new SuiteInfo(file, group, suiteName))
+                log.info("Run ${suiteName} in ${file.absolutePath} succeed".toString())
+            } catch (Throwable t) {
+                recorder.onFailure(new SuiteInfo(file, group, suiteName))
+                log.error("Run ${suiteName} in ${file.absolutePath} failed".toString(), t)
+            }
+        }
+
+        return 0
+    }
+
+    static void runSuites(Config config, Recorder recorder, Closure suiteNameMatch) {
+        def files = findSuiteFiles(config.suitePath)
+        List<SuiteFile> runScripts = files.stream().map({ file ->
+            String suiteName = file.name.substring(0, file.name.lastIndexOf('.'))
+            String group = parseGroup(config, file)
+            return new SuiteFile(file, suiteName, group)
+        }).filter({ sf ->
+            { suiteNameMatch(sf.suiteName) && canRun(config, sf.suiteName, sf.group) }
+        }).collect(Collectors.toList())
+
+        if (config.randomOrder) {
+            Collections.shuffle(files)
+        }
+        log.info('Start to run suites')
+        int totalFile = runScripts.size()
+        def futures = new ArrayList<Future>()
+        runScripts.eachWithIndex { sf, i ->
+            log.info("[${i + 1}/${totalFile}] Run ${sf.suiteName} in ${sf.file}".toString())
+            Future future = executorService.submit(
+                             ()-> {
+                                runSuite(config, sf, recorder)
+                             }
+                             )
+            futures.add(future)
+        }
+
+        for (Future<Integer> future : futures) {
+            try {
+                future.get()
+            }
+            catch (Throwable t) {
+                log.info(" exception ${t.toString()}")
+            }
         }
     }
 
     static Recorder runSuites(Config config) {
-        def files = findSuiteFiles(config.suitePath)
         def recorder = new Recorder()
-        List<SuiteFile> runScripts = files.stream().map({ file ->
-            String suiteName = file.name.substring(0, file.name.lastIndexOf("."))
-            String group = parseGroup(config, file)
-            return new SuiteFile(file, suiteName, group)
-        }).filter({ sf ->
-            canRun(config, sf.suiteName, sf.group)
-        }).collect(Collectors.toList())
-
-        log.info("Start to run suites")
-        int totalFile = runScripts.size()
-        runScripts.eachWithIndex { sf, i ->
-            File file = sf.file
-            String suiteName = sf.suiteName
-            String group = sf.group
-            def suiteConn = config.getConnection()
-            new SuiteContext(file, suiteConn, config, recorder).withCloseable { context ->
-                try {
-                    log.info("[${i + 1}/${totalFile}] Run ${suiteName} in $file".toString())
-                    Suite suite = shell.parse(file) as Suite
-                    suite.init(suiteName, group, context)
-                    suite.run()
-                    recorder.onSuccess(new SuiteInfo(file, group, suiteName))
-                    log.info("Run ${suiteName} in ${file.absolutePath} succeed".toString())
-                } catch (Throwable t) {
-                    recorder.onFailure(new SuiteInfo(file, group, suiteName))
-                    log.error("Run ${suiteName} in ${file.absolutePath} failed".toString(), t)
-                }
-            }
+        if (!config.withOutLoadData) {
+            runSuites(config, recorder, suiteName -> { suiteName == "load" })
         }
+        runSuites(config, recorder, suiteName -> { suiteName != "load" })
+
         return recorder
     }
 
     static boolean canRun(Config config, String suiteName, String group) {
-        Set<String> suiteGroups = group.split(",").collect {g -> g.trim()}.toSet()
+        Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet()
         if (config.suiteWildcard.size() == 0 ||
                 (suiteName != null && (config.suiteWildcard.any {
-                    suiteWildcard -> Wildcard.match(suiteName, suiteWildcard)
+                    suiteWildcard -> {
+                        Wildcard.match(suiteName, suiteWildcard)
+                    }
                 }))) {
-
             if (config.groups == null || config.groups.isEmpty()
                     || !config.groups.intersect(suiteGroups).isEmpty()) {
                 return true
@@ -138,7 +210,7 @@ class RegressionTest {
         {
             String successList = recorder.successList.collect { info ->
                 "${info.file.absolutePath}: group=${info.group}, name=${info.suiteName}"
-            }.join("\n")
+            }.join('\n')
             log.info("successList suites:\n${successList}".toString())
         }
 
@@ -146,36 +218,36 @@ class RegressionTest {
         if (!recorder.failureList.isEmpty()) {
             def failureList = recorder.failureList.collect() { info ->
                 "${info.file.absolutePath}: group=${info.group}, name=${info.suiteName}"
-            }.join("\n")
+            }.join('\n')
             log.info("Failure suites:\n${failureList}".toString())
             printFailed()
-            throw new IllegalStateException("Test failed")
         } else {
             printPassed()
         }
     }
 
     static void printPassed() {
-        log.info("""All suites success.
-                 | ____   _    ____ ____  _____ ____  
-                 ||  _ \\ / \\  / ___/ ___|| ____|  _ \\ 
+        log.info('''All suites success.
+                 | ____   _    ____ ____  _____ ____
+                 ||  _ \\ / \\  / ___/ ___|| ____|  _ \\
                  || |_) / _ \\ \\___ \\___ \\|  _| | | | |
                  ||  __/ ___ \\ ___) |__) | |___| |_| |
-                 ||_| /_/   \\_\\____/____/|_____|____/                         
-                 |""".stripMargin())
+                 ||_| /_/   \\_\\____/____/|_____|____/
+                 |'''.stripMargin())
     }
 
     static void printFailed() {
-        log.info("""Some suites failed.
-                 | _____ _    ___ _     _____ ____  
-                 ||  ___/ \\  |_ _| |   | ____|  _ \\ 
+        log.info('''Some suites failed.
+                 | _____ _    ___ _     _____ ____
+                 ||  ___/ \\  |_ _| |   | ____|  _ \\
                  || |_ / _ \\  | || |   |  _| | | | |
                  ||  _/ ___ \\ | || |___| |___| |_| |
-                 ||_|/_/   \\_\\___|_____|_____|____/ 
-                 |""".stripMargin())
+                 ||_|/_/   \\_\\___|_____|_____|____/
+                 |'''.stripMargin())
     }
 
     static class SuiteFile {
+
         File file
         String suiteName
         String group
@@ -185,5 +257,7 @@ class RegressionTest {
             this.suiteName = suiteName
             this.group = group
         }
+
     }
+
 }

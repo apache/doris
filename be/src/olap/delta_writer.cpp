@@ -97,8 +97,8 @@ OLAPStatus DeltaWriter::init() {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    _mem_tracker = MemTracker::CreateTracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()),
-                                             _parent_mem_tracker);
+    _mem_tracker = MemTracker::create_tracker(
+            -1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()), _parent_mem_tracker);
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
@@ -108,8 +108,8 @@ OLAPStatus DeltaWriter::init() {
     }
 
     {
-        ReadLock base_migration_rlock(_tablet->get_migration_lock_ptr(), TRY_LOCK);
-        if (!base_migration_rlock.own_lock()) {
+        ReadLock base_migration_rlock(_tablet->get_migration_lock(), std::try_to_lock);
+        if (!base_migration_rlock.owns_lock()) {
             return OLAP_ERR_RWLOCK_ERROR;
         }
         MutexLock push_lock(_tablet->get_push_lock());
@@ -289,7 +289,10 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 
     // return error if previous flush failed
     RETURN_NOT_OK(_flush_token->wait());
-    DCHECK_EQ(_mem_tracker->consumption(), 0);
+    // Cannot directly DCHECK_EQ(_mem_tracker->consumption(), 0);
+    // In allocate/free of mem_pool, the consume_cache of _mem_tracker will be called,
+    // and _untracked_mem must be flushed first.
+    MemTracker::memory_leak_check(_mem_tracker.get());
 
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
@@ -332,7 +335,7 @@ OLAPStatus DeltaWriter::cancel() {
         // cancel and wait all memtables in flush queue to be finished
         _flush_token->cancel();
     }
-    DCHECK_EQ(_mem_tracker->consumption(), 0);
+    MemTracker::memory_leak_check(_mem_tracker.get());
     _is_cancelled = true;
     return OLAP_SUCCESS;
 }

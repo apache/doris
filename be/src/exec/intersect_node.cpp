@@ -66,7 +66,7 @@ Status IntersectNode::open(RuntimeState* state) {
         while (!eos) {
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(child(i)->get_next(state, _probe_batch.get(), &eos));
-            RETURN_IF_LIMIT_EXCEEDED(state, " Intersect , while probing the hash table.");
+            RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, " Intersect , while probing the hash table.");
             for (int j = 0; j < _probe_batch->num_rows(); ++j) {
                 _hash_tbl_iterator = _hash_tbl->find(_probe_batch->get_row(j));
                 if (_hash_tbl_iterator != _hash_tbl->end()) {

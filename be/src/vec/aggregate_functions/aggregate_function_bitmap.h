@@ -32,18 +32,26 @@ struct AggregateFunctionBitmapUnionOp {
     static constexpr auto name = "bitmap_union";
 
     template <typename T>
-    static void add(BitmapValue& res, const T& data) {
+    static void add(BitmapValue& res, const T& data, bool& is_first) {
         res.add(data);
     }
 
-    static void add(BitmapValue& res, const BitmapValue& data) { res |= data; }
+    static void add(BitmapValue& res, const BitmapValue& data, bool& is_first) { res |= data; }
 
     static void merge(BitmapValue& res, const BitmapValue& data) { res |= data; }
 };
 
 struct AggregateFunctionBitmapIntersectOp {
     static constexpr auto name = "bitmap_intersect";
-    static void add(BitmapValue& res, const BitmapValue& data) { res &= data; }
+
+    static void add(BitmapValue& res, const BitmapValue& data, bool& is_first) {
+        if (UNLIKELY(is_first)) {
+            res = data;
+            is_first = false;
+        } else {
+            res &= data;
+        }
+    }
 
     static void merge(BitmapValue& res, const BitmapValue& data) { res &= data; }
 };
@@ -51,10 +59,11 @@ struct AggregateFunctionBitmapIntersectOp {
 template <typename Op>
 struct AggregateFunctionBitmapData {
     BitmapValue value;
+    bool is_first = true;
 
     template <typename T>
     void add(const T& data) {
-        Op::add(value, data);
+        Op::add(value, data, is_first);
     }
 
     void merge(const BitmapValue& data) { Op::merge(value, data); }

@@ -17,10 +17,15 @@
 
 #ifndef DORIS_BE_SRC_UTIL_MUTEX_H
 #define DORIS_BE_SRC_UTIL_MUTEX_H
-
+#include <mutex>
+#include <shared_mutex>
 #include "olap/olap_define.h"
 
 namespace doris {
+
+using ReadLock = std::shared_lock<std::shared_mutex>;
+using WriteLock = std::lock_guard<std::shared_mutex>;
+using UniqueWriteLock = std::unique_lock<std::shared_mutex>;
 
 #define TRY_LOCK true
 
@@ -86,95 +91,6 @@ private:
     bool _locked;
     DISALLOW_COPY_AND_ASSIGN(MutexLock);
 };
-
-// pthread_read/write_lock
-class RWMutex {
-public:
-    // Possible fairness policies for the RWMutex.
-    enum class Priority {
-        // The lock will prioritize readers at the expense of writers.
-        PREFER_READING,
-
-        // The lock will prioritize writers at the expense of readers.
-        //
-        // Care should be taken when using this fairness policy, as it can lead to
-        // unexpected deadlocks (e.g. a writer waiting on the lock will prevent
-        // additional readers from acquiring it).
-        PREFER_WRITING,
-    };
-
-    // Create an RWMutex that prioritized readers by default.
-    RWMutex(Priority prio = Priority::PREFER_READING);
-    ~RWMutex();
-    // wait until obtaining the read lock
-    OLAPStatus rdlock();
-    // try obtaining the read lock
-    OLAPStatus tryrdlock();
-    // wait until obtaining the write lock
-    OLAPStatus wrlock();
-    // try obtaining the write lock
-    OLAPStatus trywrlock();
-    // unlock
-    OLAPStatus unlock();
-
-private:
-    pthread_rwlock_t _lock;
-};
-
-// Acquire a ReadLock on the specified RWMutex.
-// The Lock will be automatically released then the
-// object goes out of scope.
-class ReadLock {
-public:
-    explicit ReadLock(RWMutex* mutex, bool try_lock = false) : _mutex(mutex), _locked(false) {
-        if (try_lock) {
-            _locked = this->_mutex->tryrdlock() == OLAP_SUCCESS;
-        } else {
-            this->_mutex->rdlock();
-            _locked = true;
-        }
-    }
-    ~ReadLock() {
-        if (_locked) {
-            this->_mutex->unlock();
-        }
-    }
-
-    bool own_lock() { return _locked; }
-
-private:
-    RWMutex* _mutex;
-    bool _locked;
-    DISALLOW_COPY_AND_ASSIGN(ReadLock);
-};
-
-// Acquire a WriteLock on the specified RWMutex.
-// The Lock will be automatically released then the
-// object goes out of scope.
-class WriteLock {
-public:
-    explicit WriteLock(RWMutex* mutex, bool try_lock = false) : _mutex(mutex), _locked(false) {
-        if (try_lock) {
-            _locked = this->_mutex->trywrlock() == OLAP_SUCCESS;
-        } else {
-            this->_mutex->wrlock();
-            _locked = true;
-        }
-    }
-    ~WriteLock() {
-        if (_locked) {
-            this->_mutex->unlock();
-        }
-    }
-
-    bool own_lock() { return _locked; }
-
-private:
-    RWMutex* _mutex;
-    bool _locked;
-    DISALLOW_COPY_AND_ASSIGN(WriteLock);
-};
-
 } //namespace doris
 
 #endif // DORIS_BE_SRC_UTIL_MUTEX_H

@@ -160,7 +160,7 @@ private:
             txn_tablet_map_t;
     typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
 
-    inline RWMutex& _get_txn_map_lock(TTransactionId transactionId);
+    inline std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
 
     inline txn_tablet_map_t& _get_txn_tablet_map(TTransactionId transactionId);
 
@@ -186,13 +186,13 @@ private:
     // The _txn_partition_maps[i] should be constructed/deconstructed/modified alongside with '_txn_tablet_maps[i]'
     txn_partition_map_t* _txn_partition_maps;
 
-    RWMutex* _txn_map_locks;
+    std::shared_mutex* _txn_map_locks;
 
     Mutex* _txn_mutex;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager
 
-inline RWMutex& TxnManager::_get_txn_map_lock(TTransactionId transactionId) {
+inline std::shared_mutex& TxnManager::_get_txn_map_lock(TTransactionId transactionId) {
     return _txn_map_locks[transactionId & (_txn_map_shard_size - 1)];
 }
 

@@ -2,6 +2,16 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
+## v20220316
+- Modified: CRoaring 0.3.4 -> 0.4.0
+
+## v20220310
+- Modified: arrow 5.0.0 -> 7.0.0
+- Modified: aws-sdk-cpp 1.8.108 -> 1.9.211
+- Modified: orc 1.6.6 -> 1.7.2
+
+- Removed: aws-c-common: 0.4.63,aws-c-event-stream: 0.2.6, aws-checksums: 0.1.10, aws-c-io-0.7.0 aws-s2n: 0.10.0, aws-c-cal: 0.4.5; those libs are managed by aws-sdk-cpp now
+
 ## v20220211
 
 - Added: simdjson 1.0.2

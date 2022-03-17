@@ -51,7 +51,7 @@ std::shared_ptr<MemTracker> k_mem_tracker = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
-    getcwd(buffer, MAX_PATH_LEN);
+    ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = std::string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
     FileUtils::create_dir(config::storage_root_path);
@@ -75,7 +75,7 @@ void tear_down() {
         delete k_engine;
         k_engine = nullptr;
     }
-    system("rm -rf ./data_test");
+    ASSERT_EQ(system("rm -rf ./data_test"), 0);
     FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
@@ -366,8 +366,7 @@ TEST_F(TestDeltaWriter, open) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10003, 270068375, WriteType::LOAD, 20001,
-                              30001, load_id,   false,           tuple_desc};
+    WriteRequest write_req = {10003, 270068375, WriteType::LOAD, 20001, 30001, load_id, tuple_desc};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
@@ -400,8 +399,8 @@ TEST_F(TestDeltaWriter, write) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10004, 270068376,  WriteType::LOAD,       20002, 30002, load_id,
-                              false, tuple_desc, &(tuple_desc->slots())};
+    WriteRequest write_req = {10004, 270068376, WriteType::LOAD, 20002,
+                              30002, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
@@ -526,8 +525,8 @@ TEST_F(TestDeltaWriter, sequence_col) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377,  WriteType::LOAD,       20003, 30003, load_id,
-                              false, tuple_desc, &(tuple_desc->slots())};
+    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
+                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);

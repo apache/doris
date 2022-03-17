@@ -109,8 +109,8 @@ public:
 
         ASSERT_TRUE(_column_reader != nullptr);
 
-        system("mkdir -p ./ut_dir");
-        system("rm ./ut_dir/tmp_file");
+        ASSERT_EQ(system("mkdir -p ./ut_dir"), 0);
+        ASSERT_EQ(system("rm ./ut_dir/tmp_file"), 0);
 
         ASSERT_EQ(OLAP_SUCCESS,
                   helper.open_with_mode("./ut_dir/tmp_file", O_CREAT | O_EXCL | O_WRONLY,
@@ -532,7 +532,8 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         _col_vector.reset(new ColumnVector());
         ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
-        read_row.convert_from(0, data, write_row.column_schema(0)->type_info().get(), _mem_pool.get());
+        read_row.convert_from(0, data, write_row.column_schema(0)->type_info().get(),
+                              _mem_pool.get());
         std::string dst_str = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
         ASSERT_EQ(expected_val, dst_str);
     }

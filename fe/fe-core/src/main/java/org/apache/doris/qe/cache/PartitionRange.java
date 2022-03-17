@@ -47,6 +47,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Convert the range of the partition to the list
@@ -353,8 +354,10 @@ public class PartitionRange {
     }
 
     /**
-     * Only the range query of the key of the partition is supported, and the separated partition key query is not supported.
-     * Because a query can only be divided into two parts, part1 get data from cache, part2 fetch_data by scan node from BE.
+     * Only the range query of the key of the partition is supported, and the separated partition key query is not
+     * supported.
+     * Because a query can only be divided into two parts, part1 get data from cache, part2 fetch_data by scan node
+     * from BE.
      * Partition cache : 20191211-20191215
      * Hit cache parameter : [20191211 - 20191215], [20191212 - 20191214], [20191212 - 20191216],[20191210 - 20191215]
      * Miss cache parameter: [20191210 - 20191216]
@@ -503,6 +506,10 @@ public class PartitionRange {
         for (PartitionSingle single : partitionSingleList) {
             single.setPartition(table.getPartition(single.getPartitionId()));
         }
+
+        // filter the partitions in predicate but not in OlapTable
+        partitionSingleList =
+                partitionSingleList.stream().filter(p -> p.getPartition() != null).collect(Collectors.toList());
     }
 
     /**

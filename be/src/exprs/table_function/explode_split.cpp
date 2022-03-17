@@ -27,8 +27,7 @@ ExplodeSplitTableFunction::ExplodeSplitTableFunction() {
     _fn_name = "explode_split";
 }
 
-ExplodeSplitTableFunction::~ExplodeSplitTableFunction() {
-}
+ExplodeSplitTableFunction::~ExplodeSplitTableFunction() {}
 
 Status ExplodeSplitTableFunction::prepare() {
     return Status::OK();
@@ -43,13 +42,14 @@ Status ExplodeSplitTableFunction::open() {
     if (fn_ctx->is_arg_constant(1)) {
         _is_delimiter_constant = true;
         StringVal* delimiter = reinterpret_cast<StringVal*>(fn_ctx->get_constant_arg(1));
-        _const_delimter = StringPiece((char*) delimiter->ptr, delimiter->len);
+        _const_delimter = StringPiece((char*)delimiter->ptr, delimiter->len);
     }
     return Status::OK();
 }
 
 Status ExplodeSplitTableFunction::process(TupleRow* tuple_row) {
-    CHECK(2 == _expr_context->root()->get_num_children()) << _expr_context->root()->get_num_children();
+    CHECK(2 == _expr_context->root()->get_num_children())
+            << _expr_context->root()->get_num_children();
     _is_current_empty = false;
     _eos = false;
 
@@ -61,12 +61,14 @@ Status ExplodeSplitTableFunction::process(TupleRow* tuple_row) {
         _cur_offset = 0;
     } else {
         if (_is_delimiter_constant) {
-            _backup = strings::Split(StringPiece((char*) text.ptr, text.len), _const_delimter);
+            _backup = strings::Split(StringPiece((char*)text.ptr, text.len), _const_delimter);
         } else {
-            StringVal delimiter = _expr_context->root()->get_child(1)->get_string_val(_expr_context, tuple_row);
-            _backup = strings::Split(StringPiece((char*) text.ptr, text.len), StringPiece((char*) delimiter.ptr, delimiter.len));
+            StringVal delimiter =
+                    _expr_context->root()->get_child(1)->get_string_val(_expr_context, tuple_row);
+            _backup = strings::Split(StringPiece((char*)text.ptr, text.len),
+                                     StringPiece((char*)delimiter.ptr, delimiter.len));
         }
-        for (const std::string & str : _backup) {
+        for (const std::string& str : _backup) {
             _data.emplace_back(str);
         }
         _cur_size = _backup.size();

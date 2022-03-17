@@ -462,7 +462,7 @@ struct ToBase64Impl {
             auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1] - 1;
 
-            if (*source == '\0' || srclen == 0) {
+            if (*source == '\0' && srclen == 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
                 continue;
             }
@@ -502,7 +502,7 @@ struct FromBase64Impl {
             auto source = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t srclen = offsets[i] - offsets[i - 1] - 1;
 
-            if (*source == '\0' || srclen == 0) {
+            if (*source == '\0' && srclen == 0) {
                 StringOP::push_null_string(i, dst_data, dst_offsets, null_map);
                 continue;
             }

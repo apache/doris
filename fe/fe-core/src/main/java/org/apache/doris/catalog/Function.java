@@ -20,9 +20,10 @@ package org.apache.doris.catalog;
 import static org.apache.doris.common.io.IOUtils.writeOptionString;
 
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.HdfsURI;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
@@ -113,12 +114,12 @@ public class Function implements Writable {
 
     // Absolute path in HDFS for the binary that contains this function.
     // e.g. /udfs/udfs.jar
-    private HdfsURI location;
+    private URI location;
     private TFunctionBinaryType binaryType;
 
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
 
-    private boolean vectorized = false;
+    protected boolean vectorized = false;
 
     // library's checksum to make sure all backends use one library to serve user's request
     protected String checksum = "";
@@ -190,11 +191,11 @@ public class Function implements Writable {
         return argTypes.length;
     }
 
-    public HdfsURI getLocation() {
+    public URI getLocation() {
         return location;
     }
 
-    public void setLocation(HdfsURI loc) {
+    public void setLocation(URI loc) {
         location = loc;
     }
 
@@ -448,7 +449,7 @@ public class Function implements Writable {
         fn.setName(name.toThrift());
         fn.setBinaryType(binaryType);
         if (location != null) {
-            fn.setHdfsLocation(location.toString());
+            fn.setHdfsLocation(location.getLocation());
         }
         fn.setArgTypes(Type.toThrift(argTypes));
         fn.setRetType(getReturnType().toThrift());
@@ -635,7 +636,7 @@ public class Function implements Writable {
         // write library URL
         String libUrl = "";
         if (location != null) {
-            libUrl = location.toString();
+            libUrl = location.getLocation();
         }
         writeOptionString(output, libUrl);
         writeOptionString(output, checksum);
@@ -661,7 +662,13 @@ public class Function implements Writable {
 
         boolean hasLocation = input.readBoolean();
         if (hasLocation) {
-            location = new HdfsURI(Text.readString(input));
+            String locationStr = Text.readString(input);
+            try {
+                location = URI.create(locationStr);
+            } catch (AnalysisException e) {
+                LOG.warn("failed to parse location:" + locationStr);
+            }
+
         }
         boolean hasChecksum = input.readBoolean();
         if (hasChecksum) {

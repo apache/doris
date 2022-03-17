@@ -40,7 +40,7 @@ namespace doris {
 // contains the link to the next allocation.
 // This has O(1) Allocate() and Free().
 // This is not thread safe.
-// TODO: consider integrating this with MemPool.
+// TODO(zxy): consider integrating this with MemPool.
 // TODO: consider changing to something more granular than doubling.
 class FreePool {
 public:

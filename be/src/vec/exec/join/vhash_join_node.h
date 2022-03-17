@@ -195,6 +195,9 @@ private:
     RuntimeProfile::Counter* _push_compute_timer;
     RuntimeProfile::Counter* _build_rows_counter;
     RuntimeProfile::Counter* _probe_rows_counter;
+    RuntimeProfile::Counter* _search_hashtable_timer;
+    RuntimeProfile::Counter* _build_side_output_timer;
+    RuntimeProfile::Counter* _probe_side_output_timer;
 
     int64_t _hash_table_rows;
     int64_t _mem_used;

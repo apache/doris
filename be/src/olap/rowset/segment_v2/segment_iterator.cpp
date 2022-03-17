@@ -101,7 +101,7 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema&
           _lazy_materialization_read(false),
           _inited(false) {
     // use for count the mem use of ColumnIterator
-    _mem_tracker = MemTracker::CreateTracker(-1, "SegmentIterator", std::move(parent), false);
+    _mem_tracker = MemTracker::create_tracker(-1, "SegmentIterator", std::move(parent));
 }
 
 SegmentIterator::~SegmentIterator() {
@@ -209,7 +209,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             iter_opts.stats = _opts.stats;
             iter_opts.rblock = _rblock.get();
             iter_opts.mem_tracker =
-                    MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
+                    MemTracker::create_tracker(-1, "ColumnIterator", _mem_tracker);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -341,7 +341,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.rblock = _rblock.get();
             iter_opts.mem_tracker =
-                    MemTracker::CreateTracker(-1, "ColumnIterator", _mem_tracker, false);
+                    MemTracker::create_tracker(-1, "ColumnIterator", _mem_tracker);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -613,7 +613,9 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
 
-            if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_STRING || predicate->is_in_predicate()) {
+            if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR
+                || type == OLAP_FIELD_TYPE_STRING || predicate->is_in_predicate()
+                || predicate->is_bloom_filter_predicate()) {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
                 _is_all_column_basic_type = false;

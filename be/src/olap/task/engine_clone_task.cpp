@@ -75,8 +75,8 @@ OLAPStatus EngineCloneTask::_do_clone() {
     bool is_new_tablet = tablet == nullptr;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {
-        ReadLock migration_rlock(tablet->get_migration_lock_ptr(), TRY_LOCK);
-        if (!migration_rlock.own_lock()) {
+        ReadLock migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
+        if (!migration_rlock.owns_lock()) {
             return OLAP_ERR_RWLOCK_ERROR;
         }
 
@@ -520,103 +520,101 @@ OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_di
                                           int64_t committed_version, bool is_incremental_clone) {
     OLAPStatus res = OLAP_SUCCESS;
     std::vector<string> linked_success_files;
-
     // clone and compaction operation should be performed sequentially
     tablet->obtain_base_compaction_lock();
     tablet->obtain_cumulative_lock();
     tablet->set_clone_occurred(true);
-
     tablet->obtain_push_lock();
-    tablet->obtain_header_wrlock();
-    do {
-        // check clone dir existed
-        if (!FileUtils::check_exist(clone_dir)) {
-            res = OLAP_ERR_DIR_NOT_EXIST;
-            LOG(WARNING) << "clone dir not existed when clone. clone_dir=" << clone_dir.c_str();
-            break;
-        }
-
-        // Load src header.
-        // The tablet meta info is downloaded from source BE as .hdr file.
-        // So we load it and generate cloned_tablet_meta.
-        string cloned_tablet_meta_file =
-                clone_dir + "/" + std::to_string(tablet->tablet_id()) + ".hdr";
-        TabletMeta cloned_tablet_meta;
-        if ((res = cloned_tablet_meta.create_from_file(cloned_tablet_meta_file)) != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to load src header when clone. "
-                         << ", cloned_tablet_meta_file=" << cloned_tablet_meta_file;
-            break;
-        }
-        // remove the cloned meta file
-        FileUtils::remove(cloned_tablet_meta_file);
-
-        // check all files in /clone and /tablet
-        set<string> clone_files;
-        Status ret = FileUtils::list_dirs_files(clone_dir, nullptr, &clone_files, Env::Default());
-        if (!ret.ok()) {
-            LOG(WARNING) << "failed to list clone dir when clone. [clone_dir=" << clone_dir << "]"
-                         << " error: " << ret.to_string();
-            res = OLAP_ERR_DISK_FAILURE;
-            break;
-        }
-
-        set<string> local_files;
-        string tablet_dir = tablet->tablet_path_desc().filepath;
-        ret = FileUtils::list_dirs_files(tablet_dir, nullptr, &local_files, Env::Default());
-        if (!ret.ok()) {
-            LOG(WARNING) << "failed to list local tablet dir when clone. [tablet_dir=" << tablet_dir
-                         << "]"
-                         << " error: " << ret.to_string();
-            res = OLAP_ERR_DISK_FAILURE;
-            break;
-        }
-
-        /// Traverse all downloaded clone files in CLONE dir.
-        /// If it does not exist in local tablet dir, link the file to local tablet dir
-        /// And save all linked files in linked_success_files.
-        for (const string& clone_file : clone_files) {
-            if (local_files.find(clone_file) != local_files.end()) {
-                VLOG_NOTICE << "find same file when clone, skip it. "
-                            << "tablet=" << tablet->full_name() << ", clone_file=" << clone_file;
-                continue;
-            }
-
-            string from = clone_dir + "/" + clone_file;
-            string to = tablet_dir + "/" + clone_file;
-            LOG(INFO) << "src file:" << from << " dest file:" << to;
-            if (link(from.c_str(), to.c_str()) != 0) {
-                LOG(WARNING) << "fail to create hard link when clone. "
-                             << " from=" << from.c_str() << " to=" << to.c_str();
-                res = OLAP_ERR_OS_ERROR;
+    {
+        WriteLock wrlock(tablet->get_header_lock());
+        do {
+            // check clone dir existed
+            if (!FileUtils::check_exist(clone_dir)) {
+                res = OLAP_ERR_DIR_NOT_EXIST;
+                LOG(WARNING) << "clone dir not existed when clone. clone_dir=" << clone_dir.c_str();
                 break;
             }
-            linked_success_files.emplace_back(std::move(to));
-        }
 
+            // Load src header.
+            // The tablet meta info is downloaded from source BE as .hdr file.
+            // So we load it and generate cloned_tablet_meta.
+            string cloned_tablet_meta_file =
+                    clone_dir + "/" + std::to_string(tablet->tablet_id()) + ".hdr";
+            TabletMeta cloned_tablet_meta;
+            if ((res = cloned_tablet_meta.create_from_file(cloned_tablet_meta_file)) != OLAP_SUCCESS) {
+                LOG(WARNING) << "fail to load src header when clone. "
+                             << ", cloned_tablet_meta_file=" << cloned_tablet_meta_file;
+                break;
+            }
+            // remove the cloned meta file
+            FileUtils::remove(cloned_tablet_meta_file);
+
+            // check all files in /clone and /tablet
+            set<string> clone_files;
+            Status ret = FileUtils::list_dirs_files(clone_dir, nullptr, &clone_files, Env::Default());
+            if (!ret.ok()) {
+                LOG(WARNING) << "failed to list clone dir when clone. [clone_dir=" << clone_dir << "]"
+                             << " error: " << ret.to_string();
+                res = OLAP_ERR_DISK_FAILURE;
+                break;
+            }
+
+            set<string> local_files;
+            string tablet_dir = tablet->tablet_path_desc().filepath;
+            ret = FileUtils::list_dirs_files(tablet_dir, nullptr, &local_files, Env::Default());
+            if (!ret.ok()) {
+                LOG(WARNING) << "failed to list local tablet dir when clone. [tablet_dir=" << tablet_dir
+                             << "]"
+                             << " error: " << ret.to_string();
+                res = OLAP_ERR_DISK_FAILURE;
+                break;
+            }
+
+            /// Traverse all downloaded clone files in CLONE dir.
+            /// If it does not exist in local tablet dir, link the file to local tablet dir
+            /// And save all linked files in linked_success_files.
+            for (const string& clone_file : clone_files) {
+                if (local_files.find(clone_file) != local_files.end()) {
+                    VLOG_NOTICE << "find same file when clone, skip it. "
+                                << "tablet=" << tablet->full_name() << ", clone_file=" << clone_file;
+                    continue;
+                }
+
+                string from = clone_dir + "/" + clone_file;
+                string to = tablet_dir + "/" + clone_file;
+                LOG(INFO) << "src file:" << from << " dest file:" << to;
+                if (link(from.c_str(), to.c_str()) != 0) {
+                    LOG(WARNING) << "fail to create hard link when clone. "
+                                 << " from=" << from.c_str() << " to=" << to.c_str();
+                    res = OLAP_ERR_OS_ERROR;
+                    break;
+                }
+                linked_success_files.emplace_back(std::move(to));
+            }
+
+            if (res != OLAP_SUCCESS) {
+                break;
+            }
+
+            if (is_incremental_clone) {
+                res = _finish_incremental_clone(tablet, cloned_tablet_meta, committed_version);
+            } else {
+                res = _finish_full_clone(tablet, const_cast<TabletMeta*>(&cloned_tablet_meta));
+            }
+
+            // if full clone success, need to update cumulative layer point
+            if (!is_incremental_clone && res == OLAP_SUCCESS) {
+                tablet->set_cumulative_layer_point(Tablet::K_INVALID_CUMULATIVE_POINT);
+            }
+
+        } while (0);
+
+        // clear linked files if errors happen
         if (res != OLAP_SUCCESS) {
-            break;
+            FileUtils::remove_paths(linked_success_files);
         }
-
-        if (is_incremental_clone) {
-            res = _finish_incremental_clone(tablet, cloned_tablet_meta, committed_version);
-        } else {
-            res = _finish_full_clone(tablet, const_cast<TabletMeta*>(&cloned_tablet_meta));
-        }
-
-        // if full clone success, need to update cumulative layer point
-        if (!is_incremental_clone && res == OLAP_SUCCESS) {
-            tablet->set_cumulative_layer_point(Tablet::K_INVALID_CUMULATIVE_POINT);
-        }
-
-    } while (0);
-
-    // clear linked files if errors happen
-    if (res != OLAP_SUCCESS) {
-        FileUtils::remove_paths(linked_success_files);
     }
-    tablet->release_header_lock();
     tablet->release_push_lock();
-
     tablet->release_cumulative_lock();
     tablet->release_base_compaction_lock();
 

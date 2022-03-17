@@ -47,7 +47,8 @@ class OlapScanNode;
 class OlapScanner {
 public:
     OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool aggregation,
-                bool need_agg_finalize, const TPaloScanRange& scan_range);
+                bool need_agg_finalize, const TPaloScanRange& scan_range,
+                const std::shared_ptr<MemTracker>& tracker);
 
     virtual ~OlapScanner() = default;
 
@@ -128,6 +129,7 @@ protected:
     int64_t _version;
 
     std::vector<uint32_t> _return_columns;
+    std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
 
     RowCursor _read_row_cursor;
 
