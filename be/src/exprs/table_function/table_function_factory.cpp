@@ -21,28 +21,49 @@
 #include "exprs/table_function/explode_bitmap.h"
 #include "exprs/table_function/explode_json_array.h"
 #include "exprs/table_function/explode_split.h"
+#include "exprs/table_function/table_function.h"
+#include "vec/exprs/table_function/vexplode_split.h"
 
 namespace doris {
 
-Status TableFunctionFactory::get_fn(const std::string& fn_name, ObjectPool* pool, TableFunction** fn) {
-    if (fn_name == "explode_split") {
-        *fn = pool->add(new ExplodeSplitTableFunction());
-        return Status::OK(); 
-    } else if (fn_name == "explode_bitmap") {
-        *fn = pool->add(new ExplodeBitmapTableFunction());
-        return Status::OK(); 
-    } else if (fn_name == "explode_json_array_int") {
-        *fn = pool->add(new ExplodeJsonArrayTableFunction(ExplodeJsonArrayType::INT));
-        return Status::OK(); 
-    } else if (fn_name == "explode_json_array_double") {
-        *fn = pool->add(new ExplodeJsonArrayTableFunction(ExplodeJsonArrayType::DOUBLE));
-        return Status::OK(); 
-    } else if (fn_name == "explode_json_array_string") {
-        *fn = pool->add(new ExplodeJsonArrayTableFunction(ExplodeJsonArrayType::STRING));
-        return Status::OK(); 
-    } else {
-        return Status::NotSupported("Unknown table function: " + fn_name);
+template <typename TableFunctionType>
+struct TableFunctionCreator {
+    TableFunction* operator()() { return new TableFunctionType(); }
+};
+
+template <>
+struct TableFunctionCreator<ExplodeJsonArrayTableFunction> {
+    ExplodeJsonArrayType type;
+    TableFunction* operator()() { return new ExplodeJsonArrayTableFunction(type); }
+};
+
+inline auto ExplodeJsonArrayIntCreator =
+        TableFunctionCreator<ExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::INT};
+inline auto ExplodeJsonArrayDoubleCreator =
+        TableFunctionCreator<ExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::DOUBLE};
+inline auto ExplodeJsonArrayStringCreator =
+        TableFunctionCreator<ExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::STRING};
+
+//{fn_name,is_vectorized}->table_function_creator
+const std::unordered_map<std::pair<std::string, bool>, std::function<TableFunction*()>>
+        TableFunctionFactory::_function_map {
+                {{"explode_split", false}, TableFunctionCreator<ExplodeSplitTableFunction>()},
+                {{"explode_bitmap", false}, TableFunctionCreator<ExplodeBitmapTableFunction>()},
+                {{"explode_json_array_int", false}, ExplodeJsonArrayIntCreator},
+                {{"explode_json_array_double", false}, ExplodeJsonArrayDoubleCreator},
+                {{"explode_json_array_string", false}, ExplodeJsonArrayStringCreator},
+                {{"explode_split", true}, TableFunctionCreator<VExplodeSplitTableFunction>()}};
+
+Status TableFunctionFactory::get_fn(const std::string& fn_name, bool is_vectorized,
+                                    ObjectPool* pool, TableFunction** fn) {
+    auto fn_iterator = _function_map.find({fn_name, is_vectorized});
+    if (fn_iterator != _function_map.end()) {
+        *fn = pool->add(fn_iterator->second());
+        return Status::OK();
     }
+
+    return Status::NotSupported(std::string(is_vectorized ? "vectorized " : "") +
+                                "table function " + fn_name + " not support");
 }
 
 } // namespace doris

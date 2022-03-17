@@ -17,37 +17,30 @@
 
 #pragma once
 
-#include "exprs/table_function/table_function.h"
+#include "exprs/table_function/explode_split.h"
 #include "gutil/strings/stringpiece.h"
 #include "runtime/string_value.h"
+#include "vec/columns/column.h"
 
 namespace doris {
 
-class ExplodeSplitTableFunction : public TableFunction {
+class VExplodeSplitTableFunction : public ExplodeSplitTableFunction {
 public:
-    ExplodeSplitTableFunction();
-    virtual ~ExplodeSplitTableFunction();
+    VExplodeSplitTableFunction();
+    virtual ~VExplodeSplitTableFunction() = default;
 
-    virtual Status prepare() override;
     virtual Status open() override;
-    virtual Status process(TupleRow* tuple_row) override;
-    virtual Status reset() override;
+    virtual Status process_init(vectorized::Block* block) override;
+    virtual Status process_row(size_t row_idx) override;
+    virtual Status process_close() override;
     virtual Status get_value(void** output) override;
-    virtual Status close() override;
+    virtual Status get_value_length(int64_t* length) override;
 
-    virtual Status forward(bool* eos) override;
+private:
+    using ExplodeSplitTableFunction::process;
 
-protected:
-    // The string value splitted from source, and will be referenced by
-    // table function scan node.
-    // the `_backup` saved the real string entity.
-    std::vector<StringValue> _data;
-    std::vector<std::string> _backup;
-
-    // indicate whether the delimiter is constant.
-    // if true, the constant delimiter will be saved in `_const_delimter`
-    bool _is_delimiter_constant = false;
-    StringPiece _const_delimter;
+    vectorized::ColumnPtr _text_column;
+    vectorized::ColumnPtr _delimiter_column;
 };
 
 } // namespace doris

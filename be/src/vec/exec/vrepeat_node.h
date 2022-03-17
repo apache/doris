@@ -35,7 +35,6 @@ public:
 
     virtual Status prepare(RuntimeState* state) override;
     virtual Status open(RuntimeState* state) override;
-    using RepeatNode::get_next;
     virtual Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     virtual Status close(RuntimeState* state) override;
 
@@ -43,6 +42,7 @@ protected:
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
+    using RepeatNode::get_next;
     Status get_repeated_block(Block* child_block, int repeat_id_idx, Block* output_block);
 
     std::unique_ptr<Block> _child_block;

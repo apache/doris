@@ -15,13 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/function_fake.h"
+#pragma once
+
+#include "exec/table_function_node.h"
 
 namespace doris::vectorized {
 
-void register_function_fake(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionFake<FunctionEsqueryImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeSplitImpl>>();
-}
+class VTableFunctionNode : public TableFunctionNode {
+public:
+    VTableFunctionNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    ~VTableFunctionNode() override = default;
+
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, Block* block, bool* eos) override;
+
+private:
+    Status _process_next_child_row() override;
+
+    using TableFunctionNode::get_next;
+
+    Status get_expanded_block(RuntimeState* state, Block* output_block, bool* eos);
+
+    std::unique_ptr<Block> _child_block;
+    std::vector<SlotDescriptor*> _child_slots;
+    std::vector<SlotDescriptor*> _output_slots;
+};
 
 } // namespace doris::vectorized

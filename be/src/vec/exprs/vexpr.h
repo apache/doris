@@ -113,6 +113,8 @@ public:
 
     bool is_and_expr() { return _fn.name.function_name == "and"; }
 
+    const TFunction& fn() const { return _fn; }
+
     /// Returns true if expr doesn't contain slotrefs, i.e., can be evaluated
     /// with get_value(NULL). The default implementation returns true if all of
     /// the children are constant.

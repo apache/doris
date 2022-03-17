@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/exec/vrepeat_node.h"
+
 #include "exprs/expr.h"
 #include "gutil/strings/join.h"
 #include "runtime/runtime_state.h"
@@ -23,7 +24,9 @@
 
 namespace doris::vectorized {
 VRepeatNode::VRepeatNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : RepeatNode(pool, tnode, descs), _child_block(nullptr), _virtual_tuple_id(tnode.repeat_node.output_tuple_id) {}
+        : RepeatNode(pool, tnode, descs),
+          _child_block(nullptr),
+          _virtual_tuple_id(tnode.repeat_node.output_tuple_id) {}
 
 Status VRepeatNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << "VRepeatNode::prepare";
@@ -50,9 +53,9 @@ Status VRepeatNode::prepare(RuntimeState* state) {
     }
 
     std::stringstream ss;
-    ss << "The output slots size " << _output_slots.size() 
-        << " is not equal to the sum of child_slots_size " << _child_slots.size()
-        << ",virtual_slots_size " << _virtual_tuple_desc->slots().size();
+    ss << "The output slots size " << _output_slots.size()
+       << " is not equal to the sum of child_slots_size " << _child_slots.size()
+       << ",virtual_slots_size " << _virtual_tuple_desc->slots().size();
     if (_output_slots.size() != (_child_slots.size() + _virtual_tuple_desc->slots().size())) {
         return Status::InternalError(ss.str());
     }
@@ -102,13 +105,14 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         DCHECK_EQ(_child_slots[i]->col_name(), _output_slots[cur_col]->col_name());
 
         std::set<SlotId>& repeat_ids = _slot_id_set_list[repeat_id_idx];
-        bool is_repeat_slot = _all_slot_ids.find(_output_slots[cur_col]->id()) != _all_slot_ids.end();
+        bool is_repeat_slot =
+                _all_slot_ids.find(_output_slots[cur_col]->id()) != _all_slot_ids.end();
         bool is_set_null_slot = repeat_ids.find(_output_slots[cur_col]->id()) == repeat_ids.end();
         const auto column_size = src_column.column->size();
 
         if (is_repeat_slot) {
             DCHECK(_output_slots[cur_col]->is_nullable());
-            auto* nullable_column = reinterpret_cast<ColumnNullable *>(columns[cur_col].get());
+            auto* nullable_column = reinterpret_cast<ColumnNullable*>(columns[cur_col].get());
             auto& null_map = nullable_column->get_null_map_data();
             auto* column_ptr = columns[cur_col].get();
 
@@ -141,7 +145,7 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         auto* column_ptr = columns[cur_col].get();
         DCHECK(!_output_slots[cur_col]->is_nullable());
 
-        auto* col = assert_cast<ColumnVector<Int64> *>(column_ptr);
+        auto* col = assert_cast<ColumnVector<Int64>*>(column_ptr);
         for (size_t i = 0; i < child_block->rows(); ++i) {
             col->insert_value(val);
         }
@@ -154,8 +158,9 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         auto n_columns = 0;
         if (!mem_reuse) {
             for (const auto slot_desc : _output_slots) {
-                output_block->insert(
-                    ColumnWithTypeAndName(std::move(columns[n_columns++]), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
+                output_block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                                                           slot_desc->get_data_type_ptr(),
+                                                           slot_desc->col_name()));
             }
         } else {
             columns.clear();
@@ -168,8 +173,9 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     VLOG_CRITICAL << "VRepeatNode::get_next";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (state == NULL || block == NULL || eos == NULL)
+    if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is NULL pointer");
+    }
 
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
@@ -181,13 +187,9 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 
     // current child block has finished its repeat, get child's next block
     if (_child_block->rows() == 0) {
-        if (_child_eos) {
-            *eos = true;
-            return Status::OK();
-        }
-
-        while (_child_block->rows() == 0 && ! _child_eos)
+        while (_child_block->rows() == 0 && !_child_eos) {
             RETURN_IF_ERROR(child(0)->get_next(state, _child_block.get(), &_child_eos));
+        }
 
         if (_child_eos and _child_block->rows() == 0) {
             *eos = true;
@@ -205,7 +207,7 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         _repeat_id_idx = 0;
     }
 
-    _num_rows_returned += block->rows();
+    reached_limit(block, eos);
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     VLOG_ROW << "VRepeatNode output rows: " << block->rows();
     return Status::OK();

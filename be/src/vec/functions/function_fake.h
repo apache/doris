@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
 
@@ -29,6 +30,13 @@ struct FunctionEsqueryImpl {
     static constexpr auto name = "esquery";
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return std::make_shared<DataTypeUInt8>();
+    }
+};
+
+struct FunctionExplodeSplitImpl {
+    static constexpr auto name = "explode_split";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeString>();
     }
 };
 
