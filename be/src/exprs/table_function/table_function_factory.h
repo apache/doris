@@ -17,10 +17,12 @@
 
 #pragma once
 
-#include "exprs/table_function/table_function_factory.h"
-#include "exprs/table_function/explode_split.h"
+#include <functional>
+#include <unordered_map>
 
 #include "common/status.h"
+#include "exprs/table_function/explode_split.h"
+#include "exprs/table_function/table_function_factory.h"
 
 namespace doris {
 
@@ -30,7 +32,11 @@ class TableFunctionFactory {
 public:
     TableFunctionFactory() {}
     ~TableFunctionFactory() {}
-    static Status get_fn(const std::string& fn_name, ObjectPool* pool, TableFunction** fn); 
+    static Status get_fn(const std::string& fn_name, bool is_vectorized, ObjectPool* pool,
+                         TableFunction** fn);
+
+    const static std::unordered_map<std::pair<std::string, bool>, std::function<TableFunction*()>>
+            _function_map;
 };
 
 } // namespace doris
