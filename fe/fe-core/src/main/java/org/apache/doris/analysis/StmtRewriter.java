@@ -320,11 +320,16 @@ public class StmtRewriter {
      */
     private static void rewriteUnionStatement(SetOperationStmt stmt, Analyzer analyzer)
             throws AnalysisException {
-        for (SetOperationStmt.SetOperand operand : stmt.getOperands()) {
-            Preconditions.checkState(operand.getQueryStmt() instanceof SelectStmt);
-            QueryStmt rewrittenQueryStmt = StmtRewriter.rewriteSelectStatement(
-                    (SelectStmt) operand.getQueryStmt(), operand.getAnalyzer());
-            operand.setQueryStmt(rewrittenQueryStmt);
+        for (SetOperationStmt.SetOperand operand: stmt.getOperands()) {
+            QueryStmt queryStmt = operand.getQueryStmt();
+            if (queryStmt instanceof SelectStmt) {
+                QueryStmt rewrittenQueryStmt = rewriteSelectStatement((SelectStmt)queryStmt, operand.getAnalyzer());
+                operand.setQueryStmt(rewrittenQueryStmt);
+            } else if (queryStmt instanceof SetOperationStmt) {
+                rewriteUnionStatement((SetOperationStmt)queryStmt, operand.getAnalyzer());
+            } else {
+                throw new IllegalStateException("Rewrite union statement failed. Because QueryStmt is neither SelectStmt nor SetOperationStmt");
+            }
         }
     }
 
