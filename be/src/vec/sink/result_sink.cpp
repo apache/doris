@@ -24,6 +24,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/mysql_result_writer.h"
+#include "vec/sink/vfile_result_writer.h"
 
 namespace doris {
 namespace vectorized {
@@ -77,11 +78,10 @@ Status VResultSink::prepare(RuntimeState* state) {
         break;
     case TResultSinkType::FILE:
         CHECK(_file_opts.get() != nullptr);
-        return Status::InternalError("Unsupport vfile result sink type");
-        // TODO:
-        /*      _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,*/
-        /*_profile, _sender.get()));*/
-//        break;
+        _writer.reset(new (std::nothrow) VFileResultWriter(_file_opts.get(), &_output_vexpr_ctxs,
+                                                           _profile, _sender.get(),
+                                                           state->return_object_data_as_binary()));
+        break;
     default:
         return Status::InternalError("Unknown result sink type");
     }

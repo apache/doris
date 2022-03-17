@@ -39,6 +39,8 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple.h"
+#include "vec/core/block.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class FileWriter;
@@ -70,10 +72,17 @@ private:
 // a wrapper of parquet output stream
 class ParquetWriterWrapper {
 public:
-    ParquetWriterWrapper(FileWriter* file_writer, const std::vector<ExprContext*>& output_expr_ctxs,
+    ParquetWriterWrapper(FileWriter* file_writer, const std::vector<ExprContext*>* output_expr_ctxs,
                          const std::map<std::string, std::string>& properties,
                          const std::vector<std::vector<std::string>>& schema,
                          bool output_object_data);
+
+    ParquetWriterWrapper(FileWriter* file_writer,
+                         const std::vector<vectorized::VExprContext*>* output_vexpr_ctxs,
+                         const std::map<std::string, std::string>& properties,
+                         const std::vector<std::vector<std::string>>& schema,
+                         bool output_object_data);
+
     virtual ~ParquetWriterWrapper();
 
     Status write(const RowBatch& row_batch);
@@ -81,6 +90,10 @@ public:
     Status init_parquet_writer();
 
     Status _write_one_row(TupleRow* row);
+
+    Status write(vectorized::Block& block);
+
+    Status _write_one_row(vectorized::Block& block, size_t row);
 
     void close();
 
@@ -92,12 +105,16 @@ public:
 
     int64_t written_len();
 
+    Status error_msg(const std::string& field_type, const std::string& parquert_type, int index);
+
 private:
     std::shared_ptr<ParquetOutputStream> _outstream;
     std::shared_ptr<parquet::WriterProperties> _properties;
     std::shared_ptr<parquet::schema::GroupNode> _schema;
     std::unique_ptr<parquet::ParquetFileWriter> _writer;
-    const std::vector<ExprContext*>& _output_expr_ctxs;
+    const std::vector<ExprContext*>* _output_expr_ctxs;
+    const std::vector<vectorized::VExprContext*>* _output_vexpr_ctxs;
+    std::vector<int> _column_ids;
     std::vector<std::vector<std::string>> _str_schema;
     int64_t _cur_writed_rows = 0;
     parquet::RowGroupWriter* _rg_writer;

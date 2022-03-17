@@ -47,7 +47,7 @@ const size_t FileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 
 // deprecated
 FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
-                                   const std::vector<ExprContext*>& output_expr_ctxs,
+                                   const std::vector<ExprContext*>* output_expr_ctxs,
                                    RuntimeProfile* parent_profile, BufferControlBlock* sinker,
                                    bool output_object_data)
         : _file_opts(file_opts),
@@ -70,7 +70,7 @@ FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
 FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
                                    const TStorageBackendType::type storage_type,
                                    const TUniqueId fragment_instance_id,
-                                   const std::vector<ExprContext*>& output_expr_ctxs,
+                                   const std::vector<ExprContext*>* output_expr_ctxs,
                                    RuntimeProfile* parent_profile, BufferControlBlock* sinker,
                                    RowBatch* output_batch, bool output_object_data)
         : _file_opts(file_opts),
@@ -253,9 +253,9 @@ Status FileResultWriter::_write_csv_file(const RowBatch& batch) {
 Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
     {
         SCOPED_TIMER(_convert_tuple_timer);
-        int num_columns = _output_expr_ctxs.size();
+        int num_columns = _output_expr_ctxs->size();
         for (int i = 0; i < num_columns; ++i) {
-            void* item = _output_expr_ctxs[i]->get_value(row);
+            void* item = (*_output_expr_ctxs)[i]->get_value(row);
 
             if (item == nullptr) {
                 _plain_text_outstream << NULL_IN_CSV;
@@ -265,7 +265,7 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 continue;
             }
 
-            switch (_output_expr_ctxs[i]->root()->type().type) {
+            switch ((*_output_expr_ctxs)[i]->root()->type().type) {
             case TYPE_BOOLEAN:
             case TYPE_TINYINT:
                 _plain_text_outstream << (int)*static_cast<int8_t*>(item);
@@ -330,7 +330,7 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 const DecimalV2Value decimal_val(
                         reinterpret_cast<const PackedInt128*>(item)->value);
                 std::string decimal_str;
-                int output_scale = _output_expr_ctxs[i]->root()->output_scale();
+                int output_scale = (*_output_expr_ctxs)[i]->root()->output_scale();
                 decimal_str = decimal_val.to_string(output_scale);
                 _plain_text_outstream << decimal_str;
                 break;

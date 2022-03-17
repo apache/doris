@@ -242,6 +242,15 @@ void VDataStreamSender::Channel::ch_roll_pb_block() {
     _ch_cur_pb_block = (_ch_cur_pb_block == &_ch_pb_block1 ? &_ch_pb_block2 : &_ch_pb_block1);
 }
 
+VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc)
+        : _sender_id(sender_id),
+          _pool(pool),
+          _row_desc(row_desc),
+          _cur_pb_block(&_pb_block1),
+          _serialize_batch_timer(nullptr),
+          _bytes_sent_counter(nullptr),
+          _local_bytes_send_counter(nullptr) {}
+
 VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
                                      const TDataStreamSink& sink,
                                      const std::vector<TPlanFragmentDestination>& destinations,

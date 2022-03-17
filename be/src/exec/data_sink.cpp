@@ -40,6 +40,7 @@
 #include "vec/sink/vmysql_table_writer.h"
 #include "vec/sink/vtablet_sink.h"
 #include "vec/sink/vmysql_table_sink.h"
+#include "vec/sink/vresult_file_sink.h"
 
 namespace doris {
 
@@ -91,12 +92,25 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
         if (!thrift_sink.__isset.result_file_sink) {
             return Status::InternalError("Missing result file sink.");
         }
-        // Result file sink is not the top sink
-        if (params.__isset.destinations && params.destinations.size() > 0) {
-            tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink,
-                                          params.destinations, pool, params.sender_id, desc_tbl);
+
+        if (is_vec) {
+            if (params.__isset.destinations && params.destinations.size() > 0) {
+                tmp_sink = new doris::vectorized::VResultFileSink(
+                        row_desc, output_exprs, thrift_sink.result_file_sink, params.destinations,
+                        pool, params.sender_id, desc_tbl);
+            } else {
+                tmp_sink = new doris::vectorized::VResultFileSink(row_desc, output_exprs,
+                                                                  thrift_sink.result_file_sink);
+            }
         } else {
-            tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink);
+            // Result file sink is not the top sink
+            if (params.__isset.destinations && params.destinations.size() > 0) {
+                tmp_sink =
+                        new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink,
+                                           params.destinations, pool, params.sender_id, desc_tbl);
+            } else {
+                tmp_sink = new ResultFileSink(row_desc, output_exprs, thrift_sink.result_file_sink);
+            }
         }
         sink->reset(tmp_sink);
         break;

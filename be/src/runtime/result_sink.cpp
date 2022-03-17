@@ -28,7 +28,6 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
-
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -62,11 +61,12 @@ Status ResultSink::prepare_exprs(RuntimeState* state) {
 
 Status ResultSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
-    std::stringstream title;
-    title << "DataBufferSender (dst_fragment_instance_id="
-          << print_id(state->fragment_instance_id()) << ")";
+
+    fmt::memory_buffer title;
+    fmt::format_to(title, "DataBufferSender ( dst_fragment_instance_id= {} ).",
+                   print_id(state->fragment_instance_id()));
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
+    _profile = state->obj_pool()->add(new RuntimeProfile(fmt::to_string(title.data())));
     // prepare output_expr
     RETURN_IF_ERROR(prepare_exprs(state));
 
@@ -83,7 +83,7 @@ Status ResultSink::prepare(RuntimeState* state) {
     // deprecated
     case TResultSinkType::FILE:
         CHECK(_file_opts.get() != nullptr);
-        _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,
+        _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), &_output_expr_ctxs,
                                                           _profile, _sender.get(),
                                                           state->return_object_data_as_binary()));
         break;

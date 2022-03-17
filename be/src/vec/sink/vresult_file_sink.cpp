@@ -15,38 +15,43 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/result_file_sink.h"
+#include "vec/sink/vresult_file_sink.h"
 
 #include "common/config.h"
 #include "exprs/expr.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/file_result_writer.h"
+#include "runtime/mem_tracker.h"
 #include "runtime/mysql_result_writer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
+#include "vec/sink/vfile_result_writer.h"
+#include "vec/utils/util.hpp"
 
-namespace doris {
+namespace doris::vectorized {
 
-ResultFileSink::ResultFileSink(const RowDescriptor& row_desc,
-                               const std::vector<TExpr>& t_output_expr, const TResultFileSink& sink)
-        : DataStreamSender(nullptr, 0, row_desc), _t_output_expr(t_output_expr) {
+VResultFileSink::VResultFileSink(const RowDescriptor& row_desc,
+                                 const std::vector<TExpr>& t_output_expr,
+                                 const TResultFileSink& sink)
+        : VDataStreamSender(nullptr, 0, row_desc), _t_output_expr(t_output_expr) {
     CHECK(sink.__isset.file_options);
     _file_opts.reset(new ResultFileOptions(sink.file_options));
     CHECK(sink.__isset.storage_backend_type);
     _storage_type = sink.storage_backend_type;
     _is_top_sink = true;
 
-    _name = "ResultFileSink";
+    _name = "VResultFileSink";
 }
 
-ResultFileSink::ResultFileSink(const RowDescriptor& row_desc,
-                               const std::vector<TExpr>& t_output_expr, const TResultFileSink& sink,
-                               const std::vector<TPlanFragmentDestination>& destinations,
-                               ObjectPool* pool, int sender_id, DescriptorTbl& descs)
-        : DataStreamSender(pool, sender_id, row_desc),
+VResultFileSink::VResultFileSink(const RowDescriptor& row_desc,
+                                 const std::vector<TExpr>& t_output_expr,
+                                 const TResultFileSink& sink,
+                                 const std::vector<TPlanFragmentDestination>& destinations,
+                                 ObjectPool* pool, int sender_id, DescriptorTbl& descs)
+        : VDataStreamSender(pool, sender_id, row_desc),
           _t_output_expr(t_output_expr),
           _output_row_descriptor(descs.get_tuple_descriptor(sink.output_tuple_id), false) {
     CHECK(sink.__isset.file_options);
@@ -60,34 +65,25 @@ ResultFileSink::ResultFileSink(const RowDescriptor& row_desc,
             destinations[0].fragment_instance_id, sink.dest_node_id, _buf_size, true, true));
     _channels.push_back(_channel_shared_ptrs.back().get());
 
-    _name = "ResultFileSink";
+    _name = "VResultFileSink";
 }
 
-ResultFileSink::~ResultFileSink() {
-    if (_output_batch != nullptr) {
-        delete _output_batch;
-    }
-}
-
-Status ResultFileSink::init(const TDataSink& tsink) {
-    return Status::OK();
-}
-
-Status ResultFileSink::prepare_exprs(RuntimeState* state) {
+Status VResultFileSink::prepare_exprs(RuntimeState* state) {
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(Expr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_expr_ctxs));
+    RETURN_IF_ERROR(
+            VExpr::create_expr_trees(state->obj_pool(), _t_output_expr, &_output_vexpr_ctxs));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _expr_mem_tracker));
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc, _expr_mem_tracker));
     return Status::OK();
 }
 
-Status ResultFileSink::prepare(RuntimeState* state) {
+Status VResultFileSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
-    std::stringstream title;
-    title << "DataBufferSender (dst_fragment_instance_id="
-          << print_id(state->fragment_instance_id()) << ")";
+    std::string title = fmt::format("DataBufferSender: ( dst_fragment_instance_id= {}).",
+                                    print_id(state->fragment_instance_id()));
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
+    _profile = state->obj_pool()->add(new RuntimeProfile(title));
+
     // prepare output_expr
     RETURN_IF_ERROR(prepare_exprs(state));
 
@@ -97,12 +93,13 @@ Status ResultFileSink::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
                 state->fragment_instance_id(), _buf_size, &_sender));
         // create writer
-        _writer.reset(new (std::nothrow) FileResultWriter(
-                _file_opts.get(), _storage_type, state->fragment_instance_id(), &_output_expr_ctxs,
+        _writer.reset(new (std::nothrow) VFileResultWriter(
+                _file_opts.get(), _storage_type, state->fragment_instance_id(), &_output_vexpr_ctxs,
                 _profile, _sender.get(), nullptr, state->return_object_data_as_binary()));
+
     } else {
         // init channel
-        _profile = _pool->add(new RuntimeProfile(title.str()));
+        _profile = _pool->add(new RuntimeProfile(title));
         _state = state;
         _serialize_batch_timer = ADD_TIMER(profile(), "SerializeBatchTime");
         _bytes_sent_counter = ADD_COUNTER(profile(), "BytesSent", TUnit::BYTES);
@@ -110,13 +107,13 @@ Status ResultFileSink::prepare(RuntimeState* state) {
         _uncompressed_bytes_counter =
                 ADD_COUNTER(profile(), "UncompressedRowBatchSize", TUnit::BYTES);
         _mem_tracker = MemTracker::create_tracker(
-                -1, "ResultFileSink:" + print_id(state->fragment_instance_id()),
+                -1, "VResultFileSink:" + print_id(state->fragment_instance_id()),
                 state->instance_mem_tracker(), MemTrackerLevel::VERBOSE, _profile);
-        // create writer
-        _output_batch = new RowBatch(_output_row_descriptor, 1024, _mem_tracker.get());
-        _writer.reset(new (std::nothrow) FileResultWriter(
-                _file_opts.get(), _storage_type, state->fragment_instance_id(), &_output_expr_ctxs,
-                _profile, nullptr, _output_batch, state->return_object_data_as_binary()));
+
+        _mutable_block.reset(new MutableBlock(_output_row_descriptor.tuple_descriptors()));
+        _writer.reset(new (std::nothrow) VFileResultWriter(
+                _file_opts.get(), _storage_type, state->fragment_instance_id(), &_output_vexpr_ctxs,
+                _profile, nullptr, _mutable_block.get(), state->return_object_data_as_binary()));
     }
     RETURN_IF_ERROR(_writer->init(state));
     for (int i = 0; i < _channels.size(); ++i) {
@@ -125,16 +122,21 @@ Status ResultFileSink::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ResultFileSink::open(RuntimeState* state) {
-    return Expr::open(_output_expr_ctxs, state);
+Status VResultFileSink::open(RuntimeState* state) {
+    return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status ResultFileSink::send(RuntimeState* state, RowBatch* batch) {
-    RETURN_IF_ERROR(_writer->append_row_batch(batch));
+Status VResultFileSink::send(RuntimeState* state, RowBatch* batch) {
+    return Status::NotSupported(
+            "Not Implemented VResultFileSink::send(RuntimeState* state, RowBatch* batch)");
+}
+
+Status VResultFileSink::send(RuntimeState* state, Block* block) {
+    RETURN_IF_ERROR(_writer->append_block(*block));
     return Status::OK();
 }
 
-Status ResultFileSink::close(RuntimeState* state, Status exec_status) {
+Status VResultFileSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
@@ -151,7 +153,7 @@ Status ResultFileSink::close(RuntimeState* state, Status exec_status) {
     if (_is_top_sink) {
         // close sender, this is normal path end
         if (_sender) {
-            _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
+            _sender->update_num_written_rows(_writer->get_written_rows());
             _sender->close(final_status);
         }
         state->exec_env()->result_mgr()->cancel_at_time(
@@ -159,9 +161,11 @@ Status ResultFileSink::close(RuntimeState* state, Status exec_status) {
                 state->fragment_instance_id());
     } else {
         if (final_status.ok()) {
-            RETURN_IF_ERROR(serialize_batch(_output_batch, _cur_pb_batch, _channels.size()));
+            auto block = _mutable_block->to_block();
+            RETURN_IF_ERROR(
+                    serialize_block(&block, _cur_pb_block, _channels.size()));
             for (auto channel : _channels) {
-                RETURN_IF_ERROR(channel->send_batch(_cur_pb_batch));
+                RETURN_IF_ERROR(channel->send_block(_cur_pb_block));
             }
         }
         Status final_st = Status::OK();
@@ -178,17 +182,16 @@ Status ResultFileSink::close(RuntimeState* state, Status exec_status) {
                 final_st = st;
             }
         }
-        // release row batch
-        _output_batch->reset();
+        _mutable_block->clear();
     }
 
-    Expr::close(_output_expr_ctxs, state);
+    VExpr::close(_output_vexpr_ctxs, state);
 
     _closed = true;
     return Status::OK();
 }
 
-void ResultFileSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
+void VResultFileSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
     if (_is_top_sink) {
         _sender->set_query_statistics(statistics);
     } else {
@@ -196,4 +199,4 @@ void ResultFileSink::set_query_statistics(std::shared_ptr<QueryStatistics> stati
     }
 }
 
-} // namespace doris
+} // namespace doris::vectorized

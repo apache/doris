@@ -45,14 +45,16 @@ namespace vectorized {
 class VExprContext;
 class VPartitionInfo;
 
-class VDataStreamSender final : public DataSink {
+class VDataStreamSender : public DataSink {
 public:
+    VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc);
+
     VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
                       const TDataStreamSink& sink,
                       const std::vector<TPlanFragmentDestination>& destinations,
                       int per_channel_buffer_size, bool send_query_statistics_with_every_batch);
 
-    ~VDataStreamSender();
+    virtual ~VDataStreamSender();
 
     virtual Status init(const TDataSink& thrift_sink) override;
 
@@ -72,7 +74,7 @@ public:
 private:
     void _roll_pb_block();
 
-private:
+protected:
     class Channel;
 
     Status get_partition_column_result(Block* block, int* result) const {

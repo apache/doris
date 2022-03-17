@@ -32,6 +32,8 @@
 #include "runtime/mem_pool.h"
 #include "util/thrift_util.h"
 #include "util/types.h"
+#include "vec/core/materialize_block.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -89,11 +91,28 @@ void ParquetOutputStream::set_written_len(int64_t written_len) {
 
 /// ParquetWriterWrapper
 ParquetWriterWrapper::ParquetWriterWrapper(FileWriter* file_writer,
-                                           const std::vector<ExprContext*>& output_expr_ctxs,
+                                           const std::vector<ExprContext*>* output_expr_ctxs,
                                            const std::map<std::string, std::string>& properties,
                                            const std::vector<std::vector<std::string>>& schema,
                                            bool output_object_data)
         : _output_expr_ctxs(output_expr_ctxs),
+          _output_vexpr_ctxs(nullptr),
+          _str_schema(schema),
+          _cur_writed_rows(0),
+          _rg_writer(nullptr),
+          _output_object_data(output_object_data) {
+    _outstream = std::shared_ptr<ParquetOutputStream>(new ParquetOutputStream(file_writer));
+    parse_properties(properties);
+    parse_schema(schema);
+    init_parquet_writer();
+}
+
+ParquetWriterWrapper::ParquetWriterWrapper(
+        FileWriter* file_writer, const std::vector<vectorized::VExprContext*>* output_vexpr_ctxs,
+        const std::map<std::string, std::string>& properties,
+        const std::vector<std::vector<std::string>>& schema, bool output_object_data)
+        : _output_expr_ctxs(nullptr),
+          _output_vexpr_ctxs(output_vexpr_ctxs),
           _str_schema(schema),
           _cur_writed_rows(0),
           _rg_writer(nullptr),
@@ -203,6 +222,25 @@ Status ParquetWriterWrapper::write(const RowBatch& row_batch) {
     return Status::OK();
 }
 
+Status ParquetWriterWrapper::write(vectorized::Block& block) {
+    int num_columns = _output_vexpr_ctxs->size();
+    _column_ids.resize(num_columns);
+    for (int i = 0; i < num_columns; ++i) {
+        int column_id = -1;
+        (*_output_vexpr_ctxs)[i]->execute(&block, &column_id);
+        _column_ids[i] = column_id;
+    }
+
+    int num_rows = block.rows();
+    materialize_block_inplace(block, _column_ids.begin(), _column_ids.end());
+
+    for (int i = 0; i < num_rows; ++i) {
+        RETURN_IF_ERROR(_write_one_row(block, i));
+        _cur_writed_rows++;
+    }
+    return Status::OK();
+}
+
 Status ParquetWriterWrapper::init_parquet_writer() {
     _writer = parquet::ParquetFileWriter::Open(_outstream, _schema, _properties);
     if (_writer == nullptr) {
@@ -224,20 +262,17 @@ parquet::RowGroupWriter* ParquetWriterWrapper::get_rg_writer() {
 }
 
 Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
-    int num_columns = _output_expr_ctxs.size();
+    int num_columns = _output_expr_ctxs->size();
     if (num_columns != _str_schema.size()) {
         return Status::InternalError("project field size is not equal to schema column size");
     }
     try {
         for (int index = 0; index < num_columns; ++index) {
-            void* item = _output_expr_ctxs[index]->get_value(row);
-            switch (_output_expr_ctxs[index]->root()->type().type) {
+            void* item = (*_output_expr_ctxs)[index]->get_value(row);
+            switch ((*_output_expr_ctxs)[index]->root()->type().type) {
             case TYPE_BOOLEAN: {
                 if (_str_schema[index][1] != "boolean") {
-                    std::stringstream ss;
-                    ss << "project field type is boolean, but the definition type of column "
-                       << _str_schema[index][2] << " is " << _str_schema[index][1];
-                    return Status::InvalidArgument(ss.str());
+                    return error_msg("boolean", "boolean", index);
                 }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::BoolWriter* col_writer =
@@ -250,15 +285,43 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 }
                 break;
             }
-            case TYPE_TINYINT:
-            case TYPE_SMALLINT:
+            case TYPE_TINYINT: {
+                if (_str_schema[index][1] != "int32") {
+                    return error_msg("tiny int", "int32", index);
+                }
+
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int32Writer* col_writer =
+                        static_cast<parquet::Int32Writer*>(rgWriter->column(index));
+                if (item != nullptr) {
+                    int32_t data = *(static_cast<int8_t*>(item));
+                    col_writer->WriteBatch(1, nullptr, nullptr, &data);
+                } else {
+                    int32_t default_int32 = 0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int32);
+                }
+                break;
+            }
+            case TYPE_SMALLINT: {
+                if (_str_schema[index][1] != "int32") {
+                    return error_msg("small int", "int32", index);
+                }
+
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int32Writer* col_writer =
+                        static_cast<parquet::Int32Writer*>(rgWriter->column(index));
+                if (item != nullptr) {
+                    int32_t data = *(static_cast<int16_t*>(item));
+                    col_writer->WriteBatch(1, nullptr, nullptr, &data);
+                } else {
+                    int32_t default_int32 = 0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int32);
+                }
+                break;
+            }
             case TYPE_INT: {
                 if (_str_schema[index][1] != "int32") {
-                    std::stringstream ss;
-                    ss << "project field type is tiny int/small int/int, should use int32, but the "
-                          "definition type of column "
-                       << _str_schema[index][2] << " is " << _str_schema[index][1];
-                    return Status::InvalidArgument(ss.str());
+                    return error_msg("int", "int32", index);
                 }
 
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
@@ -274,11 +337,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             }
             case TYPE_BIGINT: {
                 if (_str_schema[index][1] != "int64") {
-                    std::stringstream ss;
-                    ss << "project field type is big int, should use int64, but the definition "
-                          "type of column "
-                       << _str_schema[index][2] << " is " << _str_schema[index][1];
-                    return Status::InvalidArgument(ss.str());
+                    return error_msg("big int", "int64", index);
                 }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int64Writer* col_writer =
@@ -303,10 +362,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             }
             case TYPE_FLOAT: {
                 if (_str_schema[index][1] != "float") {
-                    std::stringstream ss;
-                    ss << "project field type is float, but the definition type of column "
-                       << _str_schema[index][2] << " is " << _str_schema[index][1];
-                    return Status::InvalidArgument(ss.str());
+                    return error_msg("float", "float", index);
                 }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::FloatWriter* col_writer =
@@ -321,10 +377,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             }
             case TYPE_DOUBLE: {
                 if (_str_schema[index][1] != "double") {
-                    std::stringstream ss;
-                    ss << "project field type is double, but the definition type of column "
-                       << _str_schema[index][2] << " is " << _str_schema[index][1];
-                    return Status::InvalidArgument(ss.str());
+                    return error_msg("double", "double", index);
                 }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::DoubleWriter* col_writer =
@@ -340,11 +393,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             case TYPE_DATETIME:
             case TYPE_DATE: {
                 if (_str_schema[index][1] != "int64") {
-                    std::stringstream ss;
-                    ss << "project field type is date/datetime, should use int64, but the "
-                          "definition type of column "
-                       << _str_schema[index][2] << " is " << _str_schema[index][1];
-                    return Status::InvalidArgument(ss.str());
+                    return error_msg("date/datetime", "int64", index);
                 }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::Int64Writer* col_writer =
@@ -364,11 +413,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             case TYPE_OBJECT: {
                 if (_output_object_data) {
                     if (_str_schema[index][1] != "byte_array") {
-                        std::stringstream ss;
-                        ss << "project field type is hll/bitmap, should use byte_array, but the "
-                              "definition type of column "
-                           << _str_schema[index][2] << " is " << _str_schema[index][1];
-                        return Status::InvalidArgument(ss.str());
+                        return error_msg("hll/bitmap", "byte_array", index);
                     }
                     parquet::RowGroupWriter* rgWriter = get_rg_writer();
                     parquet::ByteArrayWriter* col_writer =
@@ -384,10 +429,10 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                         col_writer->WriteBatch(1, nullptr, nullptr, &value);
                     }
                 } else {
-                    std::stringstream ss;
-                    ss << "unsupported file format: "
-                       << _output_expr_ctxs[index]->root()->type().type;
-                    return Status::InvalidArgument(ss.str());
+                    fmt::memory_buffer err_ss;
+                    fmt::format_to(err_ss, "unsupported file format: : {}.",
+                                   (*_output_vexpr_ctxs)[index]->root()->type().type);
+                    return Status::InvalidArgument(fmt::to_string(err_ss.data()));
                 }
                 break;
             }
@@ -395,11 +440,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             case TYPE_VARCHAR:
             case TYPE_STRING: {
                 if (_str_schema[index][1] != "byte_array") {
-                    std::stringstream ss;
-                    ss << "project field type is char/varchar, should use byte_array, but the "
-                          "definition type of column "
-                       << _str_schema[index][2] << " is " << _str_schema[index][1];
-                    return Status::InvalidArgument(ss.str());
+                    return error_msg("char/varchar", "byte_array", index);
                 }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
@@ -418,11 +459,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
             }
             case TYPE_DECIMALV2: {
                 if (_str_schema[index][1] != "byte_array") {
-                    std::stringstream ss;
-                    ss << "project field type is decimal v2, should use byte_array, but the "
-                          "definition type of column "
-                       << _str_schema[index][2] << " is " << _str_schema[index][1];
-                    return Status::InvalidArgument(ss.str());
+                    return error_msg("decimal v2", "byte_array", index);
                 }
                 parquet::RowGroupWriter* rgWriter = get_rg_writer();
                 parquet::ByteArrayWriter* col_writer =
@@ -431,7 +468,7 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                     const DecimalV2Value decimal_val(
                             reinterpret_cast<const PackedInt128*>(item)->value);
                     char decimal_buffer[MAX_DECIMAL_WIDTH];
-                    int output_scale = _output_expr_ctxs[index]->root()->output_scale();
+                    int output_scale = (*_output_expr_ctxs)[index]->root()->output_scale();
                     parquet::ByteArray value;
                     value.ptr = reinterpret_cast<const uint8_t*>(decimal_buffer);
                     value.len = decimal_val.to_buffer(decimal_buffer, output_scale);
@@ -443,9 +480,333 @@ Status ParquetWriterWrapper::_write_one_row(TupleRow* row) {
                 break;
             }
             default: {
-                std::stringstream ss;
-                ss << "unsupported file format: " << _output_expr_ctxs[index]->root()->type().type;
-                return Status::InvalidArgument(ss.str());
+                fmt::memory_buffer err_ss;
+                fmt::format_to(err_ss, "unsupported file format: : {}.",
+                               (*_output_vexpr_ctxs)[index]->root()->type().type);
+                return Status::InvalidArgument(fmt::to_string(err_ss.data()));
+            }
+            }
+        }
+    } catch (const std::exception& e) {
+        LOG(WARNING) << "Parquet write error: " << e.what();
+        return Status::InternalError(e.what());
+    }
+    return Status::OK();
+}
+
+Status ParquetWriterWrapper::_write_one_row(vectorized::Block& block, size_t row) {
+    int num_columns = _output_vexpr_ctxs->size();
+    if (num_columns != _str_schema.size()) {
+        return Status::InternalError("project field size is not equal to schema column size");
+    }
+    try {
+        for (int index = 0; index < num_columns; ++index) {
+            bool is_null = false;
+            auto& column_ptr = block.get_by_position(_column_ids[index]).column;
+            auto& type_ptr = block.get_by_position(_column_ids[index]).type;
+
+            vectorized::ColumnPtr column;
+            if (type_ptr->is_nullable()) {
+                column = assert_cast<const vectorized::ColumnNullable&>(*column_ptr)
+                                 .get_nested_column_ptr();
+                if (column_ptr->is_null_at(row)) {
+                    is_null = true;
+                }
+            } else {
+                is_null = false;
+                column = column_ptr;
+            }
+
+            switch ((*_output_vexpr_ctxs)[index]->root()->result_type()) {
+            case TYPE_BOOLEAN: {
+                if (_str_schema[index][1] != "boolean") {
+                    return error_msg("boolean", "boolean", index);
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::BoolWriter* col_writer =
+                        static_cast<parquet::BoolWriter*>(rgWriter->column(index));
+
+                if (is_null) {
+                    bool default_bool = false;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_bool);
+                } else {
+                    auto& data_column = assert_cast<const vectorized::ColumnUInt8&>(*column);
+                    uint8_t data = data_column.get_element(row);
+                    col_writer->WriteBatch(1, nullptr, nullptr,
+                                           reinterpret_cast<const bool*>(&data));
+                }
+                break;
+            }
+
+            case TYPE_TINYINT: {
+                if (_str_schema[index][1] != "int32") {
+                    return error_msg("tiny int", "int32", index);
+                }
+
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int32Writer* col_writer =
+                        static_cast<parquet::Int32Writer*>(rgWriter->column(index));
+
+                if (is_null) {
+                    int32_t default_int32 = 0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int32);
+                } else {
+                    auto& data_column = assert_cast<const vectorized::ColumnInt8&>(*column);
+                    int32_t data = data_column.get_element(row);
+                    col_writer->WriteBatch(1, nullptr, nullptr, &data);
+                }
+                break;
+            }
+
+            case TYPE_SMALLINT: {
+                if (_str_schema[index][1] != "int32") {
+                    return error_msg("small int", "int32", index);
+                }
+
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int32Writer* col_writer =
+                        static_cast<parquet::Int32Writer*>(rgWriter->column(index));
+
+                if (is_null) {
+                    int32_t default_int32 = 0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int32);
+                } else {
+                    auto& data_column = assert_cast<const vectorized::ColumnInt16&>(*column);
+                    int32_t data = data_column.get_element(row);
+                    col_writer->WriteBatch(1, nullptr, nullptr,
+                                           reinterpret_cast<const int32_t*>(&data));
+                }
+                break;
+            }
+
+            case TYPE_INT: {
+                if (_str_schema[index][1] != "int32") {
+                    return error_msg("int", "int32", index);
+                }
+
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int32Writer* col_writer =
+                        static_cast<parquet::Int32Writer*>(rgWriter->column(index));
+
+                if (is_null) {
+                    int32_t default_int32 = 0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int32);
+                } else {
+                    auto& data = assert_cast<const vectorized::ColumnInt32&>(*column).get_data();
+                    col_writer->WriteBatch(1, nullptr, nullptr, (int32_t*)(&data[row]));
+                }
+                break;
+            }
+
+            case TYPE_BIGINT: {
+                if (_str_schema[index][1] != "int64") {
+                    return error_msg("big int", "int64", index);
+                }
+
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int64Writer* col_writer =
+                        static_cast<parquet::Int64Writer*>(rgWriter->column(index));
+
+                if (is_null) {
+                    int64_t default_int64 = 0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
+                } else {
+                    auto& data = assert_cast<const vectorized::ColumnInt64&>(*column).get_data();
+                    col_writer->WriteBatch(1, nullptr, nullptr, (int64_t*)(&data[row]));
+                }
+                break;
+            }
+
+            case TYPE_LARGEINT: {
+                // TODO: not support int_128
+                // It is better write a default value, because rg_writer need all columns has value before flush to disk.
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int64Writer* col_writer =
+                        static_cast<parquet::Int64Writer*>(rgWriter->column(index));
+                int64_t default_int64 = 0;
+                col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
+                return Status::InvalidArgument("do not support large int type.");
+            }
+
+            case TYPE_FLOAT: {
+                if (_str_schema[index][1] != "float") {
+                    return error_msg("float", "float", index);
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::FloatWriter* col_writer =
+                        static_cast<parquet::FloatWriter*>(rgWriter->column(index));
+                if (is_null) {
+                    float_t default_float = 0.0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_float);
+
+                } else {
+                    auto& data = assert_cast<const vectorized::ColumnFloat32&>(*column).get_data();
+                    col_writer->WriteBatch(1, nullptr, nullptr, (float_t*)(&data[row]));
+                }
+                break;
+            }
+
+            case TYPE_DOUBLE: {
+                if (_str_schema[index][1] != "double") {
+                    return error_msg("double", "double", index);
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::DoubleWriter* col_writer =
+                        static_cast<parquet::DoubleWriter*>(rgWriter->column(index));
+                if (is_null) {
+                    double_t default_double = 0.0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_double);
+
+                } else {
+                    auto& data = assert_cast<const vectorized::ColumnFloat64&>(*column).get_data();
+                    col_writer->WriteBatch(1, nullptr, nullptr, (double_t*)(&data[row]));
+                }
+                break;
+            }
+
+            case TYPE_STRING:
+            case TYPE_CHAR:
+            case TYPE_VARCHAR: {
+                if (_str_schema[index][1] != "byte_array") {
+                    return error_msg("char/varchar", "byte_array", index);
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::ByteArrayWriter* col_writer =
+                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(index));
+                if (is_null) {
+                    parquet::ByteArray value;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &value);
+
+                } else {
+                    const auto& string_val =
+                            assert_cast<const vectorized::ColumnString&>(*column).get_data_at(row);
+                    parquet::ByteArray value;
+                    value.ptr = reinterpret_cast<const uint8_t*>(string_val.data);
+                    value.len = string_val.size;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                }
+                break;
+            }
+
+            case TYPE_DECIMALV2: {
+                if (_str_schema[index][1] != "byte_array") {
+                    return error_msg("decimal v2", "byte_array", index);
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::ByteArrayWriter* col_writer =
+                        static_cast<parquet::ByteArrayWriter*>(rgWriter->column(index));
+                if (is_null) {
+                    parquet::ByteArray value;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &value);
+
+                } else {
+                    DecimalV2Value decimal_val =
+                            (DecimalV2Value)assert_cast<
+                                    const vectorized::ColumnDecimal<vectorized::Decimal128>&>(
+                                    *column)
+                                    .get_data()[row];
+                    char decimal_buffer[MAX_DECIMAL_WIDTH];
+                    // TODO: Support decimal output_scale accuracy 
+                    //int output_scale = (*_output_vexpr_ctxs)[index]->root()->output_scale();
+                    int output_scale = -1;
+                    parquet::ByteArray value;
+                    value.ptr = reinterpret_cast<const uint8_t*>(decimal_buffer);
+                    value.len = decimal_val.to_buffer(decimal_buffer, output_scale);
+                    col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                }
+                break;
+            }
+
+            case TYPE_DATE:
+            case TYPE_DATETIME: {
+                if (_str_schema[index][1] != "int64") {
+                    return error_msg("date/datetime", "int64", index);
+                }
+                parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                parquet::Int64Writer* col_writer =
+                        static_cast<parquet::Int64Writer*>(rgWriter->column(index));
+                if (is_null) {
+                    int64_t default_int64 = 0;
+                    col_writer->WriteBatch(1, nullptr, nullptr, &default_int64);
+
+                } else {
+                    int64_t int_val =
+                            assert_cast<const vectorized::ColumnInt64&>(*column).get_data()[row];
+                    vectorized::VecDateTimeValue value =
+                            binary_cast<int64_t, doris::vectorized::VecDateTimeValue>(int_val);
+                    int64_t timestamp = value.to_olap_datetime();
+                    col_writer->WriteBatch(1, nullptr, nullptr, &timestamp);
+                }
+                break;
+            }
+
+            case TYPE_OBJECT: {
+                if (_output_object_data) {
+                    if (_str_schema[index][1] != "byte_array") {
+                        return error_msg("object", "byte_array", index);
+                    }
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                    parquet::ByteArrayWriter* col_writer =
+                            static_cast<parquet::ByteArrayWriter*>(rgWriter->column(index));
+                    if (is_null) {
+                        parquet::ByteArray value;
+                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
+
+                    } else {
+                        auto date_column = assert_cast<const vectorized::ColumnBitmap&>(*column);
+                        BitmapValue& data = date_column.get_element(row);
+                        std::string bitmap_str(data.getSizeInBytes(), '0');
+                        data.write(bitmap_str.data());
+                        parquet::ByteArray value;
+                        value.ptr = reinterpret_cast<const uint8_t*>(bitmap_str.c_str());
+                        value.len = bitmap_str.length();
+                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                    }
+                } else {
+                    fmt::memory_buffer err_ss;
+                    fmt::format_to(err_ss, "unsupported file format: : {}.",
+                                   (*_output_vexpr_ctxs)[index]->root()->type().type);
+                    return Status::InvalidArgument(fmt::to_string(err_ss.data()));
+                }
+                break;
+            }
+
+            case TYPE_HLL: {
+                if (_output_object_data) {
+                    if (_str_schema[index][1] != "byte_array") {
+                        return error_msg("hll", "byte_array", index);
+                    }
+                    parquet::RowGroupWriter* rgWriter = get_rg_writer();
+                    parquet::ByteArrayWriter* col_writer =
+                            static_cast<parquet::ByteArrayWriter*>(rgWriter->column(index));
+                    if (is_null) {
+                        parquet::ByteArray value;
+                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
+
+                    } else {
+                        auto& data =
+                                assert_cast<const vectorized::ColumnHLL&>(*column).get_data()[row];
+                        std::string hll_str(data.max_serialized_size(), '0');
+                        size_t actual_size = data.serialize((uint8_t*)hll_str.data());
+                        hll_str.resize(actual_size);
+                        parquet::ByteArray value;
+                        value.ptr = reinterpret_cast<const uint8_t*>(hll_str.c_str());
+                        value.len = hll_str.length();
+                        col_writer->WriteBatch(1, nullptr, nullptr, &value);
+                    }
+                } else {
+                    fmt::memory_buffer err_ss;
+                    fmt::format_to(err_ss, "unsupported file format: : {}.",
+                                   (*_output_vexpr_ctxs)[index]->root()->type().type);
+                    return Status::InvalidArgument(fmt::to_string(err_ss.data()));
+                }
+                break;
+            }
+            default: {
+                fmt::memory_buffer err_ss;
+                fmt::format_to(err_ss, "unsupported file format: : {}.",
+                               (*_output_vexpr_ctxs)[index]->root()->type().type);
+                return Status::InvalidArgument(fmt::to_string(err_ss.data()));
             }
             }
         }
@@ -474,6 +835,16 @@ void ParquetWriterWrapper::close() {
         _rg_writer = nullptr;
         LOG(WARNING) << "Parquet writer close error: " << e.what();
     }
+}
+
+Status ParquetWriterWrapper::error_msg(const std::string& field_type,
+                                       const std::string& parquert_type, int index) {
+    fmt::memory_buffer err_ss;
+    fmt::format_to(err_ss,
+                   "project field type is {}, should use parquert_type {}, but the definition type "
+                   "of column {} is {}.",
+                   field_type, parquert_type, _str_schema[index][2], _str_schema[index][1]);
+    return Status::InvalidArgument(fmt::to_string(err_ss.data()));
 }
 
 ParquetWriterWrapper::~ParquetWriterWrapper() {}

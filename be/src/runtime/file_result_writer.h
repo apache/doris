@@ -21,7 +21,7 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/result_writer.h"
 #include "runtime/runtime_state.h"
-
+#include "vec/exprs/vexpr_context.h"
 namespace doris {
 
 class ExprContext;
@@ -75,16 +75,16 @@ struct ResultFileOptions {
 
 class BufferControlBlock;
 // write result to file
-class FileResultWriter final : public ResultWriter {
+class FileResultWriter : public ResultWriter {
 public:
     FileResultWriter(const ResultFileOptions* file_option,
-                     const std::vector<ExprContext*>& output_expr_ctxs,
+                     const std::vector<ExprContext*>* output_expr_ctxs,
                      RuntimeProfile* parent_profile, BufferControlBlock* sinker,
                      bool output_object_data);
     FileResultWriter(const ResultFileOptions* file_option,
                      const TStorageBackendType::type storage_type,
                      const TUniqueId fragment_instance_id,
-                     const std::vector<ExprContext*>& output_expr_ctxs,
+                     const std::vector<ExprContext*>* output_expr_ctxs,
                      RuntimeProfile* parent_profile, BufferControlBlock* sinker,
                      RowBatch* output_batch, bool output_object_data);
     virtual ~FileResultWriter();
@@ -96,17 +96,23 @@ public:
     // file result writer always return statistic result in one row
     virtual int64_t get_written_rows() const override { return 1; }
 
-private:
+    // if buffer exceed the limit, write the data buffered in _plain_text_outstream via file_writer
+    // if eos, write the data even if buffer is not full.
+    virtual Status _flush_plain_text_outstream(bool eos);
+    virtual Status _create_file_writer(const std::string& file_name);
+    // save result into batch rather than send it
+    virtual Status _fill_result_batch();
+    // close file writer, and if !done, it will create new writer for next file.
+    // if only_close is true, this method will just close the file writer and return.
+    virtual Status _close_file_writer(bool done, bool only_close = false);
+
+protected:
     Status _write_csv_file(const RowBatch& batch);
     Status _write_parquet_file(const RowBatch& batch);
     Status _write_one_row_as_csv(TupleRow* row);
 
-    // if buffer exceed the limit, write the data buffered in _plain_text_outstream via file_writer
-    // if eos, write the data even if buffer is not full.
-    Status _flush_plain_text_outstream(bool eos);
     void _init_profile();
 
-    Status _create_file_writer(const std::string& file_name);
     Status _create_next_file_writer();
     Status _create_success_file();
     // get next export file name
@@ -114,23 +120,17 @@ private:
     Status _get_success_file_name(std::string* file_name);
     Status _get_file_url(std::string* file_url);
     std::string _file_format_to_name();
-    // close file writer, and if !done, it will create new writer for next file.
-    // if only_close is true, this method will just close the file writer and return.
-    Status _close_file_writer(bool done, bool only_close = false);
     // create a new file if current file size exceed limit
     Status _create_new_file_if_exceed_size();
     // send the final statistic result
     Status _send_result();
-    // save result into batch rather than send it
-    Status _fill_result_batch();
 
-private:
+protected:
     RuntimeState* _state; // not owned, set when init
     const ResultFileOptions* _file_opts;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
-    const std::vector<ExprContext*>& _output_expr_ctxs;
-
+    const std::vector<ExprContext*>* _output_expr_ctxs;
     // If the result file format is plain text, like CSV, this _file_writer is owned by this FileResultWriter.
     // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
     FileWriter* _file_writer = nullptr;

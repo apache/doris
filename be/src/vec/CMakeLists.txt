@@ -163,6 +163,8 @@ set(VEC_FILES
   olap/block_reader.cpp
   sink/mysql_result_writer.cpp
   sink/result_sink.cpp
+  sink/vresult_file_sink.cpp
+  sink/vfile_result_writer.cpp
   sink/vdata_stream_sender.cpp
   sink/vtablet_sink.cpp
   sink/vmysql_table_writer.cpp
