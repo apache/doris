@@ -92,6 +92,7 @@ set(VEC_FILES
   exec/vanalytic_eval_node.cpp
   exec/vassert_num_rows_node.cpp
   exec/vrepeat_node.cpp
+  exec/vtable_function_node.cpp
   exec/join/vhash_join_node.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
@@ -104,6 +105,7 @@ set(VEC_FILES
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp
   exprs/vinfo_func.cpp
+  exprs/table_function/vexplode_split.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
   functions/function_bitmap_variadic.cpp
