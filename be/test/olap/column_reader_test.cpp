@@ -105,8 +105,8 @@ public:
 
         ASSERT_TRUE(_column_reader != nullptr);
 
-        system("mkdir -p ./ut_dir");
-        system("rm ./ut_dir/tmp_file");
+        ASSERT_EQ(system("mkdir -p ./ut_dir"), 0);
+        ASSERT_EQ(system("rm ./ut_dir/tmp_file"), 0);
 
         ASSERT_EQ(OLAP_SUCCESS,
                   helper.open_with_mode("./ut_dir/tmp_file", O_CREAT | O_EXCL | O_WRONLY,

@@ -52,7 +52,7 @@ static const uint32_t MAX_PATH_LEN = 1024;
 void set_up() {
     config::path_gc_check = false;
     char buffer[MAX_PATH_LEN];
-    getcwd(buffer, MAX_PATH_LEN);
+    ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = std::string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
     ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());

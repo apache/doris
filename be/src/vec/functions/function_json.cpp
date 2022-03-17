@@ -46,7 +46,9 @@ void char_split(std::vector<T>& res, const U& var, char p) {
     int pos = start;
     int end = var.length();
     while (pos < end) {
-        while (var[pos] != p && pos < end) pos++;
+        while (var[pos] != p && pos < end) {
+            pos++;
+        }
         res.emplace_back(&var[start], pos - start);
         pos++;
         start = pos;
@@ -325,7 +327,7 @@ struct GetJsonString {
             const auto l_raw = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
 
             int r_size = roffsets[i] - roffsets[i - 1] - 1;
-            const auto r_raw = reinterpret_cast<const char*>(&rdata[loffsets[i - 1]]);
+            const auto r_raw = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
 
             if (null_map[i]) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
@@ -342,7 +344,6 @@ struct GetJsonString {
             const int max_string_len = 65535;
 
             if (root == nullptr || root->IsNull()) {
-                null_map[i] = 1;
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
             } else if (root->IsString()) {
                 const auto ptr = root->GetString();
