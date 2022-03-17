@@ -47,7 +47,8 @@ TEST_F(MessageBodySinkTest, file_sink) {
         char buf[256];
         memset(buf, 0, 256);
         int fd = open("././body_sink_test_file_sink", O_RDONLY);
-        read(fd, buf, 256);
+        auto readed_size = read(fd, buf, 256);
+        ASSERT_NE(readed_size, -1);
         close(fd);
         ASSERT_STREQ("hello world", buf);
         unlink("././body_sink_test_file_sink");
