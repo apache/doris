@@ -906,7 +906,7 @@ build_benchmark() {
     cmake ../ -DBENCHMARK_ENABLE_GTEST_TESTS=OFF -DBENCHMARK_ENABLE_TESTING=OFF -DCMAKE_BUILD_TYPE=Release -DHAVE_STD_REGEX=1
     cmake --build "build" --config Release
 
-    mkdir $TP_INCLUDE_DIR/benchmark
+    mkdir -p $TP_INCLUDE_DIR/benchmark
     cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/include/benchmark/benchmark.h $TP_INCLUDE_DIR/benchmark/
     cp $TP_SOURCE_DIR/$BENCHMARK_SOURCE/build/src/libbenchmark.a $TP_LIB_DIR/
 }
