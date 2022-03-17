@@ -51,9 +51,6 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
         _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
         _vec_skip_list = new VecTable(_vec_row_comparator.get(), _table_mem_pool.get(),
                                 _keys_type == KeysType::DUP_KEYS);
-        if (_keys_type != KeysType::DUP_KEYS){
-            _init_agg_functions();
-        }
     }else{
         _vec_skip_list =nullptr;
         if (tablet_schema->sort_type() == SortType::ZORDER) {
@@ -67,7 +64,7 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
     }
 }
 
-void MemTable::_init_agg_functions()
+void MemTable::_init_agg_functions(const vectorized::Block* block)
 {
     
     for (uint32_t cid = _schema->num_key_columns(); 
@@ -84,7 +81,7 @@ void MemTable::_init_agg_functions()
 
         // create aggregate function
         vectorized::DataTypes argument_types;
-        vectorized::DataTypePtr dtptr = Schema::get_data_type_ptr(_schema->column(cid)->type());
+        vectorized::DataTypePtr dtptr = block->get_data_type(cid);//Schema::get_data_type_ptr(_schema->column(cid)->type());
         argument_types.push_back(dtptr);
         vectorized::Array params;
         vectorized::AggregateFunctionPtr function = vectorized::AggregateFunctionSimpleFactory::instance().get(
@@ -125,6 +122,9 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
         _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         _vec_row_comparator->set_block(&_input_mutable_block);
         _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        if (_keys_type != KeysType::DUP_KEYS){
+            _init_agg_functions(block);
+        }
     }
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
     size_t oldsize = block->allocated_bytes();

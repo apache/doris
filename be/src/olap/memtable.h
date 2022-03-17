@@ -85,7 +85,8 @@ private:
             for(int cid = key_column_count; cid < agg_functions.size(); cid++)
             {
                 auto function = agg_functions[cid];
-                _agg_places[cid] = new char[function->size_of_data()];
+                size_t place_size = function->size_of_data();
+                _agg_places[cid] = new char[place_size];
                 function->create( _agg_places[cid] );
             }
         }
@@ -95,6 +96,11 @@ private:
             bool is_null = block->mutable_columns()[cid]->is_null_at(_row_pos);
             NullState null_state = is_null ? NullState::IS_NULL : NullState::NOT_NULL;
             return RowCursorCell(ref.data, null_state);
+        }
+        ~ RowInBlock(){
+            for( auto place: _agg_places){
+                delete place;
+            }
         }
     };
     class RowInBlockComparator {
@@ -188,7 +194,7 @@ private:
     vectorized::Block collect_skiplist_results();
     bool _is_first_insertion;
 
-    void _init_agg_functions();
+    void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
 
 }; // class MemTable
