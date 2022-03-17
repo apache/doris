@@ -82,12 +82,16 @@ private:
         void init_agg_places(std::vector<vectorized::AggregateFunctionPtr>& agg_functions,
                             int key_column_count){
             _agg_places.resize(agg_functions.size());
-            for(int cid = key_column_count; cid < agg_functions.size(); cid++)
+            for(int cid = 0; cid < agg_functions.size(); cid++)
             {
-                auto function = agg_functions[cid];
-                size_t place_size = function->size_of_data();
-                _agg_places[cid] = new char[place_size];
-                function->create( _agg_places[cid] );
+                if (cid < key_column_count) {
+                    _agg_places[cid] = nullptr;
+                }else{
+                    auto function = agg_functions[cid];
+                    size_t place_size = function->size_of_data();
+                    _agg_places[cid] = new char[place_size];
+                    function->create(_agg_places[cid]);
+                }
             }
         }
 
@@ -109,7 +113,7 @@ private:
         //call set_block before operator().
         //在第一次insert block时创建的 _input_mutable_block, 所以无法在Comparator的构造函数中获得pblock
         void set_block(vectorized::MutableBlock* pblock){_pblock = pblock;}
-        int operator()(const RowInBlock left, const RowInBlock right) const;
+        int operator()(const RowInBlock* left, const RowInBlock* right) const;
     private:
         const Schema* _schema;
         vectorized::MutableBlock* _pblock;// 对应Memtable::_input_mutable_block
@@ -119,7 +123,7 @@ private:
     typedef SkipList<char*, RowComparator> Table;
     typedef Table::key_type TableKey;
 
-    typedef SkipList<RowInBlock, RowInBlockComparator> VecTable;
+    typedef SkipList<RowInBlock*, RowInBlockComparator> VecTable;
 
 public:
     /// The iterator of memtable, so that the data in this memtable
@@ -144,8 +148,8 @@ private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
     //for vectorized
-    void insert_one_row_from_block(struct RowInBlock row_in_block);
-    void _aggregate_two_rowInBlock(RowInBlock new_row, RowInBlock row_in_skiplist);
+    void insert_one_row_from_block(RowInBlock* row_in_block);
+    void _aggregate_two_rowInBlock(RowInBlock* new_row, RowInBlock* row_in_skiplist);
 
     int64_t _tablet_id;
     Schema* _schema;
@@ -196,7 +200,7 @@ private:
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
-
+    std::vector<RowInBlock*> rowInBlocks;
 }; // class MemTable
 
 

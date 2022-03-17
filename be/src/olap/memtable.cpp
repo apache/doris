@@ -97,6 +97,12 @@ MemTable::~MemTable() {
         delete _skip_list;
     if (_vec_skip_list)
         delete _vec_skip_list;
+    for(auto row: rowInBlocks)
+    {
+        if (row != nullptr){
+            delete row;
+        }
+    }
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -107,8 +113,8 @@ int MemTable::RowCursorComparator::operator()(const char* left, const char* righ
     return compare_row(lhs_row, rhs_row);
 }
 
-int MemTable::RowInBlockComparator::operator()(const RowInBlock left, const RowInBlock right) const{
-    return _pblock->compare_at(left._row_pos, right._row_pos, 
+int MemTable::RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* right) const{
+    return _pblock->compare_at(left->_row_pos, right->_row_pos, 
                             _schema->num_key_columns(), 
                             *_pblock, -1); 
 }
@@ -130,39 +136,41 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
     size_t oldsize = block->allocated_bytes();
     _input_mutable_block.add_rows(block, row_pos, num_rows);
     size_t newsize = block->allocated_bytes();
-    _mem_tracker->Consume(newsize - oldsize);
+    _mem_tracker->consume(newsize - oldsize);
 
     for(int i = 0; i < num_rows; i++){       
-        insert_one_row_from_block(RowInBlock(cursor_in_mutableblock + i));
+        RowInBlock* row_in_block_ptr = new RowInBlock(cursor_in_mutableblock + i);
+        rowInBlocks.push_back(row_in_block_ptr);
+        insert_one_row_from_block(row_in_block_ptr);
     }   
 }
 
-void MemTable::insert_one_row_from_block(struct RowInBlock row_in_block)
+void MemTable::insert_one_row_from_block(RowInBlock* row_in_block_ptr)
 {
     _rows++;
     bool overwritten = false;
     if (_keys_type == KeysType::DUP_KEYS)
     {
-        _vec_skip_list->Insert(row_in_block, &overwritten);
+        _vec_skip_list->Insert(row_in_block_ptr, &overwritten);
         DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
         return;
     }
-    bool is_exist = _vec_skip_list->Find(row_in_block, &_vec_hint);
+    bool is_exist = _vec_skip_list->Find(row_in_block_ptr, &_vec_hint);
     if (is_exist){
-        _aggregate_two_rowInBlock(row_in_block, _vec_hint.curr->key);
+        _aggregate_two_rowInBlock(row_in_block_ptr, _vec_hint.curr->key);
     }else{
-        row_in_block.init_agg_places(_agg_functions, _schema->num_key_columns());
+        row_in_block_ptr->init_agg_places(_agg_functions, _schema->num_key_columns());
         for ( auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++){
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-            auto place = row_in_block._agg_places[cid];
+            auto place = row_in_block_ptr->_agg_places[cid];
             _agg_functions[cid]->add(place, 
                     const_cast<const doris::vectorized::IColumn**>( &col_ptr),
-                    row_in_block._row_pos,
+                    row_in_block_ptr->_row_pos,
                     nullptr
                     );
         }
         
-        _vec_skip_list->InsertWithHint(row_in_block, is_exist, &_vec_hint);
+        _vec_skip_list->InsertWithHint(row_in_block_ptr, is_exist, &_vec_hint);
     }
 }
 
@@ -225,11 +233,11 @@ void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_
     }
 }
 
-void MemTable::_aggregate_two_rowInBlock(RowInBlock new_row, RowInBlock row_in_skiplist){
+void MemTable::_aggregate_two_rowInBlock(RowInBlock* new_row, RowInBlock* row_in_skiplist){
     if (_tablet_schema->has_sequence_col())
     {
         auto sequence_idx = _tablet_schema->sequence_col_idx();
-        auto res = _input_mutable_block.compare_at(row_in_skiplist._row_pos, new_row._row_pos, sequence_idx, _input_mutable_block, -1);
+        auto res = _input_mutable_block.compare_at(row_in_skiplist->_row_pos, new_row->_row_pos, sequence_idx, _input_mutable_block, -1);
         // dst sequence column larger than src, don't need to update
         if (res > 0){
             return ;
@@ -240,13 +248,13 @@ void MemTable::_aggregate_two_rowInBlock(RowInBlock new_row, RowInBlock row_in_s
                     cid < _schema->num_columns();
                     ++cid) 
     {
-        auto place = row_in_skiplist._agg_places[cid];
+        auto place = row_in_skiplist->_agg_places[cid];
 
         auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
 
         _agg_functions[cid]->add(place, 
                 const_cast<const doris::vectorized::IColumn**>( &col_ptr),
-                new_row._row_pos,
+                new_row->_row_pos,
                 nullptr
                 );
     }   
@@ -258,7 +266,7 @@ vectorized::Block MemTable::collect_skiplist_results()
     vectorized::Block in_block = _input_mutable_block.to_block();
     if (_keys_type == KeysType::DUP_KEYS){
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
-            _output_mutable_block.add_row(&in_block, it.key()._row_pos);
+            _output_mutable_block.add_row(&in_block, it.key()->_row_pos);
         }
     }else{
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
@@ -266,13 +274,14 @@ vectorized::Block MemTable::collect_skiplist_results()
             auto& block_data = in_block.get_columns_with_type_and_name();
             //move key columns
             for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
-                _output_mutable_block.get_column_by_position(i)->insert_from(*block_data[i].column.get(), it.key()._row_pos);
+                _output_mutable_block.get_column_by_position(i)->insert_from(*block_data[i].column.get(), it.key()->_row_pos);
             }
             //get value columns from agg_places
             
             for (size_t i = _schema->num_key_columns(); i < _schema->num_columns(); ++i) {
                 auto function = _agg_functions[i];
-                function->insert_result_into(it.key()._agg_places[i] , *(_output_mutable_block.get_column_by_position(i)));
+                function->insert_result_into(it.key()->_agg_places[i] , *(_output_mutable_block.get_column_by_position(i)));
+                function->destroy(it.key()->_agg_places[i]);
             }
         }
     }
@@ -306,10 +315,10 @@ OLAPStatus MemTable::_vflush(){
     {
         SCOPED_RAW_TIMER(&duration_ns);
         vectorized::Block block = collect_skiplist_results();
-        dump(block, _tablet_id);
         OLAPStatus st = _rowset_writer->add_block(&block);
         RETURN_NOT_OK(st);
         _flush_size = block.allocated_bytes();
+        _rowset_writer->flush();
     }
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);

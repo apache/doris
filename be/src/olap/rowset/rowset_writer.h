@@ -58,8 +58,6 @@ public:
         return OLAP_ERR_FUNC_NOT_IMPLEMENTED;
     }
     
-    virtual OLAPStatus add_block(const vectorized::Block* block) {
-        return OLAP_ERR_FUNC_NOT_IMPLEMENTED;    }
     // finish building and return pointer to the built rowset (guaranteed to be inited).
     // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;
