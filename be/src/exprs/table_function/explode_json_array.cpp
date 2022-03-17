@@ -147,14 +147,6 @@ ExplodeJsonArrayTableFunction::ExplodeJsonArrayTableFunction(ExplodeJsonArrayTyp
 ExplodeJsonArrayTableFunction::~ExplodeJsonArrayTableFunction() {
 }
 
-Status ExplodeJsonArrayTableFunction::prepare() {
-    return Status::OK();
-}
-
-Status ExplodeJsonArrayTableFunction::open() {
-    return Status::OK();
-}
-
 Status ExplodeJsonArrayTableFunction::process(TupleRow* tuple_row) {
     CHECK(1 == _expr_context->root()->get_num_children()) << _expr_context->root()->get_num_children();
     _is_current_empty = false;
@@ -197,25 +189,4 @@ Status ExplodeJsonArrayTableFunction::get_value(void** output) {
     }
     return Status::OK();
 }
-
-Status ExplodeJsonArrayTableFunction::close() {
-    return Status::OK();
-}
-
-Status ExplodeJsonArrayTableFunction::forward(bool* eos) {
-    if (_is_current_empty) {
-        *eos = true;
-        _eos = true;
-    } else {
-        ++_cur_offset;
-        if (_cur_offset == _cur_size) {
-            *eos = true;
-            _eos = true;
-        } else {
-            *eos = false;
-        }
-    }
-    return Status::OK();
-}
-
 } // namespace doris

@@ -22,7 +22,7 @@
 #include "vec/columns/column.h"
 #include "vec/exprs/vexpr.h"
 
-namespace doris {
+namespace doris::vectorized {
 
 VExplodeSplitTableFunction::VExplodeSplitTableFunction() {
     _fn_name = "vexplode_split";
@@ -96,4 +96,4 @@ Status VExplodeSplitTableFunction::get_value_length(int64_t* length) {
     return Status::OK();
 }
 
-} // namespace doris
+} // namespace doris::vectorized

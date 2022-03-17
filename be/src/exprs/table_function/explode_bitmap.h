@@ -18,7 +18,6 @@
 #pragma once
 
 #include "exprs/table_function/table_function.h"
-
 #include "util/bitmap_value.h"
 
 namespace doris {
@@ -28,12 +27,9 @@ public:
     ExplodeBitmapTableFunction();
     virtual ~ExplodeBitmapTableFunction();
 
-    virtual Status prepare() override;
-    virtual Status open() override;
     virtual Status process(TupleRow* tuple_row) override;
     virtual Status reset() override;
     virtual Status get_value(void** output) override;
-    virtual Status close() override;
 
     virtual Status forward(bool* eos) override;
 
@@ -41,7 +37,6 @@ private:
     void _reset_iterator();
 
 private:
-
     // Read from tuple row.
     // if _cur_bitmap_owned is true, need to delete it when deconstruction
     BitmapValue* _cur_bitmap = nullptr;

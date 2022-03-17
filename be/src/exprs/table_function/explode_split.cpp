@@ -29,10 +29,6 @@ ExplodeSplitTableFunction::ExplodeSplitTableFunction() {
 
 ExplodeSplitTableFunction::~ExplodeSplitTableFunction() {}
 
-Status ExplodeSplitTableFunction::prepare() {
-    return Status::OK();
-}
-
 Status ExplodeSplitTableFunction::open() {
     ScalarFnCall* fn_call = reinterpret_cast<ScalarFnCall*>(_expr_context->root());
     FunctionContext* fn_ctx = _expr_context->fn_context(fn_call->get_fn_context_index());
@@ -94,25 +90,4 @@ Status ExplodeSplitTableFunction::get_value(void** output) {
     }
     return Status::OK();
 }
-
-Status ExplodeSplitTableFunction::close() {
-    return Status::OK();
-}
-
-Status ExplodeSplitTableFunction::forward(bool* eos) {
-    if (_is_current_empty) {
-        *eos = true;
-        _eos = true;
-    } else {
-        ++_cur_offset;
-        if (_cur_offset == _cur_size) {
-            *eos = true;
-            _eos = true;
-        } else {
-            *eos = false;
-        }
-    }
-    return Status::OK();
-}
-
 } // namespace doris

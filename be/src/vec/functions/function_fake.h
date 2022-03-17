@@ -40,6 +40,13 @@ struct FunctionExplodeSplitImpl {
     }
 };
 
+struct FunctionExplodeNumbersImpl {
+    static constexpr auto name = "explode_numbers";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt32>();
+    }
+};
+
 //FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
 template <typename Impl>
 class FunctionFake : public IFunction {

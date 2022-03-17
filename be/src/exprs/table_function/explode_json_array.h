@@ -109,13 +109,9 @@ public:
     ExplodeJsonArrayTableFunction(ExplodeJsonArrayType type);
     virtual ~ExplodeJsonArrayTableFunction();
 
-    virtual Status prepare() override;
-    virtual Status open() override;
     virtual Status process(TupleRow* tuple_row) override;
     virtual Status reset() override;
     virtual Status get_value(void** output) override;
-    virtual Status close() override;
-    virtual Status forward(bool* eos) override;
 
 private:
     void _set_null_output();
