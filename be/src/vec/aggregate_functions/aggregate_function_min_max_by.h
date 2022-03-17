@@ -26,24 +26,73 @@
 
 namespace doris::vectorized {
 template <typename VT, typename KT>
-struct AggregateFunctionMaxByData {
-private:
+struct AggregateFunctionMinMaxByBaseData {
+protected:
     VT value;
     KT key;
-public:
-    using Self = AggregateFunctionMaxByData;
 
-    bool change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num, Arena* arena) {
-        if (key.change_if_greater(key_column, row_num, arena)) {
-            value.change(value_column, row_num, arena);
+public:
+    void insert_result_into(IColumn& to) const { value.insert_result_into(to); }
+
+    void reset() {
+        value.reset();
+        key.reset();
+    }
+    void write(BufferWritable& buf) const {
+        value.write(buf);
+        key.write(buf);
+    }
+
+    void read(BufferReadable& buf) {
+        value.read(buf);
+        key.read(buf);
+    }
+};
+
+template <typename VT, typename KT>
+struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<VT, KT> {
+    using Self = AggregateFunctionMaxByData;
+    bool change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
+                          Arena* arena) {
+        if (this->key.change_if_greater(key_column, row_num, arena)) {
+            this->value.change(value_column, row_num, arena);
+            return true;
         }
+        return false;
     }
 
     bool change_if_better(const Self& to, Arena* arena) {
-        if (key.change_if_greater(to.key, arena)) {
-            value.change(to.value, arena);
+        if (this->key.change_if_greater(to.key, arena)) {
+            this->value.change(to.value, arena);
+            return true;
         }
+        return false;
     }
+
+    static const char* name() { return "max_by"; }
+};
+
+template <typename VT, typename KT>
+struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<VT, KT> {
+    using Self = AggregateFunctionMinByData;
+    bool change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
+                          Arena* arena) {
+        if (this->key.change_if_less(key_column, row_num, arena)) {
+            this->value.change(value_column, row_num, arena);
+            return true;
+        }
+        return false;
+    }
+
+    bool change_if_better(const Self& to, Arena* arena) {
+        if (this->key.change_if_less(to.key, arena)) {
+            this->value.change(to.value, arena);
+            return true;
+        }
+        return false;
+    }
+
+    static const char* name() { return "min_by"; }
 };
 
 template <typename Data, bool AllocatesMemoryInArena>
@@ -51,32 +100,34 @@ class AggregateFunctionsMinMaxBy final
         : public IAggregateFunctionDataHelper<
                   Data, AggregateFunctionsMinMaxBy<Data, AllocatesMemoryInArena>> {
 private:
-    DataTypePtr& type;
+    DataTypePtr& value_type;
+    DataTypePtr& key_type;
 
 public:
-    AggregateFunctionsMinMaxBy(const DataTypePtr& type_)
+    AggregateFunctionsMinMaxBy(const DataTypePtr& value_type_, const DataTypePtr& key_type_)
             : IAggregateFunctionDataHelper<
-                      Data, AggregateFunctionsMinMaxBy<Data, AllocatesMemoryInArena>>({type_},
-                                                                                         {}),
-              type(this->argument_types[0]) {
-        if (StringRef(Data::name()) == StringRef("min") ||
-            StringRef(Data::name()) == StringRef("max")) {
-            if (!type->is_comparable()) {
+                      Data, AggregateFunctionsMinMaxBy<Data, AllocatesMemoryInArena>>(
+                      {value_type_, key_type_}, {}),
+              value_type(this->argument_types[0]),
+              key_type(this->argument_types[1]) {
+        if (StringRef(Data::name()) == StringRef("min_by") ||
+            StringRef(Data::name()) == StringRef("max_by")) {
+            if (!key_type_->is_comparable()) {
                 LOG(FATAL) << fmt::format(
                         "Illegal type {} of argument of aggregate function {} because the values "
                         "of that data type are not comparable",
-                        type->get_name(), get_name());
+                        key_type_->get_name(), get_name());
             }
         }
     }
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override { return type; }
+    DataTypePtr get_return_type() const override { return value_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {
-        this->data(place).change_if_better(*columns[0], row_num, arena);
+        this->data(place).change_if_better(*columns[0], *columns[1], row_num, arena);
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
@@ -103,12 +154,13 @@ public:
 };
 
 AggregateFunctionPtr create_aggregate_function_max_by(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const Array& parameters,
-                                                   const bool result_is_nullable);
+                                                      const DataTypes& argument_types,
+                                                      const Array& parameters,
+                                                      const bool result_is_nullable);
 
 AggregateFunctionPtr create_aggregate_function_min_by(const std::string& name,
-                                                   const DataTypes& argument_types,
-                                                   const Array& parameters,
-                                                   const bool result_is_nullable);
+                                                      const DataTypes& argument_types,
+                                                      const Array& parameters,
+                                                      const bool result_is_nullable);
+
 } // namespace doris::vectorized
