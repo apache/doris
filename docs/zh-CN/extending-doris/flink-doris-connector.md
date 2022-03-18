@@ -46,18 +46,28 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 | 1.11.6-2.12-xx | 1.11.x | 0.13+  | 8    | 2.12  |
 | 1.12.7-2.12-xx | 1.12.x | 0.13.+ | 8 | 2.12 |
 | 1.13.5-2.12-xx | 1.13.x | 0.13.+ | 8 | 2.12 |
+| 1.14.4-2.12-xx | 1.14.x | 0.13.+ | 8 | 2.12 |
 
 ## 编译与安装
 
 在源码目录下执行：
 
 ```bash
-sh build.sh --flink 1.11.6 --scala 2.12 # flink 1.11.6 scala 2.12
+sh build.sh
+
+  Usage:
+    build.sh --flink version --scala version # specify flink and scala version
+    build.sh --tag                           # this is a build from tag
+  e.g.:
+    build.sh --flink 1.14.3 --scala 2.12
+    build.sh --tag
+然后按照你需要版本执行命令编译即可,例如：
+sh build.sh --flink 1.14.3 --scala 2.12
 ```
 
 > 注：如果你是从 tag 检出的源码，则可以直接执行 `sh build.sh --tag`，而无需指定 flink 和 scala 的版本。因为 tag 源码中的版本是固定的。比如 `1.13.5-2.12-1.0.1` 表示 flink 版本 1.13.5，scala 版本 2.12，connector 版本 1.0.1。
 
-编译成功后，会在 `output/` 目录下生成文件，如：`doris-flink-1.13.5-2.12-1.0.1-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `jars/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
+编译成功后，会在 `target/` 目录下生成文件，如：`flink-doris-connector-1.14_2.12-1.0.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `jars/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
 
 **备注**
 
