@@ -68,8 +68,8 @@ under the License.
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
             [(column_list)]
-            [PRECEDING FILTER predicate]
             [SET (k1 = func(k2))]
+            [PRECEDING FILTER predicate]
             [WHERE predicate]
             [DELETE ON label=true]
             [ORDER BY source_sequence]
@@ -106,16 +106,16 @@ under the License.
             语法：
             (col_name1, col_name2, ...)
 
-            PRECEDING FILTER predicate:
-
-            用于过滤原始数据。原始数据是未经列映射、转换的数据。用户可以在对转换前的数据前进行一次过滤，选取期望的数据，再进行转换。
-            
             SET:
 
             如果指定此参数，可以将源文件某一列按照函数进行转化，然后将转化后的结果导入到table中。语法为 `column_name` = expression。举几个例子帮助理解。
             例1: 表中有3个列“c1, c2, c3", 源文件中前两列依次对应(c1,c2)，后两列之和对应c3；那么需要指定 columns (c1,c2,tmp_c3,tmp_c4) SET (c3=tmp_c3+tmp_c4); 
             例2: 表中有3个列“year, month, day"三个列，源文件中只有一个时间列，为”2018-06-01 01:02:03“格式。
             那么可以指定 columns(tmp_time) set (year = year(tmp_time), month=month(tmp_time), day=day(tmp_time)) 完成导入。
+
+            PRECEDING FILTER predicate:
+
+            用于过滤原始数据。原始数据是未经列映射、转换的数据。用户可以在对转换前的数据前进行一次过滤，选取期望的数据，再进行转换。
 
             WHERE:
           
@@ -549,8 +549,8 @@ under the License.
          INTO TABLE `tbl1`
          COLUMNS TERMINATED BY ","
          (k1,k2,v1,v2)
-         PRECEDING FILTER k1 > 2
          SET (k1 = k1 +1)
+         PRECEDING FILTER k1 > 2
          WHERE k1 > 3
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
