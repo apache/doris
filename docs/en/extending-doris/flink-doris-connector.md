@@ -44,18 +44,28 @@ Github: https://github.com/apache/incubator-doris-flink-connector
 | 1.11.6-2.12-xx | 1.11.x | 0.13+  | 8    | 2.12  |
 | 1.12.7-2.12-xx | 1.12.x | 0.13.+ | 8 | 2.12 |
 | 1.13.5-2.12-xx | 1.13.x | 0.13.+ | 8 | 2.12 |
+| 1.14.4-2.12-xx | 1.14.x | 0.13.+ | 8 | 2.12 |
 
 ## Build and Install
 
 Execute following command in source dir:
 
 ```bash
-sh build.sh --flink 1.11.6 --scala 2.12 # flink 1.11.6 scala 2.12
+sh build.sh
+
+  Usage:
+    build.sh --flink version --scala version # specify flink and scala version
+    build.sh --tag                           # this is a build from tag
+  e.g.:
+    build.sh --flink 1.14.3 --scala 2.12
+    build.sh --tag
+Then, for example, execute the command to compile according to the version you need:
+sh build.sh --flink 1.14.3 --scala 2.12
 ```
 
-> Note: If you check out the source code from tag, you can just run `sh build.sh --tag` without specifying the flink and scala versions. This is because the version in the tag source code is fixed. For example, `1.13.5-2.12-1.0.1` means flink version 1.13.5, scala version 2.12, and connector version 1.0.1.
+> Note: If you check out the source code from tag, you can just run `sh build.sh --tag` without specifying the flink and scala versions. This is because the version in the tag source code is fixed. For example, `1.13.5_2.12-1.0.1` means flink version 1.13.5, scala version 2.12, and connector version 1.0.1.
 
-After successful compilation, the file `doris-flink-1.13.5-2.12-1.0.1-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
+After successful compilation, the file `flink-doris-connector-1.14_2.12-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 **Remarks:** 
 
