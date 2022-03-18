@@ -76,7 +76,7 @@ In order to adapt to the front-end business, business side often does not distin
 
 In the process of using Star Schema, users are advised to use Star Schema to distinguish dimension tables from indicator tables as much as possible. Frequently updated dimension tables can also be placed in MySQL external tables. If there are only a few updates, they can be placed directly in Doris. When storing dimension tables in Doris, more copies of dimension tables can be set up to improve Join's performance.
 
-### 1.4 Partitions and Barrels
+### 1.3 Partitions and Barrels
 
 Doris supports two-level partitioned storage. The first layer is RANGE partition and the second layer is HASH bucket.
 
@@ -95,7 +95,7 @@ The data is divided into different buckets according to the hash value.
 * It is suggested that columns with large differentiation should be used as buckets to avoid data skew.
 * In order to facilitate data recovery, it is suggested that the size of a single bucket should not be too large and should be kept within 10GB. Therefore, the number of buckets should be considered reasonably when building tables or increasing partitions, among which different partitions can specify different buckets.
 
-### 1.5 Sparse Index and Bloom Filter
+### 1.4 Sparse Index and Bloom Filter
 
 Doris stores the data in an orderly manner, and builds a sparse index for Doris on the basis of ordered data. The index granularity is block (1024 rows).
 
@@ -105,7 +105,7 @@ Sparse index chooses fixed length prefix in schema as index content, and Doris c
 * One particular feature of this is the varchar type field. The varchar type field can only be used as the last field of the sparse index. The index is truncated at varchar, so if varchar appears in front, the length of the index may be less than 36 bytes. Specifically, you can refer to [data model, ROLLUP and prefix index] (. / data-model-rollup. md).
 * In addition to sparse index, Doris also provides bloomfilter index. Bloomfilter index has obvious filtering effect on columns with high discrimination. If you consider that varchar cannot be placed in a sparse index, you can create a bloomfilter index.
 
-### 1.6 Physical and Chemical View (rollup)
+### 1.5 Physical and Chemical View (rollup)
 
 Rollup can essentially be understood as a physical index of the original table. When creating Rollup, only some columns in Base Table can be selected as Schema. The order of fields in Schema can also be different from that in Base Table.
 
