@@ -562,7 +562,7 @@ private:
 
     /// Determines what page size is needed to fit a row of 'row_size' bytes.
     /// Returns an error if the row cannot fit in a page.
-    Status CalcPageLenForRow(int64_t row_size, int64_t* page_len);
+    void CalcPageLenForRow(int64_t row_size, int64_t* page_len);
 
     /// Wrapper around NewWritePage() that allocates a new write page that fits a row of
     /// 'row_size' bytes. Increases reservation if needed to allocate the next page.
