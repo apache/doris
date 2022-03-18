@@ -29,7 +29,7 @@ static bool s_is_init = false;
 
 static void resource_destructor(void* value) {
     TResourceInfo* info = (TResourceInfo*)value;
-    if (info == nullptr) {
+    if (info != nullptr) {
         delete info;
     }
 }
