@@ -35,7 +35,7 @@ class RemoteEnv : public Env {
 public:
     ~RemoteEnv() override {}
 
-    Status init_conf(const TStorageParam& storage_param);
+    Status init_conf(const StorageParamPB& storage_param);
 
     Status new_sequential_file(const std::string& fname,
                                std::unique_ptr<SequentialFile>* result) override;

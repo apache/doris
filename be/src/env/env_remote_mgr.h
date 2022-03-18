@@ -19,6 +19,7 @@
 
 #include <string>
 #include <map>
+#include <vector>
 
 #include "env/env_remote.h"
 #include "util/mutex.h"
@@ -30,13 +31,23 @@ public:
     RemoteEnvMgr() {}
     ~RemoteEnvMgr() {}
 
-    std::shared_ptr<RemoteEnv> get_remote_env(const TStorageParam& storage_param);
+    Status init(const std::string& storage_name_dir);
 
+    std::shared_ptr<RemoteEnv> get_remote_env(const std::string& storage_name);
+
+    Status create_remote_storage(const StorageParamPB& storage_param, bool write_to_file = true);
+
+    Status get_storage_param(const std::string& storage_name, StorageParamPB* storage_param);
 private:
+    Status _serialize(const StorageParamPB& storage_param_pb, std::string* meta_binary);
+    Status _deserialize(const std::string& meta_binary, StorageParamPB* storage_param_pb);
 
     RWMutex _remote_env_lock;
     std::map<std::string, time_t> _remote_env_active_time;
     std::map<std::string, std::shared_ptr<RemoteEnv>> _remote_env_map;
+    std::map<std::string, StorageParamPB> _storage_param_map;
+    std::string _storage_param_dir;
+    bool _is_inited = false;
 };
 
 } // namespace doris

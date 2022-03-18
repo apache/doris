@@ -44,8 +44,11 @@ import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
+import org.apache.doris.thrift.TS3StorageParam;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageParam;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -55,6 +58,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -222,6 +226,24 @@ public class HeartbeatMgr extends MasterDaemon {
                 long flags = heartbeatFlags.getHeartbeatFlags();
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
+
+                TStorageParam storageParam = new TStorageParam();
+                TS3StorageParam s3StorageParam = new TS3StorageParam();
+                s3StorageParam.setS3Endpoint(Config.default_remote_storage_s3_endpoint);
+                s3StorageParam.setS3Region(Config.default_remote_storage_s3_region);
+                s3StorageParam.setS3Ak(Config.default_remote_storage_s3_ak);
+                s3StorageParam.setS3Sk(Config.default_remote_storage_s3_sk);
+                s3StorageParam.setS3MaxConn(Config.default_remote_storage_s3_max_conn);
+                s3StorageParam.setS3RequestTimeoutMs(Config.default_remote_storage_s3_request_timeout_ms);
+                s3StorageParam.setS3ConnTimeoutMs(Config.default_remote_storage_s3_conn_timeout_ms);
+                s3StorageParam.setRootPath(Config.default_remote_storage_s3_root_path);
+                storageParam.setS3StorageParam(s3StorageParam);
+                storageParam.setStorageMedium(TStorageMedium.S3);
+                storageParam.setStorageName(Config.default_remote_storage_name);
+                List<TStorageParam> storageParams = new ArrayList<>();
+                storageParams.add(storageParam);
+                copiedMasterInfo.setRemoteStorageParams(storageParams);
+
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);

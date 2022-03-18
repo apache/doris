@@ -24,6 +24,7 @@
 #include <fstream>
 
 #include "common/status.h"
+#include "env/env_remote_mgr.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/storage_engine.h"
@@ -160,6 +161,12 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (master_info.__isset.backend_id) {
         _master_info->__set_backend_id(master_info.backend_id);
+    }
+
+    if (master_info.__isset.remote_storage_params) {
+        for (TStorageParam storage_param : master_info.remote_storage_params) {
+            RETURN_IF_ERROR(Env::get_remote_mgr()->create_remote_storage(fs::fs_util::get_storage_param_pb(storage_param)));
+        }
     }
 
     if (need_report) {

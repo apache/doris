@@ -9,10 +9,13 @@
 
 #include <memory>
 #include <string>
+#include <list>
 
 #include "common/status.h"
 #include "util/slice.h"
+#include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/AgentService_types.h"
 
 namespace doris {
 
@@ -47,7 +50,8 @@ public:
     // system.  Sophisticated users may wish to provide their own Env
     // implementation instead of relying on this default environment.
     static Env* Default();
-    static std::shared_ptr<Env> get_env(TStorageMedium::type storage_medium);
+    static RemoteEnvMgr* get_remote_mgr();
+    static std::shared_ptr<Env> get_env(const FilePathDesc& path_desc);
 
     // Create a brand new sequentially-readable file with the specified name.
     // On success, stores a pointer to the new file in *result and returns OK.
@@ -200,16 +204,17 @@ struct FilePathDesc {
     TStorageMedium::type storage_medium = TStorageMedium::HDD;
     std::string filepath;
     std::string remote_path;
+    std::string storage_name;
     std::string debug_string() const {
         std::stringstream ss;
         ss << "storage_medium: " << to_string(storage_medium) << ", local_path: " << filepath;
         if (!remote_path.empty()) {
-            ss << ", remote_path: " << remote_path;
+            ss << ", storage_name: " << storage_name << ", remote_path: " << remote_path;
         }
         return ss.str();
     }
     static bool is_remote(TStorageMedium::type checked_storage_medium) {
-        return checked_storage_medium == TStorageMedium::S3;
+        return checked_storage_medium == TStorageMedium::S3 || checked_storage_medium == TStorageMedium::REMOTE_CACHE;
     }
     bool is_remote() const {
         return is_remote(storage_medium);
@@ -221,6 +226,7 @@ public:
     FilePathDescStream& operator<<(const FilePathDesc& val) {
         _filepath_stream << val.filepath;
         _storage_medium = val.storage_medium;
+        _storage_name = val.storage_name;
         if (FilePathDesc::is_remote(_storage_medium)) {
             _remote_path_stream << val.remote_path;
         }
@@ -267,12 +273,14 @@ public:
         if (path_desc.is_remote()) {
             path_desc.remote_path = _remote_path_stream.str();
         }
+        path_desc.storage_name = _storage_name;
         return path_desc;
     }
 private:
     TStorageMedium::type _storage_medium = TStorageMedium::HDD;
     std::stringstream _filepath_stream;
     std::stringstream _remote_path_stream;
+    std::string _storage_name;
 };
 
 struct RandomAccessFileOptions {

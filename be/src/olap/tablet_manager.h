@@ -190,6 +190,7 @@ private:
 
     RWMutex* _get_tablets_shard_lock(TTabletId tabletId);
 
+    OLAPStatus _get_storage_param(DataDir* data_dir, const std::string& storage_name, StorageParamPB* storage_param);
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 

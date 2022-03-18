@@ -53,14 +53,23 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) {       // abnormal exit, remove all files generated
         _segment_writer.reset(); // ensure all files are closed
         Status st;
-        std::shared_ptr<Env> env = Env::get_env(_context.path_desc.storage_medium);
+        std::shared_ptr<Env> env = Env::get_env(_context.path_desc);
+        if (env == nullptr) {
+            LOG(WARNING) << "env is invalid: " << _context.path_desc.debug_string();
+            return;
+        }
         for (int i = 0; i < _num_segment; ++i) {
             auto path_desc = BetaRowset::segment_file_path(_context.path_desc,
                                                       _context.rowset_id, i);
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
-            WARN_IF_ERROR(env->delete_file(path_desc.filepath),
+            if (path_desc.is_remote()) {
+                st = env->delete_file(path_desc.remote_path);
+                WARN_IF_ERROR(st, strings::Substitute("Failed to delete remote file=$0", path_desc.remote_path));
+                continue;
+            }
+            WARN_IF_ERROR(Env::Default()->delete_file(path_desc.filepath),
                           strings::Substitute("Failed to delete file=$0", path_desc.filepath));
         }
     }
@@ -92,7 +101,7 @@ OLAPStatus BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
 template <typename RowType>
 OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
     if (PREDICT_FALSE(_segment_writer == nullptr)) {
-        RETURN_NOT_OK(_create_segment_writer(&_segment_writer, _context.is_cache_path));
+        RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
     }
     // TODO update rowset zonemap
     auto s = _segment_writer->append_row(row);
@@ -131,6 +140,36 @@ OLAPStatus BetaRowsetWriter::add_rowset_for_linked_schema_change(
     return add_rowset(rowset);
 }
 
+OLAPStatus BetaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
+    OLAPStatus res = OLAP_SUCCESS;
+    assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
+    if (!rowset->rowset_path_desc().is_remote() && !_context.path_desc.is_remote()) {
+        res = rowset->copy_files_to(_context.path_desc.filepath, _context.rowset_id);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "copy_files failed. src: " << rowset->rowset_path_desc().filepath
+                    << ", dest: " << _context.path_desc.filepath;
+            return res;
+        }
+    } else if (!rowset->rowset_path_desc().is_remote() && _context.path_desc.is_remote()) {
+        res = rowset->upload_files_to(_context.path_desc, _context.rowset_id);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "upload_files failed. src: " << rowset->rowset_path_desc().debug_string()
+                    << ", dest: " << _context.path_desc.debug_string();
+            return res;
+        }
+    }
+
+    _num_rows_written += rowset->num_rows();
+    _total_data_size += rowset->rowset_meta()->data_disk_size();
+    _total_index_size += rowset->rowset_meta()->index_disk_size();
+    _num_segment += rowset->num_segments();
+    // TODO update zonemap
+    if (rowset->rowset_meta()->has_delete_predicate()) {
+        _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
+    }
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus BetaRowsetWriter::flush() {
     if (_segment_writer != nullptr) {
         RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
@@ -147,7 +186,7 @@ OLAPStatus BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* 
     MemTable::Iterator it(memtable);
     for (it.seek_to_first(); it.valid(); it.next()) {
         if (PREDICT_FALSE(writer == nullptr)) {
-            RETURN_NOT_OK(_create_segment_writer(&writer, _context.is_cache_path));
+            RETURN_NOT_OK(_create_segment_writer(&writer));
         }
         ContiguousRow dst_row = it.get_current_row();
         auto s = writer->append_row(dst_row);
@@ -207,17 +246,13 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     return rowset;
 }
 
-OLAPStatus BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer, bool is_cache_path) {
+OLAPStatus BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     auto path_desc = BetaRowset::segment_file_path(_context.path_desc, _context.rowset_id,
                                               _num_segment++);
     // TODO(lingbin): should use a more general way to get BlockManager object
     // and tablets with the same type should share one BlockManager object;
     fs::BlockManager* block_mgr = nullptr;
-    if (is_cache_path) {
-        block_mgr = fs::fs_util::block_manager(TStorageMedium::HDD);
-    } else {
-        block_mgr = fs::fs_util::block_manager(_context.path_desc.storage_medium);
-    }
+    block_mgr = fs::fs_util::block_manager(_context.path_desc);
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions opts(path_desc);
     DCHECK(block_mgr != nullptr);

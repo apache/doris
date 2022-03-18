@@ -49,6 +49,8 @@ public:
     OLAPStatus add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
                                                    const SchemaMapping& schema_mapping) override;
 
+    OLAPStatus add_rowset_for_migration(RowsetSharedPtr rowset) override;
+
     OLAPStatus flush() override;
 
     // Return the file size flushed to disk in "flush_size"
@@ -66,7 +68,7 @@ private:
     template <typename RowType>
     OLAPStatus _add_row(const RowType& row);
 
-    OLAPStatus _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer, bool is_cache_path = false);
+    OLAPStatus _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
     OLAPStatus _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 

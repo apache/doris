@@ -203,7 +203,7 @@ Status StorageEngine::_init_store_map() {
     std::string error_msg;
     for (auto& path : _options.store_paths) {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
-                                     path.remote_path, _tablet_manager.get(), _txn_manager.get());
+                                     _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
         threads.emplace_back([store, &error_msg_lock, &error_msg]() {
             auto st = store->init();
@@ -472,7 +472,9 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         for (auto& it : _store_map) {
             if (it.second->is_used()) {
                 if (_available_storage_medium_type_count == 1 ||
-                    it.second->storage_medium() == storage_medium) {
+                    it.second->storage_medium() == storage_medium ||
+                    (it.second->storage_medium() == TStorageMedium::REMOTE_CACHE
+                            && FilePathDesc::is_remote(storage_medium))) {
                     stores.push_back(it.second);
                 }
             }
@@ -818,8 +820,13 @@ OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const ti
                     std::filesystem::path local_path(path_name);
                     std::stringstream remote_file_stream;
                     remote_file_stream << scan_root_desc.remote_path << "/" << local_path.filename().string();
-                    Status ret = Env::get_env(scan_root_desc.storage_medium)->
-                            delete_dir(remote_file_stream.str());
+                    std::shared_ptr<Env> env = Env::get_env(scan_root_desc);
+                    if (env == nullptr) {
+                        LOG(WARNING) << "env is invalid: " << scan_root_desc.debug_string();
+                        res = OLAP_ERR_OS_ERROR;
+                        continue;
+                    }
+                    Status ret = env->delete_dir(remote_file_stream.str());
                     if (!ret.ok()) {
                         LOG(WARNING) << "fail to remove file or directory. path=" << remote_file_stream.str()
                                      << ", error=" << ret.to_string();

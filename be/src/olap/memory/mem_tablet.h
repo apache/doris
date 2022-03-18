@@ -43,9 +43,9 @@ class WriteTxn;
 class MemTablet : public BaseTablet {
 public:
     static std::shared_ptr<MemTablet> create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                              DataDir* data_dir = nullptr);
+            const StorageParamPB& storage_param, DataDir* data_dir = nullptr);
 
-    MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
+    MemTablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir);
 
     virtual ~MemTablet();
 

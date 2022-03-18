@@ -119,7 +119,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
         if (full_path_desc.is_remote()) {
             string new_tablet_uid_str = TabletUid(new_tablet_uid).to_string();
             full_path_desc.remote_path += "/" + new_tablet_uid_str;
-            string tablet_uid_path = full_path_desc.filepath + TABLET_UID;
+            string tablet_uid_path = full_path_desc.filepath + "/" + TABLET_UID;
             Status st = env_util::write_string_to_file(Env::Default(), Slice(new_tablet_uid_str), tablet_uid_path);
             if (!st.ok()) {
                 LOG(WARNING) << "fail to write tablet_uid. path=" << tablet_uid_path
@@ -172,7 +172,12 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
             break;
         }
         if (new_meta_path_desc.is_remote()) {
-            RemoteEnv *remote_env = dynamic_cast<RemoteEnv *>(Env::get_env(new_meta_path_desc.storage_medium).get());
+            std::shared_ptr<Env> env = Env::get_env(new_meta_path_desc);
+            if (env == nullptr) {
+                LOG(WARNING) << "remote_env is invalid: " << new_meta_path_desc.storage_name;
+                return OLAP_ERR_OS_ERROR;
+            }
+            RemoteEnv *remote_env = dynamic_cast<RemoteEnv *>(env.get());
             std::shared_ptr<StorageBackend> storage_backend = remote_env->get_storage_backend();
             if (!storage_backend->upload(new_meta_path_desc.filepath, new_meta_path_desc.remote_path).ok()) {
                 res = OLAP_ERR_COPY_FILE_ERROR;
@@ -228,13 +233,13 @@ OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
     for (const auto& rs : consistent_rowsets) {
         std::string data_path = full_path_desc.filepath;
         if (!_dest_store->is_remote()) {
-            status = rs->copy_files_to(full_path_desc.filepath);
+            status = rs->copy_files_to(full_path_desc.filepath, rs->rowset_id());
         } else {
             data_path = full_path_desc.remote_path;
-            status = rs->upload_files_to(full_path_desc);
+            status = rs->upload_files_to(full_path_desc, rs->rowset_id());
         }
         if (status != OLAP_SUCCESS) {
-            Status ret = _dest_store->env()->delete_dir(data_path);
+            Status ret = Env::Default()->delete_dir(data_path);
             if (!ret.ok()) {
                 LOG(FATAL) << "remove storage migration path failed. "
                            << "data_path:" << data_path << " error: " << ret.to_string();

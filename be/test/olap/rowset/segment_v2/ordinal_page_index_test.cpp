@@ -63,7 +63,8 @@ TEST_F(OrdinalPageIndexTest, normal) {
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts(filename);
-        ASSERT_TRUE(fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock).ok());
+        std::string storage_name;
+        ASSERT_TRUE(fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock).ok());
 
         ASSERT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
         ASSERT_EQ(ORDINAL_INDEX, index_meta.type());

@@ -110,7 +110,7 @@ OLAPStatus AlphaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::copy_files_to(const std::string& dir) {
+OLAPStatus AlphaRowset::copy_files_to(const std::string& dir, RowsetId new_rowset_id) {
     for (auto& segment_group : _segment_groups) {
         OLAPStatus status = segment_group->copy_files_to(dir);
         if (status != OLAP_SUCCESS) {

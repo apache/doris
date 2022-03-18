@@ -71,7 +71,9 @@ TEST(MemTablet, writescan) {
             new TabletMeta(1, 1, 1, 1, 1, tschema, static_cast<uint32_t>(sc->cid_size()),
                            col_idx_to_unique_id, TabletUid(1, 1), TTabletType::TABLET_TYPE_MEMORY,
                            TStorageMedium::HDD));
-    std::shared_ptr<MemTablet> tablet = MemTablet::create_tablet_from_meta(tablet_meta, nullptr);
+    StorageParamPB storage_param;
+    storage_param.set_storage_medium(StorageMediumPB::HDD);
+    std::shared_ptr<MemTablet> tablet = MemTablet::create_tablet_from_meta(tablet_meta, storage_param, nullptr);
     ASSERT_TRUE(tablet->init().ok());
 
     uint64_t cur_version = 0;

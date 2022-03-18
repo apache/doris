@@ -31,31 +31,16 @@ Env *Env::Default() {
     return _posix_env.get();
 }
 
-std::shared_ptr<Env> Env::get_env(TStorageMedium::type storage_medium) {
-    switch (storage_medium) {
-        case TStorageMedium::S3:
-        {
-            if (doris::config::default_remote_storage_s3_ak.empty() || doris::config::default_remote_storage_s3_sk.empty()
-                || doris::config::default_remote_storage_s3_endpoint.empty() || doris::config::default_remote_storage_s3_region.empty()) {
-                return nullptr;
-            }
-            TStorageParam storage_param;
-            storage_param.storage_medium = TStorageMedium::S3;
-            storage_param.s3_storage_param.s3_endpoint = doris::config::default_remote_storage_s3_endpoint;
-            storage_param.s3_storage_param.s3_region = doris::config::default_remote_storage_s3_region;
-            storage_param.s3_storage_param.s3_ak = doris::config::default_remote_storage_s3_ak;
-            storage_param.s3_storage_param.s3_sk = doris::config::default_remote_storage_s3_sk;
-            storage_param.s3_storage_param.s3_max_conn = doris::config::default_remote_storage_s3_max_conn;
-            storage_param.s3_storage_param.s3_request_timeout_ms = doris::config::default_remote_storage_s3_request_timeout_ms;
-            storage_param.s3_storage_param.s3_conn_timeout_ms = doris::config::default_remote_storage_s3_conn_timeout_ms;
-            return _remote_env_mgr->get_remote_env(storage_param);
-        }
-        case TStorageMedium::SSD:
-        case TStorageMedium::HDD:
-        default:
-            return _posix_env;
+std::shared_ptr<Env> Env::get_env(const FilePathDesc& path_desc) {
+    if (path_desc.is_remote()) {
+        return _remote_env_mgr->get_remote_env(path_desc.storage_name);
+    } else {
+        return _posix_env;
     }
 }
 
+RemoteEnvMgr* Env::get_remote_mgr() {
+    return _remote_env_mgr.get();
+}
 
 } // end namespace doris

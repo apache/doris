@@ -33,7 +33,6 @@ struct RowsetWriterContext {
               tablet_schema_hash(0),
               partition_id(0),
               rowset_type(ALPHA_ROWSET),
-              is_cache_path(false),
               tablet_schema(nullptr),
               rowset_state(PREPARED),
               version(Version(0, 0)),
@@ -50,7 +49,6 @@ struct RowsetWriterContext {
     int64_t partition_id;
     RowsetTypePB rowset_type;
     FilePathDesc path_desc;
-    bool is_cache_path;
     const TabletSchema* tablet_schema;
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset

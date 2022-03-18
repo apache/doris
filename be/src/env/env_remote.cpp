@@ -156,23 +156,23 @@ private:
     bool _closed = false;
 };
 
-Status RemoteEnv::init_conf(const TStorageParam& storage_param) {
+Status RemoteEnv::init_conf(const StorageParamPB& storage_param) {
     std::map<std::string, std::string> storage_prop;
-    switch (storage_param.storage_medium) {
+    switch (storage_param.storage_medium()) {
         case TStorageMedium::S3:
         default:
-            TS3StorageParam s3_storage_param = storage_param.s3_storage_param;
-            if (s3_storage_param.s3_ak.empty() || s3_storage_param.s3_sk.empty()
-                || s3_storage_param.s3_endpoint.empty() || s3_storage_param.s3_region.empty()) {
+            S3StorageParamPB s3_storage_param = storage_param.s3_storage_param();
+            if (s3_storage_param.s3_ak().empty() || s3_storage_param.s3_sk().empty()
+                || s3_storage_param.s3_endpoint().empty() || s3_storage_param.s3_region().empty()) {
                 return Status::InternalError("s3_storage_param param is invalid");
             }
-            storage_prop[S3_AK] = s3_storage_param.s3_ak;
-            storage_prop[S3_SK] = s3_storage_param.s3_sk;
-            storage_prop[S3_ENDPOINT] = s3_storage_param.s3_endpoint;
-            storage_prop[S3_REGION] = s3_storage_param.s3_region;
-            storage_prop[S3_MAX_CONN_SIZE] = s3_storage_param.s3_max_conn;
-            storage_prop[S3_REQUEST_TIMEOUT_MS] = s3_storage_param.s3_request_timeout_ms;
-            storage_prop[S3_CONN_TIMEOUT_MS] = s3_storage_param.s3_conn_timeout_ms;
+            storage_prop[S3_AK] = s3_storage_param.s3_ak();
+            storage_prop[S3_SK] = s3_storage_param.s3_sk();
+            storage_prop[S3_ENDPOINT] = s3_storage_param.s3_endpoint();
+            storage_prop[S3_REGION] = s3_storage_param.s3_region();
+            storage_prop[S3_MAX_CONN_SIZE] = s3_storage_param.s3_max_conn();
+            storage_prop[S3_REQUEST_TIMEOUT_MS] = s3_storage_param.s3_request_timeout_ms();
+            storage_prop[S3_CONN_TIMEOUT_MS] = s3_storage_param.s3_conn_timeout_ms();
 
             if (!ClientFactory::is_s3_conf_valid(storage_prop)) {
                 return Status::InternalError("s3_storage_param is invalid");

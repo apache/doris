@@ -112,7 +112,8 @@ protected:
         std::string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, seg_id++);
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions block_opts(filename);
-        Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(block_opts, &wblock);
+        std::string storage_name;
+        Status st = fs::fs_util::block_manager(storage_name)->create_block(block_opts, &wblock);
         ASSERT_TRUE(st.ok());
         SegmentWriter writer(wblock.get(), 0, &build_schema, opts);
         st = writer.init(10);
@@ -616,7 +617,8 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     std::string fname = dname + "/int_case";
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions wblock_opts(fname);
-    Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(wblock_opts, &wblock);
+    std::string storage_name;
+    Status st = fs::fs_util::block_manager(storage_name)->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok()) << st.to_string();
     SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
     st = writer.init(10);
@@ -786,7 +788,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     std::string fname = dname + "/string_case";
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions wblock_opts(fname);
-    Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(wblock_opts, &wblock);
+    std::string storage_name;
+    Status st = fs::fs_util::block_manager(storage_name)->create_block(wblock_opts, &wblock);
     ASSERT_TRUE(st.ok());
     SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
     st = writer.init(10);

@@ -79,7 +79,7 @@ enum OLAPDataVersion {
 static const std::string MINI_PREFIX = "/mini_download";
 static const std::string CLUSTER_ID_PREFIX = "/cluster_id";
 static const std::string DATA_PREFIX = "/data";
-static const std::string TABLET_UID = "/tablet_uid";
+static const std::string STORAGE_PARAM_PREFIX = "/storage_param";
 static const std::string DPP_PREFIX = "/dpp_download";
 static const std::string SNAPSHOT_PREFIX = "/snapshot";
 static const std::string TRASH_PREFIX = "/trash";
@@ -88,6 +88,10 @@ static const std::string ERROR_LOG_PREFIX = "/error_log";
 static const std::string PENDING_DELTA_PREFIX = "/pending_delta";
 static const std::string INCREMENTAL_DELTA_PREFIX = "/incremental_delta";
 static const std::string CLONE_PREFIX = "/clone";
+
+static const std::string TABLET_UID = "tablet_uid";
+static const std::string STORAGE_NAME = "storage_name";
+static const std::string REMOTE_FILE_PARAM = "/remote_file_param";
 
 static const int32_t OLAP_DATA_VERSION_APPLIED = DORIS_V1;
 

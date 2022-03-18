@@ -134,6 +134,11 @@ OLAPStatus AlphaRowsetWriter::add_rowset_for_linked_schema_change(
     return OLAP_SUCCESS;
 }
 
+OLAPStatus AlphaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
+    LOG(WARNING) << "alpha_rowset_writer doesn't support add_rowset_for_migration";
+    return OLAP_ERR_OTHER_ERROR;
+}
+
 OLAPStatus AlphaRowsetWriter::flush() {
     if (_writer_state == WRITER_FLUSHED) {
         return OLAP_SUCCESS;

@@ -29,20 +29,22 @@ namespace doris {
 namespace fs {
 namespace fs_util {
 
-BlockManager* block_manager(TStorageMedium::type storage_medium) {
+BlockManager* block_manager(const FilePathDesc& path_desc) {
     fs::BlockManagerOptions bm_opts;
     bm_opts.read_only = false;
-    switch (storage_medium) {
-        case TStorageMedium::S3:
-            bm_opts.read_only = true;
-            static RemoteBlockManager remote_block_mgr(
-                    Env::Default(), dynamic_cast<RemoteEnv*>(Env::get_env(storage_medium).get()), bm_opts);
-            return &remote_block_mgr;
-        case TStorageMedium::SSD:
-        case TStorageMedium::HDD:
-        default:
-            static FileBlockManager block_mgr(Env::Default(), std::move(bm_opts));
-            return &block_mgr;
+    if (path_desc.is_remote()) {
+        bm_opts.read_only = true;
+        std::shared_ptr<Env> env = Env::get_env(path_desc);
+        if (env == nullptr) {
+            LOG(WARNING) << "env is invalid: " << path_desc.debug_string();
+            return nullptr;
+        }
+        static RemoteBlockManager remote_block_mgr(
+                Env::Default(), dynamic_cast<RemoteEnv *>(env.get()), bm_opts);
+        return &remote_block_mgr;
+    } else {
+        static FileBlockManager block_mgr(Env::Default(), std::move(bm_opts));
+        return &block_mgr;
     }
 }
 
@@ -55,6 +57,42 @@ StorageMediumPB get_storage_medium_pb(TStorageMedium::type t_storage_medium) {
         case TStorageMedium::HDD:
         default:
             return StorageMediumPB::HDD;
+    }
+}
+
+TStorageMedium::type get_t_storage_medium(StorageMediumPB storage_medium) {
+    switch (storage_medium) {
+        case StorageMediumPB::S3:
+            return TStorageMedium::S3;
+        case StorageMediumPB::SSD:
+            return TStorageMedium::SSD;
+        case StorageMediumPB::HDD:
+        default:
+            return TStorageMedium::HDD;
+    }
+}
+
+StorageParamPB get_storage_param_pb(const TStorageParam& t_storage_param) {
+    StorageParamPB storage_param;
+    storage_param.set_storage_medium(get_storage_medium_pb(t_storage_param.storage_medium));
+    storage_param.set_storage_name(t_storage_param.storage_name);
+    switch (storage_param.storage_medium()) {
+        case TStorageMedium::S3: {
+            S3StorageParamPB* s3_param = storage_param.mutable_s3_storage_param();
+            s3_param->set_s3_endpoint(t_storage_param.s3_storage_param.s3_endpoint);
+            s3_param->set_s3_region(t_storage_param.s3_storage_param.s3_region);
+            s3_param->set_s3_ak(t_storage_param.s3_storage_param.s3_ak);
+            s3_param->set_s3_sk(t_storage_param.s3_storage_param.s3_sk);
+            s3_param->set_s3_max_conn(t_storage_param.s3_storage_param.s3_max_conn);
+            s3_param->set_s3_request_timeout_ms(t_storage_param.s3_storage_param.s3_request_timeout_ms);
+            s3_param->set_s3_conn_timeout_ms(t_storage_param.s3_storage_param.s3_conn_timeout_ms);
+            s3_param->set_root_path(t_storage_param.s3_storage_param.root_path);
+            return storage_param;
+        }
+        case TStorageMedium::SSD:
+        case TStorageMedium::HDD:
+        default:
+            return storage_param;
     }
 }
 

@@ -24,16 +24,16 @@
 namespace doris {
 namespace memory {
 
-MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : BaseTablet(tablet_meta, data_dir) {
+MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir)
+        : BaseTablet(tablet_meta, storage_param, data_dir) {
     _mem_schema.reset(new Schema(_schema));
 }
 
 MemTablet::~MemTablet() {}
 
 std::shared_ptr<MemTablet> MemTablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                              DataDir* data_dir) {
-    return std::make_shared<MemTablet>(tablet_meta, data_dir);
+            const StorageParamPB& storage_param, DataDir* data_dir) {
+    return std::make_shared<MemTablet>(tablet_meta, storage_param, data_dir);
 }
 
 Status MemTablet::init() {

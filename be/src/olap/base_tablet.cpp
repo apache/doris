@@ -28,9 +28,10 @@ extern MetricPrototype METRIC_query_scan_bytes;
 extern MetricPrototype METRIC_query_scan_rows;
 extern MetricPrototype METRIC_query_scan_count;
 
-BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
+BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir)
         : _state(tablet_meta->tablet_state()),
           _tablet_meta(tablet_meta),
+          _storage_param(storage_param),
           _schema(tablet_meta->tablet_schema()),
           _data_dir(data_dir) {
     _gen_tablet_path();
@@ -63,9 +64,22 @@ OLAPStatus BaseTablet::set_tablet_state(TabletState state) {
 }
 
 void BaseTablet::_gen_tablet_path() {
-    if (_data_dir != nullptr) {
+    if (_data_dir != nullptr && _tablet_meta != nullptr) {
+        FilePathDesc root_path_desc;
+        root_path_desc.filepath = _data_dir->path_desc().filepath;
+        root_path_desc.storage_name = _storage_param.storage_name();
+        root_path_desc.storage_medium = fs::fs_util::get_t_storage_medium(_storage_param.storage_medium());
+        if (_data_dir->is_remote()) {
+            switch (root_path_desc.storage_medium) {
+                case TStorageMedium::S3:
+                default:
+                {
+                    root_path_desc.remote_path = _storage_param.s3_storage_param().root_path();
+                }
+            }
+        }
         FilePathDescStream desc_s;
-        desc_s << _data_dir->path_desc() << DATA_PREFIX;
+        desc_s << root_path_desc << DATA_PREFIX;
         FilePathDesc path_desc = path_util::join_path_desc_segments(
                 desc_s.path_desc(), std::to_string(_tablet_meta->shard_id()));
         path_desc = path_util::join_path_desc_segments(path_desc, std::to_string(_tablet_meta->tablet_id()));

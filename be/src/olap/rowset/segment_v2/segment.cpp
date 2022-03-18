@@ -102,7 +102,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
 Status Segment::_parse_footer() {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::unique_ptr<fs::ReadableBlock> rblock;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc.storage_medium);
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc);
     RETURN_IF_ERROR(block_mgr->open_block(_path_desc, &rblock));
 
     uint64_t file_size;
@@ -155,7 +155,7 @@ Status Segment::_load_index() {
     return _load_index_once.call([this] {
         // read and parse short key index page
         std::unique_ptr<fs::ReadableBlock> rblock;
-        fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc.storage_medium);
+        fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc);
         RETURN_IF_ERROR(block_mgr->open_block(_path_desc, &rblock));
 
         PageReadOptions opts;

@@ -60,7 +60,8 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts(fname);
-        Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock);
+        std::string storage_name;
+        Status st = fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.to_string();
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;

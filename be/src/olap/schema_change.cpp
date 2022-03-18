@@ -22,6 +22,9 @@
 
 #include <algorithm>
 #include <vector>
+#include "rapidjson/document.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/stringbuffer.h"
 
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
@@ -1412,6 +1415,35 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
     return true;
 }
 
+OLAPStatus MigrationSchemaChange::process(RowsetReaderSharedPtr rowset_reader,
+                                          RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet,
+                                          TabletSharedPtr base_tablet) {
+    if (!_inited) {
+        if (!_src_desc.is_remote() && _dst_desc.is_remote()) {
+            string remote_file_param_path = _dst_desc.filepath + REMOTE_FILE_PARAM;
+            rapidjson::StringBuffer strbuf;
+            rapidjson::PrettyWriter <rapidjson::StringBuffer> writer(strbuf);
+            writer.StartObject();
+            writer.Key(TABLET_UID.c_str());
+            writer.String(TabletUid(new_tablet->tablet_uid()).to_string().c_str());
+            writer.Key(STORAGE_NAME.c_str());
+            writer.String(_dst_desc.storage_name.c_str());
+            writer.EndObject();
+            Status st = env_util::write_string_to_file(
+                    Env::Default(), Slice(std::string(strbuf.GetString())), remote_file_param_path);
+            if (!st.ok()) {
+                LOG(WARNING) << "fail to write tablet_uid and storage_name. path=" << remote_file_param_path
+                             << ", error:" << st.to_string();
+                return OLAP_ERR_COPY_FILE_ERROR;
+            }
+            LOG(INFO) << "write storage_param successfully: " << remote_file_param_path;
+        }
+        _inited = true;
+    }
+
+    return new_rowset_writer->add_rowset_for_migration(rowset_reader->rowset());
+}
+
 SchemaChangeHandler::SchemaChangeHandler()
         : _mem_tracker(MemTracker::CreateTracker(-1, "SchemaChange", StorageEngine::instance()->schema_change_mem_tracker())) {
     REGISTER_HOOK_METRIC(schema_change_mem_consumption,
@@ -1625,7 +1657,6 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         sc_params.delete_handler = &delete_handler;
         if (request.__isset.alter_tablet_type && request.alter_tablet_type == TAlterTabletType::MIGRATION) {
             sc_params.alter_tablet_type = AlterTabletType::MIGRATION;
-            sc_params.migration_param = request.migration_param;
         } else if (request.__isset.materialized_view_params) {
             sc_params.alter_tablet_type = AlterTabletType::SCHEMA_CHANGE;
             for (auto item : request.materialized_view_params) {
@@ -1838,7 +1869,8 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
 
 OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
     LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
-              << " base_tablet=" << sc_params.base_tablet->full_name()
+              << " alter_type: " << sc_params.alter_tablet_type
+              << ", base_tablet=" << sc_params.base_tablet->full_name()
               << ", new_tablet=" << sc_params.new_tablet->full_name();
 
     // find end version
@@ -1849,37 +1881,44 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         }
     }
 
-    // Add filter information in change, and filter column information will be set in _parse_request
-    // And filter some data every time the row block changes
-    RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(), sc_params.delete_handler);
-
-    bool sc_sorting = false;
-    bool sc_directly = false;
     SchemaChange* sc_procedure = nullptr;
 
-    // a.Parse the Alter request and convert it into an internal representation
-    OLAPStatus res = _parse_request(sc_params.base_tablet, sc_params.new_tablet, &rb_changer,
-                                    &sc_sorting, &sc_directly, sc_params.materialized_params_map);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to parse the request. res=" << res;
-        goto PROCESS_ALTER_EXIT;
-    }
-
-    // b. Generate historical data converter
-    if (sc_sorting) {
-        size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
-        LOG(INFO) << "doing schema change with sorting for base_tablet "
-                  << sc_params.base_tablet->full_name();
-        sc_procedure = new (nothrow) SchemaChangeWithSorting(
-                rb_changer, _mem_tracker, memory_limitation * 1024 * 1024 * 1024);
-    } else if (sc_directly) {
-        LOG(INFO) << "doing schema change directly for base_tablet "
-                  << sc_params.base_tablet->full_name();
-        sc_procedure = new (nothrow) SchemaChangeDirectly(rb_changer, _mem_tracker);
+    // migration
+    OLAPStatus res = OLAP_SUCCESS;
+    if (sc_params.alter_tablet_type == AlterTabletType::MIGRATION) {
+        LOG(INFO) << "doing migration for base_tablet " << sc_params.base_tablet->full_name();
+        sc_procedure = new (nothrow) MigrationSchemaChange(
+                sc_params.base_tablet->tablet_path_desc(), sc_params.new_tablet->tablet_path_desc(), _mem_tracker);
     } else {
-        LOG(INFO) << "doing linked schema change for base_tablet "
-                  << sc_params.base_tablet->full_name();
-        sc_procedure = new (nothrow) LinkedSchemaChange(rb_changer, _mem_tracker);
+        // Add filter information in change, and filter column information will be set in _parse_request
+        // And filter some data every time the row block changes
+        RowBlockChanger rb_changer(sc_params.new_tablet->tablet_schema(), sc_params.delete_handler);
+
+        bool sc_sorting = false;
+        bool sc_directly = false;
+        // a.Parse the Alter request and convert it into an internal representation
+        res = _parse_request(sc_params.base_tablet, sc_params.new_tablet, &rb_changer,
+                             &sc_sorting, &sc_directly, sc_params.materialized_params_map);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "failed to parse the request. res=" << res;
+            goto PROCESS_ALTER_EXIT;
+        }
+        // b. Generate historical data converter
+        if (sc_sorting) {
+            size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
+            LOG(INFO) << "doing schema change with sorting for base_tablet "
+                      << sc_params.base_tablet->full_name();
+            sc_procedure = new (nothrow) SchemaChangeWithSorting(
+                    rb_changer, _mem_tracker, memory_limitation * 1024 * 1024 * 1024);
+        } else if (sc_directly) {
+            LOG(INFO) << "doing schema change directly for base_tablet "
+                      << sc_params.base_tablet->full_name();
+            sc_procedure = new (nothrow) SchemaChangeDirectly(rb_changer, _mem_tracker);
+        } else {
+            LOG(INFO) << "doing linked schema change for base_tablet "
+                      << sc_params.base_tablet->full_name();
+            sc_procedure = new (nothrow) LinkedSchemaChange(rb_changer, _mem_tracker);
+        }
     }
 
     if (sc_procedure == nullptr) {
@@ -1913,9 +1952,6 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
             writer_context.rowset_type = BETA_ROWSET;
         }
         writer_context.path_desc = new_tablet->tablet_path_desc();
-        if (sc_params.alter_tablet_type == AlterTabletType::MIGRATION && new_tablet->tablet_path_desc().is_remote()) {
-            writer_context.is_cache_path = true;
-        }
         writer_context.tablet_schema = &(new_tablet->tablet_schema());
         writer_context.rowset_state = VISIBLE;
         writer_context.version = rs_reader->version();
@@ -1972,11 +2008,6 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         }
         sc_params.new_tablet->release_push_lock();
 
-        if (new_tablet->tablet_path_desc().is_remote()
-            && (res = _migration_to_remote(sc_params, new_rowset)) != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to migration file to remote: " << new_tablet->tablet_path_desc().debug_string();
-            goto PROCESS_ALTER_EXIT;
-        }
         VLOG_TRACE << "succeed to convert a history version."
                    << " version=" << rs_reader->version().first << "-"
                    << rs_reader->version().second;
@@ -1997,25 +2028,6 @@ PROCESS_ALTER_EXIT : {
               << "base_tablet=" << sc_params.base_tablet->full_name()
               << ", new_tablet=" << sc_params.new_tablet->full_name();
     return res;
-}
-
-OLAPStatus SchemaChangeHandler::_migration_to_remote(
-        const SchemaChangeParams& sc_params, const RowsetSharedPtr rowset) {
-    FilePathDesc path_desc = sc_params.new_tablet->tablet_path_desc();
-    if (!path_desc.is_remote()) {
-        LOG(WARNING) << "PathDesc is not remote: " << path_desc.debug_string();
-        return OLAP_ERR_COPY_FILE_ERROR;
-    }
-    string tablet_uid_path = path_desc.filepath + "/" + TABLET_UID;
-    Status st = env_util::write_string_to_file(
-            Env::Default(), Slice(TabletUid(sc_params.new_tablet->tablet_uid()).to_string()), tablet_uid_path);
-    if (!st.ok()) {
-        LOG(WARNING) << "fail to write tablet_uid. path=" << tablet_uid_path
-                     << ", error:" << st.to_string();
-        return OLAP_ERR_COPY_FILE_ERROR;
-    }
-
-    return rowset->upload_files_to(path_desc, true);
 }
 
 // @static

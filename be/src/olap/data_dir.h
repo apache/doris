@@ -45,7 +45,6 @@ class DataDir {
 public:
     DataDir(const std::string& path, int64_t capacity_bytes = -1,
             TStorageMedium::type storage_medium = TStorageMedium::HDD,
-            const std::string& remote_path = "",
             TabletManager* tablet_manager = nullptr, TxnManager* txn_manager = nullptr);
     ~DataDir();
 
@@ -136,10 +135,6 @@ public:
 
     void disks_compaction_num_increment(int64_t delta);
 
-    Env* env() {
-        return _env;
-    }
-
     // 将segment_path_desc移到回收站，回收站位于storage_root/trash, segment_path_desc可以是文件或目录
     // 移动的同时将segment_path_desc的路径进行修改
     // filepath改为：
@@ -184,7 +179,6 @@ private:
     int64_t _disk_capacity_bytes;
     TStorageMedium::type _storage_medium;
     bool _is_used;
-    Env* _env = nullptr;
 
     TabletManager* _tablet_manager;
     TxnManager* _txn_manager;

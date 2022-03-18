@@ -16,27 +16,46 @@
 // under the License.
 
 #include "common/config.h"
+#include "common/status.h"
+#include "env/env_util.h"
 #include "env/env_remote_mgr.h"
+#include "gutil/strings/substitute.h"
+#include "util/faststring.h"
+#include "util/file_utils.h"
 
 namespace doris {
 
-std::shared_ptr<RemoteEnv> RemoteEnvMgr::get_remote_env(const TStorageParam& storage_param) {
-    std::string key = "";
-    switch (storage_param.storage_medium) {
-        case TStorageMedium::S3:
-        default:
-            const TS3StorageParam& s3_storage_param = storage_param.s3_storage_param;
-            if (s3_storage_param.s3_endpoint.empty()) {
-                return nullptr;
-            }
-            key = s3_storage_param.s3_endpoint;
+Status RemoteEnvMgr::init(const std::string& storage_param_dir) {
+    if (_is_inited) {
+        return Status::OK();
     }
-    WriteLock wrlock(&_remote_env_lock);
-    if (_remote_env_map.find(key) != _remote_env_map.end()) {
-        _remote_env_active_time[key] = time(nullptr);
-        return _remote_env_map[key];
+    Status exist_status = Env::Default()->path_exists(storage_param_dir);
+    if (!exist_status.ok() &&
+        (!exist_status.is_not_found() || !Env::Default()->create_dirs(storage_param_dir).ok())) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
+                "failed to create remote storage_param root path $0", storage_param_dir)),
+                                       "create_dirs failed");
     }
 
+    std::vector<std::string> file_names;
+    RETURN_IF_ERROR(FileUtils::list_files(Env::Default(), storage_param_dir, &file_names));
+    for (auto& file_name : file_names) {
+        faststring buf;
+        RETURN_NOT_OK_STATUS_WITH_WARN(env_util::read_file_to_string(
+                Env::Default(), storage_param_dir + "/" + file_name, &buf),
+                strings::Substitute("load storage_name failed. $0", file_name));
+        StorageParamPB storage_param_pb;
+        RETURN_IF_ERROR(_deserialize(buf.ToString(), &storage_param_pb));
+        RETURN_IF_ERROR(create_remote_storage(storage_param_pb, false));
+    }
+    _storage_param_dir = storage_param_dir;
+    _is_inited = true;
+    return Status::OK();
+}
+
+Status RemoteEnvMgr::create_remote_storage(const StorageParamPB& storage_param_pb, bool write_to_file) {
+    std::string storage_name = storage_param_pb.storage_name();
+    WriteLock wrlock(&_remote_env_lock);
     if (_remote_env_map.size() >= doris::config::max_remote_storage_count) {
         std::map<std::string, time_t>::iterator itr = _remote_env_active_time.begin();
         std::string timeout_key = itr->first;
@@ -48,16 +67,76 @@ std::shared_ptr<RemoteEnv> RemoteEnvMgr::get_remote_env(const TStorageParam& sto
                 min_active_time = itr->second;
             }
         }
-        _remote_env_map.erase(key);
-        _remote_env_active_time.erase(key);
+        _remote_env_map.erase(storage_name);
+        _storage_param_map.erase(storage_name);
+        _remote_env_active_time.erase(storage_name);
     }
     std::shared_ptr<RemoteEnv> remote_env(new RemoteEnv());
-    if (!remote_env->init_conf(storage_param).ok()) {
+    RETURN_NOT_OK_STATUS_WITH_WARN(remote_env->init_conf(storage_param_pb),
+            strings::Substitute("create_remote_storage failed. storage_name: $0", storage_name));
+    _storage_param_map[storage_name] = storage_param_pb;
+    _remote_env_map[storage_name] = remote_env;
+    _remote_env_active_time[storage_name] = time(nullptr);
+
+    if (write_to_file) {
+        string storage_param_path = _storage_param_dir + "/" + storage_name;
+        RETURN_NOT_OK_STATUS_WITH_WARN(FileUtils::remove(storage_param_path),
+                strings::Substitute("rm storage_param_pb file failed: $0", storage_param_path));
+        std::string meta_binary;
+        RETURN_NOT_OK_STATUS_WITH_WARN(_serialize(storage_param_pb, &meta_binary),
+                "_serialize storage_param_pb failed.");
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                env_util::write_string_to_file(Env::Default(), Slice(meta_binary), storage_param_path),
+                strings::Substitute("write_string_to_file failed: $0", storage_param_path));
+        faststring buf;
+        RETURN_NOT_OK_STATUS_WITH_WARN(env_util::read_file_to_string(Env::Default(), storage_param_path, &buf),
+                strings::Substitute("read storage_name failed. $0", storage_param_path));
+        StorageParamPB storage_param_pb;
+        RETURN_IF_ERROR(_deserialize(buf.ToString(), &storage_param_pb));
+        if (storage_param_pb.storage_name() != storage_name) {
+            LOG(ERROR) << "storage_param written failed. storage_name: ("
+                    << storage_param_pb.storage_name() << "<->" << storage_name << ")";
+            return Status::InternalError("storage_param written failed");
+        }
+    }
+    LOG(INFO) << "create remote_storage_param successfully. storage_name: " << storage_name;
+    return Status::OK();
+}
+
+std::shared_ptr<RemoteEnv> RemoteEnvMgr::get_remote_env(const std::string& storage_name) {
+    ReadLock rdlock(&_remote_env_lock);
+    if (_remote_env_map.find(storage_name) == _remote_env_map.end()) {
         return nullptr;
     }
-    _remote_env_map[key] = remote_env;
-    _remote_env_active_time[key] = time(nullptr);
-    return remote_env;
+    _remote_env_active_time[storage_name] = time(nullptr);
+    return _remote_env_map[storage_name];
+}
+
+Status RemoteEnvMgr::get_storage_param(const std::string& storage_name, StorageParamPB* storage_param) {
+    ReadLock rdlock(&_remote_env_lock);
+    if (_remote_env_map.find(storage_name) == _remote_env_map.end()) {
+        return Status::InternalError("storage_name not exist: " + storage_name);
+    }
+    *storage_param = _storage_param_map[storage_name];
+    return Status::OK();
+}
+
+Status RemoteEnvMgr::_serialize(const StorageParamPB& storage_param_pb, std::string* meta_binary) {
+    bool serialize_success = storage_param_pb.SerializeToString(meta_binary);
+    if (!serialize_success) {
+        LOG(WARNING) << "failed to serialize storage_param " << storage_param_pb.storage_name();
+        return Status::InternalError("failed to serialize storage_param: " + storage_param_pb.storage_name());
+    }
+    return Status::OK();
+}
+
+Status RemoteEnvMgr::_deserialize(const std::string& meta_binary, StorageParamPB* storage_param_pb) {
+    bool parsed = storage_param_pb->ParseFromString(meta_binary);
+    if (!parsed) {
+        LOG(WARNING) << "parse storage_param failed";
+        return Status::InternalError("parse storage_param failed");
+    }
+    return Status::OK();
 }
 
 } // namespace doris
