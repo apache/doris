@@ -308,6 +308,11 @@ void dump(const vectorized::Block& block, int64_t tablet_id) {
 }
 
 OLAPStatus MemTable::_vflush(){
+    //skip empty tablet
+    if (_rows == 0)
+    {
+        return OLAP_SUCCESS;
+    }
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     size_t _flush_size = 0;
