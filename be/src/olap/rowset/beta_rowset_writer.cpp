@@ -94,6 +94,9 @@ OLAPStatus BetaRowsetWriter::add_block(const vectorized::Block* block) {
     }
     size_t block_size_in_bytes = block->bytes();
     size_t block_row_num = block->rows();
+    if (UNLIKELY(block_row_num == 0)) {
+        return OLAP_SUCCESS;
+    }
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
     int64_t segment_capacity_in_bytes = 0;
