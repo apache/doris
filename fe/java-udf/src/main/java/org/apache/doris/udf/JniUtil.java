@@ -134,7 +134,7 @@ public class JniUtil {
 
   /**
    * Collect the JVM's memory statistics into a thrift structure for translation into
-   * Impala metrics by the backend. A synthetic 'total' memory pool is included with
+   * Doris metrics by the backend. A synthetic 'total' memory pool is included with
    * aggregate statistics for all real pools. Metrics for the JvmPauseMonitor
    * and Garbage Collection are also included.
    */

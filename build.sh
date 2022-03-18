@@ -230,6 +230,22 @@ cd ${DORIS_HOME}/gensrc
 python --version
 make
 
+# Assesmble FE modules
+FE_MODULES=
+if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 -o ${BUILD_BE} -eq 1 ]; then
+    if [ ${BUILD_FE} -eq 1 -a ${BUILD_BE} -eq 1 ]; then
+        FE_MODULES="fe-common,spark-dpp,fe-core,java-udf"
+    elif [ ${BUILD_FE} -eq 1 -a ${BUILD_BE} -eq 0 ]; then
+        FE_MODULES="fe-common,spark-dpp,fe-core"
+    elif [ ${BUILD_BE} -eq 1 -a ${BUILD_SPARK_DPP} -eq 0 ]; then
+        FE_MODULES="fe-common,fe-core,java-udf"
+    elif [ ${BUILD_BE} -eq 1 -a ${BUILD_SPARK_DPP} -eq 1 ]; then
+        FE_MODULES="fe-common,fe-core,java-udf,spark-dpp"
+    else
+        FE_MODULES="fe-common,spark-dpp"
+    fi
+fi
+
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
@@ -262,7 +278,9 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     if [ ${CLEAN} -eq 1 ]; then
         clean_fe
     fi
-    ${MVN_CMD} package -pl fe-common,fe-core,java-udf -DskipTests
+    if [ ${BUILD_FE} -eq 0 ]; then
+      ${MVN_CMD} package -pl fe-common,fe-core,java-udf -DskipTests
+    fi
     cd ${DORIS_HOME}
 fi
 
@@ -271,17 +289,6 @@ echo "Build docs"
 cd ${DORIS_HOME}/docs
 ./build_help_zip.sh
 cd ${DORIS_HOME}
-
-# Assesmble FE modules
-FE_MODULES=
-if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
-    if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
-        FE_MODULES="fe-common,spark-dpp"
-    fi
-    if [ ${BUILD_FE} -eq 1 ]; then
-        FE_MODULES="fe-common,spark-dpp,fe-core"
-    fi
-fi
 
 function build_ui() {
     # check NPM env here, not in env.sh.

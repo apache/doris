@@ -147,6 +147,6 @@ Status SerializeThriftMsg(JNIEnv* env, T* msg, jbyteArray* serialized_msg) {
     return Status::OK();
 }
 
-#endif //DORIS_BE_SRC_UTIL_JNI_H
-
 } // namespace doris
+
+#endif //DORIS_BE_SRC_UTIL_JNI_H

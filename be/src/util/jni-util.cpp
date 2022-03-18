@@ -50,7 +50,7 @@ void FindOrCreateJavaVM() {
         int res = JNI_CreateJavaVM(&g_vm, (void **)&env, &vm_args);
         DCHECK_LT(res, 0) << "Failed tp create JVM, code= " << res;
     } else {
-        CHECK_EQ(rv, 0) << "Could not find any created Java VM. Must init libhdfs first";
+        CHECK_EQ(rv, 0) << "Could not find any created Java VM";
         CHECK_EQ(num_vms, 1) << "No VMs returned";
     }
 }

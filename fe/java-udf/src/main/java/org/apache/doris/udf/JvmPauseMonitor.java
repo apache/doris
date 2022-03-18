@@ -245,7 +245,7 @@ public class JvmPauseMonitor {
         for (ThreadInfo thread : threadMx.dumpAllThreads(true, true)) {
           LOG.error(thread.toString());
         }
-        // In the context of an Impala service, LOG.fatal calls glog's fatal, which
+        // In the context of an Doris service, LOG.fatal calls glog's fatal, which
         // aborts the process, which will produce a coredump if coredumps are enabled.
         LOG.fatal("Aborting because of deadlocked threads in JVM.");
         System.exit(1);

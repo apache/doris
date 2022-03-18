@@ -22,9 +22,9 @@
 #include <memory>
 #include <sstream>
 
+#include "gen_cpp/Exprs_types.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
-
 #include "util/jni-util.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
@@ -63,20 +63,8 @@ Status JavaFunctionCall::prepare(FunctionContext* context, FunctionContext::Func
             executor_cl_, "close", EXECUTOR_CLOSE_SIGNATURE);
     RETURN_ERROR_IF_EXC(env);
 
-    int64_t input_values_buffer_ptr = (int64_t) new int64_t[_argument_types.size()];
-    int64_t input_nulls_buffer_ptr = (int64_t) new int64_t[_argument_types.size()];
-    int64_t input_byte_offsets_ptr = (int64_t) new int64_t[_argument_types.size()];
-
-    int64_t output_buffer = (int64_t) malloc(sizeof(int64_t));
-    int64_t output_null = (int64_t) malloc(sizeof(int64_t));
-    int64_t batch_size = (int64_t) malloc(sizeof(int32_t));
-    JniContext* jni_ctx = new JniContext(input_values_buffer_ptr, input_nulls_buffer_ptr,
-                                         input_byte_offsets_ptr, output_buffer, output_null,
-                                         batch_size);
+    JniContext* jni_ctx = new JniContext(_argument_types.size(), this);
     context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
-
-    jni_ctx->hdfs_location = fn_.hdfs_location.c_str();
-    jni_ctx->scalar_fn_symbol = fn_.scalar_fn.symbol.c_str();
 
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
     JniLocalFrame jni_frame;
@@ -110,27 +98,43 @@ Status JavaFunctionCall::prepare(FunctionContext* context, FunctionContext::Func
 
 Status JavaFunctionCall::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t num_rows, bool dry_run) {
+    auto return_type = block.get_data_type(result);
+    if (!return_type->have_maximum_size_of_value()) {
+        return Status::InvalidArgument(strings::Substitute(
+                "Java UDF doesn't support return type $0 now !", return_type->get_name()));
+    }
     JNIEnv* env = JniUtil::GetJNIEnv();
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
+    int arg_idx = 0;
     for (size_t col_idx : arguments) {
         ColumnWithTypeAndName& column = block.get_by_position(col_idx);
         auto col = column.column->convert_to_full_column_if_const();
+        if (!_argument_types[arg_idx]->equals(*column.type)) {
+            return Status::InvalidArgument(strings::Substitute(
+                    "$0-th input column's type $1 does not equal to required type $2",
+                    arg_idx, column.type->get_name(),
+                    _argument_types[arg_idx]->get_name()));
+        }
+        if (!column.type->have_maximum_size_of_value()) {
+            return Status::InvalidArgument(strings::Substitute(
+                    "Java UDF doesn't support input type $0 now !", return_type->get_name()));
+        }
         auto data_col = col;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*col)) {
             data_col = nullable->get_nested_column_ptr();
-            auto null_col = check_and_get_column<ColumnVector<UInt8>>(nullable->get_null_map_column_ptr());
-            ((int64_t*) jni_ctx->input_nulls_buffer_ptr)[col_idx] = reinterpret_cast<int64_t>(null_col->get_data().data());
+            auto null_col =
+                    check_and_get_column<ColumnVector<UInt8>>(nullable->get_null_map_column_ptr());
+            ((int64_t*) jni_ctx->input_nulls_buffer_ptr)[arg_idx] =
+                    reinterpret_cast<int64_t>(null_col->get_data().data());
         }
-        ((int64_t*) jni_ctx->input_values_buffer_ptr)[col_idx] = reinterpret_cast<int64_t>(data_col->get_raw_data().data);
-        if (!data_col->values_have_fixed_size()) {
-            DCHECK(false) << "Java UDF doesn't support type " << column.type->get_name() << " now!";
-        }
+        ((int64_t*) jni_ctx->input_values_buffer_ptr)[arg_idx] =
+                reinterpret_cast<int64_t>(data_col->get_raw_data().data);
+        arg_idx ++;
     }
 
-    auto data_type = block.get_data_type(result);
-    if (data_type->is_nullable()) {
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(data_type);
+    if (return_type->is_nullable()) {
+        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         auto data_col = null_type->get_nested_type()->create_column();
         auto null_col = ColumnUInt8::create(data_col->size(), 0);
         null_col->reserve(num_rows);
@@ -141,20 +145,14 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block, const C
         *((int64_t*) jni_ctx->output_null_value) =
                 reinterpret_cast<int64_t>(null_col->get_data().data());
         *((int64_t*) jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(data_col->get_raw_data().data);
-        if (!data_col->values_have_fixed_size()) {
-            DCHECK(false) << "Java UDF doesn't support type " << data_type->get_name() << " now!";
-        }
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(data_col), std::move(null_col)));
     } else {
-        auto data_col = data_type->create_column();
+        auto data_col = return_type->create_column();
         data_col->reserve(num_rows);
         data_col->resize(num_rows);
 
         *((int64_t*) jni_ctx->output_value_buffer) = reinterpret_cast<int64_t>(data_col->get_raw_data().data);
-        if (!data_col->values_have_fixed_size()) {
-            DCHECK(false) << "Java UDF doesn't support type " << data_type->get_name() << " now!";
-        }
         block.replace_by_position(result, std::move(data_col));
     }
     *((int32_t*) jni_ctx->batch_size_ptr) = num_rows;
@@ -162,46 +160,13 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block, const C
     // vtable lookup and setting up return stacks.
     env->CallNonvirtualVoidMethodA(
             jni_ctx->executor, executor_cl_, executor_evaluate_id_, nullptr);
-    Status status = JniUtil::GetJniExceptionMsg(env);
-    if (!status.ok()) {
-        if (!jni_ctx->warning_logged) {
-            jni_ctx->warning_logged = true;
-        }
-        return status;
-    }
-    return Status::OK();
+    return JniUtil::GetJniExceptionMsg(env);
 }
 
 Status JavaFunctionCall::close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     if (jni_ctx != NULL) {
-        JNIEnv* env = JniUtil::GetJNIEnv();
-        if (jni_ctx->executor != NULL) {
-            env->CallNonvirtualVoidMethodA(
-                    jni_ctx->executor, executor_cl_, executor_close_id_, NULL);
-            Status s = JniUtil::GetJniExceptionMsg(env);
-            if (!s.ok()) LOG(WARNING) << s.get_error_msg();
-            env->DeleteGlobalRef(jni_ctx->executor);
-        }
-        if (LIKELY((int64*) jni_ctx->input_values_buffer_ptr != NULL)) {
-            delete[] ((int64*) jni_ctx->input_values_buffer_ptr);
-        }
-        if (LIKELY((int64*) jni_ctx->input_nulls_buffer_ptr != NULL)) {
-            delete[] ((int64*) jni_ctx->input_nulls_buffer_ptr);
-        }
-        if (LIKELY((int64*) jni_ctx->input_byte_offsets_ptr != NULL)) {
-            delete[] ((int64*) jni_ctx->input_byte_offsets_ptr);
-        }
-        if (LIKELY((int64*) jni_ctx->output_value_buffer != NULL)) {
-            free((int64*) jni_ctx->output_value_buffer);
-        }
-        if (LIKELY((int64*) jni_ctx->output_null_value != NULL)) {
-            free((int64*) jni_ctx->output_null_value);
-        }
-        if (LIKELY((int64*) jni_ctx->batch_size_ptr != NULL)) {
-            free((int32*) jni_ctx->batch_size_ptr);
-        }
         delete jni_ctx;
         context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
     }

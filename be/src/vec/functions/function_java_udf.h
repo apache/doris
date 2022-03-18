@@ -20,6 +20,7 @@
 #include <jni.h>
 
 #include "gen_cpp/Exprs_types.h"
+#include "util/jni-util.h"
 #include "vec/functions/function.h"
 
 namespace doris {
@@ -63,9 +64,9 @@ public:
     bool is_deterministic_in_scope_of_query() const override { return false; }
 
 private:
-    const TFunction& fn_;
-    const DataTypes& _argument_types;
-    const DataTypePtr& _return_type;
+    const TFunction fn_;
+    const DataTypes _argument_types;
+    const DataTypePtr _return_type;
 
     /// Global class reference to the UdfExecutor Java class and related method IDs. Set in
     /// Init(). These have the lifetime of the process (i.e. 'executor_cl_' is never freed).
@@ -75,6 +76,8 @@ private:
     jmethodID executor_close_id_;
 
     struct JniContext {
+        JavaFunctionCall* parent = nullptr;
+
         jobject executor = nullptr;
 
         int64_t input_values_buffer_ptr;
@@ -83,21 +86,33 @@ private:
         int64_t output_value_buffer;
         int64_t output_null_value;
         int64_t batch_size_ptr;
-        bool warning_logged = false;
 
-        /// Used for logging errors.
-        const char* hdfs_location = nullptr;
-        const char* scalar_fn_symbol = nullptr;
+        JniContext(int64_t num_args, JavaFunctionCall* parent):
+                  parent(parent) {
+            input_values_buffer_ptr = (int64_t) new int64_t[num_args];
+            input_nulls_buffer_ptr = (int64_t) new int64_t[num_args];
+            input_byte_offsets_ptr = (int64_t) new int64_t[num_args];
 
-        JniContext(int64_t input_values, int64_t input_nulls,
-                   int64_t input_offsets, int64_t output_buffer,
-                   int64_t output_nulls, int64_t batch_size_ptr):
-                  input_values_buffer_ptr(input_values),
-                  input_nulls_buffer_ptr(input_nulls),
-                  input_byte_offsets_ptr(input_offsets),
-                  output_value_buffer(output_buffer),
-                  output_null_value(output_nulls),
-                  batch_size_ptr(batch_size_ptr) {}
+            output_value_buffer = (int64_t) malloc(sizeof(int64_t));
+            output_null_value = (int64_t) malloc(sizeof(int64_t));
+            batch_size_ptr = (int64_t) malloc(sizeof(int32_t));
+        }
+
+        ~JniContext() {
+            LOG(INFO) << "Free resources for JniContext";
+            JNIEnv* env = JniUtil::GetJNIEnv();
+            env->CallNonvirtualVoidMethodA(
+                    executor, parent->executor_cl_, parent->executor_close_id_, NULL);
+            Status s = JniUtil::GetJniExceptionMsg(env);
+            if (!s.ok()) LOG(WARNING) << s.get_error_msg();
+            env->DeleteGlobalRef(executor);
+            delete[] ((int64*) input_values_buffer_ptr);
+            delete[] ((int64*) input_nulls_buffer_ptr);
+            delete[] ((int64*) input_byte_offsets_ptr);
+            free((int64*) output_value_buffer);
+            free((int64*) output_null_value);
+            free((int32*) batch_size_ptr);
+        }
 
         /// These functions are cross-compiled to IR and used by codegen.
         static void SetInputNullsBufferElement(
