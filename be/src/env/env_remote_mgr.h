@@ -35,10 +35,12 @@ public:
 
     std::shared_ptr<RemoteEnv> get_remote_env(const std::string& storage_name);
 
-    Status create_remote_storage(const StorageParamPB& storage_param, bool write_to_file = true);
+    Status create_remote_storage(const StorageParamPB& storage_param);
 
     Status get_storage_param(const std::string& storage_name, StorageParamPB* storage_param);
 private:
+    Status _create_remote_storage_internal(const StorageParamPB& storage_param);
+    Status _check_exist(const StorageParamPB& storage_param_pb);
     Status _serialize(const StorageParamPB& storage_param_pb, std::string* meta_binary);
     Status _deserialize(const std::string& meta_binary, StorageParamPB* storage_param_pb);
 

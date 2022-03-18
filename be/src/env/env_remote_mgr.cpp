@@ -46,14 +46,44 @@ Status RemoteEnvMgr::init(const std::string& storage_param_dir) {
                 strings::Substitute("load storage_name failed. $0", file_name));
         StorageParamPB storage_param_pb;
         RETURN_IF_ERROR(_deserialize(buf.ToString(), &storage_param_pb));
-        RETURN_IF_ERROR(create_remote_storage(storage_param_pb, false));
+        RETURN_IF_ERROR(_create_remote_storage_internal(storage_param_pb));
+        LOG(INFO) << "init remote_storage_param successfully. storage_name: " << file_name;
     }
     _storage_param_dir = storage_param_dir;
     _is_inited = true;
     return Status::OK();
 }
 
-Status RemoteEnvMgr::create_remote_storage(const StorageParamPB& storage_param_pb, bool write_to_file) {
+Status RemoteEnvMgr::create_remote_storage(const StorageParamPB& storage_param_pb) {
+    if (_check_exist(storage_param_pb)) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_create_remote_storage_internal(storage_param_pb));
+
+    std::string storage_name = storage_param_pb.storage_name();
+
+    string storage_param_path = _storage_param_dir + "/" + storage_name;
+    RETURN_NOT_OK_STATUS_WITH_WARN(FileUtils::remove(storage_param_path),
+                                   strings::Substitute("rm storage_param_pb file failed: $0", storage_param_path));
+    std::string param_binary;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_serialize(storage_param_pb, &param_binary),
+                                   "_serialize storage_param_pb failed.");
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            env_util::write_string_to_file(Env::Default(), Slice(param_binary), storage_param_path),
+            strings::Substitute("write_string_to_file failed: $0", storage_param_path));
+    faststring buf;
+    RETURN_NOT_OK_STATUS_WITH_WARN(env_util::read_file_to_string(Env::Default(), storage_param_path, &buf),
+                                   strings::Substitute("read storage_name failed. $0", storage_param_path));
+    if (buf.ToString() != param_binary) {
+        LOG(ERROR) << "storage_param written failed. storage_name: ("
+                   << storage_param_pb.storage_name() << "<->" << storage_name << ")";
+        return Status::InternalError("storage_param written failed");
+    }
+    LOG(INFO) << "create remote_storage_param successfully. storage_name: " << storage_name;
+    return Status::OK();
+}
+
+Status RemoteEnvMgr::_create_remote_storage_internal(const StorageParamPB& storage_param_pb) {
     std::string storage_name = storage_param_pb.storage_name();
     WriteLock wrlock(&_remote_env_lock);
     if (_remote_env_map.size() >= doris::config::max_remote_storage_count) {
@@ -78,28 +108,6 @@ Status RemoteEnvMgr::create_remote_storage(const StorageParamPB& storage_param_p
     _remote_env_map[storage_name] = remote_env;
     _remote_env_active_time[storage_name] = time(nullptr);
 
-    if (write_to_file) {
-        string storage_param_path = _storage_param_dir + "/" + storage_name;
-        RETURN_NOT_OK_STATUS_WITH_WARN(FileUtils::remove(storage_param_path),
-                strings::Substitute("rm storage_param_pb file failed: $0", storage_param_path));
-        std::string meta_binary;
-        RETURN_NOT_OK_STATUS_WITH_WARN(_serialize(storage_param_pb, &meta_binary),
-                "_serialize storage_param_pb failed.");
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                env_util::write_string_to_file(Env::Default(), Slice(meta_binary), storage_param_path),
-                strings::Substitute("write_string_to_file failed: $0", storage_param_path));
-        faststring buf;
-        RETURN_NOT_OK_STATUS_WITH_WARN(env_util::read_file_to_string(Env::Default(), storage_param_path, &buf),
-                strings::Substitute("read storage_name failed. $0", storage_param_path));
-        StorageParamPB storage_param_pb;
-        RETURN_IF_ERROR(_deserialize(buf.ToString(), &storage_param_pb));
-        if (storage_param_pb.storage_name() != storage_name) {
-            LOG(ERROR) << "storage_param written failed. storage_name: ("
-                    << storage_param_pb.storage_name() << "<->" << storage_name << ")";
-            return Status::InternalError("storage_param written failed");
-        }
-    }
-    LOG(INFO) << "create remote_storage_param successfully. storage_name: " << storage_name;
     return Status::OK();
 }
 
@@ -121,8 +129,25 @@ Status RemoteEnvMgr::get_storage_param(const std::string& storage_name, StorageP
     return Status::OK();
 }
 
-Status RemoteEnvMgr::_serialize(const StorageParamPB& storage_param_pb, std::string* meta_binary) {
-    bool serialize_success = storage_param_pb.SerializeToString(meta_binary);
+Status RemoteEnvMgr::_check_exist(const StorageParamPB& storage_param_pb) {
+    StorageParamPB old_storage_param;
+    RETURN_IF_ERROR(get_storage_param(storage_param_pb.storage_name(), &old_storage_param));
+    ReadLock rdlock(&_remote_env_lock);
+    std::string old_param_binary;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_serialize(old_storage_param, &old_param_binary),
+                                   "_serialize old_storage_param_pb failed.");
+    std::string param_binary;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_serialize(storage_param_pb, &param_binary),
+                                   "_serialize storage_param_pb failed.");
+    if (old_param_binary != param_binary) {
+        LOG(ERROR) << "storage_param has been changed: " << storage_param_pb.storage_name();
+        return Status::InternalError("storage_param has been changed");
+    }
+    return Status::OK();
+}
+
+Status RemoteEnvMgr::_serialize(const StorageParamPB& storage_param_pb, std::string* param_binary) {
+    bool serialize_success = storage_param_pb.SerializeToString(param_binary);
     if (!serialize_success) {
         LOG(WARNING) << "failed to serialize storage_param " << storage_param_pb.storage_name();
         return Status::InternalError("failed to serialize storage_param: " + storage_param_pb.storage_name());
@@ -130,8 +155,8 @@ Status RemoteEnvMgr::_serialize(const StorageParamPB& storage_param_pb, std::str
     return Status::OK();
 }
 
-Status RemoteEnvMgr::_deserialize(const std::string& meta_binary, StorageParamPB* storage_param_pb) {
-    bool parsed = storage_param_pb->ParseFromString(meta_binary);
+Status RemoteEnvMgr::_deserialize(const std::string& param_binary, StorageParamPB* storage_param_pb) {
+    bool parsed = storage_param_pb->ParseFromString(param_binary);
     if (!parsed) {
         LOG(WARNING) << "parse storage_param failed";
         return Status::InternalError("parse storage_param failed");
