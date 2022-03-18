@@ -89,6 +89,9 @@ OLAPStatus BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
 }
 
 OLAPStatus BetaRowsetWriter::add_block(const vectorized::Block* block) {
+    if (block->rows() == 0) {
+        return OLAP_SUCCESS;
+    }
     if (UNLIKELY(_segment_writer == nullptr)) {
         RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
     }
