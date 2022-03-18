@@ -79,7 +79,7 @@ Status VTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& reques
 
 Status VTabletsChannel::add_block(const PTabletWriterAddBlockRequest& request,
                              PTabletWriterAddBlockResult* response) {
-    int64_t cur_seq;
+    int64_t cur_seq = 0;
 
     auto status = _get_current_seq(cur_seq, request);
     if (UNLIKELY(!status.ok())) {

@@ -76,7 +76,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         PTabletWriterAddBatchResult* response) {
     DCHECK(request.tablet_ids_size() == request.row_batch().num_rows());
-    int64_t cur_seq;
+    int64_t cur_seq = 0;
     
     auto status = _get_current_seq(cur_seq, request);
     if (UNLIKELY(!status.ok())) {
