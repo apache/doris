@@ -106,7 +106,7 @@ public class Config extends ConfigBase {
     @ConfField
     public static int audit_log_roll_num = 90;
     @ConfField
-    public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load"};
+    public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load", "stream_load_2pc"};
     @ConfField(mutable = true)
     public static long qe_slow_log_ms = 5000;
     @ConfField

@@ -38,7 +38,8 @@ public class AuditEvent {
         BEFORE_QUERY,
         AFTER_QUERY,
         LOAD_SUCCEED,
-        STREAM_LOAD_FINISH
+        STREAM_LOAD_FINISH,
+        STREAM_LOAD_2PC_FINISH
     }
 
     @Retention(RetentionPolicy.RUNTIME)

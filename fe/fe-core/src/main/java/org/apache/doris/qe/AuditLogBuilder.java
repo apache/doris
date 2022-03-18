@@ -54,9 +54,14 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
 
     private final String[] STREAM_LOAD_ANNONATION_NAMES = {"Label", "TxnId", "TwoPhaseCommit", "Db", "Table", "User", "ClientIp",
             "Status", "Message", "Url", "TotalRows", "LoadedRows", "FilteredRows", "UnselectedRows",
-            "LoadBytes", "StartTime", "PreCommitTime", "SecondPhaseOperation", "FinishTime"};
+            "LoadBytes", "StartTime", "PreCommitTime", "FinishTime"};
 
     private Set<String> streamLoadAnnotationSet;
+
+    private final String[] STREAM_LOAD_2PC_ANNONATION_NAMES = {"TxnId", "User", "Status", "Message",
+            "SecondPhaseOperation", "FinishTime"};
+
+    private Set<String> streamLoad2PCAnnotationSet;
 
     public AuditLogBuilder() {
         pluginInfo = new PluginInfo(PluginMgr.BUILTIN_PLUGIN_PREFIX + "AuditLogBuilder", PluginType.AUDIT,
@@ -64,6 +69,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                 DigitalVersion.fromString("1.8.31"), AuditLogBuilder.class.getName(), null, null);
         loadAnnotationSet = Sets.newHashSet(LOAD_ANNONATION_NAMES);
         streamLoadAnnotationSet = Sets.newHashSet(STREAM_LOAD_ANNONATION_NAMES);
+        streamLoad2PCAnnotationSet = Sets.newHashSet(STREAM_LOAD_2PC_ANNONATION_NAMES);
     }
 
     public PluginInfo getPluginInfo() {
@@ -72,7 +78,8 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
 
     @Override
     public boolean eventFilter(EventType type) {
-        return type == EventType.AFTER_QUERY || type == EventType.LOAD_SUCCEED || type == EventType.STREAM_LOAD_FINISH;
+        return type == EventType.AFTER_QUERY || type == EventType.LOAD_SUCCEED || type == EventType.STREAM_LOAD_FINISH
+                || type == EventType.STREAM_LOAD_2PC_FINISH;
     }
 
     @Override
@@ -87,6 +94,9 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
                    break;
                case STREAM_LOAD_FINISH:
                    auditStreamLoadLog(event);
+                   break;
+               case STREAM_LOAD_2PC_FINISH:
+                   auditStreamLoad2PCLog(event);
                    break;
                default:
                    break;
@@ -160,5 +170,23 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
         }
         String auditLog = sb.toString();
         AuditLog.getStreamLoadAudit().log(auditLog);
+    }
+
+    private void auditStreamLoad2PCLog(AuditEvent event) throws IllegalAccessException {
+        Field[] fields = event.getClass().getFields();
+        Map<String, String> annotationToFieldValueMap = Maps.newHashMap();
+        for (Field f : fields) {
+            AuditField af = f.getAnnotation(AuditField.class);
+            if (af == null || !streamLoad2PCAnnotationSet.contains(af.value())) {
+                continue;
+            }
+            annotationToFieldValueMap.put(af.value(), String.valueOf(f.get(event)));
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String annotation : STREAM_LOAD_2PC_ANNONATION_NAMES) {
+            sb.append("|").append(annotation).append("=").append(annotationToFieldValueMap.get(annotation));
+        }
+        String auditLog = sb.toString();
+        AuditLog.getStreamLoad2PCAudit().log(auditLog);
     }
 }

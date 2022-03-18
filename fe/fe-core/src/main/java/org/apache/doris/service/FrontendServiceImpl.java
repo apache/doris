@@ -942,8 +942,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         long currentTimeMs = System.currentTimeMillis();
         String finishTime = TimeUtils.longToTimeString(currentTimeMs, new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
-        AuditEvent auditEvent = new StreamLoadAuditEvent.AuditEventBuilder().setEventType(EventType.STREAM_LOAD_FINISH)
-                .setTxnId(request.getTxnId()).setTwoPhaseCommit("true").setUser(request.getUser()).setStatus("Success")
+        AuditEvent auditEvent = new StreamLoadAuditEvent.AuditEventBuilder().setEventType(EventType.STREAM_LOAD_2PC_FINISH)
+                .setTxnId(request.getTxnId()).setUser(request.getUser()).setStatus("Success")
                 .setMessage(msg).setSecondPhaseOperation(txnOperation).setFinishTime(finishTime).build();
         Catalog.getCurrentCatalog().getAuditEventProcessor().handleAuditEvent(auditEvent);
     }

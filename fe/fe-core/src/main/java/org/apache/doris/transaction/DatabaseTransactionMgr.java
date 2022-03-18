@@ -1164,9 +1164,10 @@ public class DatabaseTransactionMgr {
         if (needUpdateAudit) {
             long currentTimeMs = System.currentTimeMillis();
             String finishTime = TimeUtils.longToTimeString(currentTimeMs, new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
-            AuditEvent auditEvent = new StreamLoadAuditEvent.AuditEventBuilder().setEventType(AuditEvent.EventType.STREAM_LOAD_FINISH)
-                    .setTxnId(transactionState.getTransactionId()).setTwoPhaseCommit("true").setStatus("Success")
-                    .setMessage("abort by txn manager for timeout").setSecondPhaseOperation("abort").setFinishTime(finishTime)
+            AuditEvent auditEvent = new StreamLoadAuditEvent.AuditEventBuilder().setEventType(AuditEvent.EventType.STREAM_LOAD_2PC_FINISH)
+                    .setTxnId(transactionState.getTransactionId()).setStatus("Success")
+                    .setMessage("abort by txn manager for timeout").setSecondPhaseOperation("abort")
+                    .setFinishTime(finishTime)
                     .build();
             Catalog.getCurrentCatalog().getAuditEventProcessor().handleAuditEvent(auditEvent);
         }
