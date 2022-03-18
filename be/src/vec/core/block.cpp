@@ -703,8 +703,9 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
     for (int i = 0; i < desc.slots().size(); ++i) {
         auto slot_desc = desc.slots()[i];
         auto& type_desc = slot_desc->type();
-        auto column = get_by_position(column_offset + i).column;
-        auto data_ref = type_desc.type != TYPE_ARRAY ? column->get_data_at(row) : StringRef();
+        const auto& column = get_by_position(column_offset + i).column;
+        const auto& data_ref =
+                type_desc.type != TYPE_ARRAY ? column->get_data_at(row) : StringRef();
         bool is_null = is_column_data_null(slot_desc->type(), data_ref, column, row);
         if (is_null) {
             dst->set_null(slot_desc->null_indicator_offset());
@@ -762,9 +763,9 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
                 collection_value->set(i, item_type_desc.type, &null_value);
             } else {
                 auto item_offset = offset + i;
-                auto data_ref = item_type_desc.type != TYPE_ARRAY
-                                        ? item_column->get_data_at(item_offset)
-                                        : StringRef();
+                const auto& data_ref = item_type_desc.type != TYPE_ARRAY
+                                               ? item_column->get_data_at(item_offset)
+                                               : StringRef();
                 deep_copy_slot(item_dst, pool, item_type_desc, data_ref, item_column, item_offset,
                                padding_char);
             }
