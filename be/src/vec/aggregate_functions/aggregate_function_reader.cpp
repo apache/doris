@@ -31,6 +31,7 @@ void register_aggregate_function_reader(AggregateFunctionSimpleFactory& factory)
     register_function_reader("max", create_aggregate_function_max);
     register_function_reader("min", create_aggregate_function_min);
     register_function_reader("replace_if_not_null", create_aggregate_function_replace_if_not_null);
+    register_function_reader("replace_last_if_not_null", create_aggregate_function_replace_last_if_not_null);
     register_function_reader("bitmap_union", create_aggregate_function_bitmap_union);
     register_function_reader("hll_union", create_aggregate_function_HLL_union<false>);
 }
@@ -43,6 +44,9 @@ void register_aggregate_function_reader_no_spread(AggregateFunctionSimpleFactory
 
     register_function_reader("replace", create_aggregate_function_replace, false);
     register_function_reader("replace", create_aggregate_function_replace_nullable, true);
+
+    register_function_reader("replace_last", create_aggregate_function_replace_last, false);
+    register_function_reader("replace_last", create_aggregate_function_replace_last_nullable, true);
 }
 
 } // namespace doris::vectorized

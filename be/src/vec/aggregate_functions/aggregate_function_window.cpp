@@ -139,6 +139,15 @@ AggregateFunctionPtr create_aggregate_function_replace_if_not_null(const std::st
                     name, argument_types, parameters));
 }
 
+AggregateFunctionPtr create_aggregate_function_replace_last_if_not_null(const std::string& name,
+                                                                   const DataTypes& argument_types,
+                                                                   const Array& parameters,
+                                                                   const bool result_is_nullable) {
+    return AggregateFunctionPtr(
+            create_function_single_value<WindowFunctionData, WindowFunctionLastData, false, true>(
+                    name, argument_types, parameters));
+}
+
 AggregateFunctionPtr create_aggregate_function_replace(const std::string& name,
                                                        const DataTypes& argument_types,
                                                        const Array& parameters,
@@ -148,12 +157,30 @@ AggregateFunctionPtr create_aggregate_function_replace(const std::string& name,
                     name, argument_types, parameters));
 }
 
+AggregateFunctionPtr create_aggregate_function_replace_last(const std::string& name,
+                                                       const DataTypes& argument_types,
+                                                       const Array& parameters,
+                                                       const bool result_is_nullable) {
+    return AggregateFunctionPtr(
+            create_function_single_value<WindowFunctionData, WindowFunctionLastData, false, true>(
+                    name, argument_types, parameters));
+}
+
 AggregateFunctionPtr create_aggregate_function_replace_nullable(const std::string& name,
                                                                 const DataTypes& argument_types,
                                                                 const Array& parameters,
                                                                 const bool result_is_nullable) {
     return AggregateFunctionPtr(
             create_function_single_value<WindowFunctionData, WindowFunctionFirstData, true, true>(
+                    name, argument_types, parameters));
+}
+
+AggregateFunctionPtr create_aggregate_function_replace_last_nullable(const std::string& name,
+                                                                const DataTypes& argument_types,
+                                                                const Array& parameters,
+                                                                const bool result_is_nullable) {
+    return AggregateFunctionPtr(
+            create_function_single_value<WindowFunctionData, WindowFunctionLastData, true, true>(
                     name, argument_types, parameters));
 }
 

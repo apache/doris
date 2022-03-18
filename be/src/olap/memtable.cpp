@@ -75,7 +75,13 @@ void MemTable::_init_agg_functions(const vectorized::Block* block)
                         ->column(cid)
                         .aggregation();
         std::string agg_name =
-                TabletColumn::get_string_by_aggregation_type(agg_method) + "_reader";
+                TabletColumn::get_string_by_aggregation_type(agg_method);
+        if (agg_name=="replace"){
+            agg_name += "_last";
+        }
+        agg_name += "_reader";
+        
+
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                         [](unsigned char c) { return std::tolower(c); });
 
