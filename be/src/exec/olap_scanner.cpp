@@ -269,7 +269,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     bzero(tuple_buf, state->batch_size() * _tuple_desc->byte_size());
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
 
-    std::unique_ptr<MemPool> mem_pool(new MemPool());
+    std::unique_ptr<MemPool> mem_pool(new MemPool(_mem_tracker.get()));
     int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     {

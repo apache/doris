@@ -234,7 +234,7 @@ void DiskIoMgr::BufferDescriptor::update_mem_tracker(MemTracker* tracker) {
         return;
     }
     // Only when the current tracker of desc and the parameter tracker are not null,
-    // the memory ownership will be transferred. Otherwise.
+    // the memory ownership will be transferred.
     DCHECK(_buffer_mem_tracker && tracker);
     _buffer_mem_tracker->transfer_to(tracker, _buffer_len);
     _buffer_mem_tracker = std::move(tracker);

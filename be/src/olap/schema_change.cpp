@@ -1499,6 +1499,13 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         reader_context.seek_columns = &return_columns;
         reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
 
+        // TODO(zxy) switch to tls mem tracker
+        auto mem_tracker = MemTracker::create_tracker(
+                -1,
+                "AlterTablet:" + std::to_string(base_tablet->tablet_id()) + "-" +
+                        std::to_string(new_tablet->tablet_id()),
+                _mem_tracker, MemTrackerLevel::TASK);
+
         do {
             // get history data to be converted and it will check if there is hold in base tablet
             res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
@@ -1683,7 +1690,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
                   << base_tablet->full_name();
         sc_procedure = new (nothrow) SchemaChangeWithSorting(
                 rb_changer,
-                config::memory_limitation_per_thread_for_schema_change_bytes * 1024 * 1024 * 1024);
+                config::memory_limitation_per_thread_for_schema_change_bytes);
     } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly for base_tablet " << base_tablet->full_name();
         sc_procedure = new (nothrow) SchemaChangeDirectly(rb_changer);
@@ -1834,7 +1841,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
                   << sc_params.base_tablet->full_name();
         sc_procedure = new (nothrow) SchemaChangeWithSorting(
                 rb_changer,
-                config::memory_limitation_per_thread_for_schema_change_bytes * 1024 * 1024 * 1024);
+                config::memory_limitation_per_thread_for_schema_change_bytes);
     } else if (sc_directly) {
         LOG(INFO) << "doing schema change directly for base_tablet "
                   << sc_params.base_tablet->full_name();

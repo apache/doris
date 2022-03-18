@@ -106,7 +106,7 @@ Status VEsHttpScanNode::scanner_scan(std::unique_ptr<VEsHttpScanner> scanner) {
     bool scanner_eof = false;
 
     const int batch_size = _runtime_state->batch_size();
-    std::unique_ptr<MemPool> tuple_pool(new MemPool());
+    std::unique_ptr<MemPool> tuple_pool(new MemPool(mem_tracker().get()));
     size_t slot_num = _tuple_desc->slots().size();
 
     while (!scanner_eof) {

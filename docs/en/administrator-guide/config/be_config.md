@@ -1428,7 +1428,7 @@ The size of the buffer before flashing
 ### `track_new_delete`
 
 * Type: bool
-* Description: Whether to initialize TCmalloc new/delete Hook, MemTracker is currently counted in Hook.
+* Description: Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 * Default: true
 
 ### `mem_tracker_level`

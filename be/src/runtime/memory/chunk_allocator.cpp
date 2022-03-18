@@ -136,7 +136,9 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
     MemTracker* reset_tracker =
             tracker ? tracker
                     : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get();
-    // This means the chunk's memory ownership is transferred from ChunkAllocator to MemPool.
+    // In advance, transfer the memory ownership of allocate from ChunkAllocator::tracker to the parameter tracker.
+    // Next, if the allocate is successful, it will exit normally;
+    // if the allocate fails, return this part of the memory to the parameter tracker.
     if (check_limits) {
         RETURN_IF_ERROR(_mem_tracker->try_transfer_to(reset_tracker, size));
     } else {
@@ -181,6 +183,8 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
     chunk_pool_system_alloc_count->increment(1);
     chunk_pool_system_alloc_cost_ns->increment(cost_ns);
     if (chunk->data == nullptr) {
+        // allocate fails, return this part of the memory to the parameter tracker.
+        reset_tracker->transfer_to(_mem_tracker.get(), size);
         return Status::MemoryAllocFailed(
                 fmt::format("ChunkAllocator failed to allocate chunk {} bytes", size));
     }
@@ -215,7 +219,7 @@ void ChunkAllocator::free(const Chunk& chunk, MemTracker* tracker) {
         }
     } while (!_reserved_bytes.compare_exchange_weak(old_reserved_bytes, new_reserved_bytes));
 
-    // This means the chunk's memory ownership is transferred from MemPool to ChunkAllocator.
+    // The chunk's memory ownership is transferred from MemPool to ChunkAllocator.
     if (tracker) {
         tracker->transfer_to(_mem_tracker.get(), chunk.size);
     } else {

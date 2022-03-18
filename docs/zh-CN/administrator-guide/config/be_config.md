@@ -1447,7 +1447,7 @@ webserver默认工作线程数
 ### `track_new_delete`
 
 * 类型：bool
-* 描述：是否初始化TCmalloc new/delete Hook，目前在Hook中统计MemTracker。
+* 描述：是否Hook TCmalloc new/delete，目前在Hook中统计thread local MemTracker。
 * 默认值：true
 
 ### `mem_tracker_level`

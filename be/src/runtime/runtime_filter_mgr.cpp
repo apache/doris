@@ -48,8 +48,7 @@ RuntimeFilterMgr::~RuntimeFilterMgr() {}
 
 Status RuntimeFilterMgr::init() {
     DCHECK(_state->instance_mem_tracker() != nullptr);
-    _tracker = MemTracker::create_tracker(-1, "RuntimeFilterMgr", _state->instance_mem_tracker(),
-                                          MemTrackerLevel::TASK);
+    _tracker = MemTracker::create_tracker(-1, "RuntimeFilterMgr", _state->instance_mem_tracker());
     return Status::OK();
 }
 
@@ -168,8 +167,7 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
     _query_id = query_id;
     _fragment_instance_id = fragment_instance_id;
     // TODO(zxy) used after
-    _mem_tracker = MemTracker::create_tracker(-1, "RuntimeFilterMergeControllerEntity", nullptr,
-                                              MemTrackerLevel::INSTANCE);
+    _mem_tracker = MemTracker::create_tracker(-1, "RuntimeFilterMergeControllerEntity", nullptr);
     for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
         int filter_id = filterid_to_desc.first;
         const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);

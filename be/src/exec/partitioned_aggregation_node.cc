@@ -185,8 +185,8 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     state_ = state;
 
-    mem_pool_.reset(new MemPool());
-    agg_fn_pool_.reset(new MemPool());
+    mem_pool_.reset(new MemPool(mem_tracker().get()));
+    agg_fn_pool_.reset(new MemPool(expr_mem_tracker().get()));
 
     ht_resize_timer_ = ADD_TIMER(runtime_profile(), "HTResizeTime");
     get_results_timer_ = ADD_TIMER(runtime_profile(), "GetResultsTime");

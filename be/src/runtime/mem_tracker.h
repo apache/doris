@@ -95,8 +95,6 @@ public:
     static std::shared_ptr<MemTracker> get_process_tracker();
     static MemTracker* get_raw_process_tracker();
 
-    static std::shared_ptr<MemTracker> get_process_calibrate_tracker();
-
     inline Status check_sys_mem_info(int64_t bytes) {
         if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
             return Status::MemoryLimitExceeded(fmt::format(
@@ -316,8 +314,9 @@ public:
     int64_t limit() const { return _limit; }
     void set_limit(int64_t limit) {
         DCHECK_GE(limit, -1);
+        DCHECK(!_virtual);
         _limit = limit;
-        if (!_virtual) _limit_trackers.push_back(this);
+        _limit_trackers.push_back(this);
         for (const auto& tracker_weak : _child_trackers) {
             std::shared_ptr<MemTracker> tracker = tracker_weak.lock();
             if (tracker) tracker->_limit_trackers.push_back(this);
@@ -462,8 +461,6 @@ private:
 
     // Creates the process tracker.
     static void create_process_tracker();
-    // Creates the process calibrate tracker.
-    static void create_process_calibrate_tracker();
 
     // Limit on memory consumption, in bytes. If limit_ == -1, there is no consumption limit.
     int64_t _limit;

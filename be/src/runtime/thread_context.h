@@ -54,6 +54,7 @@ public:
         COMPACTION = 3
         // to be added ...
     };
+    inline static const std::string TaskTypeStr[] = {"UNKNOWN", "QUERY", "LOAD", "COMPACTION"};
 
 public:
     ThreadContext() : _thread_id(std::this_thread::get_id()), _type(TaskType::UNKNOWN) {
@@ -87,16 +88,7 @@ public:
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
 
     inline static const std::string task_type_string(ThreadContext::TaskType type) {
-        switch (type) {
-        case ThreadContext::TaskType::QUERY:
-            return "QUERY";
-        case ThreadContext::TaskType::LOAD:
-            return "LOAD";
-        case ThreadContext::TaskType::COMPACTION:
-            return "COMPACTION";
-        default:
-            return "UNKNOWN";
-        }
+        return TaskTypeStr[type];
     }
 
     void consume_mem(int64_t size) {

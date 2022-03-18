@@ -97,7 +97,7 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
-    _build_pool.reset(new MemPool());
+    _build_pool.reset(new MemPool(mem_tracker().get()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _push_down_timer = ADD_TIMER(runtime_profile(), "PushDownTime");
     _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");

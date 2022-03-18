@@ -70,7 +70,6 @@ class ThreadMemTrackerMgr {
 public:
     ThreadMemTrackerMgr() {
         _mem_trackers["process"] = MemTracker::get_process_tracker();
-        _new_mem_trackers = MemTracker::get_process_calibrate_tracker();
         _untracked_mems["process"] = 0;
         _tracker_id = "process";
         start_thread_mem_tracker = true;
@@ -85,11 +84,9 @@ public:
             if (untracked_mem.second != 0) {
                 DCHECK(_mem_trackers[untracked_mem.first]);
                 _mem_trackers[untracked_mem.first]->consume(untracked_mem.second);
-                _new_mem_trackers->consume(untracked_mem.second);
             }
         }
         _mem_trackers[_tracker_id]->consume(_untracked_mem);
-        _new_mem_trackers->consume(_untracked_mem);
         _untracked_mem = 0;
     }
 
@@ -137,7 +134,6 @@ private:
     std::unordered_map<std::string, std::shared_ptr<MemTracker>> _mem_trackers;
     std::string _tracker_id;
     std::unordered_map<std::string, int64_t> _untracked_mems;
-    std::shared_ptr<MemTracker> _new_mem_trackers;
 
     // Avoid memory allocation in functions and fall into an infinite loop
     std::string _temp_tracker_id;
@@ -179,6 +175,7 @@ inline void ThreadMemTrackerMgr::cache_consume(int64_t size) {
             _untracked_mems[_tracker_id] = 0;
         }
         // Avoid getting stuck in infinite loop if there is memory allocation in noncache_consume.
+        // For example: GC function when try_consume; mem_limit_exceeded.
         start_thread_mem_tracker = false;
         noncache_consume();
         start_thread_mem_tracker = true;
@@ -187,7 +184,6 @@ inline void ThreadMemTrackerMgr::cache_consume(int64_t size) {
 
 inline void ThreadMemTrackerMgr::noncache_consume() {
     DCHECK(_mem_trackers[_tracker_id]);
-    _new_mem_trackers->consume(_untracked_mem);
     Status st = _mem_trackers[_tracker_id]->try_consume(_untracked_mem);
     if (!st) {
         // The memory has been allocated, so when TryConsume fails, need to continue to complete

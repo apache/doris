@@ -58,23 +58,6 @@ MemTracker* MemTracker::get_raw_process_tracker() {
     return raw_process_tracker;
 }
 
-// Without parent and child, process memory is recorded independently,
-// used to calibrate the accuracy of process_tracker consumption,
-// and can also be used to detect memory leaks.
-static std::shared_ptr<MemTracker> process_calibrate_tracker;
-static GoogleOnceType process_calibrate_tracker_once = GOOGLE_ONCE_INIT;
-
-void MemTracker::create_process_calibrate_tracker() {
-    process_calibrate_tracker.reset(
-            new MemTracker(-1, "ProcessCalibrate", nullptr, MemTrackerLevel::OVERVIEW, nullptr));
-    process_calibrate_tracker->init();
-}
-
-std::shared_ptr<MemTracker> MemTracker::get_process_calibrate_tracker() {
-    GoogleOnceInit(&process_calibrate_tracker_once, &MemTracker::create_process_calibrate_tracker);
-    return process_calibrate_tracker;
-}
-
 void MemTracker::list_process_trackers(std::vector<std::shared_ptr<MemTracker>>* trackers) {
     trackers->clear();
     std::deque<std::shared_ptr<MemTracker>> to_process;

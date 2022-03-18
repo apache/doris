@@ -263,8 +263,7 @@ VDataStreamRecvr::VDataStreamRecvr(
             MemTracker::create_tracker(-1, "VDataStreamRecvr:" + print_id(_fragment_instance_id),
                                        nullptr, MemTrackerLevel::VERBOSE, _profile);
     _block_mem_tracker = MemTracker::create_virtual_tracker(
-            -1, "VDataStreamRecvr:block:" + print_id(_fragment_instance_id), nullptr,
-            MemTrackerLevel::VERBOSE);
+            -1, "VDataStreamRecvr:block:" + print_id(_fragment_instance_id), _mem_tracker);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;

@@ -365,8 +365,12 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash, MemTracker* tracker) {
     // free handle out of mutex, when last_ref is true, e must not be nullptr
     if (last_ref) {
         e->free();
+        // The parameter tracker is ShardedLRUCache::_mem_tracker,
+        // because the memory released by LRUHandle is recorded in the tls mem tracker,
+        // so this part of the memory is subsidized from ShardedLRUCache::_mem_tracker to the tls mem tracker
+        tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(),
+                            e->charge);
     }
-    tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(), e->charge);
 }
 
 int64_t LRUCache::prune() {
@@ -472,7 +476,10 @@ ShardedLRUCache::~ShardedLRUCache() {
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
                                        void (*deleter)(const CacheKey& key, void* value),
                                        CachePriority priority) {
-    thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(), charge);
+    // The memory of the parameter value should be recorded in the tls mem tracker,
+    // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
+    thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(),
+                                                                                charge);
     const uint32_t hash = _hash_slice(key);
     return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, priority);
 }

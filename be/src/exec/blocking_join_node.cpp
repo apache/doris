@@ -47,7 +47,7 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
 
-    _build_pool.reset(new MemPool());
+    _build_pool.reset(new MemPool(mem_tracker().get()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _left_child_timer = ADD_TIMER(runtime_profile(), "LeftChildTime");
     _build_row_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);

@@ -78,10 +78,10 @@ void ThreadMemTrackerMgr::exceeded(int64_t mem_usage, Status st) {
         if (_consume_err_call_back.cancel_task == true) {
             exceeded_cancel_task(rst.to_string());
         } else {
-            // TODO(zxy) Should log a little, but not too often.
+            // TODO(zxy) Need other processing, or log (not too often).
         }
     } else {
-        // TODO(zxy) Should log a little, but not too often.
+        // TODO(zxy) Need other processing, or log (not too often).
     }
 }
 } // namespace doris
