@@ -76,7 +76,7 @@ Doris 数据模型上目前分为三类: AGGREGATE KEY, UNIQUE KEY, DUPLICATE KE
 
 使用过程中，建议用户尽量使用 Star Schema 区分维度表和指标表。频繁更新的维度表也可以放在 MySQL 外部表中。而如果只有少量更新, 可以直接放在 Doris 中。在 Doris 中存储维度表时，可对维度表设置更多的副本，提升 Join 的性能。
  
-### 1.4 分区和分桶
+### 1.3 分区和分桶
 
 Doris 支持两级分区存储, 第一层为 RANGE 分区(partition), 第二层为 HASH 分桶(bucket)。
 
@@ -95,7 +95,7 @@ Doris 支持两级分区存储, 第一层为 RANGE 分区(partition), 第二层�
     * 建议采用区分度大的列做分桶, 避免出现数据倾斜
     * 为方便数据恢复, 建议单个 bucket 的 size 不要太大, 保持在 10GB 以内, 所以建表或增加 partition 时请合理考虑 bucket 数目, 其中不同 partition 可指定不同的 buckets 数。
 
-### 1.5 稀疏索引和 Bloom Filter
+### 1.4 稀疏索引和 Bloom Filter
 
 Doris对数据进行有序存储, 在数据有序的基础上为其建立稀疏索引,索引粒度为 block(1024行)。
 
@@ -105,7 +105,7 @@ Doris对数据进行有序存储, 在数据有序的基础上为其建立稀疏�
 * 这其中有一个特殊的地方,就是 varchar 类型的字段。varchar 类型字段只能作为稀疏索引的最后一个字段。索引会在 varchar 处截断, 因此 varchar 如果出现在前面，可能索引的长度可能不足 36 个字节。具体可以参阅 [数据模型、ROLLUP 及前缀索引](./data-model-rollup.md)。
 * 除稀疏索引之外, Doris还提供bloomfilter索引, bloomfilter索引对区分度比较大的列过滤效果明显。 如果考虑到varchar不能放在稀疏索引中, 可以建立bloomfilter索引。
 
-### 1.6 物化视图(rollup)
+### 1.5 物化视图(rollup)
 
 Rollup 本质上可以理解为原始表(Base Table)的一个物化索引。建立 Rollup 时可只选取 Base Table 中的部分列作为 Schema。Schema 中的字段顺序也可与 Base Table 不同。
 
