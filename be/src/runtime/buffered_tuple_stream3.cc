@@ -373,9 +373,8 @@ Status BufferedTupleStream3::NewWritePage(int64_t page_len) noexcept {
     return Status::OK();
 }
 
-Status BufferedTupleStream3::CalcPageLenForRow(int64_t row_size, int64_t* page_len) {
+void BufferedTupleStream3::CalcPageLenForRow(int64_t row_size, int64_t* page_len) {
     *page_len = std::max(default_page_len_, BitUtil::RoundUpToPowerOfTwo(row_size));
-    return Status::OK();
 }
 
 Status BufferedTupleStream3::AdvanceWritePage(int64_t row_size, bool* got_reservation) noexcept {
@@ -384,10 +383,7 @@ Status BufferedTupleStream3::AdvanceWritePage(int64_t row_size, bool* got_reserv
 
     int64_t page_len;
 
-    Status status = CalcPageLenForRow(row_size, &page_len);
-    if (!status.ok()) {
-        return status;
-    }
+    CalcPageLenForRow(row_size, &page_len);
 
     // Reservation may have been saved for the next write page, e.g. by PrepareForWrite()
     // if the stream is empty.
@@ -429,7 +425,7 @@ Status BufferedTupleStream3::AdvanceWritePage(int64_t row_size, bool* got_reserv
     }
     ResetWritePage();
     //RETURN_IF_ERROR(NewWritePage(page_len));
-    status = NewWritePage(page_len);
+    Status status = NewWritePage(page_len);
     if (UNLIKELY(!status.ok())) {
         return status;
     }
