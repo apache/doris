@@ -72,6 +72,7 @@ Recovery operations need to specify a backup that already exists in a remote rep
 
 We currently support full backup at the minimum partition granularity (incremental backup may be supported in future versions). If data need to be backed up regularly, first of all, it is necessary to plan the partition and bucket allocation of tables reasonably, such as partitioning according to time. Then in the subsequent run process, periodic data backup is performed according to partition granularity.
 
+
 ### Data migration
 
 Users can first backup the data to the remote warehouse, and then restore the data to another cluster through the remote warehouse to complete data migration. Because data backup is done in the form of snapshots, new imported data after the snapshot phase of the backup job will not be backed up. Therefore, after the snapshot is completed, the data imported on the original cluster needs to be imported on the new cluster as well until the recovery job is completed.
@@ -100,6 +101,12 @@ The commands related to the backup recovery function are as follows. The followi
 1. BACKUP
 
 	Perform a backup operation.
+	
+>**Note**: If the table is a dynamic partition table, the dynamic partition attribute will be automatically disabled after backup. When restoring, you need to manually enable the dynamic partition attribute of the table
+>
+>````sql
+>ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
+>````
 
 3. SHOW BACKUP
 

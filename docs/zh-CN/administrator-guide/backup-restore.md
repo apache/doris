@@ -96,9 +96,15 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
 
     创建一个远端仓库路径，用于备份或恢复。该命令需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](broker.md)，也可以直接通过S3 协议备份到支持AWS S3协议的远程存储上去，具体参考 [创建远程仓库文档](../sql-reference/sql-statements/Data%20Definition/CREATE%20REPOSITORY.md)
 
-1. BACKUP
+2. BACKUP
 
     执行一次备份操作。
+
+>**注意**：如果该表是动态分区表，备份之后会自动禁用动态分区属性，在做恢复的时候需要手动将该表的动态分区属性启用
+>
+>```sql
+>ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
+>```
 
 3. SHOW BACKUP
 
