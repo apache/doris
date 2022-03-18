@@ -170,7 +170,7 @@ public:
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
-    Status mark_close();
+    void mark_close();
     Status close_wait(RuntimeState* state);
 
     void cancel(const std::string& cancel_msg);
@@ -284,6 +284,17 @@ private:
 
     // the timestamp when this node channel be marked closed and finished closed
     uint64_t _close_time_ms = 0;
+
+    // lock to protect _is_closed.
+    // The methods in the IndexChannel are called back in the RpcClosure in the NodeChannel.
+    // However, this rpc callback may occur after the whole task is finished (e.g. due to network latency),
+    // and by that time the IndexChannel may have been destructured, so we should not call the
+    // IndexChannel methods anymore, otherwise the BE will crash.
+    // Therefore, we use the _is_closed and _closed_lock to ensure that the RPC callback
+    // function will not call the IndexChannel method after the NodeChannel is closed.
+    // The IndexChannel is definitely accessible until the NodeChannel is closed.
+    std::mutex _closed_lock;
+    bool _is_closed = false;
 };
 
 class IndexChannel {
@@ -425,7 +436,7 @@ protected:
     Bitmap _filter_bitmap;
 
     // index_channel
-    std::vector<IndexChannel*> _channels;
+    std::vector<std::shared_ptr<IndexChannel>> _channels;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _sender_thread;
