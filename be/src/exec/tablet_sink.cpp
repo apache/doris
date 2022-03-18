@@ -34,6 +34,7 @@
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
+#include "util/defer_op.h"
 #include "util/monotime.h"
 #include "util/proto_util.h"
 #include "util/threadpool.h"
@@ -183,6 +184,12 @@ Status NodeChannel::open_wait() {
     // add batch closure
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this](bool is_last_rpc) {
+        std::lock_guard<std::mutex> l(this->_closed_lock);
+        if (this->_is_closed) {
+            // if the node channel is closed, no need to call `mark_as_failed`,
+            // and notice that _index_channel may already be destroyed.
+            return;
+        }
         // If rpc failed, mark all tablets on this node channel as failed
         _index_channel->mark_as_failed(this->node_id(), this->host(), _add_batch_closure->cntl.ErrorText(), -1);
         Status st = _index_channel->check_intolerable_failure();
@@ -197,6 +204,12 @@ Status NodeChannel::open_wait() {
 
     _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
                                                  bool is_last_rpc) {
+        std::lock_guard<std::mutex> l(this->_closed_lock);
+        if (this->_is_closed) {
+            // if the node channel is closed, no need to call the following logic,
+            // and notice that _index_channel may already be destroyed.
+            return;
+        }
         Status status(result.status());
         if (status.ok()) {
             // if has error tablet, handle them first
@@ -329,15 +342,10 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
     return Status::OK();
 }
 
-Status NodeChannel::mark_close() {
+void NodeChannel::mark_close() {
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
-        if (_cancelled) {
-            std::lock_guard<SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("mark close failed. " + _cancel_msg);
-        } else {
-            return st.clone_and_prepend("already stopped, can't mark as closed. cancelled/eos: ");
-        }
+        return;
     }
 
     _cur_add_batch_request.set_eos(true);
@@ -354,10 +362,16 @@ Status NodeChannel::mark_close() {
     }
 
     _eos_is_produced = true;
-    return Status::OK();
+    return;
 }
 
 Status NodeChannel::close_wait(RuntimeState* state) {
+    // set _is_closed to true finally
+    Defer set_closed {[&]() {
+        std::lock_guard<std::mutex> l(_closed_lock);
+        _is_closed = true;
+    }};
+
     auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
         if (_cancelled) {
@@ -801,7 +815,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
                 tablets.emplace_back(std::move(tablet_with_partition));
             }
         }
-        auto channel = _pool->add(new IndexChannel(this, index->index_id));
+        auto channel = std::make_shared<IndexChannel>(this, index->index_id);
         RETURN_IF_ERROR(channel->init(state, tablets));
         _channels.emplace_back(channel);
     }
