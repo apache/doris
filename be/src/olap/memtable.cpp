@@ -139,9 +139,9 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
         }
     }
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    size_t oldsize = block->allocated_bytes();
+    size_t oldsize = _input_mutable_block.allocated_bytes();
     _input_mutable_block.add_rows(block, row_pos, num_rows);
-    size_t newsize = block->allocated_bytes();
+    size_t newsize = _input_mutable_block.allocated_bytes();
     _mem_tracker->Consume(newsize - oldsize);
 
     for(int i = 0; i < num_rows; i++){       
