@@ -237,6 +237,10 @@ CONF_Bool(enable_storage_vectorization, "false");
 // be policy
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
+
+// whether enable vectorized compaction
+CONF_Bool(enable_compaction_vectorization, "false");
+
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
 
