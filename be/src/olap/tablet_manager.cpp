@@ -1224,8 +1224,9 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id, bo
 TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id) {
     VLOG_NOTICE << "begin to get tablet. tablet_id=" << tablet_id;
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
-    if (tablet_map.find(tablet_id) != tablet_map.end()) {
-        return tablet_map[tablet_id];
+    const auto& iter = tablet_map.find(tablet_id);
+    if (iter != tablet_map.end()) {
+        return iter->second;
     }
     return nullptr;
 }
