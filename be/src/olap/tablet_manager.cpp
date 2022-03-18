@@ -94,8 +94,9 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const Tablet
 
     TabletSharedPtr existed_tablet = nullptr;
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
-    if (tablet_map.find(tablet_id) != tablet_map.end()) {
-        existed_tablet = tablet_map[tablet_id];
+    const auto& iter = tablet_map.find(tablet_id);
+    if (iter != tablet_map.end()) {
+        existed_tablet = iter->second;
     }
 
     if (existed_tablet == nullptr) {
