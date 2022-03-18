@@ -246,8 +246,7 @@ public:
     double calculate_scan_frequency();
 
     Status prepare_compaction_and_calculate_permits(CompactionType compaction_type,
-                                                    TabletSharedPtr tablet,
-                                                    int64_t* permits);
+                                                    TabletSharedPtr tablet, int64_t* permits);
     void execute_compaction(CompactionType compaction_type);
     void reset_compaction(CompactionType compaction_type);
 
@@ -263,7 +262,10 @@ public:
         return _cumulative_compaction_policy;
     }
 
-    inline bool all_beta() const { return _tablet_meta->all_beta(); }
+    inline bool all_beta() const {
+        ReadLock rdlock(_meta_lock);
+        return _tablet_meta->all_beta();
+    }
 
 private:
     OLAPStatus _init_once_action();
@@ -274,7 +276,8 @@ private:
     // Returns:
     // version: the max continuous version from beginning
     // max_version: the max version of this tablet
-    void _max_continuous_version_from_beginning_unlocked(Version* version, Version* max_version) const;
+    void _max_continuous_version_from_beginning_unlocked(Version* version,
+                                                         Version* max_version) const;
     RowsetSharedPtr _rowset_with_largest_size();
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
     /// but also delete the version in rowset meta vector.
