@@ -19,9 +19,27 @@ sql """ INSERT INTO ${tableName} VALUES
     (400, 'Dan', 50, 4, 'Street 4')  """
 
 sql """ set enable_lateral_view = true """
+
+// not vectorized
+qt_explose_json_array """ SELECT * FROM ${tableName} 
+                    LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[30, 60]') t1 as c_age 
+                    LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age """
+
+qt_explose_json_array """ SELECT c_age, COUNT(1) FROM ${tableName}
+                    LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[30, 60]') t1 as c_age 
+                    LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[40, 80]') t2 as d_age 
+                    GROUP BY c_age """
+
+qt_explose_json_array """ SELECT * FROM ${tableName}
+                        LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[]') t1 AS c_age """
+
+qt_explose_json_array """ SELECT * FROM ${tableName}
+                    LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]') t1 as c 
+                    LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d """
+
+// vectorized
 sql """ set enable_vectorized_engine = true """
 
-qt_explose_json_array """ SELECT * FROM ${tableName} """
 qt_explose_json_array """ select @@enable_vectorized_engine """
 qt_explose_json_array """ SELECT * FROM ${tableName} 
                     LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[30, 60]') t1 as c_age 
@@ -35,6 +53,6 @@ qt_explose_json_array """ SELECT c_age, COUNT(1) FROM ${tableName}
 qt_explose_json_array """ SELECT * FROM ${tableName}
                         LATERAL VIEW EXPLODE_JSON_ARRAY_INT('[]') t1 AS c_age """
 
-qt_explose_json_array """ SELECT * FROM person
+qt_explose_json_array """ SELECT * FROM ${tableName}
                     LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]') t1 as c 
                     LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d """

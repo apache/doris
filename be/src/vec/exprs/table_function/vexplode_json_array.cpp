@@ -23,7 +23,7 @@
 namespace doris::vectorized {
 
 VExplodeJsonArrayTableFunction::VExplodeJsonArrayTableFunction(ExplodeJsonArrayType type)
-    : ExplodeJsonArrayTableFunction(type) {
+        : ExplodeJsonArrayTableFunction(type) {
     _fn_name = "vexplode_json_array";
 }
 
@@ -48,7 +48,8 @@ Status VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
     } else {
         rapidjson::Document document;
         document.Parse(text.data, text.size);
-        if (UNLIKELY(document.HasParseError()) || !document.IsArray() || document.GetArray().Size() == 0) {
+        if (UNLIKELY(document.HasParseError()) || !document.IsArray() ||
+            document.GetArray().Size() == 0) {
             _is_current_empty = true;
         } else {
             _cur_size = _parsed_data.set_output(_type, document);
@@ -68,6 +69,15 @@ Status VExplodeJsonArrayTableFunction::get_value_length(int64_t* length) {
         *length = -1;
     } else {
         _parsed_data.get_value_length(_type, _cur_offset, length);
+    }
+    return Status::OK();
+}
+
+Status VExplodeJsonArrayTableFunction::get_value(void** output) {
+    if (_is_current_empty) {
+        *output = nullptr;
+    } else {
+        _parsed_data.get_value(_type, _cur_offset, output, true);
     }
     return Status::OK();
 }

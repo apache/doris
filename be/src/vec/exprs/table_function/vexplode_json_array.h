@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include "exprs/table_function/explode_json_array.h"
-
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
+
+#include "exprs/table_function/explode_json_array.h"
 #include "gutil/strings/stringpiece.h"
 #include "runtime/string_value.h"
 #include "vec/columns/column.h"
@@ -35,6 +35,7 @@ public:
     virtual Status process_init(vectorized::Block* block) override;
     virtual Status process_row(size_t row_idx) override;
     virtual Status process_close() override;
+    virtual Status get_value(void** output) override;
     virtual Status get_value_length(int64_t* length) override;
 
 private:

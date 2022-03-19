@@ -185,7 +185,7 @@ Status ExplodeJsonArrayTableFunction::get_value(void** output) {
     if (_is_current_empty) {
         *output = nullptr;
     } else {
-        _parsed_data.get_value(_type, _cur_offset, output, true);
+        _parsed_data.get_value(_type, _cur_offset, output);
     }
     return Status::OK();
 }

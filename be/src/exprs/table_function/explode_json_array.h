@@ -17,20 +17,16 @@
 
 #pragma once
 
-#include "exprs/table_function/table_function.h"
-
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
+
+#include "exprs/table_function/table_function.h"
 #include "gutil/strings/stringpiece.h"
 #include "runtime/string_value.h"
 
 namespace doris {
 
-enum ExplodeJsonArrayType {
-    INT = 0,
-    DOUBLE,
-    STRING
-};
+enum ExplodeJsonArrayType { INT = 0, DOUBLE, STRING };
 
 struct ParsedData {
     static std::string true_value;
@@ -48,68 +44,68 @@ struct ParsedData {
 
     void reset(ExplodeJsonArrayType type) {
         switch (type) {
-            case ExplodeJsonArrayType::INT:
-                _data.clear();
-                _backup_int.clear();
-                break;
-            case ExplodeJsonArrayType::DOUBLE:
-                _data.clear();
-                _backup_double.clear();
-                break;
-            case ExplodeJsonArrayType::STRING:
-                _data_string.clear();
-                _backup_string.clear();
-                _string_nulls.clear();
-                break;
-            default:
-                CHECK(false) << type;
-                break;
+        case ExplodeJsonArrayType::INT:
+            _data.clear();
+            _backup_int.clear();
+            break;
+        case ExplodeJsonArrayType::DOUBLE:
+            _data.clear();
+            _backup_double.clear();
+            break;
+        case ExplodeJsonArrayType::STRING:
+            _data_string.clear();
+            _backup_string.clear();
+            _string_nulls.clear();
+            break;
+        default:
+            CHECK(false) << type;
+            break;
         }
     }
 
     void set_null_output(ExplodeJsonArrayType type) {
         switch (type) {
-            case ExplodeJsonArrayType::INT:
-            case ExplodeJsonArrayType::DOUBLE:
-                _data.resize(1);
-                _data[0] = nullptr;
-                break;
-            case ExplodeJsonArrayType::STRING:
-                _string_nulls.resize(1);
-                _string_nulls[0] = true;
-                break;
-            default:
-                CHECK(false) << type;
-                break;
+        case ExplodeJsonArrayType::INT:
+        case ExplodeJsonArrayType::DOUBLE:
+            _data.resize(1);
+            _data[0] = nullptr;
+            break;
+        case ExplodeJsonArrayType::STRING:
+            _string_nulls.resize(1);
+            _string_nulls[0] = true;
+            break;
+        default:
+            CHECK(false) << type;
+            break;
         }
     }
 
     void get_value(ExplodeJsonArrayType type, int64_t offset, void** output, bool real = false) {
-        switch(type) {
-            case ExplodeJsonArrayType::INT:
-            case ExplodeJsonArrayType::DOUBLE:
-                *output = _data[offset];
-                break;
-            case ExplodeJsonArrayType::STRING:
-                *output = _string_nulls[offset] ? nullptr : 
-                          real ?  reinterpret_cast<void*>(_backup_string[offset].data()) : 
-                          &_data_string[offset];
-                break;
-            default:
-                CHECK(false) << type;
+        switch (type) {
+        case ExplodeJsonArrayType::INT:
+        case ExplodeJsonArrayType::DOUBLE:
+            *output = _data[offset];
+            break;
+        case ExplodeJsonArrayType::STRING:
+            *output = _string_nulls[offset] ? nullptr
+                      : real                ? reinterpret_cast<void*>(_backup_string[offset].data())
+                                            : &_data_string[offset];
+            break;
+        default:
+            CHECK(false) << type;
         }
     }
 
     void get_value_length(ExplodeJsonArrayType type, int64_t offset, int64_t* length) {
-        switch(type) {
-            case ExplodeJsonArrayType::INT:
-            case ExplodeJsonArrayType::DOUBLE:
-                break;
-            case ExplodeJsonArrayType::STRING:
-                *length = _string_nulls[offset] ? -1 : _backup_string[offset].size();
-                break;
-            default:
-                CHECK(false) << type;
+        switch (type) {
+        case ExplodeJsonArrayType::INT:
+        case ExplodeJsonArrayType::DOUBLE:
+            break;
+        case ExplodeJsonArrayType::STRING:
+            *length = _string_nulls[offset] ? -1 : _backup_string[offset].size();
+            break;
+        default:
+            CHECK(false) << type;
         }
     }
 

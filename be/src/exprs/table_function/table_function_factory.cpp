@@ -26,7 +26,6 @@
 #include "vec/exprs/table_function/vexplode_split.h"
 #include "vec/exprs/table_function/vexplode_json_array.h"
 
-
 namespace doris {
 
 template <typename TableFunctionType>
@@ -54,17 +53,20 @@ inline auto ExplodeJsonArrayStringCreator =
         TableFunctionCreator<ExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::STRING};
 
 inline auto VExplodeJsonArrayIntCreator =
-        TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::INT};
+        TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {
+                ExplodeJsonArrayType::INT};
 inline auto VExplodeJsonArrayDoubleCreator =
-        TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::DOUBLE};
+        TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {
+                ExplodeJsonArrayType::DOUBLE};
 inline auto VExplodeJsonArrayStringCreator =
-        TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::STRING};
+        TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {
+                ExplodeJsonArrayType::STRING};
 
 //{fn_name,is_vectorized}->table_function_creator
 const std::unordered_map<std::pair<std::string, bool>, std::function<TableFunction*()>>
         TableFunctionFactory::_function_map {
-                {{"explode_split", false}, TableFunctionCreator<ExplodeSplitTableFunction>{}},
-                {{"explode_bitmap", false}, TableFunctionCreator<ExplodeBitmapTableFunction>{}},
+                {{"explode_split", false}, TableFunctionCreator<ExplodeSplitTableFunction> {}},
+                {{"explode_bitmap", false}, TableFunctionCreator<ExplodeBitmapTableFunction> {}},
                 {{"explode_json_array_int", false}, ExplodeJsonArrayIntCreator},
                 {{"explode_json_array_double", false}, ExplodeJsonArrayDoubleCreator},
                 {{"explode_json_array_string", false}, ExplodeJsonArrayStringCreator},
