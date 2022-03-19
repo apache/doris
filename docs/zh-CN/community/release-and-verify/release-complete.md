@@ -92,6 +92,10 @@ http://archive.apache.org/dist/incubator/doris/KEYS
 
 refer to: <http://www.apache.org/dev/release-download-pages#closer>
 
+### Maven
+
+在 [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) 中找到对应的 Staging Repo, 点击 `Release` 进行正式发布。
+
 ### 准备 release note
 
 需要修改如下两个地方：
@@ -109,6 +113,7 @@ https://github.com/apache/incubator-doris/releases/tag/0.9.0-rc01
 docs/zh-CN/downloads/downloads.md
 docs/en/downloads/downloads.md
 ```
+
 1. 需要将上一次发布版本的下载包地址改为 apache 的归档地址（见后）。
 2. 增加新版本的下载信息。
 

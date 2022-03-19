@@ -93,6 +93,10 @@ http://archive.apache.org/dist/incubator/doris/KEYS
 
 refer to: <http://www.apache.org/dev/release-download-pages#closer>
 
+### Maven
+
+Find staging repo on [https://repository.apache.org/#stagingRepositories](https://repository.apache.org/#stagingRepositories) and click `Release` to release.
+
 ### Prepare the release note
 
 The following two places need to be modified.

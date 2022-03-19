@@ -56,19 +56,18 @@ After successful compilation, the file `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.ja
 
 ## Using Maven
 
-Add dependency
 ```
 <dependency>
   <groupId>org.apache.doris</groupId>
-  <artifactId>doris-spark-connector</artifactId>
-  <version>2.3.4-2.11-SNAPSHOT</version>
+  <artifactId>spark-doris-connector-3.1_2.12</artifactId>
+  <!--artifactId>spark-doris-connector-2.3_2.11</artifactId-->
+  <version>1.0.1</version>
 </dependency>
 ```
 
-**Remark**
+**Notes**
 
-`2.3.4-2.11` can be repacled with `3.1.2-2.12` base on you spark and scala version
-
+Please replace the Connector version according to the different Spark and Scala versions.
 
 ## Example
 ### Read
