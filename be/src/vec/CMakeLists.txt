@@ -113,6 +113,7 @@ set(VEC_FILES
   exprs/table_function/vexplode_numbers.cpp
   functions/array/function_array_index.cpp
   functions/array/function_array_register.cpp
+  exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
   functions/function_bitmap_variadic.cpp

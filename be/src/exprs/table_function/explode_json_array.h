@@ -84,14 +84,29 @@ struct ParsedData {
         }
     }
 
-    void get_value(ExplodeJsonArrayType type, int64_t offset, void** output) {
+    void get_value(ExplodeJsonArrayType type, int64_t offset, void** output, bool real = false) {
         switch(type) {
             case ExplodeJsonArrayType::INT:
             case ExplodeJsonArrayType::DOUBLE:
                 *output = _data[offset];
                 break;
             case ExplodeJsonArrayType::STRING:
-                *output = _string_nulls[offset] ? nullptr : &_data_string[offset];
+                *output = _string_nulls[offset] ? nullptr : 
+                          real ?  reinterpret_cast<void*>(_backup_string[offset].data()) : 
+                          &_data_string[offset];
+                break;
+            default:
+                CHECK(false) << type;
+        }
+    }
+
+    void get_value_length(ExplodeJsonArrayType type, int64_t offset, int64_t* length) {
+        switch(type) {
+            case ExplodeJsonArrayType::INT:
+            case ExplodeJsonArrayType::DOUBLE:
+                break;
+            case ExplodeJsonArrayType::STRING:
+                *length = _string_nulls[offset] ? -1 : _backup_string[offset].size();
                 break;
             default:
                 CHECK(false) << type;
@@ -116,7 +131,7 @@ public:
 private:
     void _set_null_output();
 
-private:
+protected:
     ParsedData _parsed_data;
 
     ExplodeJsonArrayType _type;
