@@ -1509,19 +1509,13 @@ The Apache Software License, Version 2.0
     * flatbuffers: 2.0.0
     * brpc: 1.0.0
     * rocksdb: 5.14.2
-    * arrow: 5.0.0
+    * arrow: 7.0.0
     * S2: 0.9.0
-    * croaringbitmap: 0.3.4
+    * croaringbitmap: 0.4.0
     * parallel-hashmap: 1.33
-    * orc: 1.6.6
+    * orc: 1.7.2
     * cctz: 2.3
-    * aws-c-common: 0.4.63
-    * aws-c-event-stream: 0.2.6
-    * aws-checksums: 0.1.10
-    * aws-c-io: 0.7.0
-    * aws-s2n: 0.10.0
-    * aws-c-cal: 0.4.5
-    * aws sdk: 1.8.108
+    * aws sdk: 1.9.211
     * benchmark: 1.5.6
     * simdjson: 1.0.2
 
@@ -1548,7 +1542,7 @@ Other dependencies:
     * unixodbc: 2.3.7 -- license/LICENSE-unixodbc.txt
     * leveldb: 1.20 -- license/LICENSE-leveldb.txt
     * cyrus-sasl: 2.1.27 -- license/LICENSE-cyrus-sasl.txt
-    * librdkafka: 1.8.0 -- license/LICENSE-librdkafka.txt
+    * librdkafka: 1.8.2 -- license/LICENSE-librdkafka.txt
     * zstd: 1.5.0 -- license/LICENSE-zstd.txt
     * brotli: 1.0.9 -- license/LICENSE-brotli.txt
     * bitshuffle: 0.3.5 -- license/LICENSE-bigshuffle.txt
