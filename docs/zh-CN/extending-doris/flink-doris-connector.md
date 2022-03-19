@@ -87,14 +87,17 @@ enable_http_server_v2 = true
 ```
 <dependency>
   <groupId>org.apache.doris</groupId>
-  <artifactId>doris-flink-connector</artifactId>
-  <version>1.11.6-2.12-SNAPSHOT</version>
+  <artifactId>flink-doris-connector-1.14_2.12</artifactId>
+  <!--artifactId>flink-doris-connector-1.13_2.12</artifactId-->
+  <!--artifactId>flink-doris-connector-1.12_2.12</artifactId-->
+  <!--artifactId>flink-doris-connector-1.11_2.12</artifactId-->
+  <version>1.0.3</version>
 </dependency>
 ```
 
 **备注**
 
-`1.11.6 ` 可以根据flink 版本替换成替换成 `1.12.7` 或者 `1.13.5`
+请根据不同的 Flink 和 Scala 版本替换相应的 Connector 版本。
 
 ## 使用方法
 

@@ -57,18 +57,18 @@ sh build.sh 3.1.2 2.12 ## spark 3.1.2, scala 2.12
 
 ## 使用Maven管理
 
-添加依赖
 ```
 <dependency>
   <groupId>org.apache.doris</groupId>
-  <artifactId>doris-spark-connector</artifactId>
-  <version>2.3.4-2.11-SNAPSHOT</version>
+  <artifactId>spark-doris-connector-3.1_2.12</artifactId>
+  <!--artifactId>spark-doris-connector-2.3_2.11</artifactId-->
+  <version>1.0.1</version>
 </dependency>
 ```
 
 **注意**
 
-`2.3.4-2.11` 可以根据spark和scala 版本替换成 `3.1.2-2.12`
+请根据不同的 Spark 和 Scala 版本替换相应的 Connector 版本。
 
 ## 使用示例
 ### 读取
