@@ -83,8 +83,7 @@ Status BlockingJoinNode::close(RuntimeState* state) {
 }
 
 void BlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
-    SCOPED_ATTACH_TASK_THREAD(state->query_type(), print_id(state->query_id()),
-                              state->fragment_instance_id(), mem_tracker());
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     status->set_value(construct_build_side(state));
 }
 

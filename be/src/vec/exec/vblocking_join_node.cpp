@@ -68,8 +68,7 @@ Status VBlockingJoinNode::close(RuntimeState* state) {
 }
 
 void VBlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
-    SCOPED_ATTACH_TASK_THREAD(state->query_type(), print_id(state->query_id()),
-                              state->fragment_instance_id(), mem_tracker());
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     status->set_value(construct_build_side(state));
     // Release the thread token as soon as possible (before the main thread joins
     // on it).  This way, if we had a chain of 10 joins using 1 additional thread,

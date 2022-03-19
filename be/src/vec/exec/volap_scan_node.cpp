@@ -37,8 +37,7 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
 
 void VOlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
-    SCOPED_ATTACH_TASK_THREAD(state->query_type(), print_id(state->query_id()),
-                              state->fragment_instance_id(), mem_tracker());
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     Status status = Status::OK();
 
     if (_vconjunct_ctx_ptr) {
@@ -147,8 +146,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
-    SCOPED_ATTACH_TASK_THREAD(_runtime_state->query_type(), print_id(_runtime_state->query_id()),
-                              _runtime_state->fragment_instance_id(), mem_tracker());
+    SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.

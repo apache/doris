@@ -81,7 +81,7 @@ protected:
     std::vector<SlotDescriptor*> _slot_descs;
     std::unique_ptr<RowDescriptor> _row_desc;
 
-    MemPool _mem_pool;
+    std::unique_ptr<MemPool> _mem_pool;
 
     const TupleDescriptor* _tuple_desc;
     EsScanCounter* _counter;

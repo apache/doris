@@ -22,6 +22,7 @@
 
 #include "common/logging.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/runtime_state.h"
 #include "runtime/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
 
@@ -179,9 +180,23 @@ public:
     explicit AttachTaskThread(const TQueryType::type& query_type, const std::string& task_id,
                               const TUniqueId& fragment_instance_id,
                               const std::shared_ptr<MemTracker>& mem_tracker) {
-        DCHECK(task_id != "" && fragment_instance_id != TUniqueId() && mem_tracker != nullptr);
+        DCHECK(task_id != "");
+        DCHECK(fragment_instance_id != TUniqueId());
+        DCHECK(mem_tracker != nullptr);
         thread_local_ctx.get()->attach(query_to_task_type(query_type), task_id,
                                        fragment_instance_id, mem_tracker);
+    }
+
+    explicit AttachTaskThread(const RuntimeState* runtime_state,
+                              const std::shared_ptr<MemTracker>& mem_tracker) {
+#ifndef BE_TEST
+        DCHECK(print_id(runtime_state->query_id()) != "");
+        DCHECK(runtime_state->fragment_instance_id() != TUniqueId());
+        DCHECK(mem_tracker != nullptr);
+        thread_local_ctx.get()->attach(query_to_task_type(runtime_state->query_type()),
+                                       print_id(runtime_state->query_id()),
+                                       runtime_state->fragment_instance_id(), mem_tracker);
+#endif
     }
 
     const ThreadContext::TaskType query_to_task_type(const TQueryType::type& query_type) {
