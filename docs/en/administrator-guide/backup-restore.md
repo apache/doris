@@ -45,6 +45,14 @@ The backup operation is to upload the data of the specified table or partition d
 2. Metadata preparation and upload
 
 	After the data file snapshot is uploaded, Frontend first writes the corresponding metadata to the local file, and then uploads the local metadata file to the remote warehouse through broker. Finish the final backup job.
+	
+3. Dynamic partition table description
+
+    If the table is a dynamic partition table, the dynamic partition attribute will be automatically disabled after backup. When restoring, you need to manually enable the dynamic partition attribute of the table. The command is as follows:
+
+    ```sql
+    ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
+    ````
 
 ### Restore
 
