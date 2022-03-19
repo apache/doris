@@ -69,8 +69,8 @@ under the License.
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
             [(column_list)]
-            [PRECEDING FILTER predicate]
             [SET (k1 = func(k2))]
+            [PRECEDING FILTER predicate]
             [WHERE predicate] 
             [DELETE ON label=true]
             [read_properties]
@@ -110,10 +110,6 @@ under the License.
             syntax:
             (col_name1, col_name2, ...)
 
-            PRECEDING FILTER predicate:
-
-            Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
-            
             SET:
             
             If this parameter is specified, a column of the source file can be transformed according to a function, and then the transformed result can be loaded into the table. The grammar is `column_name = expression`. Some examples are given to help understand.
@@ -121,6 +117,10 @@ under the License.
             Example 1: There are three columns "c1, c2, c3" in the table. The first two columns in the source file correspond in turn (c1, c2), and the last two columns correspond to c3. Then, column (c1, c2, tmp_c3, tmp_c4) SET (c3 = tmp_c3 + tmp_c4) should be specified.
 
             Example 2: There are three columns "year, month, day" in the table. There is only one time column in the source file, in the format of "2018-06-01:02:03". Then you can specify columns (tmp_time) set (year = year (tmp_time), month = month (tmp_time), day = day (tmp_time)) to complete the import.
+
+            PRECEDING FILTER predicate:
+
+            Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
 
             WHERE:
           
@@ -534,8 +534,8 @@ under the License.
          INTO TABLE `tbl1`
          COLUMNS TERMINATED BY ","
          (k1,k2,v1,v2)
-         PRECEDING FILTER k1 > 2
          SET (k1 = k1 +1)
+         PRECEDING FILTER k1 > 2
          WHERE k1 > 3
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");

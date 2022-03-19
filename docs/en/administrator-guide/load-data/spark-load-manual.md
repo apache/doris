@@ -92,8 +92,6 @@ The implementation of spark load task is mainly divided into the following five 
 
 ```
 
-
-
 ## Global dictionary
 
 ### Applicable scenarios
@@ -131,6 +129,10 @@ In the existing Doris import process, the data structure of global dictionary is
 5. After each aggregation calculation, the data will be calculated according to the `bucket_id`is divided into buckets and then written into HDFS.
 
 6. Subsequent brokers will pull the files in HDFS and import them into Doris be.
+
+## Hive Bitmap UDF
+
+Spark supports loading hive-generated bitmap data directly into Doris, see [hive-bitmap-udf documentation](../../extending-doris/hive-bitmap-udf.md)
 
 ## Basic operation
 
