@@ -21,6 +21,7 @@
 #include "olap/schema.h"
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
+#include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
@@ -145,28 +146,65 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(LessEqualPredicate, <=)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
 
-#define COMPARISON_PRED_COLUMN_EVALUATE(CLASS, OP)                                                 \
+// todo(zeno) define interface in IColumn to simplify code
+#define COMPARISON_PRED_COLUMN_EVALUATE(CLASS, OP, IS_RANGE)                                       \
     template <class type>                                                                          \
     void CLASS<type>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const { \
         uint16_t new_size = 0;                                                                     \
         if (column.is_nullable()) {                                                                \
-            auto* nullable_column =                                                                \
+            auto* nullable_col =                                                                   \
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);          \
-            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>(        \
-                                        *(nullable_column->get_null_map_column_ptr()))             \
+            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(                  \
+                                        nullable_col->get_null_map_column())                       \
                                         .get_data();                                               \
-            auto* nest_column_vector =                                                             \
-                    vectorized::check_and_get_column<vectorized::PredicateColumnType<type>>(       \
-                            nullable_column->get_nested_column());                                 \
-            auto& data_array = nest_column_vector->get_data();                                     \
-            for (uint16_t i = 0; i < *size; i++) {                                                 \
-                uint16_t idx = sel[i];                                                             \
-                sel[new_size] = idx;                                                               \
-                const type& cell_value = reinterpret_cast<const type&>(data_array[idx]);           \
-                bool ret = !null_bitmap[idx] && (cell_value OP _value);                            \
-                new_size += _opposite ? !ret : ret;                                                \
+            auto& nested_col = nullable_col->get_nested_column();                                  \
+            if (nested_col.is_column_dictionary()) {                                               \
+                if constexpr (std::is_same_v<type, StringValue>) {                                 \
+                    auto* nested_col_ptr = vectorized::check_and_get_column<                       \
+                            vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);          \
+                    auto code = IS_RANGE ? nested_col_ptr->find_bound_code(_value, 0 OP 1, 1 OP 1) \
+                                         : nested_col_ptr->find_code(_value);                      \
+                    auto& data_array = nested_col_ptr->get_data();                                 \
+                    for (uint16_t i = 0; i < *size; i++) {                                         \
+                        uint16_t idx = sel[i];                                                     \
+                        sel[new_size] = idx;                                                       \
+                        const auto& cell_value =                                                   \
+                                reinterpret_cast<const vectorized::Int32&>(data_array[idx]);       \
+                        bool ret = !null_bitmap[idx] && (cell_value OP code);                      \
+                        new_size += _opposite ? !ret : ret;                                        \
+                    }                                                                              \
+                }                                                                                  \
+            } else {                                                                               \
+                auto* nested_col_ptr =                                                             \
+                        vectorized::check_and_get_column<vectorized::PredicateColumnType<type>>(   \
+                                nested_col);                                                       \
+                auto& data_array = nested_col_ptr->get_data();                                     \
+                for (uint16_t i = 0; i < *size; i++) {                                             \
+                    uint16_t idx = sel[i];                                                         \
+                    sel[new_size] = idx;                                                           \
+                    const type& cell_value = reinterpret_cast<const type&>(data_array[idx]);       \
+                    bool ret = !null_bitmap[idx] && (cell_value OP _value);                        \
+                    new_size += _opposite ? !ret : ret;                                            \
+                }                                                                                  \
             }                                                                                      \
             *size = new_size;                                                                      \
+        } else if (column.is_column_dictionary()) {                                                \
+            if constexpr (std::is_same_v<type, StringValue>) {                                     \
+                auto& dict_col =                                                                   \
+                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(column);\
+                auto& data_array = dict_col.get_data();                                            \
+                auto code = IS_RANGE ? dict_col.find_bound_code(_value, 0 OP 1, 1 OP 1)            \
+                                     : dict_col.find_code(_value);                                 \
+                for (uint16_t i = 0; i < *size; ++i) {                                             \
+                    uint16_t idx = sel[i];                                                         \
+                    sel[new_size] = idx;                                                           \
+                    const auto& cell_value =                                                       \
+                            reinterpret_cast<const vectorized::Int32&>(data_array[idx]);           \
+                    bool ret = cell_value OP code;                                                 \
+                    new_size += _opposite ? !ret : ret;                                            \
+                }                                                                                  \
+                *size = new_size;                                                                  \
+            }                                                                                      \
         } else {                                                                                   \
             auto& pred_column_ref =                                                                \
                     reinterpret_cast<vectorized::PredicateColumnType<type>&>(column);              \
@@ -182,12 +220,13 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
         }                                                                                          \
     }
 
-COMPARISON_PRED_COLUMN_EVALUATE(EqualPredicate, ==)
-COMPARISON_PRED_COLUMN_EVALUATE(NotEqualPredicate, !=)
-COMPARISON_PRED_COLUMN_EVALUATE(LessPredicate, <)
-COMPARISON_PRED_COLUMN_EVALUATE(LessEqualPredicate, <=)
-COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, >)
-COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=)
+
+COMPARISON_PRED_COLUMN_EVALUATE(EqualPredicate, ==, false)
+COMPARISON_PRED_COLUMN_EVALUATE(NotEqualPredicate, !=, false)
+COMPARISON_PRED_COLUMN_EVALUATE(LessPredicate, <, true)
+COMPARISON_PRED_COLUMN_EVALUATE(LessEqualPredicate, <=, true)
+COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, >, true)
+COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=, true)
 
 #define COMPARISON_PRED_COLUMN_EVALUATE_VEC(CLASS, OP)                                         \
     template <class type>                                                                      \
