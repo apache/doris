@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_UTIL_JNI_H
 #define DORIS_BE_SRC_UTIL_JNI_H
 
+#ifdef LIBJVM
 #include <hdfs/hdfs.h>
 #include <jni.h>
 
@@ -40,9 +41,12 @@ public:
 
     static jmethodID throwable_to_string_id() { return throwable_to_string_id_; }
 
-    static JNIEnv* GetJNIEnv() {
-        if (tls_env_) return tls_env_;
-        return GetJNIEnvSlowPath();
+    static Status GetJNIEnv(JNIEnv** env) {
+        if (tls_env_) {
+            *env = tls_env_;
+            return Status::OK();
+        }
+        return GetJNIEnvSlowPath(env);
     }
 
     static Status GetGlobalClassRef(
@@ -58,7 +62,7 @@ public:
     static jmethodID throwable_to_stack_trace_id() { return throwable_to_stack_trace_id_; }
 
 private:
-    static JNIEnv* GetJNIEnvSlowPath();
+    static Status GetJNIEnvSlowPath(JNIEnv** env);
 
     static bool jvm_inited_;
     static jclass internal_exc_cl_;
@@ -149,4 +153,5 @@ Status SerializeThriftMsg(JNIEnv* env, T* msg, jbyteArray* serialized_msg) {
 
 } // namespace doris
 
+#endif
 #endif //DORIS_BE_SRC_UTIL_JNI_H

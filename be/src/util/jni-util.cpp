@@ -16,7 +16,7 @@
 // under the License.
 
 #include "util/jni-util.h"
-
+#ifdef LIBJVM
 #include <jni.h>
 #include <stdlib.h>
 
@@ -35,11 +35,9 @@ void FindOrCreateJavaVM() {
     int num_vms;
     int rv = JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
     if (rv == 0) {
-        LOG(INFO) << "Create first JVM";
         JNIEnv *env;
         JavaVMInitArgs vm_args;
         JavaVMOption options[1];
-        std::stringstream ss;
         char* str = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
         options[0].optionString = str;
         vm_args.version = JNI_VERSION_1_8;
@@ -77,7 +75,7 @@ Status JniUtfCharGuard::create(JNIEnv* env, jstring jstr, JniUtfCharGuard* out) 
         if (exception_check) env->ExceptionClear();
         if (utf_chars != nullptr) env->ReleaseStringUTFChars(jstr, utf_chars);
         auto fail_message = "GetStringUTFChars failed. Probable OOM on JVM side";
-        LOG(ERROR) << fail_message;
+        LOG(WARNING) << fail_message;
         return Status::InternalError(fail_message);
     }
     out->env = env;
@@ -97,7 +95,7 @@ Status JniLocalFrame::push(JNIEnv* env, int max_local_ref) {
     return Status::OK();
 }
 
-JNIEnv* JniUtil::GetJNIEnvSlowPath() {
+Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     DCHECK(!tls_env_) << "Call GetJNIEnv() fast path";
 
     GoogleOnceInit(&g_vm_once, &FindOrCreateJavaVM);
@@ -105,8 +103,11 @@ JNIEnv* JniUtil::GetJNIEnvSlowPath() {
     if (rc == JNI_EDETACHED) {
         rc = g_vm->AttachCurrentThread((void **) &tls_env_, nullptr);
     }
-    CHECK_EQ(rc, 0) << "Unable to get JVM";
-    return CHECK_NOTNULL(tls_env_);
+    if (rc != 0 || tls_env_ == nullptr) {
+        return Status::InternalError("Unable to get JVM!");
+    }
+    *env = tls_env_;
+    return Status::OK();
 }
 
 Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix) {
@@ -123,7 +124,7 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
     if (env->ExceptionOccurred()) {
         env->ExceptionClear();
         string oom_msg = strings::Substitute(oom_msg_template, "throwableToString");
-        LOG(ERROR) << oom_msg;
+        LOG(WARNING) << oom_msg;
         return Status::InternalError(oom_msg);
     }
     JniUtfCharGuard msg_str_guard;
@@ -134,12 +135,12 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
         if (env->ExceptionOccurred()) {
             env->ExceptionClear();
             string oom_msg = strings::Substitute(oom_msg_template, "throwableToStackTrace");
-            LOG(ERROR) << oom_msg;
+            LOG(WARNING) << oom_msg;
             return Status::InternalError(oom_msg);
         }
         JniUtfCharGuard c_stack_guard;
         RETURN_IF_ERROR(JniUtfCharGuard::create(env, stack, &c_stack_guard));
-        VLOG(1) << c_stack_guard.get();
+        LOG(WARNING) << c_stack_guard.get();
     }
 
     env->DeleteLocalRef(exc);
@@ -164,7 +165,8 @@ Status JniUtil::LocalToGlobalRef(JNIEnv* env, jobject local_ref, jobject* global
 
 Status JniUtil::Init() {
     // Get the JNIEnv* corresponding to current thread.
-    JNIEnv* env = JniUtil::GetJNIEnv();
+    JNIEnv* env;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == NULL) return Status::InternalError("Failed to get/create JVM");
     // Find JniUtil class and create a global ref.
     jclass local_jni_util_cl = env->FindClass("org/apache/doris/udf/JniUtil");
@@ -242,3 +244,4 @@ Status JniUtil::Init() {
 }
 
 } // namespace doris
+#endif

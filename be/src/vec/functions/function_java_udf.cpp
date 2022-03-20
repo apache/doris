@@ -17,6 +17,7 @@
 
 #include "vec/functions/function_java_udf.h"
 
+#ifdef LIBJVM
 #include <fmt/format.h>
 
 #include <memory>
@@ -50,7 +51,8 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn,
 
 Status JavaFunctionCall::prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     DCHECK(executor_cl_ == NULL) << "Init() already called!";
-    JNIEnv* env = JniUtil::GetJNIEnv();
+    JNIEnv* env;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     if (env == NULL) return Status::InternalError("Failed to get/create JVM");
     RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, EXECUTOR_CLASS, &executor_cl_));
     executor_ctor_id_ = env->GetMethodID(
@@ -73,14 +75,14 @@ Status JavaFunctionCall::prepare(FunctionContext* context, FunctionContext::Func
         auto function_cache = UserFunctionCache::instance();
         RETURN_IF_ERROR(function_cache->get_jarpath(fn_.id, fn_.hdfs_location, fn_.checksum, &local_location));
         TJavaUdfExecutorCtorParams ctor_params;
-        ctor_params.fn = fn_;
-        ctor_params.location = local_location;
-        ctor_params.input_byte_offsets = jni_ctx->input_byte_offsets_ptr;
-        ctor_params.input_buffer_ptrs = jni_ctx->input_values_buffer_ptr;
-        ctor_params.input_nulls_ptrs = jni_ctx->input_nulls_buffer_ptr;
-        ctor_params.output_buffer_ptr = jni_ctx->output_value_buffer;
-        ctor_params.output_null_ptr = jni_ctx->output_null_value;
-        ctor_params.batch_size_ptr = jni_ctx->batch_size_ptr;
+        ctor_params.__set_fn(fn_);
+        ctor_params.__set_location(local_location);
+        ctor_params.__set_input_byte_offsets(jni_ctx->input_byte_offsets_ptr);
+        ctor_params.__set_input_buffer_ptrs(jni_ctx->input_values_buffer_ptr);
+        ctor_params.__set_input_nulls_ptrs(jni_ctx->input_nulls_buffer_ptr);
+        ctor_params.__set_output_buffer_ptr(jni_ctx->output_value_buffer);
+        ctor_params.__set_output_null_ptr(jni_ctx->output_null_value);
+        ctor_params.__set_batch_size_ptr(jni_ctx->batch_size_ptr);
 
         jbyteArray ctor_params_bytes;
 
@@ -103,7 +105,8 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block, const C
         return Status::InvalidArgument(strings::Substitute(
                 "Java UDF doesn't support return type $0 now !", return_type->get_name()));
     }
-    JNIEnv* env = JniUtil::GetJNIEnv();
+    JNIEnv* env;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     JniContext* jni_ctx = reinterpret_cast<JniContext*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     int arg_idx = 0;
@@ -130,7 +133,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block, const C
         }
         ((int64_t*) jni_ctx->input_values_buffer_ptr)[arg_idx] =
                 reinterpret_cast<int64_t>(data_col->get_raw_data().data);
-        arg_idx ++;
+        arg_idx++;
     }
 
     if (return_type->is_nullable()) {
@@ -173,3 +176,4 @@ Status JavaFunctionCall::close(FunctionContext* context, FunctionContext::Functi
     return Status::OK();
 }
 } // namespace doris::vectorized
+#endif

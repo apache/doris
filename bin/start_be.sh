@@ -61,6 +61,7 @@ for f in $DORIS_HOME/lib/*.jar; do
     export DORIS_JNI_CLASSPATH_PARAMETER=$f:${DORIS_JNI_CLASSPATH_PARAMETER}
   fi
 done
+# DORIS_JNI_CLASSPATH_PARAMETER is used to configure additional jar path to jvm. e.g. -Djava.class.path=$DORIS_HOME/lib/java-udf.jar
 export DORIS_JNI_CLASSPATH_PARAMETER="-Djava.class.path=${DORIS_JNI_CLASSPATH_PARAMETER}"
 
 jdk_version() {

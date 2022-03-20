@@ -299,8 +299,11 @@ Status UserFunctionCache::_load_cache_entry(const std::string& url, UserFunction
 
     if (entry->type == LibType::SO) {
         RETURN_IF_ERROR(_load_cache_entry_internal(entry));
-    } else {
+    } else if (entry->type == LibType::JAR) {
         RETURN_IF_ERROR(_add_to_classpath(entry));
+    } else {
+        return Status::InvalidArgument(
+                "Unsupported lib type! Make sure your lib type is one of 'so' and 'jar'!");
     }
     return Status::OK();
 }
@@ -366,9 +369,11 @@ Status UserFunctionCache::_load_cache_entry_internal(UserFunctionCacheEntry* ent
 }
 
 Status UserFunctionCache::_add_to_classpath(UserFunctionCacheEntry* entry) {
+#ifdef LIBJVM
     const std::string path = "file://" + entry->lib_file;
     LOG(INFO) << "Add jar " << path << " to classpath";
-    JNIEnv* env = JniUtil::GetJNIEnv();
+    JNIEnv* env;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     jclass class_class_loader = env->FindClass("java/lang/ClassLoader");
     jmethodID method_get_system_class_loader =
             env->GetStaticMethodID(class_class_loader, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
@@ -380,6 +385,9 @@ Status UserFunctionCache::_add_to_classpath(UserFunctionCacheEntry* entry) {
     jobject urlInstance = env->NewObject(class_url, url_ctor, env->NewStringUTF(path.c_str()));
     env->CallVoidMethod(class_loader, method_add_url, urlInstance);
     return Status::OK();
+#else
+    return Status::InternalError("No libjvm is found!");
+#endif
 }
 
 std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::string& checksum,

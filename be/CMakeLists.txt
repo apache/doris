@@ -474,16 +474,21 @@ include_directories(
     ${THIRDPARTY_DIR}/include/breakpad/
 )
 
-set(DORIS_DEPENDENCIES
-    ${DORIS_DEPENDENCIES}
-    jvm
-)
 execute_process(COMMAND sh ${BASE_DIR}/../tools/find_libjvm.sh OUTPUT_VARIABLE LIBJVM_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
-add_library(jvm SHARED IMPORTED)
 FILE(GLOB_RECURSE LIB_JVM ${LIBJVM_PATH})
-set_target_properties(jvm PROPERTIES IMPORTED_LOCATION ${LIB_JVM})
-include_directories($ENV{JAVA_HOME}/include)
-include_directories($ENV{JAVA_HOME}/include/linux)
+if(${LIB_JVM} STREQUAL "")
+    message(STATUS "Disable JAVA UDF because there is no libjvm found!")
+else()
+    set(DORIS_DEPENDENCIES
+        ${DORIS_DEPENDENCIES}
+        jvm
+    )
+    add_library(jvm SHARED IMPORTED)
+    set_target_properties(jvm PROPERTIES IMPORTED_LOCATION ${LIB_JVM})
+    include_directories($ENV{JAVA_HOME}/include)
+    include_directories($ENV{JAVA_HOME}/include/linux)
+    add_definitions("-DLIBJVM")
+endif()
 
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")

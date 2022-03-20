@@ -338,7 +338,7 @@ struct TFunction {
 }
 
 struct TJavaUdfExecutorCtorParams {
-  1: required TFunction fn
+  1: optional TFunction fn
 
   // Local path to the UDF's jar file
   2: optional string location
@@ -347,23 +347,23 @@ struct TJavaUdfExecutorCtorParams {
   // call the Java executor with a buffer for all the inputs.
   // input_byte_offsets[0] is the byte offset in the buffer for the first
   // argument; input_byte_offsets[1] is the second, etc.
-  3: required i64 input_byte_offsets
+  3: optional i64 input_byte_offsets
 
   // Native input buffer ptr (cast as i64) for the inputs. The input arguments
   // are written to this buffer directly and read from java with no copies
   // input_null_ptr[i] is true if the i-th input is null.
   // input_buffer_ptr[input_byte_offsets[i]] is the value of the i-th input.
-  4: required i64 input_nulls_ptrs
-  5: required i64 input_buffer_ptrs
+  4: optional i64 input_nulls_ptrs
+  5: optional i64 input_buffer_ptrs
 
   // Native output buffer ptr. For non-variable length types, the output is
   // written here and read from the native side with no copies.
   // The UDF should set *output_null_ptr to true, if the result of the UDF is
   // NULL.
-  6: required i64 output_null_ptr
-  7: required i64 output_buffer_ptr
+  6: optional i64 output_null_ptr
+  7: optional i64 output_buffer_ptr
 
-  8: required i64 batch_size_ptr
+  8: optional i64 batch_size_ptr
 }
 
 // Contains all interesting statistics from a single 'memory pool' in the JVM.

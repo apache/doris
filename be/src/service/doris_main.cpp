@@ -477,13 +477,13 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+#ifdef LIBJVM
     // 6. init jni
     status = doris::JniUtil::Init();
     if (!status.ok()) {
-        LOG(ERROR) << "Failed to initialize JNI: " << status.get_error_msg();
-        doris::shutdown_logging();
-        exit(1);
+        LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
     }
+#endif
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#ifdef LIBJVM
 #include <jni.h>
 
 #include "gen_cpp/Exprs_types.h"
@@ -64,7 +65,7 @@ public:
     bool is_deterministic_in_scope_of_query() const override { return false; }
 
 private:
-    const TFunction fn_;
+    const TFunction& fn_;
     const DataTypes _argument_types;
     const DataTypePtr _return_type;
 
@@ -99,8 +100,10 @@ private:
         }
 
         ~JniContext() {
-            LOG(INFO) << "Free resources for JniContext";
-            JNIEnv* env = JniUtil::GetJNIEnv();
+            VLOG_DEBUG << "Free resources for JniContext";
+            JNIEnv* env;
+            Status status;
+            RETURN_IF_STATUS_ERROR(status, JniUtil::GetJNIEnv(&env));
             env->CallNonvirtualVoidMethodA(
                     executor, parent->executor_cl_, parent->executor_close_id_, NULL);
             Status s = JniUtil::GetJniExceptionMsg(env);
@@ -123,3 +126,4 @@ private:
 
 } // namespace vectorized
 } // namespace doris
+#endif
