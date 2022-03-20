@@ -72,6 +72,113 @@ const struct {
 
 static bool kFailureSignalHandlerInstalled = false;
 
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ * These signal explainer is copied from Meta's Folly
+ */
+const char* sigill_reason(int si_code) {
+  switch (si_code) {
+    case ILL_ILLOPC:
+      return "illegal opcode";
+    case ILL_ILLOPN:
+      return "illegal operand";
+    case ILL_ILLADR:
+      return "illegal addressing mode";
+    case ILL_ILLTRP:
+      return "illegal trap";
+    case ILL_PRVOPC:
+      return "privileged opcode";
+    case ILL_PRVREG:
+      return "privileged register";
+    case ILL_COPROC:
+      return "coprocessor error";
+    case ILL_BADSTK:
+      return "internal stack error";
+
+    default:
+      return nullptr;
+  }
+}
+
+const char* sigfpe_reason(int si_code) {
+  switch (si_code) {
+    case FPE_INTDIV:
+      return "integer divide by zero";
+    case FPE_INTOVF:
+      return "integer overflow";
+    case FPE_FLTDIV:
+      return "floating-point divide by zero";
+    case FPE_FLTOVF:
+      return "floating-point overflow";
+    case FPE_FLTUND:
+      return "floating-point underflow";
+    case FPE_FLTRES:
+      return "floating-point inexact result";
+    case FPE_FLTINV:
+      return "floating-point invalid operation";
+    case FPE_FLTSUB:
+      return "subscript out of range";
+
+    default:
+      return nullptr;
+  }
+}
+
+const char* sigsegv_reason(int si_code) {
+  switch (si_code) {
+    case SEGV_MAPERR:
+      return "address not mapped to object";
+    case SEGV_ACCERR:
+      return "invalid permissions for mapped object";
+
+    default:
+      return nullptr;
+  }
+}
+
+const char* sigbus_reason(int si_code) {
+  switch (si_code) {
+    case BUS_ADRALN:
+      return "invalid address alignment";
+    case BUS_ADRERR:
+      return "nonexistent physical address";
+    case BUS_OBJERR:
+      return "object-specific hardware error";
+
+      // MCEERR_AR and MCEERR_AO: in sigaction(2) but not in headers.
+
+    default:
+      return nullptr;
+  }
+}
+
+const char* signal_reason(int signum, int si_code) {
+  switch (signum) {
+    case SIGILL:
+      return sigill_reason(si_code);
+    case SIGFPE:
+      return sigfpe_reason(si_code);
+    case SIGSEGV:
+      return sigsegv_reason(si_code);
+    case SIGBUS:
+      return sigbus_reason(si_code);
+    default:
+      return nullptr;
+  }
+}
+
 // The class is used for formatting error messages.  We don't use printf()
 // as it's not async signal safe.
 class MinimalFormatter {
@@ -180,6 +287,16 @@ void DumpSignalInfo(int signal_number, siginfo_t *siginfo) {
     // should be known, but just in case.
     formatter.AppendString("Signal ");
     formatter.AppendUint64(static_cast<uint64>(signal_number), 10);
+  }
+  formatter.AppendString(" ");
+  // Detail reason explain
+  auto reason = signal_reason(signal_number, siginfo->si_code);
+
+  // If we can't find a reason code make a best effort to print the (int) code.
+  if (reason != nullptr) {
+    formatter.AppendString(reason);
+  } else {
+    formatter.AppendString("unkown detail explain");
   }
   formatter.AppendString(" (@0x");
   formatter.AppendUint64(reinterpret_cast<uintptr_t>(siginfo->si_addr), 16);
