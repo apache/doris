@@ -295,7 +295,7 @@ int main(int argc, char** argv) {
 
     using doris::Status;
     using std::string;
-    
+
     // open pid file, obtain file lock and save pid
     string pid_file = string(getenv("PID_DIR")) + "/be.pid";
     int fd = open(pid_file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
@@ -303,7 +303,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "fail to create pid file.");
         exit(-1);
     }
-
 
     string pid = std::to_string((long)getpid());
     pid += "\n";
