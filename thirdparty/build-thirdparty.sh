@@ -220,6 +220,20 @@ check_if_archieve_exist() {
     fi
 }
 
+#libbacktrace
+build_libbacktrace() {
+    check_if_source_exist $LIBBACKTRACE_SOURCE
+    cd $TP_SOURCE_DIR/$LIBBACKTRACE_SOURCE
+
+    CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    CXXFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    CFLAGS="-fPIC" \
+    ./configure --prefix=$TP_INSTALL_DIR
+    make -j $PARALLEL
+    make install
+}
+
 # libevent
 build_libevent() {
     check_if_source_exist $LIBEVENT_SOURCE
@@ -936,6 +950,7 @@ build_simdjson() {
     cp -r $TP_SOURCE_DIR/$SIMDJSON_SOURCE/include/* $TP_INCLUDE_DIR/
 }
 
+build_libbacktrace
 build_libunixodbc
 build_openssl
 build_libevent

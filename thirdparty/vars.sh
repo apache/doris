@@ -45,12 +45,18 @@ export TP_LIB_DIR=$TP_INSTALL_DIR/lib
 export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 
 # source of all dependencies
-export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+#export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
 
 #####################################################
 # Download url, filename and unpaced filename
 # of all thirdparties
 #####################################################
+
+# libbacktrace
+LIBBACKTRACE_DOWNLOAD="https://github.com/Doris-Extras/libbacktrace/archive/refs/tags/libbacktrace-1.0.zip"
+LIBBACKTRACE_NAME=libbacktrace-1.0.zip
+LIBBACKTRACE_SOURCE=libbacktrace-libbacktrace-1.0
+LIBBACKTRACE_MD5SUM="79a76d7156f3ddd6c45e4509256343de"
 
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
@@ -372,7 +378,8 @@ SIMDJSON_SOURCE=simdjson-1.0.2
 SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
-export TP_ARCHIVES="LIBEVENT
+export TP_ARCHIVES="LIBBACKTRACE
+LIBEVENT
 OPENSSL
 THRIFT
 PROTOBUF
