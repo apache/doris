@@ -56,11 +56,11 @@ public:
     size_t get_serialized_size();
     T get_value_by_percentile(float percentile);
     T get_explicit_value_by_percentile(float percentile);
-    ~QuantileState();
+    ~QuantileState() = default;
 
 private:
     QuantileStateType _type = EMPTY;
-    TDigest* _tdigest_ptr = nullptr;
+    std::unique_ptr<TDigest> _tdigest_ptr;
     T _single_data;
     std::vector<T> _explicit_data;
     float _compression;
