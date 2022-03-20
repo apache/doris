@@ -140,7 +140,8 @@ struct RegexpReplaceImpl {
             }
 
             re2::StringPiece replace_str =
-                    re2::StringPiece(replace_col->get_data_at(i).to_string());
+                    re2::StringPiece(replace_col->get_data_at(i).to_string_view());
+
             std::string result_str(str_col->get_data_at(i).to_string());
             re2::RE2::GlobalReplace(&result_str, *re, replace_str);
             StringOP::push_value_string(result_str, i, result_data, result_offset);
@@ -185,7 +186,7 @@ struct RegexpExtractImpl {
                 scoped_re.reset(re);
             }
             const auto& str = str_col->get_data_at(i);
-            re2::StringPiece str_sp = re2::StringPiece(str.data,str.size);
+            re2::StringPiece str_sp = re2::StringPiece(str.data, str.size);
 
             int max_matches = 1 + re->NumberOfCapturingGroups();
             if (index_data >= max_matches) {
@@ -194,8 +195,8 @@ struct RegexpExtractImpl {
             }
 
             std::vector<re2::StringPiece> matches(max_matches);
-            bool success = re->Match(str_sp, 0, str.size, re2::RE2::UNANCHORED, &matches[0],
-                                     max_matches);
+            bool success =
+                    re->Match(str_sp, 0, str.size, re2::RE2::UNANCHORED, &matches[0], max_matches);
             if (!success) {
                 StringOP::push_empty_string(i, result_data, result_offset);
                 continue;
