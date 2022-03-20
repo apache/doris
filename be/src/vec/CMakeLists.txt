@@ -102,6 +102,7 @@ set(VEC_FILES
   exprs/vexpr.cpp
   exprs/vexpr_context.cpp
   exprs/vliteral.cpp
+  exprs/varray_literal.cpp
   exprs/vin_predicate.cpp
   exprs/vtuple_is_null_predicate.cpp
   exprs/vslot_ref.cpp
