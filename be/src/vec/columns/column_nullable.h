@@ -99,9 +99,10 @@ public:
         get_nested_column().insert_many_fix_len_data(pos, num);
     }
  
-    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict, size_t num) override {
-        get_null_map_column().fill(0, num);
-        get_nested_column().insert_many_dict_data(data_array, start_index, dict, num);
+    void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
+                               size_t data_num, uint32_t dict_num) override {
+        get_null_map_column().fill(0, data_num);
+        get_nested_column().insert_many_dict_data(data_array, start_index, dict, data_num, dict_num);
     }
  
     void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {

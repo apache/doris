@@ -178,8 +178,10 @@ public:
     virtual void insert_many_fix_len_data(const char* pos, size_t num) {
       LOG(FATAL) << "Method insert_many_fix_len_data is not supported for " << get_name();
     }
- 
-    virtual void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict, size_t num) {
+
+    // todo(zeno) Use dict_args temp object to cover all arguments
+    virtual void insert_many_dict_data(const int32_t* data_array, size_t start_index,
+                                       const StringRef* dict, size_t data_num, uint32_t dict_num = 0) {
       LOG(FATAL) << "Method insert_many_dict_data is not supported for " << get_name();
     }
  
@@ -425,6 +427,8 @@ public:
     virtual bool is_column_decimal() const { return false; }
 
     virtual bool is_predicate_column() const { return false; }
+
+    virtual bool is_column_dictionary() const { return false; }
 
     /// If the only value column can contain is NULL.
     /// Does not imply type of object, because it can be ColumnNullable(ColumnNothing) or ColumnConst(ColumnNullable(ColumnNothing))

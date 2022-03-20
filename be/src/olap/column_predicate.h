@@ -73,6 +73,8 @@ public:
 
     virtual bool is_bloom_filter_predicate() { return false; }
 
+    virtual bool is_range_comparison_predicate() { return false; }
+
 protected:
     uint32_t _column_id;
     bool _opposite;
