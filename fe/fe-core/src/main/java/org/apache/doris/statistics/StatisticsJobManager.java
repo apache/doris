@@ -19,12 +19,21 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -35,39 +44,74 @@ including job addition, cancellation, scheduling, etc.
 public class StatisticsJobManager {
     private static final Logger LOG = LogManager.getLogger(StatisticsJobManager.class);
 
-    // statistics job
-    private Map<Long, StatisticsJob> idToStatisticsJob = Maps.newConcurrentMap();
+    /**
+     * save statistics job status information
+     */
+    private final Map<Long, StatisticsJob> idToStatisticsJob = Maps.newConcurrentMap();
 
-    public void createStatisticsJob(AnalyzeStmt analyzeStmt) {
-        // step0: init statistics job by analyzeStmt
-        StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
-        // step1: get statistics to be analyzed
-        Set<Long> tableIdList = statisticsJob.relatedTableId();
-        // step2: check restrict
-        checkRestrict(tableIdList);
-        // step3: check permission
-        checkPermission();
-        // step4: create it
-        createStatisticsJob(statisticsJob);
+    public Map<Long, StatisticsJob> getIdToStatisticsJob() {
+        return this.idToStatisticsJob;
     }
 
-    public void createStatisticsJob(StatisticsJob statisticsJob) {
-        idToStatisticsJob.put(statisticsJob.getId(), statisticsJob);
+    public void createStatisticsJob(AnalyzeStmt analyzeStmt) throws UserException {
+        // step1: init statistics job by analyzeStmt
+        StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
+
+        // step2: check restrict
+        this.checkRestrict(statisticsJob.getDbId(), statisticsJob.relatedTableId());
+
+        // step3: create it
+        this.createStatisticsJob(statisticsJob);
+    }
+
+    public void createStatisticsJob(StatisticsJob statisticsJob) throws DdlException {
+        this.idToStatisticsJob.put(statisticsJob.getId(), statisticsJob);
         try {
             Catalog.getCurrentCatalog().getStatisticsJobScheduler().addPendingJob(statisticsJob);
         } catch (IllegalStateException e) {
-            LOG.info("The pending statistics job is full. Please submit it again later.");
+            throw new DdlException("The pending statistics job is full, Please submit it again later.");
         }
     }
 
-    // Rule1: The same table cannot have two unfinished statistics jobs
-    // Rule2: The unfinished statistics job could not more then Config.max_statistics_job_num
-    // Rule3: The job for external table is not supported
-    private void checkRestrict(Set<Long> tableIdList) {
-        // TODO
-    }
+    /**
+     * The statistical job has the following restrict:
+     * - Rule1: The same table cannot have two unfinished statistics jobs
+     * - Rule2: The unfinished statistics job could not more then Config.max_statistics_job_num
+     * - Rule3: The job for external table is not supported
+     */
+    private synchronized void checkRestrict(long dbId, Set<Long> tableIds) throws AnalysisException {
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
 
-    private void checkPermission() {
-        // TODO
+        // check table type
+        for (Long tableId : tableIds) {
+            Table table = db.getTableOrAnalysisException(tableId);
+            if (table.getType() != Table.TableType.OLAP) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, db.getFullName(),table.getName(), "ANALYZE");
+            }
+        }
+
+        int unfinishedJobs = 0;
+
+        // check table unfinished job
+        for (Map.Entry<Long, StatisticsJob> jobEntry : this.idToStatisticsJob.entrySet()) {
+            StatisticsJob statisticsJob = jobEntry.getValue();
+            StatisticsJob.JobState jobState = statisticsJob.getJobState();
+            List<Long> tableIdList = statisticsJob.getTableIds();
+            if (jobState == StatisticsJob.JobState.PENDING
+                    || jobState == StatisticsJob.JobState.SCHEDULING
+                    || jobState == StatisticsJob.JobState.RUNNING) {
+                for (Long tableId : tableIds) {
+                    if (tableIdList.contains(tableId)) {
+                        throw new AnalysisException("The table(id=" + tableId + ") have two unfinished statistics jobs");
+                    }
+                }
+                unfinishedJobs++;
+            }
+        }
+
+        // check the number of unfinished tasks
+        if (unfinishedJobs > Config.cbo_max_statistics_job_num) {
+            throw new AnalysisException("The unfinished statistics job could not more then cbo_max_statistics_job_num");
+        }
     }
 }
