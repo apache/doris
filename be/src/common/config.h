@@ -234,6 +234,8 @@ CONF_Bool(disable_storage_page_cache, "false");
 
 CONF_Bool(enable_storage_vectorization, "false");
 
+CONF_Bool(enable_low_cardinality_optimize, "false");
+
 // be policy
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
