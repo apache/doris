@@ -32,7 +32,14 @@ target_link_libraries(meta_tool
     ${DORIS_LINK_LIBS}
 )
 
-install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+add_custom_command(TARGET meta_tool POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:meta_tool> $<TARGET_FILE:meta_tool>.dbg
+    COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:meta_tool>
+    COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:meta_tool>.dbg $<TARGET_FILE:meta_tool>
+)
 
-install(TARGETS meta_tool
-    DESTINATION ${OUTPUT_DIR}/lib/)
+install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/debug_info/)
+
+install(TARGETS meta_tool DESTINATION ${OUTPUT_DIR}/lib/)
+install(FILES $<TARGET_FILE:meta_tool>.dbg DESTINATION ${OUTPUT_DIR}/lib/debug_info/)
