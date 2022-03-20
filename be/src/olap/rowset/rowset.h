@@ -118,10 +118,6 @@ public:
     // returns OLAP_ERR_ROWSET_CREATE_READER when failed to create reader
     virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
 
-    // Support adding parent tracker, but should be careful about destruction sequence.
-    virtual OLAPStatus create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
-                                     std::shared_ptr<RowsetReader>* result) = 0;
-
     // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly
     // `request_block_row_count` rows. Sub-range is represented by pair of OlapTuples and added to `ranges`.
     //

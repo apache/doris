@@ -95,9 +95,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
         return_columns.push_back(i);
     }
 
-    auto tracker = MemTracker::create_tracker(-1, "OlapScanner");
-    std::shared_ptr<IBloomFilterFuncBase> bloom_filter(
-            create_bloom_filter(tracker.get(), PrimitiveType::TYPE_FLOAT));
+    std::shared_ptr<IBloomFilterFuncBase> bloom_filter(create_bloom_filter(PrimitiveType::TYPE_FLOAT));
 
     bloom_filter->init(4096, 0.05);
     float value = 4.1;

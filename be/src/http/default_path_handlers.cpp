@@ -150,15 +150,9 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
         string limit_str;
         string current_consumption_str;
         string peak_consumption_str;
-        if (!config::memory_leak_detection) {
-            limit_str = tracker->limit() == -1 ? "none" : ItoaKMGT(tracker->limit());
-            current_consumption_str = ItoaKMGT(tracker->consumption());
-            peak_consumption_str = ItoaKMGT(tracker->peak_consumption());
-        } else {
-            limit_str = tracker->limit() == -1 ? "none" : AccurateItoaKMGT(tracker->limit());
-            current_consumption_str = AccurateItoaKMGT(tracker->consumption());
-            peak_consumption_str = AccurateItoaKMGT(tracker->peak_consumption());
-        }
+        limit_str = tracker->limit() == -1 ? "none" : AccurateItoaKMGT(tracker->limit());
+        current_consumption_str = AccurateItoaKMGT(tracker->consumption());
+        peak_consumption_str = AccurateItoaKMGT(tracker->peak_consumption());
         
         int64_t use_count = tracker.use_count();
         (*output) << strings::Substitute(

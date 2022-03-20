@@ -34,6 +34,7 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
@@ -181,7 +182,7 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
     _scanner_mem_tracker = MemTracker::create_tracker(state->instance_mem_tracker()->limit(),
-                                                             "Scanners", mem_tracker());
+                                                      "Scanners", mem_tracker());
 
     if (_tuple_desc == nullptr) {
         // TODO: make sure we print all available diagnostic output to our error log
@@ -1349,6 +1350,7 @@ Status OlapScanNode::normalize_bloom_filter_predicate(SlotDescriptor* slot) {
 
 void OlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     Status status = Status::OK();
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
@@ -1515,6 +1517,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
+    SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;
         std::unique_lock<std::mutex> l(_scan_batches_lock);
@@ -1596,8 +1599,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
                        << ", fragment id=" << print_id(_runtime_state->fragment_instance_id());
             break;
         }
-        RowBatch* row_batch = new RowBatch(this->row_desc(), state->batch_size(),
-                                           _scanner_mem_tracker.get());
+        RowBatch* row_batch = new RowBatch(this->row_desc(), state->batch_size());
         row_batch->set_scanner_id(scanner->id());
         status = scanner->get_batch(_runtime_state, row_batch, &eos);
         if (!status.ok()) {

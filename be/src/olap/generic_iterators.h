@@ -25,14 +25,14 @@ namespace doris {
 //
 // Inputs iterators' ownership is taken by created merge iterator. And client
 // should delete returned iterator after usage.
-RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent, int sequence_id_idx);
+RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs, int sequence_id_idx);
 
 // Create a union iterator for input iterators. Union iterator will read
 // input iterators one by one.
 //
 // Inputs iterators' ownership is taken by created union iterator. And client
 // should delete returned iterator after usage.
-RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs, std::shared_ptr<MemTracker> parent);
+RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs);
 
 // Create an auto increment iterator which returns num_rows data in format of schema.
 // This class aims to be used in unit test.

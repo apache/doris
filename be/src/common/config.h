@@ -187,8 +187,8 @@ CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
-// memory_limitation_per_thread_for_schema_change unit GB
-CONF_mInt32(memory_limitation_per_thread_for_schema_change, "2");
+// memory_limitation_per_thread_for_schema_change_bytes unit bytes
+CONF_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 
 // the clean interval of file descriptor cache and segment cache
 CONF_mInt32(cache_clean_interval, "1800");
@@ -605,6 +605,9 @@ CONF_Int32(aws_log_level, "3");
 
 // the buffer size when read data from remote storage like s3
 CONF_mInt32(remote_storage_read_buffer_mb, "16");
+
+// Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
+CONF_Bool(track_new_delete, "true");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:

@@ -37,7 +37,6 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/string_value.hpp"
 #include "util/date_func.h"
 #include "util/mem_util.hpp"
@@ -107,7 +106,7 @@ TabletReader::~TabletReader() {
 }
 
 OLAPStatus TabletReader::init(const ReaderParams& read_params) {
-    _predicate_mem_pool.reset(new MemPool(read_params.tablet->full_name()));
+    _predicate_mem_pool.reset(new MemPool("TabletReader:" + read_params.tablet->full_name()));
 
     OLAPStatus res = _init_params(read_params);
     if (res != OLAP_SUCCESS) {

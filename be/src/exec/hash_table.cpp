@@ -43,13 +43,12 @@ HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
           _num_nodes(0),
           _current_capacity(num_buckets),
           _current_used(0),
-          _total_capacity(num_buckets),
-          _exceeded_limit(false),
-          _mem_tracker(mem_tracker) {
-    DCHECK(_mem_tracker);
+          _total_capacity(num_buckets) {
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
 
     DCHECK_EQ((num_buckets & (num_buckets - 1)), 0) << "num_buckets must be a power of 2";
+    _mem_tracker =
+            MemTracker::create_virtual_tracker(-1, mem_tracker->label() + "HashTable", mem_tracker);
     _buckets.resize(num_buckets);
     _num_buckets = num_buckets;
     _num_buckets_till_resize = MAX_BUCKET_OCCUPANCY_FRACTION * _num_buckets;
@@ -71,9 +70,6 @@ HashTable::HashTable(const std::vector<ExprContext*>& build_expr_ctxs,
     _end_list.push_back(_current_nodes + _current_capacity * _node_byte_size);
 
     _mem_tracker->consume(_current_capacity * _node_byte_size);
-    if (_mem_tracker->limit_exceeded()) {
-        mem_limit_exceeded(_current_capacity * _node_byte_size);
-    }
 }
 
 HashTable::~HashTable() {}
@@ -183,7 +179,6 @@ Status HashTable::resize_buckets(int64_t num_buckets) {
     Status st = _mem_tracker->try_consume(delta_bytes);
     if (!st) {
         LOG_EVERY_N(WARNING, 100) << "resize bucket failed: " << st.to_string();
-        mem_limit_exceeded(delta_bytes);
         return st;
     }
 
@@ -245,13 +240,6 @@ void HashTable::grow_node_array() {
     _end_list.push_back(_current_nodes + alloc_size);
 
     _mem_tracker->consume(alloc_size);
-    if (_mem_tracker->limit_exceeded()) {
-        mem_limit_exceeded(alloc_size);
-    }
-}
-
-void HashTable::mem_limit_exceeded(int64_t allocation_size) {
-    _exceeded_limit = true;
 }
 
 std::string HashTable::debug_string(bool skip_empty, const RowDescriptor* desc) {

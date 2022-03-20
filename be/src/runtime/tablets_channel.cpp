@@ -31,11 +31,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
-TabletsChannel::TabletsChannel(const TabletsChannelKey& key,
-                               const std::shared_ptr<MemTracker>& mem_tracker,
-                               bool is_high_priority)
+TabletsChannel::TabletsChannel(const TabletsChannelKey& key, bool is_high_priority)
         : _key(key), _state(kInitialized), _closed_senders(64), _is_high_priority(is_high_priority) {
-    _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel:" + std::to_string(key.index_id), mem_tracker);
+    _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel:" + std::to_string(key.index_id));
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
         REGISTER_HOOK_METRIC(tablet_writer_count, [&]() { return _s_tablet_writer_count.load(); });
@@ -101,7 +99,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         }
     }
 
-    RowBatch row_batch(*_row_desc, request.row_batch(), _mem_tracker.get());
+    RowBatch row_batch(*_row_desc, request.row_batch());
     std::unordered_map<int64_t /* tablet_id */, std::vector<int> /* row index */> tablet_to_rowidxs;
     for (int i = 0; i < request.tablet_ids_size(); ++i) {
         int64_t tablet_id = request.tablet_ids(i);
@@ -286,7 +284,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.is_high_priority = _is_high_priority;
 
         DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, _mem_tracker, &writer);
+        auto st = DeltaWriter::open(&wrequest, &writer);
         if (st != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()

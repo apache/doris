@@ -17,7 +17,8 @@ namespace doris {
 
 class Status {
     enum { 
-        STATE_CAPACITY = 256,
+        // If the error and log returned by the query are truncated, the status to string may be too long.
+        STATE_CAPACITY = 2048,
         HEADER_LEN = 7,
         MESSAGE_LEN = STATE_CAPACITY - HEADER_LEN
     };

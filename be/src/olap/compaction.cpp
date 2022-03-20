@@ -26,16 +26,9 @@ using std::vector;
 
 namespace doris {
 
-Compaction::Compaction(TabletSharedPtr tablet, const std::string& label,
-                       const std::shared_ptr<MemTracker>& parent_tracker)
+Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
         : _mem_tracker(
-                  MemTracker::create_tracker(-1, label, parent_tracker, MemTrackerLevel::INSTANCE)),
-          _readers_tracker(MemTracker::create_tracker(
-                  -1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()),
-                  _mem_tracker)),
-          _writer_tracker(MemTracker::create_tracker(
-                  -1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()),
-                  _mem_tracker)),
+                  MemTracker::create_tracker(-1, label, nullptr, MemTrackerLevel::INSTANCE)),
           _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
@@ -144,7 +137,8 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
               << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
-              << ". elapsed time=" << watch.get_elapse_second() << "s. cumulative_compaction_policy="
+              << ". elapsed time=" << watch.get_elapse_second()
+              << "s. cumulative_compaction_policy="
               << _tablet->cumulative_compaction_policy()->name() << ".";
 
     return OLAP_SUCCESS;
@@ -166,7 +160,6 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     context.rowset_state = VISIBLE;
     context.version = _output_version;
     context.segments_overlap = NONOVERLAPPING;
-    context.parent_mem_tracker = _writer_tracker;
     // The test results show that one rs writer is low-memory-footprint, there is no need to tracker its mem pool
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &_output_rs_writer));
     return OLAP_SUCCESS;
@@ -175,11 +168,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
 OLAPStatus Compaction::construct_input_rowset_readers() {
     for (auto& rowset : _input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        RETURN_NOT_OK(rowset->create_reader(
-                MemTracker::create_tracker(
-                        -1, "Compaction:RowsetReader:" + rowset->rowset_id().to_string(),
-                        _readers_tracker),
-                &rs_reader));
+        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
         _input_rs_readers.push_back(std::move(rs_reader));
     }
     return OLAP_SUCCESS;
@@ -298,4 +287,4 @@ int64_t Compaction::get_compaction_permits() {
     return permits;
 }
 
-}  // namespace doris
+} // namespace doris

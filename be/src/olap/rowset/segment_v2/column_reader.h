@@ -72,8 +72,6 @@ struct ColumnIteratorOptions {
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
 
-    std::shared_ptr<MemTracker> mem_tracker;
-
     void sanity_check() const {
         CHECK_NOTNULL(rblock);
         CHECK_NOTNULL(stats);
@@ -198,7 +196,6 @@ public:
     virtual ~ColumnIterator() = default;
 
     virtual Status init(const ColumnIteratorOptions& opts) {
-        DCHECK(opts.mem_tracker.get() != nullptr);
         _opts = opts;
         return Status::OK();
     }

@@ -554,7 +554,8 @@ public class Coordinator {
                 if (colocateFragmentIds.contains(fragment.getFragmentId().asInt())) {
                     int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceNum);
                     long newMemory = memoryLimit / rate;
-
+                    // TODO(zxy): The meaning of mem limit in query_options has become the real once query mem limit.
+                    // The logic to modify mem_limit here needs to be modified or deleted.
                     for (TExecPlanFragmentParams tParam : tParams) {
                         tParam.query_options.setMemLimit(newMemory);
                     }

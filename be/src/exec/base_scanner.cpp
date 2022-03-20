@@ -39,14 +39,6 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _counter(counter),
           _src_tuple(nullptr),
           _src_tuple_row(nullptr),
-#if BE_TEST
-          _mem_tracker(new MemTracker()),
-#else
-          _mem_tracker(MemTracker::create_tracker(
-                  -1, "BaseScanner:" + std::to_string(state->load_job_id()),
-                  state->instance_mem_tracker())),
-#endif
-          _mem_pool(_mem_tracker.get()),
           _dest_tuple_desc(nullptr),
           _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),
@@ -57,6 +49,13 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _materialize_timer(nullptr),
           _success(false),
           _scanner_eof(false) {
+#ifndef BE_TEST
+    _mem_pool.reset(new MemPool(state->query_type() == TQueryType::LOAD
+                                        ? "BaseScanner:" + std::to_string(state->load_job_id())
+                                        : "BaseScanner:Select"));
+#else
+    _mem_pool.reset(new MemPool());
+#endif
 }
 
 Status BaseScanner::open() {
@@ -97,8 +96,8 @@ Status BaseScanner::init_expr_ctxes() {
         _src_slot_descs.emplace_back(it->second);
     }
     // Construct source tuple and tuple row
-    _src_tuple = (Tuple*)_mem_pool.allocate(src_tuple_desc->byte_size());
-    _src_tuple_row = (TupleRow*)_mem_pool.allocate(sizeof(Tuple*));
+    _src_tuple = (Tuple*)_mem_pool->allocate(src_tuple_desc->byte_size());
+    _src_tuple_row = (TupleRow*)_mem_pool->allocate(sizeof(Tuple*));
     _src_tuple_row->set_tuple(0, _src_tuple);
     _row_desc.reset(new RowDescriptor(_state->desc_tbl(),
                                       std::vector<TupleId>({_params.src_tuple_id}),

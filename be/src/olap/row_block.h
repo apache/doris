@@ -57,8 +57,7 @@ class RowBlock {
     friend class VectorizedRowBatch;
 
 public:
-    RowBlock(const TabletSchema* schema,
-             const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
+    RowBlock(const TabletSchema* schema);
 
     // 注意回收内部buffer
     ~RowBlock();
@@ -136,7 +135,6 @@ private:
     size_t _limit = 0;
     uint8_t _block_status = DEL_PARTIAL_SATISFIED;
 
-    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
     // 由于内部持有内存资源，所以这里禁止拷贝和赋值
     DISALLOW_COPY_AND_ASSIGN(RowBlock);

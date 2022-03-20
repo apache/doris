@@ -824,7 +824,7 @@ void Expr::assign_fn_ctx_idx(int* next_fn_ctx_idx) {
 Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
                     ObjectPool* pool, Expr** scalar_expr) {
     *scalar_expr = nullptr;
-    Expr* root;
+    Expr* root = nullptr;
     RETURN_IF_ERROR(create_expr(pool, texpr.nodes[0], &root));
     RETURN_IF_ERROR(create_tree(texpr, pool, root));
     // TODO pengyubing replace by Init()
@@ -848,7 +848,7 @@ Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_d
                     RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs) {
     exprs->clear();
     for (const TExpr& texpr : texprs) {
-        Expr* expr;
+        Expr* expr = nullptr;
         RETURN_IF_ERROR(create(texpr, row_desc, state, pool, &expr));
         DCHECK(expr != nullptr);
         exprs->push_back(expr);

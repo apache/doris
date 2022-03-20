@@ -23,6 +23,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -69,7 +70,7 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     _probe_tuple_row_size = num_left_tuples * sizeof(Tuple*);
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
 
-    _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
     return Status::OK();
 }
 
@@ -82,6 +83,7 @@ Status BlockingJoinNode::close(RuntimeState* state) {
 }
 
 void BlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     status->set_value(construct_build_side(state));
 }
 

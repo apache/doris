@@ -53,7 +53,7 @@ struct SegmentWriterOptions {
 class SegmentWriter {
 public:
     explicit SegmentWriter(fs::WritableBlock* block, uint32_t segment_id,
-                           const TabletSchema* tablet_schema, const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent = nullptr);
+                           const TabletSchema* tablet_schema, const SegmentWriterOptions& opts);
     ~SegmentWriter();
 
     Status init(uint32_t write_mbytes_per_sec);

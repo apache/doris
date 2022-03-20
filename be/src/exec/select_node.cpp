@@ -33,8 +33,7 @@ SelectNode::SelectNode(ObjectPool* pool, const TPlanNode& tnode, const Descripto
 
 Status SelectNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    _child_row_batch.reset(
-            new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    _child_row_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
     return Status::OK();
 }
 

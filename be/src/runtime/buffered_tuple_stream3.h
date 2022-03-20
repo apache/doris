@@ -30,7 +30,6 @@
 
 namespace doris {
 
-class MemTracker;
 class RuntimeState;
 class RowDescriptor;
 class SlotDescriptor;
@@ -333,8 +332,7 @@ public:
     /// process. If the current unused reservation is not sufficient to pin the stream in
     /// memory, this will try to increase the reservation. If that fails, 'got_rows' is set
     /// to false.
-    Status GetRows(const std::shared_ptr<MemTracker>& tracker, std::unique_ptr<RowBatch>* batch,
-                   bool* got_rows) WARN_UNUSED_RESULT;
+    Status GetRows(std::unique_ptr<RowBatch>* batch, bool* got_rows) WARN_UNUSED_RESULT;
 
     /// Must be called once at the end to cleanup all resources. If 'batch' is non-nullptr,
     /// attaches buffers from pinned pages that rows returned from GetNext() may reference.

@@ -55,14 +55,6 @@ OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
-                                      std::shared_ptr<RowsetReader>* result) {
-    result->reset(new AlphaRowsetReader(_schema->num_rows_per_row_block(),
-                                        std::static_pointer_cast<AlphaRowset>(shared_from_this()),
-                                        parent_tracker));
-    return OLAP_SUCCESS;
-}
-
 OLAPStatus AlphaRowset::remove() {
     VLOG_NOTICE << "begin to remove files in rowset " << unique_id() << ", version:" << start_version()
             << "-" << end_version() << ", tabletid:" << _rowset_meta->tablet_id();

@@ -83,6 +83,8 @@ private:
     /// and owned by this VExprContext.
     std::vector<FunctionContext*> _fn_contexts;
 
+    std::shared_ptr<MemTracker> _mem_tracker;
+
     /// Pool backing fn_contexts_. Counts against the runtime state's UDF mem tracker.
     std::unique_ptr<MemPool> _pool;
 

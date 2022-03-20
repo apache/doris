@@ -208,6 +208,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
     _expr_timer = ADD_TIMER(runtime_profile(), "ExprTime");
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
+    _data_mem_tracker = MemTracker::create_virtual_tracker(-1, "AggregationNode:Data", mem_tracker());
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
@@ -216,7 +217,7 @@ Status AggregationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(
             VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc(), expr_mem_tracker()));
 
-    _mem_pool = std::make_unique<MemPool>(mem_tracker().get());
+    _mem_pool = std::make_unique<MemPool>();
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
@@ -365,8 +366,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
     return Status::NotSupported("Not Implemented Aggregation Node::get_next scalar");
 }
 
-Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
+Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {    SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (_is_streaming_preagg) {
         bool child_eos = false;
@@ -555,7 +555,7 @@ Status AggregationNode::_merge_without_key(Block* block) {
 }
 
 void AggregationNode::_update_memusage_without_key() {
-    mem_tracker()->consume(_agg_arena_pool.size() - _mem_usage_record.used_in_arena);
+    _data_mem_tracker->consume(_agg_arena_pool.size() - _mem_usage_record.used_in_arena);
     _mem_usage_record.used_in_arena = _agg_arena_pool.size();
 }
 
@@ -1078,8 +1078,8 @@ void AggregationNode::_update_memusage_with_serialized_key() {
     std::visit(
             [&](auto&& agg_method) -> void {
                 auto& data = agg_method.data;
-                mem_tracker()->consume(_agg_arena_pool.size() - _mem_usage_record.used_in_arena);
-                mem_tracker()->consume(data.get_buffer_size_in_bytes() -
+                _data_mem_tracker->consume(_agg_arena_pool.size() - _mem_usage_record.used_in_arena);
+                _data_mem_tracker->consume(data.get_buffer_size_in_bytes() -
                                        _mem_usage_record.used_in_state);
                 _mem_usage_record.used_in_state = data.get_buffer_size_in_bytes();
                 _mem_usage_record.used_in_arena = _agg_arena_pool.size();
@@ -1103,7 +1103,7 @@ void AggregationNode::_close_with_serialized_key() {
 }
 
 void AggregationNode::release_tracker() {
-    mem_tracker()->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
+   _data_mem_tracker->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
 }
 
 } // namespace doris::vectorized
