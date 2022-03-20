@@ -39,10 +39,8 @@ class SegmentReader;
 // This class is column data reader. this class will be used in two case.
 class ColumnData {
 public:
-    static ColumnData* create(SegmentGroup* segment_group,
-                              const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
-    ColumnData(SegmentGroup* segment_group,
-               const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
+    static ColumnData* create(SegmentGroup* segment_group);
+    ColumnData(SegmentGroup* segment_group);
     ~ColumnData();
 
     // 为了与之前兼容, 暴露部分index的接口
@@ -139,7 +137,6 @@ private:
 
 private:
     SegmentGroup* _segment_group;
-    std::shared_ptr<MemTracker> _parent_tracker;
     // 当到达文件末尾或者到达end key时设置此标志
     bool _eof;
     const Conditions* _conditions;

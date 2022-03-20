@@ -284,7 +284,7 @@ Status RuntimeState::create_block_mgr() {
         block_mgr_limit = std::numeric_limits<int64_t>::max();
     }
     RETURN_IF_ERROR(BufferedBlockMgr2::create(
-            this, _query_mem_tracker, runtime_profile(), _exec_env->tmp_file_mgr(), block_mgr_limit,
+            this, runtime_profile(), _exec_env->tmp_file_mgr(), block_mgr_limit,
             _exec_env->disk_io_mgr()->max_read_buffer_size(), &_block_mgr2));
     return Status::OK();
 }

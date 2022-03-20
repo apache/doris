@@ -92,18 +92,14 @@ private:
     bool _eof = false;
 };
 
-SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema,
-                                 std::shared_ptr<MemTracker> parent)
+SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, const Schema& schema)
         : _segment(std::move(segment)),
           _schema(schema),
           _column_iterators(_schema.num_columns(), nullptr),
           _bitmap_index_iterators(_schema.num_columns(), nullptr),
           _cur_rowid(0),
           _lazy_materialization_read(false),
-          _inited(false) {
-    // use for count the mem use of ColumnIterator
-    _mem_tracker = MemTracker::create_tracker(-1, "SegmentIterator", std::move(parent));
-}
+          _inited(false) {}
 
 SegmentIterator::~SegmentIterator() {
     for (auto iter : _column_iterators) {
@@ -199,18 +195,16 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         }
     }
     _seek_schema = std::make_unique<Schema>(key_fields, key_fields.size());
-    _seek_block = std::make_unique<RowBlockV2>(*_seek_schema, 1, _mem_tracker);
+    _seek_block = std::make_unique<RowBlockV2>(*_seek_schema, 1);
 
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(
-                    _segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
+                    _segment->new_column_iterator(cid, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.rblock = _rblock.get();
-            iter_opts.mem_tracker =
-                    MemTracker::create_tracker(-1, "ColumnIterator", _mem_tracker);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -336,13 +330,11 @@ Status SegmentIterator::_init_return_column_iterators() {
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(
-                    _segment->new_column_iterator(cid, _mem_tracker, &_column_iterators[cid]));
+                    _segment->new_column_iterator(cid, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.rblock = _rblock.get();
-            iter_opts.mem_tracker =
-                    MemTracker::create_tracker(-1, "ColumnIterator", _mem_tracker);
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }

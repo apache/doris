@@ -47,7 +47,6 @@ namespace doris {
 static const uint32_t MAX_PATH_LEN = 1024;
 
 StorageEngine* k_engine = nullptr;
-std::shared_ptr<MemTracker> k_mem_tracker = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
@@ -66,7 +65,6 @@ void set_up() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
     k_engine->start_bg_threads();
-    k_mem_tracker.reset(new MemTracker(-1, "delta writer test"));
 }
 
 void tear_down() {
@@ -368,7 +366,7 @@ TEST_F(TestDeltaWriter, open) {
     load_id.set_lo(0);
     WriteRequest write_req = {10003, 270068375, WriteType::LOAD, 20001, 30001, load_id, tuple_desc};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
+    DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -402,7 +400,7 @@ TEST_F(TestDeltaWriter, write) {
     WriteRequest write_req = {10004, 270068376, WriteType::LOAD, 20002,
                               30002, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
+    DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
     auto tracker = std::make_shared<MemTracker>();
@@ -528,7 +526,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
     WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
                               30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
+    DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
     MemTracker tracker;

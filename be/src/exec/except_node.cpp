@@ -55,8 +55,7 @@ Status ExceptNode::open(RuntimeState* state) {
         }
 
         // probe
-        _probe_batch.reset(
-                new RowBatch(child(i)->row_desc(), state->batch_size(), mem_tracker().get()));
+        _probe_batch.reset(new RowBatch(child(i)->row_desc(), state->batch_size()));
         ScopedTimer<MonotonicStopWatch> probe_timer(_probe_timer);
         RETURN_IF_ERROR(child(i)->open(state));
         eos = false;

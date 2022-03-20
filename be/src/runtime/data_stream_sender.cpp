@@ -89,7 +89,7 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
 
     // TODO: figure out how to size _batch
     int capacity = std::max(1, _buffer_size / std::max(_row_desc.get_row_size(), 1));
-    _batch.reset(new RowBatch(_row_desc, capacity, _parent->_mem_tracker.get()));
+    _batch.reset(new RowBatch(_row_desc, capacity));
 
     if (_brpc_dest_addr.hostname.empty()) {
         LOG(WARNING) << "there is no brpc destination address's hostname"
@@ -388,6 +388,7 @@ Status DataStreamSender::prepare(RuntimeState* state) {
           << "])";
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
+    // TODO(zxy) used after
     _mem_tracker = MemTracker::create_tracker(
             -1, "DataStreamSender:" + print_id(state->fragment_instance_id()),
             state->instance_mem_tracker(), MemTrackerLevel::VERBOSE, _profile);

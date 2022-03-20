@@ -316,7 +316,7 @@ public:
                           CachePriority priority = CachePriority::NORMAL);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
-    void erase(const CacheKey& key, uint32_t hash);
+    void erase(const CacheKey& key, uint32_t hash, MemTracker* tracker);
     int64_t prune();
     int64_t prune_if(CacheValuePredicate pred);
 

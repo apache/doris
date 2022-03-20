@@ -62,7 +62,6 @@ struct RowsetWriterContext {
     // indicate whether the data among segments is overlapping.
     // default is OVERLAP_UNKNOWN.
     SegmentsOverlapPB segments_overlap;
-    std::shared_ptr<MemTracker> parent_mem_tracker;
     // segment file use uint32 to represent row number, therefore the maximum is UINT32_MAX.
     // the default is set to INT32_MAX to avoid overflow issue when casting from uint32_t to int.
     // test cases can change this value to control flush timing

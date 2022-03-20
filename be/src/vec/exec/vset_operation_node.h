@@ -90,6 +90,8 @@ protected:
     RuntimeProfile::Counter* _build_timer; // time to build hash table
     RuntimeProfile::Counter* _probe_timer; // time to probe
 
+    std::shared_ptr<MemTracker> _hash_table_mem_tracker;
+
     template <class HashTableContext>
     friend struct HashTableBuild;
     template <class HashTableContext, bool is_intersected>

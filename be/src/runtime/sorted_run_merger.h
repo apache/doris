@@ -109,8 +109,7 @@ protected:
 class ChildSortedRunMerger : public SortedRunMerger {
 public:
     ChildSortedRunMerger(const TupleRowComparator& compare_less_than, RowDescriptor* row_desc,
-                         RuntimeProfile* profile, MemTracker* _parent, uint32_t row_batch_size,
-                         bool deep_copy_input);
+                         RuntimeProfile* profile, uint32_t row_batch_size, bool deep_copy_input);
 
     Status get_batch(RowBatch** output_batch) override;
 
@@ -120,8 +119,6 @@ private:
 
     // The data in merger is exhaust
     bool _eos = false;
-
-    MemTracker* _parent;
 
     uint32_t _row_batch_size;
 };

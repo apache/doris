@@ -146,7 +146,7 @@ Status SetOperationNode::open(RuntimeState* state) {
     // initial build hash table used for remove duplicated
     _hash_tbl.reset(new HashTable(_child_expr_lists[0], _child_expr_lists[1], _build_tuple_size,
                                   true, _find_nulls, id(), mem_tracker(), state->batch_size() * 2));
-    RowBatch build_batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+    RowBatch build_batch(child(0)->row_desc(), state->batch_size());
     RETURN_IF_ERROR(child(0)->open(state));
 
     bool eos = false;

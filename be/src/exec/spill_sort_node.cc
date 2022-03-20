@@ -153,7 +153,7 @@ void SpillSortNode::debug_string(int indentation_level, stringstream* out) const
 }
 
 Status SpillSortNode::sort_input(RuntimeState* state) {
-    RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+    RowBatch batch(child(0)->row_desc(), state->batch_size());
     bool eos = false;
     do {
         batch.reset();

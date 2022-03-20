@@ -29,22 +29,19 @@
 
 namespace doris {
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
-                             DeltaWriter** writer) {
-    *writer = new DeltaWriter(req, parent, StorageEngine::instance());
+OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
+    *writer = new DeltaWriter(req, StorageEngine::instance());
     return OLAP_SUCCESS;
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
-                         StorageEngine* storage_engine)
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine)
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
           _rowset_writer(nullptr),
           _tablet_schema(nullptr),
           _delta_written_success(false),
-          _storage_engine(storage_engine),
-          _parent_mem_tracker(parent) {}
+          _storage_engine(storage_engine) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -97,8 +94,8 @@ OLAPStatus DeltaWriter::init() {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    _mem_tracker = MemTracker::create_tracker(
-            -1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()), _parent_mem_tracker);
+    _mem_tracker =
+            MemTracker::create_tracker(-1, "DeltaWriter:" + std::to_string(_tablet->tablet_id()));
     // check tablet version number
     if (_tablet->version_count() > config::max_tablet_version_num) {
         LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
@@ -134,7 +131,6 @@ OLAPStatus DeltaWriter::init() {
     writer_context.txn_id = _req.txn_id;
     writer_context.load_id = _req.load_id;
     writer_context.segments_overlap = OVERLAPPING;
-    writer_context.parent_mem_tracker = _mem_tracker;
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(writer_context, &_rowset_writer));
 
     _tablet_schema = &(_tablet->tablet_schema());
@@ -254,8 +250,7 @@ OLAPStatus DeltaWriter::wait_flush() {
 
 void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema, _req.slots,
-                                  _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(),
-                                  _mem_tracker));
+                                  _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get()));
 }
 
 OLAPStatus DeltaWriter::close() {

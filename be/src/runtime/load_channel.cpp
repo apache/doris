@@ -24,12 +24,11 @@
 namespace doris {
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                         const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority,
-                         const std::string& sender_ip)
+                         bool is_high_priority, const std::string& sender_ip)
         : _load_id(load_id), _timeout_s(timeout_s), _is_high_priority(is_high_priority),
           _sender_ip(sender_ip) {
     _mem_tracker = MemTracker::create_tracker(
-            mem_limit, "LoadChannel:" + _load_id.to_string(), mem_tracker, MemTrackerLevel::TASK);
+            mem_limit, "LoadChannel:" + _load_id.to_string(), nullptr, MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -53,7 +52,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _mem_tracker, _is_high_priority));
+            channel.reset(new TabletsChannel(key, _is_high_priority));
             _tablets_channels.insert({index_id, channel});
         }
     }

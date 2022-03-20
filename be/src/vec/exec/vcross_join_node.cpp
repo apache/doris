@@ -33,6 +33,7 @@ VCrossJoinNode::VCrossJoinNode(ObjectPool* pool, const TPlanNode& tnode, const D
 Status VCrossJoinNode::prepare(RuntimeState* state) {
     DCHECK(_join_op == TJoinOp::CROSS_JOIN);
     RETURN_IF_ERROR(VBlockingJoinNode::prepare(state));
+    _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VCrossJoinNode:Block", mem_tracker());
 
     _num_existing_columns = child(0)->row_desc().num_materialized_slots();
     _num_columns_to_add = child(1)->row_desc().num_materialized_slots();
@@ -44,7 +45,7 @@ Status VCrossJoinNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    _mem_tracker->release(_total_mem_usage);
+    _block_mem_tracker->release(_total_mem_usage);
     VBlockingJoinNode::close(state);
     return Status::OK();
 }
@@ -67,7 +68,7 @@ Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
             _build_rows += rows;
             _total_mem_usage += mem_usage;
             _build_blocks.emplace_back(std::move(block));
-            _mem_tracker->consume(mem_usage);
+            _block_mem_tracker->consume(mem_usage);
         }
         // to prevent use too many memory
         RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Cross join, while getting next from the child 1.");

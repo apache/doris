@@ -466,7 +466,7 @@ public:
         StorageReadOptions read_opts;
         read_opts.stats = &stats;
         std::unique_ptr<RowwiseIterator> iter;
-        _segment->new_iterator(get_schema(), read_opts, nullptr, &iter);
+        _segment->new_iterator(get_schema(), read_opts, &iter);
         RowBlockV2 block(get_schema(), 1024);
 
         int left = _dataset.size();
@@ -511,7 +511,7 @@ public:
         StorageReadOptions read_opts;
         read_opts.stats = &stats;
         std::unique_ptr<RowwiseIterator> iter;
-        _segment->new_iterator(get_schema(), read_opts, nullptr, &iter);
+        _segment->new_iterator(get_schema(), read_opts, &iter);
         RowBlockV2 block(get_schema(), 1024);
 
         int left = _dataset.size();

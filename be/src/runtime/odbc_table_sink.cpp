@@ -21,7 +21,6 @@
 
 #include "exprs/expr.h"
 #include "runtime/runtime_state.h"
-#include "runtime/mem_tracker.h"
 #include "util/runtime_profile.h"
 #include "util/debug_util.h"
 

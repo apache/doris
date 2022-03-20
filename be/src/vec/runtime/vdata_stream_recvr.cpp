@@ -123,7 +123,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
         SCOPED_TIMER(_recvr->_deserialize_row_batch_timer);
         block = new Block(pblock);
     }
-    _recvr->_mem_tracker->consume(block->bytes());
+    _recvr->_block_mem_tracker->consume(block->bytes());
 
     VLOG_ROW << "added #rows=" << block->rows() << " batch_size=" << block_byte_size << "\n";
     _block_queue.emplace_back(block_byte_size, block);
@@ -162,7 +162,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     std::unique_lock<std::mutex> l(_lock);
     size_t block_size = nblock->bytes();
     _block_queue.emplace_back(block_size, nblock);
-    _recvr->_mem_tracker->consume(nblock->bytes());
+    _recvr->_block_mem_tracker->consume(nblock->bytes());
     _data_arrival_cv.notify_one();
 
     if (_recvr->exceeds_limit(block_size)) {
@@ -245,10 +245,9 @@ void VDataStreamRecvr::SenderQueue::close() {
 }
 
 VDataStreamRecvr::VDataStreamRecvr(
-        VDataStreamMgr* stream_mgr, const std::shared_ptr<MemTracker>& parent_tracker,
-        const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-        PlanNodeId dest_node_id, int num_senders, bool is_merging, int total_buffer_limit,
-        RuntimeProfile* profile,
+        VDataStreamMgr* stream_mgr, const RowDescriptor& row_desc,
+        const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
+        bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
         : _mgr(stream_mgr),
           _fragment_instance_id(fragment_instance_id),
@@ -262,7 +261,9 @@ VDataStreamRecvr::VDataStreamRecvr(
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr) {
     _mem_tracker =
             MemTracker::create_tracker(-1, "VDataStreamRecvr:" + print_id(_fragment_instance_id),
-                                       parent_tracker, MemTrackerLevel::VERBOSE, _profile);
+                                       nullptr, MemTrackerLevel::VERBOSE, _profile);
+    _block_mem_tracker = MemTracker::create_virtual_tracker(
+            -1, "VDataStreamRecvr:block:" + print_id(_fragment_instance_id), _mem_tracker);
 
     // Create one queue per sender if is_merging is true.
     int num_queues = is_merging ? num_senders : 1;
@@ -330,10 +331,10 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
         RETURN_IF_ERROR(_merger->get_next(block, eos));
     }
 
-    if (LIKELY(_mem_tracker->consumption() >= block->bytes())) {
-        _mem_tracker->release(block->bytes());
+    if (LIKELY(_block_mem_tracker->consumption() >= block->bytes())) {
+        _block_mem_tracker->release(block->bytes());
     } else {
-        _mem_tracker->release(_mem_tracker->consumption());
+        _block_mem_tracker->release(_block_mem_tracker->consumption());
     }
     return Status::OK();
 }
@@ -363,7 +364,7 @@ void VDataStreamRecvr::close() {
     _mgr = nullptr;
 
     _merger.reset();
-    _mem_tracker->release(_mem_tracker->consumption());
+    _block_mem_tracker->release(_block_mem_tracker->consumption());
 }
 
 } // namespace doris::vectorized

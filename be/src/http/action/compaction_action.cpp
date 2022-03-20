@@ -225,7 +225,7 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
 
     OLAPStatus status = OLAP_SUCCESS;
     if (compaction_type == PARAM_COMPACTION_BASE) {
-        BaseCompaction base_compaction(tablet, _compaction_mem_tracker);
+        BaseCompaction base_compaction(tablet);
         OLAPStatus res = base_compaction.compact();
         if (res != OLAP_SUCCESS && res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
             DorisMetrics::instance()->base_compaction_request_failed->increment(1);
@@ -234,7 +234,7 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
         }
         status = res;
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
-        CumulativeCompaction cumulative_compaction(tablet, _compaction_mem_tracker);
+        CumulativeCompaction cumulative_compaction(tablet);
         OLAPStatus res = cumulative_compaction.compact();
         if (res != OLAP_SUCCESS && res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
             DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);

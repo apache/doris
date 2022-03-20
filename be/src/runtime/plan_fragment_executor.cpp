@@ -34,6 +34,7 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
+#include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/cpu_info.h"
 #include "util/logging.h"
@@ -87,6 +88,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _runtime_state->set_query_fragments_ctx(fragments_ctx);
 
     RETURN_IF_ERROR(_runtime_state->init_mem_trackers(_query_id));
+    SCOPED_ATTACH_TASK_THREAD(_runtime_state->query_type(), print_id(_runtime_state->query_id()),
+                              _runtime_state->fragment_instance_id(),
+                              _runtime_state->instance_mem_tracker());
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
@@ -194,8 +198,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _fragment_cpu_timer = ADD_TIMER(profile(), "FragmentCpuTime");
 
-    _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size(),
-                                  _runtime_state->instance_mem_tracker().get()));
+    _row_batch.reset(new RowBatch(_plan->row_desc(), _runtime_state->batch_size()));
     _block.reset(new doris::vectorized::Block());
     // _row_batch->tuple_data_pool()->set_limits(*_runtime_state->mem_trackers());
     VLOG_NOTICE << "plan_root=\n" << _plan->debug_string();
@@ -244,6 +247,8 @@ Status PlanFragmentExecutor::open() {
     if (status.is_cancelled()) {
         if (_cancel_reason == PPlanFragmentCancelReason::CALL_RPC_ERROR) {
             status = Status::RuntimeError(_cancel_msg);
+        } else if (_cancel_reason == PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED) {
+            status = Status::MemoryLimitExceeded(_cancel_msg);
         }
     }
 
@@ -436,6 +441,9 @@ void PlanFragmentExecutor::_collect_node_statistics() {
 }
 
 void PlanFragmentExecutor::report_profile() {
+    SCOPED_ATTACH_TASK_THREAD(_runtime_state->query_type(), print_id(_runtime_state->query_id()),
+                              _runtime_state->fragment_instance_id(),
+                              _runtime_state->instance_mem_tracker());
     VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
     DCHECK(_report_status_cb);
 

@@ -291,7 +291,7 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
     // Streaming preaggregations do all processing in GetNext().
     if (is_streaming_preagg_) return Status::OK();
 
-    RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+    RowBatch batch(child(0)->row_desc(), state->batch_size());
     // Read all the rows from the child and process them.
     bool eos = false;
     do {
@@ -360,7 +360,7 @@ Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_b
     // TODO: if ancestor node don't have a no-spilling blocking node, we could avoid a deep_copy
     // we should a flag indicate this node don't have to deep_copy
     DCHECK_EQ(row_batch->num_rows(), 0);
-    RowBatch batch(row_batch->row_desc(), row_batch->capacity(), _mem_tracker.get());
+    RowBatch batch(row_batch->row_desc(), row_batch->capacity());
     int first_row_idx = batch.num_rows();
     RETURN_IF_ERROR(GetNextInternal(state, &batch, eos));
     RETURN_IF_ERROR(HandleOutputStrings(&batch, first_row_idx));
@@ -533,8 +533,7 @@ Status PartitionedAggregationNode::GetRowsStreaming(RuntimeState* state, RowBatc
     DCHECK(is_streaming_preagg_);
 
     if (child_batch_ == nullptr) {
-        child_batch_.reset(
-                new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+        child_batch_.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
     }
 
     do {
@@ -745,9 +744,11 @@ Status PartitionedAggregationNode::Partition::InitStreams() {
     RETURN_IF_ERROR(aggregated_row_stream->Init(parent->id(), true));
     bool got_buffer;
     RETURN_IF_ERROR(aggregated_row_stream->PrepareForWrite(&got_buffer));
-    DCHECK(got_buffer) << "Buffer included in reservation " << parent->_id << "\n"
-                       << parent->_buffer_pool_client.DebugString() << "\n"
-                       << parent->DebugString(2);
+    // TODO(zxy) If exec_mem_limit is very small, DCHECK(false) will occur, the logic of
+    // reservation tracker needs to be deleted or refactored
+    // DCHECK(got_buffer) << "Buffer included in reservation " << parent->_id << "\n"
+    //                    << parent->_buffer_pool_client.DebugString() << "\n"
+    //                    << parent->DebugString(2);
 
     if (!parent->is_streaming_preagg_) {
         unaggregated_row_stream.reset(new BufferedTupleStream3(
@@ -1345,7 +1346,7 @@ Status PartitionedAggregationNode::ProcessStream(BufferedTupleStream3* input_str
         bool eos = false;
         const RowDescriptor* desc =
                 AGGREGATED_ROWS ? &intermediate_row_desc_ : &(_children[0]->row_desc());
-        RowBatch batch(*desc, state_->batch_size(), mem_tracker().get());
+        RowBatch batch(*desc, state_->batch_size());
         do {
             RETURN_IF_ERROR(input_stream->GetNext(&batch, &eos));
             RETURN_IF_ERROR(ProcessBatch<AGGREGATED_ROWS>(&batch, ht_ctx_.get()));

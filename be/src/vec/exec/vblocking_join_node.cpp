@@ -22,6 +22,7 @@
 #include "exprs/expr.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {
@@ -67,6 +68,7 @@ Status VBlockingJoinNode::close(RuntimeState* state) {
 }
 
 void VBlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     status->set_value(construct_build_side(state));
     // Release the thread token as soon as possible (before the main thread joins
     // on it).  This way, if we had a chain of 10 joins using 1 additional thread,

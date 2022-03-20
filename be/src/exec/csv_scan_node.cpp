@@ -195,7 +195,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a csv scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool(state->instance_mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool());
     if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");
     }

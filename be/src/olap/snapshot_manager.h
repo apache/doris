@@ -65,7 +65,10 @@ public:
                                   const int32_t& schema_hash);
 
 private:
-    SnapshotManager() : _snapshot_base_id(0) {}
+    SnapshotManager() : _snapshot_base_id(0) {
+        _mem_tracker = MemTracker::create_tracker(-1, "SnapshotManager", nullptr,
+                                                  MemTrackerLevel::OVERVIEW);
+    }
 
     OLAPStatus _calc_snapshot_id_path(const TabletSharedPtr& tablet, int64_t timeout_s,
                                       std::string* out_path);
@@ -99,6 +102,9 @@ private:
     // snapshot
     Mutex _snapshot_mutex;
     uint64_t _snapshot_base_id;
+
+    // TODO(zxy) used after
+    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
 }; // SnapshotManager
 
 } // namespace doris

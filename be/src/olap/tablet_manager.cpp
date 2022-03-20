@@ -46,6 +46,7 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
@@ -74,7 +75,7 @@ static bool _cmp_tablet_by_create_time(const TabletSharedPtr& a, const TabletSha
 
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
         : _mem_tracker(MemTracker::create_tracker(-1, "TabletManager", nullptr,
-                                                          MemTrackerLevel::OVERVIEW)),
+                                                  MemTrackerLevel::OVERVIEW)),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
@@ -85,7 +86,6 @@ TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
 }
 
 TabletManager::~TabletManager() {
-    _mem_tracker->release(_mem_tracker->consumption());
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
@@ -201,7 +201,8 @@ OLAPStatus TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id, Schem
     // TODO: remove multiply 2 of tablet meta mem size
     // Because table schema will copy in tablet, there will be double mem cost
     // so here multiply 2
-    _mem_tracker->consume(tablet->tablet_meta()->mem_size() * 2);
+    thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(
+            _mem_tracker.get(), tablet->tablet_meta()->mem_size() * 2);
 
     VLOG_NOTICE << "add tablet to map successfully."
                 << " tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
@@ -1336,7 +1337,11 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id,
     }
 
     dropped_tablet->deregister_tablet_from_dir();
-    _mem_tracker->release(dropped_tablet->tablet_meta()->mem_size() * 2);
+    // The dropped tablet meta is expected to be released in the TabletManager mem tracker,
+    // but is actually released in the tls mem tracker.
+    // So from TabletManager mem tracker compensate memory to tls tracker.
+    _mem_tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(),
+                              dropped_tablet->tablet_meta()->mem_size() * 2);
     return OLAP_SUCCESS;
 }
 
