@@ -40,8 +40,6 @@
 #include <ctime>
 #include <iostream>
 #include <pthread.h>
-#ifdef HAVE_UCONTEXT_H
-# include <ucontext.h>
 #endif
 #include <unistd.h>
 #ifdef HAVE_SYS_UCONTEXT_H
