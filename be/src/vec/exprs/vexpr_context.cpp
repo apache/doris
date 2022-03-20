@@ -39,7 +39,8 @@ doris::Status VExprContext::prepare(doris::RuntimeState* state,
                                     const doris::RowDescriptor& row_desc,
                                     const std::shared_ptr<doris::MemTracker>& tracker) {
     _prepared = true;
-    _pool.reset(new MemPool(state->instance_mem_tracker().get()));
+    _mem_tracker = tracker;
+    _pool.reset(new MemPool(_mem_tracker.get()));
     return _root->prepare(state, row_desc, this);
 }
 
@@ -86,6 +87,7 @@ doris::Status VExprContext::clone(RuntimeState* state, VExprContext** new_ctx) {
     (*new_ctx)->_is_clone = true;
     (*new_ctx)->_prepared = true;
     (*new_ctx)->_opened = true;
+    (*new_ctx)->_mem_tracker = _mem_tracker;
 
     return _root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
 }

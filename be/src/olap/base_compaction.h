@@ -29,7 +29,7 @@ namespace doris {
 
 class BaseCompaction : public Compaction {
 public:
-    BaseCompaction(TabletSharedPtr tablet, const std::shared_ptr<MemTracker>& parent_tracker);
+    BaseCompaction(TabletSharedPtr tablet);
     ~BaseCompaction() override;
 
     OLAPStatus prepare_compact() override;

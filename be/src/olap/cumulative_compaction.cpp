@@ -23,8 +23,8 @@
 
 namespace doris {
 
-CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet, const std::shared_ptr<MemTracker>& parent_tracker)
-        : Compaction(tablet, "CumulativeCompaction:" + std::to_string(tablet->tablet_id()), parent_tracker) {}
+CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
+        : Compaction(tablet, "CumulativeCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CumulativeCompaction::~CumulativeCompaction() {}
 

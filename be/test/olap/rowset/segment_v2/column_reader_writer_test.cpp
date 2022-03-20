@@ -147,7 +147,6 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             OlapReaderStatistics stats;
             iter_opts.stats = &stats;
             iter_opts.rblock = rblock.get();
-            iter_opts.mem_tracker = std::make_shared<MemTracker>();
             st = iter->init(iter_opts);
             ASSERT_TRUE(st.ok());
 
@@ -208,7 +207,6 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             OlapReaderStatistics stats;
             iter_opts.stats = &stats;
             iter_opts.rblock = rblock.get();
-            iter_opts.mem_tracker = std::make_shared<MemTracker>();
             st = iter->init(iter_opts);
             ASSERT_TRUE(st.ok());
 
@@ -334,7 +332,6 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         OlapReaderStatistics stats;
         iter_opts.stats = &stats;
         iter_opts.rblock = rblock.get();
-        iter_opts.mem_tracker = std::make_shared<MemTracker>();
         st = iter->init(iter_opts);
         ASSERT_TRUE(st.ok());
         // sequence read
@@ -470,7 +467,6 @@ void test_read_default_value(string value, void* result) {
                                         tablet_column.default_value(), tablet_column.is_nullable(),
                                         type_info, tablet_column.length());
         ColumnIteratorOptions iter_opts;
-        iter_opts.mem_tracker = std::make_shared<MemTracker>();
         auto st = iter.init(iter_opts);
         ASSERT_TRUE(st.ok());
         // sequence read
@@ -582,7 +578,6 @@ void test_v_read_default_value(string value, void* result) {
                                         tablet_column.default_value(), tablet_column.is_nullable(),
                                         type_info, tablet_column.length());
         ColumnIteratorOptions iter_opts;
-        iter_opts.mem_tracker = std::make_shared<MemTracker>();
         auto st = iter.init(iter_opts);
         ASSERT_TRUE(st.ok());
 

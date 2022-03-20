@@ -41,9 +41,6 @@ public:
 
     OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) override;
 
-    OLAPStatus create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
-                             std::shared_ptr<RowsetReader>* result) override;
-
     OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
                            uint64_t request_block_row_count, size_t key_num,
                            std::vector<OlapTuple>* ranges) override;

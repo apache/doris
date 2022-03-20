@@ -52,8 +52,7 @@ struct AlphaMergeContextComparator {
 
 class AlphaRowsetReader : public RowsetReader {
 public:
-    AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset,
-                      const std::shared_ptr<MemTracker>& parent_tracker = nullptr);
+    AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset);
 
     ~AlphaRowsetReader() override;
 
@@ -103,7 +102,6 @@ private:
 private:
     int _num_rows_per_row_block;
     AlphaRowsetSharedPtr _rowset;
-    std::shared_ptr<MemTracker> _parent_tracker;
     std::string _rowset_path;
     AlphaRowsetMeta* _alpha_rowset_meta;
     const std::vector<std::shared_ptr<SegmentGroup>>& _segment_groups;

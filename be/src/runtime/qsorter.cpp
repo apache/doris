@@ -81,7 +81,7 @@ QSorter::QSorter(const RowDescriptor& row_desc, const std::vector<ExprContext*>&
                  RuntimeState* state)
         : _row_desc(row_desc),
           _order_expr_ctxs(order_expr_ctxs),
-          _tuple_pool(new MemPool(state->instance_mem_tracker().get())) {}
+          _tuple_pool(new MemPool("QSorter")) {}
 
 Status QSorter::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::clone_if_not_exists(_order_expr_ctxs, state, &_lhs_expr_ctxs));

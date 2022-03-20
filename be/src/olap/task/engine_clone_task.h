@@ -77,6 +77,7 @@ private:
     const TMasterInfo& _master_info;
     int64_t _copy_size;
     int64_t _copy_time_ms;
+    std::shared_ptr<MemTracker> _mem_tracker;
 }; // EngineTask
 
 } // namespace doris

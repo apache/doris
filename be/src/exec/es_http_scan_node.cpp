@@ -30,6 +30,7 @@
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/runtime_profile.h"
 
@@ -323,8 +324,7 @@ Status EsHttpScanNode::scanner_scan(std::unique_ptr<EsHttpScanner> scanner,
 
     while (!scanner_eof) {
         // Fill one row batch
-        std::shared_ptr<RowBatch> row_batch(
-                new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker().get()));
+        std::shared_ptr<RowBatch> row_batch(new RowBatch(row_desc(), _runtime_state->batch_size()));
 
         // create new tuple buffer for row_batch
         MemPool* tuple_pool = row_batch->tuple_data_pool();
@@ -422,6 +422,7 @@ static std::string get_host_port(const std::vector<TNetworkAddress>& es_hosts) {
 }
 
 void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Status>& p_status) {
+    SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     // Clone expr context
     std::vector<ExprContext*> scanner_expr_ctxs;
     DCHECK(start_idx < length);

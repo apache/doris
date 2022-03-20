@@ -65,9 +65,8 @@ private:
         int row_idx;
         bool is_eos;
         TupleRow* current_row;
-        ChildReaderContext(const RowDescriptor& desc, int batch_size,
-                           const std::shared_ptr<MemTracker>& mem_tracker)
-                : batch(desc, batch_size, mem_tracker.get()),
+        ChildReaderContext(const RowDescriptor& desc, int batch_size)
+                : batch(desc, batch_size),
                   row_idx(0),
                   is_eos(false),
                   current_row(nullptr) {}

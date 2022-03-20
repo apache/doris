@@ -193,7 +193,7 @@ bool ReservationTracker::TryConsumeFromMemTracker(int64_t reservation_increase) 
         // For lower links, there shouldn't be a limit to enforce, so we just need to
         // update the consumption of the linked MemTracker since the reservation is
         // already reflected in its parent.
-        mem_tracker_->consume(reservation_increase, GetParentMemTracker());
+        mem_tracker_->consume_local(reservation_increase, GetParentMemTracker());
         return true;
     }
 }
@@ -204,7 +204,7 @@ void ReservationTracker::ReleaseToMemTracker(int64_t reservation_decrease) {
     if (GetParentMemTracker() == nullptr) {
         mem_tracker_->release(reservation_decrease);
     } else {
-        mem_tracker_->release(reservation_decrease, GetParentMemTracker());
+        mem_tracker_->release_local(reservation_decrease, GetParentMemTracker());
     }
 }
 

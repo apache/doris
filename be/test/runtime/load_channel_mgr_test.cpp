@@ -45,8 +45,7 @@ OLAPStatus close_status;
 int64_t wait_lock_time_ns;
 
 // mock
-DeltaWriter::DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& mem_tracker,
-                         StorageEngine* storage_engine)
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine)
         : _req(*req) {}
 
 DeltaWriter::~DeltaWriter() {}
@@ -55,12 +54,11 @@ OLAPStatus DeltaWriter::init() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, const std::shared_ptr<MemTracker>& mem_tracker,
-                             DeltaWriter** writer) {
+OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
     if (open_status != OLAP_SUCCESS) {
         return open_status;
     }
-    *writer = new DeltaWriter(req, mem_tracker, nullptr);
+    *writer = new DeltaWriter(req, nullptr);
     return open_status;
 }
 
@@ -192,7 +190,6 @@ TEST_F(LoadChannelMgrTest, normal) {
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
-    auto tracker = std::make_shared<MemTracker>();
     PUniqueId load_id;
     load_id.set_hi(2);
     load_id.set_lo(3);
@@ -227,7 +224,7 @@ TEST_F(LoadChannelMgrTest, normal) {
         request.add_tablet_ids(21);
         request.add_tablet_ids(20);
 
-        RowBatch row_batch(row_desc, 1024, tracker.get());
+        RowBatch row_batch(row_desc, 1024);
 
         // row1
         {
@@ -393,7 +390,7 @@ TEST_F(LoadChannelMgrTest, add_failed) {
         request.add_tablet_ids(21);
         request.add_tablet_ids(20);
 
-        RowBatch row_batch(row_desc, 1024, tracker.get());
+        RowBatch row_batch(row_desc, 1024);
 
         // row1
         {
@@ -448,7 +445,6 @@ TEST_F(LoadChannelMgrTest, close_failed) {
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
-    auto tracker = std::make_shared<MemTracker>();
     PUniqueId load_id;
     load_id.set_hi(2);
     load_id.set_lo(3);
@@ -486,7 +482,7 @@ TEST_F(LoadChannelMgrTest, close_failed) {
         request.add_partition_ids(10);
         request.add_partition_ids(11);
 
-        RowBatch row_batch(row_desc, 1024, tracker.get());
+        RowBatch row_batch(row_desc, 1024);
 
         // row1
         {
@@ -540,7 +536,6 @@ TEST_F(LoadChannelMgrTest, unknown_tablet) {
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
-    auto tracker = std::make_shared<MemTracker>();
     PUniqueId load_id;
     load_id.set_hi(2);
     load_id.set_lo(3);
@@ -575,7 +570,7 @@ TEST_F(LoadChannelMgrTest, unknown_tablet) {
         request.add_tablet_ids(22);
         request.add_tablet_ids(20);
 
-        RowBatch row_batch(row_desc, 1024, tracker.get());
+        RowBatch row_batch(row_desc, 1024);
 
         // row1
         {
@@ -626,7 +621,6 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
-    auto tracker = std::make_shared<MemTracker>();
     PUniqueId load_id;
     load_id.set_hi(2);
     load_id.set_lo(3);
@@ -661,7 +655,7 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
         request.add_tablet_ids(21);
         request.add_tablet_ids(20);
 
-        RowBatch row_batch(row_desc, 1024, tracker.get());
+        RowBatch row_batch(row_desc, 1024);
 
         // row1
         {

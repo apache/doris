@@ -117,7 +117,7 @@ protected:
     }
 
     virtual RowBatch* CreateIntBatch(int offset, int num_rows, bool gen_null) {
-        RowBatch* batch = _pool.add(new RowBatch(*_int_desc, num_rows, _tracker.get()));
+        RowBatch* batch = _pool.add(new RowBatch(*_int_desc, num_rows));
         int tuple_size = _int_desc->tuple_descriptors()[0]->byte_size();
         uint8_t* tuple_mem = reinterpret_cast<uint8_t*>(
                 batch->tuple_data_pool()->allocate(tuple_size * num_rows));
@@ -146,7 +146,7 @@ protected:
 
     virtual RowBatch* CreateStringBatch(int offset, int num_rows, bool gen_null) {
         int tuple_size = sizeof(StringValue) + 1;
-        RowBatch* batch = _pool.add(new RowBatch(*_string_desc, num_rows, _tracker.get()));
+        RowBatch* batch = _pool.add(new RowBatch(*_string_desc, num_rows));
         uint8_t* tuple_mem = batch->tuple_data_pool()->allocate(tuple_size * num_rows);
         memset(tuple_mem, 0, tuple_size * num_rows);
         const int string_tuples = _string_desc->tuple_descriptors().size();

@@ -106,9 +106,8 @@ struct MergeRuntimeFilterParams {
 /// that can be pushed down to node based on the results of the right table.
 class IRuntimeFilter {
 public:
-    IRuntimeFilter(RuntimeState* state, MemTracker* mem_tracker, ObjectPool* pool)
+    IRuntimeFilter(RuntimeState* state, ObjectPool* pool)
             : _state(state),
-              _mem_tracker(mem_tracker),
               _pool(pool),
               _runtime_filter_type(RuntimeFilterType::UNKNOWN_FILTER),
               _filter_id(-1),
@@ -124,7 +123,7 @@ public:
 
     ~IRuntimeFilter() = default;
 
-    static Status create(RuntimeState* state, MemTracker* tracker, ObjectPool* pool,
+    static Status create(RuntimeState* state, ObjectPool* pool,
                          const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                          const RuntimeFilterRole role, int node_id,
                          IRuntimeFilter** res);
@@ -191,11 +190,9 @@ public:
 
     // for ut
     const RuntimePredicateWrapper* get_wrapper();
-    static Status create_wrapper(const MergeRuntimeFilterParams* param, MemTracker* tracker,
-                                 ObjectPool* pool,
+    static Status create_wrapper(const MergeRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(const UpdateRuntimeFilterParams* param, MemTracker* tracker,
-                                 ObjectPool* pool,
+    static Status create_wrapper(const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
     Status update_filter(const UpdateRuntimeFilterParams* param);
@@ -234,11 +231,10 @@ protected:
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(const T* param, MemTracker* tracker, ObjectPool* pool,
+    static Status _create_wrapper(const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     RuntimeState* _state;
-    MemTracker* _mem_tracker;
     ObjectPool* _pool;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool

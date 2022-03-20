@@ -43,6 +43,7 @@ Status VSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VSortNode:Block", mem_tracker());
     RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
                                               expr_mem_tracker()));
     return Status::OK();
@@ -102,7 +103,7 @@ Status VSortNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    _mem_tracker->release(_total_mem_usage);
+    _block_mem_tracker->release(_total_mem_usage);
     _vsort_exec_exprs.close(state);
     ExecNode::close(state);
     return Status::OK();
@@ -159,7 +160,7 @@ Status VSortNode::sort_input(RuntimeState* state) {
                 _sorted_blocks.emplace_back(std::move(block));
             }
 
-            _mem_tracker->consume(mem_usage);
+            _block_mem_tracker->consume(mem_usage);
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(state->check_query_state("vsort, while sorting input."));
         }

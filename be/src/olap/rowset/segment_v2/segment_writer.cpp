@@ -37,9 +37,13 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(fs::WritableBlock* wblock, uint32_t segment_id,
-                             const TabletSchema* tablet_schema, const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent)
-        : _segment_id(segment_id), _tablet_schema(tablet_schema), _opts(opts), _wblock(wblock), _mem_tracker(MemTracker::create_tracker(
-                -1, "Segment-" + std::to_string(segment_id), parent)) {
+                             const TabletSchema* tablet_schema, const SegmentWriterOptions& opts)
+        : _segment_id(segment_id),
+          _tablet_schema(tablet_schema),
+          _opts(opts),
+          _wblock(wblock),
+          _mem_tracker(
+                  MemTracker::create_virtual_tracker(-1, "SegmentWriter:Segment-" + std::to_string(segment_id))) {
     CHECK_NOTNULL(_wblock);
 }
 
@@ -48,7 +52,7 @@ SegmentWriter::~SegmentWriter() {
 };
 
 void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
-                                      const TabletColumn& column) {
+                                     const TabletColumn& column) {
     // TODO(zc): Do we need this column_id??
     meta->set_column_id((*column_id)++);
     meta->set_unique_id(column.unique_id());
@@ -85,7 +89,6 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
                 return Status::NotSupported("Do not support bitmap index for array type");
             }
         }
-        opts.parent = _mem_tracker;
 
         std::unique_ptr<ColumnWriter> writer;
         RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _wblock, &writer));
@@ -218,7 +221,7 @@ Status SegmentWriter::_write_footer() {
     // that will need an extra seek when reading
     fixed_buf.append(k_segment_magic, k_segment_magic_length);
 
-    std::vector<Slice> slices{footer_buf, fixed_buf};
+    std::vector<Slice> slices {footer_buf, fixed_buf};
     return _write_raw_data(slices);
 }
 

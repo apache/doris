@@ -27,7 +27,11 @@ EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_h
         : _tablet_id(tablet_id),
           _schema_hash(schema_hash),
           _version(version),
-          _checksum(checksum) {}
+          _checksum(checksum) {
+    _mem_tracker = MemTracker::create_tracker(-1, "compute checksum: " + std::to_string(tablet_id),
+                                              StorageEngine::instance()->consistency_mem_tracker(),
+                                              MemTrackerLevel::TASK);
+}
 
 OLAPStatus EngineChecksumTask::execute() {
     OLAPStatus res = _compute_checksum();

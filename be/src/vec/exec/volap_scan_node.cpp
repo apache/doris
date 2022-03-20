@@ -21,6 +21,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/thread_context.h"
 #include "util/priority_thread_pool.hpp"
 #include "vec/core/block.h"
 #include "vec/exec/volap_scanner.h"
@@ -36,6 +37,7 @@ VOlapScanNode::VOlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Des
 
 void VOlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     Status status = Status::OK();
 
     if (_vconjunct_ctx_ptr) {
@@ -84,7 +86,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
         _free_blocks.emplace_back(block);
         _buffered_bytes += block->allocated_bytes();
     }
-    _mem_tracker->consume(_buffered_bytes);
+    _block_mem_tracker->consume(_buffered_bytes);
 
     // read from scanner
     while (LIKELY(status.ok())) {
@@ -144,6 +146,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
+    SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
@@ -321,6 +324,7 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
         _transfer_done = true;
         return Status::OK();
     }
+    _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VOlapScanNode:Block");
 
     // ranges constructed from scan keys
     std::vector<std::unique_ptr<OlapScanRange>> cond_ranges;
@@ -420,7 +424,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
     std::for_each(_scan_blocks.begin(), _scan_blocks.end(), std::default_delete<Block>());
     _scan_row_batches_bytes = 0;
     std::for_each(_free_blocks.begin(), _free_blocks.end(), std::default_delete<Block>());
-    _mem_tracker->release(_buffered_bytes);
+    _block_mem_tracker->release(_buffered_bytes);
 
     // OlapScanNode terminate by exception
     // so that initiative close the Scanner

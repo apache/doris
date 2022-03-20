@@ -29,7 +29,7 @@
 #include "runtime/tuple.h"
 
 #if defined(__x86_64__)
-    #include "exec/hdfs_file_reader.h"
+#include "exec/hdfs_file_reader.h"
 #endif
 
 // orc include file didn't expose orc::TimezoneError

@@ -28,7 +28,6 @@
 #include "olap/selection_vector.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -43,7 +42,6 @@ class RowBlockV2 {
 public:
     RowBlockV2(const Schema& schema, uint16_t capacity);
 
-    RowBlockV2(const Schema& schema, uint16_t capacity, std::shared_ptr<MemTracker> parent);
     ~RowBlockV2();
 
     // update number of rows contained in this block
@@ -119,7 +117,6 @@ private:
 
     size_t _num_rows;
     // manages the memory for slice's data
-    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _pool;
 
     // index of selected rows for rows passed the predicate

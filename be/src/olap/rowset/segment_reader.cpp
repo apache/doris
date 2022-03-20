@@ -37,8 +37,7 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
                              const std::set<uint32_t>& load_bf_columns,
                              const Conditions* conditions, const DeleteHandler* delete_handler,
                              const DelCondSatisfied delete_status, Cache* lru_cache,
-                             RuntimeState* runtime_state, OlapReaderStatistics* stats,
-                             const std::shared_ptr<MemTracker>& parent_tracker)
+                             RuntimeState* runtime_state, OlapReaderStatistics* stats)
         : _file_name(file),
           _segment_group(segment_group),
           _segment_id(segment_id),
@@ -58,8 +57,7 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
           _is_using_mmap(false),
           _is_data_loaded(false),
           _buffer_size(0),
-          _tracker(MemTracker::create_tracker(-1, "SegmentReader:" + file, parent_tracker)),
-          _mem_pool(new MemPool(_tracker.get())),
+          _mem_pool(new MemPool("SegmentReader:" + file)),
           _shared_buffer(nullptr),
           _lru_cache(lru_cache),
           _runtime_state(runtime_state),

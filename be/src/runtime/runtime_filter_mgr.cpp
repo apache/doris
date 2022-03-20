@@ -27,6 +27,7 @@
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
 #include "util/time.h"
@@ -47,8 +48,7 @@ RuntimeFilterMgr::~RuntimeFilterMgr() {}
 
 Status RuntimeFilterMgr::init() {
     DCHECK(_state->instance_mem_tracker() != nullptr);
-    _tracker = MemTracker::create_tracker(-1, "RuntimeFilterMgr", _state->instance_mem_tracker(),
-                                          MemTrackerLevel::TASK);
+    _tracker = MemTracker::create_tracker(-1, "RuntimeFilterMgr", _state->instance_mem_tracker());
     return Status::OK();
 }
 
@@ -103,8 +103,8 @@ Status RuntimeFilterMgr::regist_filter(const RuntimeFilterRole role, const TRunt
     RuntimeFilterMgrVal filter_mgr_val;
     filter_mgr_val.role = role;
 
-    RETURN_IF_ERROR(IRuntimeFilter::create(_state, _tracker.get(), &_pool, &desc, &options,
-                                           role, node_id, &filter_mgr_val.filter));
+    RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options, role, node_id,
+                                           &filter_mgr_val.filter));
 
     filter_map->emplace(key, filter_mgr_val);
 
@@ -146,18 +146,17 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     std::shared_ptr<RuntimeFilterCntlVal> cntVal = std::make_shared<RuntimeFilterCntlVal>();
     // runtime_filter_desc and target will be released,
     // so we need to copy to cntVal
-    // TODO: tracker should add a name
     cntVal->producer_size = producer_size;
     cntVal->runtime_filter_desc = *runtime_filter_desc;
     cntVal->target_info = *target_info;
     cntVal->pool.reset(new ObjectPool());
-    cntVal->tracker = MemTracker::create_tracker();
-    cntVal->filter = cntVal->pool->add(
-            new IRuntimeFilter(nullptr, cntVal->tracker.get(), cntVal->pool.get()));
+    cntVal->filter = cntVal->pool->add(new IRuntimeFilter(nullptr, cntVal->pool.get()));
 
     std::string filter_id = std::to_string(runtime_filter_desc->filter_id);
     // LOG(INFO) << "entity filter id:" << filter_id;
     cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, _fragment_instance_id);
+    cntVal->tracker = MemTracker::create_tracker(
+            -1, thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->label() + ":FilterID:" + filter_id);
     _filter_map.emplace(filter_id, cntVal);
     return Status::OK();
 }
@@ -167,6 +166,8 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
                                                 const TQueryOptions& query_options) {
     _query_id = query_id;
     _fragment_instance_id = fragment_instance_id;
+    // TODO(zxy) used after
+    _mem_tracker = MemTracker::create_tracker(-1, "RuntimeFilterMergeControllerEntity", nullptr);
     for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
         int filter_id = filterid_to_desc.first;
         const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);
@@ -199,11 +200,9 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         MergeRuntimeFilterParams params;
         params.data = data;
         params.request = request;
-        std::shared_ptr<MemTracker> tracker = iter->second->tracker;
         ObjectPool* pool = iter->second->pool.get();
         RuntimeFilterWrapperHolder holder;
-        RETURN_IF_ERROR(
-                IRuntimeFilter::create_wrapper(&params, tracker.get(), pool, holder.getHandle()));
+        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, pool, holder.getHandle()));
         RETURN_IF_ERROR(cntVal->filter->merge_from(holder.getHandle()->get()));
         cntVal->arrive_id.insert(UniqueId(request->fragment_id()).to_string());
         merged_size = cntVal->arrive_id.size();

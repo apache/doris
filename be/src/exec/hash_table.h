@@ -162,9 +162,6 @@ public:
         return valid_row < MAX_BUCKET_OCCUPANCY_FRACTION * (_buckets.size() / 2.0);
     }
 
-    // true if any of the MemTrackers was exceeded
-    bool exceeded_limit() const { return _exceeded_limit; }
-
     // Returns the load factor (the number of non-empty buckets)
     float load_factor() { return _num_filled_buckets / static_cast<float>(_buckets.size()); }
 
@@ -405,8 +402,6 @@ private:
     int64_t _current_used;
     // total capacity
     int64_t _total_capacity;
-
-    bool _exceeded_limit; // true if any of _mem_trackers[].limit_exceeded()
 
     std::shared_ptr<MemTracker> _mem_tracker;
 

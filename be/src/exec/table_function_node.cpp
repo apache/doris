@@ -206,8 +206,7 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
         RETURN_IF_ERROR(state->check_query_state("TableFunctionNode, while getting next batch."));
 
         if (_cur_child_batch == nullptr) {
-            _cur_child_batch.reset(
-                    new RowBatch(child_rowdesc, state->batch_size(), mem_tracker().get()));
+            _cur_child_batch.reset(new RowBatch(child_rowdesc, state->batch_size()));
         }
         if (_child_batch_exhausted) {
             if (_child_eos) {

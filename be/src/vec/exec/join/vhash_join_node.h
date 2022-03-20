@@ -230,6 +230,8 @@ private:
     std::vector<uint32_t> _items_counts;
     std::vector<int8_t> _build_block_offsets;
     std::vector<int> _build_block_rows;
+
+    std::shared_ptr<MemTracker> _hash_table_mem_tracker;
 private:
     Status _hash_table_build(RuntimeState* state);
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);

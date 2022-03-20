@@ -141,8 +141,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
     });
     REGISTER_HOOK_METRIC(compaction_mem_consumption, [this]() {
         return _compaction_mem_tracker->consumption();
-        // We can get each compaction's detail usage
-        // LOG(INFO) << _compaction_mem_tracker=>LogUsage(2);
     });
 }
 
@@ -1083,12 +1081,12 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
 
 void StorageEngine::create_cumulative_compaction(
         TabletSharedPtr best_tablet, std::shared_ptr<CumulativeCompaction>& cumulative_compaction) {
-    cumulative_compaction.reset(new CumulativeCompaction(best_tablet, _compaction_mem_tracker));
+    cumulative_compaction.reset(new CumulativeCompaction(best_tablet));
 }
 
 void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
                                            std::shared_ptr<BaseCompaction>& base_compaction) {
-    base_compaction.reset(new BaseCompaction(best_tablet, _compaction_mem_tracker));
+    base_compaction.reset(new BaseCompaction(best_tablet));
 }
 
 // Return json:

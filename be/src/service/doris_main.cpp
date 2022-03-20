@@ -50,6 +50,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/minidump.h"
+#include "runtime/tcmalloc_hook.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -329,6 +330,10 @@ int main(int argc, char** argv) {
     if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
         fprintf(stderr, "error read custom config file. \n");
         return -1;
+    }
+
+    if (doris::config::track_new_delete) {
+        init_hook();
     }
 
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)

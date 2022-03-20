@@ -19,11 +19,12 @@
 
 #include "util/doris_metrics.h"
 #include "util/trace.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
-BaseCompaction::BaseCompaction(TabletSharedPtr tablet, const std::shared_ptr<MemTracker>& parent_tracker)
-        : Compaction(tablet, "BaseCompaction:" + std::to_string(tablet->tablet_id()), parent_tracker) {}
+BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
+        : Compaction(tablet, "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 BaseCompaction::~BaseCompaction() {}
 

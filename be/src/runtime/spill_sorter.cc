@@ -638,8 +638,7 @@ Status SpillSorter::Run::prepare_read() {
     _pin_next_fixed_len_block = _pin_next_var_len_block = false;
     _num_tuples_returned = 0;
 
-    _buffered_batch.reset(new RowBatch(*_sorter->_output_row_desc, _sorter->_state->batch_size(),
-                                       _sorter->_mem_tracker.get()));
+    _buffered_batch.reset(new RowBatch(*_sorter->_output_row_desc, _sorter->_state->batch_size()));
 
     // If the run is pinned, merge is not invoked, so _buffered_batch is not needed
     // and the individual blocks do not need to be pinned.
@@ -1251,8 +1250,7 @@ Status SpillSorter::merge_intermediate_runs() {
                 std::min<int>(max_runs_per_intermediate_merge,
                               _sorted_runs.size() - max_runs_per_intermediate_merge);
         RETURN_IF_ERROR(create_merger(num_runs_to_merge));
-        RowBatch intermediate_merge_batch(*_output_row_desc, _state->batch_size(),
-                                          _mem_tracker.get());
+        RowBatch intermediate_merge_batch(*_output_row_desc, _state->batch_size());
         // merged_run is the new sorted run that is produced by the intermediate merge.
         Run* merged_run =
                 _obj_pool.add(new Run(this, _output_row_desc->tuple_descriptors()[0], false));

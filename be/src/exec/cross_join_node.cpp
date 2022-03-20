@@ -54,8 +54,8 @@ Status CrossJoinNode::construct_build_side(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
 
     while (true) {
-        RowBatch* batch = _build_batch_pool->add(
-                new RowBatch(child(1)->row_desc(), state->batch_size(), mem_tracker().get()));
+        RowBatch* batch =
+                _build_batch_pool->add(new RowBatch(child(1)->row_desc(), state->batch_size()));
 
         RETURN_IF_CANCELLED(state);
         // TODO(zhaochun):
