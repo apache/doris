@@ -216,6 +216,34 @@ void InvokeDefaultSignalHandler(int signal_number) {
 // See also comments in FailureSignalHandler().
 static pthread_t* g_entered_thread_id_pointer = NULL;
 
+// Wrapper of __sync_val_compare_and_swap. If the GCC extension isn't
+// defined, we try the CPU specific logics (we only support x86 and
+// x86_64 for now) first, then use a naive implementation, which has a
+// race condition.
+template<typename T>
+inline T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
+#if defined(HAVE___SYNC_VAL_COMPARE_AND_SWAP)
+  return __sync_val_compare_and_swap(ptr, oldval, newval);
+#elif defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
+  T ret;
+  __asm__ __volatile__("lock; cmpxchg %1, (%2);"
+                       :"=a"(ret)
+                        // GCC may produces %sil or %dil for
+                        // constraint "r", but some of apple's gas
+                        // dosn't know the 8 bit registers.
+                        // We use "q" to avoid these registers.
+                       :"q"(newval), "q"(ptr), "a"(oldval)
+                       :"memory", "cc");
+  return ret;
+#else
+  T ret = *ptr;
+  if (ret == oldval) {
+    *ptr = newval;
+  }
+  return ret;
+#endif
+}
+
 // Dumps signal and stack frame information, and invokes the default
 // signal handler once our job is done.
 void FailureSignalHandler(int signal_number,
@@ -235,7 +263,7 @@ void FailureSignalHandler(int signal_number,
   // old value (value returned from __sync_val_compare_and_swap) is
   // different from the original value (in this case NULL).
   pthread_t* old_thread_id_pointer =
-      glog_internal_namespace_::sync_val_compare_and_swap(
+      sync_val_compare_and_swap(
           &g_entered_thread_id_pointer,
           static_cast<pthread_t*>(NULL),
           &my_thread_id);

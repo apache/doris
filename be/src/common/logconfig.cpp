@@ -59,7 +59,7 @@ bool init_glog(const char* basename, bool install_signal_handler) {
     }
 
     if (install_signal_handler) {
-        google::InstallFailureSignalHandler();
+//        google::InstallFailureSignalHandler();
     }
 
     // don't log to stderr
