@@ -31,11 +31,14 @@
 //
 // Implementation of InstallFailureSignalHandler().
 
+#define BOOST_STACKTRACE_USE_BACKTRACE
+#include <boost/stacktrace.hpp>
 #include <glog/logging.h>
 #include <gutil/macros.h>
 
 #include <csignal>
 #include <ctime>
+#include <iostream>
 #include <pthread.h>
 #ifdef HAVE_UCONTEXT_H
 # include <ucontext.h>
@@ -298,6 +301,9 @@ void FailureSignalHandler(int signal_number,
   // AFTER this point, we do unsafe things, like using LOG()!
   // The process could be terminated or hung at any time.  We try to
   // do more useful things first and riskier things later.
+
+  // Use boost stacktrace to print more detail info
+  std::cout << boost::stacktrace::stacktrace() << std::endl;
 
   // Flush the logs before we do anything in case 'anything'
   // causes problems.
