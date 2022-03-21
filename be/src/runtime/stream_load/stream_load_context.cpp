@@ -17,7 +17,7 @@
 
 #include "runtime/stream_load/stream_load_context.h"
 
-#include <sstream>
+#include <fmt/format.h>
 
 namespace doris {
 
@@ -152,112 +152,113 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
         return;
     }
 
+    std::string buffer;
     if (document.HasMember("Label")) {
         const rapidjson::Value& label = document["Label"];
         stream_load_item.__set_label(label.GetString());
-        ss << "Label: " << label.GetString();
+        fmt::format_to(std::back_inserter(buffer), "Label: {}", label.GetString());
     }
 
     if (document.HasMember("TxnId")) {
         const rapidjson::Value& txn_id = document["TxnId"];
         stream_load_item.__set_txn_id(txn_id.GetInt64());
-        ss << "TxnId: " << txn_id.GetInt64();
+        fmt::format_to(std::back_inserter(buffer), ", TxnId: {}", txn_id.GetInt64());
     }
 
     if (document.HasMember("TwoPhaseCommit")) {
         const rapidjson::Value& two_phase_commit = document["TwoPhaseCommit"];
         stream_load_item.__set_two_phase_commit(two_phase_commit.GetString());
-        ss << "TwoPhaseCommit: " << two_phase_commit.GetString();
+        fmt::format_to(std::back_inserter(buffer), ", TwoPhaseCommit: {}", two_phase_commit.GetString());
     }
 
     if (document.HasMember("Db")) {
         const rapidjson::Value& db = document["Db"];
         stream_load_item.__set_db(db.GetString());
-        ss << ", Db: " << db.GetString();
+        fmt::format_to(std::back_inserter(buffer), ", Db: {}", db.GetString());
     }
 
     if (document.HasMember("Table")) {
         const rapidjson::Value& table = document["Table"];
         stream_load_item.__set_tbl(table.GetString());
-        ss << ", Table: " << table.GetString();
+        fmt::format_to(std::back_inserter(buffer), ", Table: {}", table.GetString());
     }
 
     if (document.HasMember("User")) {
         const rapidjson::Value& user = document["User"];
         stream_load_item.__set_user(user.GetString());
-        ss << ", User: " << user.GetString();
+        fmt::format_to(std::back_inserter(buffer), ", User: {}", user.GetString());
     }
 
     if (document.HasMember("ClientIp")) {
         const rapidjson::Value& client_ip = document["ClientIp"];
         stream_load_item.__set_user_ip(client_ip.GetString());
-        ss << ", ClientIp: " << client_ip.GetString();
+        fmt::format_to(std::back_inserter(buffer), ", ClientIp: {}", client_ip.GetString());
     }
 
     if (document.HasMember("Status")) {
         const rapidjson::Value& status = document["Status"];
         stream_load_item.__set_status(status.GetString());
-        ss << ", Status: " << status.GetString();
+        fmt::format_to(std::back_inserter(buffer), ", Status: {}", status.GetString());
     }
 
     if (document.HasMember("Message")) {
         const rapidjson::Value& message = document["Message"];
         stream_load_item.__set_message(message.GetString());
-        ss << ", Message: " << message.GetString();
+        fmt::format_to(std::back_inserter(buffer), ", Message: {}", message.GetString());
     }
 
     if (document.HasMember("ErrorURL")) {
         const rapidjson::Value& error_url = document["ErrorURL"];
         stream_load_item.__set_url(error_url.GetString());
-        ss << ", ErrorURL: " << error_url.GetString();
+        fmt::format_to(std::back_inserter(buffer), ", ErrorURL: {}", error_url.GetString());
     } else {
         stream_load_item.__set_url("N/A");
-        ss << ", ErrorURL: N/A";
+        fmt::format_to(std::back_inserter(buffer), ", ErrorURL: N/A");
     }
 
     if (document.HasMember("NumberTotalRows")) {
         const rapidjson::Value& total_rows = document["NumberTotalRows"];
         stream_load_item.__set_total_rows(total_rows.GetInt64());
-        ss << ", NumberTotalRows: " << total_rows.GetInt64();
+        fmt::format_to(std::back_inserter(buffer), ", NumberTotalRows: {}", total_rows.GetInt64());
     }
 
     if (document.HasMember("NumberLoadedRows")) {
         const rapidjson::Value& loaded_rows = document["NumberLoadedRows"];
         stream_load_item.__set_loaded_rows(loaded_rows.GetInt64());
-        ss << ", NumberLoadedRows: " << loaded_rows.GetInt64();
+        fmt::format_to(std::back_inserter(buffer), ", NumberLoadedRows: {}", loaded_rows.GetInt64());
     }
 
     if (document.HasMember("NumberFilteredRows")) {
         const rapidjson::Value& filtered_rows = document["NumberFilteredRows"];
         stream_load_item.__set_filtered_rows(filtered_rows.GetInt64());
-        ss << ", NumberFilteredRows: " << filtered_rows.GetInt64();
+        fmt::format_to(std::back_inserter(buffer), ", NumberFilteredRows: {}", filtered_rows.GetInt64());
     }
 
     if (document.HasMember("NumberUnselectedRows")) {
         const rapidjson::Value& unselected_rows = document["NumberUnselectedRows"];
         stream_load_item.__set_unselected_rows(unselected_rows.GetInt64());
-        ss << ", NumberUnselectedRows: " << unselected_rows.GetInt64();
+        fmt::format_to(std::back_inserter(buffer), ", NumberUnselectedRows: {}", unselected_rows.GetInt64());
     }
 
     if (document.HasMember("LoadBytes")) {
         const rapidjson::Value& load_bytes = document["LoadBytes"];
         stream_load_item.__set_load_bytes(load_bytes.GetInt64());
-        ss << ", LoadBytes: " << load_bytes.GetInt64();
+        fmt::format_to(std::back_inserter(buffer), ", LoadBytes: {}", load_bytes.GetInt64());
     }
 
     if (document.HasMember("StartTime")) {
         const rapidjson::Value& start_time = document["StartTime"];
         stream_load_item.__set_start_time(start_time.GetInt64());
-        ss << ", StartTime: " << start_time.GetInt64();
+        fmt::format_to(std::back_inserter(buffer), ", StartTime: {}", start_time.GetInt64());
     }
 
     if (document.HasMember("FinishTime")) {
         const rapidjson::Value& finish_time = document["FinishTime"];
         stream_load_item.__set_finish_time(finish_time.GetInt64());
-        ss << ", FinishTime: " << finish_time.GetInt64();
+        fmt::format_to(std::back_inserter(buffer), ", FinishTime: {}", finish_time.GetInt64());
     }
 
-    VLOG(1) << "parse json from rocksdb. " << ss.str();
+    VLOG(1) << "parse json from rocksdb. " << buffer;
 }
 
 /*
