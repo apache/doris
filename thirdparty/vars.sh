@@ -53,10 +53,10 @@ export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
 #####################################################
 
 # libbacktrace
-LIBBACKTRACE_DOWNLOAD="https://github.com/Doris-Extras/libbacktrace/archive/refs/tags/libbacktrace-1.0.zip"
-LIBBACKTRACE_NAME=libbacktrace-1.0.zip
-LIBBACKTRACE_SOURCE=libbacktrace-libbacktrace-1.0
-LIBBACKTRACE_MD5SUM="79a76d7156f3ddd6c45e4509256343de"
+LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
+LIBBACKTRACE_NAME=2446c66076480ce07a6bd868badcbceb3eeecc2e
+LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
+LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
 
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
