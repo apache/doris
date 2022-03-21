@@ -373,7 +373,7 @@ SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
 
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
-LIBBACKTRACE_NAME=2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
+LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
 LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
 LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
 
