@@ -71,7 +71,7 @@ sh gen-ssb-data.sh -s 100 -c 100
 |Table |Rows |Size | File Number |
 |---|---|---|---|
 |lineorder| 6亿（600037902） | 60GB | 100|
-|customer|3千万（3000000） |277M |1|
+|customer|300万（3000000） |277M |1|
 |part|140万（1400000） | 116M|1|
 |supplier|20万（200000） |17M |1|
 |date| 2556|228K |1|
@@ -147,7 +147,7 @@ SSB 测试集共 4 组 14 个 SQL。查询语句在 [queries/](https://github.co
     |Table |Rows |Origin Size | Compacted Size(1 Replica) |
     |---|---|---|---|
     |lineorder| 6亿（600037902） | 60 GB | 14.846 GB |
-    |customer|3千万（3000000） |277 MB | 414.741 MB |
+    |customer|300万（3000000） |277 MB | 414.741 MB |
     |part|140万（1400000） | 116 MB | 38.277 MB |
     |supplier|20万（200000） |17 MB | 27.428 MB |
     |date| 2556|228 KB | 275.804 KB |
