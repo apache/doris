@@ -116,7 +116,7 @@ public class TempPartitionTest {
 
     private List<List<String>> checkTablet(String tbl, String partitions, boolean isTemp, int expected)
             throws Exception {
-        String showStr = "show tablet from " + tbl + (isTemp ? " temporary" : "") + " partition (" + partitions + ");";
+        String showStr = "show tablets from " + tbl + (isTemp ? " temporary" : "") + " partition (" + partitions + ");";
         ShowTabletStmt showStmt = (ShowTabletStmt) UtFrameUtils.parseAndAnalyzeStmt(showStr, ctx);
         ShowExecutor executor = new ShowExecutor(ctx, (ShowStmt) showStmt);
         ShowResultSet showResultSet = executor.execute();
