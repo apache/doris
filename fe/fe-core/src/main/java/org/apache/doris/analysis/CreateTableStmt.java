@@ -295,7 +295,8 @@ public class CreateTableStmt extends DdlStmt {
                 }
                 if (hasAggregate) {
                     for (ColumnDef columnDef : columnDefs) {
-                        if (columnDef.getAggregateType() == null) {
+                        if (columnDef.getAggregateType() == null
+                                && !columnDef.getType().isScalarType(PrimitiveType.STRING)) {
                             keysColumnNames.add(columnDef.getName());
                         }
                     }
@@ -314,6 +315,9 @@ public class CreateTableStmt extends DdlStmt {
                         if (columnDef.getType().isFloatingPointType()) {
                             break;
                         }
+                        if (columnDef.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                            break;
+                        }
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
                             keysColumnNames.add(columnDef.getName());
                             break;
@@ -323,8 +327,8 @@ public class CreateTableStmt extends DdlStmt {
                     // The OLAP table must has at least one short key and the float and double should not be short key.
                     // So the float and double could not be the first column in OLAP table.
                     if (keysColumnNames.isEmpty()) {
-                        throw new AnalysisException("The olap table first column could not be float or double,"
-                                + " use decimal instead.");
+                        throw new AnalysisException("The olap table first column could not be float, double, string"
+                                + " use decimal or varchar instead.");
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
@@ -416,7 +420,7 @@ public class CreateTableStmt extends DdlStmt {
             if (distributionDesc == null) {
                 throw new AnalysisException("Create olap table should contain distribution desc");
             }
-            distributionDesc.analyze(columnSet);
+            distributionDesc.analyze(columnSet, columnDefs);
         } else if (engineName.equalsIgnoreCase("elasticsearch")) {
             EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
         } else {

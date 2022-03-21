@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -31,7 +32,9 @@ import org.apache.commons.lang3.StringUtils;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.BeforeClass;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 import java.io.File;
 import java.util.List;
@@ -40,6 +43,9 @@ import java.util.UUID;
 public class PlannerTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext ctx;
+
+    @Rule
+    public ExpectedException expectedEx = ExpectedException.none();
 
     @After
     public void tearDown() throws Exception {
@@ -432,6 +438,15 @@ public class PlannerTest {
         compare.accept("select * from db1.tbl2 where k1 < 2.1", "select * from db1.tbl2 where k1 < 3");
         compare.accept("select * from db1.tbl2 where k1 > 2.0", "select * from db1.tbl2 where k1 > 2");
         compare.accept("select * from db1.tbl2 where k1 > 2.1", "select * from db1.tbl2 where k1 > 2");
+    }
+
+    @Test
+    public void testStringType() throws Exception {
+        String createTbl1 = "create table db1.tbl1(k1 string, k2 varchar(32), k3 varchar(32), k4 int) "
+                + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1')";
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("String Type should not be used in key column[k1].");
+        UtFrameUtils.parseAndAnalyzeStmt(createTbl1, ctx);
     }
 
 }

@@ -56,9 +56,6 @@ static const uint16_t OLAP_VARCHAR_MAX_LENGTH = 65535;
 // the max length supported for string type 2GB
 static const uint32_t OLAP_STRING_MAX_LENGTH = 2147483647;
 
-// the max length supported for vec string type 1MB
-static constexpr size_t MAX_SIZE_OF_VEC_STRING = 1024 * 1024;
-
 // the max length supported for array
 static const uint16_t OLAP_ARRAY_MAX_LENGTH = 65535;
 

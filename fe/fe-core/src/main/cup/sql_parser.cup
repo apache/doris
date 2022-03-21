@@ -4570,8 +4570,6 @@ type ::=
   {: RESULT = ScalarType.createStringType(); :}
   | KW_TEXT
   {: RESULT = ScalarType.createStringType(); :}
-  | KW_BLOB
-  {: RESULT = ScalarType.createStringType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createVarcharType(len.intValue());
      type.setAssignedStrLenInColDefinition();

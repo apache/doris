@@ -50,7 +50,8 @@ NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int
     if (_parent->_transfer_data_by_brpc_attachment) {
         _tuple_data_buffer_ptr = &_tuple_data_buffer;
     }
-    _node_channel_tracker = MemTracker::create_tracker(-1, "NodeChannel" + thread_local_ctx.get()->thread_id_str());
+    _node_channel_tracker =
+            MemTracker::create_tracker(-1, "NodeChannel" + thread_local_ctx.get()->thread_id_str());
 }
 
 NodeChannel::~NodeChannel() noexcept {
@@ -193,7 +194,8 @@ Status NodeChannel::open_wait() {
             return;
         }
         // If rpc failed, mark all tablets on this node channel as failed
-        _index_channel->mark_as_failed(this->node_id(), this->host(), _add_batch_closure->cntl.ErrorText(), -1);
+        _index_channel->mark_as_failed(this->node_id(), this->host(),
+                                       _add_batch_closure->cntl.ErrorText(), -1);
         Status st = _index_channel->check_intolerable_failure();
         if (!st.ok()) {
             _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
@@ -216,7 +218,8 @@ Status NodeChannel::open_wait() {
         if (status.ok()) {
             // if has error tablet, handle them first
             for (auto& error : result.tablet_errors()) {
-                _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(), error.tablet_id());
+                _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(),
+                                               error.tablet_id());
             }
 
             Status st = _index_channel->check_intolerable_failure();
@@ -262,8 +265,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
-    while (!_cancelled &&
-           _pending_batches_num > 0 &&
+    while (!_cancelled && _pending_batches_num > 0 &&
            (_pending_batches_bytes > _max_pending_batches_bytes ||
             _parent->_mem_tracker->any_limit_exceeded())) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
@@ -314,8 +316,7 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
-    while (!_cancelled &&
-           _pending_batches_num > 0 &&
+    while (!_cancelled && _pending_batches_num > 0 &&
            (_pending_batches_bytes > _max_pending_batches_bytes ||
             _parent->_mem_tracker->any_limit_exceeded())) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
@@ -393,7 +394,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     while (!_add_batches_finished && !_cancelled) {
         SleepFor(MonoDelta::FromMilliseconds(1));
     }
-    _close_time_ms = UnixMillis() - _close_time_ms; 
+    _close_time_ms = UnixMillis() - _close_time_ms;
 
     if (_add_batches_finished) {
         {
@@ -685,7 +686,8 @@ OlapTableSink::~OlapTableSink() {
     // OlapTableSink::_mem_tracker and its parents.
     // But their destructions are after OlapTableSink's.
     for (auto index_channel : _channels) {
-        index_channel->for_each_node_channel([](const std::shared_ptr<NodeChannel>& ch) { ch->clear_all_batches(); });
+        index_channel->for_each_node_channel(
+                [](const std::shared_ptr<NodeChannel>& ch) { ch->clear_all_batches(); });
     }
 }
 
@@ -846,11 +848,13 @@ Status OlapTableSink::open(RuntimeState* state) {
     RETURN_IF_ERROR(Expr::open(_output_expr_ctxs, state));
 
     for (auto index_channel : _channels) {
-        index_channel->for_each_node_channel([](const std::shared_ptr<NodeChannel>& ch) { ch->open(); });
+        index_channel->for_each_node_channel(
+                [](const std::shared_ptr<NodeChannel>& ch) { ch->open(); });
     }
 
     for (auto index_channel : _channels) {
-        index_channel->for_each_node_channel([&index_channel](const std::shared_ptr<NodeChannel>& ch) {
+        index_channel->for_each_node_channel([&index_channel](
+                                                     const std::shared_ptr<NodeChannel>& ch) {
             auto st = ch->open_wait();
             if (!st.ok()) {
                 // The open() phase is mainly to generate DeltaWriter instances on the nodes corresponding to each node channel.
@@ -940,13 +944,13 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
         uint32_t tablet_index = 0;
         if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
             if (_partition_to_tablet_map.find(partition->id) == _partition_to_tablet_map.end()) {
-                tablet_index = _partition->find_tablet(tuple,*partition);
+                tablet_index = _partition->find_tablet(tuple, *partition);
                 _partition_to_tablet_map.emplace(partition->id, tablet_index);
             } else {
                 tablet_index = _partition_to_tablet_map[partition->id];
             }
         } else {
-            tablet_index = _partition->find_tablet(tuple,*partition);
+            tablet_index = _partition->find_tablet(tuple, *partition);
         }
         _partition_ids.emplace(partition->id);
         for (int j = 0; j < partition->indexes.size(); ++j) {
@@ -984,7 +988,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         {
             SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
-                index_channel->for_each_node_channel([](const std::shared_ptr<NodeChannel>& ch) { ch->mark_close(); });
+                index_channel->for_each_node_channel(
+                        [](const std::shared_ptr<NodeChannel>& ch) { ch->mark_close(); });
                 num_node_channels += index_channel->num_node_channels();
             }
 
@@ -997,7 +1002,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                          &total_add_batch_num](const std::shared_ptr<NodeChannel>& ch) {
                             auto s = ch->close_wait(state);
                             if (!s.ok()) {
-                                index_channel->mark_as_failed(ch->node_id(), ch->host(), s.get_error_msg(), -1);
+                                index_channel->mark_as_failed(ch->node_id(), ch->host(),
+                                                              s.get_error_msg(), -1);
                                 LOG(WARNING)
                                         << ch->channel_info()
                                         << ", close channel failed, err: " << s.get_error_msg();
@@ -1047,7 +1053,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         // print log of add batch time of all node, for tracing load performance easily
         std::stringstream ss;
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
-           << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait execution time(ms)/close time(ms)/num: ";
+           << ", txn_id=" << _txn_id
+           << ", node add batch time(ms)/wait execution time(ms)/close time(ms)/num: ";
         for (auto const& pair : node_add_batch_counter_map) {
             ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_us / 1000)
                << ")(" << (pair.second.add_batch_wait_execution_time_us / 1000) << ")("
@@ -1056,8 +1063,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         LOG(INFO) << ss.str();
     } else {
         for (auto channel : _channels) {
-            channel->for_each_node_channel(
-                    [&status](const std::shared_ptr<NodeChannel>& ch) { ch->cancel(status.get_error_msg()); });
+            channel->for_each_node_channel([&status](const std::shared_ptr<NodeChannel>& ch) {
+                ch->cancel(status.get_error_msg());
+            });
         }
     }
 
@@ -1189,13 +1197,14 @@ Status OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitma
             }
             case TYPE_STRING: {
                 StringValue* str_val = (StringValue*)slot;
-                if (str_val->len > OLAP_STRING_MAX_LENGTH) {
+                if (str_val->len > config::string_type_length_soft_limit_bytes) {
                     fmt::format_to(error_msg, "{}",
                                    "the length of input is too long than schema. ");
                     fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
                     fmt::format_to(error_msg, "first 128 bytes of input str: [{}] ",
                                    std::string(str_val->ptr, 128));
-                    fmt::format_to(error_msg, "schema length: {}; ", OLAP_STRING_MAX_LENGTH);
+                    fmt::format_to(error_msg, "schema length: {}; ",
+                                   config::string_type_length_soft_limit_bytes);
                     fmt::format_to(error_msg, "actual length: {}; ", str_val->len);
                     row_valid = false;
                     continue;
@@ -1259,7 +1268,8 @@ void OlapTableSink::_send_batch_process(RuntimeState* state) {
     do {
         int running_channels_num = 0;
         for (auto index_channel : _channels) {
-            index_channel->for_each_node_channel([&running_channels_num, this, state](const std::shared_ptr<NodeChannel>& ch) {
+            index_channel->for_each_node_channel([&running_channels_num, this,
+                                                  state](const std::shared_ptr<NodeChannel>& ch) {
                 running_channels_num +=
                         ch->try_send_and_fetch_status(state, this->_send_batch_thread_pool_token);
             });
@@ -1267,7 +1277,8 @@ void OlapTableSink::_send_batch_process(RuntimeState* state) {
 
         if (running_channels_num == 0) {
             LOG(INFO) << "all node channels are stopped(maybe finished/offending/cancelled), "
-                         "sender thread exit. " << print_id(_load_id);
+                         "sender thread exit. "
+                      << print_id(_load_id);
             return;
         }
     } while (!_stop_background_threads_latch.wait_for(
