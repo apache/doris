@@ -503,7 +503,8 @@ void TabletSchema::init_field_index_for_test() {
     }
 }
 
-vectorized::Block TabletSchema::create_block(const std::vector<uint32_t>& return_columns,
+vectorized::Block TabletSchema::create_block(
+        const std::vector<uint32_t>& return_columns,
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
     vectorized::Block block;
     for (int i = 0; i < return_columns.size(); ++i) {

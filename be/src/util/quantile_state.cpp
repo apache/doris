@@ -39,7 +39,6 @@ QuantileState<T>::QuantileState(const Slice& slice) {
     }
 }
 
-
 template <typename T>
 size_t QuantileState<T>::get_serialized_size() {
     size_t size = 1 + sizeof(float); // type(QuantileStateType) + compression(float)

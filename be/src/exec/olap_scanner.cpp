@@ -30,8 +30,8 @@
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/thread_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/mem_util.hpp"
@@ -418,7 +418,6 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                     }
                 }
             } while (false);
-
         }
     }
 
