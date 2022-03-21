@@ -358,9 +358,6 @@ struct WindowFunctionLastData : Data {
         this->set_value(columns, frame_end - 1);
     }
     void add(int64_t row, const IColumn** columns) {
-        if (this->has_set_value()) {
-            return;
-        }
         this->set_value(columns, row);
     }
     static const char* name() { return "last_value"; }
