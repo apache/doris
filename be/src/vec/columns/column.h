@@ -30,7 +30,11 @@
 
 class SipHash;
 
-namespace doris::vectorized {
+namespace doris{
+
+class ColumnPredicate;
+
+namespace vectorized {
 
 class Arena;
 class Field;
@@ -63,6 +67,16 @@ public:
     /// If column isn't ColumnLowCardinality, return itself.
     /// If column is ColumnLowCardinality, transforms is to full column.
     virtual Ptr convert_to_full_column_if_low_cardinality() const { return get_ptr(); }
+
+    /// If column isn't ColumnDictionary, return itself.
+    /// If column is ColumnDictionary, transforms is to predicate column.
+    virtual Ptr convert_to_predicate_column_if_dictionary() { return get_ptr(); }
+
+    /// If column is ColumnDictionary, and is a range comparison predicate, convert dict encoding
+    virtual void convert_dict_codes_if_necessary() {}
+
+    /// If column is ColumnDictionary, set dict code for predicate
+    virtual void set_predicate_dict_code_if_necessary(doris::ColumnPredicate* predicate) {}
 
     /// Creates empty column with the same type.
     virtual MutablePtr clone_empty() const { return clone_resized(0); }
@@ -518,8 +532,8 @@ bool is_column_const(const IColumn& column);
 
 /// True if column's an ColumnNullable instance. It's just a syntax sugar for type check.
 bool is_column_nullable(const IColumn& column);
-
-} // namespace doris::vectorized
+} // namespace vectorized
+} // namespace doris
 
 // Wrap `ColumnPtr` because `ColumnPtr` can't be used in forward declaration.
 namespace doris {

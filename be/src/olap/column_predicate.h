@@ -73,7 +73,13 @@ public:
 
     virtual bool is_bloom_filter_predicate() { return false; }
 
+    virtual bool is_equal_comparison_predicate() { return false; }
+
     virtual bool is_range_comparison_predicate() { return false; }
+
+    // Useful only with range comparison predicates
+    virtual bool contain_equal() { return false; }
+    virtual bool is_less() { return false; }
 
 protected:
     uint32_t _column_id;

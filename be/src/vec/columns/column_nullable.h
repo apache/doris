@@ -267,6 +267,21 @@ public:
         LOG(FATAL) << "should not call the method in column nullable";
     }
 
+    ColumnPtr convert_to_predicate_column_if_dictionary() override {
+        IColumn* nested_ptr = get_nested_column_ptr().get();
+        nested_ptr = (*(std::move(nested_ptr->convert_to_predicate_column_if_dictionary()
+                                  ))).assume_mutable();
+        return get_ptr();
+    }
+
+    void convert_dict_codes_if_necessary() override {
+        get_nested_column().convert_dict_codes_if_necessary();
+    }
+
+    void set_predicate_dict_code_if_necessary(doris::ColumnPredicate* predicate) override {
+        get_nested_column().set_predicate_dict_code_if_necessary(predicate);
+    }
+
 private:
     WrappedPtr nested_column;
     WrappedPtr null_map;

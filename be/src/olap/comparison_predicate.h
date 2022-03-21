@@ -26,7 +26,7 @@ namespace doris {
 
 class VectorizedRowBatch;
 
-#define COMPARISON_PRED_CLASS_DEFINE(CLASS, IS_RANGE)                                              \
+#define COMPARISON_PRED_CLASS_DEFINE(CLASS, IS_RANGE, IS_EQ, CONTAIN_EQ, IS_LESS)                  \
     template <class type>                                                                          \
     class CLASS : public ColumnPredicate {                                                         \
     public:                                                                                        \
@@ -47,17 +47,23 @@ class VectorizedRowBatch;
                          bool* flags) const override;                                              \
         void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override; \
         bool is_range_comparison_predicate() override { return IS_RANGE; }                         \
+        bool is_equal_comparison_predicate() override { return IS_EQ; }                            \
+        bool contain_equal() override { return CONTAIN_EQ; }                                       \
+        bool is_less() override { return IS_LESS; }                                                \
+        const type& get_value() const { return _value; }                                           \
+        void set_dict_code(int32_t code) { _dict_code = code; }                                    \
                                                                                                    \
     private:                                                                                       \
         type _value;                                                                               \
+        int32_t _dict_code;                                                                        \
     };
 
-COMPARISON_PRED_CLASS_DEFINE(EqualPredicate, false)
-COMPARISON_PRED_CLASS_DEFINE(NotEqualPredicate, false)
-COMPARISON_PRED_CLASS_DEFINE(LessPredicate, true)
-COMPARISON_PRED_CLASS_DEFINE(LessEqualPredicate, true)
-COMPARISON_PRED_CLASS_DEFINE(GreaterPredicate, true)
-COMPARISON_PRED_CLASS_DEFINE(GreaterEqualPredicate, true)
+COMPARISON_PRED_CLASS_DEFINE(EqualPredicate, false, true, false, false)
+COMPARISON_PRED_CLASS_DEFINE(NotEqualPredicate, false, true, false, false)
+COMPARISON_PRED_CLASS_DEFINE(LessPredicate, true, false, false, true)
+COMPARISON_PRED_CLASS_DEFINE(LessEqualPredicate, true, false, true, true)
+COMPARISON_PRED_CLASS_DEFINE(GreaterPredicate, true, false, false, false)
+COMPARISON_PRED_CLASS_DEFINE(GreaterEqualPredicate, true, false, true, false)
 
 } //namespace doris
 

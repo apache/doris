@@ -133,7 +133,6 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
                 if constexpr (std::is_same_v<type, StringValue>) {                                 \
                     auto* nested_col_ptr = vectorized::check_and_get_column<                       \
                             vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);          \
-                    auto code_set = nested_col_ptr->find_codes(_values);                           \
                     auto& data_array = nested_col_ptr->get_data();                                 \
                     for (uint16_t i = 0; i < *size; i++) {                                         \
                         uint16_t idx = sel[i];                                                     \
@@ -141,7 +140,7 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
                         const auto& cell_value =                                                   \
                                 reinterpret_cast<const vectorized::Int32&>(data_array[idx]);       \
                         bool ret = !null_bitmap[idx]                                               \
-                                   && (code_set.find(cell_value) OP code_set.end());               \
+                                   && (_dict_codes.find(cell_value) OP _dict_codes.end());         \
                         new_size += _opposite ? !ret : ret;                                        \
                     }                                                                              \
                 }                                                                                  \
@@ -164,13 +163,12 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(        \
                                 column);                                                           \
                 auto& data_array = dict_col.get_data();                                            \
-                auto code_set = dict_col.find_codes(_values);                                      \
                 for (uint16_t i = 0; i < *size; i++) {                                             \
                     uint16_t idx = sel[i];                                                         \
                     sel[new_size] = idx;                                                           \
                     const auto& cell_value =                                                       \
                             reinterpret_cast<const vectorized::Int32&>(data_array[idx]);           \
-                    auto result = (code_set.find(cell_value) OP code_set.end());                   \
+                    auto result = (_dict_codes.find(cell_value) OP _dict_codes.end());             \
                     new_size += _opposite ? !result : result;                                      \
                 }                                                                                  \
             }                                                                                      \

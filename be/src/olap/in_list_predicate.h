@@ -95,9 +95,14 @@ class VectorizedRowBatch;
         void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override; \
         void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
         void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
-        bool is_in_predicate() override { return true; }                                                                                          \
+        bool is_in_predicate() override { return true; }                                          \
+        const phmap::flat_hash_set<type>& get_values() const { return _values; }                  \
+        void set_dict_codes(phmap::flat_hash_set<int32_t>& dict_codes) {                          \
+            _dict_codes = std::move(dict_codes);                                                  \
+        }                                                                                         \
     private:                                                                                      \
         phmap::flat_hash_set<type> _values;                                                       \
+        phmap::flat_hash_set<int32_t> _dict_codes;                                                \
     };
 
 IN_LIST_PRED_CLASS_DEFINE(InListPredicate)

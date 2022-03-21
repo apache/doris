@@ -834,18 +834,13 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
         auto column_id = column_predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
         auto* col_ptr = short_cir_column.get();
-        // todo(zeno) define convert_dict_codes_if_dictionary interface in IColumn
-        if (short_cir_column->is_nullable()) {
-            auto nullable_col =
-                    reinterpret_cast<vectorized::ColumnNullable*>(short_cir_column.get());
-            col_ptr = nullable_col->get_nested_column_ptr().get();
+
+        if (column_predicate->is_range_comparison_predicate()) {
+            col_ptr->convert_dict_codes_if_necessary();
         }
 
-        if (col_ptr->is_column_dictionary() && column_predicate->is_range_comparison_predicate()) {
-            auto& dict_col =
-                    reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(*col_ptr);
-            dict_col.convert_dict_codes();
-        }
+        col_ptr->set_predicate_dict_code_if_necessary(column_predicate);
+
         column_predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
     }
 
