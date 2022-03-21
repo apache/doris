@@ -105,8 +105,6 @@ public:
 
     String get_name() const override { return "percentile_approx"; }
 
-    bool insert_to_null_default() const override { return false; }
-
     DataTypePtr get_return_type() const override {
         return make_nullable(std::make_shared<DataTypeFloat64>());
     }
@@ -142,6 +140,7 @@ public:
 };
 
 // only for merge
+template <bool is_nullable>
 class AggregateFunctionPercentileApproxMerge : public AggregateFunctionPercentileApprox {
 public:
     AggregateFunctionPercentileApproxMerge(const DataTypes& argument_types_)
@@ -152,32 +151,57 @@ public:
     }
 };
 
+template <bool is_nullable>
 class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPercentileApprox {
 public:
     AggregateFunctionPercentileApproxTwoParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& sources = static_cast<const ColumnVector<Float64>&>(*columns[0]);
-        const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
+        if constexpr (is_nullable) {
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
+            const auto& sources =
+                    static_cast<const ColumnVector<Float64>&>(nullable_column->get_nested_column());
+            //requires second parameter must be a constant
+            const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
+            this->data(place).init();
+            this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
 
-        this->data(place).init();
-        this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
+        } else {
+            const auto& sources = static_cast<const ColumnVector<Float64>&>(*columns[0]);
+            const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
+
+            this->data(place).init();
+            this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
+        }
     }
 };
 
+template <bool is_nullable>
 class AggregateFunctionPercentileApproxThreeParams : public AggregateFunctionPercentileApprox {
 public:
     AggregateFunctionPercentileApproxThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& sources = static_cast<const ColumnVector<Float64>&>(*columns[0]);
-        const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
-        const auto& compression = static_cast<const ColumnVector<Float64>&>(*columns[2]);
+        if constexpr (is_nullable) {
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
+            const auto& sources =
+                    static_cast<const ColumnVector<Float64>&>(nullable_column->get_nested_column());
+            //requires second/third parameters must be a constant
+            const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
+            const auto& compression = static_cast<const ColumnVector<Float64>&>(*columns[2]);
+            this->data(place).init(compression.get_float64(row_num));
+            this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
 
-        this->data(place).init(compression.get_float64(row_num));
-        this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
+        } else {
+            const auto& sources = static_cast<const ColumnVector<Float64>&>(*columns[0]);
+            const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
+            const auto& compression = static_cast<const ColumnVector<Float64>&>(*columns[2]);
+
+            this->data(place).init(compression.get_float64(row_num));
+            this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
+        }
     }
 };
 
