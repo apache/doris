@@ -950,7 +950,6 @@ build_simdjson() {
     cp -r $TP_SOURCE_DIR/$SIMDJSON_SOURCE/include/* $TP_INCLUDE_DIR/
 }
 
-build_libbacktrace
 build_libunixodbc
 build_openssl
 build_libevent
@@ -998,6 +997,7 @@ build_hdfs3
 build_benchmark
 build_breakpad
 build_simdjson
+build_libbacktrace
 
 echo "Finished to build all thirdparties"
 

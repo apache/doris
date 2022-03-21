@@ -177,8 +177,10 @@ if [[ ${HELP} -eq 1 ]]; then
 fi
 
 # build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libsimdjson.a ]]; then
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a ]]; then
     echo "Thirdparty libraries need to be build ..."
+    # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
+    rm -rf ${DORIS_THIRDPARTY}/installed
     ${DORIS_THIRDPARTY}/build-thirdparty.sh -j $PARALLEL
 fi
 
