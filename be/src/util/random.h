@@ -19,6 +19,7 @@
 #define DORIS_BE_SRC_COMMON_UTIL_RANDOM_H
 
 #include <stdint.h>
+#include <thread>
 
 namespace doris {
 
@@ -27,18 +28,26 @@ namespace doris {
 // package.
 class Random {
 private:
+    enum : uint32_t {
+        M = 2147483647L  // 2^31-1
+    };
+    enum : uint64_t {
+        A = 16807  // bits 14, 8, 7, 5, 2, 1, 0
+    };
+
     uint32_t seed_;
 
 public:
+    // This is the largest value that can be returned from Next()
+    enum : uint32_t { kMaxNext = M };
+
     explicit Random(uint32_t s) : seed_(s & 0x7fffffffu) {
         // Avoid bad seeds.
-        if (seed_ == 0 || seed_ == 2147483647L) {
+        if (seed_ == 0 || seed_ == M) {
             seed_ = 1;
         }
     }
     uint32_t Next() {
-        static const uint32_t M = 2147483647L; // 2^31-1
-        static const uint64_t A = 16807;       // bits 14, 8, 7, 5, 2, 1, 0
         // We are computing
         //       seed_ = (seed_ * A) % M,    where M = 2^31-1
         //
@@ -69,6 +78,21 @@ public:
     // return "base" random bits.  The effect is to pick a number in the
     // range [0,2^max_log-1] with exponential bias towards smaller numbers.
     uint32_t Skewed(int max_log) { return Uniform(1 << Uniform(max_log + 1)); }
+
+    // Returns a Random instance for use by the current thread without
+    // additional locking
+    static Random* GetTLSInstance() {
+        static Random* tls_instance;
+        static std::aligned_storage<sizeof(Random)>::type tls_instance_bytes;
+
+        auto rv = tls_instance;
+        if (UNLIKELY(rv == nullptr)) {
+            size_t seed = std::hash<std::thread::id>()(std::this_thread::get_id());
+            rv = new (&tls_instance_bytes) Random((uint32_t)seed);
+            tls_instance = rv;
+        }
+        return rv;
+    }
 };
 
 } // namespace doris
