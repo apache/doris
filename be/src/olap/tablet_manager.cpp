@@ -425,8 +425,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
     return nullptr;
 }
 
-OLAPStatus TabletManager::drop_tablet(TTabletId tablet_id, SchemaHash schema_hash,
-                                      bool keep_files) {
+OLAPStatus TabletManager::drop_tablet(TTabletId tablet_id, bool keep_files) {
     WriteLock wrlock(_get_tablets_shard_lock(tablet_id));
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     return _drop_tablet_unlocked(tablet_id, keep_files);
@@ -489,8 +488,7 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
     return res;
 }
 
-TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
-                                          bool include_deleted, string* err) {
+TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, bool include_deleted, string* err) {
     ReadLock rdlock(_get_tablets_shard_lock(tablet_id));
     return _get_tablet_unlocked(tablet_id, include_deleted, err);
 }
@@ -527,8 +525,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool in
     return tablet;
 }
 
-TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
-                                          TabletUid tablet_uid, bool include_deleted, string* err) {
+TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, TabletUid tablet_uid, bool include_deleted, string* err) {
     ReadLock rdlock(_get_tablets_shard_lock(tablet_id));
     TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id, include_deleted, err);
     if (tablet != nullptr && tablet->tablet_uid() == tablet_uid) {
@@ -794,16 +791,13 @@ OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_
 OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     DorisMetrics::instance()->report_tablet_requests_total->increment(1);
     LOG(INFO) << "begin to process report tablet info."
-              << "tablet_id=" << tablet_info->tablet_id
-              << ", schema_hash=" << tablet_info->schema_hash;
-
+              << "tablet_id=" << tablet_info->tablet_id;
     OLAPStatus res = OLAP_SUCCESS;
 
-    TabletSharedPtr tablet = get_tablet(tablet_info->tablet_id, tablet_info->schema_hash);
+    TabletSharedPtr tablet = get_tablet(tablet_info->tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "can't find tablet. "
-                     << " tablet=" << tablet_info->tablet_id
-                     << " schema_hash=" << tablet_info->schema_hash;
+                     << " tablet=" << tablet_info->tablet_id;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 

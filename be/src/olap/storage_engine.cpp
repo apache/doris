@@ -619,12 +619,10 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
         for (auto& tablet_info : tablet_infos) {
             // should use tablet uid to ensure clean txn correctly
             TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.first.tablet_id,
-                                                                 tablet_info.first.schema_hash,
                                                                  tablet_info.first.tablet_uid);
             // The tablet may be dropped or altered, leave a INFO log and go on process other tablet
             if (tablet == nullptr) {
                 LOG(INFO) << "tablet is no longer exist. tablet_id=" << tablet_info.first.tablet_id
-                          << ", schema_hash=" << tablet_info.first.schema_hash
                           << ", tablet_uid=" << tablet_info.first.tablet_uid;
                 continue;
             }
@@ -737,8 +735,7 @@ void StorageEngine::_clean_unused_rowset_metas() {
             return true;
         }
 
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(
-                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
         if (tablet == nullptr) {
             // tablet may be dropped
             // TODO(cmy): this is better to be a VLOG, because drop table is a very common case.
@@ -788,8 +785,7 @@ void StorageEngine::_clean_unused_txns() {
     std::set<TabletInfo> tablet_infos;
     _txn_manager->get_all_related_tablets(&tablet_infos);
     for (auto& tablet_info : tablet_infos) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(
-                tablet_info.tablet_id, tablet_info.schema_hash, tablet_info.tablet_uid, true);
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.tablet_uid, true);
         if (tablet == nullptr) {
             // TODO(ygl) :  should check if tablet still in meta, it's a improvement
             // case 1: tablet still in meta, just remove from memory
@@ -1026,7 +1022,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         std::vector<UniqueWriteLock> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
-                    _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
+                    _tablet_manager->get_tablet(tablet_info.tablet_id);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 wrlocks.push_back(UniqueWriteLock(tablet->get_header_lock()));
@@ -1057,7 +1053,7 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         std::vector<UniqueWriteLock> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
-                    _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
+                    _tablet_manager->get_tablet(tablet_info.tablet_id);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 wrlocks.push_back(UniqueWriteLock(tablet->get_header_lock()));

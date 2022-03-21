@@ -67,7 +67,7 @@ public:
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_DELETE_NOEXIST_ERROR, if tablet not exist
     //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus drop_tablet(TTabletId tablet_id, SchemaHash schema_hash, bool keep_files = false);
+    OLAPStatus drop_tablet(TTabletId tablet_id, bool keep_files = false);
 
     OLAPStatus drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
@@ -76,11 +76,10 @@ public:
             const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
 
-    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
-                               bool include_deleted = false, std::string* err = nullptr);
+    TabletSharedPtr get_tablet(TTabletId tablet_id, bool include_deleted = false, std::string* err = nullptr);
 
-    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                               bool include_deleted = false, std::string* err = nullptr);
+    TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid, bool include_deleted = false,
+                               std::string* err = nullptr);
 
     // Extract tablet_id and schema_hash from given path.
     //

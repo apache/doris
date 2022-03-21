@@ -586,7 +586,7 @@ void DataDir::perform_path_gc_by_tablet() {
                          << ", path=" << path;
             continue;
         }
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet != nullptr) {
             // could find the tablet, then skip check it
             continue;
@@ -636,7 +636,7 @@ void DataDir::perform_path_gc_by_rowsetid() {
             RowsetId rowset_id;
             bool is_rowset_file = TabletManager::get_rowset_id_from_path(path, &rowset_id);
             if (is_rowset_file) {
-                TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
+                TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
                 if (tablet != nullptr) {
                     if (!tablet->check_rowset_id(rowset_id) &&
                         !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
