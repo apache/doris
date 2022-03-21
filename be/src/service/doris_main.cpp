@@ -482,6 +482,8 @@ int main(int argc, char** argv) {
     status = doris::JniUtil::Init();
     if (!status.ok()) {
         LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
+        doris::shutdown_logging();
+        exit(1);
     }
 #endif
 
