@@ -364,12 +364,13 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash, MemTracker* tracker) {
     }
     // free handle out of mutex, when last_ref is true, e must not be nullptr
     if (last_ref) {
+        size_t charge = e->charge;
         e->free();
         // The parameter tracker is ShardedLRUCache::_mem_tracker,
         // because the memory released by LRUHandle is recorded in the tls mem tracker,
         // so this part of the memory is subsidized from ShardedLRUCache::_mem_tracker to the tls mem tracker
         tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(),
-                            e->charge);
+                            charge);
     }
 }
 
