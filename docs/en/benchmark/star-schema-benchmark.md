@@ -71,7 +71,7 @@ Under the `-s 100` parameter, the generated data set size is:
 |Table |Rows |Size | File Number |
 |---|---|---|---|
 |lineorder| 600 million (600037902) | 60GB | 100|
-|customer|30 million (3000000) |277M |1|
+|customer|3 million (3000000) |277M |1|
 |part|1.4 million (1400000) | 116M|1|
 |supplier|200,000 (200,000) |17M |1|
 |date| 2556|228K |1|
@@ -147,7 +147,7 @@ The following test report is based on Doris [branch-0.15](https://github.com/apa
     |Table |Rows |Origin Size | Compacted Size(1 Replica) |
     |---|---|---|---|
     |lineorder| 600 million (600037902) | 60 GB | 14.846 GB |
-    |customer|30 million (3000000) |277 MB | 414.741 MB |
+    |customer|3 million (3000000) |277 MB | 414.741 MB |
     |part|1.4 million (1.400000) | 116 MB | 38.277 MB |
     |supplier|200,000 (200,000) |17 MB | 27.428 MB |
     |date| 2556|228 KB | 275.804 KB |
