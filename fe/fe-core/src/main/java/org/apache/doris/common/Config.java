@@ -1650,4 +1650,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean skip_compaction_slower_replica = true;
+
+    @ConfField
+    public static boolean enable_vectorized_load = false;
 }
