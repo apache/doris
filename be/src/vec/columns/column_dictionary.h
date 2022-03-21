@@ -17,8 +17,9 @@
 
 #pragma once
 
-#include <algorithm>
 #include <parallel_hashmap/phmap.h>
+
+#include <algorithm>
 
 #include "gutil/hash/string_hash.h"
 #include "olap/decimal12.h"
@@ -169,20 +170,20 @@ public:
 
     // it's impossable to use ComplexType as key , so we don't have to implemnt them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
-                                                      char const*& begin) const {
+                                                      char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not supported in ColumnDictionary";
     }
 
-    [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) {
+    [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "deserialize_and_insert_from_arena not supported in ColumnDictionary";
     }
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
-                                int nan_direction_hint) const {
+                                int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not supported in ColumnDictionary";
     }
 
-    void get_extremes(Field& min, Field& max) const {
+    void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "get_extremes not supported in ColumnDictionary";
     }
 
@@ -321,13 +322,16 @@ public:
             }
 
             if (lower) {
-                return std::lower_bound(dict_data.begin(), dict_data.end(), value) - dict_data.begin() - eq;
+                return std::lower_bound(dict_data.begin(), dict_data.end(), value) -
+                       dict_data.begin() - eq;
             } else {
-                return std::upper_bound(dict_data.begin(), dict_data.end(), value) - dict_data.begin() + eq;
+                return std::upper_bound(dict_data.begin(), dict_data.end(), value) -
+                       dict_data.begin() + eq;
             }
         }
 
-        inline phmap::flat_hash_set<T> find_codes(const phmap::flat_hash_set<StringValue>& values) const {
+        inline phmap::flat_hash_set<T> find_codes(
+                const phmap::flat_hash_set<StringValue>& values) const {
             phmap::flat_hash_set<T> code_set;
             for (const auto& value : values) {
                 auto it = inverted_index.find(value);

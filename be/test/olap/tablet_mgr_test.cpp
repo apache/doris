@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -118,12 +118,6 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
 
-    // create tablet with different schema hash should be error
-    tablet_schema.__set_schema_hash(4444);
-    create_tablet_req.__set_tablet_schema(tablet_schema);
-    create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    ASSERT_TRUE(create_st == OLAP_ERR_CE_TABLET_ID_EXIST);
-
     OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
     ASSERT_TRUE(drop_st == OLAP_SUCCESS);
     tablet.reset();
@@ -213,7 +207,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     ASSERT_TRUE(tablet != nullptr);
 
     // drop unexist tablet will be success
-    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 4444, false);
+    OLAPStatus drop_st = _tablet_mgr->drop_tablet(1121, 4444, false);
     ASSERT_TRUE(drop_st == OLAP_SUCCESS);
     tablet = _tablet_mgr->get_tablet(111, 3333);
     ASSERT_TRUE(tablet != nullptr);
