@@ -55,6 +55,11 @@ Usage: $0 <options>
      --clean            clean and build target
      -j                 build Backend parallel
 
+  Environment variables:
+    USE_AVX2            If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
+    BUILD_META_TOOL     If set BUILD_META_TOOL=OFF, the output meta_tools binaries will not be compiled. Default is ON.
+    STRIP_DEBUG_INFO    If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
+
   Eg.
     $0                                      build all
     $0 --be                                 build Backend without clean
@@ -63,6 +68,9 @@ Usage: $0 <options>
     $0 --spark-dpp                          build Spark DPP application alone
     $0 --fe --ui                            build Frontend web ui with npm
     $0 --broker                             build Broker
+
+    USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
+    USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info.
   "
   exit 1
 }
@@ -202,6 +210,9 @@ fi
 if [[ -z ${USE_LLD} ]]; then
     USE_LLD=OFF
 fi
+if [[ -z ${STRIP_DEBUG_INFO} ]]; then
+    STRIP_DEBUG_INFO=OFF
+fi
 
 echo "Get params:
     BUILD_BE            -- $BUILD_BE
@@ -218,6 +229,7 @@ echo "Get params:
     USE_LIBCPP          -- $USE_LIBCPP
     BUILD_META_TOOL     -- $BUILD_META_TOOL
     USE_LLD             -- $USE_LLD
+    STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
 "
 
 # Clean and build generated code
@@ -253,6 +265,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
             -DUSE_LLD=${USE_LLD} \
+            -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
