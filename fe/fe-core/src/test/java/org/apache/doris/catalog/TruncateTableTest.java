@@ -125,7 +125,7 @@ public class TruncateTableTest {
     }
 
     private List<List<String>> checkShowTabletResultNum(String tbl, String partition, int expected) throws Exception {
-        String showStr = "show tablet from " + tbl + " partition(" + partition + ")";
+        String showStr = "show tablets from " + tbl + " partition(" + partition + ")";
         ShowTabletStmt showStmt = (ShowTabletStmt) UtFrameUtils.parseAndAnalyzeStmt(showStr, connectContext);
         ShowExecutor executor = new ShowExecutor(connectContext, (ShowStmt) showStmt);
         ShowResultSet showResultSet = executor.execute();
