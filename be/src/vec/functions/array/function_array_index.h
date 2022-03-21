@@ -126,7 +126,7 @@ private:
         return true;
     }
 
-#define INTEGRAL_TPL_PACK UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Float32, Float64
+#define INTEGRAL_TPL_PACK Int8, Int16, Int32, Int64, Float32, Float64
     template <typename... Integral>
     static bool execute_integral(Block& block, const ColumnNumbers& arguments, size_t result, size_t input_rows_count) {
         return (execute_integral_expanded<Integral, Integral...>(block, arguments, result, input_rows_count) || ...);

@@ -114,13 +114,11 @@ public:
     ColumnPtr perform(const ColumnsWithTypeAndName& arguments, const DataTypePtr& result_type, NullMapBuilder& builder, size_t input_rows_count) {
         ColumnPtr res;
         if (!((res = execute_number<Int8>(arguments, result_type, builder, input_rows_count))
-             || (res = execute_number<UInt8>(arguments, result_type, builder, input_rows_count))
              || (res = execute_number<Int16>(arguments, result_type, builder, input_rows_count))
-             || (res = execute_number<UInt16>(arguments, result_type, builder, input_rows_count))
              || (res = execute_number<Int32>(arguments, result_type, builder, input_rows_count))
-             || (res = execute_number<UInt32>(arguments, result_type, builder, input_rows_count))
              || (res = execute_number<Int64>(arguments, result_type, builder, input_rows_count))
-             || (res = execute_number<UInt64>(arguments, result_type, builder, input_rows_count))
+             || (res = execute_number<Float32>(arguments, result_type, builder, input_rows_count))
+             || (res = execute_number<Float64>(arguments, result_type, builder, input_rows_count))
              || (res = execute_string(arguments, result_type, builder, input_rows_count)))) {
             return nullptr;
         }
