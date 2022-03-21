@@ -31,38 +31,6 @@
 
 namespace doris::vectorized {
 
-class NullMapBuilder {
-public:
-    explicit operator bool() const { return src_null_map; }
-    bool operator!() const { return !src_null_map; }
-
-    void init_source(const UInt8* src_null_map_) { src_null_map = src_null_map_; }
-
-    void init_sink(size_t size) {
-        auto sink = ColumnUInt8::create(size);
-        sink_null_map = sink->get_data().data();
-        sink_null_map_holder = std::move(sink);
-    }
-
-    void update(size_t from) {
-        sink_null_map[index] = bool(src_null_map && src_null_map[from]);
-        ++index;
-    }
-
-    void update() {
-        sink_null_map[index] = true;
-        ++index;
-    }
-
-    ColumnPtr get_null_map_column_ptr() && { return std::move(sink_null_map_holder); }
-
-private:
-    const UInt8* src_null_map = nullptr;
-    UInt8* sink_null_map = nullptr;
-    MutableColumnPtr sink_null_map_holder;
-    size_t index = 0;
-};
-
 class FunctionArrayElement : public IFunction {
 public:
     static constexpr auto name = "element_at";
@@ -86,24 +54,25 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        NullMapBuilder builder;
+        auto dst_null_column = ColumnUInt8::create(input_rows_count);
+        UInt8* dst_null_map = dst_null_column->get_data().data();
+        const UInt8* src_null_map = nullptr;
         ColumnsWithTypeAndName args;
         auto col_left = block.get_by_position(arguments[0]);
         if (col_left.column->is_nullable()) {
             auto null_col = check_and_get_column<ColumnNullable>(*col_left.column);
-            builder.init_source(null_col->get_null_map_column().get_data().data());
+            src_null_map = null_col->get_null_map_column().get_data().data();
             args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left.type),
                      col_left.name},
                     block.get_by_position(arguments[1])};
         } else {
             args = {col_left, block.get_by_position(arguments[1])};
         }
-        builder.init_sink(input_rows_count);
 
         auto result_type = remove_nullable(
                 check_and_get_data_type<DataTypeArray>(args[0].type.get())->get_nested_type());
 
-        auto res_column = _perform(args, result_type, builder, input_rows_count);
+        auto res_column = _perform(args, result_type, input_rows_count, src_null_map, dst_null_map);
         if (!res_column) {
             return Status::RuntimeError(
                     fmt::format("unsupported types for function {}({}, {})", get_name(),
@@ -111,30 +80,36 @@ public:
                                 block.get_by_position(arguments[1]).type->get_name()));
         }
         block.replace_by_position(
-                result, ColumnNullable::create(std::move(res_column),
-                                               std::move(builder).get_null_map_column_ptr()));
+                result, ColumnNullable::create(std::move(res_column), std::move(dst_null_column)));
         return Status::OK();
     }
 
 private:
     ColumnPtr _perform(const ColumnsWithTypeAndName& arguments, const DataTypePtr& result_type,
-                       NullMapBuilder& builder, size_t input_rows_count) {
+                       size_t input_rows_count, const UInt8* src_null_map, UInt8* dst_null_map) {
         ColumnPtr res;
-        if (!((res = _execute_number<Int8>(arguments, result_type, builder, input_rows_count)) ||
-              (res = _execute_number<Int16>(arguments, result_type, builder, input_rows_count)) ||
-              (res = _execute_number<Int32>(arguments, result_type, builder, input_rows_count)) ||
-              (res = _execute_number<Int64>(arguments, result_type, builder, input_rows_count)) ||
-              (res = _execute_number<Float32>(arguments, result_type, builder, input_rows_count)) ||
-              (res = _execute_number<Float64>(arguments, result_type, builder, input_rows_count)) ||
-              (res = _execute_string(arguments, result_type, builder, input_rows_count)))) {
+        if (!((res = _execute_number<Int8>(arguments, result_type, input_rows_count, src_null_map,
+                                           dst_null_map)) ||
+              (res = _execute_number<Int16>(arguments, result_type, input_rows_count, src_null_map,
+                                            dst_null_map)) ||
+              (res = _execute_number<Int32>(arguments, result_type, input_rows_count, src_null_map,
+                                            dst_null_map)) ||
+              (res = _execute_number<Int64>(arguments, result_type, input_rows_count, src_null_map,
+                                            dst_null_map)) ||
+              (res = _execute_number<Float32>(arguments, result_type, input_rows_count,
+                                              src_null_map, dst_null_map)) ||
+              (res = _execute_number<Float64>(arguments, result_type, input_rows_count,
+                                              src_null_map, dst_null_map)) ||
+              (res = _execute_string(arguments, result_type, input_rows_count, src_null_map,
+                                     dst_null_map)))) {
             return nullptr;
         }
         return res;
     }
 
     ColumnPtr _execute_string(const ColumnsWithTypeAndName& arguments,
-                              const DataTypePtr& result_type, NullMapBuilder& builder,
-                              size_t input_rows_count) {
+                              const DataTypePtr& result_type, size_t input_rows_count,
+                              const UInt8* src_null_map, UInt8* dst_null_map) {
         // check array nested column type and get data
         auto array_column = check_and_get_column<ColumnArray>(*arguments[0].column);
         DCHECK(array_column != nullptr);
@@ -159,15 +134,15 @@ private:
             size_t len = offsets[row] - off;
             auto index = arguments[1].column->get_int(row);
             if (index > 0 && index <= len) {
-                builder.update(row);
+                dst_null_map[row] = bool(src_null_map && src_null_map[row]);
                 index = off + index - 1;
                 DCHECK(index >= 0);
             } else if (index < 0 && -index <= len) {
-                builder.update(row);
+                dst_null_map[row] = bool(src_null_map && src_null_map[row]);
                 index = off + len + index;
                 DCHECK(index >= 0);
             } else {
-                builder.update();
+                dst_null_map[row] = true;
                 index = -1;
             }
 
@@ -192,8 +167,8 @@ private:
 
     template <typename ElementDataType>
     ColumnPtr _execute_number(const ColumnsWithTypeAndName& arguments,
-                              const DataTypePtr& result_type, NullMapBuilder& builder,
-                              size_t input_rows_count) {
+                              const DataTypePtr& result_type, size_t input_rows_count,
+                              const UInt8* src_null_map, UInt8* dst_null_map) {
         // check array nested column type and get data
         auto array_column = check_and_get_column<ColumnArray>(*arguments[0].column);
         DCHECK(array_column != nullptr);
@@ -215,13 +190,13 @@ private:
             size_t len = offsets[row] - off;
             auto index = arguments[1].column->get_int(row);
             if (index > 0 && index <= len) {
-                builder.update(row);
+                dst_null_map[row] = bool(src_null_map && src_null_map[row]);
                 dst_data[row] = nested_data[off + index - 1];
             } else if (index < 0 && -index <= len) {
-                builder.update(row);
+                dst_null_map[row] = bool(src_null_map && src_null_map[row]);
                 dst_data[row] = nested_data[off + len + index];
             } else {
-                builder.update();
+                dst_null_map[row] = true;
                 dst_data[row] = ElementDataType();
             }
         }
