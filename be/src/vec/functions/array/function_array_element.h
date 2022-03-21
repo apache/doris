@@ -113,7 +113,16 @@ private:
         // check array nested column type and get data
         auto array_column = check_and_get_column<ColumnArray>(*arguments[0].column);
         DCHECK(array_column != nullptr);
-        auto nested_column = check_and_get_column<ColumnString>(array_column->get_data());
+        const ColumnString* nested_column = nullptr;
+        const UInt8* nested_null_map = nullptr;
+        auto nested_null_column = check_and_get_column<ColumnNullable>(array_column->get_data());
+        if (nested_null_column) {
+            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
+            nested_column =
+                    check_and_get_column<ColumnString>(nested_null_column->get_nested_column());
+        } else {
+            nested_column = check_and_get_column<ColumnString>(array_column->get_data());
+        }
         if (!nested_column) {
             return nullptr;
         }
@@ -133,20 +142,24 @@ private:
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
             auto index = arguments[1].column->get_int(row);
-            if (index > 0 && index <= len) {
-                dst_null_map[row] = bool(src_null_map && src_null_map[row]);
-                index = off + index - 1;
-                DCHECK(index >= 0);
-            } else if (index < 0 && -index <= len) {
-                dst_null_map[row] = bool(src_null_map && src_null_map[row]);
-                index = off + len + index;
-                DCHECK(index >= 0);
+            // array is nullable
+            bool null_flag = bool(src_null_map && src_null_map[row]);
+            // calc index in nested column
+            if (!null_flag && index > 0 && index <= len) {
+                index += off - 1;
+            } else if (!null_flag && index < 0 && -index <= len) {
+                index += off + len;
             } else {
-                dst_null_map[row] = true;
-                index = -1;
+                null_flag = true;
             }
-
-            if (index >= 0) {
+            // nested column nullable check
+            if (!null_flag && nested_null_map && nested_null_map[index]) {
+                null_flag = true;
+            }
+            // actual string copy
+            if (!null_flag) {
+                DCHECK(index >= 0 && index < src_str_offs.size());
+                dst_null_map[row] = false;
                 auto element_size = src_str_offs[index] - src_str_offs[index - 1];
                 dst_str_offs[row] = dst_str_offs[row - 1] + element_size;
                 auto src_string_pos = src_str_offs[index - 1];
@@ -155,6 +168,7 @@ private:
                 memcpy(&dst_str_chars[dst_string_pos], &src_str_chars[src_string_pos],
                        element_size);
             } else {
+                dst_null_map[row] = true;
                 dst_str_offs[row] = dst_str_offs[row - 1];
             }
         }
@@ -172,8 +186,17 @@ private:
         // check array nested column type and get data
         auto array_column = check_and_get_column<ColumnArray>(*arguments[0].column);
         DCHECK(array_column != nullptr);
-        auto nested_column =
-                check_and_get_column<ColumnVector<ElementDataType>>(array_column->get_data());
+        const ColumnVector<ElementDataType>* nested_column = nullptr;
+        const UInt8* nested_null_map = nullptr;
+        auto nested_null_column = check_and_get_column<ColumnNullable>(array_column->get_data());
+        if (nested_null_column) {
+            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
+            nested_column = check_and_get_column<ColumnVector<ElementDataType>>(
+                    nested_null_column->get_nested_column());
+        } else {
+            nested_column =
+                    check_and_get_column<ColumnVector<ElementDataType>>(array_column->get_data());
+        }
         if (!nested_column) {
             return nullptr;
         }
@@ -189,15 +212,28 @@ private:
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
             auto index = arguments[1].column->get_int(row);
-            if (index > 0 && index <= len) {
-                dst_null_map[row] = bool(src_null_map && src_null_map[row]);
-                dst_data[row] = nested_data[off + index - 1];
-            } else if (index < 0 && -index <= len) {
-                dst_null_map[row] = bool(src_null_map && src_null_map[row]);
-                dst_data[row] = nested_data[off + len + index];
+            // array is nullable
+            bool null_flag = bool(src_null_map && src_null_map[row]);
+            // calc index in nested column
+            if (!null_flag && index > 0 && index <= len) {
+                index += off - 1;
+            } else if (!null_flag && index < 0 && -index <= len) {
+                index += off + len;
             } else {
+                null_flag = true;
+            }
+            // nested column nullable check
+            if (!null_flag && nested_null_map && nested_null_map[index]) {
+                null_flag = true;
+            }
+            // actual data copy
+            if (null_flag) {
                 dst_null_map[row] = true;
                 dst_data[row] = ElementDataType();
+            } else {
+                DCHECK(index >= 0 && index < nested_data.size());
+                dst_null_map[row] = false;
+                dst_data[row] = nested_data[index];
             }
         }
 

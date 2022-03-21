@@ -73,7 +73,16 @@ private:
         auto array_column =
                 check_and_get_column<ColumnArray>(*block.get_by_position(arguments[0]).column);
         DCHECK(array_column != nullptr);
-        auto nested_column = check_and_get_column<ColumnString>(array_column->get_data());
+        const ColumnString* nested_column = nullptr;
+        const UInt8* nested_null_map = nullptr;
+        auto nested_null_column = check_and_get_column<ColumnNullable>(array_column->get_data());
+        if (nested_null_column) {
+            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
+            nested_column =
+                    check_and_get_column<ColumnString>(nested_null_column->get_nested_column());
+        } else {
+            nested_column = check_and_get_column<ColumnString>(array_column->get_data());
+        }
         if (!nested_column) {
             return false;
         }
@@ -110,9 +119,12 @@ private:
             size_t right_off = right_offs[row - 1];
             size_t right_len = right_offs[row] - right_off;
             for (size_t pos = 0; pos < len; ++pos) {
+                if (nested_null_map && nested_null_map[pos + off]) {
+                    continue;
+                }
+
                 size_t str_pos = str_offs[pos + off - 1];
                 size_t str_len = str_offs[pos + off] - str_pos;
-
                 const char* left_raw_v = reinterpret_cast<const char*>(&str_chars[str_pos]);
                 const char* right_raw_v = reinterpret_cast<const char*>(&right_chars[right_off]);
                 if (std::string_view(left_raw_v, str_len) ==
@@ -148,7 +160,16 @@ private:
         auto array_column =
                 check_and_get_column<ColumnArray>(*block.get_by_position(arguments[0]).column);
         DCHECK(array_column != nullptr);
-        auto nested_column = check_and_get_column<ColumnVector<Initial>>(array_column->get_data());
+        const ColumnVector<Initial>* nested_column = nullptr;
+        const UInt8* nested_null_map = nullptr;
+        auto nested_null_column = check_and_get_column<ColumnNullable>(array_column->get_data());
+        if (nested_null_column) {
+            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
+            nested_column = check_and_get_column<ColumnVector<Initial>>(
+                    nested_null_column->get_nested_column());
+        } else {
+            nested_column = check_and_get_column<ColumnVector<Initial>>(array_column->get_data());
+        }
         if (!nested_column) {
             return false;
         }
@@ -181,6 +202,10 @@ private:
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
             for (size_t pos = 0; pos < len; ++pos) {
+                if (nested_null_map && nested_null_map[pos + off]) {
+                    continue;
+                }
+
                 if (nested_data[pos + off] == right_data[row]) {
                     ConcreteAction::apply(res, pos);
                     break;
