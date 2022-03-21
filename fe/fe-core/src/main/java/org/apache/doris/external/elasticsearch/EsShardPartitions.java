@@ -77,7 +77,7 @@ public class EsShardPartitions {
                         singleShardRouting.add(
                                 EsShardRouting.newSearchShard(
                                         (String) indexShard.get("index"),
-                                        (Integer) indexShard.get("shard"),
+                                        ((Long) indexShard.get("shard")).intValue(),
                                         (Boolean) indexShard.get("primary"),
                                         (String) indexShard.get("node"),
                                         (JSONObject) jsonObject.get("nodes")));
