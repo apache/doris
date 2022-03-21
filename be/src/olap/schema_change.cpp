@@ -1398,14 +1398,18 @@ SchemaChangeHandler::~SchemaChangeHandler() {
 
 OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
     LOG(INFO) << "begin to do request alter tablet: base_tablet_id=" << request.base_tablet_id
-              << ", base_schema_hash=" << request.base_schema_hash
               << ", new_tablet_id=" << request.new_tablet_id
-              << ", new_schema_hash=" << request.new_schema_hash
               << ", alter_version=" << request.alter_version;
 
+    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+            request.base_tablet_id, request.base_schema_hash);
+    if (base_tablet == nullptr) {
+        LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
+        return OLAP_ERR_TABLE_NOT_FOUND;
+    }
     // Lock schema_change_lock util schema change info is stored in tablet header
-    if (!StorageEngine::instance()->tablet_manager()->try_schema_change_lock(
-                request.base_tablet_id)) {
+    std::unique_lock<std::mutex> schema_change_lock(base_tablet->get_schema_change_lock(), std::try_to_lock);
+    if (!schema_change_lock.owns_lock()) {
         LOG(WARNING) << "failed to obtain schema change lock. "
                      << "base_tablet=" << request.base_tablet_id;
         return OLAP_ERR_TRY_LOCK_FAILED;
@@ -1413,7 +1417,6 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2&
 
     OLAPStatus res = _do_process_alter_tablet_v2(request);
     LOG(INFO) << "finished alter tablet process, res=" << res;
-    StorageEngine::instance()->tablet_manager()->release_schema_change_lock(request.base_tablet_id);
     return res;
 }
 

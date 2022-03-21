@@ -111,8 +111,6 @@ public:
                                     const std::string& schema_hash_path, bool force = false,
                                     bool restore = false);
 
-    void release_schema_change_lock(TTabletId tablet_id);
-
     // 获取所有tables的名字
     //
     // Return OLAP_SUCCESS, if run ok
@@ -122,8 +120,6 @@ public:
     OLAPStatus build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
 
     OLAPStatus start_trash_sweep();
-    // Prevent schema change executed concurrently.
-    bool try_schema_change_lock(TTabletId tablet_id);
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
                                        SchemaHash schema_hash, const std::string& schema_hash_path);
@@ -151,24 +147,21 @@ private:
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus _add_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
-                                    const TabletSharedPtr& tablet, bool update_meta, bool force);
+    OLAPStatus _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet, bool update_meta, bool force);
 
-    OLAPStatus _add_tablet_to_map_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
+    OLAPStatus _add_tablet_to_map_unlocked(TTabletId tablet_id, 
                                            const TabletSharedPtr& tablet, bool update_meta,
                                            bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
     OLAPStatus _create_initial_rowset_unlocked(const TCreateTabletReq& request, Tablet* tablet);
 
-    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, TSchemaHash schema_hash,
-                                              bool keep_files = false);
+    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, bool keep_files = false);
 
-    OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash, bool keep_files);
+    OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, bool keep_files);
 
-    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash);
-    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
-                                         bool include_deleted, std::string* err);
+    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
+    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted, std::string* err);
 
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
@@ -183,26 +176,16 @@ private:
                                             const Tablet* base_tablet,
                                             TabletMetaSharedPtr* tablet_meta);
     
-    void _add_tablet_to_partition(const Tablet& tablet);
+    void _add_tablet_to_partition(const TabletSharedPtr& tablet);
 
-    void _remove_tablet_from_partition(const Tablet& tablet);
+    void _remove_tablet_from_partition(const TabletSharedPtr& tablet);
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 
-    // TODO(lingbin): should be TabletInstances?
-    // should be removed after schema_hash be removed
-    struct TableInstances {
-        Mutex schema_change_lock;
-        // The first element(i.e. tablet_arr[0]) is the base tablet. When we add new tablet
-        // to tablet_arr, we will sort all the elements in create-time ascending order,
-        // which will ensure the first one is base-tablet
-        std::list<TabletSharedPtr> table_arr;
-    };
-    // tablet_id -> TabletInstances
-    using tablet_map_t = std::unordered_map<int64_t, TableInstances>;
+    using tablet_map_t = std::unordered_map<int64_t, TabletSharedPtr>;
 
     struct tablets_shard {
         tablets_shard() = default;
