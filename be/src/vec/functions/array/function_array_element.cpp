@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/functions/array/function_array_element.h"
+
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {

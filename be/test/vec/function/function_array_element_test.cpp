@@ -36,9 +36,10 @@ TEST(function_array_element_test, element_at) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Int32};
 
         Array vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec, 0}, Null()}, {{vec, 1}, Int32(1)}, {{vec, 4}, Null()},
-                            {{vec, -1}, Int32(3)}, {{vec, -3}, Int32(1)}, {{vec, -4}, Null()},
-                            {{Null(), 1}, Null()}, {{empty_arr, 0}, Null()}, {{empty_arr, 1}, Null()}};
+        DataSet data_set = {
+                {{vec, 0}, Null()},    {{vec, 1}, Int32(1)},     {{vec, 4}, Null()},
+                {{vec, -1}, Int32(3)}, {{vec, -3}, Int32(1)},    {{vec, -4}, Null()},
+                {{Null(), 1}, Null()}, {{empty_arr, 0}, Null()}, {{empty_arr, 1}, Null()}};
 
         check_function<DataTypeInt32, true>(func_name, input_types, data_set);
     }
@@ -48,9 +49,10 @@ TEST(function_array_element_test, element_at) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int8, TypeIndex::Int32};
 
         Array vec = {Int8(1), Int8(2), Int8(3)};
-        DataSet data_set = {{{vec, 0}, Null()}, {{vec, 1}, Int8(1)}, {{vec, 4}, Null()},
-                            {{vec, -1}, Int8(3)}, {{vec, -3}, Int8(1)}, {{vec, -4}, Null()},
-                            {{Null(), 1}, Null()}, {{empty_arr, 0}, Null()}, {{empty_arr, 1}, Null()}};
+        DataSet data_set = {
+                {{vec, 0}, Null()},    {{vec, 1}, Int8(1)},      {{vec, 4}, Null()},
+                {{vec, -1}, Int8(3)},  {{vec, -3}, Int8(1)},     {{vec, -4}, Null()},
+                {{Null(), 1}, Null()}, {{empty_arr, 0}, Null()}, {{empty_arr, 1}, Null()}};
 
         check_function<DataTypeInt8, true>(func_name, input_types, data_set);
     }
@@ -59,10 +61,16 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::Int32};
 
-        Array vec = {Field("abc", 3), Field("", 0), Field("def",3)};
-        DataSet data_set = {{{vec, 1}, std::string("abc")}, {{vec, 2}, std::string("")}, {{vec, 10}, Null()},
-                            {{vec, -2}, std::string("")}, {{vec, 0}, Null()}, {{vec, -10}, Null()},
-                            {{Null(), 1}, Null()}, {{empty_arr, 0}, Null()}, {{empty_arr, 1}, Null()}};
+        Array vec = {Field("abc", 3), Field("", 0), Field("def", 3)};
+        DataSet data_set = {{{vec, 1}, std::string("abc")},
+                            {{vec, 2}, std::string("")},
+                            {{vec, 10}, Null()},
+                            {{vec, -2}, std::string("")},
+                            {{vec, 0}, Null()},
+                            {{vec, -10}, Null()},
+                            {{Null(), 1}, Null()},
+                            {{empty_arr, 0}, Null()},
+                            {{empty_arr, 1}, Null()}};
 
         check_function<DataTypeString, true>(func_name, input_types, data_set);
     }

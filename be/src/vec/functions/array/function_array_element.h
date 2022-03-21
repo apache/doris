@@ -36,9 +36,7 @@ public:
     explicit operator bool() const { return src_null_map; }
     bool operator!() const { return !src_null_map; }
 
-    void init_source(const UInt8* src_null_map_) {
-        src_null_map = src_null_map_;
-    }
+    void init_source(const UInt8* src_null_map_) { src_null_map = src_null_map_; }
 
     void init_sink(size_t size) {
         auto sink = ColumnUInt8::create(size);
@@ -65,8 +63,7 @@ private:
     size_t index = 0;
 };
 
-class FunctionArrayElement : public IFunction
-{
+class FunctionArrayElement : public IFunction {
 public:
     static constexpr auto name = "element_at";
     static FunctionPtr create() { return std::make_shared<FunctionArrayElement>(); }
@@ -79,9 +76,12 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(is_array(arguments[0])) << "first argument for function: " << name << " should be DataTypeArray";
-        DCHECK(is_integer(arguments[1])) << "second argument for function: " << name << " should be Integer";
-        return make_nullable(check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
+        DCHECK(is_array(arguments[0]))
+                << "first argument for function: " << name << " should be DataTypeArray";
+        DCHECK(is_integer(arguments[1]))
+                << "second argument for function: " << name << " should be Integer";
+        return make_nullable(
+                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -92,41 +92,49 @@ public:
         if (col_left.column->is_nullable()) {
             auto null_col = check_and_get_column<ColumnNullable>(*col_left.column);
             builder.init_source(null_col->get_null_map_column().get_data().data());
-            args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left.type), col_left.name},
+            args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left.type),
+                     col_left.name},
                     block.get_by_position(arguments[1])};
         } else {
-            args = {col_left,  block.get_by_position(arguments[1])};
+            args = {col_left, block.get_by_position(arguments[1])};
         }
         builder.init_sink(input_rows_count);
 
-        auto result_type = remove_nullable(check_and_get_data_type<DataTypeArray>(args[0].type.get())->get_nested_type());
+        auto result_type = remove_nullable(
+                check_and_get_data_type<DataTypeArray>(args[0].type.get())->get_nested_type());
 
-        auto res_column = perform(args, result_type, builder, input_rows_count);
+        auto res_column = _perform(args, result_type, builder, input_rows_count);
         if (!res_column) {
-            return Status::RuntimeError(fmt::format("unsupported types for function {}({}, {})", get_name(),
-                                        block.get_by_position(arguments[0]).type->get_name(),
-                                        block.get_by_position(arguments[1]).type->get_name()));
+            return Status::RuntimeError(
+                    fmt::format("unsupported types for function {}({}, {})", get_name(),
+                                block.get_by_position(arguments[0]).type->get_name(),
+                                block.get_by_position(arguments[1]).type->get_name()));
         }
-        block.replace_by_position(result, ColumnNullable::create(std::move(res_column), std::move(builder).get_null_map_column_ptr()));
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(res_column),
+                                               std::move(builder).get_null_map_column_ptr()));
         return Status::OK();
     }
 
-    ColumnPtr perform(const ColumnsWithTypeAndName& arguments, const DataTypePtr& result_type, NullMapBuilder& builder, size_t input_rows_count) {
+private:
+    ColumnPtr _perform(const ColumnsWithTypeAndName& arguments, const DataTypePtr& result_type,
+                       NullMapBuilder& builder, size_t input_rows_count) {
         ColumnPtr res;
-        if (!((res = execute_number<Int8>(arguments, result_type, builder, input_rows_count))
-             || (res = execute_number<Int16>(arguments, result_type, builder, input_rows_count))
-             || (res = execute_number<Int32>(arguments, result_type, builder, input_rows_count))
-             || (res = execute_number<Int64>(arguments, result_type, builder, input_rows_count))
-             || (res = execute_number<Float32>(arguments, result_type, builder, input_rows_count))
-             || (res = execute_number<Float64>(arguments, result_type, builder, input_rows_count))
-             || (res = execute_string(arguments, result_type, builder, input_rows_count)))) {
+        if (!((res = _execute_number<Int8>(arguments, result_type, builder, input_rows_count)) ||
+              (res = _execute_number<Int16>(arguments, result_type, builder, input_rows_count)) ||
+              (res = _execute_number<Int32>(arguments, result_type, builder, input_rows_count)) ||
+              (res = _execute_number<Int64>(arguments, result_type, builder, input_rows_count)) ||
+              (res = _execute_number<Float32>(arguments, result_type, builder, input_rows_count)) ||
+              (res = _execute_number<Float64>(arguments, result_type, builder, input_rows_count)) ||
+              (res = _execute_string(arguments, result_type, builder, input_rows_count)))) {
             return nullptr;
         }
         return res;
     }
 
-private:
-    ColumnPtr execute_string(const ColumnsWithTypeAndName& arguments, const DataTypePtr & result_type, NullMapBuilder& builder, size_t input_rows_count) {
+    ColumnPtr _execute_string(const ColumnsWithTypeAndName& arguments,
+                              const DataTypePtr& result_type, NullMapBuilder& builder,
+                              size_t input_rows_count) {
         // check array nested column type and get data
         auto array_column = check_and_get_column<ColumnArray>(*arguments[0].column);
         DCHECK(array_column != nullptr);
@@ -169,23 +177,28 @@ private:
                 auto src_string_pos = src_str_offs[index - 1];
                 auto dst_string_pos = dst_str_offs[row - 1];
                 dst_str_chars.resize(dst_string_pos + element_size);
-                memcpy(&dst_str_chars[dst_string_pos], &src_str_chars[src_string_pos], element_size);
+                memcpy(&dst_str_chars[dst_string_pos], &src_str_chars[src_string_pos],
+                       element_size);
             } else {
                 dst_str_offs[row] = dst_str_offs[row - 1];
             }
         }
 
         VLOG_DEBUG << "function:" << get_name() << ", array type:" << arguments[0].type->get_name()
-                   << ", index type:" << arguments[1].type->get_name() << ", result type:" << result_type->get_name();
+                   << ", index type:" << arguments[1].type->get_name()
+                   << ", result type:" << result_type->get_name();
         return dst;
     }
 
     template <typename ElementDataType>
-    ColumnPtr execute_number(const ColumnsWithTypeAndName& arguments, const DataTypePtr & result_type, NullMapBuilder& builder, size_t input_rows_count) {
+    ColumnPtr _execute_number(const ColumnsWithTypeAndName& arguments,
+                              const DataTypePtr& result_type, NullMapBuilder& builder,
+                              size_t input_rows_count) {
         // check array nested column type and get data
         auto array_column = check_and_get_column<ColumnArray>(*arguments[0].column);
         DCHECK(array_column != nullptr);
-        auto nested_column = check_and_get_column<ColumnVector<ElementDataType>>(array_column->get_data());
+        auto nested_column =
+                check_and_get_column<ColumnVector<ElementDataType>>(array_column->get_data());
         if (!nested_column) {
             return nullptr;
         }
@@ -214,7 +227,8 @@ private:
         }
 
         VLOG_DEBUG << "function:" << get_name() << ", array type:" << arguments[0].type->get_name()
-                   << ", index type:" << arguments[1].type->get_name() << ", result type:" << result_type->get_name();
+                   << ", index type:" << arguments[1].type->get_name()
+                   << ", result type:" << result_type->get_name();
         return dst;
     }
 };
