@@ -201,6 +201,7 @@ private:
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
     std::vector<RowInBlock*> rowInBlocks;
+    size_t _mem_usage;
 }; // class MemTable
 
 

@@ -45,7 +45,8 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _schema_size(_schema->schema_size()),
           _rowset_writer(rowset_writer),
           _is_first_insertion(true), 
-          _agg_functions(schema->num_columns()){
+          _agg_functions(schema->num_columns()),
+          _mem_usage(0){
     if (support_vec){
         _skip_list = nullptr;
         _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
@@ -76,12 +77,12 @@ void MemTable::_init_agg_functions(const vectorized::Block* block)
                         .aggregation();
         std::string agg_name =
                 TabletColumn::get_string_by_aggregation_type(agg_method);
-        if (agg_name=="replace"){
-            agg_name += "_last";
+        if (agg_name=="REPLACE"){
+            agg_name = "last_value";
+        }else{
+            agg_name += "_reader";
         }
-        agg_name += "_reader";
         
-
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                         [](unsigned char c) { return std::tolower(c); });
 
@@ -109,6 +110,7 @@ MemTable::~MemTable() {
             delete row;
         }
     }
+    _mem_tracker->Release(_mem_usage);
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -142,6 +144,7 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
     size_t oldsize = _input_mutable_block.allocated_bytes();
     _input_mutable_block.add_rows(block, row_pos, num_rows);
     size_t newsize = _input_mutable_block.allocated_bytes();
+    _mem_usage += newsize - oldsize;
     _mem_tracker->Consume(newsize - oldsize);
 
     for(int i = 0; i < num_rows; i++){       
