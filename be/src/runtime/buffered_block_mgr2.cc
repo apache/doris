@@ -656,6 +656,7 @@ Status BufferedBlockMgr2::pin_block(Block* block, bool* pinned, Block* release_b
                             << endl
                             << block->debug_string();
                     _free_io_buffers.remove(block->_buffer_desc);
+                    _free_io_buffers_bytes -= block->_buffer_desc->len;
                 } else if (_unpinned_blocks.contains(block)) {
                     _unpinned_blocks.remove(block);
                 } else {
@@ -741,8 +742,7 @@ Status BufferedBlockMgr2::write_unpinned_blocks() {
     }
 
     // Assumes block manager lock is already taken.
-    while (_non_local_outstanding_writes + _free_io_buffers.size() < _block_write_threshold &&
-           !_unpinned_blocks.empty()) {
+    while (!_unpinned_blocks.empty() && should_spill()) {
         // Pop a block from the back of the list (LIFO).
         Block* write_block = _unpinned_blocks.pop_back();
         write_block->_client_local = false;
@@ -865,6 +865,7 @@ void BufferedBlockMgr2::write_complete(Block* block, const Status& write_status)
         DCHECK_EQ(block->_buffer_desc->len, _max_block_size)
                 << "Only io sized buffers should spill";
         _free_io_buffers.enqueue(block->_buffer_desc);
+        _free_io_buffers_bytes += block->_buffer_desc->len;
         // Finish the delete_block() work.
         if (block->_is_deleted) {
             block->_buffer_desc->block = nullptr;
@@ -947,6 +948,7 @@ void BufferedBlockMgr2::delete_block(Block* block) {
         } else {
             if (!_free_io_buffers.contains(block->_buffer_desc)) {
                 _free_io_buffers.enqueue(block->_buffer_desc);
+                _free_io_buffers_bytes += block->_buffer_desc->len;
                 _buffer_available_cv.notify_one();
             }
             block->_buffer_desc->block = nullptr;
@@ -1019,6 +1021,7 @@ Status BufferedBlockMgr2::find_buffer_for_block(Block* block, bool* in_mem) {
             DCHECK(block->_in_write && !_free_io_buffers.contains(block->_buffer_desc));
         } else {
             _free_io_buffers.remove(block->_buffer_desc);
+            _free_io_buffers_bytes -= block->_buffer_desc->len;
         }
         _buffered_pin_counter->update(1);
         *in_mem = true;
@@ -1081,15 +1084,17 @@ Status BufferedBlockMgr2::find_buffer_for_block(Block* block, bool* in_mem) {
 Status BufferedBlockMgr2::find_buffer(unique_lock<mutex>& lock, BufferDescriptor** buffer_desc) {
     *buffer_desc = nullptr;
 
-    Status st = _mem_tracker->try_consume(_max_block_size);
-    WARN_IF_ERROR(st, "try to allocate a new buffer failed");
     // First, try to allocate a new buffer.
-    if (_free_io_buffers.size() < _block_write_threshold && st) {
-        uint8_t* new_buffer = new uint8_t[_max_block_size];
-        *buffer_desc = _obj_pool.add(new BufferDescriptor(new_buffer, _max_block_size));
-        (*buffer_desc)->all_buffers_it =
-                _all_io_buffers.insert(_all_io_buffers.end(), *buffer_desc);
-        return Status::OK();
+    if (_free_io_buffers.size() < _block_write_threshold) {
+        Status st = _mem_tracker->try_consume(_max_block_size);
+        WARN_IF_ERROR(st, "try to allocate a new buffer failed");
+        if (st) {
+            uint8_t* new_buffer = new uint8_t[_max_block_size];
+            *buffer_desc = _obj_pool.add(new BufferDescriptor(new_buffer, _max_block_size));
+            (*buffer_desc)->all_buffers_it =
+                    _all_io_buffers.insert(_all_io_buffers.end(), *buffer_desc);
+            return Status::OK();
+        }
     }
 
     // Second, try to pick a buffer from the free list.
@@ -1121,6 +1126,7 @@ Status BufferedBlockMgr2::find_buffer(unique_lock<mutex>& lock, BufferDescriptor
         } while (_free_io_buffers.empty());
     }
     *buffer_desc = _free_io_buffers.dequeue();
+    _free_io_buffers_bytes -= (*buffer_desc)->len;
     return Status::OK();
 }
 

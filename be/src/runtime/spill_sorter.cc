@@ -1100,7 +1100,7 @@ Status SpillSorter::add_batch(RowBatch* batch) {
                     _unsorted_run->add_batch<false>(batch, cur_batch_index, &num_processed));
         }
         cur_batch_index += num_processed;
-        if (cur_batch_index < batch->num_rows()) {
+        if (cur_batch_index < batch->num_rows() || _block_mgr->should_spill()) {
             // The current run is full. Sort it and begin the next one.
             RETURN_IF_ERROR(sort_run());
             RETURN_IF_ERROR(_sorted_runs.back()->unpin_all_blocks());

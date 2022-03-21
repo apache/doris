@@ -383,6 +383,10 @@ public:
         { return _writes_issued; }
     }
 
+    bool should_spill() {
+        return (_mem_tracker->consumption() - _free_io_buffers_bytes) > _mem_tracker->limit() / 2;
+    }
+
 private:
     friend class Client;
 
@@ -553,6 +557,7 @@ private:
     // (!block->_is_pinned  && !block->_in_write  && !_unpinned_blocks.Contains(block)).
     // All of these buffers are io sized.
     InternalQueue<BufferDescriptor> _free_io_buffers;
+    std::atomic<size_t> _free_io_buffers_bytes = 0;
 
     // All allocated io-sized buffers.
     std::list<BufferDescriptor*> _all_io_buffers;

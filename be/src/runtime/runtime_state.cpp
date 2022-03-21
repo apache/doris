@@ -279,7 +279,7 @@ Status RuntimeState::init_buffer_poolstate() {
 Status RuntimeState::create_block_mgr() {
     DCHECK(_block_mgr2.get() == nullptr);
 
-    int64_t block_mgr_limit = _query_mem_tracker->limit();
+    int64_t block_mgr_limit = _query_mem_tracker->limit() / 2;
     if (block_mgr_limit < 0) {
         block_mgr_limit = std::numeric_limits<int64_t>::max();
     }
