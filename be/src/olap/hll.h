@@ -20,12 +20,20 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <parallel_hashmap/phmap.h>
 
 #include <map>
 #include <set>
 #include <string>
 
+#ifdef __x86_64__
+#include <immintrin.h>
+#endif
+
+#include "common/status.h"
 #include "gutil/macros.h"
+#include "runtime/memory/chunk.h"
+#include "runtime/memory/chunk_allocator.h"
 
 namespace doris {
 
@@ -34,7 +42,6 @@ struct Slice;
 const static int HLL_COLUMN_PRECISION = 14;
 const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
 const static int HLL_EXPLICIT_INT64_NUM = 160;
-const static int HLL_EXPLICIT_INT64_NUM_DOUBLE = HLL_EXPLICIT_INT64_NUM * 2;
 const static int HLL_SPARSE_THRESHOLD = 4096;
 const static int HLL_REGISTERS_COUNT = 16 * 1024;
 // maximum size in byte of serialized HLL: type(1) + registers (2^14)
@@ -82,130 +89,60 @@ enum HllDataType {
 class HyperLogLog {
 public:
     HyperLogLog() = default;
-    explicit HyperLogLog(uint64_t hash_value) : _type(HLL_DATA_EXPLICIT) {
-        _explicit_data = new uint64_t[HLL_EXPLICIT_INT64_NUM_DOUBLE];
-        _explicit_data[0] = hash_value;
-        _explicit_data_num = 1;
-    }
+    explicit HyperLogLog(uint64_t hash_value) : _type(HLL_DATA_EXPLICIT) { _hash_set.emplace(hash_value); }
 
-    HyperLogLog(const HyperLogLog& other) {
-        this->_type = other._type;
-        switch (other._type) {
-        case HLL_DATA_EMPTY:
-            break;
-        case HLL_DATA_EXPLICIT: {
-            this->_explicit_data_num = other._explicit_data_num;
-            _explicit_data = new uint64_t[HLL_EXPLICIT_INT64_NUM_DOUBLE];
-            memcpy(_explicit_data, other._explicit_data,
-                   sizeof(*_explicit_data) * _explicit_data_num);
-            break;
+    HyperLogLog(const HyperLogLog& other) : _type(other._type), _hash_set(other._hash_set) {
+        if (_registers.data != nullptr) {
+            ChunkAllocator::instance()->free(_registers);
+            _registers.data = nullptr;
         }
-        case HLL_DATA_SPARSE:
-        case HLL_DATA_FULL: {
-            _registers = new uint8_t[HLL_REGISTERS_COUNT];
-            memcpy(_registers, other._registers, HLL_REGISTERS_COUNT);
-            break;
-        default:
-            break;
-        }
+
+        if (other._registers.data != nullptr) {
+            ChunkAllocator::instance()->allocate(HLL_REGISTERS_COUNT, &_registers);
+            memcpy(_registers.data, other._registers.data, HLL_REGISTERS_COUNT);
         }
     }
 
-    HyperLogLog(HyperLogLog&& other) {
-        this->_type = other._type;
-        switch (other._type) {
-        case HLL_DATA_EMPTY:
-            break;
-        case HLL_DATA_EXPLICIT: {
-            this->_explicit_data_num = other._explicit_data_num;
-            this->_explicit_data = other._explicit_data;
-            other._explicit_data_num = 0;
-            other._explicit_data = nullptr;
-            other._type = HLL_DATA_EMPTY;
-            break;
-        }
-        case HLL_DATA_SPARSE:
-        case HLL_DATA_FULL: {
-            this->_registers = other._registers;
-            other._registers = nullptr;
-            other._type = HLL_DATA_EMPTY;
-            break;
-        default:
-            break;
-        }
-        }
-    }
-
-    HyperLogLog& operator=(HyperLogLog&& other) {
+    HyperLogLog& operator=(const HyperLogLog& other) {
         if (this != &other) {
-            if (_registers) {
-                delete[] _registers;
-                _registers = nullptr;
-            }
-            if (_explicit_data) {
-                delete[] _explicit_data;
-                _explicit_data = nullptr;
+            this->_type = other._type;
+            this->_hash_set = other._hash_set;
+
+            if (_registers.data != nullptr) {
+                ChunkAllocator::instance()->free(_registers);
+                _registers.data = nullptr;
             }
 
-            _explicit_data_num = 0;
-            this->_type = other._type;
-            switch (other._type) {
-            case HLL_DATA_EMPTY:
-                break;
-            case HLL_DATA_EXPLICIT: {
-                this->_explicit_data_num = other._explicit_data_num;
-                this->_explicit_data = other._explicit_data;
-                other._explicit_data_num = 0;
-                other._explicit_data = nullptr;
-                other._type = HLL_DATA_EMPTY;
-                break;
-            }
-            case HLL_DATA_SPARSE:
-            case HLL_DATA_FULL: {
-                this->_registers = other._registers;
-                other._registers = nullptr;
-                other._type = HLL_DATA_EMPTY;
-                break;
-            default:
-                break;
-            }
+            if (other._registers.data != nullptr) {
+                ChunkAllocator::instance()->allocate(HLL_REGISTERS_COUNT, &_registers);
+                memcpy(_registers.data, other._registers.data, HLL_REGISTERS_COUNT);
             }
         }
         return *this;
     }
 
-    HyperLogLog& operator=(const HyperLogLog& other) {
-        if (this != &other) {
-            if (_registers) {
-                delete[] _registers;
-                _registers = nullptr;
-            }
-            if (_explicit_data) {
-                delete[] _explicit_data;
-                _explicit_data = nullptr;
-            }
+    HyperLogLog(HyperLogLog&& other) : _type(other._type), _hash_set(std::move(other._hash_set)) {
+        if (_registers.data != nullptr) {
+            ChunkAllocator::instance()->free(_registers);
+        }
+        _registers = other._registers;
 
-            _explicit_data_num = 0;
+        other._type = HLL_DATA_EMPTY;
+        other._registers.data = nullptr;
+    }
+
+    HyperLogLog& operator=(HyperLogLog&& other) {
+        if (this != &other) {
             this->_type = other._type;
-            switch (other._type) {
-            case HLL_DATA_EMPTY:
-                break;
-            case HLL_DATA_EXPLICIT: {
-                this->_explicit_data_num = other._explicit_data_num;
-                _explicit_data = new uint64_t[HLL_EXPLICIT_INT64_NUM_DOUBLE];
-                memcpy(_explicit_data, other._explicit_data,
-                       sizeof(*_explicit_data) * _explicit_data_num);
-                break;
+            this->_hash_set = std::move(other._hash_set);
+
+            if (_registers.data != nullptr) {
+                ChunkAllocator::instance()->free(_registers);
             }
-            case HLL_DATA_SPARSE:
-            case HLL_DATA_FULL: {
-                _registers = new uint8_t[HLL_REGISTERS_COUNT];
-                memcpy(_registers, other._registers, HLL_REGISTERS_COUNT);
-                break;
-            default:
-                break;
-            }
-            }
+            _registers = other._registers;
+
+            other._type = HLL_DATA_EMPTY;
+            other._registers.data = nullptr;
         }
         return *this;
     }
@@ -216,11 +153,10 @@ public:
 
     void clear() {
         _type = HLL_DATA_EMPTY;
-        delete[] _registers;
-        _registers = nullptr;
-        delete[] _explicit_data;
-        _explicit_data = nullptr;
-        _explicit_data_num = 0;
+        _hash_set.clear();
+        if (_registers.data != nullptr) {
+            ChunkAllocator::instance()->free(_registers);
+        }
     }
 
     typedef uint8_t SetTypeValueType;
@@ -239,8 +175,10 @@ public:
 
     size_t memory_consumed() const {
         size_t size = sizeof(*this);
-        if (_explicit_data) size += HLL_EXPLICIT_INT64_NUM_DOUBLE;
-        if (_registers) size += HLL_REGISTERS_COUNT;
+        if (_type == HLL_DATA_EXPLICIT) 
+            size += _hash_set.size() * sizeof(uint64_t);
+        else if (_type == HLL_DATA_SPARSE || _type == HLL_DATA_FULL) 
+            size += HLL_REGISTERS_COUNT;
         return size;
     }
 
@@ -277,7 +215,7 @@ public:
         case HLL_DATA_SPARSE:
         case HLL_DATA_FULL: {
             std::string str {"hash set size: "};
-            str.append(std::to_string((size_t)_explicit_data_num));
+            str.append(std::to_string(_hash_set.size()));
             str.append("\ncardinality:\t");
             str.append(std::to_string(estimate_cardinality()));
             str.append("\ntype:\t");
@@ -291,16 +229,13 @@ public:
 
 private:
     HllDataType _type = HLL_DATA_EMPTY;
-
-    uint32_t _explicit_data_num = 0;
-    uint64_t* _explicit_data = nullptr;
+    phmap::flat_hash_set<uint64_t> _hash_set;
 
     // This field is much space consuming(HLL_REGISTERS_COUNT), we create
     // it only when it is really needed.
-    uint8_t* _registers = nullptr;
+    Chunk _registers;
 
 private:
-
     void _convert_explicit_to_register();
 
     // update one hash value into this registers
@@ -312,40 +247,27 @@ private:
         // make sure max first_one_bit is HLL_ZERO_COUNT_BITS + 1
         hash_value |= ((uint64_t)1 << HLL_ZERO_COUNT_BITS);
         uint8_t first_one_bit = __builtin_ctzl(hash_value) + 1;
-        _registers[idx] = _registers[idx] > first_one_bit ? _registers[idx] : first_one_bit;
+        _registers.data[idx] = _registers.data[idx] > first_one_bit ? _registers.data[idx] : first_one_bit;
     }
 
     // absorb other registers into this registers
-    void _merge_registers(const uint8_t* other) {
-        for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-            _registers[i] = _registers[i] < other[i] ? other[i] : _registers[i];
+    void _merge_registers(const uint8_t* other_registers) {
+#ifdef __AVX2__
+        int loop = HLL_REGISTERS_COUNT / 32;
+        uint8_t* dst = _registers.data;
+        const uint8_t* src = other_registers;
+        for (int i = 0; i < loop; i++) {
+            __m256i xa = _mm256_loadu_si256((const __m256i*)dst);
+            __m256i xb = _mm256_loadu_si256((const __m256i*)src);
+            _mm256_storeu_si256((__m256i*)dst, _mm256_max_epu8(xa, xb));
+            src += 32;
+            dst += 32;
         }
-    }
-
-    bool _explicit_data_insert(uint64_t data) {
-        //find insert pos
-        int32_t i = (int32_t)_explicit_data_num - 1;
-        while (i >= 0) {
-            if (_explicit_data[i] == data) {
-                return false;
-            } else if (_explicit_data[i] < data) {
-                break;
-            } else {
-                --i;
-            }
+#else
+        for (int i = 0; i < HLL_REGISTERS_COUNT; i++) {
+            _registers.data[i] = std::max(_registers.data[i], other_registers[i]);
         }
-
-        ++i; //now, i is the insert position
-
-        size_t n = (_explicit_data_num - i) * sizeof(*_explicit_data);
-        if (n) {
-            memmove(_explicit_data + i + 1, _explicit_data + i, n);
-        }
-
-        //insert data
-        _explicit_data[i] = data;
-        _explicit_data_num++;
-        return true;
+#endif
     }
 };
 
