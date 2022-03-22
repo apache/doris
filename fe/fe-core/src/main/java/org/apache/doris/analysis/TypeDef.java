@@ -31,6 +31,8 @@ import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 
+import static org.apache.doris.catalog.ScalarType.MAX_STRING_LENGTH;
+
 /**
  * Represents an anonymous type definition, e.g., used in DDL and CASTs.
  */
@@ -117,7 +119,7 @@ public class TypeDef implements ParseNode {
     }
     if (type.getPrimitiveType().isStringType()
             && !type.isAssignedStrLenInColDefinition()) {
-      type.setLength(1);
+      type.setLength(MAX_STRING_LENGTH);
     }
     analyze(type);
   }
