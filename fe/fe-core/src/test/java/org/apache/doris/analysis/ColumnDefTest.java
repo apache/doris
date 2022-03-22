@@ -19,9 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -39,7 +43,6 @@ public class ColumnDefTest {
         stringCol = new TypeDef(ScalarType.createChar(10));
         floatCol = new TypeDef(ScalarType.createType(PrimitiveType.FLOAT));
         booleanCol = new TypeDef(ScalarType.createType(PrimitiveType.BOOLEAN));
-
     }
 
     @Test
@@ -117,5 +120,16 @@ public class ColumnDefTest {
         }
     }
 
-
+    @Test
+    public void testArray() throws AnalysisException {
+        Config.enable_complex_type_support = true;
+        TypeDef typeDef = new TypeDef(new ArrayType(Type.INT));
+        ColumnDef columnDef = new ColumnDef("array", typeDef, false, null, true, DefaultValue.NOT_SET, "");
+        Column column = columnDef.toColumn();
+        Assert.assertEquals(1, column.getChildren().size());
+        Column childColumn = column.getChildren().get(0);
+        Assert.assertEquals("item", childColumn.getName());
+        Assert.assertEquals(Type.INT, childColumn.getType());
+        Assert.assertTrue(childColumn.isAllowNull());
+    }
 }
