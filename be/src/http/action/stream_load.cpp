@@ -98,6 +98,40 @@ static TFileFormatType::type parse_format(const std::string& format_str,
         if (compress_type.empty()) {
             format_type = TFileFormatType::FORMAT_JSON;
         }
+    } else if (boost::iequals(format_str, "CSV_WITH_NAMES")) {
+        if (compress_type.empty()) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN;
+        }
+        if (boost::iequals(compress_type, "GZ")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_GZ;
+        } else if (boost::iequals(compress_type, "LZO")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_LZO;
+        } else if (boost::iequals(compress_type, "BZ2")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_BZ2;
+        } else if (boost::iequals(compress_type, "LZ4FRAME")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_LZ4FRAME;
+        } else if (boost::iequals(compress_type, "LZOP")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_LZOP;
+        } else if (boost::iequals(compress_type, "DEFLATE")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_DEFLATE;
+        }
+    }else if (boost::iequals(format_str, "CSV_WITH_NAMES_AND_TYPES")) {
+        if (compress_type.empty()) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN;
+        }
+        if (boost::iequals(compress_type, "GZ")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_GZ;
+        } else if (boost::iequals(compress_type, "LZO")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZO;
+        } else if (boost::iequals(compress_type, "BZ2")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_BZ2;
+        } else if (boost::iequals(compress_type, "LZ4FRAME")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZ4FRAME;
+        } else if (boost::iequals(compress_type, "LZOP")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZOP;
+        } else if (boost::iequals(compress_type, "DEFLATE")) {
+            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_DEFLATE;
+        }
     }
     return format_type;
 }
@@ -112,6 +146,20 @@ static bool is_format_support_streaming(TFileFormatType::type format) {
     case TFileFormatType::FORMAT_CSV_LZO:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_JSON:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_GZ:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_LZO:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_BZ2:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_LZOP:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_DEFLATE:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_GZ:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZO:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_BZ2:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZOP:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_DEFLATE:
         return true;
     default:
         return false;
@@ -566,6 +614,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
                      << ctx->brief();
         return plan_status;
     }
+    LOG(INFO) << "ThriftDebugString:" << apache::thrift::ThriftDebugString(ctx->put_result);
+    std::cout <<"ThriftDebugString:" << apache::thrift::ThriftDebugString(ctx->put_result) << std::endl;
     VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
     // if we not use streaming, we must download total content before we begin
     // to process this load

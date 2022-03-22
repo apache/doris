@@ -214,7 +214,9 @@ public class BrokerFileGroup implements Writable {
             if (!fileFormat.equalsIgnoreCase("parquet")
                     && !fileFormat.equalsIgnoreCase("csv")
                     && !fileFormat.equalsIgnoreCase("orc")
-                    && !fileFormat.equalsIgnoreCase("json")) {
+                    && !fileFormat.equalsIgnoreCase("json")
+                    && !fileFormat.equalsIgnoreCase("csv_with_names")
+                    && !fileFormat.equalsIgnoreCase("csv_with_names_and_types")) {
                 throw new DdlException("File Format Type " + fileFormat + " is invalid.");
             }
         }

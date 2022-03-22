@@ -411,6 +411,10 @@ public class BrokerScanNode extends LoadScanNode {
                 return TFileFormatType.FORMAT_JSON;
             } else if (fileFormat.toLowerCase().equals("csv")) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;
+            } else if (fileFormat.toLowerCase().equals("csv_with_names")){
+                return TFileFormatType.FORMAT_CSVWITHNAMES_PLAIN;
+            } else if (fileFormat.toLowerCase().equals("csv_with_names_and_types")){
+                return TFileFormatType.FORMAT_CSVWITHNAMESANDTYPES_PLAIN;
             } else {
                 throw new UserException("Not supported file format: " + fileFormat);
             }

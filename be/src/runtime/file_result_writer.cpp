@@ -152,6 +152,8 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
     RETURN_IF_ERROR(_file_writer->open());
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN:
         // just use file writer is enough
         break;
     case TFileFormatType::FORMAT_PARQUET:
@@ -210,6 +212,10 @@ std::string FileResultWriter::_file_format_to_name() {
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         return "csv";
+    case TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN:
+        return "csv_with_names";
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN:
+        return "csv_with_names_and_types";
     case TFileFormatType::FORMAT_PARQUET:
         return "parquet";
     default:
