@@ -103,7 +103,7 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, boo
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         RETURN_IF_ERROR(_cur_line_reader->read_line(&ptr, &size, &_cur_line_reader_eof));
-        if(_skip_rows>0){
+        if (_skip_rows > 0){
             _skip_rows--;
             continue;
         }
@@ -194,7 +194,7 @@ Status BrokerScanner::open_file_reader() {
         start_offset -= 1;
     }
     //means first range 
-    if(start_offset == 0){
+    if (start_offset == 0){
         _skip_rows = skip_line(range);
     }
     VLOG_NOTICE << "start_offset:" << start_offset <<",_skip_rows";
