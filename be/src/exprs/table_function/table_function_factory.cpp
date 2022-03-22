@@ -22,6 +22,7 @@
 #include "exprs/table_function/explode_json_array.h"
 #include "exprs/table_function/explode_split.h"
 #include "exprs/table_function/table_function.h"
+#include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
 
 namespace doris {
@@ -52,7 +53,10 @@ const std::unordered_map<std::pair<std::string, bool>, std::function<TableFuncti
                 {{"explode_json_array_int", false}, ExplodeJsonArrayIntCreator},
                 {{"explode_json_array_double", false}, ExplodeJsonArrayDoubleCreator},
                 {{"explode_json_array_string", false}, ExplodeJsonArrayStringCreator},
-                {{"explode_split", true}, TableFunctionCreator<VExplodeSplitTableFunction>()}};
+                {{"explode_split", true},
+                 TableFunctionCreator<vectorized::VExplodeSplitTableFunction>()},
+                {{"explode_numbers", true},
+                 TableFunctionCreator<vectorized::VExplodeNumbersTableFunction>()}};
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name, bool is_vectorized,
                                     ObjectPool* pool, TableFunction** fn) {

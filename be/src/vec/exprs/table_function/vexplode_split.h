@@ -22,7 +22,7 @@
 #include "runtime/string_value.h"
 #include "vec/columns/column.h"
 
-namespace doris {
+namespace doris::vectorized {
 
 class VExplodeSplitTableFunction : public ExplodeSplitTableFunction {
 public:
@@ -39,8 +39,8 @@ public:
 private:
     using ExplodeSplitTableFunction::process;
 
-    vectorized::ColumnPtr _text_column;
-    vectorized::ColumnPtr _delimiter_column;
+    ColumnPtr _text_column;
+    ColumnPtr _delimiter_column;
 };
 
-} // namespace doris
+} // namespace doris::vectorized

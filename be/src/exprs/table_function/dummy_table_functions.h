@@ -18,11 +18,12 @@
 #pragma once
 
 #include "exprs/anyval_util.h"
+#include "udf/udf.h"
 
 namespace doris {
 
 // Currently Doris does not support array types, so the definition of table function
-// is still using the definition of the scalar function. 
+// is still using the definition of the scalar function.
 // The definition here is just to facilitate the query planning stage and the query execution preparation stage
 // to make smooth use of the existing function framework
 // But the execution logic of the table function is not here. So the function names here are prefixed with "dummy".
@@ -32,16 +33,17 @@ public:
     static void init();
 
     static doris_udf::StringVal explode_split(doris_udf::FunctionContext* context,
-                                          const doris_udf::StringVal& str,
-                                          const doris_udf::StringVal& sep);
+                                              const doris_udf::StringVal& str,
+                                              const doris_udf::StringVal& sep);
     static doris_udf::BigIntVal explode_bitmap(doris_udf::FunctionContext* context,
-                                          const doris_udf::StringVal& bitmap);
+                                               const doris_udf::StringVal& bitmap);
     static doris_udf::BigIntVal explode_json_array_int(doris_udf::FunctionContext* context,
-                                          const doris_udf::StringVal& str);
+                                                       const doris_udf::StringVal& str);
     static doris_udf::DoubleVal explode_json_array_double(doris_udf::FunctionContext* context,
-                                          const doris_udf::StringVal& str);
+                                                          const doris_udf::StringVal& str);
     static doris_udf::StringVal explode_json_array_string(doris_udf::FunctionContext* context,
-                                          const doris_udf::StringVal& str);
+                                                          const doris_udf::StringVal& str);
+    static doris_udf::IntVal explode_numbers(doris_udf::FunctionContext* context,
+                                             const doris_udf::IntVal& value);
 };
 } // namespace doris
-
