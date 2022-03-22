@@ -26,6 +26,7 @@
 #include "util/cpu_info.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
+#include "runtime/thread_context.h"
 
 //DECLARE_bool(disable_mem_pools);
 
@@ -193,7 +194,8 @@ BufferPool::BufferAllocator::BufferAllocator(BufferPool* pool, int64_t min_buffe
           clean_page_bytes_limit_(clean_page_bytes_limit),
           clean_page_bytes_remaining_(clean_page_bytes_limit),
           per_core_arenas_(CpuInfo::get_max_num_cores()),
-          max_scavenge_attempts_(MAX_SCAVENGE_ATTEMPTS) {
+          max_scavenge_attempts_(MAX_SCAVENGE_ATTEMPTS),
+          _mem_tracker(MemTracker::create_tracker(-1, "BufferAllocator", nullptr, MemTrackerLevel::OVERVIEW)) {
     DCHECK(BitUtil::IsPowerOf2(min_buffer_len_)) << min_buffer_len_;
     DCHECK(BitUtil::IsPowerOf2(max_buffer_len_)) << max_buffer_len_;
     DCHECK_LE(0, min_buffer_len_);
@@ -215,6 +217,7 @@ BufferPool::BufferAllocator::~BufferAllocator() {
 
 Status BufferPool::BufferAllocator::Allocate(ClientHandle* client, int64_t len,
                                              BufferHandle* buffer) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     SCOPED_TIMER(client->impl_->counters().alloc_time);
     COUNTER_UPDATE(client->impl_->counters().cumulative_bytes_alloced, len);
     COUNTER_UPDATE(client->impl_->counters().cumulative_allocations, 1);
@@ -372,6 +375,7 @@ int64_t BufferPool::BufferAllocator::ScavengeBuffers(bool slow_but_sure, int cur
 
 void BufferPool::BufferAllocator::Free(BufferHandle&& handle) {
     DCHECK(handle.is_open());
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     handle.client_ = nullptr; // Buffer is no longer associated with a client.
     FreeBufferArena* arena = per_core_arenas_[handle.home_core_].get();
     handle.Poison();
@@ -403,6 +407,7 @@ void BufferPool::BufferAllocator::Maintenance() {
 }
 
 void BufferPool::BufferAllocator::ReleaseMemory(int64_t bytes_to_free) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t bytes_freed = 0;
     int current_core = CpuInfo::get_current_core();
     for (int i = 0; i < per_core_arenas_.size(); ++i) {

@@ -23,6 +23,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {
@@ -53,6 +54,7 @@ Status VCrossJoinNode::close(RuntimeState* state) {
 Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
     // Do a full scan of child(1) and store all build row batches.
     RETURN_IF_ERROR(child(1)->open(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Cross join, while getting next from the child 1");
 
     bool eos = false;
     while (true) {
@@ -70,8 +72,6 @@ Status VCrossJoinNode::construct_build_side(RuntimeState* state) {
             _build_blocks.emplace_back(std::move(block));
             _block_mem_tracker->consume(mem_usage);
         }
-        // to prevent use too many memory
-        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Cross join, while getting next from the child 1.");
 
         if (eos) {
             break;

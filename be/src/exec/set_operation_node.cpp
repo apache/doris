@@ -23,6 +23,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 SetOperationNode::SetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
@@ -137,6 +138,7 @@ bool SetOperationNode::equals(TupleRow* row, TupleRow* other) {
 Status SetOperationNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_AND_ERR_CB(mem_tracker(), "SetOperation, while constructing the hash table.");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     // open result expr lists.
@@ -156,7 +158,6 @@ Status SetOperationNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(child(0)->get_next(state, &build_batch, &eos));
         // take ownership of tuple data of build_batch
         _build_pool->acquire_data(build_batch.tuple_data_pool(), false);
-        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, " SetOperation, while constructing the hash table.");
         // build hash table and remove duplicate items
         RETURN_IF_ERROR(_hash_tbl->resize_buckets_ahead(build_batch.num_rows()));
         for (int i = 0; i < build_batch.num_rows(); ++i) {

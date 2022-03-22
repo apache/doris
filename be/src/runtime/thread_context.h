@@ -29,10 +29,25 @@
 // Attach to task when thread starts
 #define SCOPED_ATTACH_TASK_THREAD(type, ...) \
     auto VARNAME_LINENUM(attach_task_thread) = AttachTaskThread(type, ##__VA_ARGS__)
+// Be careful to stop the thread mem tracker, because the actual order of malloc and free memory
+// may be different from the order of execution of instructions, which will cause the position of
+// the memory track to be unexpected.
 #define SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER() \
     auto VARNAME_LINENUM(stop_tracker) = StopThreadMemTracker(true)
 #define GLOBAL_STOP_THREAD_LOCAL_MEM_TRACKER() \
     auto VARNAME_LINENUM(stop_tracker) = StopThreadMemTracker(false)
+// Switch thread mem tracker during task execution.
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
+    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker)
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(action_type, ...) \
+    auto VARNAME_LINENUM(switch_tracker_cb) =                           \
+            SwitchThreadMemTrackerErrCallBack(action_type, ##__VA_ARGS__)
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_AND_ERR_CB(mem_tracker, action_type, ...) \
+    do {                                                                                 \
+        auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker);      \
+        auto VARNAME_LINENUM(switch_tracker_cb) =                                        \
+                SwitchThreadMemTrackerErrCallBack(action_type, ##__VA_ARGS__);           \
+    } while (false)
 
 namespace doris {
 
@@ -72,7 +87,7 @@ public:
         _type = type;
         _task_id = task_id;
         _fragment_instance_id = fragment_instance_id;
-        _thread_mem_tracker_mgr->attach_task(task_type_string(_type), task_id, fragment_instance_id,
+        _thread_mem_tracker_mgr->attach_task(TaskTypeStr[_type], task_id, fragment_instance_id,
                                              mem_tracker);
     }
 
@@ -87,10 +102,6 @@ public:
     const std::thread::id& thread_id() const { return _thread_id; }
     const std::string& thread_id_str() const { return _thread_id_str; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
-
-    inline static const std::string task_type_string(ThreadContext::TaskType type) {
-        return TaskTypeStr[type];
-    }
 
     void consume_mem(int64_t size) {
         if (start_thread_mem_tracker) {
@@ -226,6 +237,44 @@ public:
 
 private:
     bool _scope;
+};
+
+class SwitchThreadMemTracker {
+public:
+    explicit SwitchThreadMemTracker(const std::shared_ptr<MemTracker>& mem_tracker) {
+        DCHECK(mem_tracker != nullptr);
+        // The thread tracker must be switched after the attach task,
+        // otherwise switching in the main thread will cause the cached tracker not to be released.
+        DCHECK(thread_local_ctx.get()->_thread_mem_tracker_mgr->attach_task());
+        _old_tracker_id =
+                thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker(mem_tracker);
+    }
+
+    ~SwitchThreadMemTracker() {
+        thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker_id(_old_tracker_id);
+    }
+
+private:
+    std::string _old_tracker_id;
+};
+
+class SwitchThreadMemTrackerErrCallBack {
+public:
+    explicit SwitchThreadMemTrackerErrCallBack(const std::string& action_type,
+                                               bool cancel_work = true,
+                                               ERRCALLBACK err_call_back_func = nullptr) {
+        DCHECK(action_type != std::string());
+        _old_tracker_cb = thread_local_ctx.get()->_thread_mem_tracker_mgr->update_consume_err_cb(
+                action_type, cancel_work, err_call_back_func);
+    }
+
+    ~SwitchThreadMemTrackerErrCallBack() {
+        thread_local_ctx.get()->_thread_mem_tracker_mgr->update_consume_err_call_back(
+                _old_tracker_cb);
+    }
+
+private:
+    ConsumeErrCallBackInfo _old_tracker_cb;
 };
 
 } // namespace doris

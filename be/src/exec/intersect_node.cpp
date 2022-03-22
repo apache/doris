@@ -21,6 +21,7 @@
 #include "exprs/expr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 IntersectNode::IntersectNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -44,6 +45,7 @@ Status IntersectNode::init(const TPlanNode& tnode, RuntimeState* state) {
 // repeat [2] this for all the rest child
 Status IntersectNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(SetOperationNode::open(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_AND_ERR_CB(mem_tracker(), "Intersect , while probing the hash table.");
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
         _hash_tbl_iterator = _hash_tbl->begin();
@@ -66,7 +68,6 @@ Status IntersectNode::open(RuntimeState* state) {
         while (!eos) {
             RETURN_IF_CANCELLED(state);
             RETURN_IF_ERROR(child(i)->get_next(state, _probe_batch.get(), &eos));
-            RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, " Intersect , while probing the hash table.");
             for (int j = 0; j < _probe_batch->num_rows(); ++j) {
                 _hash_tbl_iterator = _hash_tbl->find(_probe_batch->get_row(j));
                 if (_hash_tbl_iterator != _hash_tbl->end()) {
