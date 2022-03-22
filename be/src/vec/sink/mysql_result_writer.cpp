@@ -107,8 +107,8 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
     } else if constexpr (type == TYPE_ARRAY) {
-        auto& array_column = assert_cast<const ColumnArray&>(*column);
-        auto& offsets = array_column.get_offsets();
+        auto& column_array = assert_cast<const ColumnArray&>(*column);
+        auto& offsets = column_array.get_offsets();
         for (int i = 0; i < column_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -130,7 +130,12 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 if (!begin) {
                     buf_ret = _buffer.push_string(", ", 2);
                 }
-                buf_ret = _add_one_cell(array_column.get_data_ptr(), j, nested_type_ptr, _buffer);
+                const auto& data = column_array.get_data_ptr();
+                if (data->is_null_at(j)) {
+                    buf_ret = _buffer.push_string("NULL", strlen("NULL"));
+                } else {
+                    buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
+                }
                 begin = false;
             }
             buf_ret = _buffer.push_string("]", 1);
@@ -211,7 +216,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
 }
 
 int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_idx,
-                                         const DataTypePtr& type, MysqlRowBuffer& buffer) {
+                                      const DataTypePtr& type, MysqlRowBuffer& buffer) {
     WhichDataType which(type->get_type_id());
     if (which.is_nullable() && column_ptr->is_null_at(row_idx)) {
         return buffer.push_null();
@@ -264,6 +269,38 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         } else {
             buf_ret = buffer.push_string(string_val.data, string_val.size);
         }
+        return buf_ret;
+    } else if (which.is_array()) {
+        auto& column_array = assert_cast<const ColumnArray&>(*column);
+        auto& offsets = column_array.get_offsets();
+        DataTypePtr sub_type;
+        if (type->is_nullable()) {
+            auto& nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+            sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
+        } else {
+            sub_type = assert_cast<const DataTypeArray&>(*type).get_nested_type();
+        }
+
+        int start = offsets[row_idx - 1];
+        int length = offsets[row_idx] - start;
+        const auto& data = column_array.get_data_ptr();
+
+        int buf_ret = buffer.push_string("[", strlen("["));
+        bool begin = true;
+        for (int i = 0; i < length; ++i) {
+            int position = start + i;
+            if (begin) {
+                begin = false;
+            } else {
+                buf_ret = buffer.push_string(", ", strlen(", "));
+            }
+            if (data->is_null_at(position)) {
+                buf_ret = buffer.push_string("NULL", strlen("NULL"));
+            } else {
+                buf_ret = _add_one_cell(data, position, sub_type, buffer);
+            }
+        }
+        buf_ret = buffer.push_string("]", strlen("]"));
         return buf_ret;
     } else {
         LOG(WARNING) << "sub TypeIndex(" << (int)which.idx << "not supported yet";
@@ -408,12 +445,15 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
         }
         case TYPE_ARRAY: {
             if (type_ptr->is_nullable()) {
-                auto& nested_type = assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 auto& sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
-                status = _add_one_column<PrimitiveType::TYPE_ARRAY, true>(column_ptr, result, sub_type);
+                status = _add_one_column<PrimitiveType::TYPE_ARRAY, true>(column_ptr, result,
+                                                                          sub_type);
             } else {
                 auto& sub_type = assert_cast<const DataTypeArray&>(*type_ptr).get_nested_type();
-                status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result, sub_type);
+                status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result,
+                                                                           sub_type);
             }
             break;
         }

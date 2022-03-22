@@ -19,111 +19,102 @@
 
 #include <memory>
 #include <string>
-#include <util/array_parser.hpp>
 
-#include "gutil/casts.h"
 #include "olap/types.h"
-#include "runtime/free_pool.hpp"
-#include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/string_value.h"
-#include "udf/udf.h"
-#include "udf/udf_internal.h"
+#include "test_util/array_utils.h"
 
 namespace doris {
 
-using TypeDesc = FunctionContext::TypeDesc;
-
 template <typename... Ts>
-TypeDesc create_function_type_desc(FunctionContext::Type type, Ts... sub_types) {
-    TypeDesc type_desc = {.type = type,
-                          .len = (type == FunctionContext::TYPE_ARRAY) ? OLAP_ARRAY_MAX_BYTES : 0};
-    if constexpr (sizeof...(sub_types)) {
-        type_desc.children.push_back(create_function_type_desc(sub_types...));
+ColumnPB create_column_pb(const std::string& type, const Ts&... sub_column_types) {
+    ColumnPB column;
+    column.set_type(type);
+    column.set_aggregation("NONE");
+    column.set_is_nullable(true);
+    if (type == "ARRAY") {
+        column.set_length(OLAP_ARRAY_MAX_BYTES);
     }
-    return type_desc;
+    if constexpr (sizeof...(sub_column_types) > 0) {
+        auto sub_column = create_column_pb(sub_column_types...);
+        column.add_children_columns()->Swap(&sub_column);
+    }
+    return column;
 }
 
-ColumnPB create_column_pb(const TypeDesc& function_type_desc) {
-    ColumnPB column_pb;
-    column_pb.set_length(function_type_desc.len);
-    switch (function_type_desc.type) {
-    case FunctionContext::TYPE_ARRAY:
-        column_pb.set_type("ARRAY");
-        break;
-    case FunctionContext::TYPE_INT:
-        column_pb.set_type("INT");
-        break;
-    case FunctionContext::TYPE_VARCHAR:
-        column_pb.set_type("VARCHAR");
-        break;
-    default:
-        break;
-    }
-    for (auto child_type_desc : function_type_desc.children) {
-        auto sub_column_pb = create_column_pb(child_type_desc);
-        column_pb.add_children_columns()->Swap(&sub_column_pb);
-    }
-    return column_pb;
-}
-
-std::shared_ptr<const TypeInfo> get_type_info(const TypeDesc& function_type_desc) {
-    auto column_pb = create_column_pb(function_type_desc);
+std::shared_ptr<const TypeInfo> get_type_info(const ColumnPB& column_pb) {
     TabletColumn tablet_column;
     tablet_column.init_from_pb(column_pb);
     return get_type_info(&tablet_column);
 }
 
-void test_array_parser(const TypeDesc& function_type_desc, const std::string& json,
+void test_array_parser(const ColumnPB& column_pb, const std::string& json,
                        const CollectionValue& expect) {
     MemTracker tracker(1024 * 1024, "ArrayParserTest");
     MemPool mem_pool(&tracker);
-    std::unique_ptr<FunctionContext> function_context(new FunctionContext());
-    function_context->impl()->_return_type = function_type_desc;
-    function_context->impl()->_pool = new FreePool(&mem_pool);
-    CollectionVal collection_val;
-    auto status =
-            ArrayParser::parse(collection_val, function_context.get(), StringVal(json.c_str()));
-    EXPECT_TRUE(status.ok());
-    auto actual = CollectionValue::from_collection_val(collection_val);
-    EXPECT_TRUE(get_type_info(function_type_desc)->equal(&expect, &actual));
+    FunctionContext context;
+    ArrayUtils::prepare_context(context, mem_pool, column_pb);
+    CollectionValue actual;
+    auto status = ArrayUtils::create_collection_value(&actual, &context, json);
+    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(get_type_info(column_pb)->equal(&expect, &actual));
 }
 
 TEST(ArrayParserTest, TestParseIntArray) {
-    auto function_type_desc =
-            create_function_type_desc(FunctionContext::TYPE_ARRAY, FunctionContext::TYPE_INT);
-    test_array_parser(function_type_desc, "[]", CollectionValue(0));
+    auto column_pb = create_column_pb("ARRAY", "INT");
+    test_array_parser(column_pb, "[]", CollectionValue(0));
 
-    int num_items = 3;
-    std::unique_ptr<int32_t[]> data(new int32_t[num_items] {1, 2, 3});
-    CollectionValue value(data.get(), num_items, false, nullptr);
-    test_array_parser(function_type_desc, "[1, 2, 3]", value);
+    int32_t data[] = {1, 2, 3};
+    int num_items = sizeof(data) / sizeof(data[0]);
+    CollectionValue value(data, num_items, false, nullptr);
+    test_array_parser(column_pb, "[1, 2, 3]", value);
 
-    std::unique_ptr<bool[]> null_signs(new bool[num_items] {false, true, false});
+    bool null_signs[] = {false, true, false};
     value.set_has_null(true);
-    value.set_null_signs(null_signs.get());
-    test_array_parser(function_type_desc, "[1, null, 3]", value);
+    value.set_null_signs(null_signs);
+    test_array_parser(column_pb, "[1, null, 3]", value);
 }
 
 TEST(ArrayParserTest, TestParseVarcharArray) {
-    auto function_type_desc =
-            create_function_type_desc(FunctionContext::TYPE_ARRAY, FunctionContext::TYPE_VARCHAR);
-    test_array_parser(function_type_desc, "[]", CollectionValue(0));
+    auto column_pb = create_column_pb("ARRAY", "VARCHAR");
+    test_array_parser(column_pb, "[]", CollectionValue(0));
 
-    int num_items = 3;
-    std::unique_ptr<char[]> data(new char[num_items] {'a', 'b', 'c'});
-    std::unique_ptr<StringValue[]> string_values(new StringValue[num_items] {
+    char data[] = {'a', 'b', 'c'};
+    int num_items = sizeof(data) / sizeof(data[0]);
+    StringValue string_values[] = {
             {&data[0], 1},
             {&data[1], 1},
             {&data[2], 1},
-    });
-    CollectionValue value(string_values.get(), num_items, false, nullptr);
-    test_array_parser(function_type_desc, "[\"a\", \"b\", \"c\"]", value);
+    };
+    CollectionValue value(string_values, num_items, false, nullptr);
+    test_array_parser(column_pb, "[\"a\", \"b\", \"c\"]", value);
 
-    std::unique_ptr<bool[]> null_signs(new bool[num_items] {false, true, false});
+    bool null_signs[] = {false, true, false};
     value.set_has_null(true);
-    value.set_null_signs(null_signs.get());
-    test_array_parser(function_type_desc, "[\"a\", null, \"c\"]", value);
+    value.set_null_signs(null_signs);
+    test_array_parser(column_pb, "[\"a\", null, \"c\"]", value);
+}
+
+TEST(ArrayParserTest, TestNestedArray) {
+    auto column_pb = create_column_pb("ARRAY", "ARRAY", "INT");
+    test_array_parser(column_pb, "[]", CollectionValue(0));
+
+    CollectionValue empty_array(0);
+    test_array_parser(column_pb, "[[]]", {&empty_array, 1, false, nullptr});
+
+    int data[] = {1, 0, 3};
+    uint32_t num_items = sizeof(data) / sizeof(data[0]);
+    bool null_signs[] = {false, true, false};
+    CollectionValue array = {data, num_items, true, null_signs};
+
+    CollectionValue array_data[] = {empty_array, array, empty_array, array};
+    uint32_t num_arrays = sizeof(array_data) / sizeof(array_data[0]);
+    test_array_parser(column_pb, "[[], [1, null, 3], [], [1, null, 3]]",
+                      {array_data, num_arrays, false, nullptr});
+    bool array_null_signs[] = {false, true, true, false};
+    test_array_parser(column_pb, "[[], null, null, [1, null, 3]]",
+                      {array_data, num_arrays, true, array_null_signs});
 }
 
 } // namespace doris
