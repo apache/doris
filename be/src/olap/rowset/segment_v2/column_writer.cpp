@@ -524,8 +524,8 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         if (num_written <
             1) { // page is full, write first item offset and update current length page's start ordinal
             RETURN_IF_ERROR(_length_writer->finish_current_page());
-            _current_length_page_first_ordinal += _lengh_sum_in_cur_page;
-            _lengh_sum_in_cur_page = 0;
+            _current_length_page_first_ordinal += _length_sum_in_cur_page;
+            _length_sum_in_cur_page = 0;
         } else {
             // write child item.
             if (_item_writer->is_nullable()) {
@@ -539,7 +539,7 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                 RETURN_IF_ERROR(_item_writer->append_data(reinterpret_cast<const uint8_t**>(&data),
                                                           col_cursor->length()));
             }
-            _lengh_sum_in_cur_page += col_cursor->length();
+            _length_sum_in_cur_page += col_cursor->length();
         }
         remaining -= num_written;
         col_cursor += num_written;
@@ -579,7 +579,9 @@ Status ArrayColumnWriter::write_ordinal_index() {
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->write_ordinal_index());
     }
-    RETURN_IF_ERROR(_item_writer->write_ordinal_index());
+    if (!has_empty_items()) {
+        RETURN_IF_ERROR(_item_writer->write_ordinal_index());
+    }
     return Status::OK();
 }
 

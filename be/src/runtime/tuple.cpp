@@ -99,25 +99,20 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
         const TypeDescriptor& item_type = slot_desc->type().children.at(0);
 
         int coll_byte_size = cv->length() * item_type.get_slot_size();
-        int nulls_size = cv->length() * sizeof(bool);
+        int nulls_size = cv->has_null() ? cv->length() * sizeof(bool) : 0;
 
         int64_t offset = pool->total_allocated_bytes();
         char* coll_data = (char*)(pool->allocate(coll_byte_size + nulls_size));
 
         // copy data and null_signs
-        if (nulls_size > 0) {
-            cv->set_has_null(true);
-            cv->set_null_signs(convert_to<bool*>(coll_data) + coll_byte_size);
-            memory_copy(coll_data, cv->null_signs(), nulls_size);
-        } else {
-            cv->set_has_null(false);
-        }
+        memory_copy(convert_to<bool*>(coll_data), cv->null_signs(), nulls_size);
         memory_copy(coll_data + nulls_size, cv->data(), coll_byte_size);
 
         // assgin new null_sign and data location
-        cv->set_null_signs(convert_ptrs ? convert_to<bool*>(offset) : convert_to<bool*>(coll_data));
-        cv->set_data(convert_ptrs ? convert_to<char*>(offset + nulls_size)
-                                  : coll_data + nulls_size);
+        if (cv->has_null()) {
+            cv->set_null_signs(convert_ptrs ? convert_to<bool*>(offset) : convert_to<bool*>(coll_data));
+        }
+        cv->set_data(convert_ptrs ? convert_to<char*>(offset + nulls_size) : coll_data + nulls_size);
 
         if (!item_type.is_string_type()) {
             continue;
@@ -212,7 +207,7 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset,
         const TypeDescriptor& item_type = slot_desc->type().children.at(0);
 
         int coll_byte_size = cv->length() * item_type.get_slot_size();
-        int nulls_size = cv->length() * sizeof(bool);
+        int nulls_size = cv->has_null() ? cv->length() * sizeof(bool) : 0;
 
         // copy null_sign
         memory_copy(*data, cv->null_signs(), nulls_size);
@@ -220,8 +215,9 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset,
         memory_copy(*data + nulls_size, cv->data(), coll_byte_size);
 
         if (!item_type.is_string_type()) {
-            cv->set_null_signs(convert_ptrs ? convert_to<bool*>(*offset)
-                                            : convert_to<bool*>(*data));
+            if (cv->has_null()) {
+                cv->set_null_signs(convert_ptrs ? convert_to<bool*>(*offset) : convert_to<bool*>(*data));
+            }
             cv->set_data(convert_ptrs ? convert_to<char*>(*offset + nulls_size)
                                       : *data + nulls_size);
             *data += coll_byte_size + nulls_size;
@@ -250,8 +246,9 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset,
             }
         }
         // assgin new null_sign and data location
-        cv->set_null_signs(convert_ptrs ? convert_to<bool*>(base_offset)
-                                        : convert_to<bool*>(base_data));
+        if (cv->has_null()) {
+            cv->set_null_signs(convert_ptrs ? convert_to<bool*>(base_offset) : convert_to<bool*>(base_data));
+        }
         cv->set_data(convert_ptrs ? convert_to<char*>(base_offset + nulls_size)
                                   : base_data + nulls_size);
     }
