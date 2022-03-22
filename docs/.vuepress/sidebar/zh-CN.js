@@ -544,7 +544,8 @@ module.exports = [
             children: [
               "explode-bitmap",
               "explode-split",
-              "explode-json-array"
+              "explode-json-array",
+              "explode-numbers"
             ],
           },
           "window-function",
