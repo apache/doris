@@ -35,7 +35,7 @@ public class ExportSink extends DataSink {
     private final String columnSeparator;
     private final String lineDelimiter;
     private BrokerDesc brokerDesc;
-    private String header="";
+    private String header = "";
 
     public ExportSink(String exportPath, String columnSeparator,
                       String lineDelimiter, BrokerDesc brokerDesc) {

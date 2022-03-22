@@ -258,29 +258,29 @@ public class ExportJob implements Writable {
     }
 
     private String genHeader(Map<String, String> properties){
-        String header="";
-        if(properties.containsKey("format")){
-            String headerType=properties.get("format");
-            if(headerType.equals("csv_with_names")){
+        String header = "";
+        if (properties.containsKey("format")){
+            String headerType = properties.get("format");
+            if (headerType.equals("csv_with_names")){
                 //names
                 for (SlotDescriptor slot : exportTupleDesc.getSlots()){
-                    header=header+slot.getColumn().getName()+getColumnSeparator();
+                    header = header + slot.getColumn().getName() + getColumnSeparator();
                 }
-                header=header.substring(0,header.length()-getColumnSeparator().length());
-                header=header+getLineDelimiter();
-            }else if(headerType.equals("csv_with_names_and_types")){
+                header = header.substring(0, header.length() - getColumnSeparator().length());
+                header = header + getLineDelimiter();
+            }else if (headerType.equals("csv_with_names_and_types")){
                 //names
                 for (SlotDescriptor slot : exportTupleDesc.getSlots()){
-                    header=header+slot.getColumn().getName()+getColumnSeparator();
+                    header = header + slot.getColumn().getName() + getColumnSeparator();
                 }
-                header=header.substring(0,header.length()-getColumnSeparator().length());
-                header=header+getLineDelimiter();
+                header = header.substring(0, header.length() - getColumnSeparator().length());
+                header = header + getLineDelimiter();
                 //types 
                 for (SlotDescriptor slot : exportTupleDesc.getSlots()){
-                    header=header+slot.getColumn().getType().toString() + getColumnSeparator();
+                    header = header + slot.getColumn().getType().toString() + getColumnSeparator();
                 }
-                header=header.substring(0,header.length()-getColumnSeparator().length());
-                header=header+getLineDelimiter();
+                header = header.substring(0,header.length() - getColumnSeparator().length());
+                header = header + getLineDelimiter();
             }
         }
         return header;
