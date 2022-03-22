@@ -220,6 +220,20 @@ check_if_archieve_exist() {
     fi
 }
 
+#libbacktrace
+build_libbacktrace() {
+    check_if_source_exist $LIBBACKTRACE_SOURCE
+    cd $TP_SOURCE_DIR/$LIBBACKTRACE_SOURCE
+
+    CPPFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    CXXFLAGS="-I${TP_INCLUDE_DIR} -fPIC" \
+    LDFLAGS="-L${TP_LIB_DIR}" \
+    CFLAGS="-fPIC" \
+    ./configure --prefix=$TP_INSTALL_DIR
+    make -j $PARALLEL
+    make install
+}
+
 # libevent
 build_libevent() {
     check_if_source_exist $LIBEVENT_SOURCE
@@ -983,6 +997,7 @@ build_hdfs3
 build_benchmark
 build_breakpad
 build_simdjson
+build_libbacktrace
 
 echo "Finished to build all thirdparties"
 

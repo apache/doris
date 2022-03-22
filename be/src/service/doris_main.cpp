@@ -42,6 +42,7 @@
 #include "common/daemon.h"
 #include "common/logging.h"
 #include "common/resource_tls.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
 #include "common/utils.h"
 #include "env/env.h"
@@ -274,6 +275,7 @@ struct Checker
 ;
 
 int main(int argc, char** argv) {
+    doris::signal::InstallFailureSignalHandler();
 
     // check if print version or help
     if (argc > 1) {
