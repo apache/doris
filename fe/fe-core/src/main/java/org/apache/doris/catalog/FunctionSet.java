@@ -2338,6 +2338,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
     public static final String EXPLODE_JSON_ARRAY_INT = "explode_json_array_int";
     public static final String EXPLODE_JSON_ARRAY_DOUBLE = "explode_json_array_double";
     public static final String EXPLODE_JSON_ARRAY_STRING = "explode_json_array_string";
+    public static final String EXPLODE_NUMBERS = "explode_numbers";
 
     private void initTableFunction() {
         List<Function> explodeSplits = Lists.newArrayList();
@@ -2379,5 +2380,13 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 "_ZN5doris19DummyTableFunctions25explode_json_array_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 null, null, true));
         tableFunctions.put(EXPLODE_JSON_ARRAY_STRING, explodeJsonArrayStrings);
+
+        List<Function> explodeNumbers = Lists.newArrayList();
+        explodeNumbers.add(ScalarFunction.createBuiltin(
+                EXPLODE_NUMBERS, Type.INT, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.INT), false,
+                "_ZN5doris19DummyTableFunctions22explode_numbersEPN9doris_udf15FunctionContextERKNS1_9IntValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE_NUMBERS, explodeNumbers);
     }
 }
