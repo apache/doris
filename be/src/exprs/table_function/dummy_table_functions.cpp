@@ -22,28 +22,32 @@ namespace doris {
 void DummyTableFunctions::init() {}
 
 StringVal DummyTableFunctions::explode_split(FunctionContext* context, const StringVal& str,
-        const StringVal& sep) {
+                                             const StringVal& sep) {
     return StringVal();
 }
 
 BigIntVal DummyTableFunctions::explode_bitmap(doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& bitmap) {
+                                              const doris_udf::StringVal& bitmap) {
     return BigIntVal();
 }
 
 BigIntVal DummyTableFunctions::explode_json_array_int(doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& str) {
+                                                      const doris_udf::StringVal& str) {
     return BigIntVal();
 }
 
 DoubleVal DummyTableFunctions::explode_json_array_double(doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& str) {
+                                                         const doris_udf::StringVal& str) {
     return DoubleVal();
 }
 
 StringVal DummyTableFunctions::explode_json_array_string(doris_udf::FunctionContext* context,
-        const doris_udf::StringVal& str) {
+                                                         const doris_udf::StringVal& str) {
     return StringVal();
 }
 
+IntVal DummyTableFunctions::explode_numbers(doris_udf::FunctionContext* context,
+                                            const doris_udf::IntVal& str) {
+    return IntVal();
+}
 } // namespace doris

@@ -36,10 +36,13 @@ class TableFunction {
 public:
     virtual ~TableFunction() {}
 
-    virtual Status prepare() = 0;
-    virtual Status open() = 0;
+    virtual Status prepare() { return Status::OK(); }
 
-    virtual Status process(TupleRow* tuple_row) = 0;
+    virtual Status open() { return Status::OK(); }
+
+    virtual Status process(TupleRow* tuple_row) {
+        return Status::NotSupported(fmt::format("table function {} not supported now.", _fn_name));
+    }
 
     // only used for vectorized.
     virtual Status process_init(vectorized::Block* block) {
@@ -69,11 +72,24 @@ public:
         return Status::OK();
     }
 
-    virtual Status close() = 0;
+    virtual Status close() { return Status::OK(); }
 
-    virtual Status forward(bool* eos) = 0;
+    virtual Status forward(bool* eos) {
+        if (_is_current_empty) {
+            *eos = true;
+            _eos = true;
+        } else {
+            ++_cur_offset;
+            if (_cur_offset == _cur_size) {
+                *eos = true;
+                _eos = true;
+            } else {
+                *eos = false;
+            }
+        }
+        return Status::OK();
+    }
 
-public:
     std::string name() const { return _fn_name; }
     bool eos() const { return _eos; }
 
