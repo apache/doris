@@ -337,7 +337,7 @@ public class S3Storage extends BlobStorage {
             conf.set("fs.s3a.access.key", s3AK);
             conf.set("fs.s3a.secret.key", s3Sk);
             conf.set("fs.s3a.endpoint", s3Endpoint);
-            conf.set("fs.s3a.impl.disable.cache", "true");
+            conf.set("fs.s3.impl.disable.cache", "true");
             conf.set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
             // introducing in hadoop aws 2.8.0
             conf.set("fs.s3a.path.style.access", forceHostedStyle ? "false" : "true");
