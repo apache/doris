@@ -17,6 +17,7 @@
 
 #include "runtime/tuple.h"
 
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -35,6 +36,12 @@
 #include "util/mem_util.hpp"
 
 namespace doris {
+
+static void deep_copy_collection_slots(
+        Tuple* shallow_copied_tuple,
+        const TupleDescriptor& desc,
+        const GenMemFootprintFunc& gen_mem_footprint,
+        bool convert_ptrs);
 
 int64_t Tuple::total_byte_size(const TupleDescriptor& desc) const {
     int64_t result = desc.byte_size();
@@ -87,50 +94,33 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
     }
 
     // copy collection slot
+    deep_copy_collection_slots(dst, desc, [pool](int size) ->MemFootprint {
+            int64_t offset = pool->total_allocated_bytes();
+            uint8_t* data = pool->allocate(size);
+            return { offset, data };
+        },
+        convert_ptrs
+    );
+}
+
+// Deep copy collection slots.
+// NOTICE: The Tuple* shallow_copied_tuple must be initialized by calling memcpy function first (
+// copy data from origin tuple).
+static void deep_copy_collection_slots(
+        Tuple* shallow_copied_tuple,
+        const TupleDescriptor& desc,
+        const GenMemFootprintFunc& gen_mem_footprint,
+        bool convert_ptrs) {
     for (auto slot_desc : desc.collection_slots()) {
         DCHECK(slot_desc->type().is_collection_type());
-        if (dst->is_null(slot_desc->null_indicator_offset())) {
+        if (shallow_copied_tuple->is_null(slot_desc->null_indicator_offset())) {
             continue;
         }
 
         // copy collection item
-        CollectionValue* cv = dst->get_collection_slot(slot_desc->tuple_offset());
-
-        const TypeDescriptor& item_type = slot_desc->type().children.at(0);
-
-        int coll_byte_size = cv->length() * item_type.get_slot_size();
-        int nulls_size = cv->has_null() ? cv->length() * sizeof(bool) : 0;
-
-        int64_t offset = pool->total_allocated_bytes();
-        char* coll_data = (char*)(pool->allocate(coll_byte_size + nulls_size));
-
-        // copy data and null_signs
-        memory_copy(convert_to<bool*>(coll_data), cv->null_signs(), nulls_size);
-        memory_copy(coll_data + nulls_size, cv->data(), coll_byte_size);
-
-        // assgin new null_sign and data location
-        if (cv->has_null()) {
-            cv->set_null_signs(convert_ptrs ? convert_to<bool*>(offset) : convert_to<bool*>(coll_data));
-        }
-        cv->set_data(convert_ptrs ? convert_to<char*>(offset + nulls_size) : coll_data + nulls_size);
-
-        if (!item_type.is_string_type()) {
-            continue;
-        }
-        // when itemtype is string, copy every string item
-        for (int i = 0; i < cv->length(); ++i) {
-            int item_offset = nulls_size + i * item_type.get_slot_size();
-            if (cv->is_null_at(i)) {
-                continue;
-            }
-            StringValue* dst_item_v = convert_to<StringValue*>(coll_data + item_offset);
-            if (dst_item_v->len != 0) {
-                int64_t offset = pool->total_allocated_bytes();
-                char* string_copy = (char*)(pool->allocate(dst_item_v->len));
-                memory_copy(string_copy, dst_item_v->ptr, dst_item_v->len);
-                dst_item_v->ptr = (convert_ptrs ? convert_to<char*>(offset) : string_copy);
-            }
-        }
+        CollectionValue* cv = shallow_copied_tuple->get_collection_slot(slot_desc->tuple_offset());
+        CollectionValue::deep_copy_collection(
+                cv, slot_desc->type().children[0], gen_mem_footprint, convert_ptrs);
     }
 }
 
@@ -197,61 +187,14 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset,
     }
 
     // copy collection slots
-    for (auto slot_desc : desc.collection_slots()) {
-        DCHECK(slot_desc->type().is_collection_type());
-        if (dst->is_null(slot_desc->null_indicator_offset())) {
-            continue;
-        }
-        // get cv to copy elements
-        CollectionValue* cv = dst->get_collection_slot(slot_desc->tuple_offset());
-        const TypeDescriptor& item_type = slot_desc->type().children.at(0);
-
-        int coll_byte_size = cv->length() * item_type.get_slot_size();
-        int nulls_size = cv->has_null() ? cv->length() * sizeof(bool) : 0;
-
-        // copy null_sign
-        memory_copy(*data, cv->null_signs(), nulls_size);
-        // copy data
-        memory_copy(*data + nulls_size, cv->data(), coll_byte_size);
-
-        if (!item_type.is_string_type()) {
-            if (cv->has_null()) {
-                cv->set_null_signs(convert_ptrs ? convert_to<bool*>(*offset) : convert_to<bool*>(*data));
-            }
-            cv->set_data(convert_ptrs ? convert_to<char*>(*offset + nulls_size)
-                                      : *data + nulls_size);
-            *data += coll_byte_size + nulls_size;
-            *offset += coll_byte_size + nulls_size;
-            continue;
-        }
-
-        // when item is string type, copy every item
-        char* base_data = *data;
-        int64_t base_offset = *offset;
-
-        *data += coll_byte_size + nulls_size;
-        *offset += coll_byte_size + nulls_size;
-
-        for (int i = 0; i < cv->length(); ++i) {
-            int item_offset = nulls_size + i * item_type.get_slot_size();
-            if (cv->is_null_at(i)) {
-                continue;
-            }
-            StringValue* dst_item_v = convert_to<StringValue*>(base_data + item_offset);
-            if (dst_item_v->len != 0) {
-                memory_copy(*data, dst_item_v->ptr, dst_item_v->len);
-                dst_item_v->ptr = (convert_ptrs ? convert_to<char*>(*offset) : *data);
-                *data += dst_item_v->len;
-                *offset += dst_item_v->len;
-            }
-        }
-        // assgin new null_sign and data location
-        if (cv->has_null()) {
-            cv->set_null_signs(convert_ptrs ? convert_to<bool*>(base_offset) : convert_to<bool*>(base_data));
-        }
-        cv->set_data(convert_ptrs ? convert_to<char*>(base_offset + nulls_size)
-                                  : base_data + nulls_size);
-    }
+    deep_copy_collection_slots(dst, desc, [offset, data](int size) -> MemFootprint {
+            MemFootprint footprint = { *offset, reinterpret_cast<uint8_t*>(*data) };
+            *offset += size;
+            *data += size;
+            return footprint;
+        },
+        convert_ptrs
+    );
 }
 
 template <bool collect_string_vals>
