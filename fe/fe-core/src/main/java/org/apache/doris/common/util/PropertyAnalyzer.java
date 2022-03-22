@@ -152,7 +152,8 @@ public class PropertyAnalyzer {
             }
         } // end for properties
 
-        if (!hasCooldown && !hasMedium && !hasRemoteStorage) {
+        // remote_storage_medium may be empty, when data moves SSD to HDD.
+        if (!hasCooldown && !hasMedium && !hasColdMedium) {
             return oldDataProperty;
         }
 
@@ -161,9 +162,9 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_STORAGE_COLD_MEDIUM);
         properties.remove(PROPERTIES_REMOTE_STORAGE);
 
-        if ((hasColdMedium && !hasRemoteStorage) || (!hasColdMedium && hasRemoteStorage)) {
+        if (hasRemoteStorage && !hasColdMedium) {
             throw new AnalysisException("Invalid data property, " +
-                    "`storage_cold_medium` must be used with `remote_storage`.");
+                    "`remote_storage` must be used with `storage_cold_medium`.");
         }
 
         if (hasColdMedium && hasRemoteStorage) {
@@ -181,7 +182,7 @@ public class PropertyAnalyzer {
         }
 
         if ((storageMedium == TStorageMedium.HDD && hasCooldown) && !(hasColdMedium && hasRemoteStorage)) {
-            throw new AnalysisException("Can not assign cooldown timestamp to HDD storage medium");
+            throw new AnalysisException("Can not assign cooldown timestamp to HDD storage medium without remote storage");
         }
 
         long currentTimeMs = System.currentTimeMillis();

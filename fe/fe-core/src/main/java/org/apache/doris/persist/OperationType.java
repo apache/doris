@@ -137,8 +137,9 @@ public class OperationType {
     public static final short OP_CREATE_REPOSITORY = 89;
     public static final short OP_DROP_REPOSITORY = 90;
     public static final short OP_MODIFY_BACKEND = 91;
-    public static final short OP_ADD_REMOTE_STORAGE = 92;
-    public static final short OP_DROP_REMOTE_STORAGE = 93;
+    public static final short OP_ADD_REMOTE_STORAGE = 10001;
+    public static final short OP_DROP_REMOTE_STORAGE = 10002;
+    public static final short OP_MODIFY_REMOTE_STORAGE = 10003;
 
     //colocate table
     public static final short OP_COLOCATE_ADD_TABLE = 94;

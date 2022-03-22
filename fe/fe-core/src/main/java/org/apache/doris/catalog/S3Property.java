@@ -17,10 +17,12 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -43,8 +45,8 @@ public class S3Property extends RemoteStorageProperty implements Writable {
     public static final String DEFAULT_S3_REQUEST_TIMEOUT_MS = "3000";
     public static final String DEFAULT_S3_CONNECTION_TIMEOUT_MS = "1000";
 
-    @SerializedName(value = "endPoint")
-    private String endPoint;
+    @SerializedName(value = "endpoint")
+    private String endpoint;
     @SerializedName(value = "region")
     private String region;
     @SerializedName(value = "rootPath")
@@ -61,7 +63,7 @@ public class S3Property extends RemoteStorageProperty implements Writable {
     private long connectionTimeoutMs;
 
     public S3Property(Map<String, String> properties) {
-        this.endPoint = properties.get(S3_ENDPOINT);
+        this.endpoint = properties.get(S3_ENDPOINT);
         this.region = properties.get(S3_REGION);
         this.rootPath = properties.get(S3_ROOT_PATH);
         this.accessKey = properties.get(S3_ACCESS_KEY);
@@ -79,6 +81,57 @@ public class S3Property extends RemoteStorageProperty implements Writable {
     }
 
     @Override
+    public void modifyRemoteStorage(Map<String, String> properties) throws DdlException {
+        // check properties
+        String endpoint = properties.get(S3_ENDPOINT);
+        properties.remove(S3_ENDPOINT);
+        String region = properties.get(S3_REGION);
+        properties.remove(S3_REGION);
+        String rootPath = properties.get(S3_ROOT_PATH);
+        properties.remove(S3_ROOT_PATH);
+        String accessKey = properties.get(S3_ACCESS_KEY);
+        properties.remove(S3_ACCESS_KEY);
+        String secretKey = properties.get(S3_SECRET_KEY);
+        properties.remove(S3_SECRET_KEY);
+        String maxConnections = properties.get(S3_MAX_CONNECTIONS);
+        properties.remove(S3_MAX_CONNECTIONS);
+        String requestTimeoutMs = properties.get(S3_REQUEST_TIMEOUT_MS);
+        properties.remove(S3_REQUEST_TIMEOUT_MS);
+        String connectionTimeoutMs = properties.get(S3_CONNECTION_TIMEOUT_MS);
+        properties.remove(S3_CONNECTION_TIMEOUT_MS);
+
+        if (!properties.isEmpty()) {
+            throw new DdlException("Unknown S3 remote storage properties: " + properties);
+        }
+
+        // modify properties
+        if (!Strings.isNullOrEmpty(endpoint)) {
+            this.endpoint = endpoint;
+        }
+        if (!Strings.isNullOrEmpty(region)) {
+            this.region = region;
+        }
+        if (!Strings.isNullOrEmpty(rootPath)) {
+            this.rootPath = rootPath;
+        }
+        if (!Strings.isNullOrEmpty(accessKey)) {
+            this.accessKey = accessKey;
+        }
+        if (!Strings.isNullOrEmpty(secretKey)) {
+            this.secretKey = secretKey;
+        }
+        if (!Strings.isNullOrEmpty(maxConnections)) {
+            this.maxConnections = Long.parseLong(maxConnections);
+        }
+        if (!Strings.isNullOrEmpty(requestTimeoutMs)) {
+            this.requestTimeoutMs = Long.parseLong(requestTimeoutMs);
+        }
+        if (!Strings.isNullOrEmpty((connectionTimeoutMs))) {
+            this.connectionTimeoutMs = Long.parseLong(connectionTimeoutMs);
+        }
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
@@ -92,7 +145,7 @@ public class S3Property extends RemoteStorageProperty implements Writable {
     @Override
     public Map<String, String> getProperties() {
         Map<String, String> properties = new HashMap<>();
-        properties.put(S3_ENDPOINT, endPoint);
+        properties.put(S3_ENDPOINT, endpoint);
         properties.put(S3_REGION, region);
         properties.put(S3_ROOT_PATH, rootPath);
         properties.put(S3_ACCESS_KEY, accessKey);

@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AddRemoteStorageClause;
 import org.apache.doris.analysis.DropRemoteStorageClause;
+import org.apache.doris.analysis.ModifyRemoteStorageClause;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
@@ -31,15 +32,21 @@ import org.apache.doris.common.util.PrintableMap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class RemoteStorageMgr {
+    private static final Logger LOG = LogManager.getLogger(RemoteStorageMgr.class);
+
     public static final ImmutableList<String> REMOTE_STORAGE_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("Type").add("Properties")
             .build();
@@ -110,6 +117,33 @@ public class RemoteStorageMgr {
             if (storageInfo == null) {
                 throw new DdlException("Unknown remote storage name: " + storageName);
             }
+
+            // Check table using the remote storage before dropping
+            List<String> usedTables = new ArrayList<>();
+            List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
+            for (Long dbId : dbIds) {
+                Optional<Database> database = Catalog.getCurrentCatalog().getDb(dbId);
+                database.ifPresent(db -> {
+                    List<Table> tables = db.getTablesOnIdOrder();
+                    for (Table table : tables) {
+                        if (table instanceof OlapTable) {
+                            PartitionInfo partitionInfo = ((OlapTable) table).getPartitionInfo();
+                            List<Long> partitionIds = ((OlapTable) table).getPartitionIds();
+                            for (Long partitionId : partitionIds) {
+                                DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
+                                if (storageName.equals(dataProperty.getRemoteStorageName())) {
+                                    usedTables.add(db.getFullName() + "." + table.getName());
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            if (usedTables.size() > 0) {
+                LOG.warn("Can not drop remote storage, since it's used in tables {}", usedTables);
+                throw new DdlException("Can not drop remote storage, since it's used in tables " + usedTables);
+            }
+
             Catalog.getCurrentCatalog().getEditLog().logDropRemoteStorage(storageInfo);
             storageInfoMap.remove(storageName);
         } finally {
@@ -121,6 +155,32 @@ public class RemoteStorageMgr {
         lock.lock();
         try {
             storageInfoMap.remove(info.getRemoteStorageName());
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void modifyRemoteStorage(ModifyRemoteStorageClause clause) throws DdlException {
+        lock.lock();
+        try {
+            String storageName = clause.getStorageName();
+            RemoteStorageInfo storageInfo = storageInfoMap.get(storageName);
+            if (storageInfo == null) {
+                throw new DdlException("Unknown remote storage name: " + storageName);
+            }
+            storageInfo.getRemoteStorageProperty().modifyRemoteStorage(clause.getProperties());
+            Catalog.getCurrentCatalog().getEditLog().logModifyRemoteStorage(storageInfo);
+            storageInfoMap.put(storageName, storageInfo);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void replayModifyRemoteStorage(RemoteStorageInfo storageInfo) {
+        lock.lock();
+        try {
+            String storageName = storageInfo.getRemoteStorageName();
+            storageInfoMap.put(storageName, storageInfo);
         } finally {
             lock.unlock();
         }

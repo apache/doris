@@ -532,6 +532,12 @@ public class EditLog {
                     catalog.getRemoteStorageMgr().replayDropRemoteStorage(param);
                     break;
                 }
+                case OperationType.OP_MODIFY_REMOTE_STORAGE: {
+                    final RemoteStorageMgr.RemoteStorageInfo param =
+                            (RemoteStorageMgr.RemoteStorageInfo) journal.getData();
+                    catalog.getRemoteStorageMgr().replayModifyRemoteStorage(param);
+                    break;
+                }
                 case OperationType.OP_SET_LOAD_ERROR_HUB: {
                     final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
                     catalog.getLoadInstance().setLoadErrorHubInfo(param);
@@ -1183,6 +1189,10 @@ public class EditLog {
 
     public void logDropRemoteStorage(RemoteStorageMgr.RemoteStorageInfo info) {
         logEdit(OperationType.OP_DROP_REMOTE_STORAGE, info);
+    }
+
+    public void logModifyRemoteStorage(RemoteStorageMgr.RemoteStorageInfo info) {
+        logEdit(OperationType.OP_MODIFY_REMOTE_STORAGE, info);
     }
 
     public void logDropAllBroker(String brokerName) {

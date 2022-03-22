@@ -1194,6 +1194,10 @@ alter_system_clause ::=
 	{:
 	    RESULT = new DropRemoteStorageClause(remoteStorageName);
 	:}
+	| KW_MODIFY KW_REMOTE KW_STORAGE ident_or_text:remoteStorageName opt_properties:properties
+	{:
+	    RESULT = new ModifyRemoteStorageClause(remoteStorageName, properties);
+	:}
     ;
 
 // Sync Stmt

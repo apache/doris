@@ -403,16 +403,17 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_ADD_REMOTE_STORAGE:
-            case OperationType.OP_DROP_REMOTE_STORAGE: {
-                data = new RemoteStorageMgr.RemoteStorageInfo();
-                ((RemoteStorageMgr.RemoteStorageInfo) data).readFields(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_DROP_ALL_BROKER: {
                 data = new Text();
                 ((Text) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ADD_REMOTE_STORAGE:
+            case OperationType.OP_DROP_REMOTE_STORAGE:
+            case OperationType.OP_MODIFY_REMOTE_STORAGE: {
+                data = new RemoteStorageMgr.RemoteStorageInfo();
+                ((RemoteStorageMgr.RemoteStorageInfo) data).readFields(in);
                 isRead = true;
                 break;
             }

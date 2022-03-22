@@ -32,7 +32,7 @@ import java.io.IOException;
 public class DataProperty implements Writable {
     public static final DataProperty DEFAULT_DATA_PROPERTY = new DataProperty(
             "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD,
-            "HDD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.HDD : TStorageMedium.S3);
+            "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD);
     public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
 
     @SerializedName(value =  "storageMedium")
@@ -105,7 +105,7 @@ public class DataProperty implements Writable {
             storageColdMedium = TStorageMedium.valueOf(Text.readString(in));
         } else {
             remoteStorageName = "";
-            storageColdMedium = TStorageMedium.S3;
+            storageColdMedium = storageMedium;
         }
     }
 
@@ -123,7 +123,7 @@ public class DataProperty implements Writable {
 
         return this.storageMedium == other.storageMedium
                 && this.cooldownTimeMs == other.cooldownTimeMs
-                && this.remoteStorageName == other.remoteStorageName
+                && this.remoteStorageName.equals(other.remoteStorageName)
                 && this.storageColdMedium == other.storageColdMedium;
     }
 

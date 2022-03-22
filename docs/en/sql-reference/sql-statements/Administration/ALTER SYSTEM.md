@@ -53,6 +53,8 @@ under the License.
             ALTER SYSTEM ADD REMOTE STORAGE storage_name PROPERTIES ("key" = "value"[, ...]);
         12) Drop remote storage
             ALTER SYSTEM DROP REMOTE STORAGE storage_name;
+        13) Modify remote storage
+            ALTER SYSTEM MODIFY REMOTE STORAGE storage_name PROPERTIES ("key" = "value"[, ...]);
 
     Explain:
         1) Host can be hostname or IP address
@@ -96,6 +98,7 @@ under the License.
                 s3_max_connections: the maximum number of s3 connections, the default is 50
                 s3_request_timeout_ms: s3 request timeout, in milliseconds, the default is 3000
                 s3_connection_timeout_ms: s3 connection timeout, in milliseconds, the default is 1000
+            2) Supports modifying parameter information other than `type`.
 
     ## example
 
@@ -164,6 +167,13 @@ under the License.
 
         13. Drop remote storage
             ALTER SYSTEM DROP REMOTE STORAGE remote_s3;
+
+        14. Modify remote storage
+            ALTER SYSTEM MODIFY REMOTE STORAGE remote_s3 PROPERTIES
+            (
+             "s3_access_key" = "bbb",
+             "s3_secret_key" = "aaaa"
+            );
 
     ## keyword
     AGE,SYSTEM,BACKGROUND,BROKER,FREE,REMOTE STORAGE

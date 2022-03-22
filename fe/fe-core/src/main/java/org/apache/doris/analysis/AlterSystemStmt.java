@@ -66,7 +66,8 @@ public class AlterSystemStmt extends DdlStmt {
                 || (alterClause instanceof AlterLoadErrorUrlClause)
                 || (alterClause instanceof ModifyBackendClause)
                 || (alterClause instanceof AddRemoteStorageClause)
-                || (alterClause instanceof DropRemoteStorageClause));
+                || (alterClause instanceof DropRemoteStorageClause)
+                || (alterClause instanceof ModifyRemoteStorageClause));
 
         alterClause.analyze(analyzer);
     }

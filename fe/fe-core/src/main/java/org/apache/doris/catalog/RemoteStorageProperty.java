@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -36,6 +37,10 @@ public class RemoteStorageProperty implements Writable {
 
     public RemoteStorageType getStorageType() {
         return null;
+    }
+
+    public void modifyRemoteStorage(Map<String, String> properties) throws DdlException {
+        throw new NotImplementedException();
     }
 
     @Override

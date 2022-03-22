@@ -296,7 +296,7 @@ Syntax:
         ```
         PROPERTIES (
             "storage_medium" = "[SSD|HDD]",
-            ["storage_cold_medium" = "[S3]"],
+            ["storage_cold_medium" = "[HDD|S3]"],
             ["remote_storage" = "xxx"],
             ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
             ["replication_num" = "3"],
@@ -306,8 +306,7 @@ Syntax:
     
         storage_medium:         SSD or HDD, The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD.
                                 Note: when FE configuration 'enable_strict_storage_medium_check' is' True ', if the corresponding storage medium is not set in the cluster, the construction clause 'Failed to find enough host in all backends with storage medium is SSD|HDD'.
-        storage_cold_medium:    Used to specify the cold data storage medium for this partition, currently only S3 is 
-                                supported. Default is S3.
+        storage_cold_medium:    Used to specify the cold data storage medium for this partition, currently supports HDD and S3. Default is HDD.
         remote_storage:         The remote storage name, which needs to be used in conjunction with the storage_cold_medium 
                                 parameter.
         storage_cooldown_time:  If storage_medium is SSD, data will be automatically moved to HDD   when timeout.

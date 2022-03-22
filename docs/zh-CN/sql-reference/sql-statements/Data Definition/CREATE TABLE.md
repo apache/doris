@@ -307,7 +307,7 @@ under the License.
     ```
        PROPERTIES (
            "storage_medium" = "[SSD|HDD]",
-           ["storage_cold_medium" = "[S3]"],
+           ["storage_cold_medium" = "[HDD|S3]"],
            ["remote_storage" = "xxx"],
            ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
            ["replication_num" = "3"]
@@ -317,7 +317,7 @@ under the License.
 
        storage_medium：        用于指定该分区的初始存储介质，可选择 SSD 或 HDD。默认初始存储介质可通过fe的配置文件 `fe.conf` 中指定 `default_storage_medium=xxx`，如果没有指定，则默认为 HDD。
                                注意：当FE配置项 `enable_strict_storage_medium_check` 为 `True` 时，若集群中没有设置对应的存储介质时，建表语句会报错 `Failed to find enough host in all backends with storage medium is SSD|HDD`.
-       storage_cold_medium:    用于指定该分区的冷数据存储介质，当前只支持 S3。默认为 S3。
+       storage_cold_medium:    用于指定该分区的冷数据存储介质，当前支持 HDD、S3。默认为 HDD。
        remote_storage:         远端存储名称，需要与 storage_cold_medium 参数搭配使用。
        storage_cooldown_time： 当设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
                                默认存放 30 天。

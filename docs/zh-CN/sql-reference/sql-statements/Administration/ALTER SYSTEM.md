@@ -53,6 +53,8 @@ under the License.
             ALTER SYSTEM ADD REMOTE STORAGE storage_name PROPERTIES ("key" = "value"[, ...]);
         12) 删除一个远端存储
             ALTER SYSTEM DROP REMOTE STORAGE storage_name;
+        13) 修改一个远端存储
+            ALTER SYSTEM MODIFY REMOTE STORAGE storage_name PROPERTIES ("key" = "value"[, ...]);
 
     说明：
         1) host 可以是主机名或者ip地址
@@ -96,6 +98,7 @@ under the License.
                 s3_max_connections：s3 最大连接数量，默认为 50
                 s3_request_timeout_ms：s3 请求超时时间，单位毫秒，默认为 3000
                 s3_connection_timeout_ms：s3 连接超时时间，单位毫秒，默认为 1000
+            2) 支持修改除 `type` 之外的参数信息。
         
 ## example
 
@@ -164,6 +167,13 @@ under the License.
 
     13. 删除远端存储
         ALTER SYSTEM DROP REMOTE STORAGE remote_s3;
+    
+    14. 修改远端存储
+        ALTER SYSTEM MODIFY REMOTE STORAGE remote_s3 PROPERTIES
+        (
+         "s3_access_key" = "bbb",
+         "s3_secret_key" = "aaaa"
+        );
 
 ## keyword
     ALTER,SYSTEM,BACKEND,BROKER,FREE,REMOTE STORAGE

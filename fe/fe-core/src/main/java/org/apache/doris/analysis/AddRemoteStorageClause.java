@@ -49,7 +49,7 @@ import static org.apache.doris.catalog.S3Property.S3_SECRET_KEY;
 public class AddRemoteStorageClause extends RemoteStorageClause {
     private static final String PROPERTY_MISSING_MSG = "Remote storage %s is null. " +
             "Please add properties('%s'='xxx') when create remote storage.";
-    private static final String TYPE = "type";
+    protected static final String TYPE = "type";
 
     private Map<String, String> properties;
     private RemoteStorageProperty.RemoteStorageType remoteStorageType;

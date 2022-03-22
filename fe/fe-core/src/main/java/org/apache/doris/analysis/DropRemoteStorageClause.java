@@ -17,6 +17,11 @@
 
 package org.apache.doris.analysis;
 
+/**
+ * Drop remote storage by name
+ * Syntax:
+ *     ALTER SYSTEM DROP REMOTE STORAGE `remote_storage_name`
+ */
 public class DropRemoteStorageClause extends RemoteStorageClause {
     public DropRemoteStorageClause(String storageName) {
         super(storageName);

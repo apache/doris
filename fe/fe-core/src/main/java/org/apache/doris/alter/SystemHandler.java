@@ -32,6 +32,7 @@ import org.apache.doris.analysis.DropObserverClause;
 import org.apache.doris.analysis.DropRemoteStorageClause;
 import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.analysis.ModifyBrokerClause;
+import org.apache.doris.analysis.ModifyRemoteStorageClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -179,7 +180,9 @@ public class SystemHandler extends AlterHandler {
             Catalog.getCurrentCatalog().getRemoteStorageMgr().addRemoteStorage((AddRemoteStorageClause) alterClause);
         } else if (alterClause instanceof DropRemoteStorageClause) {
             Catalog.getCurrentCatalog().getRemoteStorageMgr().dropRemoteStorage((DropRemoteStorageClause) alterClause);
-        } else {
+        } else if (alterClause instanceof ModifyRemoteStorageClause) {
+            Catalog.getCurrentCatalog().getRemoteStorageMgr().modifyRemoteStorage((ModifyRemoteStorageClause) alterClause);
+        }else {
             Preconditions.checkState(false, alterClause.getClass());
         }
     }
