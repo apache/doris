@@ -20,12 +20,13 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <initializer_list>
 #include <list>
 #include <set>
 #include <utility>
 #include <vector>
-#include <parallel_hashmap/phmap.h>
 
 #include "gen_cpp/data.pb.h"
 #include "vec/columns/column_nullable.h"
@@ -36,12 +37,14 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
-class Status;
+
+class MemPool;
 class RowBatch;
 class RowDescriptor;
+class Status;
 class Tuple;
 class TupleDescriptor;
-class MemPool;
+struct TypeDescriptor;
 
 namespace vectorized {
 
@@ -97,17 +100,23 @@ public:
     ColumnWithTypeAndName& get_by_position(size_t position) { return data[position]; }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
 
-    Status copy_column_data_to_block(bool is_block_mem_reuse, doris::vectorized::IColumn* input_col_ptr, 
-        uint16_t* sel_rowid_idx, uint16_t select_size, int block_cid, size_t batch_size) {
+    Status copy_column_data_to_block(bool is_block_mem_reuse,
+                                     doris::vectorized::IColumn* input_col_ptr,
+                                     uint16_t* sel_rowid_idx, uint16_t select_size, int block_cid,
+                                     size_t batch_size) {
         if (is_block_mem_reuse) {
             auto* raw_res_ptr = this->get_by_position(block_cid).column.get();
             const_cast<doris::vectorized::IColumn*>(raw_res_ptr)->reserve(batch_size);
-            return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, const_cast<doris::vectorized::IColumn*>(raw_res_ptr));
+            return input_col_ptr->filter_by_selector(
+                    sel_rowid_idx, select_size,
+                    const_cast<doris::vectorized::IColumn*>(raw_res_ptr));
         } else {
             MutableColumnPtr res_col_ptr = data[block_cid].type->create_column();
             res_col_ptr->reserve(batch_size);
             auto* raw_res_ptr = res_col_ptr.get();
-            RETURN_IF_ERROR(input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, const_cast<doris::vectorized::IColumn*>(raw_res_ptr)));
+            RETURN_IF_ERROR(input_col_ptr->filter_by_selector(
+                    sel_rowid_idx, select_size,
+                    const_cast<doris::vectorized::IColumn*>(raw_res_ptr)));
             this->replace_by_position(block_cid, std::move(res_col_ptr));
             return Status::OK();
         }
@@ -148,9 +157,9 @@ public:
     Names get_names() const;
     DataTypes get_data_types() const;
 
-    DataTypePtr get_data_type(size_t index) const { 
+    DataTypePtr get_data_type(size_t index) const {
         CHECK(index < data.size());
-        return data[index].type; 
+        return data[index].type;
     }
 
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
@@ -160,7 +169,7 @@ public:
     void set_num_rows(size_t length);
 
     // Skip the rows in block, use in OFFSET, LIMIT operation
-    void skip_num_rows(int64_t & offset);
+    void skip_num_rows(int64_t& offset);
 
     size_t columns() const { return data.size(); }
 
@@ -233,7 +242,8 @@ public:
     }
 
     // serialize block to PBlock
-    Status serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes, std::string* allocated_buf) const;
+    Status serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* compressed_bytes,
+                     std::string* allocated_buf) const;
 
     // serialize block to PRowbatch
     void serialize(RowBatch*, const RowDescriptor&);
@@ -276,17 +286,25 @@ public:
 
     //note(wb) no DCHECK here, because this method is only used after compare_at now, so no need to repeat check here.
     // If this method is used in more places, you can add DCHECK case by case.
-    int compare_column_at(size_t n, size_t m, size_t col_idx, const Block& rhs, int nan_direction_hint) const {
-        auto res = get_by_position(col_idx).column->compare_at(n, m, *(rhs.get_by_position(col_idx).column),
-                                                             nan_direction_hint);
+    int compare_column_at(size_t n, size_t m, size_t col_idx, const Block& rhs,
+                          int nan_direction_hint) const {
+        auto res = get_by_position(col_idx).column->compare_at(
+                n, m, *(rhs.get_by_position(col_idx).column), nan_direction_hint);
         return res;
     }
 
-    doris::Tuple* deep_copy_tuple(const TupleDescriptor&, MemPool*, int, int, bool padding_char = false);
+    doris::Tuple* deep_copy_tuple(const TupleDescriptor&, MemPool*, int, int,
+                                  bool padding_char = false);
 
 private:
     void erase_impl(size_t position);
     void initialize_index_by_name();
+    inline bool is_column_data_null(const doris::TypeDescriptor& type_desc,
+                                    const StringRef& data_ref,
+                                    const IColumn* column_with_type_and_name, int row);
+    void deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor& type_desc,
+                        const StringRef& data_ref, const IColumn* column, int row,
+                        bool padding_char);
 };
 
 using Blocks = std::vector<Block>;

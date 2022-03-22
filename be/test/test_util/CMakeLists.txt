@@ -20,10 +20,12 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/test/test_util")
 
 set(TEST_UTIL_FILES
   test_util.cpp
+  array_utils.cpp
 )
 
 add_library(Test_util STATIC
     ${TEST_UTIL_FILES}
 )
 
+target_compile_options(Test_util PRIVATE "-fno-access-control")
 target_link_libraries(Test_util Common Util Gutil ${Boost_LIBRARIES} glog gflags protobuf)

@@ -144,6 +144,10 @@ public:
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "replace_column_data_default not implemented";
     }
+    void clear() override {
+        data->clear();
+        offsets->clear();
+    }
 
 private:
     WrappedPtr data;

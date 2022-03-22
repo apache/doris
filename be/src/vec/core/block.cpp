@@ -32,6 +32,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
+#include "udf/udf.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -701,63 +702,119 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
 
     for (int i = 0; i < desc.slots().size(); ++i) {
         auto slot_desc = desc.slots()[i];
-        auto data_ref = get_by_position(column_offset + i).column->get_data_at(row);
-
-        if (data_ref.data == nullptr) {
+        auto& type_desc = slot_desc->type();
+        const auto& column = get_by_position(column_offset + i).column;
+        const auto& data_ref =
+                type_desc.type != TYPE_ARRAY ? column->get_data_at(row) : StringRef();
+        bool is_null = is_column_data_null(slot_desc->type(), data_ref, column, row);
+        if (is_null) {
             dst->set_null(slot_desc->null_indicator_offset());
-            continue;
         } else {
             dst->set_not_null(slot_desc->null_indicator_offset());
         }
-
-        if (!slot_desc->type().is_string_type() && !slot_desc->type().is_date_type()) {
-            memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), data_ref.data, data_ref.size);
-        } else if (slot_desc->type().is_string_type() && slot_desc->type() != TYPE_OBJECT &&
-                   slot_desc->type() != TYPE_HLL) {
-            memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), (const void*)(&data_ref),
-                   sizeof(data_ref));
-            // Copy the content of string
-            if (padding_char && slot_desc->type() == TYPE_CHAR) {
-                // serialize the content of string
-                auto string_slot = dst->get_string_slot(slot_desc->tuple_offset());
-                string_slot->ptr = reinterpret_cast<char*>(pool->allocate(slot_desc->type().len));
-                string_slot->len = slot_desc->type().len;
-                memset(string_slot->ptr, 0, slot_desc->type().len);
-                memcpy(string_slot->ptr, data_ref.data, data_ref.size);
-            } else {
-                auto str_ptr = pool->allocate(data_ref.size);
-                memcpy(str_ptr, data_ref.data, data_ref.size);
-                dst->get_string_slot(slot_desc->tuple_offset())->ptr =
-                        reinterpret_cast<char*>(str_ptr);
-            }
-        } else if (slot_desc->type() == TYPE_OBJECT) {
-            auto bitmap_value = (BitmapValue*)(data_ref.data);
-            auto size = bitmap_value->getSizeInBytes();
-
-            // serialize the content of string
-            auto string_slot = dst->get_string_slot(slot_desc->tuple_offset());
-            string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
-            bitmap_value->write(string_slot->ptr);
-            string_slot->len = size;
-        } else if (slot_desc->type() == TYPE_HLL) {
-            auto hll_value = (HyperLogLog*)(data_ref.data);
-            auto size = hll_value->max_serialized_size();
-            auto string_slot = dst->get_string_slot(slot_desc->tuple_offset());
-            string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
-            size_t actual_size = hll_value->serialize((uint8_t*)string_slot->ptr);
-            string_slot->len = actual_size;
-        } else {
-            VecDateTimeValue ts =
-                    *reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data_ref.data);
-            DateTimeValue dt;
-            ts.convert_vec_dt_to_dt(&dt);
-            memcpy((void*)dst->get_slot(slot_desc->tuple_offset()), &dt, sizeof(DateTimeValue));
-        }
+        deep_copy_slot(dst->get_slot(slot_desc->tuple_offset()), pool, type_desc, data_ref,
+                       column.get(), row, padding_char);
     }
     return dst;
 }
 
-MutableBlock::MutableBlock(const std::vector<TupleDescriptor *>& tuple_descs) {
+inline bool Block::is_column_data_null(const doris::TypeDescriptor& type_desc,
+                                       const StringRef& data_ref, const IColumn* column, int row) {
+    if (type_desc.type != TYPE_ARRAY) {
+        return data_ref.data == nullptr;
+    } else {
+        Field array;
+        column->get(row, array);
+        return array.is_null();
+    }
+}
+
+// TODO: need to refactor this function, too long.
+void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor& type_desc,
+                           const StringRef& data_ref, const IColumn* column, int row,
+                           bool padding_char) {
+    if (type_desc.is_collection_type()) {
+        if (type_desc.type != TYPE_ARRAY) {
+            return;
+        }
+
+        Field field;
+        column->get(row, field);
+        const auto& array = field.get<Array>();
+        auto collection_value = reinterpret_cast<CollectionValue*>(dst);
+        auto item_type_desc = type_desc.children.front();
+        CollectionValue::init_collection(pool, array.size(), item_type_desc.type, collection_value);
+
+        const ColumnArray* array_column = nullptr;
+        if (is_column_nullable(*column)) {
+            auto& nested_column =
+                    reinterpret_cast<const ColumnNullable*>(column)->get_nested_column();
+            array_column = reinterpret_cast<const ColumnArray*>(&nested_column);
+        } else {
+            array_column = reinterpret_cast<const ColumnArray*>(column);
+        }
+        auto item_column = array_column->get_data_ptr().get();
+        auto offset = array_column->get_offsets()[row - 1];
+        for (int i = 0; i < collection_value->length(); ++i) {
+            char* item_dst = reinterpret_cast<char*>(collection_value->mutable_data()) +
+                             i * item_type_desc.get_slot_size();
+            if (array[i].is_null()) {
+                const auto& null_value = doris_udf::AnyVal(true);
+                collection_value->set(i, item_type_desc.type, &null_value);
+            } else {
+                auto item_offset = offset + i;
+                const auto& data_ref = item_type_desc.type != TYPE_ARRAY
+                                               ? item_column->get_data_at(item_offset)
+                                               : StringRef();
+                deep_copy_slot(item_dst, pool, item_type_desc, data_ref, item_column, item_offset,
+                               padding_char);
+            }
+        }
+    } else if (type_desc.is_date_type()) {
+        VecDateTimeValue ts =
+                *reinterpret_cast<const doris::vectorized::VecDateTimeValue*>(data_ref.data);
+        DateTimeValue dt;
+        ts.convert_vec_dt_to_dt(&dt);
+        memcpy(dst, &dt, sizeof(DateTimeValue));
+    } else if (type_desc.type == TYPE_OBJECT) {
+        auto bitmap_value = (BitmapValue*)(data_ref.data);
+        auto size = bitmap_value->getSizeInBytes();
+
+        // serialize the content of string
+        auto string_slot = reinterpret_cast<StringValue*>(dst);
+        string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
+        bitmap_value->write(string_slot->ptr);
+        string_slot->len = size;
+    } else if (type_desc.type == TYPE_HLL) {
+        auto hll_value = (HyperLogLog*)(data_ref.data);
+        auto size = hll_value->max_serialized_size();
+        auto string_slot = reinterpret_cast<StringValue*>(dst);
+        string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
+        size_t actual_size = hll_value->serialize((uint8_t*)string_slot->ptr);
+        string_slot->len = actual_size;
+    } else if (type_desc.is_string_type()) { // TYPE_OBJECT and TYPE_HLL must be handled before.
+        memcpy(dst, (const void*)(&data_ref), sizeof(data_ref));
+        // Copy the content of string
+        if (padding_char && type_desc.type == TYPE_CHAR) {
+            // serialize the content of string
+            auto string_slot = reinterpret_cast<StringValue*>(dst);
+            string_slot->ptr = reinterpret_cast<char*>(pool->allocate(type_desc.len));
+            string_slot->len = type_desc.len;
+            memset(string_slot->ptr, 0, type_desc.len);
+            memcpy(string_slot->ptr, data_ref.data, data_ref.size);
+        } else {
+            auto str_ptr = pool->allocate(data_ref.size);
+            memcpy(str_ptr, data_ref.data, data_ref.size);
+            auto string_slot = reinterpret_cast<StringValue*>(dst);
+            string_slot->ptr = reinterpret_cast<char*>(str_ptr);
+            string_slot->len = data_ref.size;
+        }
+    } else {
+        memcpy(dst, data_ref.data, data_ref.size);
+    }
+}
+
+MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs) {
     for (auto tuple_desc : tuple_descs) {
         for (auto slot_desc : tuple_desc->slots()) {
             _data_types.emplace_back(slot_desc->get_data_type_ptr());
