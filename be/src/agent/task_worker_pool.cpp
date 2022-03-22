@@ -976,11 +976,9 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
 OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& req,
                                                   TabletSharedPtr& tablet, DataDir** dest_store) {
     int64_t tablet_id = req.tablet_id;
-    int32_t schema_hash = req.schema_hash;
-    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        LOG(WARNING) << "can't find tablet. tablet_id= " << tablet_id
-                     << " schema_hash=" << schema_hash;
+        LOG(WARNING) << "can't find tablet. tablet_id= " << tablet_id;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -1551,10 +1549,9 @@ void TaskWorkerPool::_move_dir_thread_callback() {
 Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
                                       const std::string& src, int64_t job_id, bool overwrite) {
     TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id
-                  << ", schema hash:" << schema_hash;
+        LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id;
         return Status::InvalidArgument("Could not find tablet");
     }
 
