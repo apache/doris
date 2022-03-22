@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
