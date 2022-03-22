@@ -2,6 +2,9 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
+## v20220321
+- Add libbacktrace, it is used by boost stacktrace to print exception stack.
+
 ## v20220316
 - Modified: CRoaring 0.3.4 -> 0.4.0
 

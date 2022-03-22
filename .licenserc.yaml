@@ -34,6 +34,7 @@ header:
     - 'tsan_suppressions'
     - 'docs/.markdownlintignore'
     - 'fe/fe-core/src/test/resources/data/net_snmp_normal'
+    - 'be/src/common/signal_handler.h'
     - 'be/src/olap/lru_cache.cpp'
     - 'be/src/olap/lru_cache.h'
     - 'be/src/olap/skiplist.h'
