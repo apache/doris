@@ -118,9 +118,7 @@ public:
 
     void reserve(size_t n) override { _codes.reserve(n); }
 
-    [[noreturn]] const char* get_family_name() const override {
-        LOG(FATAL) << "get_family_name not supported in ColumnDictionary";
-    }
+    const char* get_family_name() const override { return "ColumnDictionary"; }
 
     [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
         LOG(FATAL) << "clone_resized not supported in ColumnDictionary";
@@ -133,26 +131,6 @@ public:
     Field operator[](size_t n) const override { return _codes[n]; }
 
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
-
-    [[noreturn]] UInt64 get64(size_t n) const override {
-        LOG(FATAL) << "get field not supported in ColumnDictionary";
-    }
-
-    [[noreturn]] Float64 get_float64(size_t n) const override {
-        LOG(FATAL) << "get field not supported in ColumnDictionary";
-    }
-
-    [[noreturn]] UInt64 get_uint(size_t n) const override {
-        LOG(FATAL) << "get field not supported in ColumnDictionary";
-    }
-
-    [[noreturn]] bool get_bool(size_t n) const override {
-        LOG(FATAL) << "get field not supported in ColumnDictionary";
-    }
-
-    [[noreturn]] Int64 get_int(size_t n) const override {
-        LOG(FATAL) << "get field not supported in ColumnDictionary";
-    }
 
     Container& get_data() { return _codes; }
 
@@ -260,24 +238,43 @@ public:
     }
 
     void set_predicate_dict_code_if_necessary(doris::ColumnPredicate* predicate) override {
-        if (predicate->is_equal_comparison_predicate()) {
+        switch (predicate->type()) {
+        case PredicateType::EQ:
+        case PredicateType::NE: {
             // cast to EqualPredicate, just to get value, may not be EqualPredicate
             auto* comp_pred = reinterpret_cast<doris::EqualPredicate<StringValue>*>(predicate);
             auto pred_value = comp_pred->get_value();
             auto code = _dict.find_code(pred_value);
             comp_pred->set_dict_code(code);
-        } else if (predicate->is_range_comparison_predicate()) {
+            break;
+        }
+        case PredicateType::LT:
+        case PredicateType::LE:
+        case PredicateType::GT:
+        case PredicateType::GE: {
             // cast to LessPredicate, just to get value, may not be LessPredicate
             auto* comp_pred = reinterpret_cast<doris::LessPredicate<StringValue>*>(predicate);
             auto pred_value = comp_pred->get_value();
-            auto code = _dict.find_bound_code(pred_value, predicate->is_less(),
-                                              predicate->contain_equal());
+            auto less = predicate->type() == PredicateType::LT ||
+                        predicate->type() == PredicateType::LE;
+            auto eq = predicate->type() == PredicateType::LE ||
+                      predicate->type() == PredicateType::GE;
+            auto code = _dict.find_bound_code(pred_value, less, eq);
             comp_pred->set_dict_code(code);
-        } else if (predicate->is_in_predicate()) {
+            break;
+        }
+        case PredicateType::InList:
+        case PredicateType::NotInList: {
             auto* in_pred = reinterpret_cast<doris::InListPredicate<StringValue>*>(predicate);
             auto pred_values = in_pred->get_values();
             auto code_set = _dict.find_codes(pred_values);
             in_pred->set_dict_codes(code_set);
+            break;
+        }
+        default:
+            LOG(FATAL) << "PredicateType: " << static_cast<int>(predicate->type())
+                       <<  " not supported in ColumnDictionary";
+            break;
         }
     }
 

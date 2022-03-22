@@ -26,11 +26,12 @@ namespace doris {
 
 class VectorizedRowBatch;
 
-#define COMPARISON_PRED_CLASS_DEFINE(CLASS, IS_RANGE, IS_EQ, CONTAIN_EQ, IS_LESS)                  \
-    template <class type>                                                                          \
+#define COMPARISON_PRED_CLASS_DEFINE(CLASS, PT)                                                    \
+    template <class T>                                                                             \
     class CLASS : public ColumnPredicate {                                                         \
     public:                                                                                        \
-        CLASS(uint32_t column_id, const type& value, bool opposite = false);                       \
+        CLASS(uint32_t column_id, const T& value, bool opposite = false);                          \
+        PredicateType type() const override { return PredicateType::PT; }                          \
         virtual void evaluate(VectorizedRowBatch* batch) const override;                           \
         void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;           \
         void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,                         \
@@ -46,24 +47,20 @@ class VectorizedRowBatch;
         void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,                \
                          bool* flags) const override;                                              \
         void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override; \
-        bool is_range_comparison_predicate() override { return IS_RANGE; }                         \
-        bool is_equal_comparison_predicate() override { return IS_EQ; }                            \
-        bool contain_equal() override { return CONTAIN_EQ; }                                       \
-        bool is_less() override { return IS_LESS; }                                                \
-        const type& get_value() const { return _value; }                                           \
+        const T& get_value() const { return _value; }                                              \
         void set_dict_code(int32_t code) { _dict_code = code; }                                    \
                                                                                                    \
     private:                                                                                       \
-        type _value;                                                                               \
+        T _value;                                                                                  \
         int32_t _dict_code;                                                                        \
     };
 
-COMPARISON_PRED_CLASS_DEFINE(EqualPredicate, false, true, false, false)
-COMPARISON_PRED_CLASS_DEFINE(NotEqualPredicate, false, true, false, false)
-COMPARISON_PRED_CLASS_DEFINE(LessPredicate, true, false, false, true)
-COMPARISON_PRED_CLASS_DEFINE(LessEqualPredicate, true, false, true, true)
-COMPARISON_PRED_CLASS_DEFINE(GreaterPredicate, true, false, false, false)
-COMPARISON_PRED_CLASS_DEFINE(GreaterEqualPredicate, true, false, true, false)
+COMPARISON_PRED_CLASS_DEFINE(EqualPredicate, EQ)
+COMPARISON_PRED_CLASS_DEFINE(NotEqualPredicate, NE)
+COMPARISON_PRED_CLASS_DEFINE(LessPredicate, LT)
+COMPARISON_PRED_CLASS_DEFINE(LessEqualPredicate, LE)
+COMPARISON_PRED_CLASS_DEFINE(GreaterPredicate, GT)
+COMPARISON_PRED_CLASS_DEFINE(GreaterEqualPredicate, GE)
 
 } //namespace doris
 

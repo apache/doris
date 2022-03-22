@@ -606,8 +606,9 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             pred_column_ids.insert(cid);
 
             if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
-                type == OLAP_FIELD_TYPE_STRING || predicate->is_in_predicate() ||
-                predicate->is_bloom_filter_predicate()) {
+                type == OLAP_FIELD_TYPE_STRING || predicate->type() == PredicateType::InList ||
+                predicate->type() == PredicateType::NotInList ||
+                predicate->type() == PredicateType::BF) {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
                 _is_all_column_basic_type = false;
@@ -830,18 +831,17 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
         return;
     }
 
-    for (auto column_predicate : _short_cir_eval_predicate) {
-        auto column_id = column_predicate->column_id();
+    for (auto predicate : _short_cir_eval_predicate) {
+        auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
         auto* col_ptr = short_cir_column.get();
-
-        if (column_predicate->is_range_comparison_predicate()) {
+        // range comparison predicate needs to sort the dict and convert the encoding
+        if (predicate->type() == PredicateType::LT || predicate->type() == PredicateType::LE ||
+            predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
             col_ptr->convert_dict_codes_if_necessary();
         }
-
-        col_ptr->set_predicate_dict_code_if_necessary(column_predicate);
-
-        column_predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
+        col_ptr->set_predicate_dict_code_if_necessary(predicate);
+        predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
     }
 
     // evaluate delete condition

@@ -28,9 +28,9 @@
 
 namespace doris {
 
-#define COMPARISON_PRED_CONSTRUCTOR(CLASS)                                   \
-    template <class type>                                                    \
-    CLASS<type>::CLASS(uint32_t column_id, const type& value, bool opposite) \
+#define COMPARISON_PRED_CONSTRUCTOR(CLASS) \
+    template <class T>                     \
+    CLASS<T>::CLASS(uint32_t column_id, const T& value, bool opposite) \
             : ColumnPredicate(column_id, opposite), _value(value) {}
 
 COMPARISON_PRED_CONSTRUCTOR(EqualPredicate)
@@ -56,15 +56,15 @@ COMPARISON_PRED_CONSTRUCTOR_STRING(GreaterPredicate)
 COMPARISON_PRED_CONSTRUCTOR_STRING(GreaterEqualPredicate)
 
 #define COMPARISON_PRED_EVALUATE(CLASS, OP)                                           \
-    template <class type>                                                             \
-    void CLASS<type>::evaluate(VectorizedRowBatch* batch) const {                     \
+    template <class T>                                                                \
+    void CLASS<T>::evaluate(VectorizedRowBatch* batch) const {                        \
         uint16_t n = batch->size();                                                   \
         if (n == 0) {                                                                 \
             return;                                                                   \
         }                                                                             \
         uint16_t* sel = batch->selected();                                            \
-        const type* col_vector =                                                      \
-                reinterpret_cast<const type*>(batch->column(_column_id)->col_data()); \
+        const T* col_vector =                                                         \
+                reinterpret_cast<const T*>(batch->column(_column_id)->col_data());    \
         uint16_t new_size = 0;                                                        \
         if (batch->column(_column_id)->no_nulls()) {                                  \
             if (batch->selected_in_use()) {                                           \
@@ -114,15 +114,15 @@ COMPARISON_PRED_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_EVALUATE(GreaterEqualPredicate, >=)
 
 #define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP)                                  \
-    template <class type>                                                                 \
-    void CLASS<type>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const { \
+    template <class T>                                                                    \
+    void CLASS<T>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const {    \
         uint16_t new_size = 0;                                                            \
         if (block->is_nullable()) {                                                       \
             for (uint16_t i = 0; i < *size; ++i) {                                        \
                 uint16_t idx = sel[i];                                                    \
                 sel[new_size] = idx;                                                      \
-                const type* cell_value =                                                  \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
+                const T* cell_value =                                                     \
+                        reinterpret_cast<const T*>(block->cell(idx).cell_ptr());          \
                 auto result = (!block->cell(idx).is_null() && (*cell_value OP _value));   \
                 new_size += _opposite ? !result : result;                                 \
             }                                                                             \
@@ -130,8 +130,8 @@ COMPARISON_PRED_EVALUATE(GreaterEqualPredicate, >=)
             for (uint16_t i = 0; i < *size; ++i) {                                        \
                 uint16_t idx = sel[i];                                                    \
                 sel[new_size] = idx;                                                      \
-                const type* cell_value =                                                  \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
+                const T* cell_value =                                                     \
+                        reinterpret_cast<const T*>(block->cell(idx).cell_ptr());          \
                 auto result = (*cell_value OP _value);                                    \
                 new_size += _opposite ? !result : result;                                 \
             }                                                                             \
@@ -148,8 +148,8 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
 
 // todo(zeno) define interface in IColumn to simplify code
 #define COMPARISON_PRED_COLUMN_EVALUATE(CLASS, OP)                                                 \
-    template <class type>                                                                          \
-    void CLASS<type>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const { \
+    template <class T>                                                                             \
+    void CLASS<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {    \
         uint16_t new_size = 0;                                                                     \
         if (column.is_nullable()) {                                                                \
             auto* nullable_col =                                                                   \
@@ -159,43 +159,41 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                                         .get_data();                                               \
             auto& nested_col = nullable_col->get_nested_column();                                  \
             if (nested_col.is_column_dictionary()) {                                               \
-                if constexpr (std::is_same_v<type, StringValue>) {                                 \
+                if constexpr (std::is_same_v<T, StringValue>) {                                    \
                     auto* nested_col_ptr = vectorized::check_and_get_column<                       \
                             vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);          \
                     auto& data_array = nested_col_ptr->get_data();                                 \
                     for (uint16_t i = 0; i < *size; i++) {                                         \
                         uint16_t idx = sel[i];                                                     \
                         sel[new_size] = idx;                                                       \
-                        const auto& cell_value =                                                   \
-                                reinterpret_cast<const vectorized::Int32&>(data_array[idx]);       \
+                        const auto& cell_value = data_array[idx];                                  \
                         bool ret = !null_bitmap[idx] && (cell_value OP _dict_code);                \
                         new_size += _opposite ? !ret : ret;                                        \
                     }                                                                              \
                 }                                                                                  \
             } else {                                                                               \
                 auto* nested_col_ptr =                                                             \
-                        vectorized::check_and_get_column<vectorized::PredicateColumnType<type>>(   \
+                        vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(      \
                                 nested_col);                                                       \
                 auto& data_array = nested_col_ptr->get_data();                                     \
                 for (uint16_t i = 0; i < *size; i++) {                                             \
                     uint16_t idx = sel[i];                                                         \
                     sel[new_size] = idx;                                                           \
-                    const type& cell_value = reinterpret_cast<const type&>(data_array[idx]);       \
+                    const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);          \
                     bool ret = !null_bitmap[idx] && (cell_value OP _value);                        \
                     new_size += _opposite ? !ret : ret;                                            \
                 }                                                                                  \
             }                                                                                      \
             *size = new_size;                                                                      \
         } else if (column.is_column_dictionary()) {                                                \
-            if constexpr (std::is_same_v<type, StringValue>) {                                     \
+            if constexpr (std::is_same_v<T, StringValue>) {                                        \
                 auto& dict_col =                                                                   \
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(column);\
                 auto& data_array = dict_col.get_data();                                            \
                 for (uint16_t i = 0; i < *size; ++i) {                                             \
                     uint16_t idx = sel[i];                                                         \
                     sel[new_size] = idx;                                                           \
-                    const auto& cell_value =                                                       \
-                            reinterpret_cast<const vectorized::Int32&>(data_array[idx]);           \
+                    const auto& cell_value = data_array[idx];                                      \
                     bool ret = cell_value OP _dict_code;                                           \
                     new_size += _opposite ? !ret : ret;                                            \
                 }                                                                                  \
@@ -203,12 +201,12 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
             }                                                                                      \
         } else {                                                                                   \
             auto& pred_column_ref =                                                                \
-                    reinterpret_cast<vectorized::PredicateColumnType<type>&>(column);              \
+                    reinterpret_cast<vectorized::PredicateColumnType<T>&>(column);                 \
             auto& data_array = pred_column_ref.get_data();                                         \
             for (uint16_t i = 0; i < *size; i++) {                                                 \
                 uint16_t idx = sel[i];                                                             \
                 sel[new_size] = idx;                                                               \
-                const type& cell_value = reinterpret_cast<const type&>(data_array[idx]);           \
+                const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);              \
                 auto ret = cell_value OP _value;                                                   \
                 new_size += _opposite ? !ret : ret;                                                \
             }                                                                                      \
@@ -225,13 +223,13 @@ COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=)
 
 #define COMPARISON_PRED_COLUMN_EVALUATE_VEC(CLASS, OP)                                         \
-    template <class type>                                                                      \
-    void CLASS<type>::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags)    \
+    template <class T>                                                                         \
+    void CLASS<T>::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags)       \
             const {                                                                            \
         if (column.is_nullable()) {                                                            \
             auto* nullable_column =                                                            \
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);      \
-            auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<type>&>( \
+            auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<T>&>(    \
                                        nullable_column->get_nested_column())                   \
                                        .get_data();                                            \
             auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>(    \
@@ -242,7 +240,7 @@ COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=)
             }                                                                                  \
         } else {                                                                               \
             auto& predicate_column =                                                           \
-                    reinterpret_cast<vectorized::PredicateColumnType<type>&>(column);          \
+                    reinterpret_cast<vectorized::PredicateColumnType<T>&>(column);             \
             auto& data_array = predicate_column.get_data();                                    \
             for (uint16_t i = 0; i < size; i++) {                                              \
                 flags[i] = data_array[i] OP _value;                                            \
@@ -263,15 +261,15 @@ COMPARISON_PRED_COLUMN_EVALUATE_VEC(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_EVALUATE_VEC(GreaterEqualPredicate, >=)
 
 #define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(CLASS, OP)                                      \
-    template <class type>                                                                        \
-    void CLASS<type>::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) \
+    template <class T>                                                                           \
+    void CLASS<T>::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags)    \
             const {                                                                              \
         if (block->is_nullable()) {                                                              \
             for (uint16_t i = 0; i < size; ++i) {                                                \
                 if (flags[i]) continue;                                                          \
                 uint16_t idx = sel[i];                                                           \
-                const type* cell_value =                                                         \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());              \
+                const T* cell_value =                                                            \
+                        reinterpret_cast<const T*>(block->cell(idx).cell_ptr());                 \
                 auto result = (!block->cell(idx).is_null() && (*cell_value OP _value));          \
                 flags[i] |= _opposite ? !result : result;                                        \
             }                                                                                    \
@@ -279,8 +277,8 @@ COMPARISON_PRED_COLUMN_EVALUATE_VEC(GreaterEqualPredicate, >=)
             for (uint16_t i = 0; i < size; ++i) {                                                \
                 if (flags[i]) continue;                                                          \
                 uint16_t idx = sel[i];                                                           \
-                const type* cell_value =                                                         \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());              \
+                const T* cell_value =                                                            \
+                        reinterpret_cast<const T*>(block->cell(idx).cell_ptr());                 \
                 auto result = (*cell_value OP _value);                                           \
                 flags[i] |= _opposite ? !result : result;                                        \
             }                                                                                    \
@@ -295,11 +293,11 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(GreaterEqualPredicate, >=)
 
 #define COMPARISON_PRED_COLUMN_EVALUATE_OR(CLASS, OP)                                                                                                \
-    template <class type>                                                                                                                            \
-    void CLASS<type>::evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {                                    \
+    template <class T>                                                                                                                               \
+    void CLASS<T>::evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {                                       \
         if (column.is_nullable()) {                                                                                                                  \
             auto* nullable_column = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);                                            \
-            auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<type>&>(nullable_column->get_nested_column()).get_data();      \
+            auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<T>&>(nullable_column->get_nested_column()).get_data();         \
             auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>(*(nullable_column->get_null_map_column_ptr())).get_data();\
             for (uint16_t i = 0; i < size; i++) {                                                                                                    \
                 if (flags[i]) continue;                                                                                                              \
@@ -308,7 +306,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(GreaterEqualPredicate, >=)
                 flags[i] |= _opposite ? !ret : ret;                                                                                                  \
             }                                                                                                                                        \
         } else {                                                                                                                                     \
-            auto& predicate_column = reinterpret_cast<vectorized::PredicateColumnType<type>&>(column);                                               \
+            auto& predicate_column = reinterpret_cast<vectorized::PredicateColumnType<T>&>(column);                                                  \
             auto& data_array = predicate_column.get_data();                                                                                          \
             for (uint16_t i = 0; i < size; ++i) {                                                                                                    \
                 if (flags[i]) continue;                                                                                                              \
@@ -327,15 +325,15 @@ COMPARISON_PRED_COLUMN_EVALUATE_OR(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_EVALUATE_OR(GreaterEqualPredicate, >=)
 
 #define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(CLASS, OP)                                      \
-    template <class type>                                                                         \
-    void CLASS<type>::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) \
+    template <class T>                                                                            \
+    void CLASS<T>::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags)    \
             const {                                                                               \
         if (block->is_nullable()) {                                                               \
             for (uint16_t i = 0; i < size; ++i) {                                                 \
                 if (!flags[i]) continue;                                                          \
                 uint16_t idx = sel[i];                                                            \
-                const type* cell_value =                                                          \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());               \
+                const T* cell_value =                                                             \
+                        reinterpret_cast<const T*>(block->cell(idx).cell_ptr());                  \
                 auto result = (!block->cell(idx).is_null() && (*cell_value OP _value));           \
                 flags[i] &= _opposite ? !result : result;                                         \
             }                                                                                     \
@@ -343,8 +341,8 @@ COMPARISON_PRED_COLUMN_EVALUATE_OR(GreaterEqualPredicate, >=)
             for (uint16_t i = 0; i < size; ++i) {                                                 \
                 if (!flags[i]) continue;                                                          \
                 uint16_t idx = sel[i];                                                            \
-                const type* cell_value =                                                          \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());               \
+                const T* cell_value =                                                             \
+                        reinterpret_cast<const T*>(block->cell(idx).cell_ptr());                  \
                 auto result = (*cell_value OP _value);                                            \
                 flags[i] &= _opposite ? !result : result;                                         \
             }                                                                                     \
@@ -359,11 +357,11 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(GreaterEqualPredicate, >=)
 
 #define COMPARISON_PRED_COLUMN_EVALUATE_AND(CLASS, OP)                                                                                               \
-    template <class type>                                                                                                                            \
-    void CLASS<type>::evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {                                   \
+    template <class T>                                                                                                                               \
+    void CLASS<T>::evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {                                      \
         if (column.is_nullable()) {                                                                                                                  \
             auto* nullable_column = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);                                            \
-            auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<type>&>(nullable_column->get_nested_column()).get_data();      \
+            auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<T>&>(nullable_column->get_nested_column()).get_data();         \
             auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>(*(nullable_column->get_null_map_column_ptr())).get_data();\
             for (uint16_t i = 0; i < size; i++) {                                                                                                    \
                 if (!flags[i]) continue;                                                                                                             \
@@ -372,7 +370,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(GreaterEqualPredicate, >=)
                 flags[i] &= _opposite ? !ret : ret;                                                                                                  \
             }                                                                                                                                        \
         } else {                                                                                                                                     \
-            auto& predicate_column = reinterpret_cast<vectorized::PredicateColumnType<type>&>(column);                                               \
+            auto& predicate_column = reinterpret_cast<vectorized::PredicateColumnType<T>&>(column);                                                  \
             auto& data_array = predicate_column.get_data();                                                                                          \
             for (uint16_t i = 0; i < size; ++i) {                                                                                                    \
                 if (!flags[i]) continue;                                                                                                             \
@@ -473,8 +471,8 @@ COMPARISON_PRED_COLUMN_EVALUATE_AND(GreaterEqualPredicate, >=)
     BITMAP_COMPARE_##CLASS(s, exact_match, seeked_ordinal, iterator, bitmap, roaring)
 
 #define COMPARISON_PRED_BITMAP_EVALUATE(CLASS, OP)                                        \
-    template <class type>                                                                 \
-    Status CLASS<type>::evaluate(const Schema& schema,                                    \
+    template <class T>                                                                    \
+    Status CLASS<T>::evaluate(const Schema& schema,                                       \
                                  const std::vector<BitmapIndexIterator*>& iterators,      \
                                  uint32_t num_rows, roaring::Roaring* bitmap) const {     \
         BitmapIndexIterator* iterator = iterators[_column_id];                            \
