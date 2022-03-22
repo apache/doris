@@ -32,7 +32,7 @@ namespace doris {
 
 // glog doesn't allow multiple invocations of InitGoogleLogging. This method conditionally
 // calls InitGoogleLogging only if it hasn't been called before.
-bool init_glog(const char* basename, bool install_signal_handler = false);
+bool init_glog(const char* basename);
 
 // Shuts down the google logging library. Call before exit to ensure that log files are
 // flushed. May only be called once.

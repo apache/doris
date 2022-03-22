@@ -235,7 +235,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     // google::SetVersionString(get_build_version(false));
     // google::ParseCommandLineFlags(&argc, &argv, true);
     google::ParseCommandLineFlags(&argc, &argv, true);
-    init_glog("be", true);
+    init_glog("be");
 
     LOG(INFO) << get_version_string(false);
 
