@@ -24,6 +24,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
@@ -109,54 +110,8 @@ Schema::~Schema() {
     }
 }
 
-vectorized::DataTypePtr Schema::get_data_type_ptr(FieldType type) {
-    switch (type) {
-    case OLAP_FIELD_TYPE_BOOL:
-        return std::make_shared<vectorized::DataTypeUInt8>();
-
-    case OLAP_FIELD_TYPE_TINYINT:
-        return std::make_shared<vectorized::DataTypeInt8>();
-
-    case OLAP_FIELD_TYPE_SMALLINT:
-        return std::make_shared<vectorized::DataTypeInt16>();
-
-    case OLAP_FIELD_TYPE_INT:
-        return std::make_shared<vectorized::DataTypeInt32>();
-
-    case OLAP_FIELD_TYPE_FLOAT:
-        return std::make_shared<vectorized::DataTypeFloat32>();
-
-    case OLAP_FIELD_TYPE_BIGINT:
-        return std::make_shared<vectorized::DataTypeInt64>();
-
-    case OLAP_FIELD_TYPE_LARGEINT:
-        return std::make_shared<vectorized::DataTypeInt128>();
-
-    case OLAP_FIELD_TYPE_DATE:
-        return std::make_shared<vectorized::DataTypeDate>();
-
-    case OLAP_FIELD_TYPE_DATETIME:
-        return std::make_shared<vectorized::DataTypeDateTime>();
-
-    case OLAP_FIELD_TYPE_DOUBLE:
-        return std::make_shared<vectorized::DataTypeFloat64>();
-
-    case OLAP_FIELD_TYPE_CHAR:
-    case OLAP_FIELD_TYPE_VARCHAR:
-    case OLAP_FIELD_TYPE_STRING:
-        return std::make_shared<vectorized::DataTypeString>();
-    case OLAP_FIELD_TYPE_HLL:
-        return std::make_shared<vectorized::DataTypeHLL>();
-    case OLAP_FIELD_TYPE_OBJECT:
-        return std::make_shared<vectorized::DataTypeBitMap>();
-
-    case OLAP_FIELD_TYPE_DECIMAL:
-        return std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
-
-    default:
-        DCHECK(false);
-        return nullptr;
-    }
+vectorized::DataTypePtr Schema::get_data_type_ptr(const Field& field) {
+    return vectorized::DataTypeFactory::instance().create_data_type(field);
 }
 
 vectorized::IColumn::MutablePtr Schema::get_predicate_column_nullable_ptr(FieldType type,

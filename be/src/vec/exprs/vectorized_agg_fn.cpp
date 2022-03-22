@@ -23,6 +23,7 @@
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/materialize_block.h"
+#include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
 
@@ -38,11 +39,11 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
           _exec_timer(nullptr),
           _merge_timer(nullptr),
           _expr_timer(nullptr) {
+        bool nullable = true;
         if (desc.__isset.is_nullable) {
-          _data_type = IDataType::from_thrift(_return_type.type, desc.is_nullable);
-        } else {
-          _data_type = IDataType::from_thrift(_return_type.type);
+            nullable = desc.is_nullable;
         }
+        _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
     }
 
 Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluator** result) {

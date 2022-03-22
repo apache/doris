@@ -715,14 +715,8 @@ void SegmentIterator::_init_current_block(
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
-            auto data_type = Schema::get_data_type_ptr(column_desc->type());
-            if (column_desc->is_nullable()) {
-                block->insert({nullptr,
-                               std::make_shared<vectorized::DataTypeNullable>(std::move(data_type)),
-                               column_desc->name()});
-            } else {
-                block->insert({nullptr, std::move(data_type), column_desc->name()});
-            }
+            auto data_type = Schema::get_data_type_ptr(*column_desc);
+            block->insert({nullptr, std::move(data_type), column_desc->name()});
         }
     }
 
@@ -735,13 +729,8 @@ void SegmentIterator::_init_current_block(
             if (is_block_mem_reuse) {
                 current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
             } else {
-                auto data_type = Schema::get_data_type_ptr(column_desc->type());
-                if (column_desc->is_nullable()) {
-                    current_columns[cid] = doris::vectorized::ColumnNullable::create(
-                            data_type->create_column(), doris::vectorized::ColumnUInt8::create());
-                } else {
-                    current_columns[cid] = data_type->create_column();
-                }
+                auto data_type = Schema::get_data_type_ptr(*column_desc);
+                current_columns[cid] = data_type->create_column();
             }
             if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();
@@ -929,7 +918,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             } else { // predicate
                 if (!is_mem_reuse) {
                     auto column_desc = _schema.column(cid);
-                    auto data_type = Schema::get_data_type_ptr(column_desc->type());
+                    auto data_type = Schema::get_data_type_ptr(*column_desc);
                     block->replace_by_position(i, data_type->create_column());
                 }
             }
