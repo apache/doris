@@ -15,22 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/array/function_array_index.h"
+#include "vec/functions/array/function_array_element.h"
 
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
-struct NameArrayContains {
-    static constexpr auto name = "array_contains";
-};
-struct NameArrayPosition {
-    static constexpr auto name = "array_position";
-};
-
-void register_function_array_index(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionArrayIndex<ArrayContainsAction, NameArrayContains>>();
-    factory.register_function<FunctionArrayIndex<ArrayPositionAction, NameArrayPosition>>();
+void register_function_array_element(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionArrayElement>();
+    factory.register_alias(FunctionArrayElement::name, "%element_extract%");
 }
 
 } // namespace doris::vectorized
