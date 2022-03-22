@@ -22,6 +22,7 @@ namespace doris::vectorized {
 void register_function_fake(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionFake<FunctionEsqueryImpl>>();
     factory.register_function<FunctionFake<FunctionExplodeSplitImpl>>();
+    factory.register_function<FunctionFake<FunctionExplodeNumbersImpl>>();
 }
 
 } // namespace doris::vectorized

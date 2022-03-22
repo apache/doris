@@ -82,15 +82,14 @@ public class FunctionCallExpr extends Expr {
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
-    //use to record the num of json_object parameters 
+    // use to record the num of json_object parameters 
     private int originChildSize;
     // Save the functionCallExpr in the original statement
     private Expr originStmtFnExpr;
 
     private boolean isRewrote = false;
 
-    public static final String UNKNOWN_TABLE_FUNCTION_MSG = "Currently only support `explode_split`, `explode_bitmap` " +
-            "and `explode_json_array_xx` table functions";
+    public static final String UNKNOWN_TABLE_FUNCTION_MSG = "This table function not supported now";
 
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
@@ -184,7 +183,7 @@ public class FunctionCallExpr extends Expr {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < children.size(); ++i) {
             Type type = getChild(i).getType();
-            if (type.isNull()) { //Not to return NULL directly, so save string, but flag is '0'
+            if (type.isNull()) { // Not to return NULL directly, so save string, but flag is '0'
                 if (((i & 1) == 0) && useKeyCheck == true) {
                     throw new AnalysisException("json_object key can't be NULL: " + this.toSql());
                 }
