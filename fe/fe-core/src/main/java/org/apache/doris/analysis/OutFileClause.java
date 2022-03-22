@@ -173,6 +173,12 @@ public class OutFileClause {
             case "csv":
                 fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
                 break;
+            case "csv_with_names":
+                fileFormatType = TFileFormatType.FORMAT_CSVWITHNAMES_PLAIN;
+                break;
+            case "csv_with_names_and_types":
+                fileFormatType = TFileFormatType.FORMAT_CSVWITHNAMESANDTYPES_PLAIN;
+                break;
             case "parquet":
                 fileFormatType = TFileFormatType.FORMAT_PARQUET;
                 break;
@@ -492,7 +498,21 @@ public class OutFileClause {
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
                 || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
-                || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
+                || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMES_PLAIN
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMES_GZ
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMES_LZO
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMES_BZ2
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMES_LZ4FRAME
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMES_LZOP
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMES_DEFLATE
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMESANDTYPES_PLAIN
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMESANDTYPES_GZ
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMESANDTYPES_LZO
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMESANDTYPES_BZ2
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMESANDTYPES_LZ4FRAME
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMESANDTYPES_LZOP
+                || fileFormatType == TFileFormatType.FORMAT_CSVWITHNAMESANDTYPES_DEFLATE;
     }
 
     private boolean isParquetFormat() {

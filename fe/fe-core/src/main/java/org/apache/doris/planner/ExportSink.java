@@ -35,6 +35,7 @@ public class ExportSink extends DataSink {
     private final String columnSeparator;
     private final String lineDelimiter;
     private BrokerDesc brokerDesc;
+    private String header="";
 
     public ExportSink(String exportPath, String columnSeparator,
                       String lineDelimiter, BrokerDesc brokerDesc) {
@@ -42,6 +43,15 @@ public class ExportSink extends DataSink {
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
         this.brokerDesc = brokerDesc;
+    }
+
+    public ExportSink(String exportPath, String columnSeparator,
+        String lineDelimiter, BrokerDesc brokerDesc,String header) {
+        this.exportPath = exportPath;
+        this.columnSeparator = columnSeparator;
+        this.lineDelimiter = lineDelimiter;
+        this.brokerDesc = brokerDesc;
+        this.header = header;
     }
 
     @Override
@@ -67,7 +77,7 @@ public class ExportSink extends DataSink {
     @Override
     protected TDataSink toThrift() {
         TDataSink result = new TDataSink(TDataSinkType.EXPORT_SINK);
-        TExportSink tExportSink = new TExportSink(brokerDesc.getFileType(), exportPath, columnSeparator, lineDelimiter);
+        TExportSink tExportSink = new TExportSink(brokerDesc.getFileType(), exportPath, columnSeparator, lineDelimiter, header);
 
         if (brokerDesc.getFileType() == TFileType.FILE_BROKER) {
             FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());

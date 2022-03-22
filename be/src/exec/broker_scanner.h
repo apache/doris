@@ -90,8 +90,10 @@ private:
     Status _convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool);
 
     Status _line_to_src_tuple(const Slice& line);
+    uint32_t skip_line(const TBrokerRangeDesc& range);
 
 private:
+    int _skip_rows;
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
 

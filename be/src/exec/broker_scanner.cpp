@@ -103,6 +103,10 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, boo
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         RETURN_IF_ERROR(_cur_line_reader->read_line(&ptr, &size, &_cur_line_reader_eof));
+        if(_skip_rows>0){
+            _skip_rows--;
+            continue;
+        }
         if (_skip_next_line) {
             _skip_next_line = false;
             continue;
@@ -145,6 +149,34 @@ Status BrokerScanner::open_next_reader() {
     return Status::OK();
 }
 
+uint32_t BrokerScanner::skip_line(const TBrokerRangeDesc& range){
+    switch (range.format_type) {
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE:
+            return 0;
+        case TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN:
+        case TFileFormatType::FORMAT_CSVWITHNAMES_GZ:
+        case TFileFormatType::FORMAT_CSVWITHNAMES_BZ2:
+        case TFileFormatType::FORMAT_CSVWITHNAMES_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSVWITHNAMES_LZOP:
+        case TFileFormatType::FORMAT_CSVWITHNAMES_DEFLATE:
+            return 1;
+        case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN:
+        case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_GZ:
+        case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_BZ2:
+        case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZOP:
+        case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_DEFLATE:
+            return 2;
+        default:
+            return 0;
+    }
+}
+
 Status BrokerScanner::open_file_reader() {
     if (_cur_file_reader != nullptr) {
         if (_stream_load_pipe != nullptr) {
@@ -161,6 +193,11 @@ Status BrokerScanner::open_file_reader() {
     if (start_offset != 0) {
         start_offset -= 1;
     }
+    //means first range 
+    if(start_offset == 0){
+        _skip_rows = skip_line(range);
+    }
+    VLOG_NOTICE << "start_offset:" << start_offset <<",_skip_rows";
     switch (range.file_type) {
     case TFileType::FILE_LOCAL: {
         LocalFileReader* file_reader = new LocalFileReader(range.path, start_offset);
@@ -219,23 +256,35 @@ Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
     CompressType compress_type;
     switch (type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN:
     case TFileFormatType::FORMAT_JSON:
     case TFileFormatType::FORMAT_PROTO:
         compress_type = CompressType::UNCOMPRESSED;
         break;
     case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_GZ:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_GZ:
         compress_type = CompressType::GZIP;
         break;
     case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_BZ2:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_BZ2:
         compress_type = CompressType::BZIP2;
         break;
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZ4FRAME:
         compress_type = CompressType::LZ4FRAME;
         break;
     case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_LZOP:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZOP:
         compress_type = CompressType::LZOP;
         break;
     case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_DEFLATE:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_DEFLATE:
         compress_type = CompressType::DEFLATE;
         break;
     default: {
@@ -263,7 +312,10 @@ Status BrokerScanner::open_line_reader() {
     const TBrokerRangeDesc& range = _ranges[_next_range];
     int64_t size = range.size;
     if (range.start_offset != 0) {
-        if (range.format_type != TFileFormatType::FORMAT_CSV_PLAIN) {
+        if (range.format_type != TFileFormatType::FORMAT_CSV_PLAIN || 
+            range.format_type != TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN ||
+            range.format_type != TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN
+        ) {
             std::stringstream ss;
             ss << "For now we do not support split compressed file";
             return Status::InternalError(ss.str());
@@ -287,6 +339,18 @@ Status BrokerScanner::open_line_reader() {
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_GZ:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_BZ2:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_LZOP:
+    case TFileFormatType::FORMAT_CSVWITHNAMES_DEFLATE:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_GZ:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_BZ2:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZOP:
+    case TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_DEFLATE:
         _cur_line_reader = new PlainTextLineReader(_profile, _cur_file_reader, _cur_decompressor,
                                                    size, _line_delimiter, _line_delimiter_length);
         break;

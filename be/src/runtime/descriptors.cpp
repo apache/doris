@@ -101,7 +101,7 @@ vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
 
 std::string SlotDescriptor::debug_string() const {
     std::stringstream out;
-    out << "Slot(id=" << _id << " type=" << _type << " col=" << _col_pos
+    out << "Slot(id=" << _id << " type=" << _type << " col=" << _col_pos << ", _col_name=" << _col_name
         << " offset=" << _tuple_offset << " null=" << _null_indicator_offset.debug_string() << ")";
     return out.str();
 }
