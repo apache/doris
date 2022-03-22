@@ -108,21 +108,12 @@ export LD_LIBRARY_PATH=$TP_DIR/installed/lib:$LD_LIBRARY_PATH
 # toolchain specific warning options and settings
 if [[ "$CC" == *gcc ]]
 then
-    warning_uninitialized=-Wno-maybe-uninitialized
-    warning_stringop_truncation=-Wno-stringop-truncation
     warning_class_memaccess=-Wno-class-memaccess
-    warning_array_parameter=-Wno-array-parameter
     boost_toolset=gcc
 elif [[ "$CC" == *clang ]]
 then
-    warning_uninitialized=-Wno-uninitialized
-    warning_shadow=-Wno-shadow
-    warning_dangling_gsl=-Wno-dangling-gsl
-    warning_unused_but_set_variable=-Wno-unused-but-set-variable
-    warning_defaulted_function_deleted=-Wno-defaulted-function-deleted
     warning_reserved_identifier=-Wno-reserved-identifier
     warning_suggest_override="-Wno-suggest-override -Wno-suggest-destructor-override"
-    warning_option_ignored=-Wno-option-ignored
     boost_toolset=clang
     libhdfs_cxx17=-std=c++1z
 fi
@@ -353,7 +344,6 @@ build_gtest() {
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     ${CMAKE_CMD} ../ -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DCMAKE_POSITION_INDEPENDENT_CODE=On
-    # -DCMAKE_CXX_FLAGS="$warning_uninitialized"
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
@@ -497,38 +487,17 @@ build_boost() {
     ./b2 -q link=static runtime-link=static -j $PARALLEL --without-mpi --without-graph --without-graph_parallel --without-python cxxflags="-std=c++11 -g -fPIC -I$TP_INCLUDE_DIR -L$TP_LIB_DIR" install
 }
 
-# mysql
-build_mysql() {
-    check_if_source_exist $MYSQL_SOURCE
-    check_if_source_exist $BOOST_SOURCE
+# mariadb-connector-c
+build_mariadb_connector_c() {
+    check_if_source_exist $MARIADB_CONNECTOR_C_SOURCE
 
-    cd $TP_SOURCE_DIR/$MYSQL_SOURCE
-
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    rm -rf CMakeCache.txt CMakeFiles/
-    if [ ! -d $BOOST_SOURCE ]; then
-        cp -rf $TP_SOURCE_DIR/$BOOST_SOURCE ./
-    fi
-
-    CFLAGS="-static -pthread -lrt" CXXFLAGS="-static -pthread -lrt" \
-    ${CMAKE_CMD} -G "${GENERATOR}" ../ -DCMAKE_LINK_SEARCH_END_STATIC=1 \
-    -DWITH_BOOST=`pwd`/$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/mysql/ \
-    -DWITHOUT_SERVER=1 -DWITH_ZLIB=1 -DZLIB_ROOT=$TP_INSTALL_DIR \
-    -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g -fabi-version=2 -fno-omit-frame-pointer -fno-strict-aliasing -std=gnu++11" \
-    -DDISABLE_SHARED=1 -DBUILD_SHARED_LIBS=0 -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a -DENABLE_DTRACE=0
-    ${BUILD_SYSTEM} -v -j $PARALLEL mysqlclient
-
-    # copy headers manually
-    rm -rf ../../../installed/include/mysql/
-    mkdir ../../../installed/include/mysql/ -p
-    cp -R ./include/* ../../../installed/include/mysql/
-    cp -R ../include/* ../../../installed/include/mysql/
-    cp ../libbinlogevents/export/binary_log_types.h ../../../installed/include/mysql/
-    echo "mysql headers are installed."
-
-    # copy libmysqlclient.a
-    cp libmysql/libmysqlclient.a ../../../installed/lib/
-    echo "mysql client lib is installed."
+    cd $TP_SOURCE_DIR/$MARIADB_CONNECTOR_C_SOURCE
+    rm -rf $BUILD_DIR && mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    ${CMAKE_CMD} -G "${GENERATOR}" ../ -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DCMAKE_C_FLAGS="-I${TP_INCLUDE_DIR}" \
+    -DWITH_SSL=$TP_INSTALL_DIR 
+    cmake --build . --target install --config RelWithDebInfo
 }
 
 #leveldb
@@ -986,7 +955,7 @@ build_libdivide
 build_orc
 build_cctz
 build_tsan_header
-build_mysql
+build_mariadb_connector_c
 build_aws_sdk
 build_js_and_css
 build_lzma

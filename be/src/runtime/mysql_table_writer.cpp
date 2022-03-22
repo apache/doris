@@ -17,7 +17,7 @@
 
 #include "runtime/mysql_table_writer.h"
 
-#include <mysql/mysql.h>
+#include <mariadb/mysql.h>
 
 #include <sstream>
 

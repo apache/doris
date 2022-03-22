@@ -71,6 +71,8 @@ set(EXEC_FILES
     intersect_node.cpp
     except_node.cpp
     repeat_node.cpp
+    mysql_scan_node.cpp
+    mysql_scanner.cpp
     schema_scanner.cpp
     schema_scan_node.cpp
     schema_scanner/schema_tables_scanner.cpp
@@ -111,14 +113,6 @@ if (ARCH_AMD64)
         ${EXEC_FILES}
         hdfs_file_reader.cpp
         hdfs_writer.cpp
-        )
-endif()
-
-if (WITH_MYSQL)
-    set(EXEC_FILES
-        ${EXEC_FILES}
-        mysql_scan_node.cpp
-        mysql_scanner.cpp
         )
 endif()
 

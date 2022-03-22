@@ -84,7 +84,6 @@ else()
     option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 endif()
 message(STATUS "make test: ${MAKE_TEST}")
-option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -99,18 +98,10 @@ if(PIC_LIB_PATH)
     set(CMAKE_SKIP_RPATH TRUE)
     set(Boost_USE_STATIC_LIBS ON)
     set(Boost_USE_STATIC_RUNTIME ON)
-    set(LIBBZ2 ${PIC_LIB_PATH}/lib/libbz2.a)
-    set(LIBZ ${PIC_LIB_PATH}/lib/libz.a)
-    set(LIBEVENT ${PIC_LIB_PATH}/lib/libevent.a)
-    set(LIBEVENT_PTHREADS ${PIC_LIB_PATH}/lib/libevent_pthreads.a)
 else()
     message(STATUS "undefined PIC_LIB_PATH")
     set(Boost_USE_STATIC_LIBS ON)
     set(Boost_USE_STATIC_RUNTIME ON)
-    set(LIBBZ2 -lbz2)
-    set(LIBZ -lz)
-    set(LIBEVENT event)
-    set(LIBEVENT_PTHREADS libevent_pthreads)
 endif()
 
 
@@ -195,16 +186,20 @@ if(WITH_LZO)
     set_target_properties(lzo PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liblzo2.a)
 endif()
 
-if (WITH_MYSQL)
-    add_library(mysql STATIC IMPORTED)
-    set_target_properties(mysql PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libmysqlclient.a)
-endif()
+add_library(mariadbclient STATIC IMPORTED)
+set_target_properties(mariadbclient PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/mariadb/libmariadbclient.a)
 
 add_library(libevent STATIC IMPORTED)
 set_target_properties(libevent PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent.a)
 
 add_library(libevent_pthreads STATIC IMPORTED)
 set_target_properties(libevent_pthreads PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libevent_pthreads.a)
+
+add_library(libbz2 STATIC IMPORTED)
+set_target_properties(libbz2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbz2.a)
+
+add_library(libz STATIC IMPORTED)
+set_target_properties(libz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libz.a)
 
 add_library(crypto STATIC IMPORTED)
 set_target_properties(crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcrypto.a)
@@ -401,10 +396,6 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
 endif()
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
-if (WITH_MYSQL)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
-endif()
-
 if (WITH_LZO)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_LZO")
 endif()
@@ -567,8 +558,8 @@ set(COMMON_THIRDPARTY
     idn
     gsasl
     curl
-    ${LIBZ}
-    ${LIBBZ2}
+    libz
+    libbz2
     gflags
     brpc
     protobuf
@@ -594,6 +585,7 @@ set(COMMON_THIRDPARTY
     # put this after lz4 to avoid using lz4 lib in librdkafka
     librdkafka_cpp
     librdkafka
+    mariadbclient
 )
 
 if (${MAKE_TEST} STREQUAL "ON")
@@ -632,13 +624,10 @@ if(WITH_LZO)
     )
 endif()
 
-if (WITH_MYSQL)
-    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-        mysql
-        )
-endif()
-
-set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
+set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP}
+    "-Wl,--no-whole-archive"
+    "-Wl,--exclude-libs,ALL"
+)
 
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 

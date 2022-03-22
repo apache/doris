@@ -42,15 +42,10 @@ Status LoadErrorHub::create_hub(ExecEnv* env, const TLoadErrorHubInfo* t_hub_inf
 
     switch (t_hub_info->type) {
     case TErrorHubType::MYSQL:
-#ifdef DORIS_WITH_MYSQL
         tmp_hub = new MysqlLoadErrorHub(t_hub_info->mysql_info);
         tmp_hub->prepare();
         hub->reset(tmp_hub);
         break;
-#else
-        return Status::InternalError(
-                "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
-#endif
     case TErrorHubType::BROKER: {
         // the origin file name may contains __shard_0/xxx
         // replace the '/' with '_'

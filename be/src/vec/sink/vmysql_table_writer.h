@@ -18,7 +18,7 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <mysql/mysql.h>
+#include <mariadb/mysql.h>
 
 #include <string>
 #include <vector>

@@ -155,12 +155,6 @@ BOOST_NAME=boost_1_73_0.tar.gz
 BOOST_SOURCE=boost_1_73_0
 BOOST_MD5SUM="4036cd27ef7548b8d29c30ea10956196"
 
-# mysql
-MYSQL_DOWNLOAD="https://github.com/mysql/mysql-server/archive/mysql-5.7.18.tar.gz"
-MYSQL_NAME=mysql-5.7.18.tar.gz
-MYSQL_SOURCE=mysql-server-mysql-5.7.18
-MYSQL_MD5SUM="58598b10dce180e4d1fbdd7cf5fa68d6"
-
 # unix odbc
 ODBC_DOWNLOAD="http://www.unixodbc.org/unixODBC-2.3.7.tar.gz"
 ODBC_NAME=unixODBC-2.3.7.tar.gz
@@ -377,6 +371,13 @@ LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
 LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
 LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
 
+# mariadb-connector-c
+
+MARIADB_CONNECTOR_C_DOWNLOAD="https://mirrors.aliyun.com/mariadb//connector-c-3.1.13/mariadb-connector-c-3.1.13-src.tar.gz"
+MARIADB_CONNECTOR_C_NAME=mariadb-connector-c-3.1.13-src.tar.gz
+MARIADB_CONNECTOR_C_SOURCE=mariadb-connector-c-3.1.13-src
+MARIADB_CONNECTOR_C_MD5SUM="702b0718ca09ab394ddbd34b3bf2a4f1"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -395,7 +396,7 @@ LZO2
 CURL
 RE2
 BOOST
-MYSQL
+MARIADB_CONNECTOR_C
 ODBC
 LEVELDB
 BRPC

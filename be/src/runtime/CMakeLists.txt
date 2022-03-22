@@ -111,14 +111,9 @@ set(RUNTIME_FILES
     cache/result_cache.cpp
     odbc_table_sink.cpp	
     minidump.cpp
+    mysql_table_writer.cpp
+    mysql_table_sink.cpp
 )
-
-if (WITH_MYSQL)
-    set(RUNTIME_FILES ${RUNTIME_FILES}
-        mysql_table_writer.cpp
-        mysql_table_sink.cpp
-        )
-endif()
 
 add_library(Runtime STATIC
     ${RUNTIME_FILES}

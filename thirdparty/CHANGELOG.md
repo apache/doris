@@ -2,8 +2,13 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
+## v20220322
+- Added: mariadb-connector-c-3.1.13
+- Removed: mysql-server-5.7.18
+- Modified: rocksdb 5.14.2 -> 6.29.4
+
 ## v20220321
-- Add libbacktrace, it is used by boost stacktrace to print exception stack.
+- Added: libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e, it is used by boost stacktrace to print exception stack.
 
 ## v20220316
 - Modified: CRoaring 0.3.4 -> 0.4.0

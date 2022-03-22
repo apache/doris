@@ -188,7 +188,7 @@ if [[ ${HELP} -eq 1 ]]; then
 fi
 
 # build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a ]]; then
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/mariadb/libmariadbclient.a ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
     rm -rf ${DORIS_THIRDPARTY}/installed
@@ -202,9 +202,6 @@ if [ ${CLEAN} -eq 1 -a ${BUILD_BE} -eq 0 -a ${BUILD_FE} -eq 0 -a ${BUILD_SPARK_D
     exit 0
 fi
 
-if [[ -z ${WITH_MYSQL} ]]; then
-    WITH_MYSQL=OFF
-fi
 if [[ -z ${GLIBC_COMPATIBILITY} ]]; then
     GLIBC_COMPATIBILITY=ON
 fi
@@ -236,7 +233,6 @@ echo "Get params:
     BUILD_JAVA_UDF      -- $BUILD_JAVA_UDF
     PARALLEL            -- $PARALLEL
     CLEAN               -- $CLEAN
-    WITH_MYSQL          -- $WITH_MYSQL
     WITH_LZO            -- $WITH_LZO
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
     USE_AVX2            -- $USE_AVX2
@@ -295,7 +291,6 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
             -DMAKE_TEST=OFF \
             ${CMAKE_USE_CCACHE} \
-            -DWITH_MYSQL=${WITH_MYSQL} \
             -DWITH_LZO=${WITH_LZO} \
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \

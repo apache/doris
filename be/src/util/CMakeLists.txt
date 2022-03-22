@@ -110,13 +110,8 @@ set(UTIL_FILES
   tuple_row_zorder_compare.cpp
   quantile_state.cpp
   jni-util.cpp
+  mysql_load_error_hub.cpp
 )
-
-if (WITH_MYSQL)
-    set(UTIL_FILES ${UTIL_FILES}
-        mysql_load_error_hub.cpp
-        )
-endif()
 
 add_library(Util STATIC
     ${UTIL_FILES}

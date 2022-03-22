@@ -407,16 +407,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     VLOG_CRITICAL << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
     switch (tnode.node_type) {
     case TPlanNodeType::MYSQL_SCAN_NODE:
-#ifdef DORIS_WITH_MYSQL
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VMysqlScanNode(pool, tnode, descs));
         } else
             *node = pool->add(new MysqlScanNode(pool, tnode, descs));
         return Status::OK();
-#else
-        return Status::InternalError(
-                "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
-#endif
     case TPlanNodeType::ODBC_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VOdbcScanNode(pool, tnode, descs));

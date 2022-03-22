@@ -17,7 +17,7 @@
 
 #ifndef DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
 #define DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
-#include <mysql/mysql.h>
+#include <mariadb/mysql.h>
 
 #include <string>
 #include <vector>
