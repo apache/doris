@@ -100,7 +100,7 @@ public:
 
     ~Schema();
 
-    static vectorized::DataTypePtr get_data_type_ptr(FieldType type);
+    static vectorized::DataTypePtr get_data_type_ptr(const Field& field);
 
     static vectorized::IColumn::MutablePtr get_predicate_column_ptr(FieldType type);
 

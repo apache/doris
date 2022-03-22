@@ -22,7 +22,14 @@
 #include <mutex>
 #include <string>
 
+#include "gen_cpp/data.pb.h"
+#include "olap/field.h"
+#include "olap/tablet_schema.h"
+#include "runtime/types.h"
+
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -74,7 +81,16 @@ public:
         return _empty_string;
     }
 
+    DataTypePtr create_data_type(const doris::Field& col_desc);
+    DataTypePtr create_data_type(const TabletColumn& col_desc);
+
+    DataTypePtr create_data_type(const TypeDescriptor& col_desc, bool is_nullable = true);
+
+    DataTypePtr create_data_type(const PColumnMeta& pcolumn);
+
 private:
+    DataTypePtr _create_primitive_data_type(const FieldType& type) const;
+
     void regist_data_type(const std::string& name, const DataTypePtr& data_type) {
         _data_type_map.emplace(name, data_type);
         _invert_data_type_map.emplace_back(data_type, name);
