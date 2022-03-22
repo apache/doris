@@ -337,7 +337,6 @@ private:
         segment_v2::ColumnIteratorOptions iter_opts;
         iter_opts.stats = stats;
         iter_opts.rblock = rblock;
-        iter_opts.mem_tracker = std::make_shared<MemTracker>();
         st = iter->init(iter_opts);
         return st.ok() ? iter : nullptr;
     }
