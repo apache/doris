@@ -28,10 +28,10 @@
 #include "runtime/large_int_value.h"
 #include "runtime/string_value.h"
 #include "udf/udf.h"
-
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -348,6 +348,27 @@ template <>
 struct PrimitiveTypeTraits<TYPE_STRING> {
     using CppType = StringValue;
     using ColumnType = vectorized::ColumnString;
+};
+
+// only for adapt get_predicate_column_ptr
+template <PrimitiveType type>
+struct PredicatePrimitiveTypeTraits {
+    using PredicateFieldType = typename PrimitiveTypeTraits<type>::CppType;
+};
+
+template <>
+struct PredicatePrimitiveTypeTraits<TYPE_DECIMALV2> {
+    using PredicateFieldType = decimal12_t;
+};
+
+template <>
+struct PredicatePrimitiveTypeTraits<TYPE_DATE> {
+    using PredicateFieldType = uint24_t;
+};
+
+template <>
+struct PredicatePrimitiveTypeTraits<TYPE_DATETIME> {
+    using PredicateFieldType = uint64_t;
 };
 
 } // namespace doris

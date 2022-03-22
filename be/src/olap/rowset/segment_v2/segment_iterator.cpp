@@ -25,6 +25,7 @@
 #include "olap/column_predicate.h"
 #include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
+#include "olap/olap_common.h"
 #include "olap/row.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
@@ -200,8 +201,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     // create used column iterator
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(
-                    _segment->new_column_iterator(cid, &_column_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.rblock = _rblock.get();
@@ -329,8 +329,7 @@ Status SegmentIterator::_init_return_column_iterators() {
     }
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
-            RETURN_IF_ERROR(
-                    _segment->new_column_iterator(cid, &_column_iterators[cid]));
+            RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
@@ -606,9 +605,9 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
 
-            if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR
-                || type == OLAP_FIELD_TYPE_STRING || predicate->is_in_predicate()
-                || predicate->is_bloom_filter_predicate()) {
+            if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
+                type == OLAP_FIELD_TYPE_STRING || predicate->is_in_predicate() ||
+                predicate->is_bloom_filter_predicate()) {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
                 _is_all_column_basic_type = false;
@@ -632,7 +631,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
                 _is_pred_column[cid] = true;
             }
         }
-        
+
         if (_schema.column_ids().size() > pred_column_ids.size()) {
             for (auto cid : _schema.column_ids()) {
                 if (!_is_pred_column[cid]) {
@@ -747,19 +746,6 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block, bool is
         block->replace_by_position(_schema_block_id_map[cid],
                                    std::move(_current_return_columns[cid]));
     }
-}
-
-Status SegmentIterator::_output_column_by_sel_idx(vectorized::Block* block,
-                                                  const std::vector<ColumnId>& columnIds,
-                                                  uint16_t* sel_rowid_idx, uint16_t select_size,
-                                                  bool is_block_mem_reuse) {
-    for (auto cid : columnIds) {
-        int block_cid = _schema_block_id_map[cid];
-        RETURN_IF_ERROR(block->copy_column_data_to_block(
-                is_block_mem_reuse, _current_return_columns[cid].get(), sel_rowid_idx, select_size,
-                block_cid, _opts.block_row_max));
-    }
-    return Status::OK();
 }
 
 Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
@@ -963,11 +949,14 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // 4.1 output non-predicate column
         _output_non_pred_columns(block, is_mem_reuse);
 
-        // 4.2 output short circuit predicate column
-        RETURN_IF_ERROR(_output_column_by_sel_idx(block, _short_cir_pred_column_ids, sel_rowid_idx,
-                                                  selected_size, is_mem_reuse));
-        // 4.3 output vectorizatioin predicate column
-        return _output_column_by_sel_idx(block, _vec_pred_column_ids, sel_rowid_idx, selected_size,
+        // 4.2 get union of short_cir_pred and vec_pred
+        std::set<ColumnId> pred_column_ids;
+        pred_column_ids.insert(_short_cir_pred_column_ids.begin(),
+                               _short_cir_pred_column_ids.end());
+        pred_column_ids.insert(_vec_pred_column_ids.begin(), _vec_pred_column_ids.end());
+
+        // 4.3 output short circuit and predicate column
+        return _output_column_by_sel_idx(block, pred_column_ids, sel_rowid_idx, selected_size,
                                          is_mem_reuse);
     }
 
