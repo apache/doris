@@ -136,6 +136,8 @@ public:
     static DateTimeVal cast_to_date_val(FunctionContext* context, const DoubleVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const DateTimeVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const StringVal& val);
+
+    static CollectionVal cast_to_array_val(FunctionContext* context, const StringVal& val);
 };
 
 } // namespace doris
