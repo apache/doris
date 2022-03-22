@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
@@ -30,11 +33,6 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -341,7 +339,6 @@ public class Column implements Writable {
         tColumn.setIsAllowNull(this.isAllowNull);
         tColumn.setDefaultValue(this.defaultValue);
         tColumn.setVisible(visible);
-        tColumn.setChildrenColumn(new ArrayList<>());
         toChildrenThrift(this, tColumn);
         
         // ATTN:
@@ -370,6 +367,7 @@ public class Column implements Writable {
             childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
             childrenTColumn.setColumnType(childrenTColumnType);
 
+            tColumn.setChildrenColumn(new ArrayList<>());
             tColumn.children_column.add(childrenTColumn);
 
             toChildrenThrift(children, childrenTColumn);
