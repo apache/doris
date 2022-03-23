@@ -739,7 +739,7 @@ public class ShowExecutor {
                 }
                 // Check_time
                 if (table.getLastCheckTime() > 0) {
-                    row.add(TimeUtils.longToTimeString(table.getLastCheckTime() * 1000));
+                    row.add(TimeUtils.longToTimeString(table.getLastCheckTime()));
                 } else {
                     row.add(null);
                 }
