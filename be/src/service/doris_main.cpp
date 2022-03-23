@@ -28,6 +28,8 @@
 #include <unistd.h>
 #include <unordered_map>
 
+#include "util/jni-util.h"
+
 #if defined(LEAK_SANITIZER)
 #include <sanitizer/lsan_interface.h>
 #endif
@@ -481,6 +483,16 @@ int main(int argc, char** argv) {
         doris::shutdown_logging();
         exit(1);
     }
+
+#ifdef LIBJVM
+    // 6. init jni
+    status = doris::JniUtil::Init();
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
+        doris::shutdown_logging();
+        exit(1);
+    }
+#endif
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
