@@ -72,7 +72,7 @@ public:
     }
 
     void clear_untracked_mems() {
-        for (auto untracked_mem : _untracked_mems) {
+        for (const auto& untracked_mem : _untracked_mems) {
             if (untracked_mem.second != 0) {
                 DCHECK(_mem_trackers[untracked_mem.first]);
                 _mem_trackers[untracked_mem.first]->consume(untracked_mem.second);
@@ -110,7 +110,7 @@ public:
         return _temp_consume_err_cb;
     }
 
-    inline void update_consume_err_call_back(const ConsumeErrCallBackInfo& consume_err_cb) {
+    inline void update_consume_err_cb(const ConsumeErrCallBackInfo& consume_err_cb) {
         _consume_err_cb = consume_err_cb;
     }
 

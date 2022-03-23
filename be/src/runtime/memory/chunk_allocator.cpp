@@ -123,6 +123,7 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
+    thread_local_ctx.get()->_thread_mem_tracker_mgr->clear_untracked_mems();
 
     _chunk_allocator_metric_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("chunk_allocator");

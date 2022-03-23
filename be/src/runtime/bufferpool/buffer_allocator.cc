@@ -217,7 +217,7 @@ BufferPool::BufferAllocator::~BufferAllocator() {
 
 Status BufferPool::BufferAllocator::Allocate(ClientHandle* client, int64_t len,
                                              BufferHandle* buffer) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     SCOPED_TIMER(client->impl_->counters().alloc_time);
     COUNTER_UPDATE(client->impl_->counters().cumulative_bytes_alloced, len);
     COUNTER_UPDATE(client->impl_->counters().cumulative_allocations, 1);
@@ -375,7 +375,7 @@ int64_t BufferPool::BufferAllocator::ScavengeBuffers(bool slow_but_sure, int cur
 
 void BufferPool::BufferAllocator::Free(BufferHandle&& handle) {
     DCHECK(handle.is_open());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     handle.client_ = nullptr; // Buffer is no longer associated with a client.
     FreeBufferArena* arena = per_core_arenas_[handle.home_core_].get();
     handle.Poison();
@@ -407,7 +407,7 @@ void BufferPool::BufferAllocator::Maintenance() {
 }
 
 void BufferPool::BufferAllocator::ReleaseMemory(int64_t bytes_to_free) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t bytes_freed = 0;
     int current_core = CpuInfo::get_current_core();
     for (int i = 0; i < per_core_arenas_.size(); ++i) {

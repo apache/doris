@@ -51,7 +51,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/minidump.h"
-#include "runtime/tcmalloc_hook.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -62,6 +61,11 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
+
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER)
+#include "runtime/tcmalloc_hook.h"
+#endif
 
 static void help(const char*);
 
@@ -334,11 +338,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    if (doris::config::track_new_delete) {
-        init_hook();
-    }
-
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER)
     // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
     // not backed by physical pages and do not contribute towards memory consumption.
     MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
@@ -348,6 +349,9 @@ int main(int argc, char** argv) {
                 doris::config::tc_max_total_thread_cache_bytes)) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
+    }
+    if (doris::config::track_new_delete) {
+        init_hook();
     }
 #endif
 

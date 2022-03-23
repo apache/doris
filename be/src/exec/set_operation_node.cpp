@@ -138,7 +138,7 @@ bool SetOperationNode::equals(TupleRow* row, TupleRow* other) {
 Status SetOperationNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_AND_ERR_CB(mem_tracker(), "SetOperation, while constructing the hash table.");
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER_AND_ERR_CB(mem_tracker(), "SetOperation, while constructing the hash table.");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     // open result expr lists.
