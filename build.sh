@@ -400,7 +400,11 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/include/* ${DORIS_OUTPUT}/udf/include/
     cp -r -p ${DORIS_HOME}/webroot/be/* ${DORIS_OUTPUT}/be/www/
-    cp -r -p ${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar ${DORIS_OUTPUT}/be/lib/
+    
+    java_udf_path=${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar
+    if [ -f ${java_udf_path} ];then
+        cp ${java_udf_path} ${DORIS_OUTPUT}/be/lib/
+    fi
 
     cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/be/www/
     mkdir -p ${DORIS_OUTPUT}/be/log
