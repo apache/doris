@@ -109,6 +109,7 @@ set(UTIL_FILES
   topn_counter.cpp
   tuple_row_zorder_compare.cpp
   quantile_state.cpp
+  jni-util.cpp
 )
 
 if (WITH_MYSQL)
