@@ -170,6 +170,8 @@ OLAPStatus BetaRowset::copy_files_to(const std::string& dir, RowsetId new_rowset
                     << dst_path_desc.filepath << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         }
+        LOG(INFO) << "succeed to copy file. from " << src_path_desc.filepath << " to "
+                  << dst_path_desc.filepath;
     }
     return OLAP_SUCCESS;
 }

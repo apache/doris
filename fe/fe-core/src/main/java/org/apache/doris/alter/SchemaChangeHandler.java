@@ -991,6 +991,10 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ROLLUP job");
         }
 
+        if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE) {
+            throw new DdlException("Table[" + olapTable.getName() + "]'s is doing SCHEMA_CHANGE job");
+        }
+
         if (this.hasUnfinishedAlterJob(olapTable.getId())) {
             throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ALTER job");
         }

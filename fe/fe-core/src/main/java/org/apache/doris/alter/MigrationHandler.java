@@ -95,6 +95,10 @@ public class MigrationHandler extends AlterHandler {
             throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ROLLUP job");
         }
 
+        if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE) {
+            throw new DdlException("Table[" + olapTable.getName() + "]'s is doing SCHEMA_CHANGE job");
+        }
+
         // for now table's state can only be NORMAL
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 
@@ -121,6 +125,7 @@ public class MigrationHandler extends AlterHandler {
                 newSchemaHash = Util.generateSchemaHash();
             }
             String newIndexName = SHADOW_NAME_PRFIX + olapTable.getIndexNameById(originIndexId);
+            short shortKeyColumnCount = Catalog.calcShortKeyColumnCount(entry.getValue(), null);
             long shadowIndexId = catalog.getNextId();
 
             // create SHADOW index for each partition
@@ -194,7 +199,8 @@ public class MigrationHandler extends AlterHandler {
 
                 schemaChangeJob.addPartitionShadowIndex(partitionId, shadowIndexId, shadowIndex);
             } // end for partition
-            schemaChangeJob.addIndexSchema(shadowIndexId, originIndexId, newIndexName, newSchemaVersion, newSchemaHash, (short) 0, new LinkedList<>(entry.getValue()));
+            schemaChangeJob.addIndexSchema(shadowIndexId, originIndexId, newIndexName, newSchemaVersion,
+                    newSchemaHash, shortKeyColumnCount, new LinkedList<>(entry.getValue()));
         } // end for index
 
         // set table state
@@ -304,13 +310,7 @@ public class MigrationHandler extends AlterHandler {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
-                // use try lock to avoid blocking a long time.
-                // if block too long, backend report rpc will timeout.
-                if (!olapTable.tryWriteLock(Table.TRY_LOCK_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                    LOG.warn("try get table {} writelock but failed when checking backend storage medium", table.getName());
-                    continue;
-                }
-                Preconditions.checkState(olapTable.isWriteLockHeldByCurrentThread());
+                olapTable.writeLock();
                 try {
                     Multimap<TStorageMedium, Long> storageMediumToPartitionIds = tableIdToStorageMedium.get(tableId);
                     PartitionInfo partitionInfo = olapTable.getPartitionInfo();

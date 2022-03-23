@@ -269,7 +269,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     originKeysType, TStorageType.COLUMN, shadowStorageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
                                     tbl.isInMemory(),
-                                    tbl.getPartitionInfo().getTabletType(partitionId));
+                                    tbl.getPartitionInfo().getTabletType(partitionId),
+                                    tbl.getDataSortInfo());
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
