@@ -73,7 +73,7 @@ const std::unordered_map<std::pair<std::string, bool>, std::function<TableFuncti
                 {{"explode_split", true},
                  TableFunctionCreator<vectorized::VExplodeSplitTableFunction>()},
                 {{"explode_numbers", true},
-                 TableFunctionCreator<vectorized::VExplodeNumbersTableFunction>()}},
+                 TableFunctionCreator<vectorized::VExplodeNumbersTableFunction>()},
                 {{"explode_json_array_int", true}, VExplodeJsonArrayIntCreator},
                 {{"explode_json_array_double", true}, VExplodeJsonArrayDoubleCreator},
                 {{"explode_json_array_string", true}, VExplodeJsonArrayStringCreator}};
