@@ -72,7 +72,8 @@ public:
     /// boost::std::unique_lock because it is movable.
     std::pair<int64_t, int64_t> FreeSystemMemory(int64_t target_bytes_to_free,
                                                  int64_t target_bytes_to_claim,
-                                                 std::unique_lock<SpinLock>* arena_lock);
+                                                 std::unique_lock<SpinLock>* arena_lock,
+                                                 MemTracker* tracker);
 
     /// Add a clean page to the arena. Caller must hold the page's client's lock and not
     /// hold 'lock_' or any Page::lock_.
@@ -195,7 +196,7 @@ BufferPool::BufferAllocator::BufferAllocator(BufferPool* pool, int64_t min_buffe
           clean_page_bytes_remaining_(clean_page_bytes_limit),
           per_core_arenas_(CpuInfo::get_max_num_cores()),
           max_scavenge_attempts_(MAX_SCAVENGE_ATTEMPTS),
-          _mem_tracker(MemTracker::create_tracker(-1, "BufferAllocator", nullptr, MemTrackerLevel::OVERVIEW)) {
+          _mem_tracker(MemTracker::create_virtual_tracker(-1, "BufferAllocator", nullptr, MemTrackerLevel::OVERVIEW)) {
     DCHECK(BitUtil::IsPowerOf2(min_buffer_len_)) << min_buffer_len_;
     DCHECK(BitUtil::IsPowerOf2(max_buffer_len_)) << max_buffer_len_;
     DCHECK_LE(0, min_buffer_len_);
@@ -217,7 +218,6 @@ BufferPool::BufferAllocator::~BufferAllocator() {
 
 Status BufferPool::BufferAllocator::Allocate(ClientHandle* client, int64_t len,
                                              BufferHandle* buffer) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     SCOPED_TIMER(client->impl_->counters().alloc_time);
     COUNTER_UPDATE(client->impl_->counters().cumulative_bytes_alloced, len);
     COUNTER_UPDATE(client->impl_->counters().cumulative_allocations, 1);
@@ -225,6 +225,7 @@ Status BufferPool::BufferAllocator::Allocate(ClientHandle* client, int64_t len,
     RETURN_IF_ERROR(AllocateInternal(len, buffer));
     DCHECK(buffer->is_open());
     buffer->client_ = client;
+    _mem_tracker->consume_cache(len);
     return Status::OK();
 }
 
@@ -354,7 +355,8 @@ int64_t BufferPool::BufferAllocator::ScavengeBuffers(bool slow_but_sure, int cur
         FreeBufferArena* arena = per_core_arenas_[core_to_check].get();
         int64_t bytes_needed = target_bytes - bytes_found;
         bytes_found += arena->FreeSystemMemory(bytes_needed, bytes_needed,
-                                               slow_but_sure ? &arena_locks[i] : nullptr)
+                                               slow_but_sure ? &arena_locks[i] : nullptr,
+                                               _mem_tracker.get())
                                .second;
         if (bytes_found == target_bytes) break;
     }
@@ -375,7 +377,6 @@ int64_t BufferPool::BufferAllocator::ScavengeBuffers(bool slow_but_sure, int cur
 
 void BufferPool::BufferAllocator::Free(BufferHandle&& handle) {
     DCHECK(handle.is_open());
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     handle.client_ = nullptr; // Buffer is no longer associated with a client.
     FreeBufferArena* arena = per_core_arenas_[handle.home_core_].get();
     handle.Poison();
@@ -407,14 +408,13 @@ void BufferPool::BufferAllocator::Maintenance() {
 }
 
 void BufferPool::BufferAllocator::ReleaseMemory(int64_t bytes_to_free) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t bytes_freed = 0;
     int current_core = CpuInfo::get_current_core();
     for (int i = 0; i < per_core_arenas_.size(); ++i) {
         int core_to_check = (current_core + i) % per_core_arenas_.size();
         FreeBufferArena* arena = per_core_arenas_[core_to_check].get();
         // Free but don't claim any memory.
-        bytes_freed += arena->FreeSystemMemory(bytes_to_free - bytes_freed, 0, nullptr).first;
+        bytes_freed += arena->FreeSystemMemory(bytes_to_free - bytes_freed, 0, nullptr, _mem_tracker.get()).first;
         if (bytes_freed >= bytes_to_free) return;
     }
 }
@@ -554,7 +554,7 @@ bool BufferPool::FreeBufferArena::EvictCleanPage(
 */
 std::pair<int64_t, int64_t> BufferPool::FreeBufferArena::FreeSystemMemory(
         int64_t target_bytes_to_free, int64_t target_bytes_to_claim,
-        std::unique_lock<SpinLock>* arena_lock) {
+        std::unique_lock<SpinLock>* arena_lock, MemTracker* tracker) {
     DCHECK_GT(target_bytes_to_free, 0);
     DCHECK_GE(target_bytes_to_free, target_bytes_to_claim);
     int64_t bytes_freed = 0;
@@ -631,6 +631,7 @@ std::pair<int64_t, int64_t> BufferPool::FreeBufferArena::FreeSystemMemory(
         parent_->system_bytes_remaining_.add(bytes_freed - bytes_claimed);
     }
     if (arena_lock != nullptr) *arena_lock = std::move(al);
+    tracker->release(bytes_freed);
     return std::make_pair(bytes_freed, bytes_claimed);
 }
 

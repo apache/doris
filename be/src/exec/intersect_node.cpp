@@ -45,7 +45,7 @@ Status IntersectNode::init(const TPlanNode& tnode, RuntimeState* state) {
 // repeat [2] this for all the rest child
 Status IntersectNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(SetOperationNode::open(state));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER_AND_ERR_CB(mem_tracker(), "Intersect Node, while probing the hash table.");
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Intersect Node, while probing the hash table.");
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
         _hash_tbl_iterator = _hash_tbl->begin();

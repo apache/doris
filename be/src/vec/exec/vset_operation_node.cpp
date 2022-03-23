@@ -230,7 +230,7 @@ void VSetOperationNode::hash_table_init() {
 Status VSetOperationNode::hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(0)->open(state));
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(
-                "Set Operation Node, while constructing the hash table");
+                "Vec Set Operation Node, while constructing the hash table");
     Block block;
     MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
 

@@ -210,7 +210,7 @@ bool TabletManager::_check_tablet_id_exist_unlocked(TTabletId tablet_id) {
 
 OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
                                         std::vector<DataDir*> stores) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
 
     int64_t tablet_id = request.tablet_id;
@@ -428,7 +428,7 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
 OLAPStatus TabletManager::drop_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                       bool keep_files) {
     WriteLock wrlock(_get_tablets_shard_lock(tablet_id));
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     return _drop_tablet_unlocked(tablet_id, keep_files);
 }
 
@@ -457,7 +457,7 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, bool keep_f
 
 OLAPStatus TabletManager::drop_tablets_on_error_root_path(
         const std::vector<TabletInfo>& tablet_info_vec) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     OLAPStatus res = OLAP_SUCCESS;
     if (tablet_info_vec.empty()) { // This is a high probability event
         return res;
@@ -668,7 +668,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
                                                 TSchemaHash schema_hash, const string& meta_binary,
                                                 bool update_meta, bool force, bool restore,
                                                 bool check_path) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     OLAPStatus status = tablet_meta->deserialize(meta_binary);
     if (status != OLAP_SUCCESS) {
@@ -751,7 +751,7 @@ OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_
                                                SchemaHash schema_hash,
                                                const string& schema_hash_path, bool force,
                                                bool restore) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     LOG(INFO) << "begin to load tablet from dir. "
               << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash
               << " path = " << schema_hash_path << " force = " << force << " restore = " << restore;

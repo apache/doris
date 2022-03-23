@@ -25,6 +25,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
+#include "util/doris_metrics.h"
 
 // Attach to task when thread starts
 #define SCOPED_ATTACH_TASK_THREAD(type, ...) \
@@ -44,10 +45,6 @@
 #define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(action_type, ...) \
     auto VARNAME_LINENUM(witch_tracker_cb) =                            \
             SwitchThreadMemTrackerErrCallBack(action_type, ##__VA_ARGS__)
-#define SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER_AND_ERR_CB(mem_tracker, action_type, ...) \
-    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker, true);          \
-    auto VARNAME_LINENUM(switch_tracker_cb) =                                            \
-            SwitchThreadMemTrackerErrCallBack(action_type, ##__VA_ARGS__);
 
 namespace doris {
 
@@ -222,7 +219,12 @@ public:
         }
     }
 
-    ~AttachTaskThread() { thread_local_ctx.get()->detach(); }
+    ~AttachTaskThread() {
+#ifndef BE_TEST
+        thread_local_ctx.get()->detach();
+        DorisMetrics::instance()->attach_task_thread_count->increment(1);
+#endif
+    }
 };
 
 class StopThreadMemTracker {
@@ -243,16 +245,22 @@ class SwitchThreadMemTracker {
 public:
     explicit SwitchThreadMemTracker(const std::shared_ptr<MemTracker>& mem_tracker,
                                     bool in_task = true) {
+#ifndef BE_TEST
         DCHECK(mem_tracker);
         // The thread tracker must be switched after the attach task, otherwise switching
         // in the main thread will cause the cached tracker not be cleaned up in time.
-        DCHECK(in_task == true && thread_local_ctx.get()->_thread_mem_tracker_mgr->attach_task());
+        DCHECK(in_task == false ||
+               thread_local_ctx.get()->_thread_mem_tracker_mgr->is_attach_task());
         _old_tracker_id =
                 thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker(mem_tracker);
+#endif
     }
 
     ~SwitchThreadMemTracker() {
+#ifndef BE_TEST
         thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker_id(_old_tracker_id);
+        DorisMetrics::instance()->switch_thread_mem_tracker_count->increment(1);
+#endif
     }
 
 private:
@@ -271,6 +279,7 @@ public:
 
     ~SwitchThreadMemTrackerErrCallBack() {
         thread_local_ctx.get()->_thread_mem_tracker_mgr->update_consume_err_cb(_old_tracker_cb);
+        DorisMetrics::instance()->switch_thread_mem_tracker_err_cb_count->increment(1);
     }
 
 private:

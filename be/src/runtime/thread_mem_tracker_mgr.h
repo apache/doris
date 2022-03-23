@@ -121,7 +121,7 @@ public:
 
     void noncache_consume();
 
-    bool attach_task() { return _task_id != ""; }
+    bool is_attach_task() { return _task_id != ""; }
 
     std::shared_ptr<MemTracker> mem_tracker() {
         DCHECK(_mem_trackers[_tracker_id]);

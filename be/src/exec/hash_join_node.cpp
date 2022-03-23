@@ -304,7 +304,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
     // In most cases, no additional memory overhead will be applied for at this stage,
     // but if the expression calculation in this node needs to apply for additional memory,
     // it may cause the memory to exceed the limit.
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER_AND_ERR_CB(mem_tracker(), "Hash join, while execute get_next.");
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Hash join, while execute get_next.");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (reached_limit()) {
