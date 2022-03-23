@@ -215,6 +215,12 @@ fi
 if [[ -z ${STRIP_DEBUG_INFO} ]]; then
     STRIP_DEBUG_INFO=OFF
 fi
+if [[ -z ${ENABLE_JAVAUDF} ]]; then
+    ENABLE_JAVAUDF=ON
+fi
+if [[ -z ${BUILD_DOCS} ]]; then
+    BUILD_DOCS=ON
+fi
 
 echo "Get params:
     BUILD_BE            -- $BUILD_BE
@@ -231,6 +237,8 @@ echo "Get params:
     USE_LIBCPP          -- $USE_LIBCPP
     BUILD_META_TOOL     -- $BUILD_META_TOOL
     USE_LLD             -- $USE_LLD
+    ENABLE_JAVAUDF      -- $ENABLE_JAVAUDF
+    BUILD_DOCS          -- $BUILD_DOCS
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
 "
 
@@ -246,14 +254,14 @@ make
 
 # Assesmble FE modules
 FE_MODULES=
-if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 -o ${BUILD_BE} -eq 1 ]; then
-    if [ ${BUILD_FE} -eq 1 -a ${BUILD_BE} -eq 1 ]; then
+if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 -o ${ENABLE_JAVAUDF} = "ON" ]; then
+    if [ ${BUILD_FE} -eq 1 -a ${ENABLE_JAVAUDF} = "ON" ]; then
         FE_MODULES="fe-common,spark-dpp,fe-core,java-udf"
-    elif [ ${BUILD_FE} -eq 1 -a ${BUILD_BE} -eq 0 ]; then
+    elif [ ${BUILD_FE} -eq 1 -a ${ENABLE_JAVAUDF} != "ON" ]; then
         FE_MODULES="fe-common,spark-dpp,fe-core"
-    elif [ ${BUILD_BE} -eq 1 -a ${BUILD_SPARK_DPP} -eq 0 ]; then
+    elif [ ${ENABLE_JAVAUDF} = "ON" -a ${BUILD_SPARK_DPP} -eq 0 ]; then
         FE_MODULES="fe-common,fe-core,java-udf"
-    elif [ ${BUILD_BE} -eq 1 -a ${BUILD_SPARK_DPP} -eq 1 ]; then
+    elif [ ${ENABLE_JAVAUDF} = "ON" -a ${BUILD_SPARK_DPP} -eq 1 ]; then
         FE_MODULES="fe-common,fe-core,java-udf,spark-dpp"
     else
         FE_MODULES="fe-common,spark-dpp"
@@ -283,27 +291,32 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
             -DUSE_LLD=${USE_LLD} \
+            -DENABLE_JAVAUDF=${ENABLE_JAVAUDF} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
-    echo "Build Frontend Modules: java-udf"
-    cd ${DORIS_HOME}/fe
-    if [ ${CLEAN} -eq 1 ]; then
-        clean_fe
-    fi
-    if [ ${BUILD_FE} -eq 0 ]; then
-      ${MVN_CMD} package -pl fe-common,fe-core,java-udf -DskipTests
+    if [ ${ENABLE_JAVAUDF} = "ON" ] ; then
+        echo "Build Frontend Modules: java-udf"
+        cd ${DORIS_HOME}/fe
+        if [ ${CLEAN} -eq 1 ]; then
+            clean_fe
+        fi
+        if [ ${BUILD_FE} -eq 0 ]; then
+            ${MVN_CMD} package -pl fe-common,fe-core,java-udf -DskipTests
+        fi
     fi
     cd ${DORIS_HOME}
 fi
 
-# Build docs, should be built before Frontend
-echo "Build docs"
-cd ${DORIS_HOME}/docs
-./build_help_zip.sh
-cd ${DORIS_HOME}
+if [ ${BUILD_DOCS} = "ON"  ] ; then
+    # Build docs, should be built before Frontend
+    echo "Build docs"
+    cd ${DORIS_HOME}/docs
+    ./build_help_zip.sh
+    cd ${DORIS_HOME}
+fi
 
 function build_ui() {
     # check NPM env here, not in env.sh.
