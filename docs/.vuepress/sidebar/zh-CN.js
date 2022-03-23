@@ -254,6 +254,7 @@ module.exports = [
       "logstash",
       "odbc-of-doris",
       "hive-of-doris",
+      "hive-bitmap-udf",
       "iceberg-of-doris",
       "plugin-development-manual",
       "spark-doris-connector",
