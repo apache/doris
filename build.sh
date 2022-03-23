@@ -52,6 +52,7 @@ Usage: $0 <options>
      --broker           build Broker
      --ui               build Frontend web ui with npm
      --spark-dpp        build Spark DPP application
+     --java-udf          build Java UDF
      --clean            clean and build target
      -j                 build Backend parallel
 
@@ -68,6 +69,7 @@ Usage: $0 <options>
     $0 --spark-dpp                          build Spark DPP application alone
     $0 --fe --ui                            build Frontend web ui with npm
     $0 --broker                             build Broker
+    $0 --be --fe --java-udf                 build Backend and Frontend with Java UDF
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info.
@@ -109,6 +111,7 @@ OPTS=$(getopt \
   -l 'broker' \
   -l 'ui' \
   -l 'spark-dpp' \
+  -l 'java-udf' \
   -l 'clean' \
   -l 'help' \
   -o 'hj:' \
@@ -126,6 +129,7 @@ BUILD_FE=
 BUILD_BROKER=
 BUILD_UI=
 BUILD_SPARK_DPP=
+BUILD_JAVA_UDF=0
 CLEAN=
 HELP=0
 PARAMETER_COUNT=$#
@@ -152,6 +156,7 @@ else
             --ui) BUILD_UI=1 ; shift ;;
             --broker) BUILD_BROKER=1 ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
+            --java-udf) BUILD_JAVA_UDF=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;
@@ -167,6 +172,7 @@ else
         BUILD_BROKER=1
         BUILD_UI=1
         BUILD_SPARK_DPP=1
+        BUILD_JAVA_UDF=0
         CLEAN=0
     fi
 fi
@@ -215,9 +221,6 @@ fi
 if [[ -z ${STRIP_DEBUG_INFO} ]]; then
     STRIP_DEBUG_INFO=OFF
 fi
-if [[ -z ${ENABLE_JAVAUDF} ]]; then
-    ENABLE_JAVAUDF=ON
-fi
 if [[ -z ${BUILD_DOCS} ]]; then
     BUILD_DOCS=ON
 fi
@@ -228,6 +231,7 @@ echo "Get params:
     BUILD_BROKER        -- $BUILD_BROKER
     BUILD_UI            -- $BUILD_UI
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
+    BUILD_JAVA_UDF      -- $BUILD_JAVA_UDF
     PARALLEL            -- $PARALLEL
     CLEAN               -- $CLEAN
     WITH_MYSQL          -- $WITH_MYSQL
@@ -237,7 +241,6 @@ echo "Get params:
     USE_LIBCPP          -- $USE_LIBCPP
     BUILD_META_TOOL     -- $BUILD_META_TOOL
     USE_LLD             -- $USE_LLD
-    ENABLE_JAVAUDF      -- $ENABLE_JAVAUDF
     BUILD_DOCS          -- $BUILD_DOCS
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
 "
@@ -254,14 +257,14 @@ make
 
 # Assesmble FE modules
 FE_MODULES=
-if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 -o ${ENABLE_JAVAUDF} = "ON" ]; then
-    if [ ${BUILD_FE} -eq 1 -a ${ENABLE_JAVAUDF} = "ON" ]; then
+if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 -o ${BUILD_JAVA_UDF} = "ON" ]; then
+    if [ ${BUILD_FE} -eq 1 -a ${BUILD_JAVA_UDF} = "ON" ]; then
         FE_MODULES="fe-common,spark-dpp,fe-core,java-udf"
-    elif [ ${BUILD_FE} -eq 1 -a ${ENABLE_JAVAUDF} != "ON" ]; then
+    elif [ ${BUILD_FE} -eq 1 -a ${BUILD_JAVA_UDF} != "ON" ]; then
         FE_MODULES="fe-common,spark-dpp,fe-core"
-    elif [ ${ENABLE_JAVAUDF} = "ON" -a ${BUILD_SPARK_DPP} -eq 0 ]; then
+    elif [ ${BUILD_JAVA_UDF} = "ON" -a ${BUILD_SPARK_DPP} -eq 0 ]; then
         FE_MODULES="fe-common,fe-core,java-udf"
-    elif [ ${ENABLE_JAVAUDF} = "ON" -a ${BUILD_SPARK_DPP} -eq 1 ]; then
+    elif [ ${BUILD_JAVA_UDF} = "ON" -a ${BUILD_SPARK_DPP} -eq 1 ]; then
         FE_MODULES="fe-common,fe-core,java-udf,spark-dpp"
     else
         FE_MODULES="fe-common,spark-dpp"
@@ -291,7 +294,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
             -DUSE_LLD=${USE_LLD} \
-            -DENABLE_JAVAUDF=${ENABLE_JAVAUDF} \
+            -DBUILD_JAVA_UDF=${BUILD_JAVA_UDF} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../

@@ -477,7 +477,7 @@ include_directories(
     ${THIRDPARTY_DIR}/include/breakpad/
 )
 
-if (ENABLE_JAVAUDF)
+if (BUILD_JAVA_UDF)
     execute_process(COMMAND sh ${BASE_DIR}/../tools/find_libjvm.sh OUTPUT_VARIABLE LIBJVM_PATH OUTPUT_STRIP_TRAILING_WHITESPACE)
     FILE(GLOB_RECURSE LIB_JVM ${LIBJVM_PATH})
     if(${LIB_JVM} STREQUAL "")
