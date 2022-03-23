@@ -707,6 +707,8 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
 
 void SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
+    _char_type_idx.clear();
+
     bool is_block_mem_reuse = block->mem_reuse();
     if (is_block_mem_reuse) {
         block->clear_column_data(_schema.num_column_ids());
@@ -721,10 +723,15 @@ void SegmentIterator::_init_current_block(
 
     for (size_t i = 0; i < _schema.num_column_ids(); i++) {
         auto cid = _schema.column_id(i);
+        auto column_desc = _schema.column(cid);
+
+        if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
+            _char_type_idx.emplace_back(i);
+        }
+
         if (_is_pred_column[cid]) { //todo(wb) maybe we can relase it after output block
             current_columns[cid]->clear();
         } else { // non-predicate column
-            auto column_desc = _schema.column(cid);
             if (is_block_mem_reuse) {
                 current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
             } else {
@@ -929,36 +936,39 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // When predicate column and no-predicate column are both basic type, lazy materialization is eliminate
         // So output block directly after vectorization evaluation
         if (_is_all_column_basic_type) {
-            return _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                             selected_size, is_mem_reuse);
+            RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
+                                                      selected_size, is_mem_reuse));
+        } else {
+            // step 2: evaluate short ciruit predicate
+            // todo(wb) research whether need to read short predicate after vectorization evaluation
+            //          to reduce cost of read short circuit columns.
+            //          In SSB test, it make no difference; So need more scenarios to test
+            _evaluate_short_circuit_predicate(sel_rowid_idx, &selected_size);
+
+            // step3: read non_predicate column
+            if (!_non_predicate_columns.empty()) {
+                _read_columns_by_rowids(_non_predicate_columns, _block_rowids, sel_rowid_idx,
+                                        selected_size, &_current_return_columns);
+            }
+
+            // step4: output columns
+            // 4.1 output non-predicate column
+            _output_non_pred_columns(block, is_mem_reuse);
+
+            // 4.2 get union of short_cir_pred and vec_pred
+            std::set<ColumnId> pred_column_ids;
+            pred_column_ids.insert(_short_cir_pred_column_ids.begin(),
+                                   _short_cir_pred_column_ids.end());
+            pred_column_ids.insert(_vec_pred_column_ids.begin(), _vec_pred_column_ids.end());
+
+            // 4.3 output short circuit and predicate column
+            RETURN_IF_ERROR(_output_column_by_sel_idx(block, pred_column_ids, sel_rowid_idx,
+                                                      selected_size, is_mem_reuse));
         }
-
-        // step 2: evaluate short ciruit predicate
-        // todo(wb) research whether need to read short predicate after vectorization evaluation
-        //          to reduce cost of read short circuit columns.
-        //          In SSB test, it make no difference; So need more scenarios to test
-        _evaluate_short_circuit_predicate(sel_rowid_idx, &selected_size);
-
-        // step3: read non_predicate column
-        if (!_non_predicate_columns.empty()) {
-            _read_columns_by_rowids(_non_predicate_columns, _block_rowids, sel_rowid_idx,
-                                    selected_size, &_current_return_columns);
-        }
-
-        // step4: output columns
-        // 4.1 output non-predicate column
-        _output_non_pred_columns(block, is_mem_reuse);
-
-        // 4.2 get union of short_cir_pred and vec_pred
-        std::set<ColumnId> pred_column_ids;
-        pred_column_ids.insert(_short_cir_pred_column_ids.begin(),
-                               _short_cir_pred_column_ids.end());
-        pred_column_ids.insert(_vec_pred_column_ids.begin(), _vec_pred_column_ids.end());
-
-        // 4.3 output short circuit and predicate column
-        return _output_column_by_sel_idx(block, pred_column_ids, sel_rowid_idx, selected_size,
-                                         is_mem_reuse);
     }
+
+    // shink char_type suffix zero data
+    block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
     return Status::OK();
 }

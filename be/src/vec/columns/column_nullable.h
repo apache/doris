@@ -86,7 +86,8 @@ public:
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;
     const char* deserialize_and_insert_from_arena(const char* pos) override;
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
-    void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const int* indices_begin,
+                             const int* indices_end) override;
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
 
@@ -98,14 +99,16 @@ public:
         get_null_map_column().fill(0, num);
         get_nested_column().insert_many_fix_len_data(pos, num);
     }
- 
+
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t data_num, uint32_t dict_num) override {
         get_null_map_column().fill(0, data_num);
-        get_nested_column().insert_many_dict_data(data_array, start_index, dict, data_num, dict_num);
+        get_nested_column().insert_many_dict_data(data_array, start_index, dict, data_num,
+                                                  dict_num);
     }
- 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
+
+    void insert_many_binary_data(char* data_array, uint32_t* len_array,
+                                 uint32_t* start_offset_array, size_t num) override {
         get_null_map_column().fill(0, num);
         get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num);
     }
@@ -186,6 +189,8 @@ public:
 
     /// Return the column that represents the byte map.
     const ColumnPtr& get_null_map_column_ptr() const { return null_map; }
+
+    MutableColumnPtr get_null_map_column_ptr() { return null_map->assume_mutable(); }
 
     ColumnUInt8& get_null_map_column() { return assert_cast<ColumnUInt8&>(*null_map); }
     const ColumnUInt8& get_null_map_column() const {

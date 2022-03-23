@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/olap_cond.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
@@ -148,7 +149,7 @@ private:
             _vec_pred_column_ids; // keep columnId of columns for vectorized predicate evaluation
     std::vector<ColumnId>
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
-    vector<bool> _is_pred_column;       // columns hold by segmentIter
+    std::vector<bool> _is_pred_column; // columns hold by segmentIter
     vectorized::MutableColumns _current_return_columns;
     std::unique_ptr<AndBlockColumnPredicate> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
@@ -156,8 +157,8 @@ private:
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
-    vector<ColumnId> _first_read_column_ids;
-    vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
+    std::vector<ColumnId> _first_read_column_ids;
+    std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
     bool _inited;
@@ -175,6 +176,9 @@ private:
 
     // block for file to read
     std::unique_ptr<fs::ReadableBlock> _rblock;
+
+    // char_type columns cid
+    std::vector<size_t> _char_type_idx;
 };
 
 } // namespace segment_v2
