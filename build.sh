@@ -304,7 +304,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             clean_fe
         fi
         if [ ${BUILD_FE} -eq 0 ]; then
-            ${MVN_CMD} package -pl fe-common,fe-core,java-udf -DskipTests
+            ${MVN_CMD} package -pl ${FE_MODULES} -DskipTests
         fi
     fi
     cd ${DORIS_HOME}
