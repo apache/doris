@@ -36,7 +36,8 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_hll.h"
 namespace doris::vectorized {
 
 class DataTypeFactory {
@@ -62,6 +63,8 @@ public:
             instance.register_data_type("Date", std::make_shared<DataTypeDate>());
             instance.register_data_type("DateTime", std::make_shared<DataTypeDateTime>());
             instance.register_data_type("String", std::make_shared<DataTypeString>());
+            instance.register_data_type("BitMap", std::make_shared<DataTypeBitMap>());
+            instance.register_data_type("HLL", std::make_shared<DataTypeHLL>());
             instance.register_data_type("Decimal",
                                       std::make_shared<DataTypeDecimal<Decimal128>>(27, 9));
         });

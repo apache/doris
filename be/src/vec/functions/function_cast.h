@@ -36,6 +36,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_bitmap.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/io/io_helper.h"
@@ -803,6 +804,56 @@ struct ConvertThroughParsing {
     }
 };
 
+//convert string to bitmap or hll type
+template <typename FromDataType, typename ToDataType, typename Name>
+struct ConvertToComplex {
+    static_assert(std::is_same_v<FromDataType, DataTypeString>,
+                  "ConvertToComplex is only applicable for String or FixedString data types");
+
+    using ToFieldType = typename ToDataType::FieldType;
+    using ColVecTo = ColumnComplexType<ToFieldType>;
+
+    template <typename Additions = void*>
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+                          size_t input_rows_count,
+                          Additions additions [[maybe_unused]] = Additions()) {
+        const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
+        const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
+
+        if (std::is_same_v<FromDataType, DataTypeString> && !col_from_string) {
+            return Status::RuntimeError(
+                    fmt::format("Illegal column {} of first argument of function {}",
+                                col_from->get_name(), Name::name));
+        }
+
+        auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto res_data_column = ColVecTo::create(input_rows_count);
+        auto& null_map = res_null_map->get_data();
+        auto& vec_to = res_data_column->get_data();
+
+        const ColumnString::Chars& data = col_from_string->get_chars();
+        const ColumnString::Offsets& offsets = col_from_string->get_offsets();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            int64_t str_size = offsets[i] - offsets[i - 1] - 1;
+            bool res = false;
+
+            if constexpr (std::is_same_v<ToDataType, DataTypeBitMap>) {  //bitmap
+                res = vec_to[i].deserialize(raw_str);
+            } else {
+                res = vec_to[i].deserialize(Slice(raw_str, str_size));   //hll
+            }
+
+            null_map[i] = !res;
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(res_data_column), std::move(res_null_map));
+        return Status::OK();
+    }
+};
+
 template <typename ToDataType, typename Name>
 class FunctionConvertFromString : public IFunction {
 public:
@@ -838,15 +889,19 @@ public:
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
         bool ok = true;
-
         {
             if (check_and_get_data_type<DataTypeString>(from_type)) {
-                return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
-                        block, arguments, result, input_rows_count);
-            }
-
-            else
+                if constexpr (std::is_same_v<ToDataType, DataTypeBitMap> ||
+                              std::is_same_v<ToDataType, DataTypeHLL>) {
+                    return ConvertToComplex<DataTypeString, ToDataType, Name>::execute(
+                            block, arguments, result, input_rows_count);
+                } else {
+                    return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
+                            block, arguments, result, input_rows_count);
+                }
+            } else {
                 ok = false;
+            }
         }
 
         if (!ok) {
@@ -1047,6 +1102,32 @@ private:
         };
     }
 
+    WrapperType create_complex_type_wrapper(const DataTypePtr& from_type,
+                                            const DataTypePtr& to_type) const {
+        TypeIndex type_index = from_type->get_type_id();
+
+        WhichDataType which(type_index);
+        bool ok = which.is_string_or_fixed_string();
+        if (!ok) {
+            LOG(FATAL) << fmt::format("Conversion from {} to {} is not supported",
+                                      from_type->get_name(), to_type->get_name());
+        }
+        FunctionPtr function;
+        if (check_and_get_data_type<DataTypeBitMap>(to_type.get())) {
+            function = FunctionConvertFromString<DataTypeBitMap, NameCast>::create();
+        } else {
+            function = FunctionConvertFromString<DataTypeHLL, NameCast>::create();
+        }
+
+        /// Check conversion using underlying function
+        { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
+
+        return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          const size_t result, size_t input_rows_count) {
+            return function->execute(context, block, arguments, result, input_rows_count);
+        };
+    }
+
     WrapperType create_identity_wrapper(const DataTypePtr&) const {
         return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                   const size_t result, size_t /*input_rows_count*/) {
@@ -1219,7 +1300,9 @@ private:
         switch (to_type->get_type_id()) {
         case TypeIndex::String:
             return create_string_wrapper(from_type);
-
+        case TypeIndex::HLL:
+        case TypeIndex::BitMap:
+            return create_complex_type_wrapper(from_type, to_type);
         default:
             break;
         }
