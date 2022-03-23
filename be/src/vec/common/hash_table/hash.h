@@ -108,6 +108,17 @@ inline size_t hash_crc32(T key) {
     return int_hash_crc32(u.out);
 }
 
+template <>
+inline size_t hash_crc32(doris::vectorized::UInt128 u) {
+    return doris::vectorized::UInt128HashCRC32()(u);
+}
+
+template <>
+inline size_t hash_crc32(doris::vectorized::Int128 u) {
+    return doris::vectorized::UInt128HashCRC32()(doris::vectorized::UInt128(
+            (u >> 64) & int64_t (-1), u & int64_t(-1)));
+}
+
 #define DEFINE_HASH(T)                                                \
     template <>                                                       \
     struct HashCRC32<T> {                                             \
