@@ -297,16 +297,6 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
-    if [ ${ENABLE_JAVAUDF} = "ON" ] ; then
-        echo "Build Frontend Modules: java-udf"
-        cd ${DORIS_HOME}/fe
-        if [ ${CLEAN} -eq 1 ]; then
-            clean_fe
-        fi
-        if [ ${BUILD_FE} -eq 0 ]; then
-            ${MVN_CMD} package -pl ${FE_MODULES} -DskipTests
-        fi
-    fi
     cd ${DORIS_HOME}
 fi
 
