@@ -105,10 +105,10 @@ struct TExportSink {
     2: required string export_path
     3: required string column_separator
     4: required string line_delimiter
-    5: required string header
     // properties need to access broker.
-    6: optional list<Types.TNetworkAddress> broker_addresses
-    7: optional map<string, string> properties
+    5: optional list<Types.TNetworkAddress> broker_addresses
+    6: optional map<string, string> properties
+    7: optional string header
 }
 
 struct TOlapTableSink {

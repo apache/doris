@@ -77,7 +77,7 @@ public class ExportSink extends DataSink {
     @Override
     protected TDataSink toThrift() {
         TDataSink result = new TDataSink(TDataSinkType.EXPORT_SINK);
-        TExportSink tExportSink = new TExportSink(brokerDesc.getFileType(), exportPath, columnSeparator, lineDelimiter, header);
+        TExportSink tExportSink = new TExportSink(brokerDesc.getFileType(), exportPath, columnSeparator, lineDelimiter);
 
         if (brokerDesc.getFileType() == TFileType.FILE_BROKER) {
             FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getAnyBroker(brokerDesc.getName());
@@ -86,6 +86,7 @@ public class ExportSink extends DataSink {
             }
         }
         tExportSink.setProperties(brokerDesc.getProperties());
+        tExportSink.setHeader(header);
 
         result.setExportSink(tExportSink);
         return result;
