@@ -119,7 +119,7 @@ Status HttpService::start() {
     }
 
     MetaAction* meta_action = _pool.add(new MetaAction(HEADER));
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/header/{tablet_id}/{schema_hash}",
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/header/{tablet_id}",
                                       meta_action);
 
 #ifndef BE_TEST
