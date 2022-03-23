@@ -53,6 +53,59 @@ export DORIS_HOME=$(
     pwd
 )
 
+# add libs to CLASSPATH
+for f in $DORIS_HOME/lib/*.jar; do
+  if [ ! -n "${DORIS_JNI_CLASSPATH_PARAMETER}" ]; then
+    export DORIS_JNI_CLASSPATH_PARAMETER=$f
+  else
+    export DORIS_JNI_CLASSPATH_PARAMETER=$f:${DORIS_JNI_CLASSPATH_PARAMETER}
+  fi
+done
+# DORIS_JNI_CLASSPATH_PARAMETER is used to configure additional jar path to jvm. e.g. -Djava.class.path=$DORIS_HOME/lib/java-udf.jar
+export DORIS_JNI_CLASSPATH_PARAMETER="-Djava.class.path=${DORIS_JNI_CLASSPATH_PARAMETER}"
+
+jdk_version() {
+    local result
+    local java_cmd=$JAVA_HOME/bin/java
+    local IFS=$'\n'
+    # remove \r for Cygwin
+    local lines=$("$java_cmd" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n')
+    if [[ -z $java_cmd ]]
+    then
+        result=no_java
+    else
+        for line in $lines; do
+            if [[ (-z $result) && ($line = *"version \""*) ]]
+            then
+                local ver=$(echo $line | sed -e 's/.*version "\(.*\)"\(.*\)/\1/; 1q')
+                # on macOS, sed doesn't support '?'
+                if [[ $ver = "1."* ]]
+                then
+                    result=$(echo $ver | sed -e 's/1\.\([0-9]*\)\(.*\)/\1/; 1q')
+                else
+                    result=$(echo $ver | sed -e 's/\([0-9]*\)\(.*\)/\1/; 1q')
+                fi
+            fi
+        done
+    fi
+    echo "$result"
+}
+
+jvm_arch="amd64"
+if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+    jvm_arch="aarch64"
+fi
+java_version=$(jdk_version)
+if [[ $java_version -gt 8 ]]; then
+    export LD_LIBRARY_PATH=$JAVA_HOME/lib/server:$JAVA_HOME/lib:$LD_LIBRARY_PATH
+# JAVA_HOME is jdk
+elif [[ -d "$JAVA_HOME/jre"  ]]; then
+    export LD_LIBRARY_PATH=$JAVA_HOME/jre/lib/$jvm_arch/server:$JAVA_HOME/jre/lib/$jvm_arch:$LD_LIBRARY_PATH
+# JAVA_HOME is jre
+else
+    export LD_LIBRARY_PATH=$JAVA_HOME/lib/$jvm_arch/server:$JAVA_HOME/lib/$jvm_arch:$LD_LIBRARY_PATH
+fi
+
 # export env variables from be.conf
 #
 # UDF_RUNTIME_DIR
