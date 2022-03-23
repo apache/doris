@@ -533,6 +533,8 @@ struct ProcessHashTableProbe {
                           JoinOpType::value == TJoinOp::RIGHT_ANTI_JOIN) {
                 output_block->clear();
             } else {
+                if constexpr (JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN ||
+                          JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) orig_columns = right_col_idx;
                 Block::filter_block(output_block, result_column_id, orig_columns);
             }
         }
