@@ -178,8 +178,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
                             icebergProperty, identifier, false);
                     // check iceberg table if exists in doris database
                     if (!db.createTableWithLock(table, false, false).first) {
-                        ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE,
-                                table.getName(), ErrorCode.ERR_TABLE_EXISTS_ERROR.getCode());
+                        ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, table.getName());
                     }
                     addTableCreationRecord(db.getId(), tableId, db.getFullName(), table.getName(), SUCCESS,
                             prop.writeTimeFormat(new Date(System.currentTimeMillis())), "");
