@@ -157,17 +157,18 @@ public:
         offsets.push_back(new_size);
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
+    void insert_many_binary_data(char* data_array, uint32_t* len_array,
+                                 uint32_t* start_offset_array, size_t num) override {
         for (size_t i = 0; i < num; i++) {
             uint32_t len = len_array[i];
             uint32_t start_offset = start_offset_array[i];
             insert_data(data_array + start_offset, len);
         }
     };
- 
+
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) override {
-        for (size_t end_index = start_index+num; start_index < end_index; ++start_index) {
+        for (size_t end_index = start_index + num; start_index < end_index; ++start_index) {
             int32_t codeword = data_array[start_index];
             insert_data(dict[codeword].data, dict[codeword].size);
         }
@@ -203,7 +204,8 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const int* indices_begin,
+                             const int* indices_end) override;
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
 
@@ -226,7 +228,7 @@ public:
 
         const size_t old_size = offsets.size();
         const size_t new_size = old_size + length;
-        const auto num = offsets.back() + 1; 
+        const auto num = offsets.back() + 1;
         offsets.resize_fill(new_size, num);
         for (size_t i = old_size, j = 0; i < new_size; i++, j++) {
             offsets[i] += j;
@@ -314,6 +316,16 @@ public:
         }
 
         chars.emplace_back(0);
+    }
+
+    MutableColumnPtr get_shinked_column() const {
+        auto shrinked_column = ColumnString::create();
+        for (int i = 0; i < size(); i++) {
+            StringRef str = get_data_at(i);
+            reinterpret_cast<ColumnString*>(shrinked_column.get())
+                    ->insert_data(str.data, strnlen(str.data, str.size));
+        }
+        return shrinked_column;
     }
 };
 

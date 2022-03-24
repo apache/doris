@@ -220,7 +220,7 @@ public:
     void insert_many_dict_data(const int32_t* data_array, size_t start_index, const StringRef* dict,
                                size_t num, uint32_t /*dict_num*/) override {
         if constexpr (std::is_same_v<T, StringValue>) {
-            for (size_t end_index = start_index+num; start_index < end_index; ++start_index) {
+            for (size_t end_index = start_index + num; start_index < end_index; ++start_index) {
                 int32_t codeword = data_array[start_index];
                 insert_string_value(dict[codeword].data, dict[codeword].size);
             }
@@ -255,9 +255,7 @@ public:
 
     void reserve(size_t n) override { data.reserve(n); }
 
-    [[noreturn]] const char* get_family_name() const override {
-        LOG(FATAL) << "get_family_name not supported in PredicateColumnType";
-    }
+    const char* get_family_name() const override { return TypeName<T>::get(); }
 
     [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
         LOG(FATAL) << "clone_resized not supported in PredicateColumnType";
