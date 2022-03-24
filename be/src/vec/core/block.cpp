@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <snappy.h>
 
+#include <cstring>
 #include <iomanip>
 #include <iterator>
 #include <memory>
@@ -32,13 +33,17 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
+#include "udf/udf.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_common.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/exception.h"
+#include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_bitmap.h"
 #include "vec/data_types/data_type_date.h"
@@ -941,4 +946,23 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
     return temp_block;
 }
 
+void Block::shrink_char_type_column_suffix_zero(std::vector<size_t> char_type_idx) {
+    for (auto idx : char_type_idx) {
+        if (this->get_by_position(idx).column->is_nullable()) {
+            this->get_by_position(idx).column = ColumnNullable::create(
+                    reinterpret_cast<const ColumnString*>(
+                            reinterpret_cast<const ColumnNullable*>(
+                                    this->get_by_position(idx).column.get())
+                                    ->get_nested_column_ptr()
+                                    .get())
+                            ->get_shinked_column(),
+                    reinterpret_cast<const ColumnNullable*>(this->get_by_position(idx).column.get())
+                            ->get_null_map_column_ptr());
+        } else {
+            this->get_by_position(idx).column =
+                    reinterpret_cast<const ColumnString*>(this->get_by_position(idx).column.get())
+                            ->get_shinked_column();
+        }
+    }
+}
 } // namespace doris::vectorized

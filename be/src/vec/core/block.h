@@ -284,6 +284,8 @@ public:
 
     doris::Tuple* deep_copy_tuple(const TupleDescriptor&, MemPool*, int, int, bool padding_char = false);
 
+    void shrink_char_type_column_suffix_zero(std::vector<size_t> char_type_idx);
+
 private:
     void erase_impl(size_t position);
     void initialize_index_by_name();

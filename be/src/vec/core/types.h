@@ -25,9 +25,13 @@
 #include <string>
 #include <vector>
 
+#include "gen_cpp/data.pb.h"
+#include "olap/decimal12.h"
+#include "olap/hll.h"
+#include "olap/uint24.h"
+#include "udf/udf.h"
 #include "util/binary_cast.hpp"
 #include "util/bitmap_value.h"
-#include "olap/hll.h"
 
 namespace doris::vectorized {
 
@@ -118,6 +122,24 @@ inline constexpr bool IsNumber<Float64> = true;
 
 template <typename T>
 struct TypeName;
+
+// only used at predicate_column
+template <>
+struct TypeName<bool> {
+    static const char* get() { return "bool"; }
+};
+template <>
+struct TypeName<decimal12_t> {
+    static const char* get() { return "decimal12_t"; }
+};
+template <>
+struct TypeName<uint24_t> {
+    static const char* get() { return "uint24_t"; }
+};
+template <>
+struct TypeName<StringValue> {
+    static const char* get() { return "SringValue"; }
+};
 
 template <>
 struct TypeName<UInt8> {
