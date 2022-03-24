@@ -48,11 +48,12 @@ usage() {
 Usage: $0 <options>
   Optional options:
      --be               build Backend
+     --meta-tool        build Backend meta tool
      --fe               build Frontend and Spark Dpp application
      --broker           build Broker
      --ui               build Frontend web ui with npm
      --spark-dpp        build Spark DPP application
-     --java-udf          build Java UDF
+     --java-udf         build Java UDF
      --clean            clean and build target
      -j                 build Backend parallel
 
@@ -64,6 +65,7 @@ Usage: $0 <options>
   Eg.
     $0                                      build all
     $0 --be                                 build Backend without clean
+    $0 --meta-tool                          build Backend meta tool
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application, without web UI
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend, without web UI
     $0 --spark-dpp                          build Spark DPP application alone
@@ -107,6 +109,7 @@ OPTS=$(getopt \
   -n $0 \
   -o '' \
   -l 'be' \
+  -l 'meta-tool' \
   -l 'fe' \
   -l 'broker' \
   -l 'ui' \
@@ -152,6 +155,7 @@ else
     while true; do
         case "$1" in
             --be) BUILD_BE=1 ; shift ;;
+            --meta-tool) BUILD_META_TOOL="ON" ; shift ;;
             --fe) BUILD_FE=1 ; shift ;;
             --ui) BUILD_UI=1 ; shift ;;
             --broker) BUILD_BROKER=1 ; shift ;;
@@ -173,6 +177,7 @@ else
         BUILD_UI=1
         BUILD_SPARK_DPP=1
         BUILD_JAVA_UDF=0
+        BUILD_META_TOOL="OFF"
         CLEAN=0
     fi
 fi
@@ -213,16 +218,13 @@ if [[ -z ${USE_LIBCPP} ]]; then
     USE_LIBCPP=OFF
 fi
 if [[ -z ${BUILD_META_TOOL} ]]; then
-    BUILD_META_TOOL=ON
+    BUILD_META_TOOL=OFF
 fi
 if [[ -z ${USE_LLD} ]]; then
     USE_LLD=OFF
 fi
 if [[ -z ${STRIP_DEBUG_INFO} ]]; then
     STRIP_DEBUG_INFO=OFF
-fi
-if [[ -z ${BUILD_DOCS} ]]; then
-    BUILD_DOCS=ON
 fi
 
 echo "Get params:
@@ -241,7 +243,6 @@ echo "Get params:
     USE_LIBCPP          -- $USE_LIBCPP
     BUILD_META_TOOL     -- $BUILD_META_TOOL
     USE_LLD             -- $USE_LLD
-    BUILD_DOCS          -- $BUILD_DOCS
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
 "
 
@@ -257,18 +258,23 @@ make
 
 # Assesmble FE modules
 FE_MODULES=
-if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 -o ${BUILD_JAVA_UDF} = "ON" ]; then
-    if [ ${BUILD_FE} -eq 1 -a ${BUILD_JAVA_UDF} = "ON" ]; then
-        FE_MODULES="fe-common,spark-dpp,fe-core,java-udf"
-    elif [ ${BUILD_FE} -eq 1 -a ${BUILD_JAVA_UDF} != "ON" ]; then
-        FE_MODULES="fe-common,spark-dpp,fe-core"
-    elif [ ${BUILD_JAVA_UDF} = "ON" -a ${BUILD_SPARK_DPP} -eq 0 ]; then
-        FE_MODULES="fe-common,fe-core,java-udf"
-    elif [ ${BUILD_JAVA_UDF} = "ON" -a ${BUILD_SPARK_DPP} -eq 1 ]; then
-        FE_MODULES="fe-common,fe-core,java-udf,spark-dpp"
-    else
-        FE_MODULES="fe-common,spark-dpp"
+if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 -o ${BUILD_JAVA_UDF} -eq 1 ]; then
+    modules=("fe-common")
+    if [ ${BUILD_FE} -eq 1 ]; then
+        modules+=("fe-core")
+        BUILD_DOCS="ON"
     fi
+    if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
+        modules+=("spark-dpp")
+    fi
+    if [ ${BUILD_JAVA_UDF} -eq 1 ]; then
+        modules+=("java-udf")
+        if [ ${BUILD_FE} -eq 0 ]; then
+            modules+=("fe-core")
+            BUILD_DOCS="ON"
+        fi
+    fi
+    FE_MODULES=$(IFS=, ; echo "${modules[*]}")
 fi
 
 # Clean and build Backend
@@ -303,7 +309,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     cd ${DORIS_HOME}
 fi
 
-if [ ${BUILD_DOCS} = "ON"  ] ; then
+if [ "${BUILD_DOCS}" = "ON" ] ; then
     # Build docs, should be built before Frontend
     echo "Build docs"
     cd ${DORIS_HOME}/docs
