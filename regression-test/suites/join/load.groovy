@@ -20,15 +20,17 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases
 // and modified by Doris.
 
-def tables=["test_join"]
+suite("load") {
+    def tables=["test_join"]
 
-for (String table in tables) {
-    sql """ DROP TABLE IF EXISTS $table """
+    for (String table in tables) {
+        sql """ DROP TABLE IF EXISTS $table """
+    }
+
+    for (String table in tables) {
+        sql new File("""${context.file.parent}/ddl/${table}.sql""").text
+    }
+
+    sql """ insert into test_join select 1 """
+    sql """ insert into test_join select 2 """
 }
-
-for (String table in tables) {
-    sql new File("""${context.file.parent}/ddl/${table}.sql""").text
-}
-
-sql """ insert into test_join select 1 """
-sql """ insert into test_join select 2 """

@@ -20,12 +20,14 @@
 // /testing/trino-product-tests/src/main/resources/sql-tests/testcases
 // and modified by Doris.
 
-def tables=["empty"]
+suite("load") {
+    def tables=["empty"]
 
-for (String table in tables) {
-    sql """ DROP TABLE IF EXISTS $table """
-}
+    for (String table in tables) {
+        sql """ DROP TABLE IF EXISTS $table """
+    }
 
-for (String table in tables) {
-    sql new File("""${context.file.parent}/ddl/${table}.sql""").text
+    for (String table in tables) {
+        sql new File("""${context.file.parent}/ddl/${table}.sql""").text
+    }
 }

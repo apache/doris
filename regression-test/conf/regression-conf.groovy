@@ -38,5 +38,7 @@ dataPath = "${DORIS_HOME}/regression-test/data"
 testGroups = ""
 // empty suite will test all suite
 testSuites = ""
+// empty directories will test all directories
+testDirectories = ""
 
 customConf1 = "test_custom_conf_value"

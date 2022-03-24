@@ -41,11 +41,11 @@ import java.util.stream.LongStream
 
 import static org.apache.doris.regression.util.DataUtils.sortByToString
 
-abstract class Suite extends Script implements GroovyInterceptable {
-    SuiteContext context
-    String name
-    String group
-    final Logger logger = LoggerFactory.getLogger(getClass())
+class Suite implements GroovyInterceptable {
+    final SuiteContext context
+    final String name
+    final String group
+    final Logger logger = LoggerFactory.getLogger(this.class)
 
     final List<Closure> successCallbacks = new Vector<>()
     final List<Closure> failCallbacks = new Vector<>()
@@ -53,7 +53,7 @@ abstract class Suite extends Script implements GroovyInterceptable {
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
 
-    void init(String name, String group, SuiteContext context) {
+    Suite(String name, String group, SuiteContext context) {
         this.name = name
         this.group = group
         this.context = context
@@ -139,17 +139,25 @@ abstract class Suite extends Script implements GroovyInterceptable {
     }
 
     public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
-        return MoreExecutors.listeningDecorator(context.executorService).submit((Callable<T>) {
+        return MoreExecutors.listeningDecorator(context.actionExecutors).submit((Callable<T>) {
+            long startTime = System.currentTimeMillis()
             def originThreadName = Thread.currentThread().name
             try {
                 Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
+                context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
+
                 return actionSupplier.call()
+            } catch (Throwable t) {
+                context.scriptContext.eventListeners.each { it.onThreadFailed(context, t) }
+                throw t
             } finally {
                 try {
                     context.closeThreadLocal()
                 } catch (Throwable t) {
                     logger.warn("Close thread local context failed", t)
                 }
+                long finishTime = System.currentTimeMillis()
+                context.scriptContext.eventListeners.each { it.onThreadFinished(context, finishTime - startTime) }
                 Thread.currentThread().setName(originThreadName)
             }
         })
@@ -175,7 +183,7 @@ abstract class Suite extends Script implements GroovyInterceptable {
     }
 
     List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
-        logger.info("Execute sql: ${sqlStr}".toString())
+        logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
         def result = JdbcUtils.executeToList(context.getConnection(), sqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
@@ -249,16 +257,16 @@ abstract class Suite extends Script implements GroovyInterceptable {
     void runAction(SuiteAction action, Closure actionSupplier) {
         actionSupplier.setDelegate(action)
         actionSupplier.setResolveStrategy(Closure.DELEGATE_FIRST)
-        actionSupplier.call()
+        actionSupplier.call(action)
         action.run()
     }
 
-    void quickTest(String tag, String sql, boolean order = false) {
-        logger.info("Execute tag: ${tag}, sql: ${sql}".toString())
+    void quickTest(String tag, String sql, boolean isOrder = false) {
+        logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
 
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             def result = JdbcUtils.executorToStringList(context.getConnection(), sql)
-            if (order) {
+            if (isOrder) {
                 result = sortByToString(result)
             }
             Iterator<List<Object>> realResults = result.iterator()
@@ -267,36 +275,29 @@ abstract class Suite extends Script implements GroovyInterceptable {
             writer.write(realResults, tag)
         } else {
             if (!context.outputFile.exists()) {
-                String res = "Missing outputFile: ${context.outputFile.getAbsolutePath()}"
-                List excelContentList = [context.file.getName(), context.file, context.file, res]
-                context.recorder.reportDiffResult(excelContentList)
                 throw new IllegalStateException("Missing outputFile: ${context.outputFile.getAbsolutePath()}")
             }
 
             if (!context.getOutputIterator().hasNextTagBlock(tag)) {
-                String res = "Missing output block for tag '${tag}': ${context.outputFile.getAbsolutePath()}"
-                List excelContentList = [context.file.getName(), tag, context.file, res]
-                context.recorder.reportDiffResult(excelContentList)
                 throw new IllegalStateException("Missing output block for tag '${tag}': ${context.outputFile.getAbsolutePath()}")
             }
 
             OutputUtils.TagBlockIterator expectCsvResults = context.getOutputIterator().next()
             List<List<Object>> realResults = JdbcUtils.executorToStringList(context.getConnection(), sql)
-            if (order) {
+            if (isOrder) {
                 realResults = sortByToString(realResults)
             }
             String errorMsg = null
             try {
-                errorMsg = OutputUtils.checkOutput(expectCsvResults, realResults.iterator(), "Check tag '${tag}' failed")
+                errorMsg = OutputUtils.checkOutput(expectCsvResults, realResults.iterator(),
+                    { row -> OutputUtils.toCsvString(row as List<Object>) },
+                    {row ->  OutputUtils.toCsvString(row) },
+                    "Check tag '${tag}' failed")
             } catch (Throwable t) {
-                List excelContentList = [context.file.getName(), tag, sql.trim(), t]
-                context.recorder.reportDiffResult(excelContentList)
-                throw new IllegalStateException("Check tag '${tag}' failed", t)
+                throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
             }
             if (errorMsg != null) {
-                List excelContentList = [context.file.getName(), tag, sql.trim(), errorMsg]
-                context.recorder.reportDiffResult(excelContentList)
-                throw new IllegalStateException(errorMsg)
+                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${sql}")
             }
         }
     }
@@ -320,6 +321,9 @@ abstract class Suite extends Script implements GroovyInterceptable {
                 return null
             }
         } else {
+            if (metaClass == null) {
+                println("eeee")
+            }
             // invoke origin method
             return metaClass.invokeMethod(this, name, args)
         }
