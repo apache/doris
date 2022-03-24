@@ -53,7 +53,7 @@ std::string DataTypeNullable::to_string(const IColumn& column, size_t row_num) c
     }
 }
 
-// binary: column num | <null array> | <values array>
+// binary: row num | <null array> | <values array>
 //  <null array>: is_null1 | is_null2 | ...
 //  <values array>: value1 | value2 | ...>
 int64_t DataTypeNullable::get_uncompressed_serialized_bytes(const IColumn& column) const {
@@ -68,7 +68,7 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf) const {
     auto ptr = column.convert_to_full_column_if_const();
     const ColumnNullable& col = assert_cast<const ColumnNullable&>(*ptr.get());
 
-    // column num
+    // row num
     *reinterpret_cast<uint32_t*>(buf) = column.size();
     buf += sizeof(uint32_t);
     // null flags
@@ -80,13 +80,13 @@ char* DataTypeNullable::serialize(const IColumn& column, char* buf) const {
 
 const char* DataTypeNullable::deserialize(const char* buf, IColumn* column) const {
     ColumnNullable* col = assert_cast<ColumnNullable*>(column);
-    // column num
-    uint32_t column_num = *reinterpret_cast<const uint32_t*>(buf);
+    // row num
+    uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
     buf += sizeof(uint32_t);
     // null flags
-    col->get_null_map_data().resize(column_num);
-    memcpy(col->get_null_map_data().data(), buf, column_num * sizeof(bool));
-    buf += column_num * sizeof(bool);
+    col->get_null_map_data().resize(row_num);
+    memcpy(col->get_null_map_data().data(), buf, row_num * sizeof(bool));
+    buf += row_num * sizeof(bool);
     // data values
     IColumn& nested = col->get_nested_column();
     return nested_data_type->deserialize(buf, &nested);
