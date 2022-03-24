@@ -141,11 +141,6 @@ service BackendService {
 
     AgentService.TAgentResult publish_cluster_state(1:AgentService.TAgentPublishRequest request);
 
-    AgentService.TAgentResult submit_etl_task(1:AgentService.TMiniLoadEtlTaskRequest request);
-
-    AgentService.TMiniLoadEtlStatusResult get_etl_status(
-            1:AgentService.TMiniLoadEtlStatusRequest request);
-
     Status.TStatus submit_export_task(1:TExportTaskRequest request);
 
     PaloInternalService.TExportStatusResult get_export_status(1:Types.TUniqueId task_id);
