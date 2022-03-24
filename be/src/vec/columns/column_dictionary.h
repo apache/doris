@@ -102,7 +102,10 @@ public:
 
     void insert_default() override { _codes.push_back(T()); }
 
-    void clear() override { _codes.clear(); }
+    void clear() override {
+        _codes.clear();
+        _dict_code_converted = false;
+    }
 
     // TODO: Make dict memory usage more precise
     size_t byte_size() const override { return _codes.size() * sizeof(_codes[0]); }
@@ -226,7 +229,8 @@ public:
 
     void convert_dict_codes_if_necessary() override {
         if (!is_dict_sorted()) {
-            sort_dict();
+            _dict.sort();
+            _dict_sorted = true;
         }
 
         if (!is_dict_code_converted()) {
@@ -310,11 +314,6 @@ public:
         return res;
     }
 
-    void sort_dict() {
-        _dict.sort();
-        _dict_sorted = true;
-    }
-
     class Dictionary {
     public:
         Dictionary() = default;
@@ -344,11 +343,11 @@ public:
             }
 
             if (lower) {
-                return std::lower_bound(dict_data.begin(), dict_data.end(), value) -
-                       dict_data.begin() - eq;
+                return std::lower_bound(_dict_data.begin(), _dict_data.end(), value) -
+                       _dict_data.begin() - eq;
             } else {
-                return std::upper_bound(dict_data.begin(), dict_data.end(), value) -
-                       dict_data.begin() + eq;
+                return std::upper_bound(_dict_data.begin(), _dict_data.end(), value) -
+                       _dict_data.begin() + eq;
             }
         }
 

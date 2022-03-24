@@ -45,7 +45,7 @@ enum class PredicateType {
     NotInList = 8,
     IsNull = 9,
     NotIsNull = 10,
-    BF = 11
+    BF = 11, // BloomFilter
 };
 
 class ColumnPredicate {
