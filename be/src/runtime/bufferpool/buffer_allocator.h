@@ -21,6 +21,7 @@
 #include "runtime/bufferpool/buffer_pool_internal.h"
 #include "runtime/bufferpool/free_list.h"
 #include "util/aligned_new.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -235,6 +236,8 @@ private:
     /// all arenas so may fail. The final attempt locks all arenas, which is expensive
     /// but is guaranteed to succeed.
     int max_scavenge_attempts_;
+
+    std::shared_ptr<MemTracker> _mem_tracker;
 };
 } // namespace doris
 

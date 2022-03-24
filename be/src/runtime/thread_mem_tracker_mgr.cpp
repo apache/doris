@@ -22,19 +22,21 @@
 
 namespace doris {
 
-void ThreadMemTrackerMgr::attach_task(const std::string& action_type, const std::string& task_id,
+void ThreadMemTrackerMgr::attach_task(const std::string& cancel_msg, const std::string& task_id,
                                       const TUniqueId& fragment_instance_id,
                                       const std::shared_ptr<MemTracker>& mem_tracker) {
     _task_id = task_id;
     _fragment_instance_id = fragment_instance_id;
-    _consume_err_call_back.update(action_type, true, nullptr);
+    _consume_err_cb.cancel_msg = cancel_msg;
     if (mem_tracker == nullptr) {
 #ifdef BE_TEST
         if (ExecEnv::GetInstance()->task_pool_mem_tracker_registry() == nullptr) {
             return;
         }
 #endif
-        _temp_task_mem_tracker = ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_task_mem_tracker(task_id);
+        _temp_task_mem_tracker =
+                ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_task_mem_tracker(
+                        task_id);
         update_tracker(_temp_task_mem_tracker);
     } else {
         update_tracker(mem_tracker);
@@ -44,7 +46,7 @@ void ThreadMemTrackerMgr::attach_task(const std::string& action_type, const std:
 void ThreadMemTrackerMgr::detach_task() {
     _task_id = "";
     _fragment_instance_id = TUniqueId();
-    _consume_err_call_back.init();
+    _consume_err_cb.init();
     clear_untracked_mems();
     _tracker_id = "process";
     // The following memory changes for the two map operations of _untracked_mems and _mem_trackers
@@ -70,12 +72,12 @@ void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details
 
 void ThreadMemTrackerMgr::exceeded(int64_t mem_usage, Status st) {
     auto rst = _mem_trackers[_tracker_id]->mem_limit_exceeded(
-            nullptr, "In TCMalloc Hook, " + _consume_err_call_back.action_type, mem_usage, st);
-    if (_consume_err_call_back.call_back_func != nullptr) {
-        _consume_err_call_back.call_back_func();
+            nullptr, "In TCMalloc Hook, " + _consume_err_cb.cancel_msg, mem_usage, st);
+    if (_consume_err_cb.cb_func != nullptr) {
+        _consume_err_cb.cb_func();
     }
-    if (_task_id != "") {
-        if (_consume_err_call_back.cancel_task == true) {
+    if (is_attach_task()) {
+        if (_consume_err_cb.cancel_task == true) {
             exceeded_cancel_task(rst.to_string());
         } else {
             // TODO(zxy) Need other processing, or log (not too often).

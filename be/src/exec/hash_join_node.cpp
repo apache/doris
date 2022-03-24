@@ -186,6 +186,7 @@ Status HashJoinNode::construct_hash_table(RuntimeState* state) {
     // The hash join node needs to keep in memory all build tuples, including the tuple
     // row ptrs.  The row ptrs are copied into the hash table's internal structure so they
     // don't need to be stored in the _build_pool.
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Hash join, while constructing the hash table.");
     RowBatch build_batch(child(1)->row_desc(), state->batch_size());
     RETURN_IF_ERROR(child(1)->open(state));
 
@@ -303,7 +304,7 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eo
     // In most cases, no additional memory overhead will be applied for at this stage,
     // but if the expression calculation in this node needs to apply for additional memory,
     // it may cause the memory to exceed the limit.
-    RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Hash join, while execute get_next.");
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Hash join, while execute get_next.");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     if (reached_limit()) {
@@ -771,11 +772,9 @@ Status HashJoinNode::process_build_batch(RuntimeState* state, RowBatch* build_ba
                                                    _build_pool.get(), false);
             }
         }
-        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
     } else {
         // take ownership of tuple data of build_batch
         _build_pool->acquire_data(build_batch->tuple_data_pool(), false);
-        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
         RETURN_IF_ERROR(_hash_tbl->resize_buckets_ahead(build_batch->num_rows()));
         for (int i = 0; i < build_batch->num_rows(); ++i) {
             _hash_tbl->insert_without_check(build_batch->get_row(i));

@@ -28,27 +28,19 @@ namespace doris {
 typedef void (*ERRCALLBACK)();
 
 struct ConsumeErrCallBackInfo {
-    std::string action_type;
+    std::string cancel_msg;
     bool cancel_task; // Whether to cancel the task when the current tracker exceeds the limit
-    ERRCALLBACK call_back_func;
+    ERRCALLBACK cb_func;
 
-    ConsumeErrCallBackInfo() {
-        init();
-    }
+    ConsumeErrCallBackInfo() { init(); }
 
-    ConsumeErrCallBackInfo(std::string action_type, bool cancel_task, ERRCALLBACK call_back_func)
-            : action_type(action_type), cancel_task(cancel_task), call_back_func(call_back_func) {}
-
-    void update(std::string new_action_type, bool new_cancel_task, ERRCALLBACK new_call_back_func) {
-        action_type = new_action_type;
-        cancel_task = new_cancel_task;
-        call_back_func = new_call_back_func;
-    }
+    ConsumeErrCallBackInfo(const std::string& cancel_msg, bool cancel_task, ERRCALLBACK cb_func)
+            : cancel_msg(cancel_msg), cancel_task(cancel_task), cb_func(cb_func) {}
 
     void init() {
-        action_type = "";
+        cancel_msg = "";
         cancel_task = false;
-        call_back_func = nullptr;
+        cb_func = nullptr;
     }
 };
 
@@ -80,7 +72,7 @@ public:
     }
 
     void clear_untracked_mems() {
-        for(auto untracked_mem : _untracked_mems) {
+        for (const auto& untracked_mem : _untracked_mems) {
             if (untracked_mem.second != 0) {
                 DCHECK(_mem_trackers[untracked_mem.first]);
                 _mem_trackers[untracked_mem.first]->consume(untracked_mem.second);
@@ -91,7 +83,7 @@ public:
     }
 
     // After attach, the current thread TCMalloc Hook starts to consume/release task mem_tracker
-    void attach_task(const std::string& action_type, const std::string& task_id,
+    void attach_task(const std::string& cancel_msg, const std::string& task_id,
                      const TUniqueId& fragment_instance_id,
                      const std::shared_ptr<MemTracker>& mem_tracker);
 
@@ -101,12 +93,35 @@ public:
     // Thread update_tracker may be called very frequently, adding a memory copy will be slow.
     std::string update_tracker(const std::shared_ptr<MemTracker>& mem_tracker);
 
+    void update_tracker_id(const std::string& tracker_id) {
+        if (tracker_id != _tracker_id) {
+            _untracked_mems[_tracker_id] += _untracked_mem;
+            _untracked_mem = 0;
+            _tracker_id = tracker_id;
+        }
+    }
+
+    inline ConsumeErrCallBackInfo update_consume_err_cb(const std::string& cancel_msg,
+                                                        bool cancel_task, ERRCALLBACK cb_func) {
+        _temp_consume_err_cb = _consume_err_cb;
+        _consume_err_cb.cancel_msg = cancel_msg;
+        _consume_err_cb.cancel_task = cancel_task;
+        _consume_err_cb.cb_func = cb_func;
+        return _temp_consume_err_cb;
+    }
+
+    inline void update_consume_err_cb(const ConsumeErrCallBackInfo& consume_err_cb) {
+        _consume_err_cb = consume_err_cb;
+    }
+
     // Note that, If call the memory allocation operation in TCMalloc new/delete Hook,
     // such as calling LOG/iostream/sstream/stringstream/etc. related methods,
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
     void cache_consume(int64_t size);
 
     void noncache_consume();
+
+    bool is_attach_task() { return _task_id != ""; }
 
     std::shared_ptr<MemTracker> mem_tracker() {
         DCHECK(_mem_trackers[_tracker_id]);
@@ -137,15 +152,16 @@ private:
 
     // Avoid memory allocation in functions and fall into an infinite loop
     std::string _temp_tracker_id;
-    ConsumeErrCallBackInfo _temp_consume_err_call_back;
+    ConsumeErrCallBackInfo _temp_consume_err_cb;
     std::shared_ptr<MemTracker> _temp_task_mem_tracker;
 
     std::string _task_id;
     TUniqueId _fragment_instance_id;
-    ConsumeErrCallBackInfo _consume_err_call_back;
+    ConsumeErrCallBackInfo _consume_err_cb;
 };
 
-inline std::string ThreadMemTrackerMgr::update_tracker(const std::shared_ptr<MemTracker>& mem_tracker) {
+inline std::string ThreadMemTrackerMgr::update_tracker(
+        const std::shared_ptr<MemTracker>& mem_tracker) {
     DCHECK(mem_tracker);
     _temp_tracker_id = mem_tracker->id();
     if (_temp_tracker_id == _tracker_id) {
