@@ -48,6 +48,7 @@ try {
      *    return xxx(args)
      * } catch (Throwable t) {
      *     // do nothing
+     *     return null
      * }
      */
     try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -74,6 +75,7 @@ def list = order_sql """
                 union all
                 select 3
                 """
+
 assertEquals(null, list[0][0])
 assertEquals(1, list[1][0])
 assertEquals(15, list[2][0])

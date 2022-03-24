@@ -18,6 +18,8 @@
 package org.apache.doris.regression.action
 
 import com.google.common.collect.Iterators
+import groovy.transform.stc.ClosureParams
+import groovy.transform.stc.FromString
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.BytesInputStream
 import org.apache.doris.regression.util.OutputUtils
@@ -115,7 +117,7 @@ class StreamLoadAction implements SuiteAction {
         this.time = time.call()
     }
 
-    void check(Closure check) {
+    void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }
 
