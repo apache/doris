@@ -715,9 +715,9 @@ doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool
             dst->set_null(slot_desc->null_indicator_offset());
         } else {
             dst->set_not_null(slot_desc->null_indicator_offset());
+            deep_copy_slot(dst->get_slot(slot_desc->tuple_offset()), pool, type_desc, data_ref,
+                           column.get(), row, padding_char);
         }
-        deep_copy_slot(dst->get_slot(slot_desc->tuple_offset()), pool, type_desc, data_ref,
-                       column.get(), row, padding_char);
     }
     return dst;
 }
