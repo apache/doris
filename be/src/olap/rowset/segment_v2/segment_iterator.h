@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/olap_common.h"
 #include "olap/olap_cond.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
@@ -97,9 +98,22 @@ private:
     void _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t& selected_size);
     void _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t* selected_size);
     void _output_non_pred_columns(vectorized::Block* block, bool is_block_mem_reuse);
-    Status _output_column_by_sel_idx(vectorized::Block* block, const std::vector<ColumnId>& columnids, uint16_t* sel_rowid_idx, uint16_t select_size, bool is_block_mem_reuse);
-    void _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids, std::vector<rowid_t>& rowid_vector, 
-        uint16_t* sel_rowid_idx, size_t select_size, vectorized::MutableColumns* mutable_columns);
+    void _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
+                                 std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
+                                 size_t select_size, vectorized::MutableColumns* mutable_columns);
+
+    template <class Container>
+    Status _output_column_by_sel_idx(vectorized::Block* block, const Container& column_ids,
+                                     uint16_t* sel_rowid_idx, uint16_t select_size,
+                                     bool is_block_mem_reuse) {
+        for (auto cid : column_ids) {
+            int block_cid = _schema_block_id_map[cid];
+            RETURN_IF_ERROR(block->copy_column_data_to_block(
+                    is_block_mem_reuse, _current_return_columns[cid].get(), sel_rowid_idx,
+                    select_size, block_cid, _opts.block_row_max));
+        }
+        return Status::OK();
+    }
 
 private:
     class BitmapRangeIterator;
@@ -135,7 +149,7 @@ private:
             _vec_pred_column_ids; // keep columnId of columns for vectorized predicate evaluation
     std::vector<ColumnId>
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
-    vector<bool> _is_pred_column;       // columns hold by segmentIter
+    std::vector<bool> _is_pred_column; // columns hold by segmentIter
     vectorized::MutableColumns _current_return_columns;
     std::unique_ptr<AndBlockColumnPredicate> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
@@ -143,8 +157,8 @@ private:
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
-    vector<ColumnId> _first_read_column_ids;
-    vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
+    std::vector<ColumnId> _first_read_column_ids;
+    std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
 
     // the actual init process is delayed to the first call to next_batch()
     bool _inited;
@@ -162,6 +176,9 @@ private:
 
     // block for file to read
     std::unique_ptr<fs::ReadableBlock> _rblock;
+
+    // char_type columns cid
+    std::vector<size_t> _char_type_idx;
 };
 
 } // namespace segment_v2
