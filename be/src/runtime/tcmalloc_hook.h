@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include <gperftools/malloc_hook.h>
 #include <gperftools/nallocx.h>
 #include <gperftools/tcmalloc.h>

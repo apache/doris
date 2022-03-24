@@ -26,6 +26,7 @@
 #include "util/cpu_info.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
+#include "runtime/thread_context.h"
 
 //DECLARE_bool(disable_mem_pools);
 
@@ -48,7 +49,7 @@ public:
 
     /// Add a free buffer to the free lists. May free buffers to the system allocator
     /// if the list becomes full. Caller should not hold 'lock_'
-    void AddFreeBuffer(BufferHandle&& buffer);
+    bool AddFreeBuffer(BufferHandle&& buffer);
 
     /// Try to get a free buffer of 'buffer_len' bytes from this arena. Returns true and
     /// sets 'buffer' if found or false if not found. Caller should not hold 'lock_'.
@@ -193,7 +194,8 @@ BufferPool::BufferAllocator::BufferAllocator(BufferPool* pool, int64_t min_buffe
           clean_page_bytes_limit_(clean_page_bytes_limit),
           clean_page_bytes_remaining_(clean_page_bytes_limit),
           per_core_arenas_(CpuInfo::get_max_num_cores()),
-          max_scavenge_attempts_(MAX_SCAVENGE_ATTEMPTS) {
+          max_scavenge_attempts_(MAX_SCAVENGE_ATTEMPTS),
+          _mem_tracker(MemTracker::create_virtual_tracker(-1, "BufferAllocator", nullptr, MemTrackerLevel::OVERVIEW)) {
     DCHECK(BitUtil::IsPowerOf2(min_buffer_len_)) << min_buffer_len_;
     DCHECK(BitUtil::IsPowerOf2(max_buffer_len_)) << max_buffer_len_;
     DCHECK_LE(0, min_buffer_len_);
@@ -303,6 +305,7 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
         system_bytes_remaining_.add(len);
         return status;
     }
+    _mem_tracker->consume_cache(len);
     return Status::OK();
 }
 
@@ -375,7 +378,9 @@ void BufferPool::BufferAllocator::Free(BufferHandle&& handle) {
     handle.client_ = nullptr; // Buffer is no longer associated with a client.
     FreeBufferArena* arena = per_core_arenas_[handle.home_core_].get();
     handle.Poison();
-    arena->AddFreeBuffer(std::move(handle));
+    if (!arena->AddFreeBuffer(std::move(handle))) {
+        _mem_tracker->release_cache(handle.len());
+    }
 }
 
 void BufferPool::BufferAllocator::AddCleanPage(const std::unique_lock<std::mutex>& client_lock,
@@ -426,6 +431,7 @@ int64_t BufferPool::BufferAllocator::FreeToSystem(std::vector<BufferHandle>&& bu
         buffer.Unpoison();
         system_allocator_->Free(std::move(buffer));
     }
+    _mem_tracker->release_cache(bytes_freed);
     return bytes_freed;
 }
 
@@ -485,16 +491,17 @@ BufferPool::FreeBufferArena::~FreeBufferArena() {
     }
 }
 
-void BufferPool::FreeBufferArena::AddFreeBuffer(BufferHandle&& buffer) {
+bool BufferPool::FreeBufferArena::AddFreeBuffer(BufferHandle&& buffer) {
     std::lock_guard<SpinLock> al(lock_);
     if (config::disable_mem_pools) {
         int64_t len = buffer.len();
         parent_->system_allocator_->Free(std::move(buffer));
         parent_->system_bytes_remaining_.add(len);
-        return;
+        return false;
     }
     PerSizeLists* lists = GetListsForSize(buffer.len());
     lists->AddFreeBuffer(std::move(buffer));
+    return true;
 }
 
 bool BufferPool::FreeBufferArena::RemoveCleanPage(bool claim_buffer, Page* page) {
