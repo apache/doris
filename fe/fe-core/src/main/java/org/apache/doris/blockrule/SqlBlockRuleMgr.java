@@ -231,11 +231,11 @@ public class SqlBlockRuleMgr implements Writable {
                     || (rule.getTabletNum() != 0 && rule.getTabletNum() < tabletNum)
                     || (rule.getCardinality() != 0 && rule.getCardinality() < cardinality)) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
-                if (rule.getPartitionNum() < partitionNum) {
+                if (rule.getPartitionNum() < partitionNum && rule.getPartitionNum() != 0) {
                     throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach partition_num : " + rule.getPartitionNum());
-                } else if (rule.getTabletNum() < tabletNum) {
+                } else if (rule.getTabletNum() < tabletNum && rule.getTabletNum() != 0) {
                     throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach tablet_num : " + rule.getTabletNum());
-                } else if (rule.getCardinality() < cardinality) {
+                } else if (rule.getCardinality() < cardinality && rule.getCardinality() != 0) {
                     throw new AnalysisException("sql hits sql block rule: " + rule.getName() + ", reach cardinality : " + rule.getCardinality());
                 }
             }
