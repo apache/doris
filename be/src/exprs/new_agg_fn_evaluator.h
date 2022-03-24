@@ -18,11 +18,8 @@
 #ifndef IMPALA_EXPRS_AGG_FN_EVALUATOR_H
 #define IMPALA_EXPRS_AGG_FN_EVALUATOR_H
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/shared_array.hpp>
 #include <string>
 
-#include "codegen/doris_ir.h"
 #include "common/compiler_util.h"
 #include "common/status.h"
 #include "exprs/agg_fn.h"
@@ -110,9 +107,9 @@ public:
 
     const AggFn& agg_fn() const { return agg_fn_; }
 
-    FunctionContext* IR_ALWAYS_INLINE agg_fn_ctx() const;
+    FunctionContext* agg_fn_ctx() const;
 
-    ExprContext* const* IR_ALWAYS_INLINE input_evals() const;
+    ExprContext* const* input_evals() const;
 
     /// Call the initialization function of the AggFn. May update 'dst'.
     void Init(Tuple* dst);
@@ -180,7 +177,8 @@ public:
                        Tuple* dst);
     static void Serialize(const std::vector<NewAggFnEvaluator*>& evals, Tuple* dst);
     static void GetValue(const std::vector<NewAggFnEvaluator*>& evals, Tuple* src, Tuple* dst);
-    static void Finalize(const std::vector<NewAggFnEvaluator*>& evals, Tuple* src, Tuple* dst, bool add_null = false);
+    static void Finalize(const std::vector<NewAggFnEvaluator*>& evals, Tuple* src, Tuple* dst,
+                         bool add_null = false);
 
     /// Free local allocations made in UDA functions and input arguments' evals.
     //void FreeLocalAllocations();
@@ -190,7 +188,6 @@ public:
     static std::string DebugString(const std::vector<NewAggFnEvaluator*>& evals);
 
 private:
-    uint64_t _total_mem_consumption;
     uint64_t _accumulated_mem_consumption;
 
     // index if has multi count distinct
@@ -211,12 +208,10 @@ private:
     /// Owned by the exec node which owns this evaluator.
     MemPool* mem_pool_ = nullptr;
 
-    std::shared_ptr<MemTracker> _mem_tracker; // saved c'tor param
-
     /// This contains runtime state such as constant input arguments to the aggregate
     /// functions and a FreePool from which the intermediate values are allocated.
     /// Owned by this evaluator.
-    boost::scoped_ptr<FunctionContext> agg_fn_ctx_;
+    std::unique_ptr<FunctionContext> agg_fn_ctx_;
 
     /// Evaluators for input expressions for this aggregate function.
     /// Empty if there is no input expression (e.g. count(*)).
@@ -233,8 +228,7 @@ private:
     doris_udf::AnyVal* staging_merge_input_val_ = nullptr;
 
     /// Use Create() instead.
-    NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool,
-                      const std::shared_ptr<MemTracker>& tracker, bool is_clone);
+    NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, bool is_clone);
 
     /// Return the intermediate type of the aggregate function.
     inline const SlotDescriptor& intermediate_slot_desc() const;
@@ -256,12 +250,13 @@ private:
 
     /// Sets up the arguments to call 'fn'. This converts from the agg-expr signature,
     /// taking TupleRow to the UDA signature taking AnyVals. Writes the serialize/finalize
-    /// result to the given destination slot/tuple. 'fn' can be NULL to indicate the src
+    /// result to the given destination slot/tuple. 'fn' can be nullptr to indicate the src
     /// value should simply be written into the destination. Note that StringVal result is
     /// from local allocation (which will be freed in the next QueryMaintenance()) so it
     /// needs to be copied out if it needs to survive beyond QueryMaintenance() (e.g. if
     /// 'dst' lives in a row batch).
-    void SerializeOrFinalize(Tuple* src, const SlotDescriptor& dst_slot_desc, Tuple* dst, void* fn, bool add_null = false);
+    void SerializeOrFinalize(Tuple* src, const SlotDescriptor& dst_slot_desc, Tuple* dst, void* fn,
+                             bool add_null = false);
 
     // Sets 'dst' to the value from 'slot'.
     void set_any_val(const void* slot, const TypeDescriptor& type, doris_udf::AnyVal* dst);
@@ -282,7 +277,8 @@ inline void NewAggFnEvaluator::Serialize(Tuple* tuple) {
 }
 
 inline void NewAggFnEvaluator::Finalize(Tuple* agg_val, Tuple* output_val, bool add_null) {
-    SerializeOrFinalize(agg_val, agg_fn_.output_slot_desc(), output_val, agg_fn_.finalize_fn(), add_null);
+    SerializeOrFinalize(agg_val, agg_fn_.output_slot_desc(), output_val, agg_fn_.finalize_fn(),
+                        add_null);
 }
 
 inline void NewAggFnEvaluator::GetValue(Tuple* src, Tuple* dst) {

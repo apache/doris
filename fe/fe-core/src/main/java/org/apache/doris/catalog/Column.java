@@ -24,7 +24,6 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
@@ -84,7 +83,7 @@ public class Column implements Writable {
     private List<Column> children;
     // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
     // Currently, analyzed define expr is only used when creating materialized views, so the define expr in RollupJob must be analyzed.
-    // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being relayed.
+    // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being replayed.
     private Expr defineExpr; // use to define column in materialize view
     @SerializedName(value = "visible")
     private boolean visible;
@@ -161,6 +160,10 @@ public class Column implements Writable {
     public void createChildrenColumn(Type type, Column column) {
         if (type.isArrayType()) {
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
+            // TODO We always set the item type in array nullable.
+            //  We may provide an alternative to configure this property of
+            //  the item type in array in future.
+            c.setIsAllowNull(true);
             column.addChildrenColumn(c);
         }
     }
@@ -342,15 +345,14 @@ public class Column implements Writable {
         tColumn.setIsAllowNull(this.isAllowNull);
         tColumn.setDefaultValue(this.defaultValue);
         tColumn.setVisible(visible);
-        tColumn.setChildrenColumn(new ArrayList<>());
         toChildrenThrift(this, tColumn);
-
-        // The define expr does not need to be serialized here for now.
-        // At present, only serialized(analyzed) define expr is directly used when creating a materialized view.
-        // It will not be used here, but through another structure `TAlterMaterializedViewParam`.
-        if (this.defineExpr != null) {
-            tColumn.setDefineExpr(this.defineExpr.treeToThrift());
-        }
+        
+        // ATTN:
+        // Currently, this `toThrift()` method is only used from CreateReplicaTask.
+        // And CreateReplicaTask does not need `defineExpr` field.
+        // The `defineExpr` is only used when creating `TAlterMaterializedViewParam`, which is in `AlterReplicaTask`.
+        // And when creating `TAlterMaterializedViewParam`, the `defineExpr` is certainly analyzed.
+        // If we need to use `defineExpr` and call defineExpr.treeToThrift(), make sure it is analyzed, or NPE will thrown.
         return tColumn;
     }
 
@@ -370,7 +372,15 @@ public class Column implements Writable {
 
             childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
             childrenTColumn.setColumnType(childrenTColumnType);
+            childrenTColumn.setIsAllowNull(children.isAllowNull());
+            // TODO: If we don't set the aggregate type for children, the type will be
+            //  considered as TAggregationType::SUM after deserializing in BE.
+            //  For now, we make children inherit the aggregate type from their parent.
+            if (tColumn.getAggregationType() != null) {
+                childrenTColumn.setAggregationType(tColumn.getAggregationType());
+            }
 
+            tColumn.setChildrenColumn(new ArrayList<>());
             tColumn.children_column.add(childrenTColumn);
 
             toChildrenThrift(children, childrenTColumn);
@@ -384,6 +394,15 @@ public class Column implements Writable {
 
         if (!ColumnType.isSchemaChangeAllowed(type, other.type)) {
             throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
+        }
+
+        if (type.isNumericType() && other.type.isStringType()) {
+            Integer lSize = type.getColumnStringRepSize();
+            Integer rSize = other.type.getColumnStringRepSize();
+            if (rSize < lSize) {
+                throw new DdlException("Can not change from wider type " + type.toSql() +
+                                        " to narrower type " + other.type.toSql());
+            }
         }
 
         if (this.aggregationType != other.aggregationType) {
@@ -593,48 +612,23 @@ public class Column implements Writable {
         boolean notNull = in.readBoolean();
         if (notNull) {
             aggregationType = AggregateType.valueOf(Text.readString(in));
-
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-                isAggregationTypeImplicit = in.readBoolean();
-            } else {
-                isAggregationTypeImplicit = false;
-            }
+            isAggregationTypeImplicit = in.readBoolean();
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
-            isKey = in.readBoolean();
-        } else {
-            isKey = (aggregationType == null);
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-            isAllowNull = in.readBoolean();
-        } else {
-            isAllowNull = false;
-        }
-
+        isKey = in.readBoolean();
+        isAllowNull = in.readBoolean();
         notNull = in.readBoolean();
         if (notNull) {
             defaultValue = Text.readString(in);
         }
         stats = ColumnStats.read(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_10) {
-            comment = Text.readString(in);
-        } else {
-            comment = "";
-        }
+        comment = Text.readString(in);
     }
 
     public static Column read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86) {
-            Column column = new Column();
-            column.readFields(in);
-            return column;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, Column.class);
-        }
+
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Column.class);
     }
 
     // Gen a signature string of this column, contains:

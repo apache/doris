@@ -173,9 +173,11 @@ public class SingleNodePlanner {
      * they are never unnested, and therefore the corresponding parent scan should not
      * materialize them.
      */
-    private PlanNode createEmptyNode(QueryStmt stmt, Analyzer analyzer) {
+    private PlanNode createEmptyNode(PlanNode inputPlan, QueryStmt stmt, Analyzer analyzer) {
         ArrayList<TupleId> tupleIds = Lists.newArrayList();
-        stmt.getMaterializedTupleIds(tupleIds);
+        if (inputPlan != null) {
+            tupleIds = inputPlan.tupleIds;
+        }
         if (tupleIds.isEmpty()) {
             // Constant selects do not have materialized tuples at this stage.
             Preconditions.checkState(stmt instanceof SelectStmt,
@@ -297,14 +299,9 @@ public class SingleNodePlanner {
             // Must clear the scanNodes, otherwise we will get NPE in Coordinator::computeScanRangeAssignment
             Set<TupleId> scanTupleIds = new HashSet<>(root.getAllScanTupleIds());
             scanNodes.removeIf(scanNode -> scanTupleIds.contains(scanNode.getTupleIds().get(0)));
-            PlanNode node = createEmptyNode(stmt, analyzer);
+            PlanNode node = createEmptyNode(root, stmt, analyzer);
             // Ensure result exprs will be substituted by right outputSmap
             node.setOutputSmap(root.outputSmap);
-            // Currently, getMaterializedTupleIds for AnalyticEvalNode is wrong,
-            // So we explicitly add AnalyticEvalNode tuple ids to EmptySetNode
-            if (root instanceof AnalyticEvalNode) {
-                node.getTupleIds().addAll(root.tupleIds);
-            }
             return node;
         }
 
@@ -550,8 +547,8 @@ public class SingleNodePlanner {
                         continue;
                     }
                     if (col.isKey()) {
-                        if (aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX")
-                                && aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN")) {
+                        if ((!aggExpr.getFnName().getFunction().equalsIgnoreCase("MAX"))
+                                && (!aggExpr.getFnName().getFunction().equalsIgnoreCase("MIN"))) {
                             returnColumnValidate = false;
                             turnOffReason = "the type of agg on StorageEngine's Key column should only be MAX or MIN."
                                     + "agg expr: " + aggExpr.toSql();
@@ -601,7 +598,15 @@ public class SingleNodePlanner {
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("multi_distinct_count")) {
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.QUANTILE_UNION)) {
+                        if (col.getAggregationType() != AggregateType.QUANTILE_UNION) {
+                            turnOffReason =
+                                    "Aggregate Operator not match: QUANTILE_UNION <---> " + col.getAggregationType();
+                            returnColumnValidate = false;
+                            break;
+                        }
+                    }
+                    else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("multi_distinct_count")) {
                         // count(distinct k1), count(distinct k2) / count(distinct k1,k2) can turn on pre aggregation
                         if ((!col.isKey())) {
                             turnOffReason = "Multi count or sum distinct with non-key column: " + col.getName();
@@ -713,8 +718,11 @@ public class SingleNodePlanner {
             candidates.add(new Pair<>(ref, new Long(materializedSize)));
             LOG.debug("The candidate of " + ref.getUniqueAlias() + ": " + materializedSize);
         }
-        // (ML): 这里感觉是不可能运行到的，因为起码第一个节点是inner join
-        if (candidates.isEmpty()) return null;
+        if (candidates.isEmpty()) {
+            // This branch should not be reached, because the first one should be inner join.
+            LOG.warn("Something wrong happens, the code should not be runned");
+            return null;
+        }
 
         // order candidates by descending materialized size; we want to minimize the memory
         // consumption of the materialized hash tables required for the join sequence
@@ -1326,7 +1334,7 @@ public class SingleNodePlanner {
             SelectStmt selectStmt = (SelectStmt) viewStmt;
             if (selectStmt.getTableRefs().isEmpty()) {
                 if (inlineViewRef.getAnalyzer().hasEmptyResultSet()) {
-                    PlanNode emptySetNode = createEmptyNode(viewStmt, inlineViewRef.getAnalyzer());
+                    PlanNode emptySetNode = createEmptyNode(null, viewStmt, inlineViewRef.getAnalyzer());
                     // Still substitute exprs in parent nodes with the inline-view's smap to make
                     // sure no exprs reference the non-materialized inline view slots. No wrapping
                     // with TupleIsNullPredicates is necessary here because we do not migrate
@@ -1366,6 +1374,7 @@ public class SingleNodePlanner {
         // inline view's plan.
         ExprSubstitutionMap outputSmap = ExprSubstitutionMap.compose(
                 inlineViewRef.getSmap(), rootNode.getOutputSmap(), analyzer);
+
         if (analyzer.isOuterJoined(inlineViewRef.getId())) {
             rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
             // Exprs against non-matched rows of an outer join should always return NULL.
@@ -1692,11 +1701,18 @@ public class SingleNodePlanner {
             case ELASTICSEARCH:
                 scanNode = new EsScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "EsScanNode");
                 break;
+            case HIVE:
+                scanNode = new HiveScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
+                        null, -1);
+                break;
+            case ICEBERG:
+                scanNode = new IcebergScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
+                        null, -1);
+                break;
             default:
                 break;
         }
-        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode) {
-            PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
+        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode) {
             scanNode.setSortColumn(tblRef.getSortColumn());
         }
 
@@ -1858,32 +1874,34 @@ public class SingleNodePlanner {
      * table ref is not implemented.
      */
     private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
-            throws UserException, AnalysisException {
+            throws UserException {
+        PlanNode scanNode = null;
         if (tblRef instanceof BaseTableRef) {
-            PlanNode scanNode = createScanNode(analyzer, tblRef, selectStmt);
-            List<LateralViewRef> lateralViewRefs = tblRef.getLateralViewRefs();
-            if (lateralViewRefs != null && lateralViewRefs.size() != 0) {
-                return createTableFunctionNode(analyzer, scanNode, lateralViewRefs);
-            }
-            return scanNode;
+            scanNode = createScanNode(analyzer, tblRef, selectStmt);
         }
         if (tblRef instanceof InlineViewRef) {
-            return createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
+            scanNode = createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
         }
-        throw new UserException("unknown TableRef node");
+        if (scanNode == null) {
+            throw new UserException("unknown TableRef node");
+        }
+        List<LateralViewRef> lateralViewRefs = tblRef.getLateralViewRefs();
+        if (lateralViewRefs == null || lateralViewRefs.size() == 0) {
+            return scanNode;
+        }
+        return createTableFunctionNode(analyzer, scanNode, lateralViewRefs, selectStmt);
     }
 
     private PlanNode createTableFunctionNode(Analyzer analyzer, PlanNode inputNode,
-                                                      List<LateralViewRef> lateralViewRefs)
+                                              List<LateralViewRef> lateralViewRefs, SelectStmt selectStmt)
             throws UserException {
         Preconditions.checkNotNull(lateralViewRefs);
         Preconditions.checkState(lateralViewRefs.size() > 0);
-        for (LateralViewRef lateralViewRef: lateralViewRefs) {
-            TableFunctionNode tableFunctionNode = new TableFunctionNode(ctx_.getNextNodeId(), inputNode,
-                    lateralViewRef);
-            tableFunctionNode.init(analyzer);
-            inputNode = tableFunctionNode;
-        }
+        TableFunctionNode tableFunctionNode = new TableFunctionNode(ctx_.getNextNodeId(), inputNode,
+                lateralViewRefs);
+        tableFunctionNode.init(analyzer);
+        tableFunctionNode.projectSlots(analyzer, selectStmt);
+        inputNode = tableFunctionNode;
         return inputNode;
     }
 

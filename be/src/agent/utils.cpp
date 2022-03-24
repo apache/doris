@@ -41,7 +41,7 @@ MasterServerClient::MasterServerClient(const TMasterInfo& master_info,
                                        FrontendServiceClientCache* client_cache)
         : _master_info(master_info), _client_cache(client_cache) {}
 
-AgentStatus MasterServerClient::finish_task(const TFinishTaskRequest& request,
+Status MasterServerClient::finish_task(const TFinishTaskRequest& request,
                                             TMasterResult* result) {
     Status client_status;
     FrontendServiceConnection client(_client_cache, _master_info.network_address,
@@ -52,7 +52,7 @@ AgentStatus MasterServerClient::finish_task(const TFinishTaskRequest& request,
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port
                      << ", code=" << client_status.code();
-        return DORIS_ERROR;
+        return Status::InternalError("Failed to get master client");
     }
 
     try {
@@ -66,7 +66,7 @@ AgentStatus MasterServerClient::finish_task(const TFinishTaskRequest& request,
                              << "host=" << _master_info.network_address.hostname
                              << ", port=" << _master_info.network_address.port
                              << ", code=" << client_status.code();
-                return DORIS_ERROR;
+                return Status::InternalError("Master client finish task failed");
             }
             client->finishTask(*result, request);
         }
@@ -75,13 +75,13 @@ AgentStatus MasterServerClient::finish_task(const TFinishTaskRequest& request,
         LOG(WARNING) << "fail to finish_task. "
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port << ", error=" << e.what();
-        return DORIS_ERROR;
+        return Status::InternalError("Fail to finish task");
     }
 
-    return DORIS_SUCCESS;
+    return Status::OK();
 }
 
-AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
+Status MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
     Status client_status;
     FrontendServiceConnection client(_client_cache, _master_info.network_address,
                                      config::thrift_rpc_timeout_ms, &client_status);
@@ -91,7 +91,7 @@ AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterRes
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port
                      << ", code=" << client_status.code();
-        return DORIS_ERROR;
+        return Status::InternalError("Fail to get master client from cache");
     }
 
     try {
@@ -109,7 +109,7 @@ AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterRes
                                  << "host=" << _master_info.network_address.hostname
                                  << ", port=" << _master_info.network_address.port
                                  << ", code=" << client_status.code();
-                    return DORIS_ERROR;
+                    return Status::InternalError("Fail to get master client from cache");
                 }
 
                 client->report(*result, request);
@@ -117,7 +117,7 @@ AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterRes
                 // TIMED_OUT exception. do not retry
                 // actually we don't care what FE returns.
                 LOG(WARNING) << "fail to report to master: " << e.what();
-                return DORIS_ERROR;
+                return Status::InternalError("Fail to report to master");
             }
         }
     } catch (TException& e) {
@@ -126,92 +126,10 @@ AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterRes
                      << "host=" << _master_info.network_address.hostname
                      << ", port=" << _master_info.network_address.port
                      << ", code=" << client_status.code();
-        return DORIS_ERROR;
+        return Status::InternalError("Fail to report to master");
     }
 
-    return DORIS_SUCCESS;
-}
-
-AgentStatus AgentUtils::rsync_from_remote(const string& remote_host, const string& remote_file_path,
-                                          const string& local_file_path,
-                                          const std::vector<string>& exclude_file_patterns,
-                                          uint32_t transport_speed_limit_kbps,
-                                          uint32_t timeout_second) {
-    int ret_code = 0;
-    std::stringstream cmd_stream;
-    cmd_stream << "rsync -r -q -e \"ssh -o StrictHostKeyChecking=no\"";
-    for (auto exclude_file_pattern : exclude_file_patterns) {
-        cmd_stream << " --exclude=" << exclude_file_pattern;
-    }
-    if (transport_speed_limit_kbps != 0) {
-        cmd_stream << " --bwlimit=" << transport_speed_limit_kbps;
-    }
-    if (timeout_second != 0) {
-        cmd_stream << " --timeout=" << timeout_second;
-    }
-    cmd_stream << " " << remote_host << ":" << remote_file_path << " " << local_file_path;
-    LOG(INFO) << "rsync cmd: " << cmd_stream.str();
-
-    FILE* fp = NULL;
-    fp = popen(cmd_stream.str().c_str(), "r");
-
-    if (fp == NULL) {
-        return DORIS_ERROR;
-    }
-
-    ret_code = pclose(fp);
-    if (ret_code != 0) {
-        return DORIS_ERROR;
-    }
-
-    return DORIS_SUCCESS;
-}
-
-std::string AgentUtils::print_agent_status(AgentStatus status) {
-    switch (status) {
-    case DORIS_SUCCESS:
-        return "DORIS_SUCCESS";
-    case DORIS_ERROR:
-        return "DORIS_ERROR";
-    case DORIS_TASK_REQUEST_ERROR:
-        return "DORIS_TASK_REQUEST_ERROR";
-    case DORIS_FILE_DOWNLOAD_INVALID_PARAM:
-        return "DORIS_FILE_DOWNLOAD_INVALID_PARAM";
-    case DORIS_FILE_DOWNLOAD_INSTALL_OPT_FAILED:
-        return "DORIS_FILE_DOWNLOAD_INSTALL_OPT_FAILED";
-    case DORIS_FILE_DOWNLOAD_CURL_INIT_FAILED:
-        return "DORIS_FILE_DOWNLOAD_CURL_INIT_FAILED";
-    case DORIS_FILE_DOWNLOAD_FAILED:
-        return "DORIS_FILE_DOWNLOAD_FAILED";
-    case DORIS_FILE_DOWNLOAD_GET_LENGTH_FAILED:
-        return "DORIS_FILE_DOWNLOAD_GET_LENGTH_FAILED";
-    case DORIS_FILE_DOWNLOAD_NOT_EXIST:
-        return "DORIS_FILE_DOWNLOAD_NOT_EXIST";
-    case DORIS_FILE_DOWNLOAD_LIST_DIR_FAIL:
-        return "DORIS_FILE_DOWNLOAD_LIST_DIR_FAIL";
-    case DORIS_CREATE_TABLE_EXIST:
-        return "DORIS_CREATE_TABLE_EXIST";
-    case DORIS_CREATE_TABLE_DIFF_SCHEMA_EXIST:
-        return "DORIS_CREATE_TABLE_DIFF_SCHEMA_EXIST";
-    case DORIS_CREATE_TABLE_NOT_EXIST:
-        return "DORIS_CREATE_TABLE_NOT_EXIST";
-    case DORIS_DROP_TABLE_NOT_EXIST:
-        return "DORIS_DROP_TABLE_NOT_EXIST";
-    case DORIS_PUSH_INVALID_TABLE:
-        return "DORIS_PUSH_INVALID_TABLE";
-    case DORIS_PUSH_INVALID_VERSION:
-        return "DORIS_PUSH_INVALID_VERSION";
-    case DORIS_PUSH_TIME_OUT:
-        return "DORIS_PUSH_TIME_OUT";
-    case DORIS_PUSH_HAD_LOADED:
-        return "DORIS_PUSH_HAD_LOADED";
-    case DORIS_TIMEOUT:
-        return "DORIS_TIMEOUT";
-    case DORIS_INTERNAL_ERROR:
-        return "DORIS_INTERNAL_ERROR";
-    default:
-        return "UNKNOWM";
-    }
+    return Status::OK();
 }
 
 bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_stderr) {
@@ -226,7 +144,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
 
     // Execute command.
     FILE* fp = popen(cmd.c_str(), "r");
-    if (fp == NULL) {
+    if (fp == nullptr) {
         std::stringstream err_stream;
         err_stream << "popen failed. " << strerror(errno) << ", with errno: " << errno << ".\n";
         *errmsg = err_stream.str();
@@ -235,7 +153,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_s
 
     // Get command output.
     char result[1024] = {'\0'};
-    while (fgets(result, sizeof(result), fp) != NULL) {
+    while (fgets(result, sizeof(result), fp) != nullptr) {
         *errmsg += result;
     }
 

@@ -67,10 +67,10 @@ public class InPredicate extends Predicate {
 
             String typeString = Function.getUdfTypeName(t.getPrimitiveType());
 
-            functionSet.addBuiltin(ScalarFunction.createBuiltin(IN_ITERATE,
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(IN_ITERATE,
                     Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::in_iterate", null, null, false));
-            functionSet.addBuiltin(ScalarFunction.createBuiltin(NOT_IN_ITERATE,
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(NOT_IN_ITERATE,
                     Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::not_in_iterate", null, null, false));
 
@@ -306,5 +306,10 @@ public class InPredicate extends Predicate {
             }
         }
         return false;
+    }
+
+    @Override
+    public boolean isNullable() {
+        return hasNullableChild();
     }
 }

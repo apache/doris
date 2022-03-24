@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
+#pragma once
 
 #include <string>
 
 #include "exec/exec_node.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -69,16 +69,15 @@ class ScanNode : public ExecNode {
 public:
     ScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
             : ExecNode(pool, tnode, descs) {}
-    virtual ~ScanNode() {}
 
     // Set up counters
-    virtual Status prepare(RuntimeState* state);
+    Status prepare(RuntimeState* state) override;
 
     // Convert scan_ranges into node-specific scan restrictions.  This should be
     // called after prepare()
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
-    virtual bool is_scan_node() const { return true; }
+    bool is_scan_node() const override { return true; }
 
     RuntimeProfile::Counter* bytes_read_counter() const { return _bytes_read_counter; }
     RuntimeProfile::Counter* rows_read_counter() const { return _rows_read_counter; }
@@ -91,8 +90,11 @@ public:
     static const std::string _s_num_disks_accessed_counter;
 
 protected:
+    std::string _peel_pushed_vconjunct(
+            const std::function<bool(int)>& checker); // remove pushed expr from conjunct tree
+
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
-    // # rows/tuples read from the scanner (including those discarded by eval_conjucts())
+    // # rows/tuples read from the scanner (including those discarded by eval_conjuncts())
     RuntimeProfile::Counter* _rows_read_counter;
     // Wall based aggregate read throughput [bytes/sec]
     RuntimeProfile::Counter* _total_throughput_counter;
@@ -100,5 +102,3 @@ protected:
 };
 
 } // namespace doris
-
-#endif

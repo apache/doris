@@ -16,27 +16,95 @@
 # specific language governing permissions and limitations
 # under the License.
 
-curdir=`dirname "$0"`
-curdir=`cd "$curdir"; pwd`
+curdir=$(dirname "$0")
+curdir=$(
+    cd "$curdir"
+    pwd
+)
 
 OPTS=$(getopt \
-  -n $0 \
-  -o '' \
-  -l 'daemon' \
-  -- "$@")
+    -n $0 \
+    -o '' \
+    -l 'daemon' \
+    -- "$@")
 
 eval set -- "$OPTS"
 
 RUN_DAEMON=0
 while true; do
     case "$1" in
-        --daemon) RUN_DAEMON=1 ; shift ;;
-        --) shift ;  break ;;
-        *) echo "Internal error" ; exit 1 ;;
+    --daemon)
+        RUN_DAEMON=1
+        shift
+        ;;
+    --)
+        shift
+        break
+        ;;
+    *)
+        echo "Internal error"
+        exit 1
+        ;;
     esac
 done
 
-export DORIS_HOME=`cd "$curdir/.."; pwd`
+export DORIS_HOME=$(
+    cd "$curdir/.."
+    pwd
+)
+
+# add libs to CLASSPATH
+for f in $DORIS_HOME/lib/*.jar; do
+  if [ ! -n "${DORIS_JNI_CLASSPATH_PARAMETER}" ]; then
+    export DORIS_JNI_CLASSPATH_PARAMETER=$f
+  else
+    export DORIS_JNI_CLASSPATH_PARAMETER=$f:${DORIS_JNI_CLASSPATH_PARAMETER}
+  fi
+done
+# DORIS_JNI_CLASSPATH_PARAMETER is used to configure additional jar path to jvm. e.g. -Djava.class.path=$DORIS_HOME/lib/java-udf.jar
+export DORIS_JNI_CLASSPATH_PARAMETER="-Djava.class.path=${DORIS_JNI_CLASSPATH_PARAMETER}"
+
+jdk_version() {
+    local result
+    local java_cmd=$JAVA_HOME/bin/java
+    local IFS=$'\n'
+    # remove \r for Cygwin
+    local lines=$("$java_cmd" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n')
+    if [[ -z $java_cmd ]]
+    then
+        result=no_java
+    else
+        for line in $lines; do
+            if [[ (-z $result) && ($line = *"version \""*) ]]
+            then
+                local ver=$(echo $line | sed -e 's/.*version "\(.*\)"\(.*\)/\1/; 1q')
+                # on macOS, sed doesn't support '?'
+                if [[ $ver = "1."* ]]
+                then
+                    result=$(echo $ver | sed -e 's/1\.\([0-9]*\)\(.*\)/\1/; 1q')
+                else
+                    result=$(echo $ver | sed -e 's/\([0-9]*\)\(.*\)/\1/; 1q')
+                fi
+            fi
+        done
+    fi
+    echo "$result"
+}
+
+jvm_arch="amd64"
+if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+    jvm_arch="aarch64"
+fi
+java_version=$(jdk_version)
+if [[ $java_version -gt 8 ]]; then
+    export LD_LIBRARY_PATH=$JAVA_HOME/lib/server:$JAVA_HOME/lib:$LD_LIBRARY_PATH
+# JAVA_HOME is jdk
+elif [[ -d "$JAVA_HOME/jre"  ]]; then
+    export LD_LIBRARY_PATH=$JAVA_HOME/jre/lib/$jvm_arch/server:$JAVA_HOME/jre/lib/$jvm_arch:$LD_LIBRARY_PATH
+# JAVA_HOME is jre
+else
+    export LD_LIBRARY_PATH=$JAVA_HOME/lib/$jvm_arch/server:$JAVA_HOME/lib/$jvm_arch:$LD_LIBRARY_PATH
+fi
 
 # export env variables from be.conf
 #
@@ -45,7 +113,10 @@ export DORIS_HOME=`cd "$curdir/.."; pwd`
 # PID_DIR
 export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
 export LOG_DIR=${DORIS_HOME}/log
-export PID_DIR=`cd "$curdir"; pwd`
+export PID_DIR=$(
+    cd "$curdir"
+    pwd
+)
 
 # set odbc conf path
 export ODBCSYSINI=$DORIS_HOME/conf
@@ -54,8 +125,8 @@ export ODBCSYSINI=$DORIS_HOME/conf
 export NLS_LANG=AMERICAN_AMERICA.AL32UTF8
 
 while read line; do
-    envline=`echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*="`
-    envline=`eval "echo $envline"`
+    envline=$(echo $line | sed 's/[[:blank:]]*=[[:blank:]]*/=/g' | sed 's/^[[:blank:]]*//g' | egrep "^[[:upper:]]([[:upper:]]|_|[[:digit:]])*=")
+    envline=$(eval "echo $envline")
     if [[ $envline == *"="* ]]; then
         eval 'export "$envline"'
     fi
@@ -79,7 +150,7 @@ pidfile=$PID_DIR/be.pid
 
 if [ -f $pidfile ]; then
     if kill -0 $(cat $pidfile) > /dev/null 2>&1; then
-        echo "Backend running as process `cat $pidfile`. Stop it first."
+        echo "Backend running as process $(cat $pidfile). Stop it first."
         exit 1
     else
         rm $pidfile
@@ -96,7 +167,8 @@ else
 fi
 
 if [ ${RUN_DAEMON} -eq 1 ]; then
-    nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null &
+    nohup $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 < /dev/null &
 else
-    $LIMIT ${DORIS_HOME}/lib/palo_be "$@" >> $LOG_DIR/be.out 2>&1 </dev/null
+    export DORIS_LOG_TO_STDERR=1
+    $LIMIT ${DORIS_HOME}/lib/palo_be "$@" 2>&1 < /dev/null
 fi

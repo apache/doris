@@ -25,8 +25,11 @@ import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.qe.VariableMgr;
 
+import com.google.common.collect.Lists;
+
 import io.netty.handler.codec.http.HttpMethod;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
@@ -36,7 +39,7 @@ public class VariableAction extends WebBaseAction {
         super(controller);
     }
 
-    public static void registerAction (ActionController controller) throws IllegalArgException {
+    public static void registerAction(ActionController controller) throws IllegalArgException {
         controller.registerHandler(HttpMethod.GET, "/variable", new VariableAction(controller));
     }
 
@@ -57,7 +60,9 @@ public class VariableAction extends WebBaseAction {
         HashMap<String, String> confmap;
         try {
             confmap = Config.dump();
-            for (String key : confmap.keySet()) {
+            List<String> keyList = Lists.newArrayList(confmap.keySet());
+            Collections.sort(keyList);
+            for (String key : keyList) {
                 buffer.append(key + "=" + confmap.get(key) + "\n");
             }
         } catch (Exception e) {

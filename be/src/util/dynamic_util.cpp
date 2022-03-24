@@ -27,7 +27,7 @@ Status dynamic_lookup(void* handle, const char* symbol, void** fn_ptr) {
     *(void**)(fn_ptr) = dlsym(handle, symbol);
     char* error = dlerror();
 
-    if (error != NULL) {
+    if (error != nullptr) {
         std::stringstream ss;
         ss << "Unable to find " << symbol << "\ndlerror: " << error;
         return Status::InternalError(ss.str());
@@ -41,7 +41,7 @@ Status dynamic_open(const char* library, void** handle) {
 
     *handle = dlopen(library, flags);
 
-    if (*handle == NULL) {
+    if (*handle == nullptr) {
         std::stringstream ss;
         ss << "Unable to load " << library << "\ndlerror: " << dlerror();
         return Status::InternalError(ss.str());

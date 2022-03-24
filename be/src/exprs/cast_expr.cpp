@@ -40,9 +40,9 @@ Expr* CastExpr::from_thrift(const TExprNode& node) {
     case TPrimitiveType::DOUBLE:
         return new CastDoubleExpr(node);
     default:
-        return NULL;
+        return nullptr;
     }
-    return NULL;
+    return nullptr;
 }
 
 #define CAST_SAME(CLASS, TYPE, FN) \

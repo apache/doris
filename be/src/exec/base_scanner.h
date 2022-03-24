@@ -46,7 +46,7 @@ struct ScannerCounter {
 class BaseScanner {
 public:
     BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
-                const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter);
+                const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
     virtual ~BaseScanner() { Expr::close(_dest_expr_ctx, _state); };
 
     virtual Status init_expr_ctxes();
@@ -54,11 +54,11 @@ public:
     virtual Status open();
 
     // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) = 0;
+    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) = 0;
 
     // Close this scanner
     virtual void close() = 0;
-    bool fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
+    Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 
     void fill_slots_of_columns_from_path(int start,
                                          const std::vector<std::string>& columns_from_path);
@@ -79,7 +79,7 @@ protected:
 
     std::shared_ptr<MemTracker> _mem_tracker;
     // Mem pool used to allocate _src_tuple and _src_tuple_row
-    MemPool _mem_pool;
+    std::unique_ptr<MemPool> _mem_pool;
 
     // Dest tuple descriptor and dest expr context
     const TupleDescriptor* _dest_tuple_desc;
@@ -89,7 +89,10 @@ protected:
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
 
     // to filter src tuple directly
-	const std::vector<ExprContext*>& _pre_filter_ctxs;
+    // the `_pre_filter_texprs` is the origin thrift exprs passed from scan node,
+    // and will be converted to `_pre_filter_ctxs` when scanner is open.
+    const std::vector<TExpr> _pre_filter_texprs;
+    std::vector<ExprContext*> _pre_filter_ctxs;
 
     bool _strict_mode;
 
@@ -99,6 +102,10 @@ protected:
     RuntimeProfile::Counter* _rows_read_counter;
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _materialize_timer;
+
+    // Used to record whether a row of data is successfully read.
+    bool _success = false;
+    bool _scanner_eof = false;
 };
 
 } /* namespace doris */

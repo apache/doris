@@ -480,7 +480,7 @@ void PerfCounters::snapshot(const string& name) {
 
 const std::vector<int64_t>* PerfCounters::counters(int snapshot) const {
     if (snapshot < 0 || snapshot >= _snapshots.size()) {
-        return NULL;
+        return nullptr;
     }
 
     return &_snapshots[snapshot];

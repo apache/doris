@@ -18,9 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
 #define DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
 
-#include <boost/ptr_container/ptr_vector.hpp>
-#include <boost/scoped_array.hpp>
-#include <boost/shared_ptr.hpp>
 #include <unordered_map>
 
 #include "runtime/disk_io_mgr.h"
@@ -143,12 +140,12 @@ public:
 
         // Pins a block in memory--assigns a free buffer to a block and reads it from disk if
         // necessary. If there are no free blocks and no unpinned blocks, '*pinned' is set to
-        // false and the block is not pinned. If 'release_block' is non-NULL, if there is
+        // false and the block is not pinned. If 'release_block' is non-nullptr, if there is
         // memory pressure, this block will be pinned using the buffer from 'release_block'.
         // If 'unpin' is true, 'release_block' will be unpinned (regardless of whether or not
         // the buffer was used for this block). If 'unpin' is false, 'release_block' is
         // deleted. 'release_block' must be pinned.
-        Status pin(bool* pinned, Block* release_block = NULL, bool unpin = true);
+        Status pin(bool* pinned, Block* release_block = nullptr, bool unpin = true);
 
         // Unpins a block by adding it to the list of unpinned blocks maintained by the block
         // manager. An unpinned block must be flushed before its buffer is released or
@@ -173,7 +170,7 @@ public:
 
         // Return the number of remaining bytes that can be allocated in this block.
         int bytes_remaining() const {
-            DCHECK(_buffer_desc != NULL);
+            DCHECK(_buffer_desc != nullptr);
             return _buffer_desc->len - _valid_data_len;
         }
 
@@ -186,7 +183,7 @@ public:
         // Pointer to start of the block data in memory. Only guaranteed to be valid if the
         // block is pinned.
         uint8_t* buffer() const {
-            DCHECK(_buffer_desc != NULL);
+            DCHECK(_buffer_desc != nullptr);
             return _buffer_desc->buffer;
         }
 
@@ -228,7 +225,7 @@ public:
         // be taken.
         bool validate() const;
 
-        // Pointer to the buffer associated with the block. NULL if the block is not in
+        // Pointer to the buffer associated with the block. nullptr if the block is not in
         // memory and cannot be changed while the block is pinned or being written.
         BufferDescriptor* _buffer_desc;
 
@@ -286,9 +283,9 @@ public:
     // same query id has already been created, that block mgr is returned.
     // - mem_limit: maximum memory that will be used by the block mgr.
     // - buffer_size: maximum size of each buffer.
-    static Status create(RuntimeState* state, const std::shared_ptr<MemTracker>& parent,
-                         RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr, int64_t mem_limit,
-                         int64_t buffer_size, boost::shared_ptr<BufferedBlockMgr2>* block_mgr);
+    static Status create(RuntimeState* state, RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr,
+                         int64_t mem_limit, int64_t buffer_size,
+                         std::shared_ptr<BufferedBlockMgr2>* block_mgr);
 
     ~BufferedBlockMgr2();
 
@@ -319,15 +316,15 @@ public:
     bool try_acquire_tmp_reservation(Client* client, int num_buffers);
 
     // Return a new pinned block. If there is no memory for this block, *block will be set
-    // to NULL.
+    // to nullptr.
     // If len > 0, get_new_block() will return a block with a buffer of size len. len
     // must be less than max_block_size and this block cannot be unpinned.
     // This function will try to allocate new memory for the block up to the limit.
     // Otherwise it will (conceptually) write out an unpinned block and use that memory.
-    // The caller can pass a non-NULL 'unpin_block' to transfer memory from 'unpin_block'
-    // to the new block. If 'unpin_block' is non-NULL, the new block can never fail to
+    // The caller can pass a non-nullptr 'unpin_block' to transfer memory from 'unpin_block'
+    // to the new block. If 'unpin_block' is non-nullptr, the new block can never fail to
     // get a buffer. The semantics of this are:
-    //   - If 'unpin_block' is non-NULL, it must be pinned.
+    //   - If 'unpin_block' is non-nullptr, it must be pinned.
     //   - If the call succeeds, 'unpin_block' is unpinned.
     //   - If there is no memory pressure, block will get a newly allocated buffer.
     //   - If there is memory pressure, block will get the buffer from 'unpin_block'.
@@ -340,8 +337,8 @@ public:
     // Returns true if the block manager was cancelled.
     bool is_cancelled();
 
-    // Dumps block mgr state. Grabs lock. If client is not NULL, also dumps its state.
-    std::string debug_string(Client* client = NULL);
+    // Dumps block mgr state. Grabs lock. If client is not nullptr, also dumps its state.
+    std::string debug_string(Client* client = nullptr);
 
     // Consumes 'size' bytes from the buffered block mgr. This is used by callers that want
     // the memory to come from the block mgr pool (and therefore trigger spilling) but need
@@ -387,7 +384,7 @@ public:
     }
 
 private:
-    friend struct Client;
+    friend class Client;
 
     // Descriptor for a single memory buffer in the pool.
     struct BufferDescriptor : public InternalQueue<BufferDescriptor>::Node {
@@ -397,20 +394,19 @@ private:
         // Length of the buffer.
         int64_t len;
 
-        // Block that this buffer is assigned to. May be NULL.
+        // Block that this buffer is assigned to. May be nullptr.
         Block* block;
 
         // Iterator into _all_io_buffers for this buffer.
         std::list<BufferDescriptor*>::iterator all_buffers_it;
 
-        BufferDescriptor(uint8_t* buf, int64_t len) : buffer(buf), len(len), block(NULL) {}
+        BufferDescriptor(uint8_t* buf, int64_t len) : buffer(buf), len(len), block(nullptr) {}
     };
 
     BufferedBlockMgr2(RuntimeState* state, TmpFileMgr* tmp_file_mgr, int64_t block_size);
 
     // Initializes the block mgr. Idempotent and thread-safe.
-    void init(DiskIoMgr* io_mgr, RuntimeProfile* profile,
-              const std::shared_ptr<MemTracker>& parent_tracker, int64_t mem_limit);
+    void init(DiskIoMgr* io_mgr, RuntimeProfile* profile, int64_t mem_limit);
 
     // Initializes _tmp_files. This is initialized the first time we need to write to disk.
     // Must be called with _lock taken.
@@ -422,7 +418,7 @@ private:
     Status unpin_block(Block* block);
     void delete_block(Block* block);
 
-    // If the 'block' is NULL, checks if cancelled and returns. Otherwise, depending on
+    // If the 'block' is nullptr, checks if cancelled and returns. Otherwise, depending on
     // 'unpin' calls either  delete_block() or unpin_block(), which both first check for
     // cancellation. It should be called without the _lock acquired.
     Status delete_or_unpin_block(Block* block, bool unpin);
@@ -449,7 +445,7 @@ private:
     // Uses the _lock, the caller should not have already acquired the _lock.
     Status find_buffer_for_block(Block* block, bool* in_mem);
 
-    // Returns a new buffer that can be used. *buffer is set to NULL if there was no
+    // Returns a new buffer that can be used. *buffer is set to nullptr if there was no
     // memory.
     // Otherwise, this function gets a new buffer by:
     //   1. Allocating a new buffer if possible
@@ -547,13 +543,13 @@ private:
 
     // List of blocks that have been deleted and are no longer in use.
     // Can be reused in get_new_block(). Blocks in this list must be in the Init'ed state,
-    // i.e. _buffer_desc = NULL, _is_pinned = false, _in_write = false,
+    // i.e. _buffer_desc = nullptr, _is_pinned = false, _in_write = false,
     // _is_deleted = false, valid_data_len = 0.
     InternalQueue<Block> _unused_blocks;
 
     // List of buffers that can be assigned to a block in pin() or get_new_block().
     // These buffers either have no block associated with them or are associated with an
-    // an unpinned block that has been persisted. That is, either block = NULL or
+    // an unpinned block that has been persisted. That is, either block = nullptr or
     // (!block->_is_pinned  && !block->_in_write  && !_unpinned_blocks.Contains(block)).
     // All of these buffers are io sized.
     InternalQueue<BufferDescriptor> _free_io_buffers;
@@ -563,7 +559,7 @@ private:
 
     // Temporary physical file handle, (one per tmp device) to which blocks may be written.
     // Blocks are round-robined across these files.
-    boost::ptr_vector<TmpFileMgr::File> _tmp_files;
+    std::vector<std::unique_ptr<TmpFileMgr::File>> _tmp_files;
 
     // Index into _tmp_files denoting the file to which the next block to be persisted will
     // be written.
@@ -579,10 +575,8 @@ private:
     bool _is_cancelled;
 
     // Counters and timers to track behavior.
-    boost::scoped_ptr<RuntimeProfile> _profile;
+    std::unique_ptr<RuntimeProfile> _profile;
 
-    // These have a fixed value for the lifetime of the manager and show memory usage.
-    RuntimeProfile::Counter* _mem_tracker_counter;
     RuntimeProfile::Counter* _block_size_counter;
 
     // Total number of blocks created.
@@ -622,7 +616,7 @@ private:
     // map contains only weak ptrs. BufferedBlockMgr2s that are handed out are shared ptrs.
     // When all the shared ptrs are no longer referenced, the BufferedBlockMgr2
     // d'tor will be called at which point the weak ptr will be removed from the map.
-    typedef std::unordered_map<TUniqueId, boost::weak_ptr<BufferedBlockMgr2>> BlockMgrsMap;
+    typedef std::unordered_map<TUniqueId, std::weak_ptr<BufferedBlockMgr2>> BlockMgrsMap;
     static BlockMgrsMap _s_query_to_block_mgrs;
 
     // Unowned.

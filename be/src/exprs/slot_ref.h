@@ -33,7 +33,7 @@ public:
     SlotRef(const SlotDescriptor* desc);
     virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new SlotRef(*this)); }
 
-    // TODO: this is a hack to allow aggregation nodes to work around NULL slot
+    // TODO: this is a hack to allow aggregation nodes to work around nullptr slot
     // descriptors. Ideally the FE would dictate the type of the intermediate SlotRefs.
     SlotRef(const SlotDescriptor* desc, const TypeDescriptor& type);
 
@@ -42,33 +42,34 @@ public:
 
     Status prepare(const SlotDescriptor* slot_desc, const RowDescriptor& row_desc);
 
-    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx);
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                           ExprContext* ctx) override;
     static void* get_value(Expr* expr, TupleRow* row);
     void* get_slot(TupleRow* row);
     Tuple* get_tuple(TupleRow* row);
     bool is_null_bit_set(TupleRow* row);
     static bool vector_compute_fn(Expr* expr, VectorizedRowBatch* batch);
     static bool is_nullable(Expr* expr);
-    virtual std::string debug_string() const;
-    virtual bool is_constant() const { return false; }
-    virtual bool is_vectorized() const { return true; }
-    virtual bool is_bound(std::vector<TupleId>* tuple_ids) const;
-    virtual int get_slot_ids(std::vector<SlotId>* slot_ids) const;
+    virtual std::string debug_string() const override;
+    virtual bool is_constant() const override { return false; }
+    virtual bool is_vectorized() const override { return true; }
+    virtual bool is_bound(std::vector<TupleId>* tuple_ids) const override;
+    virtual int get_slot_ids(std::vector<SlotId>* slot_ids) const override;
     SlotId slot_id() const { return _slot_id; }
     inline NullIndicatorOffset null_indicator_offset() const { return _null_indicator_offset; }
 
-    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::IntVal get_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::LargeIntVal get_large_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::FloatVal get_float_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::CollectionVal get_array_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::SmallIntVal get_small_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::IntVal get_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::BigIntVal get_big_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::FloatVal get_float_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow* row) override;
+    virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
 
 private:
     int _tuple_idx;                             // within row
@@ -87,8 +88,8 @@ inline bool SlotRef::vector_compute_fn(Expr* expr, VectorizedRowBatch* /* batch 
 inline void* SlotRef::get_value(Expr* expr, TupleRow* row) {
     SlotRef* ref = (SlotRef*)expr;
     Tuple* t = row->get_tuple(ref->_tuple_idx);
-    if (t == NULL || t->is_null(ref->_null_indicator_offset)) {
-        return NULL;
+    if (t == nullptr || t->is_null(ref->_null_indicator_offset)) {
+        return nullptr;
     }
     return t->get_slot(ref->_slot_offset);
 }

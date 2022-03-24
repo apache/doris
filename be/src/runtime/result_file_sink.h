@@ -19,11 +19,11 @@
 #define DORIS_BE_RUNTIME_RESULT_FILE_SINK_H
 
 #include "common/status.h"
-#include "runtime/data_stream_sender.h"
-#include "runtime/descriptors.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/data_stream_sender.h"
+#include "runtime/descriptors.h"
 
 namespace doris {
 
@@ -34,30 +34,27 @@ class RuntimeProfile;
 class BufferControlBlock;
 class ExprContext;
 class ResultWriter;
-class MemTracker;
-class ResultFileOptions;
+struct ResultFileOptions;
 
 class ResultFileSink : public DataStreamSender {
 public:
-    // construct a buffer for the result need send to coordinator.
-    // row_desc used for convert RowBatch to TRowBatch
-    // buffer_size is the buffer size allocated to each query
     ResultFileSink(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
-               const TResultFileSink& sink);
+                   const TResultFileSink& sink);
     ResultFileSink(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
-               const TResultFileSink& sink,
-               const std::vector<TPlanFragmentDestination>& destinations,
-               ObjectPool* pool, int sender_id, DescriptorTbl& descs);
+                   const TResultFileSink& sink,
+                   const std::vector<TPlanFragmentDestination>& destinations, ObjectPool* pool,
+                   int sender_id, DescriptorTbl& descs);
     virtual ~ResultFileSink();
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
+    virtual Status init(const TDataSink& thrift_sink) override;
+    virtual Status prepare(RuntimeState* state) override;
+    virtual Status open(RuntimeState* state) override;
     // send data in 'batch' to this backend stream mgr
     // Blocks until all rows in batch are placed in the buffer
-    virtual Status send(RuntimeState* state, RowBatch* batch);
+    virtual Status send(RuntimeState* state, RowBatch* batch) override;
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().
-    virtual Status close(RuntimeState* state, Status exec_status);
-    virtual RuntimeProfile* profile() { return _profile; }
+    virtual Status close(RuntimeState* state, Status exec_status) override;
+    virtual RuntimeProfile* profile() override { return _profile; }
 
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override;
 
@@ -72,12 +69,11 @@ private:
     std::vector<ExprContext*> _output_expr_ctxs;
     RowDescriptor _output_row_descriptor;
 
-    boost::shared_ptr<BufferControlBlock> _sender;
-    boost::shared_ptr<ResultWriter> _writer;
+    std::shared_ptr<BufferControlBlock> _sender;
+    std::shared_ptr<ResultWriter> _writer;
     RowBatch* _output_batch = nullptr;
-    int _buf_size = 1024;            // Allocated from _pool
+    int _buf_size = 1024; // Allocated from _pool
     bool _is_top_sink = true;
-
 };
 
 } // namespace doris

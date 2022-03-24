@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
@@ -107,6 +108,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
     public static final boolean DEFAULT_STRICT_MODE = false; // default is false
     public static final int DEFAULT_SEND_BATCH_PARALLELISM = 1;
+    public static final boolean DEFAULT_LOAD_TO_SINGLE_TABLET = false;
 
     protected static final String STAR_STRING = "*";
      /*
@@ -167,6 +169,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long maxErrorNum = DEFAULT_MAX_ERROR_NUM; // optional
     protected long execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
     protected int sendBatchParallelism = DEFAULT_SEND_BATCH_PARALLELISM;
+    protected boolean loadToSingleTablet = DEFAULT_LOAD_TO_SINGLE_TABLET;
     // include strict mode
     protected Map<String, String> jobProperties = Maps.newHashMap();
 
@@ -286,10 +289,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (stmt.getSendBatchParallelism() > 0) {
             this.sendBatchParallelism = stmt.getSendBatchParallelism();
         }
+        if (stmt.isLoadToSingleTablet()) {
+            this.loadToSingleTablet = stmt.isLoadToSingleTablet();
+        }
         jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
         jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, String.valueOf(this.execMemLimit));
         jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, String.valueOf(this.sendBatchParallelism));
+        jobProperties.put(LoadStmt.LOAD_TO_SINGLE_TABLET, String.valueOf(this.loadToSingleTablet));
 
         if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
             jobProperties.put(PROPS_FORMAT, "csv");
@@ -397,7 +404,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public void setOtherMsg(String otherMsg) {
-        this.otherMsg = Strings.nullToEmpty(otherMsg);
+        this.otherMsg = TimeUtils.getCurrentFormatTime() + ":" + Strings.nullToEmpty(otherMsg);
     }
 
     public String getDbFullName() throws MetaNotFoundException {
@@ -549,6 +556,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     @Override
     public int getSendBatchParallelism() {
         return sendBatchParallelism;
+    }
+
+    @Override
+    public boolean isLoadToSingleTablet() {
+        return loadToSingleTablet;
     }
 
     @Override
@@ -912,6 +924,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         
         writeLock();
         try {
+            this.jobStatistic.runningTxnIds.remove(txnState.getTransactionId());
             if (state != JobState.RUNNING) {
                 // job is not running, nothing need to be done
                 return;
@@ -963,6 +976,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             throws UserException {
         long taskBeId = -1L;
         try {
+            this.jobStatistic.runningTxnIds.remove(txnState.getTransactionId());
             if (txnOperated) {
                 // step0: find task in job
                 Optional<RoutineLoadTaskInfo> routineLoadTaskInfoOptional = routineLoadTaskInfoList.stream().filter(
@@ -1251,9 +1265,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     protected abstract String getStatistic();
 
+    protected abstract String getLag();
+
     public List<String> getShowInfo() {
         Optional<Database> database = Catalog.getCurrentCatalog().getDb(dbId);
         Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
+
 
         readLock();
         try {
@@ -1273,6 +1290,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             row.add(customPropertiesJsonToString());
             row.add(getStatistic());
             row.add(getProgress().toJsonString());
+            row.add(getLag());
             switch (state) {
                 case PAUSED:
                     row.add(pauseReason == null ? "" : pauseReason.toString());
@@ -1293,7 +1311,14 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public List<List<String>> getTasksShowInfo() {
         List<List<String>> rows = Lists.newArrayList();
-        routineLoadTaskInfoList.stream().forEach(entity -> rows.add(entity.getTaskShowInfo()));
+        routineLoadTaskInfoList.stream().forEach(entity -> {
+            try {
+                entity.setTxnStatus(Catalog.getCurrentCatalog().getGlobalTransactionMgr().getDatabaseTransactionMgr(dbId).getTransactionState(entity.getTxnId()).getTransactionStatus());
+                rows.add(entity.getTaskShowInfo());
+            } catch (AnalysisException e) {
+                LOG.warn("failed to setTxnStatus db: {}, txnId: {}, err: {}", dbId, entity.getTxnId(), e.getMessage());
+            }
+        });
         return rows;
     }
 
@@ -1559,35 +1584,20 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         } else {
             this.jobStatistic = RoutineLoadStatistic.read(in);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_76) {
-            String stmt = Text.readString(in);
-            origStmt = new OriginStatement(stmt, 0);
-        } else {
-            origStmt = OriginStatement.read(in);
+        origStmt = OriginStatement.read(in);
+        
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            jobProperties.put(key, value);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                jobProperties.put(key, value);
-            }
-        } else {
-            // The behaviors of old broker load could not be changed
-            jobProperties.put(LoadStmt.STRICT_MODE, Boolean.toString(false));
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                sessionVariables.put(key, value);
-            }
-        } else {
-            // old version of load does not have sqlmode, set it to default
-            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            sessionVariables.put(key, value);
         }
 
         // parse the origin stmt to get routine load desc
@@ -1599,7 +1609,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             stmt.checkLoadProperties();
             setRoutineLoadDesc(stmt.getRoutineLoadDesc());
         } catch (Exception e) {
-            throw new IOException("error happens when parsing create routine load stmt: " + origStmt, e);
+            throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
     }
 

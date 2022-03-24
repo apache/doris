@@ -31,6 +31,9 @@ under the License.
             <div class="article-item-meta article-item-time">
               {{$themeLocaleConfig.article.metaTime}}：<span>{{item.frontmatter.date}}</span>
             </div>
+            <div class="article-item-meta article-item-author">
+              {{$themeLocaleConfig.article.metaAuthor}}：<span>{{item.frontmatter.author}}</span>
+            </div>
           </footer>
         </article>
         <div class="article-pagination-wrap">
@@ -61,7 +64,8 @@ export default {
   },
   computed: {
     articleList () {
-      return this.$site.pages.filter(item => item.frontmatter.metaTitle === 'article' && item.frontmatter.language === this.$lang)
+      const list = this.$site.pages.filter(item => item.frontmatter.isArticle && item.frontmatter.language === this.$lang)
+      return list.sort((a, b) => Date.parse(b.frontmatter.date) - Date.parse(a.frontmatter.date))
     },
     currentArticleList () {
       const start = (this.pageNumber - 1) * this.pageSize
@@ -86,7 +90,7 @@ export default {
   .content-wrapper
     padding: 100px 15px 80px
     min-height: calc(100vh - 180px)
-    max-width: 740px
+    max-width: 80%
     margin: 0 auto
     .article-item 
       padding-bottom: 20px
@@ -111,11 +115,10 @@ export default {
         align-items: center
         font-size: 12px
         line-height: 12px
+        color: #888888
       .article-item-meta:not(:last-child)
         margin-bottom: 3px
         margin-right: 20px
-      .article-item-time
-        color: #888888
     .article-item:last-child
       border: none
     .article-pagination-wrap

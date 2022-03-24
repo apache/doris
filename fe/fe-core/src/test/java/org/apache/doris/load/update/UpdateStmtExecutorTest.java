@@ -27,8 +27,10 @@ import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
@@ -45,10 +47,18 @@ public class UpdateStmtExecutorTest {
 
     @Test
     public void testCommitAndPublishTxn(@Injectable Analyzer analyzer,
+                                        @Injectable Coordinator coordinator,
                                         @Mocked GlobalTransactionMgr globalTransactionMgr) {
+        Cluster test_cluster = new Cluster("test_cluster", 0);
+        Database test_db = new Database(1, "test_db");
+        test_db.setClusterName("test_cluster");
+        Catalog.getCurrentCatalog().addCluster(test_cluster);
+        Catalog.getCurrentCatalog().unprotectCreateDb(test_db);
         UpdateStmtExecutor updateStmtExecutor = new UpdateStmtExecutor();
+        Deencapsulation.setField(updateStmtExecutor, "dbId", 1);
         Deencapsulation.setField(updateStmtExecutor, "effectRows", 0);
         Deencapsulation.setField(updateStmtExecutor, "analyzer", analyzer);
+        Deencapsulation.setField(updateStmtExecutor, "coordinator", coordinator);
         Deencapsulation.invoke(updateStmtExecutor, "commitAndPublishTxn");
     }
 

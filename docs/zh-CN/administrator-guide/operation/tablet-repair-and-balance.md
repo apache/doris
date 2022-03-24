@@ -216,7 +216,7 @@ TabletScheduler 里等待被调度的分片会根据状态不同，赋予不同�
 
 ## 副本均衡
 
-Doris 会自动进行集群内的副本均衡。目前支持两种均衡策略，负载/分区。负载均衡适合需要兼顾节点磁盘使用率和节点副本数量的场景；而分区均衡会使每个分区的副本都均匀分布在各个节点，避免热点，适合对分区读写要求比较高的场景。但是，分区均衡不考虑磁盘使用率，使用分区均衡时需要注意磁盘的使用情况。策略只能在fe启动前配置，不支持运行时切换。
+Doris 会自动进行集群内的副本均衡。目前支持两种均衡策略，负载/分区。负载均衡适合需要兼顾节点磁盘使用率和节点副本数量的场景；而分区均衡会使每个分区的副本都均匀分布在各个节点，避免热点，适合对分区读写要求比较高的场景。但是，分区均衡不考虑磁盘使用率，使用分区均衡时需要注意磁盘的使用情况。 策略只能在fe启动前配置[tablet_rebalancer_type](../config/fe_config.md#配置项列表 )  ，不支持运行时切换。
 
 ### 负载均衡
 
@@ -527,7 +527,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 
     以下命令，可以查看通过 `ADMIN REPAIR TABLE` 命令设置的优先修复的表或分区。
     
-    `SHOW PROC '/cluster_balance/priority_repair'；`
+    `SHOW PROC '/cluster_balance/priority_repair';`
     
     其中 `RemainingTimeMs` 表示，这些优先修复的内容，将在这个时间后，被自动移出优先修复队列。以防止优先修复一直失败导致资源被占用。
     
@@ -535,7 +535,7 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 
 我们收集了 TabletChecker 和 TabletScheduler 在运行过程中的一些统计信息，可以通过以下命令查看：
 
-`SHOW PROC '/cluster_balance/sched_stat'；`
+`SHOW PROC '/cluster_balance/sched_stat';`
 
 ```
 +---------------------------------------------------+-------------+
@@ -683,7 +683,93 @@ TabletScheduler 在每轮调度时，都会通过 LoadBalancer 来选择一定�
 
 * 目前针对 Colocate Table 的副本的均衡策略无法保证同一个 Tablet 的副本不会分布在同一个 host 的 BE 上。但 Colocate Table 的副本的修复策略会检测到这种分布错误并校正。但可能会出现，校正后，均衡策略再次认为副本不均衡而重新均衡。从而导致在两种状态间不停交替，无法使 Colocate Group 达成稳定。针对这种情况，我们建议在使用 Colocate 属性时，尽量保证集群是同构的，以减小副本分布在同一个 host 上的概率。
 
+## 最佳实践
 
+### 控制并管理集群的副本修复和均衡进度
+
+在大多数情况下，通过默认的参数配置，Doris 都可以自动的进行副本修复和集群均衡。但是某些情况下，我们需要通过人工介入调整参数，来达到一些特殊的目的。如优先修复某个表或分区、禁止集群均衡以降低集群负载、优先修复非 colocation 的表数据等等。
+
+本小节主要介绍如何通过修改参数，来控制并管理集群的副本修复和均衡进度。
+
+1. 删除损坏副本
+
+    某些情况下，Doris 可能无法自动检测某些损坏的副本，从而导致查询或导入在损坏的副本上频繁报错。此时我们需要手动删除已损坏的副本。该方法可以适用于：删除版本数过高导致 -235 错误的副本、删除文件已损坏的副本等等。
+    
+    首先，找到副本对应的 tablet id，假设为 10001。通过 `show tablet 10001;` 并执行其中的 `show proc` 语句可以查看对应的 tablet 的各个副本详情。
+    
+    假设需要删除的副本的 backend id 是 20001。则执行以下语句将副本标记为 `bad`：
+    
+    ```
+    ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "10001", "backend_id" = "20001", "status" = "bad");
+    ```
+    
+    此时，再次通过 `show proc` 语句可以看到对应的副本的 `IsBad` 列值为 `true`。
+    
+    被标记为 `bad` 的副本不会再参与导入和查询。同时副本修复逻辑会自动补充一个新的副本。
+    
+2. 优先修复某个表或分区
+
+    `help admin repair table;` 查看帮助。该命令会尝试优先修复指定表或分区的tablet。
+    
+3. 停止均衡任务
+
+    均衡任务会占用一定的网络带宽和IO资源。如果希望停止新的均衡任务的产生，可以通过以下命令：
+    
+    ```
+    ADMIN SET FRONTEND CONFIG ("disable_balance" = "true");
+    ```
+
+4. 停止所有副本调度任务
+
+    副本调度任务包括均衡和修复任务。这些任务都会占用一定的网络带宽和IO资源。可以通过以下命令停止所有副本调度任务（不包括已经在运行的，包括 colocation 表和普通表）：
+    
+    ```
+    ADMIN SET FRONTEND CONFIG ("disable_tablet_scheduler" = "true");
+    ```
+
+5. 停止所有 colocation 表的副本调度任务。
+
+    colocation 表的副本调度和普通表是分开独立运行的。某些情况下，用户可能希望先停止对 colocation 表的均衡和修复工作，而将集群资源用于普通表的修复，则可以通过以下命令：
+    
+    ```
+    ADMIN SET FRONTEND CONFIG ("disable_colocate_balance" = "true");
+    ```
+
+6. 使用更保守的策略修复副本
+
+    Doris 在检测到副本缺失、BE宕机等情况下，会自动修复副本。但为了减少一些抖动导致的错误（如BE短暂宕机），Doris 会延迟触发这些任务。
+    
+    * `tablet_repair_delay_factor_second` 参数。默认 60 秒。根据修复任务优先级的不同，会推迟 60秒、120秒、180秒后开始触发修复任务。可以通过以下命令延长这个时间，这样可以容忍更长的异常时间，以避免触发不必要的修复任务：
+
+    ```
+    ADMIN SET FRONTEND CONFIG ("tablet_repair_delay_factor_second" = "120");
+    ```
+
+7. 使用更保守的策略触发 colocation group 的重分布
+
+    colocation group 的重分布可能伴随着大量的 tablet 迁移。`colocate_group_relocate_delay_second` 用于控制重分布的触发延迟。默认 1800秒。如果某台 BE 节点可能长时间下线，可以尝试调大这个参数，以避免不必要的重分布：
+    
+    ```
+    ADMIN SET FRONTEND CONFIG ("colocate_group_relocate_delay_second" = "3600");
+    ```
+
+8. 更快速的副本均衡
+
+    Doris 的副本均衡逻辑会先增加一个正常副本，然后在删除老的副本，已达到副本迁移的目的。而在删除老副本时，Doris会等待这个副本上已经开始执行的导入任务完成，以避免均衡任务影响导入任务。但这样会降低均衡逻辑的执行速度。此时可以通过修改以下参数，让 Doris 忽略这个等待，直接删除老副本：
+    
+    ```
+    ADMIN SET FRONTEND CONFIG ("enable_force_drop_redundant_replica" = "true");
+    ```
+
+    这种操作可能会导致均衡期间部分导入任务失败（需要重试），但会显著加速均衡速度。
+    
+总体来讲，当我们需要将集群快速恢复到正常状态时，可以考虑按照以下思路处理：
+
+1. 找到导致高优任务报错的tablet，将有问题的副本置为 bad。
+2. 通过 `admin repair` 语句高优修复某些表。
+3. 停止副本均衡逻辑以避免占用集群资源，等集群恢复后，再开启即可。
+4. 使用更保守的策略触发修复任务，以应对 BE 频繁宕机导致的雪崩效应。
+5. 按需关闭 colocation 表的调度任务，集中集群资源修复其他高优数据。
 
 
 

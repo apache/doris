@@ -46,7 +46,7 @@ Status RepeatNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
-    if (_tuple_desc == NULL) {
+    if (_tuple_desc == nullptr) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
@@ -89,8 +89,8 @@ Status RepeatNode::get_repeated_batch(RowBatch* child_row_batch, int repeat_id_i
         for (int j = 0; src_it != src_tuple_descs.end() && dst_it != dst_tuple_descs.end();
              ++src_it, ++dst_it, ++j) {
             Tuple* src_tuple = src_row->get_tuple(j);
-            if (src_tuple == NULL) {
-                dst_row->set_tuple(j, NULL);
+            if (src_tuple == nullptr) {
+                dst_row->set_tuple(j, nullptr);
                 continue;
             }
 
@@ -175,8 +175,7 @@ Status RepeatNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
             return Status::OK();
         }
 
-        _child_row_batch.reset(
-                new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+        _child_row_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
         RETURN_IF_ERROR(child(0)->get_next(state, _child_row_batch.get(), &_child_eos));
 
         if (_child_row_batch->num_rows() <= 0) {

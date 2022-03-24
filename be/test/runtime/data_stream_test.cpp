@@ -17,8 +17,8 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/thread/thread.hpp>
 #include <iostream>
+#include <thread>
 
 #include "common/status.h"
 #include "exprs/slot_ref.h"
@@ -44,8 +44,8 @@ using std::string;
 using std::vector;
 using std::multiset;
 
-using boost::scoped_ptr;
-using boost::thread;
+using std::unique_ptr;
+using std::thread;
 
 namespace doris {
 
@@ -186,8 +186,8 @@ protected:
     }
 
     virtual void TearDown() {
-        _lhs_slot_ctx->close(NULL);
-        _rhs_slot_ctx->close(NULL);
+        _lhs_slot_ctx->close(nullptr);
+        _rhs_slot_ctx->close(nullptr);
         _exec_env.client_cache()->test_shutdown();
         stop_backend();
     }
@@ -220,7 +220,7 @@ protected:
     string _stmt;
 
     // RowBatch generation
-    boost::scoped_ptr<RowBatch> _batch;
+    std::unique_ptr<RowBatch> _batch;
     int _next_val;
     int64_t* _tuple_mem;
 
@@ -239,7 +239,7 @@ protected:
         Status status;
         int num_bytes_sent;
 
-        SenderInfo() : thread_handle(NULL), num_bytes_sent(0) {}
+        SenderInfo() : thread_handle(nullptr), num_bytes_sent(0) {}
     };
     std::vector<SenderInfo> _sender_info;
 
@@ -249,7 +249,7 @@ protected:
         int receiver_num;
 
         thread* thread_handle;
-        boost::shared_ptr<DataStreamRecvr> stream_recvr;
+        std::shared_ptr<DataStreamRecvr> stream_recvr;
         Status status;
         int num_rows_received;
         multiset<int64_t> data_values;
@@ -258,8 +258,8 @@ protected:
                 : stream_type(stream_type),
                   num_senders(num_senders),
                   receiver_num(receiver_num),
-                  thread_handle(NULL),
-                  stream_recvr(NULL),
+                  thread_handle(nullptr),
+                  stream_recvr(nullptr),
                   num_rows_received(0) {}
 
         ~ReceiverInfo() {
@@ -335,8 +335,8 @@ protected:
 
         _lhs_slot_ctx->prepare(&_runtime_state, *_row_desc, _tracker.get());
         _rhs_slot_ctx->prepare(&_runtime_state, *_row_desc, _tracker.get());
-        _lhs_slot_ctx->open(NULL);
-        _rhs_slot_ctx->open(NULL);
+        _lhs_slot_ctx->open(nullptr);
+        _rhs_slot_ctx->open(nullptr);
         SortExecExprs* sort_exprs = _obj_pool.add(new SortExecExprs());
         sort_exprs->init(vector<ExprContext*>(1, _lhs_slot_ctx),
                          std::vector<ExprContext*>(1, _rhs_slot_ctx));
@@ -372,7 +372,7 @@ protected:
 
     // Start receiver (expecting given number of senders) in separate thread.
     void start_receiver(TPartitionType::type stream_type, int num_senders, int receiver_num,
-                        int buffer_size, bool is_merging, TUniqueId* out_id = NULL) {
+                        int buffer_size, bool is_merging, TUniqueId* out_id = nullptr) {
         VLOG_QUERY << "start receiver";
         RuntimeProfile* profile = _obj_pool.add(new RuntimeProfile("TestReceiver"));
         TUniqueId instance_id;
@@ -389,7 +389,7 @@ protected:
                     new thread(&DataStreamTest::read_stream_merging, this, &info, profile);
         }
 
-        if (out_id != NULL) {
+        if (out_id != nullptr) {
             *out_id = instance_id;
         }
     }
@@ -405,12 +405,12 @@ protected:
 
     // Deplete stream and print batches
     void read_stream(ReceiverInfo* info) {
-        RowBatch* batch = NULL;
+        RowBatch* batch = nullptr;
         VLOG_QUERY << "start reading";
 
         while (!(info->status = info->stream_recvr->get_batch(&batch)).is_cancelled() &&
-               (batch != NULL)) {
-            VLOG_QUERY << "read batch #rows=" << (batch != NULL ? batch->num_rows() : 0);
+               (batch != nullptr)) {
+            VLOG_QUERY << "read batch #rows=" << (batch != nullptr ? batch->num_rows() : 0);
 
             for (int i = 0; i < batch->num_rows(); ++i) {
                 TupleRow* row = batch->get_row(i);
@@ -514,10 +514,9 @@ protected:
 
     // Start backend in separate thread.
     void start_backend() {
-        boost::shared_ptr<DorisTestBackend> handler(new DorisTestBackend(_stream_mgr));
-        boost::shared_ptr<apache::thrift::TProcessor> processor(
-                new BackendServiceProcessor(handler));
-        _server = new ThriftServer("DataStreamTest backend", processor, config::port, NULL);
+        std::shared_ptr<DorisTestBackend> handler(new DorisTestBackend(_stream_mgr));
+        std::shared_ptr<apache::thrift::TProcessor> processor(new BackendServiceProcessor(handler));
+        _server = new ThriftServer("DataStreamTest backend", processor, config::port, nullptr);
         _server->start();
     }
 
@@ -562,7 +561,7 @@ protected:
 
         EXPECT_TRUE(sender.prepare(&state).ok());
         EXPECT_TRUE(sender.open(&state).ok());
-        boost::scoped_ptr<RowBatch> batch(create_row_batch());
+        std::unique_ptr<RowBatch> batch(create_row_batch());
         SenderInfo& info = _sender_info[sender_num];
         int next_val = 0;
 

@@ -20,7 +20,6 @@
 
 #include <stdint.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <string>
 
 #include "common/status.h"
@@ -93,15 +92,15 @@ public:
 
     /// Initializes the root tracker with the given reservation limit in bytes. The initial
     /// reservation is 0.
-    /// if 'profile' is not NULL, the counters defined in ReservationTrackerCounters are
+    /// if 'profile' is not nullptr, the counters defined in ReservationTrackerCounters are
     /// added to 'profile'.
     void InitRootTracker(RuntimeProfile* profile, int64_t reservation_limit);
 
     /// Initializes a new ReservationTracker with a parent.
-    /// If 'mem_tracker' is not NULL, reservations for this ReservationTracker and its
+    /// If 'mem_tracker' is not nullptr, reservations for this ReservationTracker and its
     /// children will be counted as consumption against 'mem_tracker'.
     /// 'reservation_limit' is the maximum reservation for this tracker in bytes.
-    /// if 'profile' is not NULL, the counters in 'counters_' are added to 'profile'.
+    /// if 'profile' is not nullptr, the counters in 'counters_' are added to 'profile'.
     void InitChildTracker(RuntimeProfile* profile, ReservationTracker* parent,
                           MemTracker* mem_tracker, int64_t reservation_limit);
 
@@ -178,13 +177,13 @@ private:
         return reservation_ - used_reservation_ - child_reservations_;
     }
 
-    /// Returns the parent's memtracker if 'parent_' is non-NULL, or NULL otherwise.
+    /// Returns the parent's memtracker if 'parent_' is non-nullptr, or nullptr otherwise.
     MemTracker* GetParentMemTracker() const {
         return parent_ == nullptr ? nullptr : parent_->mem_tracker_;
     }
 
     /// Initializes 'counters_', storing the counters in 'profile'.
-    /// If 'profile' is NULL, creates a dummy profile to store the counters.
+    /// If 'profile' is nullptr, creates a dummy profile to store the counters.
     void InitCounters(RuntimeProfile* profile, int64_t max_reservation);
 
     /// Internal helper for IncreaseReservation(). If 'use_existing_reservation' is true,
@@ -261,16 +260,16 @@ private:
 
     /// A dummy profile to hold the counters in 'counters_' in the case that no profile
     /// is provided.
-    boost::scoped_ptr<DummyProfile> dummy_profile_;
+    std::unique_ptr<DummyProfile> dummy_profile_;
 
     /// The RuntimeProfile counters for this tracker.
-    /// All non-NULL if 'initialized_' is true.
+    /// All non-nullptr if 'initialized_' is true.
     ReservationTrackerCounters counters_;
 
     /// The parent of this tracker in the hierarchy. Does not change after initialization.
     ReservationTracker* parent_ = nullptr;
 
-    /// If non-NULL, reservations are counted as memory consumption against this tracker.
+    /// If non-nullptr, reservations are counted as memory consumption against this tracker.
     /// Does not change after initialization. Not owned.
     /// TODO: remove once all memory is accounted via ReservationTrackers.
     MemTracker* mem_tracker_ = nullptr;

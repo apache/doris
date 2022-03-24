@@ -20,15 +20,16 @@
 namespace doris {
 
 Status SortExecExprs::init(const TSortInfo& sort_info, ObjectPool* pool) {
-    return init(sort_info.ordering_exprs,
-                sort_info.__isset.sort_tuple_slot_exprs ? &sort_info.sort_tuple_slot_exprs : NULL,
-                pool);
+    return init(
+            sort_info.ordering_exprs,
+            sort_info.__isset.sort_tuple_slot_exprs ? &sort_info.sort_tuple_slot_exprs : nullptr,
+            pool);
 }
 
 Status SortExecExprs::init(const std::vector<TExpr>& ordering_exprs,
                            const std::vector<TExpr>* sort_tuple_slot_exprs, ObjectPool* pool) {
     RETURN_IF_ERROR(Expr::create_expr_trees(pool, ordering_exprs, &_lhs_ordering_expr_ctxs));
-    if (sort_tuple_slot_exprs != NULL) {
+    if (sort_tuple_slot_exprs != nullptr) {
         _materialize_tuple = true;
         RETURN_IF_ERROR(
                 Expr::create_expr_trees(pool, *sort_tuple_slot_exprs, &_sort_tuple_slot_expr_ctxs));

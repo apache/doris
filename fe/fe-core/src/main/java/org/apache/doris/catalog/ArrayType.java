@@ -66,7 +66,11 @@ public class ArrayType extends Type {
             return false;
         }
 
+        // Array(Null) is a virtual Array type, can match any Array(...) type
         if (itemType.isNull()) {
+            return true;
+        }
+        if (((ArrayType) t).getItemType().isNull()) {
             return true;
         }
 
@@ -83,9 +87,6 @@ public class ArrayType extends Type {
 
     @Override
     public String toSql(int depth) {
-        if (depth >= MAX_NESTING_DEPTH) {
-            return "ARRAY<...>";
-        }
         return String.format("ARRAY<%s>", itemType.toSql(depth + 1));
     }
 
@@ -96,6 +97,10 @@ public class ArrayType extends Type {
         }
         ArrayType otherArrayType = (ArrayType) other;
         return otherArrayType.itemType.equals(itemType);
+    }
+
+    public static boolean canCastTo(ArrayType type, ArrayType targetType) {
+        return Type.canCastTo(type.getItemType(), targetType.getItemType());
     }
 
     @Override
@@ -125,11 +130,7 @@ public class ArrayType extends Type {
         if (!Config.enable_complex_type_support) {
             return false;
         }
-
-        if (itemType.isNull()) {
-            return false;
-        }
-        return true;
+        return !itemType.isNull();
     }
 
     @Override

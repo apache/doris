@@ -22,9 +22,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -48,6 +47,12 @@ public class CommonUserProperties implements Writable {
     // The tag of the resource that the user is allowed to use
     @SerializedName("resourceTags")
     private Set<Tag> resourceTags = Sets.newHashSet();
+    // user level exec_mem_limit, if > 0, will overwrite the exec_mem_limit in session variable
+    @SerializedName("execMemLimit")
+    private long execMemLimit = -1;
+    // user level load_mem_limit, if > 0, will overwrite the load_mem_limit in session variable
+    @SerializedName("loadMemLimit")
+    private long loadMemLimit = -1;
 
     private String[] sqlBlockRulesSplit = {};
 
@@ -99,6 +104,22 @@ public class CommonUserProperties implements Writable {
 
     public Set<Tag> getResourceTags() {
         return resourceTags;
+    }
+
+    public long getExecMemLimit() {
+        return execMemLimit;
+    }
+
+    public void setExecMemLimit(long execMemLimit) {
+        this.execMemLimit = execMemLimit;
+    }
+
+    public long getLoadMemLimit() {
+        return loadMemLimit;
+    }
+
+    public void setLoadMemLimit(long loadMemLimit) {
+        this.loadMemLimit = loadMemLimit;
     }
 
     public static CommonUserProperties read(DataInput in) throws IOException {

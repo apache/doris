@@ -17,8 +17,8 @@
 
 #include "runtime/data_stream_mgr.h"
 
-#include <boost/thread/thread.hpp>
 #include <iostream>
+#include <thread>
 
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
@@ -36,7 +36,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(data_stream_receiver_count, MetricUnit::NOUNI
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_endpoint_count, MetricUnit::NOUNIT);
 
 using std::mutex;
-using boost::shared_ptr;
+using std::shared_ptr;
 using std::unique_lock;
 using std::lock_guard;
 
@@ -67,11 +67,11 @@ shared_ptr<DataStreamRecvr> DataStreamMgr::create_recvr(
         RuntimeState* state, const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
         PlanNodeId dest_node_id, int num_senders, int buffer_size, RuntimeProfile* profile,
         bool is_merging, std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr) {
-    DCHECK(profile != NULL);
+    DCHECK(profile != nullptr);
     VLOG_FILE << "creating receiver for fragment=" << fragment_instance_id
               << ", node=" << dest_node_id;
     shared_ptr<DataStreamRecvr> recvr(new DataStreamRecvr(
-            this, state->instance_mem_tracker(), row_desc, fragment_instance_id, dest_node_id,
+            this, row_desc, fragment_instance_id, dest_node_id,
             num_senders, is_merging, buffer_size, profile, sub_plan_query_statistics_recvr));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
     lock_guard<mutex> l(_lock);
@@ -116,7 +116,7 @@ Status DataStreamMgr::transmit_data(const PTransmitDataParams* request,
     if (recvr == nullptr) {
         // The receiver may remove itself from the receiver map via deregister_recvr()
         // at any time without considering the remaining number of senders.
-        // As a consequence, find_recvr() may return an innocuous NULL if a thread
+        // As a consequence, find_recvr() may return an innocuous nullptr if a thread
         // calling deregister_recvr() beat the thread calling find_recvr()
         // in acquiring _lock.
         // TODO: Rethink the lifecycle of DataStreamRecvr to distinguish
@@ -144,7 +144,7 @@ Status DataStreamMgr::transmit_data(const PTransmitDataParams* request,
 }
 
 Status DataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id) {
-    boost::shared_ptr<DataStreamRecvr> targert_recvr;
+    std::shared_ptr<DataStreamRecvr> targert_recvr;
     VLOG_QUERY << "deregister_recvr(): fragment_instance_id=" << fragment_instance_id
                << ", node=" << node_id;
     size_t hash_value = get_hash_value(fragment_instance_id, node_id);
@@ -182,14 +182,14 @@ Status DataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, Pl
 
 void DataStreamMgr::cancel(const TUniqueId& fragment_instance_id) {
     VLOG_QUERY << "cancelling all streams for fragment=" << fragment_instance_id;
-    std::vector<boost::shared_ptr<DataStreamRecvr>> recvrs;
+    std::vector<std::shared_ptr<DataStreamRecvr>> recvrs;
     {
         lock_guard<mutex> l(_lock);
         FragmentStreamSet::iterator i =
                 _fragment_stream_set.lower_bound(std::make_pair(fragment_instance_id, 0));
         while (i != _fragment_stream_set.end() && i->first == fragment_instance_id) {
             shared_ptr<DataStreamRecvr> recvr = find_recvr(i->first, i->second, false);
-            if (recvr == NULL) {
+            if (recvr == nullptr) {
                 // keep going but at least log it
                 std::stringstream err;
                 err << "cancel(): missing in stream_map: fragment=" << i->first

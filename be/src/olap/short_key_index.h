@@ -31,7 +31,7 @@
 namespace doris {
 
 // In our system, we have more complicated situation.
-// First, our keys can be NULL.
+// First, our keys can be nullptr.
 // Second, when key columns are not complete we want to distinguish GT and GE. For example,
 // there are two key columns a and b, we have only one condition a > 1. We can only encode
 // a prefix key 1, which is less than 1|2. This will make our read more data than
@@ -259,9 +259,7 @@ public:
 private:
     template <bool lower_bound>
     ShortKeyIndexIterator seek(const Slice& key) const {
-        auto comparator = [this](const Slice& lhs, const Slice& rhs) {
-            return lhs.compare(rhs) < 0;
-        };
+        auto comparator = [](const Slice& lhs, const Slice& rhs) { return lhs.compare(rhs) < 0; };
         if (lower_bound) {
             return std::lower_bound(begin(), end(), key, comparator);
         } else {

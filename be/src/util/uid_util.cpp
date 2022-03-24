@@ -37,20 +37,20 @@ std::string print_id(const PUniqueId& id) {
 }
 
 bool parse_id(const std::string& s, TUniqueId* id) {
-    DCHECK(id != NULL);
+    DCHECK(id != nullptr);
 
     const char* hi_part = s.c_str();
     char* colon = const_cast<char*>(strchr(hi_part, '-'));
 
-    if (colon == NULL) {
+    if (colon == nullptr) {
         return false;
     }
 
     const char* lo_part = colon + 1;
     *colon = '\0';
 
-    char* error_hi = NULL;
-    char* error_lo = NULL;
+    char* error_hi = nullptr;
+    char* error_lo = nullptr;
     id->hi = strtoul(hi_part, &error_hi, 16);
     id->lo = strtoul(lo_part, &error_lo, 16);
 

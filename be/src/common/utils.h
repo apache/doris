@@ -21,6 +21,8 @@
 
 namespace doris {
 
+#define ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
+
 struct AuthInfo {
     std::string user;
     std::string passwd;
@@ -60,5 +62,15 @@ void set_request_auth(T* req, const AuthInfo& auth) {
 static constexpr int RELEASE_CONTEXT_COUNTER = 1 << 7;
 static_assert((RELEASE_CONTEXT_COUNTER & (RELEASE_CONTEXT_COUNTER - 1)) == 0,
               "should be power of 2");
+
+template <typename To, typename From> 
+static inline To convert_to(From from) {
+    union {
+        From _from;
+        To _to;
+    };
+    _from = from;
+    return _to;
+}
 
 } // namespace doris

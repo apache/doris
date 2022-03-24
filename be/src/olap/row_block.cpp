@@ -37,10 +37,8 @@ using std::vector;
 
 namespace doris {
 
-RowBlock::RowBlock(const TabletSchema* schema, const std::shared_ptr<MemTracker>& parent_tracker)
-        : _capacity(0), _schema(schema) {
-    _tracker = MemTracker::CreateTracker(-1, "RowBlock", parent_tracker, true, true, MemTrackerLevel::VERBOSE);
-    _mem_pool.reset(new MemPool(_tracker.get()));
+RowBlock::RowBlock(const TabletSchema* schema) : _capacity(0), _schema(schema) {
+    _mem_pool.reset(new MemPool("RowBlock"));
 }
 
 RowBlock::~RowBlock() {
@@ -89,8 +87,7 @@ void RowBlock::_compute_layout() {
         _field_offset_in_memory.push_back(memory_size);
 
         // All field has a nullbyte in memory
-        if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL ||
-            column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_OBJECT ||column.type() == OLAP_FIELD_TYPE_STRING) {
+        if (column.is_length_variable_type()) {
             // 变长部分额外计算下实际最大的字符串长度（此处length已经包括记录Length的2个字节）
             memory_size += sizeof(Slice) + sizeof(char);
         } else {

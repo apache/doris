@@ -112,8 +112,8 @@ CsvScanNode::~CsvScanNode() {
     // do nothing
 }
 
-Status CsvScanNode::init(const TPlanNode& tnode) {
-    return ExecNode::init(tnode);
+Status CsvScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
+    return ExecNode::init(tnode, state);
 }
 
 Status CsvScanNode::prepare(RuntimeState* state) {
@@ -195,7 +195,7 @@ Status CsvScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a csv scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool(state->instance_mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool());
     if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");
     }
@@ -330,8 +330,7 @@ Status CsvScanNode::close(RuntimeState* state) {
     if (state->num_rows_load_success() == 0) {
         std::stringstream error_msg;
         error_msg << "Read zero normal line file. ";
-        state->append_error_msg_to_file("", error_msg.str(), true);
-
+        LOG(INFO) << error_msg.str();
         return Status::InternalError(error_msg.str());
     }
 
@@ -341,7 +340,7 @@ Status CsvScanNode::close(RuntimeState* state) {
         std::stringstream summary_msg;
         summary_msg << "error line: " << _num_rows_load_filtered
                     << "; normal line: " << state->num_rows_load_success();
-        state->append_error_msg_to_file("", summary_msg.str(), true);
+        LOG(INFO) << summary_msg.str();
     }
 
     return Status::OK();
@@ -471,13 +470,6 @@ bool CsvScanNode::check_and_write_text_slot(const std::string& column_name,
         }
     }
 
-    if (!slot->is_nullable() && is_null(value, value_length)) {
-        (*error_msg) << "value cannot be null. column name: " << column_name
-                     << "; type: " << slot->type() << "; input_str: ["
-                     << std::string(value, value_length) << "].";
-        return false;
-    }
-
     char* value_to_convert = const_cast<char*>(value);
     int value_to_convert_length = value_length;
 
@@ -533,13 +525,13 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
         error_msg << "actual column number is less than schema column number. "
                   << "actual number: " << fields.size() << " ,"
                   << "schema number: " << _columns.size() << "; ";
-        _runtime_state->append_error_msg_to_file(line, error_msg.str());
+        LOG(INFO) << error_msg.str();
         return false;
     } else if (_hll_column_num == 0 && fields.size() > _columns.size()) {
         error_msg << "actual column number is more than schema column number. "
                   << "actual number: " << fields.size() << " ,"
                   << "schema number: " << _columns.size() << "; ";
-        _runtime_state->append_error_msg_to_file(line, error_msg.str());
+        LOG(INFO) << error_msg.str();
         return false;
     }
 
@@ -564,7 +556,7 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
                                               fields[i].length(), slot, state, &error_msg);
 
         if (flag == false) {
-            _runtime_state->append_error_msg_to_file(line, error_msg.str());
+            LOG(INFO) << error_msg.str();
             return false;
         }
     }
@@ -589,7 +581,7 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
                                               _default_values[i].length(), slot, state, &error_msg);
 
         if (flag == false) {
-            _runtime_state->append_error_msg_to_file(line, error_msg.str());
+            LOG(INFO) << error_msg.str();
             return false;
         }
     }
@@ -606,7 +598,7 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
         bool flag = check_and_write_text_slot(column_name, column_type, column_string.c_str(),
                                               column_string.length(), slot, state, &error_msg);
         if (flag == false) {
-            _runtime_state->append_error_msg_to_file(line, error_msg.str());
+            LOG(INFO) << error_msg.str();
             return false;
         }
     }

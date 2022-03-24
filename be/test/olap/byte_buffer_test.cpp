@@ -17,9 +17,10 @@
 
 #include "olap/byte_buffer.h"
 
-#include <filesystem>
 #include <gtest/gtest.h>
 #include <sys/mman.h>
+
+#include <filesystem>
 
 #include "common/configbase.h"
 #include "olap/file_helper.h"
@@ -40,10 +41,10 @@ public:
 
 // 测试基本的读写功能
 TEST_F(TestByteBuffer, TestReadWrite) {
-    StorageByteBuffer* buf1 = NULL;
+    StorageByteBuffer* buf1 = nullptr;
 
     buf1 = StorageByteBuffer::create(100);
-    ASSERT_TRUE(buf1 != NULL);
+    ASSERT_TRUE(buf1 != nullptr);
 
     char in[10] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'};
     for (int i = 0; i < 5; i++) {
@@ -110,10 +111,10 @@ TEST_F(TestByteBuffer, TestReadWrite) {
 // 测试ByteBuffer对内存的引用, 尤其是智能指针的引用传递
 // 使用valgrind进行内存泄露检查
 TEST_F(TestByteBuffer, TestRef) {
-    StorageByteBuffer* buf1 = NULL;
+    StorageByteBuffer* buf1 = nullptr;
 
     buf1 = StorageByteBuffer::create(1000);
-    ASSERT_TRUE(buf1 != NULL);
+    ASSERT_TRUE(buf1 != nullptr);
 
     for (int i = 0; i < 256; i++) {
         ASSERT_EQ(OLAP_SUCCESS, buf1->put(i));
@@ -123,7 +124,7 @@ TEST_F(TestByteBuffer, TestRef) {
     StorageByteBuffer buf4(*buf1);
     ASSERT_EQ(buf2.array(), buf1->array());
 
-    StorageByteBuffer* buf3 = NULL;
+    StorageByteBuffer* buf3 = nullptr;
     buf3 = StorageByteBuffer::reference_buffer(buf1, 10, 90);
 
     ASSERT_EQ(90u, buf3->capacity());
@@ -158,11 +159,11 @@ TEST_F(TestByteBuffer, TestMmap) {
 
     res = file_handle.open(file_name, O_RDWR);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    StorageByteBuffer* buf1 = StorageByteBuffer::mmap(NULL, 80, PROT_READ | PROT_WRITE, MAP_SHARED,
-                                                      file_handle.fd(), 0);
+    StorageByteBuffer* buf1 = StorageByteBuffer::mmap(nullptr, 80, PROT_READ | PROT_WRITE,
+                                                      MAP_SHARED, file_handle.fd(), 0);
     // mmap完成后就可以关闭原fd
     file_handle.close();
-    ASSERT_TRUE(buf1 != NULL);
+    ASSERT_TRUE(buf1 != nullptr);
 
     for (int i = 0; i < 80; i++) {
         char byte;

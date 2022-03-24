@@ -25,10 +25,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -187,12 +185,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 // divide kafkaPartitions into tasks
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     Map<Integer, Long> taskKafkaProgress = Maps.newHashMap();
-                    for (int j = 0; j < currentKafkaPartitions.size(); j++) {
-                        if (j % currentConcurrentTaskNum == i) {
-                            int kafkaPartition = currentKafkaPartitions.get(j);
-                            taskKafkaProgress.put(kafkaPartition,
-                                    ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
-                        }
+                    for (int j = i; j < currentKafkaPartitions.size(); j = j + currentConcurrentTaskNum) {
+                        int kafkaPartition = currentKafkaPartitions.get(j);
+                        taskKafkaProgress.put(kafkaPartition,
+                                ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                     }
                     KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName,
                             maxBatchIntervalS * 2 * 1000, taskKafkaProgress);
@@ -214,19 +210,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     @Override
-    public int calculateCurrentConcurrentTaskNum() throws MetaNotFoundException {
+    public int calculateCurrentConcurrentTaskNum() {
         SystemInfoService systemInfoService = Catalog.getCurrentSystemInfo();
-        int aliveBeNum = systemInfoService.getClusterBackendIds(clusterName, true).size();
         int partitionNum = currentKafkaPartitions.size();
         if (desireTaskConcurrentNum == 0) {
             desireTaskConcurrentNum = Config.max_routine_load_task_concurrent_num;
         }
 
         LOG.debug("current concurrent task number is min"
-                        + "(partition num: {}, desire task concurrent num: {}, alive be num: {}, config: {})",
-                partitionNum, desireTaskConcurrentNum, aliveBeNum, Config.max_routine_load_task_concurrent_num);
-        currentTaskConcurrentNum = Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)),
-                Config.max_routine_load_task_concurrent_num);
+                        + "(partition num: {}, desire task concurrent num: {} config: {})",
+                partitionNum, desireTaskConcurrentNum, Config.max_routine_load_task_concurrent_num);
+        currentTaskConcurrentNum = Math.min(partitionNum, Math.min(desireTaskConcurrentNum,
+                Config.max_routine_load_task_concurrent_num));
         return currentTaskConcurrentNum;
     }
 
@@ -237,16 +232,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                       TransactionState.TxnStatusChangeReason txnStatusChangeReason) {
         if (txnState.getTransactionStatus() == TransactionStatus.COMMITTED) {
             // For committed txn, update the progress.
-            return true;
-        }
-
-        if (txnStatusChangeReason != null && txnStatusChangeReason == TransactionState.TxnStatusChangeReason.NO_PARTITIONS) {
-            // Because the max_filter_ratio of routine load task is always 1.
-            // Therefore, under normal circumstances, routine load task will not return the error "too many filtered rows".
-            // If no data is imported, the error "all partitions have no load data" may only be returned.
-            // In this case, the status of the transaction is ABORTED,
-            // but we still need to update the offset to skip these error lines.
-            Preconditions.checkState(txnState.getTransactionStatus() == TransactionStatus.ABORTED, txnState.getTransactionStatus());
             return true;
         }
 
@@ -294,7 +279,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // If user does not specify kafka partition,
         // We will fetch partition from kafka server periodically
         if (this.state == JobState.RUNNING || this.state == JobState.NEED_SCHEDULE) {
-            if (customKafkaPartitions == null && !customKafkaPartitions.isEmpty()) {
+            if (customKafkaPartitions != null && !customKafkaPartitions.isEmpty()) {
                 return;
             }
             updateKafkaPartitions();
@@ -550,14 +535,12 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             customKafkaPartitions.add(in.readInt());
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_51) {
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                String propertyKey = Text.readString(in);
-                String propertyValue = Text.readString(in);
-                if (propertyKey.startsWith("property.")) {
-                    this.customProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
-                }
+        int count = in.readInt();
+        for (int i = 0; i < count; i++) {
+            String propertyKey = Text.readString(in);
+            String propertyValue = Text.readString(in);
+            if (propertyKey.startsWith("property.")) {
+                this.customProperties.put(propertyKey.substring(propertyKey.indexOf(".") + 1), propertyValue);
             }
         }
     }
@@ -691,5 +674,18 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         LOG.debug("no more data to consume. offsets to be consumed: {}, latest offsets: {}, task {}, job {}",
                 partitionIdToOffset, cachedPartitionWithLatestOffsets, taskId, id);
         return false;
+    }
+
+    @Override
+    protected String getLag() {
+        Map<Integer, Long> partitionIdToOffsetLag = ((KafkaProgress) progress).getLag(cachedPartitionWithLatestOffsets);
+        Gson gson = new Gson();
+        return gson.toJson(partitionIdToOffsetLag);
+    }
+
+    @Override
+    public double getMaxFilterRatio() {
+        // for kafka routine load, the max filter ratio is always 1, because it use max error num instead of this.
+        return 1.0;
     }
 }

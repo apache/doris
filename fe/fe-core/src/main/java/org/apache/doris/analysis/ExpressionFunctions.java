@@ -24,7 +24,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rewrite.FEFunction;
 import org.apache.doris.rewrite.FEFunctionList;
 import org.apache.doris.rewrite.FEFunctions;
@@ -110,13 +109,7 @@ public enum ExpressionFunctions {
                 }
             }
         } else if (constExpr instanceof SysVariableDesc) {
-            try {
-                VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (SysVariableDesc) constExpr);
-                return ((SysVariableDesc) constExpr).getLiteralExpr();
-            } catch (AnalysisException e) {
-                LOG.warn("failed to get session variable value: " + ((SysVariableDesc) constExpr).getName());
-                return constExpr;
-            }
+            return ((SysVariableDesc) constExpr).getLiteralExpr();
         }
         return constExpr;
     }

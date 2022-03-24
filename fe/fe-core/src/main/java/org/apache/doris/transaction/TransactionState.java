@@ -51,7 +51,7 @@ import java.util.concurrent.TimeUnit;
 
 public class TransactionState implements Writable {
     private static final Logger LOG = LogManager.getLogger(TransactionState.class);
-    
+
     // compare the TransactionState by txn id, desc
     public static class TxnStateComparator implements Comparator<TransactionState> {
         @Override
@@ -68,17 +68,17 @@ public class TransactionState implements Writable {
         INSERT_STREAMING(3), // insert stmt (streaming type), update stmt use this type
         ROUTINE_LOAD_TASK(4), // routine load task use this type
         BATCH_LOAD_JOB(5); // load job v2 for broker load
-        
+
         private final int flag;
-        
+
         private LoadJobSourceType(int flag) {
             this.flag = flag;
         }
-        
+
         public int value() {
             return flag;
         }
-        
+
         public static LoadJobSourceType valueOf(int flag) {
             switch (flag) {
                 case 1:
@@ -96,7 +96,7 @@ public class TransactionState implements Writable {
             }
         }
     }
-    
+
     public enum TxnStatusChangeReason {
         DB_DROPPED,
         TIMEOUT,
@@ -156,7 +156,9 @@ public class TransactionState implements Writable {
         public TxnSourceType sourceType;
         public String ip;
 
-        public TxnCoordinator() {}
+        public TxnCoordinator() {
+        }
+
         public TxnCoordinator(TxnSourceType sourceType, String ip) {
             this.sourceType = sourceType;
             this.ip = ip;
@@ -181,6 +183,7 @@ public class TransactionState implements Writable {
     private TransactionStatus transactionStatus;
     private LoadJobSourceType sourceType;
     private long prepareTime;
+    private long preCommitTime;
     private long commitTime;
     private long finishTime;
     private String reason = "";
@@ -206,6 +209,7 @@ public class TransactionState implements Writable {
     // 3. in afterStateTransform(), callback object can not be found, so the write lock can not be released.
     private TxnStateChangeCallback callback = null;
     private long timeoutMs = Config.stream_load_default_timeout_second;
+    private long preCommittedTimeoutMs = Config.stream_load_default_precommit_timeout_second * 1000;
     private String authCode = "";
 
     // is set to true, we will double the publish timeout
@@ -236,6 +240,7 @@ public class TransactionState implements Writable {
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = LoadJobSourceType.FRONTEND;
         this.prepareTime = -1;
+        this.preCommitTime = -1;
         this.commitTime = -1;
         this.finishTime = -1;
         this.reason = "";
@@ -245,7 +250,7 @@ public class TransactionState implements Writable {
         this.latch = new CountDownLatch(1);
         this.authCode = UUID.randomUUID().toString();
     }
-    
+
     public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
                             LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
@@ -258,6 +263,7 @@ public class TransactionState implements Writable {
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = sourceType;
         this.prepareTime = -1;
+        this.preCommitTime = -1;
         this.commitTime = -1;
         this.finishTime = -1;
         this.reason = "";
@@ -273,6 +279,7 @@ public class TransactionState implements Writable {
     public void setAuthCode(String authCode) {
         this.authCode = authCode;
     }
+
     public String getAuthCode() {
         return authCode;
     }
@@ -280,16 +287,16 @@ public class TransactionState implements Writable {
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
         this.errorReplicas = newErrorReplicas;
     }
-    
+
     public boolean isRunning() {
         return transactionStatus == TransactionStatus.PREPARE
                 || transactionStatus == TransactionStatus.COMMITTED;
     }
-    
+
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
         this.publishVersionTasks.put(backendId, task);
     }
-    
+
     public void setHasSendTask(boolean hasSendTask) {
         this.hasSendTask = hasSendTask;
         this.publishVersionTime = System.currentTimeMillis();
@@ -298,11 +305,11 @@ public class TransactionState implements Writable {
     public void updateSendTaskTime() {
         this.publishVersionTime = System.currentTimeMillis();
     }
-    
+
     public long getPublishVersionTime() {
         return this.publishVersionTime;
     }
-    
+
     public boolean hasSendTask() {
         return this.hasSendTask;
     }
@@ -314,39 +321,43 @@ public class TransactionState implements Writable {
     public long getTransactionId() {
         return transactionId;
     }
-    
+
     public String getLabel() {
         return this.label;
     }
-    
+
     public TxnCoordinator getCoordinator() {
         return txnCoordinator;
     }
-    
+
     public TransactionStatus getTransactionStatus() {
         return transactionStatus;
     }
-    
+
     public long getPrepareTime() {
         return prepareTime;
     }
-    
+
+    public long getPreCommitTime() {
+        return preCommitTime;
+    }
+
     public long getCommitTime() {
         return commitTime;
     }
-    
+
     public long getFinishTime() {
         return finishTime;
     }
-    
+
     public String getReason() {
         return reason;
     }
-    
+
     public TransactionStatus getPreStatus() {
         return this.preStatus;
     }
-    
+
     public TxnCommitAttachment getTxnCommitAttachment() {
         return txnCommitAttachment;
     }
@@ -371,7 +382,7 @@ public class TransactionState implements Writable {
         // status changed
         this.preStatus = this.transactionStatus;
         this.transactionStatus = transactionStatus;
-        
+
         // after status changed
         if (transactionStatus == TransactionStatus.VISIBLE) {
             this.latch.countDown();
@@ -437,7 +448,7 @@ public class TransactionState implements Writable {
             }
         }
     }
-    
+
     public void replaySetTransactionStatus() {
         TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(
                 callbackId);
@@ -455,27 +466,31 @@ public class TransactionState implements Writable {
     public void waitTransactionVisible(long timeoutMillis) throws InterruptedException {
         this.latch.await(timeoutMillis, TimeUnit.MILLISECONDS);
     }
-    
+
     public void setPrepareTime(long prepareTime) {
         this.prepareTime = prepareTime;
     }
-    
+
+    public void setPreCommitTime(long preCommitTime) {
+        this.preCommitTime = preCommitTime;
+    }
+
     public void setCommitTime(long commitTime) {
         this.commitTime = commitTime;
     }
-    
+
     public void setFinishTime(long finishTime) {
         this.finishTime = finishTime;
     }
-    
+
     public void setReason(String reason) {
         this.reason = Strings.nullToEmpty(reason);
     }
-    
+
     public Set<Long> getErrorReplicas() {
         return this.errorReplicas;
     }
-    
+
     public long getDbId() {
         return dbId;
     }
@@ -487,23 +502,23 @@ public class TransactionState implements Writable {
     public Map<Long, TableCommitInfo> getIdToTableCommitInfos() {
         return idToTableCommitInfos;
     }
-    
+
     public void putIdToTableCommitInfo(long tableId, TableCommitInfo tableCommitInfo) {
         idToTableCommitInfos.put(tableId, tableCommitInfo);
     }
-    
+
     public TableCommitInfo getTableCommitInfo(long tableId) {
         return this.idToTableCommitInfos.get(tableId);
     }
-    
+
     public void removeTable(long tableId) {
         this.idToTableCommitInfos.remove(tableId);
     }
-    
+
     public void setTxnCommitAttachment(TxnCommitAttachment txnCommitAttachment) {
         this.txnCommitAttachment = txnCommitAttachment;
     }
-    
+
     // return true if txn is in final status and label is expired
     public boolean isExpired(long currentMillis) {
         if (!transactionStatus.isFinalStatus()) {
@@ -511,7 +526,7 @@ public class TransactionState implements Writable {
         }
         long expireTime = Config.label_keep_max_second;
         if (isShortTxn()) {
-            expireTime = Config.stream_load_default_timeout_second;
+            expireTime = Config.streaming_label_keep_max_second;
         }
         return (currentMillis - finishTime) / 1000 > expireTime;
     }
@@ -525,7 +540,8 @@ public class TransactionState implements Writable {
 
     // return true if txn is running but timeout
     public boolean isTimeout(long currentMillis) {
-        return transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs;
+        return (transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs) ||
+                (transactionStatus == TransactionStatus.PRECOMMITTED && currentMillis - preCommitTime > preCommittedTimeoutMs);
     }
 
     public synchronized void addTableIndexes(OlapTable table) {
@@ -566,15 +582,15 @@ public class TransactionState implements Writable {
         }
         return sb.toString();
     }
-    
+
     public LoadJobSourceType getSourceType() {
         return sourceType;
     }
-    
+
     public Map<Long, PublishVersionTask> getPublishVersionTasks() {
         return publishVersionTasks;
     }
-    
+
     public boolean isPublishTimeout() {
         // the max timeout is Config.publish_version_timeout_second * 2;
         long timeoutMillis = Config.publish_version_timeout_second * 1000;
@@ -583,7 +599,7 @@ public class TransactionState implements Writable {
         }
         return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
     }
-    
+
     public void prolongPublishTimeout() {
         this.prolongPublishTimeout = true;
         LOG.info("prolong the timeout of publish version task for transaction: {}", transactionId);
@@ -603,6 +619,7 @@ public class TransactionState implements Writable {
         out.writeInt(transactionStatus.value());
         out.writeInt(sourceType.value());
         out.writeLong(prepareTime);
+        out.writeLong(preCommitTime);
         out.writeLong(commitTime);
         out.writeLong(finishTime);
         Text.writeString(out, reason);
@@ -624,7 +641,7 @@ public class TransactionState implements Writable {
             out.writeLong(tableIdList.get(i));
         }
     }
-    
+
     public void readFields(DataInput in) throws IOException {
         transactionId = in.readLong();
         label = Text.readString(in);
@@ -635,31 +652,13 @@ public class TransactionState implements Writable {
             info.readFields(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_83) {
-           TxnSourceType sourceType = TxnSourceType.valueOf(in.readInt());
-           String ip = Text.readString(in);
-           txnCoordinator = new TxnCoordinator(sourceType, ip);
-        } else {
-            // to compatible old version, the old txn coordinator looks like: "BE: 192.186.1.1"
-            String coordStr = Text.readString(in);
-            String[] parts = coordStr.split(":");
-            if (parts.length != 2) {
-                // should not happen, just create a mocked TxnCoordinator
-                txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
-            } else {
-                if (parts[0].trim().equalsIgnoreCase("FE")) {
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, parts[1].trim());
-                } else if (parts[0].trim().equalsIgnoreCase("BE")) {
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.BE, parts[1].trim());
-                } else {
-                    // unknown format, should not happen, just create a mocked TxnCoordinator
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
-                }
-            }
-        }
+        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_107) {
+            preCommitTime = in.readLong();
+        }
         commitTime = in.readLong();
         finishTime = in.readLong();
         reason = Text.readString(in);
@@ -668,20 +667,15 @@ public class TransactionState implements Writable {
             errorReplicas.add(in.readLong());
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_49) {
-            if (in.readBoolean()) {
-                txnCommitAttachment = TxnCommitAttachment.read(in);
-            }
-            callbackId = in.readLong();
-            timeoutMs = in.readLong();
+        if (in.readBoolean()) {
+            txnCommitAttachment = TxnCommitAttachment.read(in);
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
-            tableIdList = Lists.newArrayList();
-            int tableListSize = in.readInt();
-            for (int i = 0; i < tableListSize; i++) {
-                tableIdList.add(in.readLong());
-            }
+        callbackId = in.readLong();
+        timeoutMs = in.readLong();
+        tableIdList = Lists.newArrayList();
+        int tableListSize = in.readInt();
+        for (int i = 0; i < tableListSize; i++) {
+            tableIdList.add(in.readLong());
         }
     }
 

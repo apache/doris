@@ -1,0 +1,1555 @@
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+
+--------------------------------------------------------------------------------
+
+be/src/common/status.* : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/gutil/atomicops-internals-x86.h : Apache 2.0 License
+
+Copyright 2003 Google Inc.
+
+--------------------------------------------------------------------------------
+
+be/src/gutil/atomicops-internals-x86.cc : Apache 2.0 License
+
+Copyright 2007 Google Inc.
+
+--------------------------------------------------------------------------------
+
+be/src/gutil/arm_instruction_set_select.h : Apache 2.0 License
+
+Copyright 2011 Google Inc.
+
+--------------------------------------------------------------------------------
+
+be/src/gutil/stl_util.h : Apache 2.0 License
+
+Copyright 2007 Google Inc.
+
+--------------------------------------------------------------------------------
+
+be/src/gutil/utf/*: licensed under the following terms:
+
+  UTF-8 Library
+
+  The authors of this software are Rob Pike and Ken Thompson.
+      Copyright (c) 1998-2002 by Lucent Technologies.
+
+  Permission to use, copy, modify, and distribute this software for any purpose without
+  fee is hereby granted, provided that this entire notice is included in all copies of any
+  software which is or includes a copy or modification of this software and in all copies
+  of the supporting documentation for such software.  THIS SOFTWARE IS BEING PROVIDED "AS
+  IS", WITHOUT ANY EXPRESS OR IMPLIED WARRANTY.  IN PARTICULAR, NEITHER THE AUTHORS NOR
+  LUCENT TECHNOLOGIES MAKE ANY REPRESENTATION OR WARRANTY OF ANY KIND CONCERNING THE
+  MERCHANTABILITY OF THIS SOFTWARE OR ITS FITNESS FOR ANY PARTICULAR PURPOSE.
+
+--------------------------------------------------------------------------------
+
+be/src/gutil/valgrind.h: licensed under the following terms:
+
+   This file is part of Valgrind, a dynamic binary instrumentation
+   framework.
+
+   Copyright (C) 2000-2008 Julian Seward.  All rights reserved.
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions
+   are met:
+
+   1. Redistributions of source code must retain the above copyright
+      notice, this list of conditions and the following disclaimer.
+
+   2. The origin of this software must not be misrepresented; you must
+      not claim that you wrote the original software.  If you use this
+      software in a product, an acknowledgment in the product
+      documentation would be appreciated but is not required.
+
+   3. Altered source versions must be plainly marked as such, and must
+      not be misrepresented as being the original software.
+
+   4. The name of the author may not be used to endorse or promote
+      products derived from this software without specific prior written
+      permission.
+
+   THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS
+   OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+   WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+   ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+   DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+   DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+   GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+   INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+   WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+   NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+--------------------------------------------------------------------------------
+
+be/src/gutil: 3-clause BSD
+
+Except above files in this module, other files of this module are derived from code in
+the Chromium project, copyright (c) Google inc and (c) The Chromium Authors and
+licensed under the 3-clause BSD license:
+
+  Copyright (c) 2013 The Chromium Authors. All rights reserved.
+
+  Redistribution and use in source and binary forms, with or without modification, are
+  permitted provided that the following conditions are met:
+
+     * Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+
+     * Redistributions in binary form must reproduce the above copyright notice, this list
+       of conditions and the following disclaimer in the documentation and/or other
+       materials provided with the distribution.
+
+     * Neither the name of Google Inc. nor the names of its contributors may be used to
+       endorse or promote products derived from this software without specific prior
+       written permission.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+  EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+  THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT
+  OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+  INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+--------------------------------------------------------------------------------
+
+Parts of be/src/runtime/string_search.hpp: Python Software License V2
+
+  Copyright (c) 2001 - 2016 Python Software Foundation; All Rights Reserved
+
+  PYTHON SOFTWARE FOUNDATION LICENSE VERSION 2
+  --------------------------------------------
+
+  1. This LICENSE AGREEMENT is between the Python Software Foundation ("PSF"), and the
+  Individual or Organization ("Licensee") accessing and otherwise using this software
+  ("Python") in source or binary form and its associated documentation.
+
+  2. Subject to the terms and conditions of this License Agreement, PSF hereby grants
+  Licensee a nonexclusive, royalty-free, world-wide license to reproduce, analyze, test,
+  perform and/or display publicly, prepare derivative works, distribute, and otherwise use
+  Python alone or in any derivative version, provided, however, that PSF's License
+  Agreement and PSF's notice of copyright, i.e., "Copyright (c) 2001, 2002, 2003, 2004,
+  2005, 2006 Python Software Foundation; All Rights Reserved" are retained in Python alone
+  or in any derivative version prepared by Licensee.
+
+  3. In the event Licensee prepares a derivative work that is based on or incorporates
+  Python or any part thereof, and wants to make the derivative work available to others as
+  provided herein, then Licensee hereby agrees to include in any such work a brief summary
+  of the changes made to Python.
+
+  4. PSF is making Python available to Licensee on an "AS IS" basis. PSF MAKES NO
+  REPRESENTATIONS OR WARRANTIES, EXPRESS OR IMPLIED. BY WAY OF EXAMPLE, BUT NOT
+  LIMITATION, PSF MAKES NO AND DISCLAIMS ANY REPRESENTATION OR WARRANTY OF MERCHANTABILITY
+  OR FITNESS FOR ANY PARTICULAR PURPOSE OR THAT THE USE OF PYTHON WILL NOT INFRINGE ANY
+  THIRD PARTY RIGHTS.
+
+  5. PSF SHALL NOT BE LIABLE TO LICENSEE OR ANY OTHER USERS OF PYTHON FOR ANY INCIDENTAL,
+  SPECIAL, OR CONSEQUENTIAL DAMAGES OR LOSS AS A RESULT OF MODIFYING, DISTRIBUTING, OR
+  OTHERWISE USING PYTHON, OR ANY DERIVATIVE THEREOF, EVEN IF ADVISED OF THE POSSIBILITY
+  THEREOF.
+
+  6. This License Agreement will automatically terminate upon a material breach of its
+  terms and conditions.
+
+  7. Nothing in this License Agreement shall be deemed to create any relationship of
+  agency, partnership, or joint venture between PSF and Licensee. This License Agreement
+  does not grant permission to use PSF trademarks or trade name in a trademark sense to
+  endorse or promote products or services of Licensee, or any third party.
+
+  8. By copying, installing or otherwise using Python, Licensee agrees to be bound by the
+  terms and conditions of this License Agreement.
+
+--------------------------------------------------------------------------------
+
+be/src/env (some portions): 3-clause BSD
+
+Some portions of this module are derived from code from RocksDB
+( https://github.com/facebook/rocksdb ). RocksDB is dual-licensed
+ under both the GPLv2 and Apache 2.0 License. We select Apache 2.0
+License.
+
+--------------------------------------------------------------------------------
+
+be/src/util/coding.*: this code is licensed under both GPLv2 and Apache 2.0 License.
+                      Doris chooses Apache 2.0 License.
+
+  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
+  This source code is licensed under both the GPLv2 (found in the
+  COPYING file in the root directory) and Apache 2.0 License
+  (found in the LICENSE.Apache file in the root directory).
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/olap/lru_cache.h : BSD-style license
+be/src/olap/lru_cache.cpp : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/olap/skiplist.h : BSD-style license
+
+  Copyright (c) 2011 The LevelDB Authors. All rights reserved.
+  Use of this source code is governed by a BSD-style license that can be
+  found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+--------------------------------------------------------------------------------
+
+be/src/util/murmur_hash3.h
+be/src/util/murmur_hash3.cpp
+
+  licensed under the following terms:
+
+  MurmurHash3 was written by Austin Appleby, and is placed in the public
+  domain. The author hereby disclaims copyright to this source code.
+
+--------------------------------------------------------------------------------
+
+fe/fe-common/src/main/java/org/apache/doris/common/jmockit/*: MIT license
+
+Copyright (c) 2006 JMockit developers
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+-------------------------------------------------------------------------------
+
+be/src/util/utf8_check.cpp: MIT license
+
+  MIT License
+
+  Copyright (c) 2019 Yibo Cai
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+be/src/util/condition_variable* : BSD-style license
+
+Copyright (c) 2011 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+
+--------------------------------------------------------------------------------
+
+docs/.vuepress/* The MIT License (MIT)
+
+Copyright (c) 2018-present, Yuxi (Evan) You
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+be/src/util/sse2neon.h: MIT license
+
+This header file provides a simple API translation layer
+between SSE intrinsics to their corresponding Arm/Aarch64 NEON versions
+
+This header file does not yet translate all of the SSE intrinsics.
+
+Contributors to this work are:
+  John W. Ratcliff <jratcliffscarab@gmail.com>
+  Brandon Rowlett <browlett@nvidia.com>
+  Ken Fast <kfast@gdeb.com>
+  Eric van Beurden <evanbeurden@nvidia.com>
+  Alexander Potylitsin <apotylitsin@nvidia.com>
+  Hasindu Gamaarachchi <hasindu2008@gmail.com>
+  Jim Huang <jserv@biilabs.io>
+  Mark Cheng <marktwtn@biilabs.io>
+  Malcolm James MacLeod <malcolm@gulden.com>
+  Devin Hussey (easyaspi314) <husseydevin@gmail.com>
+
+The MIT license:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+build-support/run_clang_format.py: MIT license
+
+This script is copied from:
+https://github.com/DoozyX/clang-format-lint-action/blob/master/run-clang-format.py
+
+which is a wrapper script around clang-format, suitable for linting multiple files
+and to use for continuous integration.
+
+MIT License
+
+Copyright (c) 2019 Slobodan Kletnikov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+====================================================================================
+This projects includes binary packages with the following licenses (FE/Broker part):
+====================================================================================
+
+The Apache Software License, Version 2.0
+    * ASM based accessors helper used by json-smart:
+        - net.minidev:accessors-smart:2.4.7 (https://urielch.github.io/)
+    * AWS Event Stream:
+        - software.amazon.eventstream:eventstream:1.0.1 (https://github.com/awslabs/aws-eventstream-java)
+    * AWS Java SDK :: AWS Core:
+        - software.amazon.awssdk:aws-core:2.15.45 (https://aws.amazon.com/sdkforjava)
+    * AWS Java SDK :: Annotations:
+        - software.amazon.awssdk:annotations:2.15.45 (https://aws.amazon.com/sdkforjava/core/annotations)
+    * AWS Java SDK :: Arns:
+        - software.amazon.awssdk:arns:2.15.45 (https://aws.amazon.com/sdkforjava)
+    * AWS Java SDK :: Auth:
+        - software.amazon.awssdk:auth:2.15.45 (https://aws.amazon.com/sdkforjava)
+    * AWS Java SDK :: Core :: Protocols :: AWS Query Protocol:
+        - software.amazon.awssdk:aws-query-protocol:2.15.45 (https://aws.amazon.com/sdkforjava)
+    * AWS Java SDK :: Core :: Protocols :: AWS Xml Protocol:
+        - software.amazon.awssdk:aws-xml-protocol:2.15.45 (https://aws.amazon.com/sdkforjava)
+    * AWS Java SDK :: Core :: Protocols :: Protocol Core:
+        - software.amazon.awssdk:protocol-core:2.15.45 (https://aws.amazon.com/sdkforjava)
+    * AWS Java SDK :: HTTP Client Interface:
+        - software.amazon.awssdk:http-client-spi:2.15.45 (https://aws.amazon.com/sdkforjava/http-client-spi)
+    * AWS Java SDK :: HTTP Clients :: Apache:
+        - software.amazon.awssdk:apache-client:2.15.45 (https://aws.amazon.com/sdkforjava/http-clients/apache-client)
+    * AWS Java SDK :: HTTP Clients :: Netty Non-Blocking I/O:
+        - software.amazon.awssdk:netty-nio-client:2.15.45 (https://aws.amazon.com/sdkforjava/http-clients/netty-nio-client)
+    * AWS Java SDK :: Metrics SPI:
+        - software.amazon.awssdk:metrics-spi:2.15.45 (https://aws.amazon.com/sdkforjava/core/metrics-spi)
+    * AWS Java SDK :: Profiles:
+        - software.amazon.awssdk:profiles:2.15.45 (https://aws.amazon.com/sdkforjava)
+    * AWS Java SDK :: Regions:
+        - software.amazon.awssdk:regions:2.15.45 (https://aws.amazon.com/sdkforjava/core/regions)
+    * AWS Java SDK :: SDK Core:
+        - software.amazon.awssdk:sdk-core:2.15.45 (https://aws.amazon.com/sdkforjava)
+    * AWS Java SDK :: Services :: Amazon S3:
+        - software.amazon.awssdk:s3:2.15.45 (https://aws.amazon.com/sdkforjava)
+    * AWS Java SDK :: Utilities:
+        - software.amazon.awssdk:utils:2.15.45 (https://aws.amazon.com/sdkforjava/utils)
+    * AWS Java SDK for AWS KMS:
+        - com.amazonaws:aws-java-sdk-kms:1.11.95 (https://aws.amazon.com/sdkforjava)
+    * AWS Java SDK for Amazon S3:
+        - com.amazonaws:aws-java-sdk-s3:1.11.95 (https://aws.amazon.com/sdkforjava)
+    * AWS SDK for Java:
+        - com.amazonaws:aws-java-sdk:1.7.4 (https://aws.amazon.com/sdkforjava)
+    * AWS SDK for Java - Core:
+        - com.amazonaws:aws-java-sdk-core:1.11.95 (https://aws.amazon.com/sdkforjava)
+    * An open source Java toolkit for Amazon S3:
+        - net.java.dev.jets3t:jets3t:0.9.0 (http://www.jets3t.org)
+    * Annotation 1.0:
+        - org.apache.geronimo.specs:geronimo-annotation_1.0_spec:1.1.1 (http://geronimo.apache.org/specs/geronimo-annotation_1.0_spec)
+    * Apache Ant Core:
+        - org.apache.ant:ant:1.9.1 (http://ant.apache.org/)
+    * Apache Ant Launcher:
+        - org.apache.ant:ant-launcher:1.9.1 (http://ant.apache.org/)
+    * Apache Avro:
+        - org.apache.avro:avro:1.10.1 (https://avro.apache.org)
+        - org.apache.avro:avro:1.7.4 (http://avro.apache.org)
+    * Apache Avro IPC:
+        - org.apache.avro:avro-ipc:1.8.2 (http://avro.apache.org)
+    * Apache Avro Mapred API:
+        - org.apache.avro:avro-mapred:1.8.2 (http://avro.apache.org/avro-mapred)
+    * Apache Calcite Avatica:
+        - org.apache.calcite.avatica:avatica:1.8.0 (http://calcite.apache.org/avatica/avatica)
+    * Apache Calcite Avatica Metrics:
+        - org.apache.calcite.avatica:avatica-metrics:1.8.0 (http://calcite.apache.org/avatica/avatica-metrics)
+    * Apache Commons CLI:
+        - commons-cli:commons-cli:1.4 (http://commons.apache.org/proper/commons-cli/)
+    * Apache Commons Codec:
+        - commons-codec:commons-codec:1.9 (http://commons.apache.org/proper/commons-codec/)
+    * Apache Commons Collections:
+        - commons-collections:commons-collections:3.2.2 (http://commons.apache.org/collections/)
+    * Apache Commons Compress:
+        - org.apache.commons:commons-compress:1.9 (http://commons.apache.org/proper/commons-compress/)
+    * Apache Commons Crypto:
+        - org.apache.commons:commons-crypto:1.0.0 (http://commons.apache.org/proper/commons-crypto/)
+    * Apache Commons FileUpload:
+        - commons-fileupload:commons-fileupload:1.3.3 (http://commons.apache.org/proper/commons-fileupload/)
+    * Apache Commons IO:
+        - commons-io:commons-io:2.6 (http://commons.apache.org/proper/commons-io/)
+    * Apache Commons Lang:
+        - org.apache.commons:commons-lang3:3.3.2 (http://commons.apache.org/proper/commons-lang/)
+        - org.apache.commons:commons-lang3:3.9 (http://commons.apache.org/proper/commons-lang/)
+    * Apache Commons Logging:
+        - commons-logging:commons-logging:1.2 (http://commons.apache.org/proper/commons-logging/)
+    * Apache Commons Math:
+        - org.apache.commons:commons-math3:3.4.1 (http://commons.apache.org/proper/commons-math/)
+    * Apache Commons Pool:
+        - org.apache.commons:commons-pool2:2.2 (http://commons.apache.org/proper/commons-pool/)
+    * Apache Commons Validator:
+        - commons-validator:commons-validator:1.4.1 (http://commons.apache.org/proper/commons-validator/)
+    * Apache Curator:
+        - org.apache.curator:apache-curator:2.7.1 (http://curator.apache.org)
+    * Apache Derby Database Engine and Embedded JDBC Driver:
+        - org.apache.derby:derby:10.14.2.0 (http://db.apache.org/derby/)
+    * Apache Directory API ASN.1 API:
+        - org.apache.directory.api:api-asn1-api:1.0.0-M20 (http://directory.apache.org/api-parent/api-asn1-parent/api-asn1-api/)
+    * Apache Directory LDAP API Utilities:
+        - org.apache.directory.api:api-util:1.0.0-M20 (http://directory.apache.org/api-parent/api-util/)
+    * Apache Hadoop Amazon Web Services support:
+        - org.apache.hadoop:hadoop-aws:2.7.3 (no url defined)
+        - org.apache.hadoop:hadoop-aws:2.8.0 (no url defined)
+    * Apache Hadoop Annotations:
+        - org.apache.hadoop:hadoop-annotations:2.6.5 (no url defined)
+        - org.apache.hadoop:hadoop-annotations:2.7.3 (no url defined)
+        - org.apache.hadoop:hadoop-annotations:2.8.0 (no url defined)
+    * Apache Hadoop Auth:
+        - org.apache.hadoop:hadoop-auth:2.7.3 (no url defined)
+        - org.apache.hadoop:hadoop-auth:2.8.0 (no url defined)
+    * Apache Hadoop Client:
+        - org.apache.hadoop:hadoop-client:2.6.5 (no url defined)
+    * Apache Hadoop Common:
+        - org.apache.hadoop:hadoop-common:2.7.3 (no url defined)
+        - org.apache.hadoop:hadoop-common:2.8.0 (no url defined)
+    * Apache Hadoop HDFS:
+        - org.apache.hadoop:hadoop-hdfs:2.7.3 (no url defined)
+        - org.apache.hadoop:hadoop-hdfs:2.8.0 (no url defined)
+    * Apache Hadoop HDFS Client:
+        - org.apache.hadoop:hadoop-hdfs-client:2.8.0 (no url defined)
+    * Apache HttpClient:
+        - org.apache.httpcomponents:httpclient:4.5.13 (http://hc.apache.org/httpcomponents-client)
+    * Apache HttpCore:
+        - org.apache.httpcomponents:httpcore:4.4.1 (http://hc.apache.org/httpcomponents-core-ga)
+        - org.apache.httpcomponents:httpcore:4.4.15 (http://hc.apache.org/httpcomponents-core-ga)
+    * Apache Iceberg:
+        - org.apache.iceberg:iceberg-api:0.12.0 (https://iceberg.apache.org)
+        - org.apache.iceberg:iceberg-bundled-guava:0.12.0 (https://iceberg.apache.org)
+        - org.apache.iceberg:iceberg-common:0.12.0 (https://iceberg.apache.org)
+        - org.apache.iceberg:iceberg-core:0.12.0 (https://iceberg.apache.org)
+        - org.apache.iceberg:iceberg-hive-metastore:0.12.0 (https://iceberg.apache.org)
+    * Apache Ivy:
+        - org.apache.ivy:ivy:2.4.0 (http://ant.apache.org/ivy/)
+    * Apache Kafka:
+        - org.apache.kafka:kafka-clients:0.10.1.1 (http://kafka.apache.org)
+    * Apache Log4j:
+        - log4j:log4j:1.2.17 (http://logging.apache.org/log4j/1.2/)
+    * Apache Log4j API:
+        - org.apache.logging.log4j:log4j-api:2.17.1 (https://logging.apache.org/log4j/2.x/log4j-api/)
+    * Apache Log4j Core:
+        - org.apache.logging.log4j:log4j-core:2.17.1 (https://logging.apache.org/log4j/2.x/log4j-core/)
+    * Apache Log4j SLF4J Binding:
+        - org.apache.logging.log4j:log4j-slf4j-impl:2.17.1 (https://logging.apache.org/log4j/2.x/log4j-slf4j-impl/)
+    * Apache Log4j Web:
+        - org.apache.logging.log4j:log4j-web:2.17.1 (https://logging.apache.org/log4j/2.x/log4j-web/)
+    * Apache Parquet Column:
+        - org.apache.parquet:parquet-column:1.10.1 (https://parquet.apache.org)
+    * Apache Parquet Common:
+        - org.apache.parquet:parquet-common:1.10.1 (https://parquet.apache.org)
+    * Apache Parquet Encodings:
+        - org.apache.parquet:parquet-encoding:1.10.1 (https://parquet.apache.org)
+    * Apache Parquet Format:
+        - org.apache.parquet:parquet-format:2.4.0 (http://parquet.apache.org/)
+    * Apache Parquet Hadoop:
+        - org.apache.parquet:parquet-hadoop:1.10.1 (https://parquet.apache.org)
+    * Apache Parquet Jackson:
+        - org.apache.parquet:parquet-jackson:1.10.1 (https://parquet.apache.org)
+    * Apache Thrift:
+        - org.apache.thrift:libfb303:0.9.3 (http://thrift.apache.org)
+        - org.apache.thrift:libthrift:0.13.0 (http://thrift.apache.org)
+    * Apache Twill API:
+        - org.apache.twill:twill-api:0.6.0-incubating (http://twill.incubator.apache.org/twill-api)
+    * Apache Twill ZooKeeper client library:
+        - org.apache.twill:twill-zookeeper:0.6.0-incubating (http://twill.incubator.apache.org/twill-zookeeper)
+    * Apache Twill common library:
+        - org.apache.twill:twill-common:0.6.0-incubating (http://twill.incubator.apache.org/twill-common)
+    * Apache Twill core library:
+        - org.apache.twill:twill-core:0.6.0-incubating (http://twill.incubator.apache.org/twill-core)
+    * Apache Twill discovery service API:
+        - org.apache.twill:twill-discovery-api:0.6.0-incubating (http://twill.incubator.apache.org/twill-discovery-api)
+    * Apache Twill discovery service implementations:
+        - org.apache.twill:twill-discovery-core:0.6.0-incubating (http://twill.incubator.apache.org/twill-discovery-core)
+    * Apache Velocity:
+        - org.apache.velocity:velocity:1.5 (http://velocity.apache.org/engine/releases/velocity-1.5/)
+    * ApacheDS I18n:
+        - org.apache.directory.server:apacheds-i18n:2.0.0-M15 (http://directory.apache.org/apacheds/1.5/apacheds-i18n)
+    * ApacheDS Protocol Kerberos Codec:
+        - org.apache.directory.server:apacheds-kerberos-codec:2.0.0-M15 (http://directory.apache.org/apacheds/1.5/apacheds-kerberos-codec)
+    * Arrow Format:
+        - org.apache.arrow:arrow-format:0.10.0 (http://arrow.apache.org/arrow-format/)
+    * Arrow Memory:
+        - org.apache.arrow:arrow-memory:0.10.0 (http://arrow.apache.org/arrow-memory/)
+    * Arrow Vectors:
+        - org.apache.arrow:arrow-vector:0.10.0 (http://arrow.apache.org/arrow-vector/)
+    * Awaitility:
+        - org.awaitility:awaitility:4.0.3 (http://awaitility.org)
+    * Bean Validation API:
+        - javax.validation:validation-api:1.1.0.Final (http://beanvalidation.org)
+    * BoneCP :: Core Library:
+        - com.jolbox:bonecp:0.8.0.RELEASE (http://jolbox.com/bonecp)
+    * Caffeine cache:
+        - com.github.ben-manes.caffeine:caffeine:2.9.3 (https://github.com/ben-manes/caffeine)
+    * Calcite Core:
+        - org.apache.calcite:calcite-core:1.10.0 (http://calcite.apache.org/calcite-core)
+    * Calcite Druid:
+        - org.apache.calcite:calcite-druid:1.10.0 (http://calcite.apache.org/calcite-druid)
+    * Calcite Linq4j:
+        - org.apache.calcite:calcite-linq4j:1.10.0 (http://calcite.apache.org/calcite-linq4j)
+    * ClassMate:
+        - com.fasterxml:classmate:1.5.1 (https://github.com/FasterXML/java-classmate)
+    * Code Generation Library:
+        - cglib:cglib:2.2 (http://cglib.sourceforge.net/)
+    * Commons BeanUtils:
+        - commons-beanutils:commons-beanutils:1.8.3 (http://commons.apache.org/beanutils/)
+    * Commons BeanUtils Core:
+        - commons-beanutils:commons-beanutils-core:1.8.0 (http://commons.apache.org/beanutils/)
+    * Commons Compress:
+        - org.apache.commons:commons-compress:1.4.1 (http://commons.apache.org/compress/)
+    * Commons Configuration:
+        - commons-configuration:commons-configuration:1.6 (http://commons.apache.org/${pom.artifactId.substring(8)}/)
+    * Commons DBCP:
+        - commons-dbcp:commons-dbcp:1.4 (http://commons.apache.org/dbcp/)
+    * Commons Daemon:
+        - commons-daemon:commons-daemon:1.0.13 (http://commons.apache.org/daemon/)
+    * Commons Digester:
+        - commons-digester:commons-digester:1.8.1 (http://commons.apache.org/digester/)
+    * Commons IO:
+        - commons-io:commons-io:2.4 (http://commons.apache.org/io/)
+    * Commons Lang:
+        - commons-lang:commons-lang:2.6 (http://commons.apache.org/lang/)
+    * Commons Logging:
+        - commons-logging:commons-logging:1.1.3 (http://commons.apache.org/proper/commons-logging/)
+    * Commons Math:
+        - org.apache.commons:commons-math3:3.1.1 (http://commons.apache.org/math/)
+    * Commons Net:
+        - commons-net:commons-net:3.1 (http://commons.apache.org/net/)
+    * Commons Pool:
+        - commons-pool:commons-pool:1.5.1 (http://commons.apache.org/pool/)
+        - commons-pool:commons-pool:1.6 (http://commons.apache.org/pool/)
+    * Compress-LZF:
+        - com.ning:compress-lzf:1.0.3 (http://github.com/ning/compress)
+    * Curator Client:
+        - org.apache.curator:curator-client:2.7.1 (http://curator.apache.org/curator-client)
+    * Curator Framework:
+        - org.apache.curator:curator-framework:2.6.0 (http://curator.apache.org/curator-framework)
+        - org.apache.curator:curator-framework:2.7.1 (http://curator.apache.org/curator-framework)
+    * Curator Recipes:
+        - org.apache.curator:curator-recipes:2.6.0 (http://curator.apache.org/curator-recipes)
+        - org.apache.curator:curator-recipes:2.7.1 (http://curator.apache.org/curator-recipes)
+    * Data Mapper for Jackson:
+        - org.codehaus.jackson:jackson-mapper-asl:1.9.13 (http://jackson.codehaus.org)
+    * DataNucleus Core:
+        - org.datanucleus:datanucleus-core:4.1.17 (http://www.datanucleus.org/#/datanucleus-core)
+    * DataNucleus JDO API plugin:
+        - org.datanucleus:datanucleus-api-jdo:4.2.4 (http://www.datanucleus.org/#/datanucleus-api-jdo)
+    * DataNucleus RDBMS plugin:
+        - org.datanucleus:datanucleus-rdbms:4.1.19 (http://www.datanucleus.org/#/datanucleus-rdbms)
+    * Digester:
+        - commons-digester:commons-digester:1.8 (http://jakarta.apache.org/commons/digester/)
+    * EL:
+        - commons-el:commons-el:1.0 (http://jakarta.apache.org/commons/el/)
+    * Fabric8 :: Kubernetes :: Java Client:
+        - io.fabric8:kubernetes-client:1.4.27 (http://fabric8.io/kubernetes-client/)
+    * Fabric8 :: Kubernetes Model:
+        - io.fabric8:kubernetes-model:1.0.64 (http://fabric8.io/kubernetes-model/)
+    * FindBugs-jsr305:
+        - com.google.code.findbugs:jsr305:3.0.0 (http://findbugs.sourceforge.net/)
+        - com.google.code.findbugs:jsr305:3.0.2 (http://findbugs.sourceforge.net/)
+    * Findbugs Annotations under Apache License:
+        - com.github.stephenc.findbugs:findbugs-annotations:1.3.9-1 (http://stephenc.github.com/findbugs-annotations)
+    * FlatBuffers Java API:
+        - com.vlkan:flatbuffers:1.2.0-3f79e055 (https://github.com/vy/flatbuffers)
+    * Generex:
+        - com.github.mifmif:generex:1.0.1 (https://github.com/mifmif/Generex/tree/master)
+    * Google Android Annotations Library:
+        - com.google.android:annotations:4.1.1.4 (http://source.android.com/)
+    * Google Guice - Core Library:
+        - com.google.inject:guice:3.0 (http://code.google.com/p/google-guice/guice/)
+    * Google Guice - Extensions - AssistedInject:
+        - com.google.inject.extensions:guice-assistedinject:3.0 (http://code.google.com/p/google-guice/extensions-parent/guice-assistedinject/)
+    * Google Guice - Extensions - Servlet:
+        - com.google.inject.extensions:guice-servlet:3.0 (http://code.google.com/p/google-guice/extensions-parent/guice-servlet/)
+    * Graphite Integration for Metrics:
+        - io.dropwizard.metrics:metrics-graphite:3.1.5 (http://metrics.codahale.com/metrics-graphite/)
+        - io.dropwizard.metrics:metrics-graphite:4.2.7 (https://metrics.dropwizard.io/metrics-graphite)
+    * Gson:
+        - com.google.code.gson:gson:2.2.4 (http://code.google.com/p/google-gson/)
+        - com.google.code.gson:gson:2.8.6 (https://github.com/google/gson/gson)
+    * Guava InternalFutureFailureAccess and InternalFutures:
+        - com.google.guava:failureaccess:1.0.1 (https://github.com/google/guava/failureaccess)
+    * Guava ListenableFuture only:
+        - com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava (https://github.com/google/guava/listenablefuture)
+    * Guava: Google Core Libraries for Java:
+        - com.google.guava:guava:15.0 (http://code.google.com/p/guava-libraries/guava)
+        - com.google.guava:guava:29.0-jre (https://github.com/google/guava/guava)
+    * HBase - Annotations:
+        - org.apache.hbase:hbase-annotations:1.1.1 (http://hbase.apache.org/hbase-annotations)
+    * HBase - Client:
+        - org.apache.hbase:hbase-client:1.1.1 (http://hbase.apache.org/hbase-client)
+    * HBase - Common:
+        - org.apache.hbase:hbase-common:1.1.1 (http://hbase.apache.org/hbase-common)
+    * HBase - Protocol:
+        - org.apache.hbase:hbase-protocol:1.1.1 (http://hbase.apache.org/hbase-protocol)
+    * HPPC Collections:
+        - com.carrotsearch:hppc:0.7.2 (http://labs.carrotsearch.com/hppc.html/hppc)
+    * Hadoop Metrics2 Reporter for Dropwizard Metrics:
+        - com.github.joshelser:dropwizard-metrics-hadoop-metrics2-reporter:0.1.2 (https://github.com/joshelser/dropwizard-hadoop-metrics2)
+    * Hibernate Validator Engine:
+        - org.hibernate:hibernate-validator:5.1.0.Final (http://validator.hibernate.org/hibernate-validator)
+    * HikariCP:
+        - com.zaxxer:HikariCP:4.0.3 (https://github.com/brettwooldridge/HikariCP)
+    * Hive Common:
+        - org.apache.hive:hive-common:2.3.7 (https://hive.apache.org/hive-common)
+    * Hive Llap Client:
+        - org.apache.hive:hive-llap-client:2.3.7 (https://hive.apache.org/hive-llap-client)
+    * Hive Llap Common:
+        - org.apache.hive:hive-llap-common:2.3.7 (https://hive.apache.org/hive-llap-common)
+    * Hive Llap Tez:
+        - org.apache.hive:hive-llap-tez:2.3.7 (https://hive.apache.org/hive-llap-tez)
+    * Hive Metastore:
+        - org.apache.hive:hive-metastore:2.3.7 (https://hive.apache.org/hive-metastore)
+    * Hive Query Language:
+        - org.apache.hive:hive-exec:2.3.7 (https://hive.apache.org/hive-exec)
+    * Hive Serde:
+        - org.apache.hive:hive-serde:2.3.7 (https://hive.apache.org/hive-serde)
+    * Hive Service RPC:
+        - org.apache.hive:hive-service-rpc:2.3.7 (https://hive.apache.org/hive-service-rpc)
+    * Hive Shims:
+        - org.apache.hive:hive-shims:2.3.7 (https://hive.apache.org/hive-shims)
+    * Hive Shims 0.23:
+        - org.apache.hive.shims:hive-shims-0.23:2.3.7 (https://hive.apache.org/hive-shims-0.23)
+    * Hive Shims Common:
+        - org.apache.hive.shims:hive-shims-common:2.3.7 (https://hive.apache.org/hive-shims-common)
+    * Hive Shims Scheduler:
+        - org.apache.hive.shims:hive-shims-scheduler:2.3.7 (https://hive.apache.org/hive-shims-scheduler)
+    * Hive Storage API:
+        - org.apache.hive:hive-storage-api:2.4.0 (https://www.apache.org/hive-storage-api/)
+    * Hive Vector-Code-Gen Utilities:
+        - org.apache.hive:hive-vector-code-gen:2.3.7 (https://hive.apache.org/hive-vector-code-gen)
+    * HttpClient:
+        - commons-httpclient:commons-httpclient:3.0.1 (http://jakarta.apache.org/commons/httpclient/)
+        - commons-httpclient:commons-httpclient:3.1 (http://jakarta.apache.org/httpcomponents/httpclient-3.x/)
+        - org.apache.httpcomponents:httpclient:4.2.5 (http://hc.apache.org/httpcomponents-client)
+    * IntelliJ IDEA Annotations:
+        - org.jetbrains:annotations:13.0 (http://www.jetbrains.org)
+    * J2ObjC Annotations:
+        - com.google.j2objc:j2objc-annotations:1.3 (https://github.com/google/j2objc/)
+    * JBoss Logging 3:
+        - org.jboss.logging:jboss-logging:3.4.2.Final (http://www.jboss.org)
+    * JBoss Threads:
+        - org.jboss.threads:jboss-threads:2.3.0.Beta2 (http://www.jboss.org/jboss-threads)
+    * JCL 1.2 implemented over SLF4J:
+        - org.slf4j:jcl-over-slf4j:1.7.32 (http://www.slf4j.org)
+    * JDO API:
+        - javax.jdo:jdo-api:3.0.1 (http://db.apache.org/jdo)
+        - org.datanucleus:javax.jdo:3.2.0-m3 (http://www.datanucleus.org/#/javax.jdo)
+    * JMES Path Query library:
+        - com.amazonaws:jmespath-java:1.11.95 (https://aws.amazon.com/sdkforjava)
+    * JSON Small and Fast Parser:
+        - net.minidev:json-smart:1.1.1 (http://json-smart/)
+        - net.minidev:json-smart:2.4.7 (https://urielch.github.io/)
+    * JTA 1.1:
+        - org.apache.geronimo.specs:geronimo-jta_1.1_spec:1.1.1 (http://geronimo.apache.org/specs/geronimo-jta_1.1_spec)
+    * JVM Integration for Metrics:
+        - io.dropwizard.metrics:metrics-jvm:3.1.5 (http://metrics.codahale.com/metrics-jvm/)
+        - io.dropwizard.metrics:metrics-jvm:4.2.7 (https://metrics.dropwizard.io/metrics-jvm)
+    * Jackson:
+        - org.codehaus.jackson:jackson-core-asl:1.9.13 (http://jackson.codehaus.org)
+    * Jackson Integration for Metrics:
+        - io.dropwizard.metrics:metrics-json:3.1.5 (http://metrics.codahale.com/metrics-json/)
+        - io.dropwizard.metrics:metrics-json:4.2.7 (https://metrics.dropwizard.io/metrics-json)
+    * Jackson dataformat: CBOR:
+        - com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.13.1 (http://github.com/FasterXML/jackson-dataformats-binary)
+    * Jackson datatype: JSR310:
+        - com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.13.1 (https://github.com/FasterXML/jackson-modules-java8/jackson-datatype-jsr310)
+    * Jackson datatype: jdk8:
+        - com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.13.1 (https://github.com/FasterXML/jackson-modules-java8/jackson-datatype-jdk8)
+    * Jackson module: JAXB Annotations:
+        - com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.12.1 (https://github.com/FasterXML/jackson-modules-base)
+    * Jackson module: Paranamer:
+        - com.fasterxml.jackson.module:jackson-module-paranamer:2.7.9 (https://github.com/FasterXML/jackson-modules-base)
+    * Jackson-annotations:
+        - com.fasterxml.jackson.core:jackson-annotations:2.12.1 (http://github.com/FasterXML/jackson)
+    * Jackson-core:
+        - com.fasterxml.jackson.core:jackson-core:2.12.1 (https://github.com/FasterXML/jackson-core)
+    * Jackson-dataformat-YAML:
+        - com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.12.1 (https://github.com/FasterXML/jackson-dataformats-text)
+    * Jackson-module-parameter-names:
+        - com.fasterxml.jackson.module:jackson-module-parameter-names:2.13.1 (https://github.com/FasterXML/jackson-modules-java8/jackson-module-parameter-names)
+    * Jakarta Bean Validation API:
+        - jakarta.validation:jakarta.validation-api:2.0.2 (https://beanvalidation.org)
+    * Java Authentication SPI for Containers:
+        - org.apache.geronimo.specs:geronimo-jaspic_1.0_spec:1.0 (http://geronimo.apache.org/maven/specs/geronimo-jaspic_1.0_spec/1.0)
+    * Jetty SSLEngine:
+        - org.mortbay.jetty:jetty-sslengine:6.1.26 (http://jetty.mortbay.org)
+    * Jetty Server:
+        - org.mortbay.jetty:jetty:6.1.14 (http://jetty.mortbay.org/project/modules/jetty)
+    * Jetty Utilities:
+        - org.mortbay.jetty:jetty-util:6.1.14 (http://jetty.mortbay.org/project/jetty-util)
+    * Joda-Time:
+        - joda-time:joda-time:2.10.1 (https://www.joda.org/joda-time/)
+        - joda-time:joda-time:2.10.13 (https://www.joda.org/joda-time/)
+    * Kotlin Stdlib:
+        - org.jetbrains.kotlin:kotlin-stdlib:1.6.10 (https://kotlinlang.org/)
+    * Kotlin Stdlib Common:
+        - org.jetbrains.kotlin:kotlin-stdlib-common:1.6.10 (https://kotlinlang.org/)
+    * LZ4 and xxHash:
+        - net.jpountz.lz4:lz4:1.3.0 (https://github.com/jpountz/lz4-java)
+        - org.lz4:lz4-java:1.4.0 (https://github.com/lz4/lz4-java)
+    * Metrics Core:
+        - io.dropwizard.metrics:metrics-core:4.0.2 (http://metrics.dropwizard.io/metrics-core)
+    * Netty:
+        - io.netty:netty:3.9.9.Final (http://netty.io/)
+    * Netty Reactive Streams HTTP support:
+        - com.typesafe.netty:netty-reactive-streams-http:2.0.4 (https://github.com/playframework/netty-reactive-streams/netty-reactive-streams-http)
+    * Netty Reactive Streams Implementation:
+        - com.typesafe.netty:netty-reactive-streams:2.0.4 (https://github.com/playframework/netty-reactive-streams/netty-reactive-streams)
+    * Netty/All-in-One:
+        - io.netty:netty-all:4.0.23.Final (http://netty.io/netty-all/)
+        - io.netty:netty-all:4.1.42.Final (https://netty.io/netty-all/)
+    * Netty/Buffer:
+        - io.netty:netty-buffer:4.1.72.Final (https://netty.io/netty-buffer/)
+    * Netty/Codec:
+        - io.netty:netty-codec:4.1.72.Final (https://netty.io/netty-codec/)
+    * Netty/Codec/HTTP:
+        - io.netty:netty-codec-http:4.1.72.Final (https://netty.io/netty-codec-http/)
+    * Netty/Codec/HTTP2:
+        - io.netty:netty-codec-http2:4.1.72.Final (https://netty.io/netty-codec-http2/)
+    * Netty/Codec/Socks:
+        - io.netty:netty-codec-socks:4.1.72.Final (https://netty.io/netty-codec-socks/)
+    * Netty/Common:
+        - io.netty:netty-common:4.1.72.Final (https://netty.io/netty-common/)
+    * Netty/Handler:
+        - io.netty:netty-handler:4.1.72.Final (https://netty.io/netty-handler/)
+    * Netty/Handler/Proxy:
+        - io.netty:netty-handler-proxy:4.1.72.Final (https://netty.io/netty-handler-proxy/)
+    * Netty/Resolver:
+        - io.netty:netty-resolver:4.1.72.Final (https://netty.io/netty-resolver/)
+    * Netty/Transport:
+        - io.netty:netty-transport:4.1.72.Final (https://netty.io/netty-transport/)
+    * Netty/Transport/Classes/Epoll:
+        - io.netty:netty-transport-classes-epoll:4.1.72.Final (https://netty.io/netty-transport-classes-epoll/)
+    * Netty/Transport/Native/Epoll:
+        - io.netty:netty-transport-native-epoll:4.1.72.Final (https://netty.io/netty-transport-native-epoll/)
+    * Netty/Transport/Native/Unix/Common:
+        - io.netty:netty-transport-native-unix-common:4.1.72.Final (https://netty.io/netty-transport-native-unix-common/)
+    * Nimbus JOSE+JWT:
+        - com.nimbusds:nimbus-jose-jwt:3.9 (https://bitbucket.org/connect2id/nimbus-jose-jwt)
+    * ORC Core:
+        - org.apache.orc:orc-core:1.3.4 (http://orc.apache.org/orc-core)
+        - org.apache.orc:orc-core:1.5.5 (http://orc.apache.org/orc-core)
+    * ORC MapReduce:
+        - org.apache.orc:orc-mapreduce:1.5.5 (http://orc.apache.org/orc-mapreduce)
+    * ORC Shims:
+        - org.apache.orc:orc-shims:1.5.5 (http://orc.apache.org/orc-shims)
+    * Objenesis:
+        - org.objenesis:objenesis:2.1 (http://objenesis.org)
+    * OkHttp:
+        - com.squareup.okhttp:okhttp:2.4.0 (https://github.com/square/okhttp/okhttp)
+    * OkHttp Web Sockets:
+        - com.squareup.okhttp3:okhttp-ws:3.4.2 (https://github.com/square/okhttp/okhttp-ws)
+    * Okio:
+        - com.squareup.okio:okio:2.6.0 (https://github.com/square/okio/)
+    * Open JSON:
+        - com.tdunning:json:1.8 (https://github.com/tdunning/open-json)
+    * ProtoParser:
+        - com.squareup:protoparser:3.1.5 (http://github.com/square/protoparser/)
+    * Scala Compiler:
+        - org.scala-lang:scala-reflect:2.12.10 (https://www.scala-lang.org/)
+    * Scala Library:
+        - org.scala-lang:scala-library:2.12.10 (https://www.scala-lang.org/)
+    * scala-parser-combinators:
+        - org.scala-lang.modules:scala-parser-combinators_2.12:1.1.0 (http://www.scala-lang.org/)
+    * scala-xml:
+        - org.scala-lang.modules:scala-xml_2.12:1.0.6 (http://www.scala-lang.org/)
+    * SnakeYAML:
+        - org.yaml:snakeyaml:1.15 (http://www.snakeyaml.org)
+    * Snappy for Java:
+        - org.xerial.snappy:snappy-java:1.0.4.1 (http://code.google.com/p/snappy-java/)
+    * Spark Project Catalyst:
+        - org.apache.spark:spark-catalyst_2.12:2.4.6 (http://spark.apache.org/)
+    * Spark Project Core:
+        - org.apache.spark:spark-core_2.12:2.4.6 (http://spark.apache.org/)
+    * Spark Project Launcher:
+        - org.apache.spark:spark-launcher_2.12:2.4.6 (http://spark.apache.org/)
+    * Spark Project Local DB:
+        - org.apache.spark:spark-kvstore_2.12:2.4.6 (http://spark.apache.org/)
+    * Spark Project Networking:
+        - org.apache.spark:spark-network-common_2.12:2.4.6 (http://spark.apache.org/)
+    * Spark Project SQL:
+        - org.apache.spark:spark-sql_2.12:2.4.6 (http://spark.apache.org/)
+    * Spark Project Shuffle Streaming Service:
+        - org.apache.spark:spark-network-shuffle_2.12:2.4.6 (http://spark.apache.org/)
+    * Spark Project Sketch:
+        - org.apache.spark:spark-sketch_2.12:2.4.6 (http://spark.apache.org/)
+    * Spark Project Tags:
+        - org.apache.spark:spark-tags_2.12:2.4.6 (http://spark.apache.org/)
+    * Spark Project Unsafe:
+        - org.apache.spark:spark-unsafe_2.12:2.4.6 (http://spark.apache.org/)
+    * Spring AOP:
+        - org.springframework:spring-aop:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Spring Beans:
+        - org.springframework:spring-beans:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Spring Commons Logging Bridge:
+        - org.springframework:spring-jcl:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Spring Context:
+        - org.springframework:spring-context:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Spring Core:
+        - org.springframework:spring-core:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Spring Data Core:
+        - org.springframework.data:spring-data-commons:2.6.0 (https://www.spring.io/spring-data/spring-data-commons)
+    * Spring Data LDAP:
+        - org.springframework.data:spring-data-ldap:2.6.0 (https://github.com/spring-projects/spring-data-ldap)
+    * Spring Expression Language (SpEL):
+        - org.springframework:spring-expression:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Spring JDBC:
+        - org.springframework:spring-jdbc:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Spring Object/Relational Mapping:
+        - org.springframework:spring-orm:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Spring Transaction:
+        - org.springframework:spring-tx:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Spring Web:
+        - org.springframework:spring-web:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Spring Web MVC:
+        - org.springframework:spring-webmvc:5.3.14 (https://github.com/spring-projects/spring-framework)
+    * Springloaded:
+        - org.springframework:springloaded:1.2.6.RELEASE (https://github.com/spring-projects/spring-loaded)
+    * StAX API:
+        - stax:stax-api:1.0.1 (http://stax.codehaus.org/)
+    * Tephra API:
+        - co.cask.tephra:tephra-api:0.6.0 (https://github.com/caskdata/tephra/tephra-api)
+    * Tephra Core:
+        - co.cask.tephra:tephra-core:0.6.0 (https://github.com/caskdata/tephra/tephra-core)
+    * Tephra HBase 1.0 Compatibility:
+        - co.cask.tephra:tephra-hbase-compat-1.0:0.6.0 (https://github.com/caskdata/tephra/tephra-hbase-compat-1.0)
+    * The Netty Project:
+        - io.netty:netty:3.6.2.Final (http://netty.io/)
+    * WildFly Client Configuration:
+        - org.wildfly.client:wildfly-client-config:1.0.0.Final (http://www.jboss.org/wildfly-client-config)
+    * XML Commons External Components XML APIs:
+        - xml-apis:xml-apis:1.3.04 (http://xml.apache.org/commons/components/external/)
+    * XNIO API:
+        - org.jboss.xnio:xnio-api:3.6.5.Final (http://www.jboss.org/xnio)
+    * XNIO NIO Implementation:
+        - org.jboss.xnio:xnio-nio:3.6.5.Final (http://www.jboss.org/xnio-all/xnio-nio)
+    * Xerces2 Java Parser:
+        - xerces:xercesImpl:2.9.1 (http://xerces.apache.org/xerces2-j)
+    * ZkClient:
+        - com.101tec:zkclient:0.10 (https://github.com/sgroschupf/zkclient)
+    * aircompressor:
+        - io.airlift:aircompressor:0.10 (http://github.com/airlift/aircompressor)
+    * canal client module for otter 1.1.4:
+        - com.alibaba.otter:canal.client:1.1.4 (https://github.com/alibaba/canal/canal.client)
+    * canal common module for otter 1.1.4:
+        - com.alibaba.otter:canal.common:1.1.4 (http://b2b-doc.alibaba-inc.com/display/opentech/Otter)
+    * canal protocol module for otter 1.1.4:
+        - com.alibaba.otter:canal.protocol:1.1.4 (http://b2b-doc.alibaba-inc.com/display/opentech/Otter)
+    * chill:
+        - com.twitter:chill_2.12:0.9.3 (https://github.com/twitter/chill)
+    * chill-java:
+        - com.twitter:chill-java:0.9.3 (https://github.com/twitter/chill)
+    * eigenbase-properties:
+        - net.hydromatic:eigenbase-properties:1.1.5 (http://github.com/julianhyde/eigenbase-properties)
+    * empty:
+        - org.spark-project.spark:unused:1.0.0 (http://nexus.sonatype.org/oss-repository-hosting.html/unused)
+    * error-prone annotations:
+        - com.google.errorprone:error_prone_annotations:2.3.4 (http://nexus.sonatype.org/oss-repository-hosting.html/error_prone_parent/error_prone_annotations)
+    * fastjson:
+        - com.alibaba:fastjson:1.2.58 (https://github.com/alibaba/fastjson)
+    * fastutil:
+        - it.unimi.dsi:fastutil:6.5.6 (http://fasutil.dsi.unimi.it/)
+    * fe-common:
+        - org.apache.doris:fe-common:0.15-SNAPSHOT (https://doris.apache.org/fe-common/)
+    * hadoop-mapreduce-client-app:
+        - org.apache.hadoop:hadoop-mapreduce-client-app:2.6.5 (no url defined)
+    * hadoop-mapreduce-client-common:
+        - org.apache.hadoop:hadoop-mapreduce-client-common:2.6.5 (no url defined)
+    * hadoop-mapreduce-client-core:
+        - org.apache.hadoop:hadoop-mapreduce-client-core:2.6.5 (no url defined)
+    * hadoop-mapreduce-client-jobclient:
+        - org.apache.hadoop:hadoop-mapreduce-client-jobclient:2.6.5 (no url defined)
+    * hadoop-mapreduce-client-shuffle:
+        - org.apache.hadoop:hadoop-mapreduce-client-shuffle:2.6.5 (no url defined)
+    * hadoop-yarn-api:
+        - org.apache.hadoop:hadoop-yarn-api:2.6.5 (no url defined)
+    * hadoop-yarn-client:
+        - org.apache.hadoop:hadoop-yarn-client:2.6.5 (no url defined)
+    * hadoop-yarn-common:
+        - org.apache.hadoop:hadoop-yarn-common:2.6.5 (no url defined)
+    * hadoop-yarn-server-applicationhistoryservice:
+        - org.apache.hadoop:hadoop-yarn-server-applicationhistoryservice:2.7.2 (no url defined)
+    * hadoop-yarn-server-common:
+        - org.apache.hadoop:hadoop-yarn-server-common:2.6.5 (no url defined)
+    * hadoop-yarn-server-resourcemanager:
+        - org.apache.hadoop:hadoop-yarn-server-resourcemanager:2.7.2 (no url defined)
+    * hadoop-yarn-server-web-proxy:
+        - org.apache.hadoop:hadoop-yarn-server-web-proxy:2.7.2 (no url defined)
+    * htrace-core:
+        - org.apache.htrace:htrace-core:3.1.0-incubating (http://incubator.apache.org/projects/htrace.html)
+    * htrace-core4:
+        - org.apache.htrace:htrace-core4:4.0.1-incubating (http://incubator.apache.org/projects/htrace.html)
+    * io.grpc:grpc-api:
+        - io.grpc:grpc-api:1.30.0 (https://github.com/grpc/grpc-java)
+    * io.grpc:grpc-context:
+        - io.grpc:grpc-context:1.30.0 (https://github.com/grpc/grpc-java)
+    * io.grpc:grpc-core:
+        - io.grpc:grpc-core:1.30.0 (https://github.com/grpc/grpc-java)
+    * io.grpc:grpc-netty:
+        - io.grpc:grpc-netty:1.30.0 (https://github.com/grpc/grpc-java)
+    * io.grpc:grpc-protobuf:
+        - io.grpc:grpc-protobuf:1.30.0 (https://github.com/grpc/grpc-java)
+    * io.grpc:grpc-protobuf-lite:
+        - io.grpc:grpc-protobuf-lite:1.30.0 (https://github.com/grpc/grpc-java)
+    * io.grpc:grpc-stub:
+        - io.grpc:grpc-stub:1.30.0 (https://github.com/grpc/grpc-java)
+    * jackson-databind:
+        - com.fasterxml.jackson.core:jackson-databind:2.12.1 (http://github.com/FasterXML/jackson)
+    * jackson-module-scala:
+        - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.13.1 (http://wiki.fasterxml.com/JacksonModuleScala)
+        - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.6.7.1 (http://wiki.fasterxml.com/JacksonModuleScala)
+    * jasper-runtime:
+        - tomcat:jasper-runtime:5.5.23 (http://tomcat.apache.org/jasper-runtime)
+    * java-xmlbuilder:
+        - com.jamesmurty.utils:java-xmlbuilder:0.4 (http://code.google.com/p/java-xmlbuilder/)
+    * javax.inject:
+        - javax.inject:javax.inject:1 (http://code.google.com/p/atinject/)
+    * json4s-ast:
+        - org.json4s:json4s-ast_2.12:3.5.3 (https://github.com/json4s/json4s)
+    * json4s-core:
+        - org.json4s:json4s-core_2.12:3.5.3 (https://github.com/json4s/json4s)
+    * json4s-jackson:
+        - org.json4s:json4s-jackson_2.12:3.5.3 (https://github.com/json4s/json4s)
+    * json4s-scalap:
+        - org.json4s:json4s-scalap_2.12:3.5.3 (https://github.com/json4s/json4s)
+    * okhttp:
+        - com.squareup.okhttp3:okhttp:4.7.2 (https://square.github.io/okhttp/)
+    * okhttp-logging-interceptor:
+        - com.squareup.okhttp3:logging-interceptor:4.7.2 (https://square.github.io/okhttp/)
+    * opencsv:
+        - net.sf.opencsv:opencsv:2.3 (http://opencsv.sf.net)
+    * org.jetbrains.kotlin:kotlin-stdlib:
+        - org.jetbrains.kotlin:kotlin-stdlib:1.3.70 (https://kotlinlang.org/)
+    * org.jetbrains.kotlin:kotlin-stdlib-common:
+        - org.jetbrains.kotlin:kotlin-stdlib-common:1.3.70 (https://kotlinlang.org/)
+    * org.roaringbitmap:RoaringBitmap:
+        - org.roaringbitmap:RoaringBitmap:0.8.13 (https://github.com/RoaringBitmap/RoaringBitmap)
+    * org.roaringbitmap:shims:
+        - org.roaringbitmap:shims:0.8.13 (https://github.com/RoaringBitmap/RoaringBitmap)
+    * perfmark:perfmark-api:
+        - io.perfmark:perfmark-api:0.19.0 (https://github.com/perfmark/perfmark)
+    * proto-google-common-protos:
+        - com.google.api.grpc:proto-google-common-protos:1.17.0 (https://github.com/googleapis/api-client-staging)
+    * rocketmq-acl 4.5.2:
+        - org.apache.rocketmq:rocketmq-acl:4.5.2 (http://maven.apache.org)
+    * rocketmq-client 4.5.2:
+        - org.apache.rocketmq:rocketmq-client:4.5.2 (http://rocketmq.apache.org/rocketmq-client/)
+    * rocketmq-common 4.5.2:
+        - org.apache.rocketmq:rocketmq-common:4.5.2 (http://rocketmq.apache.org/rocketmq-common/)
+    * rocketmq-logging 4.5.2:
+        - org.apache.rocketmq:rocketmq-logging:4.5.2 (http://rocketmq.apache.org/rocketmq-logging/)
+    * rocketmq-remoting 4.5.2:
+        - org.apache.rocketmq:rocketmq-remoting:4.5.2 (http://rocketmq.apache.org/rocketmq-remoting/)
+    * rocketmq-srvutil 4.5.2:
+        - org.apache.rocketmq:rocketmq-srvutil:4.5.2 (http://rocketmq.apache.org/rocketmq-srvutil/)
+    * snappy-java:
+        - org.xerial.snappy:snappy-java:1.1.7.2 (https://github.com/xerial/snappy-java)
+    * software.amazon.ion:ion-java:
+        - software.amazon.ion:ion-java:1.0.2 (https://github.com/amznlabs/ion-java/)
+    * spark-dpp:
+        - org.apache.doris:spark-dpp:0.15-SNAPSHOT (https://doris.apache.org/spark-dpp/)
+    * spring-boot:
+        - org.springframework.boot:spring-boot:2.6.2 (https://spring.io/projects/spring-boot)
+    * spring-boot-autoconfigure:
+        - org.springframework.boot:spring-boot-autoconfigure:2.6.2 (https://spring.io/projects/spring-boot)
+    * spring-boot-configuration-processor:
+        - org.springframework.boot:spring-boot-configuration-processor:2.6.2 (https://spring.io/projects/spring-boot)
+    * spring-boot-devtools:
+        - org.springframework.boot:spring-boot-devtools:2.6.2 (https://spring.io/projects/spring-boot)
+    * spring-boot-starter:
+        - org.springframework.boot:spring-boot-starter:2.6.2 (https://spring.io/projects/spring-boot)
+    * spring-boot-starter-data-ldap:
+        - org.springframework.boot:spring-boot-starter-data-ldap:2.6.2 (https://spring.io/projects/spring-boot)
+    * spring-boot-starter-jetty:
+        - org.springframework.boot:spring-boot-starter-jetty:2.6.2 (https://spring.io/projects/spring-boot)
+    * spring-boot-starter-json:
+        - org.springframework.boot:spring-boot-starter-json:2.6.2 (https://spring.io/projects/spring-boot)
+    * spring-boot-starter-logging:
+        - org.springframework.boot:spring-boot-starter-logging:2.6.2 (https://spring.io/projects/spring-boot)
+    * spring-boot-starter-web:
+        - org.springframework.boot:spring-boot-starter-web:2.6.2 (https://spring.io/projects/spring-boot)
+    * spring-ldap-core:
+        - org.springframework.ldap:spring-ldap-core:2.3.5.RELEASE (https://www.springframework.org/ldap)
+    * stream-lib:
+        - com.clearspring.analytics:stream:2.7.0 (https://github.com/addthis/stream-lib)
+    * tomcat-embed-el:
+        - org.apache.tomcat.embed:tomcat-embed-el:9.0.56 (https://tomcat.apache.org/)
+    * tree-printer:
+        - hu.webarticum:tree-printer:1.2 (https://github.com/davidsusu/tree-printer)
+    * univocity-parsers:
+        - com.univocity:univocity-parsers:2.7.3 (http://github.com/univocity/univocity-parsers)
+    * wildfly-common:
+        - org.wildfly.common:wildfly-common:1.3.0.Final (http://www.jboss.org/wildfly-common)
+    * zjsonpatch:
+        - io.fabric8:zjsonpatch:0.2.3 (https://github.com/fabric8io/zjsonpatch/)
+    * Apache XBean :: ASM 6 shaded (repackaged):
+        - org.apache.xbean:xbean-asm6-shaded:4.8 (http://geronimo.apache.org/maven/xbean/4.8/xbean-asm6-shaded)
+    * Jettison:
+        - org.codehaus.jettison:jettison:1.1 (no url defined)
+    * zookeeper:
+        - org.apache.zookeeper:zookeeper:3.4.6 (no url defined)
+    * commons-beanutils:
+        - commons-beanutils:commons-beanutils:1.7.0 (no url defined)
+    * oro:
+        - oro:oro:2.0.8 (no url defined)
+    * je:
+        - com.sleepycat:je:7.3.7 (no url defined)
+    ### The following components use multiple licenses and we choose APLv2
+    * JAX-RS provider for JSON content type:
+        - org.codehaus.jackson:jackson-jaxrs:1.8.3 (http://jackson.codehaus.org)
+    * Xml Compatibility extensions for Jackson:
+        - org.codehaus.jackson:jackson-xc:1.8.3 (http://jackson.codehaus.org)
+    * jersey-core-common:
+        - org.glassfish.jersey.core:jersey-common:2.35 (https://projects.eclipse.org/projects/ee4j.jersey/jersey-common)
+    * jersey-container-servlet:
+        - org.glassfish.jersey.containers:jersey-container-servlet:2.35 (https://projects.eclipse.org/projects/ee4j.jersey/project/jersey-container-servlet)
+    * jersey-container-servlet-core:
+        - org.glassfish.jersey.containers:jersey-container-servlet-core:2.35 (https://projects.eclipse.org/projects/ee4j.jersey/project/jersey-container-servlet-core)
+    * jersey-core-client:
+        - org.glassfish.jersey.core:jersey-client:2.35 (https://projects.eclipse.org/projects/ee4j.jersey/jersey-client)
+    * Java Native Access Platform:
+        - net.java.dev.jna:jna-platform:5.5.0 (https://github.com/java-native-access/jna)
+    * Java Native Access:
+        - net.java.dev.jna:jna:5.5.0 (https://github.com/java-native-access/jna)
+    * jersey-core-server:
+        - org.glassfish.jersey.core:jersey-server:2.35 (https://projects.eclipse.org/projects/ee4j.jersey/jersey-server)
+    * Javassist:
+        - org.javassist:javassist:3.18.2-GA (http://www.javassist.org/)
+    * RabbitMQ Java Client:
+        - com.rabbitmq:amqp-client:5.13.1 (https://www.rabbitmq.com)
+
+CDDL + GPLv2 with classpath exception -- licenses/LICENSE-CDDL-1.0.txt & licenses/LICENSE-GPLv2-CE.txt
+    * HK2 API module:
+        - org.glassfish.hk2:hk2-api:2.4.0-b34 (https://hk2.java.net/hk2-api)
+    * HK2 Implementation Utilities:
+        - org.glassfish.hk2:hk2-utils:2.4.0-b34 (https://hk2.java.net/hk2-utils)
+    * JAX-WS API:
+        - javax.xml.ws:jaxws-api:2.3.0 (https://github.com/javaee/jax-ws-spec)
+    * Java Servlet API:
+        - javax.servlet:javax.servlet-api:3.0.1 (http://servlet-spec.java.net)
+        - javax.servlet:javax.servlet-api:3.1.0 (http://servlet-spec.java.net)
+    * JavaBeans Activation Framework:
+        - com.sun.activation:javax.activation:1.2.0 (http://java.net/all/javax.activation/)
+    * JavaBeans Activation Framework API jar:
+        - javax.activation:javax.activation-api:1.2.0 (http://java.net/all/javax.activation-api/)
+    * OSGi resource locator bundle - used by various API providers that rely on META-INF/services mechanism to locate providers.:
+        - org.glassfish.hk2:osgi-resource-locator:1.0.1 (http://glassfish.org/osgi-resource-locator/)
+    * ServiceLocator Default Implementation:
+        - org.glassfish.hk2:hk2-locator:2.4.0-b34 (https://hk2.java.net/hk2-locator)
+    * aopalliance version 1.0 repackaged as a module:
+        - org.glassfish.hk2.external:aopalliance-repackaged:2.4.0-b34 (https://hk2.java.net/external/aopalliance-repackaged)
+    * javax.annotation API:
+        - javax.annotation:javax.annotation-api:1.3.2 (http://jcp.org/en/jsr/detail?id=250)
+    * javax.inject:1 as OSGi bundle:
+        - org.glassfish.hk2.external:javax.inject:2.4.0-b34 (https://hk2.java.net/external/javax.inject)
+    * javax.xml.soap API:
+        - javax.xml.soap:javax.xml.soap-api:1.4.0 (https://javaee.github.io/javaee-spec/)
+    * transaction-api:
+        - javax.transaction:transaction-api:1.1 (no url defined)
+    * jsp-api:
+        - javax.servlet.jsp:jsp-api:2.1 (no url defined)
+
+CUP License -- licenses/LICENSE-CUP.txt
+    * Java CUP Parser Generator:
+        - net.sourceforge.czt.dev:java-cup:0.11-a-czt02-cdh (http://czt.sourceforge.net/dev/java-cup)
+    * Java CUP Runtime:
+        - net.sourceforge.czt.dev:java-cup-runtime:0.11-a-czt01-cdh (http://czt.sourceforge.net/dev/java-cup-runtime)
+
+Common Development and Distribution License (CDDL) v1.0 -- licenses/LICENSE-CDDL-1.0.txt
+    * JavaMail API:
+        - javax.mail:mail:1.4.1 (https://glassfish.dev.java.net/javaee5/mail/)
+    * Servlet Specification 2.5 API:
+        - org.mortbay.jetty:servlet-api-2.5:6.1.14 (http://jetty.mortbay.org/project/modules/servlet-api-2.5)
+    * servlet-api:
+        - javax.servlet:servlet-api:2.5 (no url defined)
+    ### The following components use multiple licenses and we choose CDDL
+    * Activation Framework:
+        - javax.activation:activation:1.1.1 (http://java.sun.com/javase/technologies/desktop/javabeans/jaf/index.jsp)
+    * Streaming API for XML:
+        - javax.xml.stream:stax-api:1.0-2 (no url defined)
+
+Common Development and Distribution License (CDDL) v1.1 -- licenses/LICENSE-CDDL-1.1.txt
+    ### The following components use multiple licenses and we choose CDDL-1.1
+    * jaxb-api:
+        - javax.xml.bind:jaxb-api:2.3.1 (https://github.com/javaee/jaxb-spec/jaxb-api)
+    * javax.ws.rs-api:
+        - javax.ws.rs:javax.ws.rs-api:2.0.1 (http://jax-rs-spec.java.net)
+    * jersey-server:
+        - com.sun.jersey:jersey-server:1.9 (https://jersey.java.net/jersey-server/)
+    * jersey-guice:
+        - com.sun.jersey.contribs:jersey-guice:1.9 (https://jersey.java.net/jersey-contribs/jersey-guice/)
+    * jersey-json:
+        - com.sun.jersey:jersey-json:1.9 (https://jersey.java.net/jersey-json/)
+    * JAXB API bundle for GlassFish V3:
+        - javax.xml.bind:jaxb-api:2.2.2 (https://jaxb.dev.java.net/)
+    * jersey-core:
+        - com.sun.jersey:jersey-core:1.9 (https://jersey.java.net/jersey-core/)
+    * JAXB RI:
+        - com.sun.xml.bind:jaxb-impl:2.2.3-1 (http://jaxb.java.net/)
+    * jersey-client:
+        - com.sun.jersey:jersey-client:1.9 (https://jersey.java.net/jersey-client/)
+
+Creative Commons Zero -- licenses/LICENSE-CC0.txt
+    * reactive-streams:
+        - org.reactivestreams:reactive-streams:1.0.3 (http://www.reactive-streams.org/)
+
+Eclipse Distribution License - v1.0 -- licenses/LICENSE-EDL-1.0.txt
+    * Jakarta Activation API jar:
+        - jakarta.activation:jakarta.activation-api:1.2.2 (https://github.com/eclipse-ee4j/jaf/jakarta.activation-api)
+    * Jakarta XML Binding API:
+        - jakarta.xml.bind:jakarta.xml.bind-api:2.3.3 (https://github.com/eclipse-ee4j/jaxb-api/jakarta.xml.bind-api)
+
+Eclipse Public License - v1.0 -- licenses/LICENSE-EPL-1.0.txt
+    * JUnit:
+        - junit:junit:4.12 (http://junit.org)
+
+Eclipse Public License - v2.0 -- licenses/LICENSE-EPL-2.0.txt
+    * Jakarta WebSocket - Server API:
+        - jakarta.websocket:jakarta.websocket-api:1.1.2 (https://projects.eclipse.org/projects/ee4j.websocket)
+    ### The following components use multiple licenses and we choose EPLv2
+    * javax.inject:1 as OSGi bundle:
+        - org.glassfish.hk2.external:jakarta.inject:2.6.1 (https://github.com/eclipse-ee4j/glassfish-hk2/external/jakarta.inject)
+    * Jakarta Servlet:
+        - jakarta.servlet:jakarta.servlet-api:4.0.4 (https://projects.eclipse.org/projects/ee4j.servlet)
+    * Jakarta Annotations API:
+        - jakarta.annotation:jakarta.annotation-api:1.3.5 (https://projects.eclipse.org/projects/ee4j.ca)
+    * OSGi resource locator:
+        - org.glassfish.hk2:osgi-resource-locator:1.0.3 (https://projects.eclipse.org/projects/ee4j/osgi-resource-locator)
+    * jakarta.ws.rs-api:
+        - jakarta.ws.rs:jakarta.ws.rs-api:2.1.6 (https://github.com/eclipse-ee4j/jaxrs-api)
+
+Public Domain
+    * AOP alliance:
+        - aopalliance:aopalliance:1.0 (http://aopalliance.sourceforge.net)
+    * XZ for Java:
+        - org.tukaani:xz:1.0 (http://tukaani.org/xz/java.html)
+    * "Java Concurrency in Practice" book annotations:
+        - net.jcip:jcip-annotations:1.0 (http://jcip.net/)
+
+The 2-Clause BSD License
+    * Javolution -- licenses/LICENSE-javolution.txt
+        - javolution:javolution:5.5.1 (http://javolution.org)
+    * ParaNamer Core -- licenses/LICENSE-paranamer.txt
+        - com.thoughtworks.paranamer:paranamer:2.8 (https://github.com/paul-hammant/paranamer/paranamer)
+    * xmlenc Library -- licenses/LICENSE-xmlenc.txt
+        - xmlenc:xmlenc:0.52 (http://xmlenc.sourceforge.net)
+    * zstd-jni -- licenses/LICENSE-zstd-jni.txt
+        - com.github.luben:zstd-jni:1.3.2-2 (https://github.com/luben/zstd-jni)
+    * Protocol Buffer Java API -- licenses/LICENSE-protobuf.txt
+        - com.google.protobuf:protobuf-java:2.5.0 (http://code.google.com/p/protobuf)
+
+The 3-Clause BSD License
+    * ANTLR 4 Runtime -- licenses/LICENSE-antlr4.txt
+        - org.antlr:antlr4-runtime:4.7 (http://www.antlr.org/antlr4-runtime)
+    * Automaton -- licenses/LICENSE-automaton.txt
+        - dk.brics.automaton:automaton:1.11-8 (http://www.brics.dk/automaton/)
+    * JLine -- licenses/LICENSE-jline.txt
+        - jline:jline:2.12 (http://nexus.sonatype.org/oss-repository-hosting.html/jline)
+    * Hamcrest -- licenses/LICENSE-hamcrest.txt
+        - org.hamcrest:hamcrest:2.1 (http://hamcrest.org/JavaHamcrest/)
+    * Hamcrest Core -- licenses/LICENSE-hamcrest.txt
+        - org.hamcrest:hamcrest-core:1.3 (https://github.com/hamcrest/JavaHamcrest/hamcrest-core)
+        - org.hamcrest:hamcrest-core:2.2 (http://hamcrest.org/JavaHamcrest/)
+    * Kryo Shaded -- licenses/LICENSE-kryo.txt
+        - com.esotericsoftware:kryo-shaded:4.0.2 (https://github.com/EsotericSoftware/kryo/kryo-shaded)
+    * MinLog -- licenses/LICENSE-minlog.txt
+        - com.esotericsoftware:minlog:1.3.0 (https://github.com/EsotericSoftware/minlog)
+    * Protocol Buffers [Core] -- licenses/LICENSE-protobuf.txt
+        - com.google.protobuf:protobuf-java:3.14.0 (https://developers.google.com/protocol-buffers/protobuf-java/)
+    * Py4J -- licenses/LICENSE-py4j.txt
+        - net.sf.py4j:py4j:0.10.7 (http://nexus.sonatype.org/oss-repository-hosting.html/py4j)
+    * asm -- licenses/LICENSE-asm.txt
+        - org.ow2.asm:asm:9.2 (http://asm.ow2.io/)
+    * asm-analysis -- licenses/LICENSE-asm.txt
+        - org.ow2.asm:asm-analysis:9.2 (http://asm.ow2.io/)
+    * asm-commons -- licenses/LICENSE-asm.txt
+        - org.ow2.asm:asm-commons:9.2 (http://asm.ow2.io/)
+    * asm-tree -- licenses/LICENSE-asm.txt
+        - org.ow2.asm:asm-tree:9.2 (http://asm.ow2.io/)
+    * commons-compiler -- licenses/LICENSE-commons-compiler.txt
+        - org.codehaus.janino:commons-compiler:3.0.16 (http://janino-compiler.github.io/commons-compiler/)
+        - org.codehaus.janino:commons-compiler:3.1.6 (http://janino-compiler.github.io/commons-compiler/)
+    * janino -- licenses/LICENSE-commons-compiler.txt
+        - org.codehaus.janino:janino:3.0.16 (http://janino-compiler.github.io/janino/)
+        - org.codehaus.janino:janino:3.1.6 (http://janino-compiler.github.io/janino/)
+    * leveldbjni-all -- licenses/LICENSE-leveldbjni.txt
+        - org.fusesource.leveldbjni:leveldbjni-all:1.8 (http://leveldbjni.fusesource.org/leveldbjni-all)
+
+The MIT License -- licenses/LICENSE-MIT.txt
+    * Animal Sniffer Annotations:
+        - org.codehaus.mojo:animal-sniffer-annotations:1.18 (http://www.mojohaus.org/animal-sniffer/animal-sniffer-annotations)
+    * Checker Qual:
+        - org.checkerframework:checker-qual:2.11.1 (https://checkerframework.org)
+    * JCL 1.1.1 implemented over SLF4J:
+        - org.slf4j:jcl-over-slf4j:1.7.16 (http://www.slf4j.org)
+    * JCodings:
+        - org.jruby.jcodings:jcodings:1.0.8 (no url defined)
+    * JMockit:
+        - org.jmockit:jmockit:1.49 (http://jmockit.github.io)
+    * JUL to SLF4J bridge:
+        - org.slf4j:jul-to-slf4j:1.7.16 (http://www.slf4j.org)
+        - org.slf4j:jul-to-slf4j:1.7.32 (http://www.slf4j.org)
+    * Joni:
+        - org.jruby.joni:joni:2.1.2 (http://nexus.sonatype.org/oss-repository-hosting.html/joni)
+    * Project Lombok:
+        - org.projectlombok:lombok:1.18.16 (https://projectlombok.org)
+    * SLF4J API Module:
+        - org.slf4j:slf4j-api:1.7.5 (http://www.slf4j.org)
+    * SLF4J LOG4J-12 Binding:
+        - org.slf4j:slf4j-log4j12:1.7.9 (http://www.slf4j.org)
+    * oshi-core:
+        - com.github.oshi:oshi-core:4.0.0 (https://github.com/oshi/oshi/oshi-core)
+    * pyrolite:
+        - net.razorvine:pyrolite:4.13 (https://github.com/irmen/Pyrolite)
+
+Revised BSD -- licenses/LICENSE-JSch.txt
+    * JSch:
+        - com.jcraft:jsch:0.1.51 (http://www.jcraft.com/jsch/)
+
+Sun Binary Code License Agreement -- licenses/LICENSE-jta.txt
+    * Java Transaction API:
+        - javax.transaction:jta:1.1 (http://java.sun.com/products/jta)
+
+====================================================================================
+This projects includes binary packages with the following licenses (BE part):
+====================================================================================
+
+The Apache Software License, Version 2.0
+    * thrift: 0.13
+    * flatbuffers: 2.0.0
+    * brpc: 1.0.0
+    * rocksdb: 5.14.2
+    * arrow: 7.0.0
+    * S2: 0.9.0
+    * croaringbitmap: 0.4.0
+    * parallel-hashmap: 1.33
+    * orc: 1.7.2
+    * cctz: 2.3
+    * aws sdk: 1.9.211
+    * benchmark: 1.5.6
+    * simdjson: 1.0.2
+
+The MIT License -- licenses/LICENSE-MIT.txt
+    * datatables: 1.10.25
+    * bootstrap: 1.17.1
+    * libxml2: 2.9.10
+
+Other dependencies:
+    * libevent: 2.1.12 -- license/LICENSE-libevent.txt
+    * openssl: 1.1.1m -- license/LICENSE-openssl.txt
+    * gflag: 2.2.2 -- license/LICENSE-gflag.txt
+    * glog: 0.4.0 -- license/LICENSE-glog.txt
+    * gtest: 1.11.0 -- license/LICENSE-gtest.txt
+    * snappy: 1.1.8 -- license/LICENSE-snappy.txt
+    * gperftools: 2.9.1 -- license/LICENSE-gperftools.txt
+    * zlib: 1.2.11 -- license/LICENSE-zlib.txt
+    * lz4: 1.9.3 -- license/LICENSE-lz4.txt
+    * bzip2: 1.0.8 -- license/LICENSE-bzip2.txt
+    * rapidjson@1a803826 -- license/LICENSE-rapidjson.txt
+    * curl: 7.79.0 -- license/LICENSE-curl.txt
+    * re2: 2021-02-02 -- license/LICENSE-re2.txt
+    * boost: 1.73.0 -- license/LICENSE-boost.txt
+    * unixodbc: 2.3.7 -- license/LICENSE-unixodbc.txt
+    * leveldb: 1.20 -- license/LICENSE-leveldb.txt
+    * cyrus-sasl: 2.1.27 -- license/LICENSE-cyrus-sasl.txt
+    * librdkafka: 1.8.2 -- license/LICENSE-librdkafka.txt
+    * zstd: 1.5.0 -- license/LICENSE-zstd.txt
+    * brotli: 1.0.9 -- license/LICENSE-brotli.txt
+    * bitshuffle: 0.3.5 -- license/LICENSE-bigshuffle.txt
+    * fmt: 7.1.3 -- license/LICENSE-fmt.txt
+    * jemalloc: 5.2.1 -- license/LICENSE-jemolloc.txt
+    * lzma@master -- license/LICENSE-lzma.txt
+    * libdivide: 5.0 -- license/LICENSE-libdivide.txt
+    * pdqsort: 0.0.0+git20180419 -- license/LICENSE-pdqsort.txt
+    * breakpad@38ee0be -- license/LICENSE-breakpod.txt
+    * xsimd: xmid@e9234cd6  -- license/LICENSE-xsimd.txt

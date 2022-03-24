@@ -20,7 +20,7 @@
 namespace doris {
 
 ExchangeNode::ExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs), _num_senders(0), _stream_recvr(NULL), _next_row_idx(0) {}
+        : ExecNode(pool, tnode, descs), _num_senders(0), _stream_recvr(nullptr), _next_row_idx(0) {}
 
 ExchangeNode::~ExchangeNode() {}
 
@@ -70,7 +70,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
             SCOPED_TIMER(_convert_row_batch_timer);
 
             // copy rows until we hit the limit/capacity or until we exhaust _input_batch
-            while (!reached_limit() && !output_batch->is_full() && _input_batch.get() != NULL &&
+            while (!reached_limit() && !output_batch->is_full() && _input_batch.get() != nullptr &&
                    _next_row_idx < _input_batch->capacity()) {
                 TupleRow* src = _input_batch->get_row(_next_row_idx);
 
@@ -104,14 +104,14 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
         }
 
         // we need more rows
-        if (_input_batch.get() != NULL) {
+        if (_input_batch.get() != nullptr) {
             _input_batch->transfer_resource_ownership(output_batch);
         }
 
         bool is_cancelled = true;
         _input_batch.reset(_stream_recvr->get_batch(&is_cancelled));
-        VLOG_FILE << "exch: has batch=" << (_input_batch.get() == NULL ? "false" : "true")
-                  << " #rows=" << (_input_batch.get() != NULL ? _input_batch->num_rows() : 0)
+        VLOG_FILE << "exch: has batch=" << (_input_batch.get() == nullptr ? "false" : "true")
+                  << " #rows=" << (_input_batch.get() != nullptr ? _input_batch->num_rows() : 0)
                   << " is_cancelled=" << (is_cancelled ? "true" : "false")
                   << " instance_id=" << state->fragment_instance_id();
 
@@ -119,7 +119,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
             return Status::Cancelled("Cancelled");
         }
 
-        *eos = (_input_batch.get() == NULL);
+        *eos = (_input_batch.get() == nullptr);
 
         if (*eos) {
             return Status::OK();

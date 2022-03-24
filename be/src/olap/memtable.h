@@ -24,10 +24,11 @@
 #include "olap/olap_define.h"
 #include "olap/skiplist.h"
 #include "runtime/mem_tracker.h"
+#include "util/tuple_row_zorder_compare.h"
 
 namespace doris {
 
-class ContiguousRow;
+struct ContiguousRow;
 class RowsetWriter;
 class Schema;
 class SlotDescriptor;
@@ -39,48 +40,49 @@ class MemTable {
 public:
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             KeysType keys_type, RowsetWriter* rowset_writer,
-             const std::shared_ptr<MemTracker>& parent_tracker);
+             KeysType keys_type, RowsetWriter* rowset_writer);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
+    std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
     void insert(const Tuple* tuple);
-    /// Flush 
+    /// Flush
     OLAPStatus flush();
     OLAPStatus close();
 
     int64_t flush_size() const { return _flush_size; }
 
 private:
-    class RowCursorComparator {
+    class RowCursorComparator : public RowComparator {
     public:
         RowCursorComparator(const Schema* schema);
-        int operator()(const char* left, const char* right) const;
+        virtual int operator()(const char* left, const char* right) const;
 
     private:
         const Schema* _schema;
     };
 
-    typedef SkipList<char*, RowCursorComparator> Table;
+private:
+    typedef SkipList<char*, RowComparator> Table;
     typedef Table::key_type TableKey;
 
 public:
     /// The iterator of memtable, so that the data in this memtable
     /// can be visited outside.
     class Iterator {
-        public:
-            Iterator(MemTable* mem_table);
-            ~Iterator() {}
+    public:
+        Iterator(MemTable* mem_table);
+        ~Iterator() {}
 
-            void seek_to_first();
-            bool valid();
-            void next();
-            ContiguousRow get_current_row();
+        void seek_to_first();
+        bool valid();
+        void next();
+        ContiguousRow get_current_row();
 
-        private:
-            MemTable* _mem_table;
-            Table::Iterator _it;
+    private:
+        MemTable* _mem_table;
+        Table::Iterator _it;
     };
 
 private:
@@ -90,12 +92,11 @@ private:
     int64_t _tablet_id;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
-    TupleDescriptor* _tuple_desc;
     // the slot in _slot_descs are in order of tablet's schema
     const std::vector<SlotDescriptor*>* _slot_descs;
     KeysType _keys_type;
 
-    RowCursorComparator _row_comparator;
+    std::shared_ptr<RowComparator> _row_comparator;
     std::shared_ptr<MemTracker> _mem_tracker;
     // This is a buffer, to hold the memory referenced by the rows that have not
     // been inserted into the SkipList
@@ -107,7 +108,7 @@ private:
     // The object buffer pool for convert tuple to row
     ObjectPool _agg_buffer_pool;
     // Only the rows will be inserted into SkipList can acquire the owner ship from
-    // `_agg_buffer_pool` 
+    // `_agg_buffer_pool`
     ObjectPool _agg_object_pool;
 
     size_t _schema_size;

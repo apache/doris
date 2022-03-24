@@ -75,7 +75,7 @@ public:
 };
 
 std::string CgroupsMgrTest::_s_cgroup_path = "./doris_cgroup_testxxxx123";
-CgroupsMgr CgroupsMgrTest::_s_cgroups_mgr(NULL, CgroupsMgrTest::_s_cgroup_path);
+CgroupsMgr CgroupsMgrTest::_s_cgroups_mgr(nullptr, CgroupsMgrTest::_s_cgroup_path);
 
 TEST_F(CgroupsMgrTest, TestIsDirectory) {
     // test folder exist
@@ -100,8 +100,8 @@ TEST_F(CgroupsMgrTest, TestIsFileExist) {
 
 TEST_F(CgroupsMgrTest, TestInitCgroups) {
     // test for task file not exist
-    AgentStatus op_status = _s_cgroups_mgr.init_cgroups();
-    ASSERT_EQ(AgentStatus::DORIS_ERROR, op_status);
+    Status op_status = _s_cgroups_mgr.init_cgroups();
+    ASSERT_EQ(Status::DORIS_ERROR, op_status);
 
     // create task file, then init should success
     std::string task_file_path = _s_cgroup_path + "/tasks";
@@ -123,7 +123,7 @@ TEST_F(CgroupsMgrTest, TestInitCgroups) {
 
     op_status = _s_cgroups_mgr.init_cgroups();
     // init should be successful
-    ASSERT_EQ(AgentStatus::DORIS_SUCCESS, op_status);
+    ASSERT_EQ(Status::OK(), op_status);
     // all tasks should be migrated to root cgroup path
     ASSERT_TRUE(does_contain_number(task_file_path, 1111111));
     ASSERT_TRUE(does_contain_number(task_file_path, 123));
@@ -132,8 +132,8 @@ TEST_F(CgroupsMgrTest, TestInitCgroups) {
 
 TEST_F(CgroupsMgrTest, TestAssignThreadToCgroups) {
     // default cgroup not exist, so that assign to an unknown user will fail
-    AgentStatus op_status = _s_cgroups_mgr.assign_thread_to_cgroups(111, "abc", "low");
-    ASSERT_EQ(AgentStatus::DORIS_ERROR, op_status);
+    Status op_status = _s_cgroups_mgr.assign_thread_to_cgroups(111, "abc", "low");
+    ASSERT_EQ(Status::DORIS_ERROR, op_status);
     // user cgroup exist
     // create a mock user under cgroup path
     ASSERT_TRUE(std::filesystem::create_directory(_s_cgroup_path + "/yiguolei2"));
@@ -142,7 +142,7 @@ TEST_F(CgroupsMgrTest, TestAssignThreadToCgroups) {
     user_out_file.close();
 
     op_status = _s_cgroups_mgr.assign_thread_to_cgroups(111, "yiguolei2", "aaaa");
-    ASSERT_EQ(AgentStatus::DORIS_SUCCESS, op_status);
+    ASSERT_EQ(Status::OK(), op_status);
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei2/tasks", 111));
 
     // user,level cgroup exist
@@ -153,7 +153,7 @@ TEST_F(CgroupsMgrTest, TestAssignThreadToCgroups) {
     group_out_file.close();
 
     op_status = _s_cgroups_mgr.assign_thread_to_cgroups(111, "yiguolei2", "low");
-    ASSERT_EQ(AgentStatus::DORIS_SUCCESS, op_status);
+    ASSERT_EQ(Status::OK(), op_status);
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei2/low/tasks", 111));
 }
 
@@ -163,9 +163,9 @@ TEST_F(CgroupsMgrTest, TestModifyUserCgroups) {
     user_share["cpu.shares"] = 100;
     level_share["low"] = 100;
     std::string user_name = "user_modify";
-    AgentStatus op_status = _s_cgroups_mgr.modify_user_cgroups(user_name, user_share, level_share);
+    Status op_status = _s_cgroups_mgr.modify_user_cgroups(user_name, user_share, level_share);
 
-    ASSERT_EQ(AgentStatus::DORIS_SUCCESS, op_status);
+    ASSERT_EQ(Status::OK(), op_status);
 
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/user_modify/cpu.shares", 100));
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/user_modify/low/cpu.shares", 100));
@@ -185,8 +185,8 @@ TEST_F(CgroupsMgrTest, TestUpdateLocalCgroups) {
     user_resource_result.resourceVersion = 2;
     user_resource_result.resourceByUser["yiguolei3"] = user_resource;
 
-    AgentStatus op_status = _s_cgroups_mgr.update_local_cgroups(user_resource_result);
-    ASSERT_EQ(AgentStatus::DORIS_SUCCESS, op_status);
+    Status op_status = _s_cgroups_mgr.update_local_cgroups(user_resource_result);
+    ASSERT_EQ(Status::OK(), op_status);
     ASSERT_EQ(2, _s_cgroups_mgr._cur_version);
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei3/cpu.shares", 100));
     ASSERT_TRUE(does_contain_number(_s_cgroup_path + "/yiguolei3/low/cpu.shares", 123));
@@ -195,8 +195,8 @@ TEST_F(CgroupsMgrTest, TestUpdateLocalCgroups) {
 
 TEST_F(CgroupsMgrTest, TestRelocateTasks) {
     // create a source cgroup, add some taskid into it
-    AgentStatus op_status = _s_cgroups_mgr.relocate_tasks("/a/b/c/d", _s_cgroup_path);
-    ASSERT_EQ(AgentStatus::DORIS_ERROR, op_status);
+    Status op_status = _s_cgroups_mgr.relocate_tasks("/a/b/c/d", _s_cgroup_path);
+    ASSERT_EQ(Status::DORIS_ERROR, op_status);
 }
 
 } // namespace doris

@@ -69,7 +69,7 @@ public class AlterTableStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    tbl.getTbl());
+                    tbl.getDb() + ": " + tbl.getTbl());
         }
         if (ops == null || ops.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_ALTER_OPERATION);
@@ -149,7 +149,7 @@ public class AlterTableStmt extends DdlStmt {
         ops = clauses;
     }
 
-    public void rewriteAlterClause(Table table) throws UserException {
+    public void checkExternalTableOperationAllow(Table table) throws UserException {
         List<AlterClause> clauses = new ArrayList<>();
         for (AlterClause alterClause : ops) {
             if (alterClause instanceof TableRenameClause ||
@@ -157,11 +157,12 @@ public class AlterTableStmt extends DdlStmt {
                     alterClause instanceof AddColumnsClause ||
                     alterClause instanceof DropColumnClause ||
                     alterClause instanceof ModifyColumnClause ||
-                    alterClause instanceof ReorderColumnsClause) {
+                    alterClause instanceof ReorderColumnsClause ||
+                    alterClause instanceof ModifyEngineClause) {
                 clauses.add(alterClause);
             } else {
-                throw new AnalysisException( table.getType().toString() + " [" + table.getName() + "] " +
-                          "do not support " + alterClause.getOpType().toString() + " clause now");
+                throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] " +
+                        "do not support " + alterClause.getOpType().toString() + " clause now");
             }
         }
         ops = clauses;

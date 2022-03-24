@@ -1,3 +1,15 @@
+diff -uprN a/cmake/zlib.cmake b/cmake/zlib.cmake
+--- a/cmake/zlib.cmake  2022-01-18 00:21:44.993277439 +0800
++++ b/cmake/zlib.cmake  2022-01-18 00:21:21.943260690 +0800
+@@ -52,7 +52,7 @@ MACRO (MYSQL_CHECK_ZLIB_WITH_COMPRESS)
+     INCLUDE(FindZLIB)
+     IF(ZLIB_FOUND)
+      INCLUDE(CheckFunctionExists)
+-      SET(CMAKE_REQUIRED_LIBRARIES z)
++      SET(CMAKE_REQUIRED_LIBRARIES ${ZLIB_LIBRARIES})
+       CHECK_FUNCTION_EXISTS(crc32 HAVE_CRC32)
+       CHECK_FUNCTION_EXISTS(compressBound HAVE_COMPRESSBOUND)
+       CHECK_FUNCTION_EXISTS(deflateBound HAVE_DEFLATEBOUND)
 diff -uprN a/cmake/boost.cmake b/cmake/boost.cmake
 --- a/cmake/boost.cmake	2021-09-28 17:56:01.656714647 +0800
 +++ b/cmake/boost.cmake	2021-09-28 17:58:09.156339908 +0800
@@ -39,3 +51,15 @@ diff -uprN a/cmd-line-utils/libedit/terminal.c b/cmd-line-utils/libedit/terminal
  
  
  	if (term == NULL)
+diff -uprN a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt    2022-01-23 23:30:48.915006943 +0800
++++ b/CMakeLists.txt    2022-01-23 23:31:04.785141731 +0800
+@@ -484,8 +484,6 @@ INCLUDE_DIRECTORIES(
+ MYSQL_CHECK_ZLIB_WITH_COMPRESS()
+ # Add bundled yassl/taocrypt or system openssl.
+ MYSQL_CHECK_SSL()
+-# Add system/bundled editline.
+-MYSQL_CHECK_EDITLINE()
+ # Add libevent
+ MYSQL_CHECK_LIBEVENT()
+ # Add lz4 library

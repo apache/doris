@@ -28,7 +28,7 @@ namespace doris {
 SpillSortNode::SpillSortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
-          _sorter(NULL),
+          _sorter(nullptr),
           _num_rows_skipped(0) {}
 
 SpillSortNode::~SpillSortNode() {}
@@ -60,7 +60,7 @@ Status SpillSortNode::open(RuntimeState* state) {
 
     // These objects must be created after opening the _sort_exec_exprs. Avoid creating
     // them after every reset()/open().
-    if (_sorter.get() == NULL) {
+    if (_sorter.get() == nullptr) {
         TupleRowComparator less_than(_sort_exec_exprs, _is_asc_order, _nulls_first);
         // Create and initialize the external sort impl object
         _sorter.reset(new SpillSorter(less_than, _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
@@ -124,7 +124,7 @@ Status SpillSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
 
 Status SpillSortNode::reset(RuntimeState* state) {
     _num_rows_skipped = 0;
-    if (_sorter.get() != NULL) {
+    if (_sorter.get() != nullptr) {
         _sorter->reset();
     }
     // return ExecNode::reset(state);
@@ -153,7 +153,7 @@ void SpillSortNode::debug_string(int indentation_level, stringstream* out) const
 }
 
 Status SpillSortNode::sort_input(RuntimeState* state) {
-    RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+    RowBatch batch(child(0)->row_desc(), state->batch_size());
     bool eos = false;
     do {
         batch.reset();

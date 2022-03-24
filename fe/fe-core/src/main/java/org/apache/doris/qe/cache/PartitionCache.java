@@ -57,8 +57,13 @@ public class PartitionCache extends Cache {
         return rewriteStmt;
     }
 
+    // only used for unit test
     public SelectStmt getNokeyStmt() {
         return nokeyStmt;
+    }
+
+    public String getSqlWithViewStmt() {
+        return nokeyStmt.toSql() + "|" + allViewExpandStmtListStr;
     }
 
     public PartitionCache(TUniqueId queryId, SelectStmt selectStmt) {
@@ -86,9 +91,8 @@ public class PartitionCache extends Cache {
             return null;
         }
 
-        String nokeyStmtWithViewStmt = nokeyStmt.toSql() + allViewExpandStmtListStr;
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
-                .setSqlKey(CacheProxy.getMd5(nokeyStmtWithViewStmt))
+                .setSqlKey(CacheProxy.getMd5(getSqlWithViewStmt()))
                 .addAllParams(range.getPartitionSingleList().stream().map(
                         p -> InternalService.PCacheParam.newBuilder()
                                 .setPartitionKey(p.getCacheKey().realValue())
@@ -130,9 +134,8 @@ public class PartitionCache extends Cache {
             return;
         }
 
-        String nokeyStmtWithViewStmt = nokeyStmt.toSql() + allViewExpandStmtListStr;
         InternalService.PUpdateCacheRequest updateRequest
-                = rowBatchBuilder.buildPartitionUpdateRequest(nokeyStmtWithViewStmt);
+                = rowBatchBuilder.buildPartitionUpdateRequest(getSqlWithViewStmt());
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();

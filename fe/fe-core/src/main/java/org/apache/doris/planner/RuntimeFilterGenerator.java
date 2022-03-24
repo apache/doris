@@ -153,22 +153,6 @@ public final class RuntimeFilterGenerator {
         int numBloomFilters = 0;
         for (RuntimeFilter filter: filters) {
             filter.extractTargetsPosition();
-            // When there is a remote target, the producer and consumer of the filter are not in the same fragment at
-            // this time, and the filter build by the producer needs to be merged. Currently, the IN filter has
-            // no merge logic, so replace it with Bloom Filter.
-            // The reason for this is that in the IN pushdown implemented by early Doris, when OlapScanNode and
-            // HashJoinNode are not in the same fragment, the IN filter will be pushed down to the nearest
-            // ExchangeNode, so that although it cannot be pushed down to the storage engine to improve performance,
-            // In some extreme cases, the number of rows in the hash table constructed by HashJoinNode can be reduced,
-            // thereby avoiding OOM. To cover the previous case (from tpcds 1T query 17), replace IN with Bloom Filter.
-            // Only when no Bloom Filter is generated, will IN be converted to Bloom Filter and pushed down.
-            if (filter.getType() == TRuntimeFilterType.IN && filter.hasRemoteTargets()) {
-                if ((runtimeFilterType & TRuntimeFilterType.BLOOM.getValue()) == 0) {
-                    filter.setType(TRuntimeFilterType.BLOOM);
-                } else {
-                    continue;
-                }
-            }
             if (filter.getType() == TRuntimeFilterType.BLOOM) {
                 if (numBloomFilters >= maxNumBloomFilters) continue;
                 ++numBloomFilters;

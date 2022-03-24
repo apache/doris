@@ -99,15 +99,15 @@ public:
     // If 'convert_ptrs' is true, converts pointers that are part of the tuple
     // into offsets in data, based on the provided offset. Otherwise they will be
     // pointers directly into data.
-    void deep_copy(const TupleDescriptor& desc, char** data, int* offset, bool convert_ptrs);
-    void deep_copy(const TupleDescriptor& desc, char** data, int* offset) {
+    void deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset, bool convert_ptrs);
+    void deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset) {
         deep_copy(desc, data, offset, false);
     }
 
     // Materialize this by evaluating the expressions in materialize_exprs
     // over the specified 'row'. 'pool' is used to allocate var-length data.
     // (Memory for this tuple itself must already be allocated.)
-    // If collect_string_vals is true, the materialized non-NULL string value
+    // If collect_string_vals is true, the materialized non-nullptr string value
     // slots and the total length of the string slots are returned in var_values
     // and total_var_len.
     template <bool collect_string_vals>

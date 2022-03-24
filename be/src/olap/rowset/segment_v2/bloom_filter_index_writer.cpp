@@ -28,7 +28,6 @@
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -69,11 +68,10 @@ public:
     using ValueDict = typename BloomFilterTraits<CppType>::ValueDict;
 
     explicit BloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options,
-                                        const TypeInfo* typeinfo)
+                                        std::shared_ptr<const TypeInfo> typeinfo)
             : _bf_options(bf_options),
               _typeinfo(typeinfo),
-              _tracker(new MemTracker(-1, "BloomFilterIndexWriterImpl")),
-              _pool(_tracker.get()),
+              _pool("BloomFilterIndexWriterImpl"),
               _has_null(false),
               _bf_buffer_size(0) {}
 
@@ -131,7 +129,7 @@ public:
         meta->set_algorithm(BLOCK_BLOOM_FILTER);
 
         // write bloom filters
-        const TypeInfo* bf_typeinfo = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        auto bf_typeinfo = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
         IndexedColumnWriterOptions options;
         options.write_ordinal_index = true;
         options.write_value_index = false;
@@ -162,8 +160,7 @@ private:
 
 private:
     BloomFilterOptions _bf_options;
-    const TypeInfo* _typeinfo;
-    std::shared_ptr<MemTracker> _tracker;
+    std::shared_ptr<const TypeInfo> _typeinfo;
     MemPool _pool;
     bool _has_null;
     uint64_t _bf_buffer_size;
@@ -176,7 +173,7 @@ private:
 
 // TODO currently we don't support bloom filter index for tinyint/hll/float/double
 Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
-                                      const TypeInfo* typeinfo,
+                                      std::shared_ptr<const TypeInfo> typeinfo,
                                       std::unique_ptr<BloomFilterIndexWriter>* res) {
     FieldType type = typeinfo->type();
     switch (type) {

@@ -17,8 +17,6 @@
 
 #include "exec/exchange_node.h"
 
-#include <boost/scoped_ptr.hpp>
-
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/data_stream_recvr.h"
@@ -32,7 +30,7 @@ namespace doris {
 ExchangeNode::ExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _num_senders(0),
-          _stream_recvr(NULL),
+          _stream_recvr(nullptr),
           _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
@@ -84,7 +82,7 @@ Status ExchangeNode::open(RuntimeState* state) {
         // create_merger() will populate its merging heap with batches from the _stream_recvr,
         // so it is not necessary to call fill_input_row_batch().
         if (state->enable_exchange_node_parallel_merge()) {
-            RETURN_IF_ERROR(_stream_recvr->create_parallel_merger(less_than, state->batch_size(), mem_tracker().get()));
+            RETURN_IF_ERROR(_stream_recvr->create_parallel_merger(less_than, state->batch_size()));
         } else {
             RETURN_IF_ERROR(_stream_recvr->create_merger(less_than));
         }
@@ -107,7 +105,7 @@ Status ExchangeNode::close(RuntimeState* state) {
     if (_is_merging) {
         _sort_exec_exprs.close(state);
     }
-    if (_stream_recvr != NULL) {
+    if (_stream_recvr != nullptr) {
         _stream_recvr->close();
     }
     // _stream_recvr.reset();
@@ -121,8 +119,8 @@ Status ExchangeNode::fill_input_row_batch(RuntimeState* state) {
         // SCOPED_TIMER(state->total_network_receive_timer());
         ret_status = _stream_recvr->get_batch(&_input_batch);
     }
-    VLOG_FILE << "exch: has batch=" << (_input_batch == NULL ? "false" : "true")
-              << " #rows=" << (_input_batch != NULL ? _input_batch->num_rows() : 0)
+    VLOG_FILE << "exch: has batch=" << (_input_batch == nullptr ? "false" : "true")
+              << " #rows=" << (_input_batch != nullptr ? _input_batch->num_rows() : 0)
               << " is_cancelled=" << (ret_status.is_cancelled() ? "true" : "false")
               << " instance_id=" << state->fragment_instance_id();
     return ret_status;
@@ -152,7 +150,7 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
             SCOPED_TIMER(_convert_row_batch_timer);
             RETURN_IF_CANCELLED(state);
             // copy rows until we hit the limit/capacity or until we exhaust _input_batch
-            while (!reached_limit() && !output_batch->at_capacity() && _input_batch != NULL &&
+            while (!reached_limit() && !output_batch->at_capacity() && _input_batch != nullptr &&
                    _next_row_idx < _input_batch->num_rows()) {
                 TupleRow* src = _input_batch->get_row(_next_row_idx);
 
@@ -191,12 +189,12 @@ Status ExchangeNode::get_next(RuntimeState* state, RowBatch* output_batch, bool*
         }
 
         // we need more rows
-        if (_input_batch != NULL) {
+        if (_input_batch != nullptr) {
             _input_batch->transfer_resource_ownership(output_batch);
         }
 
         RETURN_IF_ERROR(fill_input_row_batch(state));
-        *eos = (_input_batch == NULL);
+        *eos = (_input_batch == nullptr);
         if (*eos) {
             return Status::OK();
         }

@@ -51,7 +51,9 @@
         "next_column_unique_id": 3,
         "is_in_memory": false,
         "delete_sign_idx": -1,
-        "sequence_col_idx": -1
+        "sequence_col_idx": -1,
+        "sort_type": "LEXICAL",
+        "sort_col_num": 0
     },
     "rs_metas": [
         {
@@ -62,7 +64,6 @@
             "rowset_state": "VISIBLE",
             "start_version": 0,
             "end_version": 1,
-            "version_hash": 0,
             "num_rows": 0,
             "total_disk_size": 0,
             "data_disk_size": 0,
@@ -92,7 +93,6 @@
             "rowset_state": "VISIBLE",
             "start_version": 2,
             "end_version": 2,
-            "version_hash": 8391828013814912580,
             "num_rows": 3929,
             "total_disk_size": 84699,
             "data_disk_size": 84464,

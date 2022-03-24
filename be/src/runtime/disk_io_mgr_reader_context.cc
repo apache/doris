@@ -53,8 +53,8 @@ void DiskIoMgr::RequestContext::cancel(const Status& status) {
         // four queues.
         for (int i = 0; i < _disk_states.size(); ++i) {
             RequestContext::PerDiskState& state = _disk_states[i];
-            RequestRange* range = NULL;
-            while ((range = state.in_flight_ranges()->dequeue()) != NULL) {
+            RequestRange* range = nullptr;
+            while ((range = state.in_flight_ranges()->dequeue()) != nullptr) {
                 if (range->request_type() == RequestType::READ) {
                     static_cast<ScanRange*>(range)->cancel(status);
                 } else {
@@ -63,24 +63,24 @@ void DiskIoMgr::RequestContext::cancel(const Status& status) {
                 }
             }
 
-            ScanRange* scan_range = NULL;
-            while ((scan_range = state.unstarted_scan_ranges()->dequeue()) != NULL) {
+            ScanRange* scan_range = nullptr;
+            while ((scan_range = state.unstarted_scan_ranges()->dequeue()) != nullptr) {
                 scan_range->cancel(status);
             }
-            WriteRange* write_range = NULL;
-            while ((write_range = state.unstarted_write_ranges()->dequeue()) != NULL) {
+            WriteRange* write_range = nullptr;
+            while ((write_range = state.unstarted_write_ranges()->dequeue()) != nullptr) {
                 write_callbacks.push_back(write_range->_callback);
             }
         }
 
-        ScanRange* range = NULL;
-        while ((range = _ready_to_start_ranges.dequeue()) != NULL) {
+        ScanRange* range = nullptr;
+        while ((range = _ready_to_start_ranges.dequeue()) != nullptr) {
             range->cancel(status);
         }
-        while ((range = _blocked_ranges.dequeue()) != NULL) {
+        while ((range = _blocked_ranges.dequeue()) != nullptr) {
             range->cancel(status);
         }
-        while ((range = _cached_ranges.dequeue()) != NULL) {
+        while ((range = _cached_ranges.dequeue()) != nullptr) {
             range->cancel(status);
         }
 
@@ -120,10 +120,10 @@ void DiskIoMgr::RequestContext::add_request_range(DiskIoMgr::RequestRange* range
             state.unstarted_scan_ranges()->enqueue(scan_range);
             ++_num_unstarted_scan_ranges;
         }
-        // If next_scan_range_to_start is NULL, schedule this RequestContext so that it will
-        // be set. If it's not NULL, this context will be scheduled when GetNextRange() is
+        // If next_scan_range_to_start is nullptr, schedule this RequestContext so that it will
+        // be set. If it's not nullptr, this context will be scheduled when GetNextRange() is
         // invoked.
-        schedule_context = state.next_scan_range_to_start() == NULL;
+        schedule_context = state.next_scan_range_to_start() == nullptr;
     } else {
         DCHECK(range->request_type() == RequestType::WRITE);
         DCHECK(!schedule_immediately);
@@ -143,10 +143,10 @@ void DiskIoMgr::RequestContext::add_request_range(DiskIoMgr::RequestRange* range
 
 DiskIoMgr::RequestContext::RequestContext(DiskIoMgr* parent, int num_disks)
         : _parent(parent),
-          _bytes_read_counter(NULL),
-          _read_timer(NULL),
-          _active_read_thread_counter(NULL),
-          _disks_accessed_bitmap(NULL),
+          _bytes_read_counter(nullptr),
+          _read_timer(nullptr),
+          _active_read_thread_counter(nullptr),
+          _disks_accessed_bitmap(nullptr),
           _state(Inactive),
           _disk_states(num_disks) {}
 
@@ -155,10 +155,10 @@ void DiskIoMgr::RequestContext::reset(std::shared_ptr<MemTracker> tracker) {
     DCHECK_EQ(_state, Inactive);
     _status = Status::OK();
 
-    _bytes_read_counter = NULL;
-    _read_timer = NULL;
-    _active_read_thread_counter = NULL;
-    _disks_accessed_bitmap = NULL;
+    _bytes_read_counter = nullptr;
+    _read_timer = nullptr;
+    _active_read_thread_counter = nullptr;
+    _disks_accessed_bitmap = nullptr;
 
     _state = Active;
     _mem_tracker = std::move(tracker);

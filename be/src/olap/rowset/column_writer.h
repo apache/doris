@@ -128,7 +128,7 @@ public:
     ByteColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
                      const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~ByteColumnWriter();
-    virtual OLAPStatus init();
+    virtual OLAPStatus init() override;
 
     OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
@@ -154,9 +154,9 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
-    virtual void record_position();
-    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
+    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override;
+    virtual void record_position() override;
+    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
 
 private:
     RunLengthByteWriter* _writer;
@@ -199,7 +199,7 @@ public:
 
     virtual ~IntegerColumnWriterWrapper() {}
 
-    virtual OLAPStatus init() {
+    virtual OLAPStatus init() override {
         OLAPStatus res = OLAP_SUCCESS;
 
         res = ColumnWriter::init();
@@ -241,7 +241,7 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus flush() {
+    virtual OLAPStatus flush() override {
         OLAPStatus res = ColumnWriter::flush();
 
         if (OLAP_SUCCESS != res) {
@@ -259,7 +259,7 @@ public:
         return res;
     }
 
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) {
+    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override {
         OLAPStatus res = ColumnWriter::finalize(header);
 
         if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
@@ -270,7 +270,7 @@ public:
         return _writer.finalize(header);
     }
 
-    virtual void record_position() {
+    virtual void record_position() override {
         ColumnWriter::record_position();
         _writer.record_position(index_entry());
     }
@@ -287,11 +287,11 @@ public:
     DoubleColumnWriterBase(uint32_t column_id, OutStreamFactory* stream_factory,
                            const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp)
             : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
-              _stream(NULL) {}
+              _stream(nullptr) {}
 
     virtual ~DoubleColumnWriterBase() {}
 
-    virtual OLAPStatus init() {
+    virtual OLAPStatus init() override {
         OLAPStatus res = OLAP_SUCCESS;
 
         res = ColumnWriter::init();
@@ -302,7 +302,7 @@ public:
         OutStreamFactory* factory = stream_factory();
         _stream = factory->create_stream(unique_column_id(), StreamInfoMessage::DATA);
 
-        if (NULL == _stream) {
+        if (nullptr == _stream) {
             OLAP_LOG_WARNING("fail to allocate DATA STREAM");
             return OLAP_ERR_MALLOC_ERROR;
         }
@@ -311,7 +311,7 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
+    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
 
     OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
@@ -336,7 +336,7 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) {
+    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override {
         OLAPStatus res = OLAP_SUCCESS;
 
         res = ColumnWriter::finalize(header);
@@ -354,7 +354,7 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual void record_position() {
+    virtual void record_position() override {
         ColumnWriter::record_position();
         _stream->get_position(index_entry());
     }
@@ -375,7 +375,7 @@ public:
     VarStringColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
                           const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~VarStringColumnWriter();
-    virtual OLAPStatus init();
+    virtual OLAPStatus init() override;
 
     OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
@@ -399,11 +399,11 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual uint64_t estimate_buffered_memory();
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
-    virtual void save_encoding(ColumnEncodingMessage* encoding);
-    virtual void record_position();
-    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
+    virtual uint64_t estimate_buffered_memory() override;
+    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override;
+    virtual void save_encoding(ColumnEncodingMessage* encoding) override;
+    virtual void record_position() override;
+    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
 
 protected:
     //Write a piece of data directly without using cursor
@@ -476,7 +476,7 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
+    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
 
 private:
     uint32_t _length;
@@ -495,7 +495,7 @@ public:
     DecimalColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
                         const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~DecimalColumnWriter();
-    virtual OLAPStatus init();
+    virtual OLAPStatus init() override;
 
     OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
@@ -525,9 +525,9 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
-    virtual void record_position();
-    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
+    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override;
+    virtual void record_position() override;
+    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
 
 private:
     RunLengthIntegerWriter* _int_writer;
@@ -541,7 +541,7 @@ public:
     LargeIntColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
                          const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~LargeIntColumnWriter();
-    virtual OLAPStatus init();
+    virtual OLAPStatus init() override;
 
     OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
@@ -570,9 +570,9 @@ public:
         return OLAP_SUCCESS;
     }
 
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
-    virtual void record_position();
-    virtual OLAPStatus flush() { return OLAP_SUCCESS; }
+    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override;
+    virtual void record_position() override;
+    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
 
 private:
     RunLengthIntegerWriter* _high_writer;

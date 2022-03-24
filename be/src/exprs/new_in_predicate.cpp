@@ -93,7 +93,7 @@ BooleanVal InPredicate::templated_in(FunctionContext* ctx, const T& val, int num
     if (strategy == SET_LOOKUP) {
         SetLookupState<SetType>* state = reinterpret_cast<SetLookupState<SetType>*>(
                 ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        DCHECK(state != NULL);
+        DCHECK(state != nullptr);
         found = set_lookup(state, val);
     } else {
         DCHECK_EQ(strategy, ITERATE);
@@ -107,7 +107,7 @@ BooleanVal InPredicate::templated_in(FunctionContext* ctx, const T& val, int num
 
 template <typename T, typename SetType>
 BooleanVal InPredicate::set_lookup(SetLookupState<SetType>* state, const T& v) {
-    DCHECK(state != NULL);
+    DCHECK(state != nullptr);
     SetType val = get_val<T, SetType>(state->type, v);
     bool found = state->val_set.find(val) != state->val_set.end();
     if (found) {

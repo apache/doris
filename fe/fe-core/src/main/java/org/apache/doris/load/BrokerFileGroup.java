@@ -24,10 +24,10 @@ import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HiveTable;
+import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -35,8 +35,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -116,6 +116,33 @@ public class BrokerFileGroup implements Writable {
         this.lineDelimiter = Separator.convertSeparator(table.getLineDelimiter());
         this.isNegative = false;
         this.filePaths = table.getPaths();
+        this.fileFormat = table.getFileFormat();
+    }
+
+    // Used for hive table, no need to parse
+    public BrokerFileGroup(HiveTable table,
+                           String columnSeparator,
+                           String lineDelimiter,
+                           String filePath,
+                           String fileFormat,
+                           List<String> columnsFromPath,
+                           List<ImportColumnDesc> columnExprList) throws AnalysisException {
+        this.tableId = table.getId();
+        this.valueSeparator = Separator.convertSeparator(columnSeparator);
+        this.lineDelimiter = Separator.convertSeparator(lineDelimiter);
+        this.isNegative = false;
+        this.filePaths = Lists.newArrayList(filePath);
+        this.fileFormat = fileFormat;
+        this.columnsFromPath = columnsFromPath;
+        this.columnExprList = columnExprList;
+    }
+
+    // Used for iceberg table, no need to parse
+    public BrokerFileGroup(IcebergTable table) throws UserException {
+        this.tableId = table.getId();
+        this.isNegative = false;
+        this.valueSeparator = "|";
+        this.lineDelimiter = "\n";
         this.fileFormat = table.getFileFormat();
     }
 
@@ -532,17 +559,12 @@ public class BrokerFileGroup implements Writable {
             }
         }
         // file format
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_50) {
-            if (in.readBoolean()) {
-                fileFormat = Text.readString(in);
-            }
+        if (in.readBoolean()) {
+            fileFormat = Text.readString(in);
         }
-        // src table
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_87) {
-            srcTableId = in.readLong();
-            isLoadFromTable = in.readBoolean();
-        }
-
+        srcTableId = in.readLong();
+        isLoadFromTable = in.readBoolean();
+    
         // There are no columnExprList in the previous load job which is created before function is supported.
         // The columnExprList could not be analyzed without origin stmt in the previous load job.
         // So, the columnExprList need to be merged in here.

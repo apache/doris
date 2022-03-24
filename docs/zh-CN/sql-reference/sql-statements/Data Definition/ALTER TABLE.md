@@ -54,6 +54,7 @@ under the License.
             2) 如果没有指定分桶方式，则自动使用建表使用的分桶方式
             3) 如指定分桶方式，只能修改分桶数，不可修改分桶方式或分桶列
             4) ["key"="value"] 部分可以设置分区的一些属性，具体说明见 CREATE TABLE
+            5) 如果建表时用户未显式创建Partition,则不支持通过ALTER的方式增加分区
 
     2. 删除分区
         语法：
@@ -206,6 +207,13 @@ under the License.
         语法:
             MODIFY COLUMN col1 COMMENT "new column comment"
 
+	12. 修改引擎类型
+
+		仅支持将 MySQL 类型修改为 ODBC 类型。driver 的值为 odbc.init 配置中的 driver 名称。
+
+		语法：
+			MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
+
     rename 支持对以下名称进行修改：
     1. 修改表名
         语法：
@@ -222,14 +230,14 @@ under the License.
     bitmap index 支持如下几种修改方式
     1. 创建bitmap 索引
         语法：
-            ADD INDEX index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
+            ADD INDEX [IF NOT EXISTS] index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
         注意：
             1. 目前仅支持bitmap 索引
             1. BITMAP 索引仅在单列上创建
 
     2. 删除索引
         语法：
-            DROP INDEX index_name；
+            DROP INDEX [IF EXISTS] index_name；
 
 ## example
 
@@ -361,15 +369,17 @@ under the License.
 
         ALTER TABLE example_db.my_table set ("colocate_with" = "t1");
 
-    13. 将表的分桶方式由 Random Distribution 改为 Hash Distribution
+    13. 将表的分桶方式由 Hash Distribution 改为 Random Distribution
 
-        ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
+        ALTER TABLE example_db.my_table set ("distribution_type" = "random");
     
     14. 修改表的动态分区属性(支持未添加动态分区属性的表添加动态分区属性)
         ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
         
         如果需要在未添加动态分区属性的表中添加动态分区属性，则需要指定所有的动态分区属性
+        (注:非分区表不支持添加动态分区属性)        
         ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+
     15. 修改表的 in_memory 属性
 
         ALTER TABLE example_db.my_table set ("in_memory" = "true");
@@ -390,6 +400,10 @@ under the License.
     20. 修改列注释
 
         ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
+
+	21. 修改引擎类型
+
+		ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
     
     [rename]
     1. 将名为 table1 的表修改为 table2
@@ -402,9 +416,9 @@ under the License.
         ALTER TABLE example_table RENAME PARTITION p1 p2;
     [index]
     1. 在table1 上为siteid 创建bitmap 索引
-        ALTER TABLE table1 ADD INDEX index_name (siteid) [USING BITMAP] COMMENT 'balabala';
+        ALTER TABLE table1 ADD INDEX [IF NOT EXISTS] index_name (siteid) [USING BITMAP] COMMENT 'balabala';
     2. 删除table1 上的siteid列的bitmap 索引
-        ALTER TABLE table1 DROP INDEX index_name;
+        ALTER TABLE table1 DROP INDEX [IF EXISTS] index_name;
 
 ## keyword
 

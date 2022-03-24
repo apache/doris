@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -68,6 +69,8 @@ public class TableProperty implements Writable {
      * This property should be set when creating the table, and can only be changed to V2 using Alter Table stmt.
      */
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
+
+    private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
@@ -127,6 +130,17 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildDataSortInfo() {
+        HashMap<String, String> dataSortInfoProperties = new HashMap<>();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(DataSortInfo.DATA_SORT_PROPERTY_PREFIX)) {
+                dataSortInfoProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
+        dataSortInfo = new DataSortInfo(dataSortInfoProperties);
+        return this;
+    }
+
     public TableProperty buildStorageFormat() {
         storageFormat = TStorageFormat.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT,
                 TStorageFormat.DEFAULT.name()));
@@ -135,6 +149,12 @@ public class TableProperty implements Writable {
 
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
+        removeDuplicateReplicaNumProperty();
+    }
+
+    public void modifyDataSortInfoProperties(DataSortInfo dataSortInfo) {
+        properties.put(DataSortInfo.DATA_SORT_TYPE, String.valueOf(dataSortInfo.getSortType()));
+        properties.put(DataSortInfo.DATA_SORT_COL_NUM, String.valueOf(dataSortInfo.getColNum()));
     }
 
     public void setReplicaAlloc(ReplicaAllocation replicaAlloc) {
@@ -178,6 +198,10 @@ public class TableProperty implements Writable {
         return storageFormat;
     }
 
+    public DataSortInfo getDataSortInfo() {
+        return dataSortInfo;
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" with remove the property
@@ -200,7 +224,8 @@ public class TableProperty implements Writable {
         TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
                 .executeBuildDynamicProperty()
                 .buildInMemory()
-                .buildStorageFormat();
+                .buildStorageFormat()
+                .buildDataSortInfo();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
@@ -213,7 +238,18 @@ public class TableProperty implements Writable {
                         ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt());
             }
         }
+        tableProperty.removeDuplicateReplicaNumProperty();
         tableProperty.buildReplicaAllocation();
         return tableProperty;
+    }
+
+    // For some historical reason, both "dynamic_partition.replication_num" and "dynamic_partition.replication_allocation"
+    // may be exist in "properties". we need remove the "dynamic_partition.replication_num", or it will always replace
+    // the "dynamic_partition.replication_allocation", result in unable to set "dynamic_partition.replication_allocation".
+    private void removeDuplicateReplicaNumProperty() {
+        if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)
+                && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
+            properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
+        }
     }
 }

@@ -1,4 +1,4 @@
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -23,18 +23,17 @@ under the License.
 
 您对 Doris 的各种建议、意见、评论可以直接通过 GitHub 的 [Issues](https://github.com/apache/incubator-doris/issues/new/choose) 提出。
 
-参与 Doris 项目并为其作出贡献的方法有很多：代码实现、测试编写、流程工具改进、文档完善等等。任何贡献我们都会非常欢迎，并将您加入贡献者列表，进一步，有了足够的贡献后，您还可以有机会成为 Aapche 的 Commiter，拥有 Apache 邮箱，并被收录到 [Apache Commiter 列表中](http://people.apache.org/committer-index.html)。
+参与 Doris 项目并为其作出贡献的方法有很多：代码实现、测试编写、流程工具改进、文档完善等等。任何贡献我们都会非常欢迎，并将您加入贡献者列表，进一步，有了足够的贡献后，您还可以有机会成为 Apache 的 Commiter，拥有 Apache 邮箱，并被收录到 [Apache Commiter 列表中](http://people.apache.org/committer-index.html)。
 
-任何问题，您都可以联系我们得到及时解答，联系方式包括微信、Gitter（GitHub提供的即时聊天工具）、邮件等等。
+任何问题，您都可以联系我们得到及时解答，联系方式包括 dev 邮件组，Slack 等。
 
 ## 初次接触
 
 初次来到 Doris 社区，您可以：
 
 * 关注 Doris [Github 代码库](https://github.com/apache/incubator-doris)
-* 订阅我们的 [邮件列表](./subscribe-mail-list.md)； 
-* 加入 Doris 微信群(加微信号：morningman-cmy, 备注：加入Doris群) 随时提问；
-* 进入 Doris 的 [Gitter](./gitter.md) 聊天室；
+* 订阅我们的 [邮件列表](./subscribe-mail-list.md)；
+* 加入 Doris 的 [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
 
 通过以上方式及时了解 Doris 项目的开发动态并为您关注的话题发表意见。
 

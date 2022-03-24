@@ -19,9 +19,14 @@
 
 #include "common/logging.h"
 #include "gutil/strings/substitute.h" // for Substitute
-#include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "runtime/mem_pool.h"
 #include "util/slice.h" // for Slice
+#include "vec/columns/column.h"
+#include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/predicate_column.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -34,8 +39,7 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
-          _tracker(new MemTracker()),
-          _pool(_tracker.get()) {
+          _pool("BinaryDictPageBuilder") {
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
     _data_page_builder.reset(new BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>(options));
@@ -129,7 +133,6 @@ void BinaryDictPageBuilder::reset() {
     } else {
         _data_page_builder->reset();
     }
-    _finished = false;
 }
 
 size_t BinaryDictPageBuilder::count() const {
@@ -203,10 +206,10 @@ Status BinaryDictPageDecoder::init() {
     if (_encoding_type == DICT_ENCODING) {
         // copy the codewords into a temporary buffer first
         // And then copy the strings corresponding to the codewords to the destination buffer
-        TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
+        auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
 
         RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
-        _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
+        _data_page_decoder.reset(_bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
         _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
@@ -220,6 +223,8 @@ Status BinaryDictPageDecoder::init() {
     return Status::OK();
 }
 
+BinaryDictPageDecoder::~BinaryDictPageDecoder() {}
+
 Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
     return _data_page_decoder->seek_to_position_in_page(pos);
 }
@@ -228,9 +233,48 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
     return _encoding_type == DICT_ENCODING;
 }
 
-void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder) {
+void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
     _dict_decoder = (BinaryPlainPageDecoder*)dict_decoder;
+    _dict_word_info = dict_word_info;
 };
+
+Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
+    if (_encoding_type == PLAIN_ENCODING) {
+        // todo(zeno) Handle convert in ColumnDictionary,
+        //  add interface like convert_to_predicate_column_if_necessary
+        auto* col_ptr = dst.get();
+        if (dst->is_nullable()) {
+            auto nullable_col = reinterpret_cast<vectorized::ColumnNullable*>(dst.get());
+            col_ptr = nullable_col->get_nested_column_ptr().get();
+        }
+
+        if (col_ptr->is_column_dictionary()) {
+            auto* dict_col_ptr = reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>*>(col_ptr);
+            col_ptr = (*std::move(dict_col_ptr->convert_to_predicate_column())).assume_mutable();
+        }
+        return _data_page_decoder->next_batch(n, dst);
+    }
+    // dictionary encoding
+    DCHECK(_parsed);
+    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
+ 
+    if (PREDICT_FALSE(*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements)) {
+        *n = 0;
+        return Status::OK();
+    }
+ 
+    size_t max_fetch = std::min(*n, static_cast<size_t>(_bit_shuffle_ptr->_num_elements - _bit_shuffle_ptr->_cur_index));
+    *n = max_fetch;
+ 
+    const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->_chunk.data);
+    size_t start_index = _bit_shuffle_ptr->_cur_index;
+
+    dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch, _dict_decoder->_num_elems);
+
+    _bit_shuffle_ptr->_cur_index += max_fetch;
+ 
+    return Status::OK();
+}
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     if (_encoding_type == PLAIN_ENCODING) {
@@ -243,7 +287,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     if (PREDICT_FALSE(*n == 0)) {
         return Status::OK();
     }
-    Slice* out = reinterpret_cast<Slice*>(dst->data());
+    auto* out = reinterpret_cast<Slice*>(dst->data());
 
     _batch->resize(*n);
 
@@ -256,7 +300,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
     for (int i = 0; i < len; ++i) {
         int32_t codeword = *reinterpret_cast<const int32_t*>(column_block.cell_ptr(i));
         // get the string from the dict decoder
-        *out = _dict_decoder->string_at_index(codeword);
+        *out = Slice(_dict_word_info[codeword].data, _dict_word_info[codeword].size);
         mem_len[i] = out->size;
         out++;
     }

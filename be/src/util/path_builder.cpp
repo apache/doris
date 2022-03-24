@@ -26,7 +26,7 @@ namespace doris {
 const char* PathBuilder::_s_doris_home;
 
 void PathBuilder::load_doris_home() {
-    if (_s_doris_home != NULL) {
+    if (_s_doris_home != nullptr) {
         return;
     }
 

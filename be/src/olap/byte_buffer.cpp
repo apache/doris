@@ -24,7 +24,7 @@
 namespace doris {
 
 StorageByteBuffer::StorageByteBuffer()
-        : _array(NULL), _capacity(0), _limit(0), _position(0), _is_mmap(false) {}
+        : _array(nullptr), _capacity(0), _limit(0), _position(0), _is_mmap(false) {}
 
 StorageByteBuffer::BufDeleter::BufDeleter() : _is_mmap(false), _mmap_length(0) {}
 
@@ -34,7 +34,7 @@ void StorageByteBuffer::BufDeleter::set_mmap(size_t mmap_length) {
 }
 
 void StorageByteBuffer::BufDeleter::operator()(char* p) {
-    if (NULL == p) {
+    if (nullptr == p) {
         return;
     }
 
@@ -53,8 +53,8 @@ StorageByteBuffer* StorageByteBuffer::create(uint64_t capacity) {
     char* memory = new (std::nothrow) char[capacity];
     StorageByteBuffer* buf = new (std::nothrow) StorageByteBuffer;
 
-    if (buf != NULL && memory != NULL) {
-        buf->_buf = boost::shared_ptr<char>(memory, BufDeleter());
+    if (buf != nullptr && memory != nullptr) {
+        buf->_buf = std::shared_ptr<char>(memory, BufDeleter());
         buf->_array = buf->_buf.get();
         buf->_capacity = capacity;
         buf->_limit = capacity;
@@ -62,24 +62,24 @@ StorageByteBuffer* StorageByteBuffer::create(uint64_t capacity) {
     }
 
     SAFE_DELETE(buf);
-    SAFE_DELETE(memory);
-    return NULL;
+    SAFE_DELETE_ARRAY(memory);
+    return nullptr;
 }
 
 StorageByteBuffer* StorageByteBuffer::reference_buffer(StorageByteBuffer* reference,
                                                        uint64_t offset, uint64_t length) {
-    if (NULL == reference || 0 == length) {
-        return NULL;
+    if (nullptr == reference || 0 == length) {
+        return nullptr;
     }
 
     if (offset + length > reference->capacity()) {
-        return NULL;
+        return nullptr;
     }
 
     StorageByteBuffer* buf = new (std::nothrow) StorageByteBuffer();
 
-    if (NULL == buf) {
-        return NULL;
+    if (nullptr == buf) {
+        return nullptr;
     }
 
     buf->_buf = reference->_buf;
@@ -97,7 +97,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int pro
 
     if (MAP_FAILED == memory) {
         OLAP_LOG_WARNING("fail to mmap. [errno='%d' errno_str='%s']", Errno::no(), Errno::str());
-        return NULL;
+        return nullptr;
     }
 
     BufDeleter deleter;
@@ -105,13 +105,13 @@ StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int pro
 
     StorageByteBuffer* buf = new (std::nothrow) StorageByteBuffer();
 
-    if (NULL == buf) {
+    if (nullptr == buf) {
         deleter(memory);
         OLAP_LOG_WARNING("fail to allocate StorageByteBuffer.");
-        return NULL;
+        return nullptr;
     }
 
-    buf->_buf = boost::shared_ptr<char>(memory, deleter);
+    buf->_buf = std::shared_ptr<char>(memory, deleter);
     buf->_array = buf->_buf.get();
     buf->_capacity = length;
     buf->_limit = length;
@@ -121,18 +121,18 @@ StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int pro
 
 StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset, int prot,
                                            int flags) {
-    if (NULL == handler) {
+    if (nullptr == handler) {
         OLAP_LOG_WARNING("invalid file handler");
-        return NULL;
+        return nullptr;
     }
 
     size_t length = handler->length();
     int fd = handler->fd();
-    char* memory = (char*)::mmap(NULL, length, prot, flags, fd, offset);
+    char* memory = (char*)::mmap(nullptr, length, prot, flags, fd, offset);
 
     if (MAP_FAILED == memory) {
         OLAP_LOG_WARNING("fail to mmap. [errno='%d' errno_str='%s']", Errno::no(), Errno::str());
-        return NULL;
+        return nullptr;
     }
 
     BufDeleter deleter;
@@ -140,13 +140,13 @@ StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset
 
     StorageByteBuffer* buf = new (std::nothrow) StorageByteBuffer();
 
-    if (NULL == buf) {
+    if (nullptr == buf) {
         deleter(memory);
         OLAP_LOG_WARNING("fail to allocate StorageByteBuffer.");
-        return NULL;
+        return nullptr;
     }
 
-    buf->_buf = boost::shared_ptr<char>(memory, deleter);
+    buf->_buf = std::shared_ptr<char>(memory, deleter);
     buf->_array = buf->_buf.get();
     buf->_capacity = length;
     buf->_limit = length;

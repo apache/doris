@@ -31,18 +31,18 @@ public:
         return pool->add(new TupleIsNullPredicate(*this));
     }
 
-    bool is_constant() const override {
-        return false;
-    }
+    bool is_constant() const override { return false; }
+
 protected:
     friend class Expr;
 
     TupleIsNullPredicate(const TExprNode& node);
 
-    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx);
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                           ExprContext* ctx) override;
 
-    virtual BooleanVal get_boolean_val(ExprContext* ctx, TupleRow* row);
-    virtual std::string debug_string() const;
+    virtual BooleanVal get_boolean_val(ExprContext* ctx, TupleRow* row) override;
+    virtual std::string debug_string() const override;
 
 private:
     std::vector<TupleId> _tuple_ids;

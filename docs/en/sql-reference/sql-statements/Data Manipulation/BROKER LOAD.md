@@ -69,8 +69,8 @@ under the License.
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
             [(column_list)]
-            [PRECEDING FILTER predicate]
             [SET (k1 = func(k2))]
+            [PRECEDING FILTER predicate]
             [WHERE predicate] 
             [DELETE ON label=true]
             [read_properties]
@@ -110,10 +110,6 @@ under the License.
             syntax:
             (col_name1, col_name2, ...)
 
-            PRECEDING FILTER predicate:
-
-            Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
-            
             SET:
             
             If this parameter is specified, a column of the source file can be transformed according to a function, and then the transformed result can be loaded into the table. The grammar is `column_name = expression`. Some examples are given to help understand.
@@ -121,6 +117,10 @@ under the License.
             Example 1: There are three columns "c1, c2, c3" in the table. The first two columns in the source file correspond in turn (c1, c2), and the last two columns correspond to c3. Then, column (c1, c2, tmp_c3, tmp_c4) SET (c3 = tmp_c3 + tmp_c4) should be specified.
 
             Example 2: There are three columns "year, month, day" in the table. There is only one time column in the source file, in the format of "2018-06-01:02:03". Then you can specify columns (tmp_time) set (year = year (tmp_time), month = month (tmp_time), day = day (tmp_time)) to complete the import.
+
+            PRECEDING FILTER predicate:
+
+            Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
 
             WHERE:
           
@@ -171,20 +171,20 @@ under the License.
 
         Used to provide Broker access to data sources. Different brokers, and different access methods, need to provide different information.
 
-        1. Baidu HDFS/AFS
+        4.1. Baidu HDFS/AFS
 
             Access to Baidu's internal hdfs/afs currently only supports simple authentication, which needs to be provided:
             
             username: hdfs username
             password: hdfs password
 
-        2. BOS
+        4.2. BOS
 
             bos_endpoint.
             bos_accesskey: cloud user's accesskey
             bos_secret_accesskey: cloud user's secret_accesskey
         
-        3. Apache HDFS
+        4.3. Apache HDFS
 
             Community version of HDFS supports simple authentication, Kerberos authentication, and HA configuration.
 
@@ -205,12 +205,12 @@ under the License.
             dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"
             dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
             dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
-        4. Amazon S3
+        4.4. Amazon S3
 
             fs.s3a.access.key：AmazonS3的access key
             fs.s3a.secret.key：AmazonS3的secret key
             fs.s3a.endpoint：AmazonS3的endpoint 
-        5. If using the S3 protocol to directly connect to the remote storage, you need to specify the following attributes 
+        4.5. If using the S3 protocol to directly connect to the remote storage, you need to specify the following attributes 
 
             (
                 "AWS_ENDPOINT" = "",
@@ -218,13 +218,15 @@ under the License.
                 "AWS_SECRET_KEY"="",
                 "AWS_REGION" = ""
             )
-        6. if using load with hdfs, you need to specify the following attributes 
+        4.6. if using load with hdfs, you need to specify the following attributes 
             (
                 "fs.defaultFS" = "",
                 "hdfs_user"="",
-                "kerb_principal" = "",
-                "kerb_ticket_cache_path" = "",
-                "kerb_token" = ""
+                "dfs.nameservices"="my_ha",
+                "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
+                "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",
+                "dfs.namenode.rpc-address.xxx.my_nn2"="host2:port",
+                "dfs.client.failover.proxy.provider.xxx"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
             )
             fs.defaultFS: defaultFS
             hdfs_user: hdfs user
@@ -235,7 +237,7 @@ under the License.
             dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
             dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
 
-    4. opt_properties
+    5. opt_properties
 
         Used to specify some special parameters. 
         Syntax:
@@ -254,8 +256,10 @@ under the License.
         timezone: Specify time zones for functions affected by time zones, such as strftime/alignment_timestamp/from_unixtime, etc. See the documentation for details. If not specified, use the "Asia/Shanghai" time zone.
 
         send_batch_parallelism: Used to set the default parallelism for sending batch, if the value for parallelism exceed `max_send_batch_parallelism_per_job` in BE config, then the coordinator BE will use the value of `max_send_batch_parallelism_per_job`.
+        
+        load_to_single_tablet: Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random partition. 
 
-    5. Load data format sample
+    6. Load data format sample
 
         Integer（TINYINT/SMALLINT/INT/BIGINT/LARGEINT）: 1, 1000, 1234
         Float（FLOAT/DOUBLE/DECIMAL）: 1.1, 0.23, .356
@@ -530,8 +534,8 @@ under the License.
          INTO TABLE `tbl1`
          COLUMNS TERMINATED BY ","
          (k1,k2,v1,v2)
-         PRECEDING FILTER k1 > 2
          SET (k1 = k1 +1)
+         PRECEDING FILTER k1 > 2
          WHERE k1 > 3
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
@@ -570,7 +574,7 @@ under the License.
         ) 
         with HDFS (
             "fs.defaultFS"="hdfs://testFs",
-            "hdfs_user"="user"
+            "hdfs_user"="user",
             "dfs.nameservices"="my_ha",
             "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
             "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",

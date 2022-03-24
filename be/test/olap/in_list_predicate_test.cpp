@@ -87,13 +87,13 @@ static std::string to_datetime_string(uint64_t& datetime_value) {
 
 class TestInListPredicate : public testing::Test {
 public:
-    TestInListPredicate() : _vectorized_batch(NULL), _row_block(nullptr) {
+    TestInListPredicate() : _vectorized_batch(nullptr), _row_block(nullptr) {
         _mem_tracker.reset(new MemTracker(-1));
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
 
     ~TestInListPredicate() {
-        if (_vectorized_batch != NULL) {
+        if (_vectorized_batch != nullptr) {
             delete _vectorized_batch;
         }
     }
@@ -125,14 +125,15 @@ public:
     }
 
     void init_row_block(const TabletSchema* tablet_schema, int size) {
-        Schema schema(*tablet_schema);
-        _row_block.reset(new RowBlockV2(schema, size));
+        _schema = std::make_unique<Schema>(*tablet_schema);
+        _row_block.reset(new RowBlockV2(*_schema, size));
     }
 
     std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     VectorizedRowBatch* _vectorized_batch;
     std::unique_ptr<RowBlockV2> _row_block;
+    std::unique_ptr<Schema> _schema;
 };
 
 #define TEST_IN_LIST_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE)                                       \

@@ -32,6 +32,7 @@ import org.apache.doris.rewrite.ExprRewriteRule;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 
@@ -48,7 +49,7 @@ public class CountFieldToSum implements ExprRewriteRule {
     public static final ExprRewriteRule INSTANCE = new CountFieldToSum();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         // meet condition
         if (!(expr instanceof FunctionCallExpr)) {
             return expr;

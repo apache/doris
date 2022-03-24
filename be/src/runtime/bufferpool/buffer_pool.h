@@ -20,7 +20,6 @@
 
 #include <stdint.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <string>
 #include <vector>
 
@@ -149,7 +148,7 @@ class MemTracker;
 /// same Client, PageHandle or BufferHandle.
 class BufferPool : public CacheLineAligned {
 public:
-    class BufferAllocator;
+    struct BufferAllocator;
     class BufferHandle;
     class ClientHandle;
     class PageHandle;
@@ -166,9 +165,9 @@ public:
 
     /// Register a client. Returns an error status and does not register the client if the
     /// arguments are invalid. 'name' is an arbitrary name used to identify the client in
-    /// any errors messages or logging. If 'file_group' is non-NULL, it is used to allocate
-    /// scratch space to write unpinned pages to disk. If it is NULL, unpinning of pages is
-    /// not allowed for this client. Counters for this client are added to the (non-NULL)
+    /// any errors messages or logging. If 'file_group' is non-nullptr, it is used to allocate
+    /// scratch space to write unpinned pages to disk. If it is nullptr, unpinning of pages is
+    /// not allowed for this client. Counters for this client are added to the (non-nullptr)
     /// 'profile'. 'client' is the client to register. 'client' must not already be
     /// registered.
     ///
@@ -189,7 +188,7 @@ public:
     /// sufficient unused reservation to pin the new page (otherwise it will DCHECK).
     /// CreatePage() only fails when a system error prevents the buffer pool from fulfilling
     /// the reservation.
-    /// On success, the handle is mapped to the new page and 'buffer', if non-NULL, is set
+    /// On success, the handle is mapped to the new page and 'buffer', if non-nullptr, is set
     /// to the page's buffer.
     Status CreatePage(ClientHandle* client, int64_t len, PageHandle* handle,
                       const BufferHandle** buffer = nullptr) WARN_UNUSED_RESULT;
@@ -296,11 +295,11 @@ private:
     class Client;
     class FreeBufferArena;
     class PageList;
-    struct Page;
+    class Page;
 
     /// Allocator for allocating and freeing all buffer memory and managing lists of free
     /// buffers and clean pages.
-    boost::scoped_ptr<BufferAllocator> allocator_;
+    std::unique_ptr<BufferAllocator> allocator_;
 
     /// The minimum length of a buffer in bytes. All buffers and pages are a power-of-two
     /// multiple of this length. This is always a power of two.
@@ -315,7 +314,7 @@ private:
 /// Client methods or BufferPool methods with the Client as an argument is not supported.
 class BufferPool::ClientHandle {
 public:
-    ClientHandle() : impl_(NULL) {}
+    ClientHandle() : impl_(nullptr) {}
     /// Client must be deregistered.
     ~ClientHandle() { DCHECK(!is_registered()); }
 
@@ -362,7 +361,7 @@ public:
     /// Call SetDebugDenyIncreaseReservation() on this client's ReservationTracker.
     void SetDebugDenyIncreaseReservation(double probability);
 
-    bool is_registered() const { return impl_ != NULL; }
+    bool is_registered() const { return impl_ != nullptr; }
 
     /// Return true if there are any unpinned pages for this client.
     bool has_unpinned_pages() const;
@@ -375,7 +374,7 @@ private:
     friend class SubReservation;
     DISALLOW_COPY_AND_ASSIGN(ClientHandle);
 
-    /// Internal state for the client. NULL means the client isn't registered.
+    /// Internal state for the client. nullptr means the client isn't registered.
     /// Owned by BufferPool.
     Client* impl_;
 };
@@ -402,7 +401,7 @@ private:
     /// Child of the client's tracker used to track the sub-reservation. Usage is not
     /// tracked against this tracker - instead the reservation is always transferred back
     /// to the client's tracker before use.
-    boost::scoped_ptr<ReservationTracker> tracker_;
+    std::unique_ptr<ReservationTracker> tracker_;
 };
 
 /// A handle to a buffer allocated from the buffer pool. Each BufferHandle should only
@@ -421,7 +420,7 @@ public:
     /// Destination must be uninitialized. Inline to make moving efficient.
     inline BufferHandle& operator=(BufferHandle&& src);
 
-    bool is_open() const { return data_ != NULL; }
+    bool is_open() const { return data_ != nullptr; }
     int64_t len() const {
         DCHECK(is_open());
         return len_;
@@ -457,10 +456,10 @@ private:
     inline void Reset();
 
     /// The client the buffer handle belongs to, used to validate that the correct client
-    /// is provided in BufferPool method calls. Set to NULL if the buffer is in a free list.
+    /// is provided in BufferPool method calls. Set to nullptr if the buffer is in a free list.
     const ClientHandle* client_;
 
-    /// Pointer to the start of the buffer. Non-NULL if open, NULL if closed.
+    /// Pointer to the start of the buffer. Non-nullptr if open, nullptr if closed.
     uint8_t* data_;
 
     /// Length of the buffer in bytes.
@@ -486,7 +485,7 @@ public:
     // Destination must be closed.
     PageHandle& operator=(PageHandle&& src);
 
-    bool is_open() const { return page_ != NULL; }
+    bool is_open() const { return page_ != nullptr; }
     bool is_pinned() const { return pin_count() > 0; }
     int pin_count() const;
     int64_t len() const;
@@ -514,7 +513,7 @@ private:
     /// Internal helper to reset the handle to an unopened state.
     void Reset();
 
-    /// The internal page structure. NULL if the handle is not open.
+    /// The internal page structure. nullptr if the handle is not open.
     Page* page_;
 
     /// The client the page handle belongs to.
@@ -538,8 +537,8 @@ inline BufferPool::BufferHandle& BufferPool::BufferHandle::operator=(BufferHandl
 }
 
 inline void BufferPool::BufferHandle::Reset() {
-    client_ = NULL;
-    data_ = NULL;
+    client_ = nullptr;
+    data_ = nullptr;
     len_ = -1;
     home_core_ = -1;
 }

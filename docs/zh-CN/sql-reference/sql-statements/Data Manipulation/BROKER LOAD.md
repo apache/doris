@@ -29,7 +29,7 @@ under the License.
 
     Broker load 通过随 Doris 集群一同部署的 broker 进行，访问对应数据源的数据，进行数据导入。
     可以通过 show broker 命令查看已经部署的 broker。
-    目前支持以下4种数据源：
+    目前支持以下5种数据源：
 
     1. Baidu HDFS：百度内部的 hdfs，仅限于百度内部使用。
     2. Baidu AFS：百度内部的 afs，仅限于百度内部使用。
@@ -68,8 +68,8 @@ under the License.
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
             [(column_list)]
-            [PRECEDING FILTER predicate]
             [SET (k1 = func(k2))]
+            [PRECEDING FILTER predicate]
             [WHERE predicate]
             [DELETE ON label=true]
             [ORDER BY source_sequence]
@@ -106,16 +106,16 @@ under the License.
             语法：
             (col_name1, col_name2, ...)
 
-            PRECEDING FILTER predicate:
-
-            用于过滤原始数据。原始数据是未经列映射、转换的数据。用户可以在对转换前的数据前进行一次过滤，选取期望的数据，再进行转换。
-            
             SET:
 
             如果指定此参数，可以将源文件某一列按照函数进行转化，然后将转化后的结果导入到table中。语法为 `column_name` = expression。举几个例子帮助理解。
             例1: 表中有3个列“c1, c2, c3", 源文件中前两列依次对应(c1,c2)，后两列之和对应c3；那么需要指定 columns (c1,c2,tmp_c3,tmp_c4) SET (c3=tmp_c3+tmp_c4); 
             例2: 表中有3个列“year, month, day"三个列，源文件中只有一个时间列，为”2018-06-01 01:02:03“格式。
             那么可以指定 columns(tmp_time) set (year = year(tmp_time), month=month(tmp_time), day=day(tmp_time)) 完成导入。
+
+            PRECEDING FILTER predicate:
+
+            用于过滤原始数据。原始数据是未经列映射、转换的数据。用户可以在对转换前的数据前进行一次过滤，选取期望的数据，再进行转换。
 
             WHERE:
           
@@ -161,7 +161,7 @@ under the License.
 
              num_as_string： 布尔类型，为true表示在解析json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
 
-      3. broker_name
+    3. broker_name
 
         所使用的 broker 名称，可以通过 show broker 命令查看。
 
@@ -169,20 +169,20 @@ under the License.
 
         用于提供通过 broker 访问数据源的信息。不同的 broker，以及不同的访问方式，需要提供的信息不同。
 
-        1. Baidu HDFS/AFS
+        4.1. Baidu HDFS/AFS
 
             访问百度内部的 hdfs/afs 目前仅支持简单认证，需提供：
             username：hdfs 用户名
             password：hdfs 密码
 
-        2. BOS
+        4.2. BOS
 
             需提供：
             bos_endpoint：BOS 的endpoint
             bos_accesskey：公有云用户的 accesskey
             bos_secret_accesskey：公有云用户的 secret_accesskey
         
-        3. Apache HDFS
+        4.3. Apache HDFS
 
             社区版本的 hdfs，支持简单认证、kerberos 认证。以及支持 HA 配置。
             简单认证：
@@ -203,13 +203,13 @@ under the License.
             dfs.namenode.rpc-address.xxx.nn：指定 namenode 的rpc地址信息。其中 nn 表示 dfs.ha.namenodes.xxx 中配置的 namenode 的名字，如："dfs.namenode.rpc-address.my_ha.my_nn" = "host:port"
             dfs.client.failover.proxy.provider：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
 
-        4. Amazon S3
+        4.4. Amazon S3
 
             需提供：
             fs.s3a.access.key：AmazonS3的access key
             fs.s3a.secret.key：AmazonS3的secret key
             fs.s3a.endpoint：AmazonS3的endpoint 
-        5. 如果使用S3协议直接连接远程存储时需要指定如下属性
+        4.5. 如果使用S3协议直接连接远程存储时需要指定如下属性
 
             (
                 "AWS_ENDPOINT" = "",
@@ -217,13 +217,15 @@ under the License.
                 "AWS_SECRET_KEY"="",
                 "AWS_REGION" = ""
             )
-        6. 如果使用HDFS协议直接连接远程存储时需要指定如下属性
+        4.6. 如果使用HDFS协议直接连接远程存储时需要指定如下属性
             (
                 "fs.defaultFS" = "",
                 "hdfs_user"="",
-                "kerb_principal" = "",
-                "kerb_ticket_cache_path" = "",
-                "kerb_token" = ""
+                "dfs.nameservices"="my_ha",
+                "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
+                "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",
+                "dfs.namenode.rpc-address.xxx.my_nn2"="host2:port",
+                "dfs.client.failover.proxy.provider.xxx"="org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
             )
             fs.defaultFS: hdfs集群defaultFS
             hdfs_user: 连接hdfs集群时使用的用户名
@@ -234,7 +236,7 @@ under the License.
             dfs.namenode.rpc-address.xxx.nn：指定 namenode 的rpc地址信息。其中 nn 表示 dfs.ha.namenodes.xxx 中配置的 namenode 的名字，如："dfs.namenode.rpc-address.my_ha.my_nn" = "host:port"
             dfs.client.failover.proxy.provider：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
         
-    4. opt_properties
+    5. opt_properties
 
         用于指定一些特殊参数。
         语法：
@@ -247,8 +249,9 @@ under the License.
         strict mode：     是否对数据进行严格限制。默认为 false。
         timezone:         指定某些受时区影响的函数的时区，如 strftime/alignment_timestamp/from_unixtime 等等，具体请查阅 [时区] 文档。如果不指定，则使用 "Asia/Shanghai" 时区。
         send_batch_parallelism: 用于设置发送批处理数据的并行度，如果并行度的值超过 BE 配置中的 `max_send_batch_parallelism_per_job`，那么作为协调点的 BE 将使用 `max_send_batch_parallelism_per_job` 的值。
+        load_to_single_tablet: 布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
 
-    5. 导入数据格式样例
+    6. 导入数据格式样例
 
         整型类（TINYINT/SMALLINT/INT/BIGINT/LARGEINT）：1, 1000, 1234
         浮点类（FLOAT/DOUBLE/DECIMAL）：1.1, 0.23, .356
@@ -328,7 +331,7 @@ under the License.
 
         LOAD LABEL example_db.label4
         (
-        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/old_file)
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/old_file")
         NEGATIVE
         INTO TABLE `my_table`
         COLUMNS TERMINATED BY "\t"
@@ -546,8 +549,8 @@ under the License.
          INTO TABLE `tbl1`
          COLUMNS TERMINATED BY ","
          (k1,k2,v1,v2)
-         PRECEDING FILTER k1 > 2
          SET (k1 = k1 +1)
+         PRECEDING FILTER k1 > 2
          WHERE k1 > 3
         ) 
         with BROKER "hdfs" ("username"="user", "password"="pass");
@@ -576,6 +579,7 @@ under the License.
             "fs.defaultFS"="hdfs://testFs",
             "hdfs_user"="user"
         );
+
      18. LOAD WITH HDFS, 带ha的HDFS集群
         LOAD LABEL example_db.label_filter
         (
@@ -586,7 +590,7 @@ under the License.
         ) 
         with HDFS (
             "fs.defaultFS"="hdfs://testFs",
-            "hdfs_user"="user"
+            "hdfs_user"="user",
             "dfs.nameservices"="my_ha",
             "dfs.ha.namenodes.xxx"="my_nn1,my_nn2",
             "dfs.namenode.rpc-address.xxx.my_nn1"="host1:port",

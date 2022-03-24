@@ -97,6 +97,7 @@ module.exports = {
         sidebar: convertSidebar(require('./sidebar/en.js'), '/en/'),
         article: {
           metaTime: 'Date',
+          metaAuthor: 'Author',
           paginationPre: 'Prev',
           paginationNext: 'Next'
         }
@@ -116,6 +117,7 @@ module.exports = {
         },
         article: {
           metaTime: '时间',
+          metaAuthor: '作者',
           paginationPre: '上一页',
           paginationNext: '下一页'
         }

@@ -136,12 +136,12 @@ under the License.
 
 ### 添加 FE
 
-添加 FE 流程在 [部署和升级文档](https://github.com/apache/incubator-doris/wiki/Doris-Deploy-%26-Upgrade) 有详细介绍，不再赘述。这里主要说明一些注意事项，以及常见问题。
+添加 FE 流程在 [部署和升级文档](../../installing/install-deploy.md#增加%20FE%20节点) 有详细介绍，不再赘述。这里主要说明一些注意事项，以及常见问题。
 
 1. 注意事项
 
     * 在添加新的 FE 之前，一定先确保当前的 Master FE 运行正常（连接是否正常，JVM 是否正常，image 生成是否正常，bdbje 数据目录是否过大等等）
-    * 第一次启动新的 FE，一定确保添加了 `-helper` 参数指向 Master FE。再次启动时可不用添加 `-helper`。（如果指定了 `-helper`，FE 会直接询问 helper 节点自己的角色，如果没有指定，FE会尝试从 `palo-meta/image/` 目录下的 `ROLE` 和 `VERSION` 文件中获取信息）。
+    * 第一次启动新的 FE，一定确保添加了 `--helper` 参数指向 Master FE。再次启动时可不用添加 `--helper`。（如果指定了 `--helper`，FE 会直接询问 helper 节点自己的角色，如果没有指定，FE会尝试从 `palo-meta/image/` 目录下的 `ROLE` 和 `VERSION` 文件中获取信息）。
     * 第一次启动新的 FE，一定确保这个 FE 的 `meta_dir` 已经创建、权限正确且为空。
     * 启动新的 FE，和执行 `ALTER SYSTEM ADD FOLLOWER/OBSERVER` 语句在元数据添加 FE，这两个操作的顺序没有先后要求。如果先启动了新的 FE，而没有执行语句，则新的 FE 日志中会一直滚动 `current node is not added to the group. please add it first.` 字样。当执行语句后，则会进入正常流程。
     * 请确保前一个 FE 添加成功后，再添加下一个 FE。
@@ -202,7 +202,7 @@ FE 有可能因为某些原因出现无法启动 bdbje、FE 之间无法同步�
     
     > 1. 先把除了这个 “OBSERVER” 以外的所有 FE 节点 DROP 掉。
     > 2. 通过 `ADD FOLLOWER` 命令，添加一个新的 FOLLOWER FE，假设在 hostA 上。
-    > 3. 在 hostA 上启动一个全新的 FE，通过 `-helper` 的方式加入集群。
+    > 3. 在 hostA 上启动一个全新的 FE，通过 `--helper` 的方式加入集群。
     > 4. 启动成功后，通过 `show frontends;` 语句，你应该能看到两个 FE，一个是之前的  OBSERVER，一个是新添加的 FOLLOWER，并且 OBSERVER 是 master。
     > 5. 确认这个新的 FOLLOWER 是可以正常工作之后，用这个新的 FOLLOWER 的元数据，重新执行一遍故障恢复操作。
     > 6. 以上这些步骤的目的，其实就是人为的制造出一个 FOLLOWER 节点的元数据，然后用这个元数据，重新开始故障恢复。这样就避免了从 OBSERVER 恢复元数据所遇到的不一致的问题。

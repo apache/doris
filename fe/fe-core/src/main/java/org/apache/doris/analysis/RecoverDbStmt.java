@@ -55,7 +55,7 @@ public class RecoverDbStmt extends DdlStmt {
                                                                                               PaloPrivilege.CREATE_PRIV,
                                                                                               PaloPrivilege.ADMIN_PRIV),
                                                                                 Operator.OR))) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED, analyzer.getQualifiedUser(), dbName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
         }
     }
 

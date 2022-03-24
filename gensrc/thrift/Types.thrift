@@ -46,6 +46,7 @@ enum TStorageType {
 enum TStorageMedium {
     HDD,
     SSD,
+    S3,
 }
 
 enum TVarType {
@@ -79,7 +80,8 @@ enum TPrimitiveType {
   MAP,
   STRUCT,
   STRING,
-  ALL
+  ALL,
+  QUANTILE_STATE
 }
 
 enum TTypeNodeType {
@@ -144,7 +146,8 @@ enum TAggregationType {
     HLL_UNION,
     NONE,
     BITMAP_UNION,
-    REPLACE_IF_NOT_NULL
+    REPLACE_IF_NOT_NULL,
+    QUANTILE_UNION
 }
 
 enum TPushType {
@@ -181,7 +184,8 @@ enum TTaskType {
     // this type of task will replace both ROLLUP and SCHEMA_CHANGE
     ALTER,
     INSTALL_PLUGIN,
-    UNINSTALL_PLUGIN
+    UNINSTALL_PLUGIN,
+    COMPACTION
 }
 
 enum TStmtType {
@@ -252,7 +256,7 @@ enum TFunctionType {
 }
 
 enum TFunctionBinaryType {
-  // Palo builtin. We can either run this interpreted or via codegen
+  // Doris builtin. We can either run this interpreted or via codegen
   // depending on the query option.
   BUILTIN,
 
@@ -264,6 +268,11 @@ enum TFunctionBinaryType {
 
   // Native-interface, precompiled to IR; loaded from *.ll
   IR,
+
+  // call udfs by rpc service
+  RPC,
+
+  JAVA_UDF,
 }
 
 // Represents a fully qualified function name.
@@ -330,6 +339,136 @@ struct TFunction {
   13: optional bool vectorized = false
 }
 
+struct TJavaUdfExecutorCtorParams {
+  1: optional TFunction fn
+
+  // Local path to the UDF's jar file
+  2: optional string location
+
+  // The byte offset for each argument in the input buffer. The BE will
+  // call the Java executor with a buffer for all the inputs.
+  // input_byte_offsets[0] is the byte offset in the buffer for the first
+  // argument; input_byte_offsets[1] is the second, etc.
+  3: optional i64 input_byte_offsets
+
+  // Native input buffer ptr (cast as i64) for the inputs. The input arguments
+  // are written to this buffer directly and read from java with no copies
+  // input_null_ptr[i] is true if the i-th input is null.
+  // input_buffer_ptr[input_byte_offsets[i]] is the value of the i-th input.
+  4: optional i64 input_nulls_ptrs
+  5: optional i64 input_buffer_ptrs
+
+  // Native output buffer ptr. For non-variable length types, the output is
+  // written here and read from the native side with no copies.
+  // The UDF should set *output_null_ptr to true, if the result of the UDF is
+  // NULL.
+  6: optional i64 output_null_ptr
+  7: optional i64 output_buffer_ptr
+
+  8: optional i64 batch_size_ptr
+}
+
+// Contains all interesting statistics from a single 'memory pool' in the JVM.
+// All numeric values are measured in bytes.
+struct TJvmMemoryPool {
+  // Memory committed by the operating system to this pool (i.e. not just virtual address
+  // space)
+  1: required i64 committed
+
+  // The initial amount of memory committed to this pool
+  2: required i64 init
+
+  // The maximum amount of memory this pool will use.
+  3: required i64 max
+
+  // The amount of memory currently in use by this pool (will be <= committed).
+  4: required i64 used
+
+  // Maximum committed memory over time
+  5: required i64 peak_committed
+
+  // Should be always == init
+  6: required i64 peak_init
+
+  // Peak maximum memory over time (usually will not change)
+  7: required i64 peak_max
+
+  // Peak consumed memory over time
+  8: required i64 peak_used
+
+  // Name of this pool, defined by the JVM
+  9: required string name
+}
+
+// Response from JniUtil::GetJvmMemoryMetrics()
+struct TGetJvmMemoryMetricsResponse {
+  // One entry for every pool tracked by the Jvm, plus a synthetic aggregate pool called
+  // 'total'
+  1: required list<TJvmMemoryPool> memory_pools
+
+  // Metrics from JvmPauseMonitor, measuring how much time is spend
+  // pausing, presumably because of Garbage Collection. These
+  // names are consistent with Hadoop's metric names.
+  2: required i64 gc_num_warn_threshold_exceeded
+  3: required i64 gc_num_info_threshold_exceeded
+  4: required i64 gc_total_extra_sleep_time_millis
+
+  // Metrics for JVM Garbage Collection, from the management beans;
+  // these are cumulative across all types of GCs.
+  5: required i64 gc_count
+  6: required i64 gc_time_millis
+}
+
+// Contains information about a JVM thread
+struct TJvmThreadInfo {
+  // Summary of a JVM thread. Includes stacktraces, locked monitors
+  // and synchronizers.
+  1: required string summary
+
+  // The total CPU time for this thread in nanoseconds
+  2: required i64 cpu_time_in_ns
+
+  // The CPU time that this thread has executed in user mode in nanoseconds
+  3: required i64 user_time_in_ns
+
+  // The number of times this thread blocked to enter or reenter a monitor
+  4: required i64 blocked_count
+
+  // Approximate accumulated elapsed time (in milliseconds) that this thread has blocked
+  // to enter or reenter a monitor
+  5: required i64 blocked_time_in_ms
+
+  // True if this thread is executing native code via the Java Native Interface (JNI)
+  6: required bool is_in_native
+}
+
+// Request to get information about JVM threads
+struct TGetJvmThreadsInfoRequest {
+  // If set, return complete info about JVM threads. Otherwise, return only
+  // the total number of live JVM threads.
+  1: required bool get_complete_info
+}
+
+struct TGetJvmThreadsInfoResponse {
+  // The current number of live threads including both daemon and non-daemon threads
+  1: required i32 total_thread_count
+
+  // The current number of live daemon threads
+  2: required i32 daemon_thread_count
+
+  // The peak live thread count since the Java virtual machine started
+  3: required i32 peak_thread_count
+
+  // Information about JVM threads. It is not included when
+  // TGetJvmThreadsInfoRequest.get_complete_info is false.
+  4: optional list<TJvmThreadInfo> threads
+}
+
+struct TGetJMXJsonResponse {
+  // JMX of the JVM serialized to a json string.
+  1: required string jmx_json
+}
+
 enum TLoadJobState {
     PENDING,
     ETL,
@@ -352,7 +491,9 @@ enum TTableType {
     KUDU_TABLE, // Deprecated
     BROKER_TABLE,
     ES_TABLE,
-    ODBC_TABLE
+    ODBC_TABLE,
+    HIVE_TABLE,
+    ICEBERG_TABLE
 }
 
 enum TOdbcTableType {
@@ -407,6 +548,11 @@ struct TTabletCommitInfo {
     2: required i64 backendId
 }
 
+struct TErrorTabletInfo {
+    1: optional i64 tabletId
+    2: optional string msg
+}
+
 enum TLoadType {
     MANUL_LOAD,
     ROUTINE_LOAD,
@@ -422,6 +568,11 @@ enum TMergeType {
   APPEND,
   MERGE,
   DELETE
+}
+
+enum TSortType {
+    LEXICAL,
+    ZORDER, 
 }
 
 // represent a user identity

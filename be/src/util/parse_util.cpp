@@ -17,12 +17,12 @@
 
 #include "util/parse_util.h"
 
-#include "util/mem_info.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
 
-int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t parent_limit, bool* is_percent) {
+int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t parent_limit,
+                                  int64_t physical_mem, bool* is_percent) {
     if (mem_spec_str.empty()) {
         return 0;
     }
@@ -82,7 +82,7 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t paren
             bytes = multiplier * limit_val;
         } else if (*is_percent) {
             if (parent_limit == -1) {
-                bytes = (static_cast<double>(limit_val) / 100.0) * MemInfo::physical_mem();
+                bytes = (static_cast<double>(limit_val) / 100.0) * physical_mem;
             } else {
                 bytes = (static_cast<double>(limit_val) / 100.0) * parent_limit;
             }

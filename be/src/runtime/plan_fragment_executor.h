@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
 #define DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
 
-#include <boost/scoped_ptr.hpp>
 #include <condition_variable>
 #include <functional>
 #include <vector>
@@ -31,11 +30,11 @@
 #include "runtime/runtime_state.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
 class QueryFragmentsCtx;
-class HdfsFsCache;
 class ExecNode;
 class RowDescriptor;
 class RowBatch;
@@ -111,9 +110,9 @@ public:
     // time when open() returns, and the status-reporting thread will have been stopped.
     Status open();
 
-    // Return results through 'batch'. Sets '*batch' to NULL if no more results.
+    // Return results through 'batch'. Sets '*batch' to nullptr if no more results.
     // '*batch' is owned by PlanFragmentExecutor and must not be deleted.
-    // When *batch == NULL, get_next() should not be called anymore. Also, report_status_cb
+    // When *batch == nullptr, get_next() should not be called anymore. Also, report_status_cb
     // will have been called for the final time and the status-reporting thread
     // will have been stopped.
     Status get_next(RowBatch** batch);
@@ -128,7 +127,8 @@ public:
     void set_abort();
 
     // Initiate cancellation. Must not be called until after prepare() returned.
-    void cancel();
+    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
+                const std::string& msg = "");
 
     // call these only after prepare()
     RuntimeState* runtime_state() { return _runtime_state.get(); }
@@ -139,7 +139,7 @@ public:
 
     const Status& status() const { return _status; }
 
-    DataSink* get_sink() { return _sink.get(); }
+    DataSink* get_sink() const { return _sink.get(); }
 
     void set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
@@ -147,11 +147,10 @@ private:
     ExecEnv* _exec_env; // not owned
     ExecNode* _plan;    // lives in _runtime_state->obj_pool()
     TUniqueId _query_id;
-    std::shared_ptr<MemTracker> _mem_tracker;
 
     // profile reporting-related
     report_status_callback _report_status_cb;
-    boost::thread _report_thread;
+    std::thread _report_thread;
     std::mutex _report_thread_lock;
 
     // Indicates that profile reporting thread should stop.
@@ -190,12 +189,13 @@ private:
 
     // note that RuntimeState should be constructed before and destructed after `_sink' and `_row_batch',
     // therefore we declare it before `_sink' and `_row_batch'
-    boost::scoped_ptr<RuntimeState> _runtime_state;
+    std::unique_ptr<RuntimeState> _runtime_state;
     // Output sink for rows sent to this fragment. May not be set, in which case rows are
     // returned via get_next's row batch
     // Created in prepare (if required), owned by this object.
-    boost::scoped_ptr<DataSink> _sink;
-    boost::scoped_ptr<RowBatch> _row_batch;
+    std::unique_ptr<DataSink> _sink;
+    std::unique_ptr<RowBatch> _row_batch;
+    std::unique_ptr<doris::vectorized::Block> _block;
 
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
@@ -208,7 +208,9 @@ private:
     std::shared_ptr<QueryStatistics> _query_statistics;
     bool _collect_query_statistics_with_every_batch;
 
-    bool _enable_vectorized_engine;
+    // Record the cancel information when calling the cancel() method, return it to FE
+    PPlanFragmentCancelReason _cancel_reason;
+    std::string _cancel_msg;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
@@ -235,19 +237,23 @@ private:
     // If this plan fragment has a sink and open_internal() returns without an
     // error condition, all rows will have been sent to the sink, the sink will
     // have been closed, a final report will have been sent and the report thread will
-    // have been stopped. _sink will be set to NULL after successful execution.
+    // have been stopped. _sink will be set to nullptr after successful execution.
     Status open_internal();
+    Status open_vectorized_internal();
 
     // Executes get_next() logic and returns resulting status.
     Status get_next_internal(RowBatch** batch);
+    Status get_vectorized_internal(::doris::vectorized::Block** block);
 
     // Stops report thread, if one is running. Blocks until report thread terminates.
     // Idempotent.
     void stop_report_thread();
 
-    const DescriptorTbl& desc_tbl() { return _runtime_state->desc_tbl(); }
+    const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
     void _collect_query_statistics();
+
+    void _collect_node_statistics();
 };
 
 } // namespace doris

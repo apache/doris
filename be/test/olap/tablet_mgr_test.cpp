@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -100,7 +100,6 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
-    create_tablet_req.__set_version_hash(3333);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
@@ -108,7 +107,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
     ASSERT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
     ASSERT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
@@ -118,12 +117,6 @@ TEST_F(TabletMgrTest, CreateTablet) {
     // retry create should be successfully
     create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
-
-    // create tablet with different schema hash should be error
-    tablet_schema.__set_schema_hash(4444);
-    create_tablet_req.__set_tablet_schema(tablet_schema);
-    create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    ASSERT_TRUE(create_st == OLAP_ERR_CE_TABLET_ID_EXIST);
 
     OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
     ASSERT_TRUE(drop_st == OLAP_SUCCESS);
@@ -165,7 +158,6 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
-    create_tablet_req.__set_version_hash(3333);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
@@ -174,8 +166,8 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
     ASSERT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
-    ASSERT_TRUE(dir_exist) << tablet->tablet_path();
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
+    ASSERT_TRUE(dir_exist) << tablet->tablet_path_desc().filepath;
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
@@ -207,7 +199,6 @@ TEST_F(TabletMgrTest, DropTablet) {
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
-    create_tablet_req.__set_version_hash(3333);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
@@ -216,7 +207,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     ASSERT_TRUE(tablet != nullptr);
 
     // drop unexist tablet will be success
-    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 4444, false);
+    OLAPStatus drop_st = _tablet_mgr->drop_tablet(1121, 4444, false);
     ASSERT_TRUE(drop_st == OLAP_SUCCESS);
     tablet = _tablet_mgr->get_tablet(111, 3333);
     ASSERT_TRUE(tablet != nullptr);
@@ -230,7 +221,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     ASSERT_TRUE(tablet != nullptr);
 
     // check dir exist
-    std::string tablet_path = tablet->tablet_path();
+    std::string tablet_path = tablet->tablet_path_desc().filepath;
     bool dir_exist = FileUtils::check_exist(tablet_path);
     ASSERT_TRUE(dir_exist);
 

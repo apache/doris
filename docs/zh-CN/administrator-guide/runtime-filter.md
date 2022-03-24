@@ -91,7 +91,7 @@ Runtime Filter主要用于优化针对大表的join，如果左表的数据量�
 
 - 第一个查询选项是调整使用的Runtime Filter类型，大多数情况下，您只需要调整这一个选项，其他选项保持默认即可。
 
-  - `runtime_filter_type`: 包括Bloom Filter、MinMax Filter、IN predicate，默认会保守的只使用IN predicate，部分情况下同时使用Bloom Filter、MinMax Filter、IN predicate时性能更高。
+  - `runtime_filter_type`: 包括Bloom Filter、MinMax Filter、IN predicate、IN_OR_BLOOM Filter，默认会使用IN_OR_BLOOM Filter，部分情况下同时使用Bloom Filter、MinMax Filter、IN predicate时性能更高。
 
 - 其他查询选项通常仅在某些特定场景下，才需进一步调整以达到最优效果。通常只在性能测试后，针对资源密集型、运行耗时足够长且频率足够高的查询进行优化。
 
@@ -114,7 +114,7 @@ Runtime Filter主要用于优化针对大表的join，如果左表的数据量�
 #### 1.runtime_filter_type
 使用的Runtime Filter类型。
 
-**类型**: 数字(1, 2, 4)或者相对应的助记符字符串(IN, BLOOM_FILTER, MIN_MAX)，默认1(IN predicate)，使用多个时用逗号分隔，注意需要加引号，或者将任意多个类型的数字相加，例如:
+**类型**: 数字(1, 2, 4, 8)或者相对应的助记符字符串(IN, BLOOM_FILTER, MIN_MAX, IN_OR_BLOOM_FILTER)，默认8(IN_OR_BLOOM Filter)，使用多个时用逗号分隔，注意需要加引号，或者将任意多个类型的数字相加，例如:
 ```
 set runtime_filter_type="BLOOM_FILTER,IN,MIN_MAX";
 ```
@@ -125,6 +125,8 @@ set runtime_filter_type=7;
 
 **使用注意事项**
 
+- **IN or Bloom Filter**: 根据右表在执行过程中的真实行数，由系统自动判断使用 IN predicate 还是 Bloom Filter
+  - 默认在右表数据行数少于1024时会使用IN predicate（可通过session变量中的`runtime_filter_max_in_num`调整，否则使用Bloom filter。
 - **Bloom Filter**: 有一定的误判率，导致过滤的数据比预期少一点，但不会导致最终结果不准确，在大部分情况下Bloom Filter都可以提升性能或对性能没有显著影响，但在部分情况下会导致性能降低。
     - Bloom Filter构建和应用的开销较高，所以当过滤率较低时，或者左表数据量较少时，Bloom Filter可能会导致性能降低。
     - 目前只有左表的Key列应用Bloom Filter才能下推到存储引擎，而测试结果显示Bloom Filter不下推到存储引擎时往往会导致性能降低。
@@ -136,7 +138,8 @@ set runtime_filter_type=7;
 
 - **IN predicate**: 根据join on clause中Key列在右表上的所有值构建IN predicate，使用构建的IN predicate在左表上过滤，相比Bloom Filter构建和应用的开销更低，在右表数据量较少时往往性能更高。
     - 默认只有右表数据行数少于1024才会下推（可通过session变量中的`runtime_filter_max_in_num`调整）。
-    - 目前IN predicate没有实现合并方法，即无法跨Fragment下推，所以目前当需要下推给shuffle join左表的ScanNode时，如果没有生成Bloom Filter，那么我们会将IN predicate转为Bloom Filter，用于处理跨Fragment下推，所以即使类型只选择了IN predicate，实际也可能应用了Bloom Filter；
+    - 目前IN predicate已实现合并方法。
+    - 当同时指定In predicate和其他filter，并且in的过滤数值没达到runtime_filter_max_in_num时，会尝试把其他filter去除掉。原因是In predicate是精确的过滤条件，即使没有其他filter也可以高效过滤，如果同时使用则其他filter会做无用功。目前仅在Runtime filter的生产者和消费者处于同一个fragment时才会有去除非in filter的逻辑。
 
 #### 2.runtime_filter_mode
 用于控制Runtime Filter在instance之间传输的范围。

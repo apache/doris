@@ -35,12 +35,12 @@ public:
     virtual ~TestRunLengthUnsignInteger() {}
 
     virtual void SetUp() {
-        system("mkdir -p ./ut_dir");
-        system("rm -rf ./ut_dir/tmp_file");
-        _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
-        ASSERT_TRUE(_out_stream != NULL);
+        ASSERT_EQ(system("mkdir -p ./ut_dir"), 0);
+        ASSERT_EQ(system("rm -rf ./ut_dir/tmp_file"), 0);
+        _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, nullptr);
+        ASSERT_TRUE(_out_stream != nullptr);
         _writer = new (std::nothrow) RunLengthIntegerWriter(_out_stream, false);
-        ASSERT_TRUE(_writer != NULL);
+        ASSERT_TRUE(_writer != nullptr);
     }
 
     virtual void TearDown() {
@@ -63,15 +63,15 @@ public:
 
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
                                                    sizeof(StreamHead));
-        ASSERT_TRUE(_shared_buffer != NULL);
+        ASSERT_TRUE(_shared_buffer != nullptr);
 
         _stream = new (std::nothrow)
-                ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), NULL,
+                ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), nullptr,
                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) RunLengthIntegerReader(_stream, false);
-        ASSERT_TRUE(_reader != NULL);
+        ASSERT_TRUE(_reader != nullptr);
     }
 
     RunLengthIntegerReader* _reader;
@@ -340,12 +340,12 @@ public:
     virtual ~TestRunLengthSignInteger() {}
 
     virtual void SetUp() {
-        system("mkdir -p ./ut_dir");
-        system("rm ./ut_dir/tmp_file");
-        _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
-        ASSERT_TRUE(_out_stream != NULL);
+        ASSERT_EQ(system("mkdir -p ./ut_dir"), 0);
+        ASSERT_EQ(system("rm ./ut_dir/tmp_file"), 0);
+        _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, nullptr);
+        ASSERT_TRUE(_out_stream != nullptr);
         _writer = new (std::nothrow) RunLengthIntegerWriter(_out_stream, true);
-        ASSERT_TRUE(_writer != NULL);
+        ASSERT_TRUE(_writer != nullptr);
     }
 
     virtual void TearDown() {
@@ -368,15 +368,15 @@ public:
 
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
                                                    sizeof(StreamHead));
-        ASSERT_TRUE(_shared_buffer != NULL);
+        ASSERT_TRUE(_shared_buffer != nullptr);
 
         _stream = new (std::nothrow)
-                ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), NULL,
+                ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), nullptr,
                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) RunLengthIntegerReader(_stream, true);
-        ASSERT_TRUE(_reader != NULL);
+        ASSERT_TRUE(_reader != nullptr);
     }
 
     RunLengthIntegerReader* _reader;

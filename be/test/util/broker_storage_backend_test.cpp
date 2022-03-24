@@ -37,7 +37,6 @@ static const std::string SK = "SK";
 static const std::string ENDPOINT = "http://bj.bcebos.com";
 static const std::string BUCKET = "bos://yang-repo/";
 static const std::string BROKER_IP = "127.0.0.1";
-static const int BROKER_PORT = 8111;
 class StorageBackendTest : public testing::Test {
 public:
     StorageBackendTest()
@@ -165,7 +164,7 @@ TEST_F(StorageBackendTest, broker_list) {
     status = _broker->direct_upload(_broker_base_path + "/Ode_to_the_West_Wind2.md5", _content);
     ASSERT_TRUE(status.ok());
     std::map<std::string, FileStat> files;
-    status = _broker->list(_broker_base_path, &files);
+    status = _broker->list(_broker_base_path, true, false, &files);
     ASSERT_TRUE(status.ok());
     ASSERT_TRUE(files.find("Ode_to_the_West_Wind") != files.end());
     ASSERT_TRUE(files.find("Ode_to_the_West_Wind1") != files.end());

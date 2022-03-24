@@ -65,7 +65,7 @@ static TTupleDescriptor make_tuple_descriptor(int id, int byte_size, int num_nul
 }
 
 DescriptorTbl* DescriptorTblBuilder::build() {
-    DescriptorTbl* desc_tbl = NULL;
+    DescriptorTbl* desc_tbl = nullptr;
     TDescriptorTable thrift_desc_tbl;
     int tuple_id = 0;
     int slot_id = 0;

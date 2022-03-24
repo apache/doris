@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
 #define DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
 
-#include <boost/scoped_ptr.hpp>
 #include <mutex>
 
 #include "common/object_pool.h"
@@ -44,7 +43,7 @@ class RuntimeProfile;
 class SortedRunMerger {
 public:
     // Function that returns the next batch of rows from an input sorted run. The batch
-    // is owned by the supplier (i.e. not SortedRunMerger). eos is indicated by an NULL
+    // is owned by the supplier (i.e. not SortedRunMerger). eos is indicated by an nullptr
     // batch being returned.
     typedef std::function<Status(RowBatch**)> RunBatchSupplier;
 
@@ -110,8 +109,7 @@ protected:
 class ChildSortedRunMerger : public SortedRunMerger {
 public:
     ChildSortedRunMerger(const TupleRowComparator& compare_less_than, RowDescriptor* row_desc,
-                         RuntimeProfile* profile, MemTracker* _parent, uint32_t row_batch_size,
-                         bool deep_copy_input);
+                         RuntimeProfile* profile, uint32_t row_batch_size, bool deep_copy_input);
 
     Status get_batch(RowBatch** output_batch) override;
 
@@ -121,8 +119,6 @@ private:
 
     // The data in merger is exhaust
     bool _eos = false;
-
-    MemTracker* _parent;
 
     uint32_t _row_batch_size;
 };

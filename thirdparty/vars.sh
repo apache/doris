@@ -22,7 +22,7 @@
 ############################################################
 
 ###################################################
-# DO NOT change variables bellow unless you known 
+# DO NOT change variables bellow unless you known
 # what you are doing.
 ###################################################
 
@@ -44,24 +44,25 @@ export TP_LIB_DIR=$TP_INSTALL_DIR/lib
 # all java libraries will be unpacked to here
 export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 
+# source of all dependencies
+export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+
 #####################################################
 # Download url, filename and unpaced filename
 # of all thirdparties
 #####################################################
 
 # libevent
-# the last release version of libevent is 2.1.8, which was released on 26 Jan 2017, that is too old.
-# so we use the master version of libevent, which is downloaded on 22 Jun 2018, with commit 24236aed01798303745470e6c498bf606e88724a
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
 LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
 LIBEVENT_SOURCE=libevent-release-2.1.12-stable
 LIBEVENT_MD5SUM="0d5a27436bf7ff8253420c8cf09f47ca"
 
 # openssl
-OPENSSL_DOWNLOAD="https://www.openssl.org/source/old/1.0.2/openssl-1.0.2k.tar.gz"
-OPENSSL_NAME=openssl-1.0.2k.tar.gz
-OPENSSL_SOURCE=openssl-1.0.2k
-OPENSSL_MD5SUM="f965fc0bf01bf882b31314b61391ae65"
+OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1m.tar.gz"
+OPENSSL_NAME=openssl-OpenSSL_1_1_1m.tar.gz
+OPENSSL_SOURCE=openssl-OpenSSL_1_1_1m
+OPENSSL_MD5SUM="710c2368d28f1a25ab92e25b5b9b11ec"
 
 # thrift
 THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz"
@@ -88,10 +89,10 @@ GLOG_SOURCE=glog-0.4.0
 GLOG_MD5SUM="0daea8785e6df922d7887755c3d100d0"
 
 # gtest
-GTEST_DOWNLOAD="https://github.com/google/googletest/archive/release-1.10.0.tar.gz"
-GTEST_NAME=googletest-release-1.10.0.tar.gz
-GTEST_SOURCE=googletest-release-1.10.0
-GTEST_MD5SUM="ecd1fa65e7de707cd5c00bdac56022cd"
+GTEST_DOWNLOAD="https://github.com/google/googletest/archive/release-1.11.0.tar.gz"
+GTEST_NAME=googletest-release-1.11.0.tar.gz
+GTEST_SOURCE=googletest-release-1.11.0
+GTEST_MD5SUM="e8a8df240b6938bb6384155d4c37d937"
 
 # snappy
 SNAPPY_DOWNLOAD="https://github.com/google/snappy/archive/1.1.8.tar.gz"
@@ -108,7 +109,7 @@ GPERFTOOLS_MD5SUM="e340f1b247ff512119a2db98c1538dc1"
 # zlib
 ZLIB_DOWNLOAD="https://sourceforge.net/projects/libpng/files/zlib/1.2.11/zlib-1.2.11.tar.gz"
 ZLIB_NAME=zlib-1.2.11.tar.gz
-ZLIB_SOURCE=zlib-1.2.11 
+ZLIB_SOURCE=zlib-1.2.11
 ZLIB_MD5SUM="1c9f62f0778697a09d36121ead88e08e"
 
 # lz4
@@ -173,12 +174,10 @@ LEVELDB_SOURCE=leveldb-1.20
 LEVELDB_MD5SUM="298b5bddf12c675d6345784261302252"
 
 # brpc
-# incubator-brpc-1.0.0-rc02 is a stable version。 Due to the issue of the version release process, 
-# there may not be an official version
-BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/1.0.0-rc02.tar.gz"
-BRPC_NAME=incubator-brpc-1.0.0-rc02.tar.gz
-BRPC_SOURCE=incubator-brpc-1.0.0-rc02
-BRPC_MD5SUM="863b9e53f3642fd31eeb438dbfc4f55c"
+BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.0.0.tar.gz"
+BRPC_NAME="incubator-brpc-1.0.0.tar.gz"
+BRPC_SOURCE="incubator-brpc-1.0.0"
+BRPC_MD5SUM="73b201192a10107628e3af5ccd643676"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -186,11 +185,17 @@ ROCKSDB_NAME=rocksdb-5.14.2.tar.gz
 ROCKSDB_SOURCE=rocksdb-5.14.2
 ROCKSDB_MD5SUM="b72720ea3b1e9ca9e4ed0febfef65b14"
 
-# librdkafka-1.8.0
-LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v1.8.0.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-1.8.0.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-1.8.0
-LIBRDKAFKA_MD5SUM="f31bd3b7a91a486d65b740a720b925dc"
+# cyrus-sasl
+CYRUS_SASL_DOWNLOAD="https://github.com/cyrusimap/cyrus-sasl/releases/download/cyrus-sasl-2.1.27/cyrus-sasl-2.1.27.tar.gz"
+CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
+CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
+CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
+
+# librdkafka-1.8.2
+LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/refs/tags/v1.8.2.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-1.8.2.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-1.8.2
+LIBRDKAFKA_MD5SUM="0abec0888d10c9553cdcbcbf9172d558"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/archive/v1.5.0.tar.gz"
@@ -211,10 +216,10 @@ FLATBUFFERS_SOURCE=flatbuffers-2.0.0
 FLATBUFFERS_MD5SUM="a27992324c3cbf86dd888268a23d17bd"
 
 # arrow
-ARROW_DOWNLOAD="https://github.com/apache/arrow/archive/apache-arrow-5.0.0.tar.gz"
-ARROW_NAME="arrow-apache-arrow-5.0.0.tar.gz"
-ARROW_SOURCE="arrow-apache-arrow-5.0.0"
-ARROW_MD5SUM="9caf5dbd36ef4972c3a591bcfeaf59c8"
+ARROW_DOWNLOAD="https://dlcdn.apache.org/arrow/arrow-7.0.0/apache-arrow-7.0.0.tar.gz"
+ARROW_NAME="apache-arrow-7.0.0.tar.gz"
+ARROW_SOURCE="apache-arrow-7.0.0"
+ARROW_MD5SUM="316ade159901646849b3b4760fa52816"
 
 # S2
 S2_DOWNLOAD="https://github.com/google/s2geometry/archive/v0.9.0.tar.gz"
@@ -222,17 +227,17 @@ S2_NAME=s2geometry-0.9.0.tar.gz
 S2_SOURCE=s2geometry-0.9.0
 S2_MD5SUM="293552c7646193b8b4a01556808fe155"
 
-# BITSHUFFLE
+# bitshuffle
 BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
 BITSHUFFLE_NAME=bitshuffle-0.3.5.tar.gz
 BITSHUFFLE_SOURCE=bitshuffle-0.3.5
 BITSHUFFLE_MD5SUM="2648ec7ccd0b896595c6636d926fc867"
 
-# CROARINGBITMAP
-CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/v0.3.4.tar.gz"
-CROARINGBITMAP_NAME=CRoaring-0.3.4.tar.gz
-CROARINGBITMAP_SOURCE=CRoaring-0.3.4
-CROARINGBITMAP_MD5SUM="29d1fa59f86b46915c6dd92c1a9a6c75"
+# croaringbitmap
+CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v0.4.0.tar.gz"
+CROARINGBITMAP_NAME=CRoaring-0.4.0.tar.gz
+CROARINGBITMAP_SOURCE=CRoaring-0.4.0
+CROARINGBITMAP_MD5SUM="7c5cb6f2089cedc5ad9373f538a83334"
 
 # fmt
 FMT_DOWNLOAD="https://github.com/fmtlib/fmt/archive/7.1.3.tar.gz"
@@ -246,11 +251,11 @@ PARALLEL_HASHMAP_NAME="parallel-hashmap-1.33.tar.gz"
 PARALLEL_HASHMAP_SOURCE="parallel-hashmap-1.33"
 PARALLEL_HASHMAP_MD5SUM="7626b5215f745c4ce59b5a4e41d16235"
 
-# ORC
-ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.6.6/orc-1.6.6.tar.gz"
-ORC_NAME=orc-1.6.6.tar.gz
-ORC_SOURCE=orc-1.6.6
-ORC_MD5SUM="26c94135111d312fb1ea4fc80d776c5f"
+# orc
+ORC_DOWNLOAD="https://archive.apache.org/dist/orc/orc-1.7.2/orc-1.7.2.tar.gz"
+ORC_NAME=orc-1.7.2.tar.gz
+ORC_SOURCE=orc-1.7.2
+ORC_MD5SUM="6cab37935eacdec7d078d327746a8578"
 
 # jemalloc
 JEMALLOC_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
@@ -258,7 +263,7 @@ JEMALLOC_NAME="jemalloc-5.2.1.tar.bz2"
 JEMALLOC_SOURCE="jemalloc-5.2.1"
 JEMALLOC_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
 
-# CCTZ
+# cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
 CCTZ_NAME="cctz-2.3.tar.gz"
 CCTZ_SOURCE="cctz-2.3"
@@ -285,47 +290,11 @@ BOOTSTRAP_TABLE_CSS_NAME="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
-# aws-c-common
-AWS_C_COMMON_DOWNLOAD="https://github.com/awslabs/aws-c-common/archive/v0.4.63.tar.gz"
-AWS_C_COMMON_NAME="aws-c-common-0.4.63.tar.gz"
-AWS_C_COMMON_SOURCE="aws-c-common-0.4.63"
-AWS_C_COMMON_MD5SUM="8298e00a0fb64779b7cf660592d50ab6"
-
-# aws-c-event-stream
-AWS_C_EVENT_STREAM_DOWNLOAD="https://github.com/awslabs/aws-c-event-stream/archive/v0.2.6.tar.gz"
-AWS_C_EVENT_STREAM_NAME="aws-c-event-stream-0.2.6.tar.gz"
-AWS_C_EVENT_STREAM_SOURCE="aws-c-event-stream-0.2.6"
-AWS_C_EVENT_STREAM_MD5SUM="fceedde198ddbf38ffdaed08d1435f7f"
-
-# aws-checksums
-AWS_CHECKSUMS_DOWNLOAD="https://github.com/awslabs/aws-checksums/archive/v0.1.10.tar.gz"
-AWS_CHECKSUMS_NAME="aws-checksums-0.1.10.tar.gz"
-AWS_CHECKSUMS_SOURCE="aws-checksums-0.1.10"
-AWS_CHECKSUMS_MD5SUM="2383c66f6250fa0238edbd1d779b49d3"
-
-# aws-c-io
-AWS_C_IO_DOWNLOAD="https://github.com/awslabs/aws-c-io/archive/v0.7.0.tar.gz"
-AWS_C_IO_NAME="aws-c-io-0.7.0.tar.gz"
-AWS_C_IO_SOURCE="aws-c-io-0.7.0"
-AWS_C_IO_MD5SUM="b95a6f9d20500727231dd726c957276b"
-
-# aws-s2n
-AWS_S2N_DOWNLOAD="https://github.com/awslabs/s2n/archive/v0.10.0.tar.gz"
-AWS_S2N_NAME="s2n-0.10.0.tar.gz"
-AWS_S2N_SOURCE="s2n-tls-0.10.0"
-AWS_S2N_MD5SUM="345aa5d2f9e82347bb3e568c22104d0e"
-
-# aws-c-cal
-AWS_C_CAL_DOWNLOAD="https://github.com/awslabs/aws-c-cal/archive/v0.4.5.tar.gz"
-AWS_C_CAL_NAME="aws-c-cal-0.4.5.tar.gz"
-AWS_C_CAL_SOURCE="aws-c-cal-0.4.5"
-AWS_C_CAL_MD5SUM="317f3dbafae551a0fc7d70f31434e216"
-
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/1.8.108.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.8.108.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.8.108"
-AWS_SDK_MD5SUM="76d8855406e7da61f1f996c11c0b93d7"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.211.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.9.211.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.9.211"
+AWS_SDK_MD5SUM="667b8e08baf0b9967c19224198e33160"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -344,6 +313,12 @@ XML2_DOWNLOAD="https://gitlab.gnome.org/GNOME/libxml2/-/archive/v2.9.10/libxml2-
 XML2_NAME="libxml2-v2.9.10.tar.gz"
 XML2_SOURCE="libxml2-v2.9.10"
 XML2_MD5SUM="b18faee9173c3378c910f6d7d1493115"
+
+# idn
+IDN_DOWNLOAD="https://ftp.gnu.org/gnu/libidn/libidn-1.38.tar.gz"
+IDN_NAME="libidn-1.38.tar.gz"
+IDN_SOURCE="libidn-1.38"
+IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
 
 # gsasl
 GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.10.0.tar.gz"
@@ -375,6 +350,33 @@ BENCHMARK_NAME=benchmark-1.5.6.tar.gz
 BENCHMARK_SOURCE=benchmark-1.5.6
 BENCHMARK_MD5SUM="668b9e10d8b0795e5d461894db18db3c"
 
+# breakpad
+# breakpad has no release version, the source is from commit@38ee0be,
+# and also add lss files. See README.md in it.
+BREAKPAD_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/breakpad-src-38ee0be-with-lss.tar.gz"
+BREAKPAD_NAME=breakpad-src-38ee0be-with-lss.tar.gz
+BREAKPAD_SOURCE=breakpad-src-38ee0be-with-lss
+BREAKPAD_MD5SUM="fd8c4f6f5cf8b5e03a4c3c39fde83368"
+
+# xsimd
+# for arrow-7.0.0, if arrow upgrade, this version may also need to be changed
+XSIMD_DOWNLOAD="https://github.com/xtensor-stack/xsimd/archive/aeec9c872c8b475dedd7781336710f2dd2666cb2.tar.gz"
+XSIMD_NAME=xsimd-aeec9c872c8b475dedd7781336710f2dd2666cb2.tar.gz
+XSIMD_SOURCE=xsimd-aeec9c872c8b475dedd7781336710f2dd2666cb2
+XSIMD_MD5SUM="d024855f71c0a2837a6918c0f8f66245"
+
+# simdjson
+SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v1.0.2.tar.gz"
+SIMDJSON_NAME=simdjson-1.0.2.tar.gz
+SIMDJSON_SOURCE=simdjson-1.0.2
+SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
+
+# libbacktrace
+LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
+LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
+LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
+LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -398,6 +400,7 @@ ODBC
 LEVELDB
 BRPC
 ROCKSDB
+CYRUS_SASL
 LIBRDKAFKA
 FLATBUFFERS
 ARROW
@@ -415,20 +418,16 @@ DATATABLES
 BOOTSTRAP_TABLE_JS
 BOOTSTRAP_TABLE_CSS
 TSAN_HEADER
-AWS_C_COMMON
-AWS_C_EVENT_STREAM
-AWS_C_IO
-AWS_C_CAL
-AWS_C_IO
-AWS_CHECKSUMS
-AWS_S2N
 AWS_SDK
 LZMA
 XML2
+IDN
 GSASL
 HDFS3
 LIBDIVIDE
 PDQSORT
-BENCHMARK"
-
-
+BENCHMARK
+BREAKPAD
+XSIMD
+SIMDJSON
+LIBBACKTRACE"

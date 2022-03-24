@@ -17,6 +17,7 @@
 
 package org.apache.doris.plugin;
 
+
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 
@@ -81,6 +82,8 @@ public class AuditEvent {
     public long cpuTimeMs = -1;
     @AuditField(value = "SqlHash")
     public String sqlHash = "";
+    @AuditField(value = "peakMemoryBytes")
+    public long peakMemoryBytes = -1;
 
     public static class AuditEventBuilder {
 
@@ -135,6 +138,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setCpuTimeMs(long cpuTimeMs) {
             auditEvent.cpuTimeMs = cpuTimeMs;
+            return this;
+        }
+
+        public AuditEventBuilder setPeakMemoryBytes(long peakMemoryBytes) {
+            auditEvent.peakMemoryBytes = peakMemoryBytes;
             return this;
         }
 

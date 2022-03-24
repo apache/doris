@@ -210,7 +210,7 @@ TEST_F(MysqlScanNodeTest, Prepare_fail_1) {
 TEST_F(MysqlScanNodeTest, Prepare_fail_2) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     TableDescriptor* old = _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc;
-    _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc = NULL;
+    _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc = nullptr;
     Status status = scan_node.prepare(&_runtim_state);
     ASSERT_FALSE(status.ok());
     _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc = old;
@@ -242,19 +242,19 @@ TEST_F(MysqlScanNodeTest, open_fail_2) {
 }
 TEST_F(MysqlScanNodeTest, invalid_input) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
-    Status status = scan_node.prepare(NULL);
+    Status status = scan_node.prepare(nullptr);
     ASSERT_FALSE(status.ok());
     status = scan_node.prepare(&_runtim_state);
     ASSERT_TRUE(status.ok());
     status = scan_node.prepare(&_runtim_state);
     ASSERT_TRUE(status.ok());
-    status = scan_node.open(NULL);
+    status = scan_node.open(nullptr);
     ASSERT_FALSE(status.ok());
     status = scan_node.open(&_runtim_state);
     ASSERT_TRUE(status.ok());
     RowBatch row_batch(scan_node._row_descriptor, 100);
     bool eos = false;
-    status = scan_node.get_next(NULL, &row_batch, &eos);
+    status = scan_node.get_next(nullptr, &row_batch, &eos);
     ASSERT_FALSE(status.ok());
 
     while (!eos) {

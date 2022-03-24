@@ -79,15 +79,14 @@ class FileResultWriter final : public ResultWriter {
 public:
     FileResultWriter(const ResultFileOptions* file_option,
                      const std::vector<ExprContext*>& output_expr_ctxs,
-                     RuntimeProfile* parent_profile,
-                     BufferControlBlock* sinker);
+                     RuntimeProfile* parent_profile, BufferControlBlock* sinker,
+                     bool output_object_data);
     FileResultWriter(const ResultFileOptions* file_option,
                      const TStorageBackendType::type storage_type,
                      const TUniqueId fragment_instance_id,
                      const std::vector<ExprContext*>& output_expr_ctxs,
-                     RuntimeProfile* parent_profile,
-                     BufferControlBlock* sinker,
-                     RowBatch* output_batch);
+                     RuntimeProfile* parent_profile, BufferControlBlock* sinker,
+                     RowBatch* output_batch, bool output_object_data);
     virtual ~FileResultWriter();
 
     virtual Status init(RuntimeState* state) override;
@@ -95,7 +94,7 @@ public:
     virtual Status close() override;
 
     // file result writer always return statistic result in one row
-    virtual int64_t get_written_rows() const { return 1; }
+    virtual int64_t get_written_rows() const override { return 1; }
 
 private:
     Status _write_csv_file(const RowBatch& batch);

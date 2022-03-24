@@ -19,12 +19,12 @@
 
 #include "util/doris_metrics.h"
 #include "util/trace.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
-BaseCompaction::BaseCompaction(TabletSharedPtr tablet, const std::string& label,
-                               const std::shared_ptr<MemTracker>& parent_tracker)
-        : Compaction(tablet, label, parent_tracker) {}
+BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
+        : Compaction(tablet, "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 BaseCompaction::~BaseCompaction() {}
 
@@ -33,8 +33,8 @@ OLAPStatus BaseCompaction::prepare_compact() {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    MutexLock lock(_tablet->get_base_lock(), TRY_LOCK);
-    if (!lock.own_lock()) {
+    std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
         return OLAP_ERR_BE_TRY_BE_LOCK_ERROR;
     }
@@ -50,8 +50,8 @@ OLAPStatus BaseCompaction::prepare_compact() {
 }
 
 OLAPStatus BaseCompaction::execute_compact_impl() {
-    MutexLock lock(_tablet->get_base_lock(), TRY_LOCK);
-    if (!lock.own_lock()) {
+    std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
         return OLAP_ERR_BE_TRY_BE_LOCK_ERROR;
     }
@@ -99,10 +99,10 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
 
     // 1. cumulative rowset must reach base_compaction_num_cumulative_deltas threshold
     if (_input_rowsets.size() > config::base_compaction_num_cumulative_deltas) {
-        LOG(INFO) << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
-                  << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
-                  << ", base_compaction_num_cumulative_rowsets="
-                  << config::base_compaction_num_cumulative_deltas;
+        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
+                    << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
+                    << ", base_compaction_num_cumulative_rowsets="
+                    << config::base_compaction_num_cumulative_deltas;
         return OLAP_SUCCESS;
     }
 
@@ -126,29 +126,29 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     double cumulative_base_ratio = static_cast<double>(cumulative_total_size) / base_size;
 
     if (cumulative_base_ratio > base_cumulative_delta_ratio) {
-        LOG(INFO) << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
-                  << ", cumulative_total_size=" << cumulative_total_size
-                  << ", base_size=" << base_size
-                  << ", cumulative_base_ratio=" << cumulative_base_ratio
-                  << ", policy_ratio=" << base_cumulative_delta_ratio;
+        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
+                    << ", cumulative_total_size=" << cumulative_total_size
+                    << ", base_size=" << base_size
+                    << ", cumulative_base_ratio=" << cumulative_base_ratio
+                    << ", policy_ratio=" << base_cumulative_delta_ratio;
         return OLAP_SUCCESS;
     }
 
     // 3. the interval since last base compaction reaches the threshold
     int64_t base_creation_time = _input_rowsets[0]->creation_time();
     int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation;
-    int64_t interval_since_last_base_compaction = time(NULL) - base_creation_time;
+    int64_t interval_since_last_base_compaction = time(nullptr) - base_creation_time;
     if (interval_since_last_base_compaction > interval_threshold) {
-        LOG(INFO) << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
-                  << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction
-                  << ", interval_threshold=" << interval_threshold;
+        VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
+                    << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction
+                    << ", interval_threshold=" << interval_threshold;
         return OLAP_SUCCESS;
     }
 
-    LOG(INFO) << "don't satisfy the base compaction policy. tablet=" << _tablet->full_name()
-              << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
-              << ", cumulative_base_ratio=" << cumulative_base_ratio
-              << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction;
+    VLOG_NOTICE << "don't satisfy the base compaction policy. tablet=" << _tablet->full_name()
+                << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
+                << ", cumulative_base_ratio=" << cumulative_base_ratio
+                << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction;
     return OLAP_ERR_BE_NO_SUITABLE_VERSION;
 }
 

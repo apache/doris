@@ -28,6 +28,10 @@
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 #include "util/logging.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/core/block.h"
+
+using namespace doris::vectorized;
 
 namespace doris {
 
@@ -95,14 +99,15 @@ public:
     }
 
     void init_row_block(const TabletSchema* tablet_schema, int size) {
-        Schema schema(*tablet_schema);
-        _row_block.reset(new RowBlockV2(schema, size));
+        _schema = std::make_unique<Schema>(*tablet_schema);
+        _row_block.reset(new RowBlockV2(*_schema, size));
     }
 
     std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     VectorizedRowBatch* _vectorized_batch;
     std::unique_ptr<RowBlockV2> _row_block;
+    std::unique_ptr<Schema> _schema;
 };
 
 #define TEST_IN_LIST_PREDICATE(TYPE, TYPE_NAME, FIELD_TYPE)                                      \
@@ -142,6 +147,16 @@ public:
         pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);                \
         ASSERT_EQ(select_size, 0);                                                               \
                                                                                                  \
+        /* for vectorized::Block no null */                                                      \
+        _row_block->clear();                                                                     \
+        select_size = _row_block->selected_size();                                               \
+        vectorized::Block vec_block = tablet_schema.create_block(return_columns);                \
+        _row_block->convert_to_vec_block(&vec_block);                                            \
+        ColumnPtr vec_col = vec_block.get_columns()[0];                                          \
+        pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),                        \
+                       _row_block->selection_vector(), &select_size);                            \
+        ASSERT_EQ(select_size, 0);                                                               \
+                                                                                                 \
         /* for has nulls */                                                                      \
         col_vector->set_no_nulls(false);                                                         \
         bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));                      \
@@ -172,6 +187,16 @@ public:
         _row_block->clear();                                                                     \
         select_size = _row_block->selected_size();                                               \
         pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);                \
+        ASSERT_EQ(select_size, 5);                                                               \
+                                                                                                 \
+        /* for vectorized::Block has nulls */                                                    \
+        _row_block->clear();                                                                     \
+        select_size = _row_block->selected_size();                                               \
+        vec_block = tablet_schema.create_block(return_columns);                                  \
+        _row_block->convert_to_vec_block(&vec_block);                                            \
+        vec_col = vec_block.get_columns()[0];                                                    \
+        pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),                        \
+                       _row_block->selection_vector(), &select_size);                            \
         ASSERT_EQ(select_size, 5);                                                               \
         pred.reset();                                                                            \
     }
@@ -216,6 +241,16 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 0);
 
+    // for vectorized::Block no null
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    ColumnPtr vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 0);
+
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
     bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
@@ -246,6 +281,16 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 5);
+
+    // for vectorized::Block has nulls
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 5);
 }
 
@@ -284,6 +329,16 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 0);
 
+    // for vectorized::Block no null
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    ColumnPtr vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 0);
+
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
     bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
@@ -314,6 +369,16 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 5);
+
+    // for vectorized::Block has nulls
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 5);
 }
 
@@ -355,6 +420,16 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 0);
 
+    // for vectorized::Block no null
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    ColumnPtr vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 0);
+
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
     bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
@@ -387,6 +462,16 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 4);
+
+    // for vectorized::Block has nulls
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 4);
 }
 
@@ -440,6 +525,16 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 0);
 
+    // for vectorized::Block no null
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    ColumnPtr vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 0);
+
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
     bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
@@ -482,6 +577,16 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 4);
+
+    // for vectorized::Block has nulls
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 4);
 }
 
@@ -529,6 +634,16 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 0);
 
+    // for vectorized::Block no null
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    ColumnPtr vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 0);
+
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
     bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
@@ -561,6 +676,16 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 2);
+
+    // for vectorized::Block has nulls
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 2);
 }
 
@@ -608,6 +733,16 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 0);
 
+    // for vectorized::Block no null
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vectorized::Block vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    ColumnPtr vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 0);
+
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
     bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));
@@ -640,6 +775,16 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 2);
+
+    // for vectorized::Block has nulls
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    vec_block = tablet_schema.create_block(return_columns);
+    _row_block->convert_to_vec_block(&vec_block);
+    vec_col = vec_block.get_columns()[0];
+    pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
+                   _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 2);
 }
 

@@ -38,7 +38,7 @@ namespace doris {
 Cache* FileHandler::_s_fd_cache = nullptr;
 
 FileHandler::FileHandler()
-        : _fd(-1), _wr_length(0), _file_name(""), _is_using_cache(false), _cache_handle(NULL) {
+        : _fd(-1), _wr_length(0), _file_name(""), _is_using_cache(false), _cache_handle(nullptr) {
     static std::once_flag once_flag;
 #ifdef BE_TEST
     std::call_once(once_flag, [] {
@@ -81,7 +81,7 @@ OLAPStatus FileHandler::open(const string& file_name, int flag) {
     }
 
     VLOG_NOTICE << "success to open file. file_name=" << file_name << ", mode=" << flag
-            << " fd=" << _fd;
+                << " fd=" << _fd;
     _is_using_cache = false;
     _file_name = file_name;
     return OLAP_SUCCESS;
@@ -102,12 +102,12 @@ OLAPStatus FileHandler::open_with_cache(const string& file_name, int flag) {
 
     CacheKey key(file_name.c_str(), file_name.size());
     _cache_handle = _s_fd_cache->lookup(key);
-    if (NULL != _cache_handle) {
+    if (nullptr != _cache_handle) {
         FileDescriptor* file_desc =
                 reinterpret_cast<FileDescriptor*>(_s_fd_cache->value(_cache_handle));
         _fd = file_desc->fd;
-        VLOG_NOTICE << "success to open file with cache. file_name=" << file_name << ", mode=" << flag
-                << " fd=" << _fd;
+        VLOG_NOTICE << "success to open file with cache. file_name=" << file_name
+                    << ", mode=" << flag << " fd=" << _fd;
     } else {
         _fd = ::open(file_name.c_str(), flag);
         if (_fd < 0) {
@@ -122,7 +122,7 @@ OLAPStatus FileHandler::open_with_cache(const string& file_name, int flag) {
         FileDescriptor* file_desc = new FileDescriptor(_fd);
         _cache_handle = _s_fd_cache->insert(key, file_desc, 1, &_delete_cache_file_descriptor);
         VLOG_NOTICE << "success to open file with cache. "
-                << "file_name=" << file_name << ", mode=" << flag << ", fd=" << _fd;
+                    << "file_name=" << file_name << ", mode=" << flag << ", fd=" << _fd;
     }
     _is_using_cache = true;
     _file_name = file_name;
@@ -151,14 +151,14 @@ OLAPStatus FileHandler::open_with_mode(const string& file_name, int flag, int mo
     }
 
     VLOG_NOTICE << "success to open file. file_name=" << file_name << ", mode=" << mode
-            << ", fd=" << _fd;
+                << ", fd=" << _fd;
     _file_name = file_name;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus FileHandler::_release() {
     _s_fd_cache->release(_cache_handle);
-    _cache_handle = NULL;
+    _cache_handle = nullptr;
     _is_using_cache = false;
     return OLAP_SUCCESS;
 }
@@ -179,7 +179,7 @@ OLAPStatus FileHandler::close() {
             _wr_length = 0;
         }
 
-        // 在一些极端情况下(fd可用,但fsync失败)可能造成句柄泄漏
+        // In some extreme cases (fd is available, but fsync fails) can cause handle leaks
         if (::close(_fd) < 0) {
             char errmsg[64];
             LOG(WARNING) << "failed to close file. [err= " << strerror_r(errno, errmsg, 64)
@@ -189,7 +189,7 @@ OLAPStatus FileHandler::close() {
     }
 
     VLOG_NOTICE << "finished to close file. "
-            << "file_name=" << _file_name << ", fd=" << _fd;
+                << "file_name=" << _file_name << ", fd=" << _fd;
     _fd = -1;
     _file_name = "";
     _wr_length = 0;
@@ -299,14 +299,14 @@ off_t FileHandler::length() const {
     return stat_data.st_size;
 }
 
-FileHandlerWithBuf::FileHandlerWithBuf() : _fp(NULL), _file_name("") {}
+FileHandlerWithBuf::FileHandlerWithBuf() : _fp(nullptr), _file_name("") {}
 
 FileHandlerWithBuf::~FileHandlerWithBuf() {
     this->close();
 }
 
 OLAPStatus FileHandlerWithBuf::open(const string& file_name, const char* mode) {
-    if (_fp != NULL && _file_name == file_name) {
+    if (_fp != nullptr && _file_name == file_name) {
         return OLAP_SUCCESS;
     }
 
@@ -316,7 +316,7 @@ OLAPStatus FileHandlerWithBuf::open(const string& file_name, const char* mode) {
 
     _fp = ::fopen(file_name.c_str(), mode);
 
-    if (NULL == _fp) {
+    if (nullptr == _fp) {
         char errmsg[64];
         LOG(WARNING) << "failed to open file. [err= " << strerror_r(errno, errmsg, 64)
                      << " file_name='" << file_name << "' flag='" << mode << "']";
@@ -327,7 +327,7 @@ OLAPStatus FileHandlerWithBuf::open(const string& file_name, const char* mode) {
     }
 
     VLOG_NOTICE << "success to open file. "
-            << "file_name=" << file_name << ", mode=" << mode;
+                << "file_name=" << file_name << ", mode=" << mode;
     _file_name = file_name;
     return OLAP_SUCCESS;
 }
@@ -337,11 +337,11 @@ OLAPStatus FileHandlerWithBuf::open_with_mode(const string& file_name, const cha
 }
 
 OLAPStatus FileHandlerWithBuf::close() {
-    if (NULL == _fp) {
+    if (nullptr == _fp) {
         return OLAP_SUCCESS;
     }
 
-    // 在一些极端情况下(fd可用,但fsync失败)可能造成句柄泄漏
+    // In some cases (fd is available, but fsync fails) can cause handle leaks
     if (::fclose(_fp) != 0) {
         char errmsg[64];
         LOG(WARNING) << "failed to close file. [err= " << strerror_r(errno, errmsg, 64)
@@ -349,14 +349,14 @@ OLAPStatus FileHandlerWithBuf::close() {
         return OLAP_ERR_IO_ERROR;
     }
 
-    _fp = NULL;
+    _fp = nullptr;
     _file_name = "";
     return OLAP_SUCCESS;
 }
 
 OLAPStatus FileHandlerWithBuf::read(void* buf, size_t size) {
-    if (OLAP_UNLIKELY(NULL == _fp)) {
-        OLAP_LOG_WARNING("Fail to write, fp is NULL!");
+    if (OLAP_UNLIKELY(nullptr == _fp)) {
+        OLAP_LOG_WARNING("Fail to write, fp is nullptr!");
         return OLAP_ERR_NOT_INITED;
     }
 
@@ -379,8 +379,8 @@ OLAPStatus FileHandlerWithBuf::read(void* buf, size_t size) {
 }
 
 OLAPStatus FileHandlerWithBuf::pread(void* buf, size_t size, size_t offset) {
-    if (OLAP_UNLIKELY(NULL == _fp)) {
-        OLAP_LOG_WARNING("Fail to write, fp is NULL!");
+    if (OLAP_UNLIKELY(nullptr == _fp)) {
+        OLAP_LOG_WARNING("Fail to write, fp is nullptr!");
         return OLAP_ERR_NOT_INITED;
     }
 
@@ -396,8 +396,8 @@ OLAPStatus FileHandlerWithBuf::pread(void* buf, size_t size, size_t offset) {
 }
 
 OLAPStatus FileHandlerWithBuf::write(const void* buf, size_t buf_size) {
-    if (OLAP_UNLIKELY(NULL == _fp)) {
-        OLAP_LOG_WARNING("Fail to write, fp is NULL!");
+    if (OLAP_UNLIKELY(nullptr == _fp)) {
+        OLAP_LOG_WARNING("Fail to write, fp is nullptr!");
         return OLAP_ERR_NOT_INITED;
     }
 
@@ -414,8 +414,8 @@ OLAPStatus FileHandlerWithBuf::write(const void* buf, size_t buf_size) {
 }
 
 OLAPStatus FileHandlerWithBuf::pwrite(const void* buf, size_t buf_size, size_t offset) {
-    if (OLAP_UNLIKELY(NULL == _fp)) {
-        OLAP_LOG_WARNING("Fail to write, fp is NULL!");
+    if (OLAP_UNLIKELY(nullptr == _fp)) {
+        OLAP_LOG_WARNING("Fail to write, fp is nullptr!");
         return OLAP_ERR_NOT_INITED;
     }
 

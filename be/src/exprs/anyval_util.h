@@ -193,6 +193,7 @@ public:
             StringVal max_val;
             max_val.ptr = ctx->allocate(sv.len);
             memcpy(max_val.ptr, sv.ptr, sv.len);
+            max_val.len = sv.len;
 
             return max_val;
         } else if constexpr (std::is_same_v<Val, DateTimeVal>) {
@@ -236,6 +237,7 @@ public:
             return sizeof(doris_udf::DoubleVal);
 
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_HLL:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
@@ -278,6 +280,7 @@ public:
         case TYPE_DOUBLE:
             return alignof(DoubleVal);
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_HLL:
         case TYPE_VARCHAR:
         case TYPE_CHAR:
@@ -312,7 +315,7 @@ public:
         }
     }
 
-    static StringVal from_buffer(FunctionContext* ctx, const char* ptr, int len) {
+    static StringVal from_buffer(FunctionContext* ctx, const char* ptr, int64_t len) {
         StringVal result(ctx, len);
         memcpy(result.ptr, ptr, len);
         return result;
@@ -323,7 +326,7 @@ public:
         return val;
     }
 
-    static StringVal from_buffer_temp(FunctionContext* ctx, const char* ptr, int len) {
+    static StringVal from_buffer_temp(FunctionContext* ctx, const char* ptr, int64_t len) {
         StringVal result = StringVal::create_temp_string_val(ctx, len);
         memcpy(result.ptr, ptr, len);
         return result;
@@ -333,7 +336,7 @@ public:
 
     // Utility to put val into an AnyVal struct
     static void set_any_val(const void* slot, const TypeDescriptor& type, doris_udf::AnyVal* dst) {
-        if (slot == NULL) {
+        if (slot == nullptr) {
             dst->is_null = true;
             return;
         }
@@ -378,6 +381,7 @@ public:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_STRING:
             reinterpret_cast<const StringValue*>(slot)->to_string_val(
                     reinterpret_cast<doris_udf::StringVal*>(dst));
@@ -403,13 +407,13 @@ public:
         }
     }
 
-    /// Templated equality functions. These assume the input values are not NULL.
+    /// Templated equality functions. These assume the input values are not nullptr.
     template <typename T>
     static inline bool equals(const PrimitiveType& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
-    /// Templated equality functions. These assume the input values are not NULL.
+    /// Templated equality functions. These assume the input values are not nullptr.
     template <typename T>
     static inline bool equals(const T& x, const T& y) {
         return equals_internal(x, y);

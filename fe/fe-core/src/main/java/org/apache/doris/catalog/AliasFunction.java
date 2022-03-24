@@ -73,7 +73,7 @@ public class AliasFunction extends Function {
     }
 
     public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
-                                               boolean hasVarArgs, List<String> parameters, Expr originFunction) {
+            boolean hasVarArgs, List<String> parameters, Expr originFunction) {
         AliasFunction aliasFunction = new AliasFunction(functionName, Arrays.asList(argTypes), retType, hasVarArgs);
         aliasFunction.setBinaryType(TFunctionBinaryType.NATIVE);
         aliasFunction.setUserVisible(true);
@@ -88,8 +88,12 @@ public class AliasFunction extends Function {
             /**
              * Please ensure that the condition checks in {@link #analyze} are satisfied
              */
-            functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.INT), Type.VARCHAR,
-                    false, Lists.newArrayList("id"), getExpr(oriStmt), true));
+            functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
+                    false, Lists.newArrayList("id"), getExpr(oriStmt), true, false));
+
+            functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
+                    false, Lists.newArrayList("id"), getExpr(oriStmt), true, true));
+
         } catch (AnalysisException e) {
             LOG.error("Add builtin alias function error {}", e);
         }
@@ -110,7 +114,7 @@ public class AliasFunction extends Function {
             LOG.info("analysis exception happened when parsing stmt {}, error: {}",
                     sql, syntaxError, e);
             if (syntaxError == null) {
-                throw  e;
+                throw e;
             } else {
                 throw new AnalysisException(syntaxError, e);
             }
@@ -126,13 +130,14 @@ public class AliasFunction extends Function {
     }
 
     private static AliasFunction createBuiltin(String name, ArrayList<Type> argTypes, Type retType,
-                                              boolean hasVarArgs, List<String> parameters, Expr originFunction,
-                                              boolean userVisible) {
+            boolean hasVarArgs, List<String> parameters, Expr originFunction,
+            boolean userVisible, boolean isVectorized) {
         AliasFunction aliasFunction = new AliasFunction(new FunctionName(name), argTypes, retType, hasVarArgs);
         aliasFunction.setBinaryType(TFunctionBinaryType.BUILTIN);
         aliasFunction.setUserVisible(userVisible);
         aliasFunction.originFunction = originFunction;
         aliasFunction.parameters = parameters;
+        aliasFunction.vectorized = isVectorized;
         return aliasFunction;
     }
 
@@ -154,7 +159,8 @@ public class AliasFunction extends Function {
 
     public void analyze() throws AnalysisException {
         if (parameters.size() != getArgs().length) {
-            throw new AnalysisException("Alias function [" + functionName() + "] args number is not equal to parameters number");
+            throw new AnalysisException(
+                    "Alias function [" + functionName() + "] args number is not equal to parameters number");
         }
         List<Expr> exprs;
         if (originFunction instanceof FunctionCallExpr) {
@@ -188,7 +194,8 @@ public class AliasFunction extends Function {
         Set<String> set = new HashSet<>();
         for (String str : parameters) {
             if (!set.add(str)) {
-                throw new AnalysisException("Alias function [" + functionName() + "] has duplicate parameter [" + str + "].");
+                throw new AnalysisException(
+                        "Alias function [" + functionName() + "] has duplicate parameter [" + str + "].");
             }
             boolean existFlag = false;
             // check exprs
@@ -200,7 +207,8 @@ public class AliasFunction extends Function {
                 existFlag |= typeDefParam.equals(str);
             }
             if (!existFlag) {
-                throw new AnalysisException("Alias function [" + functionName() + "]  do not contain parameter [" + str + "].");
+                throw new AnalysisException(
+                        "Alias function [" + functionName() + "]  do not contain parameter [" + str + "].");
             }
         }
     }
@@ -227,11 +235,11 @@ public class AliasFunction extends Function {
             sb.append("IF NOT EXISTS ");
         }
         sb.append(signatureString())
-            .append(" WITH PARAMETER(")
-            .append(getParamsSting(parameters))
-            .append(") AS ")
-            .append(originFunction.toSql())
-            .append(";");
+                .append(" WITH PARAMETER(")
+                .append(getParamsSting(parameters))
+                .append(") AS ")
+                .append(originFunction.toSql())
+                .append(";");
         return sb.toString();
     }
 
@@ -273,6 +281,7 @@ public class AliasFunction extends Function {
 
     /**
      * set slotRef label to column name
+     * 
      * @param expr
      */
     private void setSlotRefLabel(Expr expr) {

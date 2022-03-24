@@ -48,7 +48,7 @@ inline ReadOnlyFileStream* extract_stream(uint32_t column_unique_id, StreamInfoM
         return (*it).second;
     }
 
-    return NULL;
+    return nullptr;
 }
 
 // Unique id -> PositionProvider
@@ -114,7 +114,6 @@ public:
     size_t get_buffer_size() { return sizeof(RunLengthByteReader); }
 
 private:
-    bool _eof;
     uint32_t _column_unique_id;
     Slice* _values;
     ReadOnlyFileStream* _data_stream;
@@ -154,7 +153,7 @@ private:
     //StorageByteBuffer* _dictionary_data_buffer;   // Save dict data
     std::vector<std::string> _dictionary;
     // Used to read the actual data (represented by an integer)
-    RunLengthIntegerReader* _data_reader; 
+    RunLengthIntegerReader* _data_reader;
 };
 
 // ColumnReader is used to read a column and is the base class of other XXXColumnReader
@@ -228,7 +227,7 @@ public:
                        FieldType type, int length)
             : ColumnReader(column_id, column_unique_id),
               _default_value(default_value),
-              _values(NULL),
+              _values(nullptr),
               _type(type),
               _length(length) {}
 
@@ -395,9 +394,10 @@ public:
         _stats = stats;
         return OLAP_SUCCESS;
     }
-    virtual OLAPStatus seek(PositionProvider* positions) { return OLAP_SUCCESS; }
-    virtual OLAPStatus skip(uint64_t row_count) { return OLAP_SUCCESS; }
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
+    virtual OLAPStatus seek(PositionProvider* positions) override { return OLAP_SUCCESS; }
+    virtual OLAPStatus skip(uint64_t row_count) override { return OLAP_SUCCESS; }
+    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size,
+                                   MemPool* mem_pool) override {
         column_vector->set_no_nulls(false);
         column_vector->set_is_null(_is_null);
         _stats->bytes_read += size;
@@ -432,7 +432,7 @@ public:
     IntegerColumnReaderWrapper(uint32_t column_id, uint32_t column_unique_id)
             : ColumnReader(column_id, column_unique_id),
               _reader(column_unique_id),
-              _values(NULL),
+              _values(nullptr),
               _eof(false) {}
 
     virtual ~IntegerColumnReaderWrapper() {}
@@ -451,13 +451,13 @@ public:
     }
     virtual OLAPStatus seek(PositionProvider* positions) {
         OLAPStatus res;
-        if (NULL == _present_reader) {
+        if (nullptr == _present_reader) {
             res = _reader.seek(positions);
             if (OLAP_SUCCESS != res) {
                 return res;
             }
         } else {
-            //all field in the segment can be NULL, so the data stream is EOF
+            //all field in the segment can be nullptr, so the data stream is EOF
             res = ColumnReader::seek(positions);
             if (OLAP_SUCCESS != res) {
                 return res;
@@ -550,13 +550,13 @@ public:
 
     virtual OLAPStatus seek(PositionProvider* positions) {
         OLAPStatus res;
-        if (NULL == _present_reader) {
+        if (nullptr == _present_reader) {
             res = _reader.seek(positions);
             if (OLAP_SUCCESS != res) {
                 return res;
             }
         } else {
-            //all field in the segment can be NULL, so the data stream is EOF
+            //all field in the segment can be nullptr, so the data stream is EOF
             res = ColumnReader::seek(positions);
             if (OLAP_SUCCESS != res) {
                 return res;
@@ -616,13 +616,13 @@ public:
 
     virtual OLAPStatus seek(PositionProvider* position) {
         OLAPStatus res;
-        if (NULL == _present_reader) {
+        if (nullptr == _present_reader) {
             res = _reader.seek(position);
             if (OLAP_SUCCESS != res) {
                 return res;
             }
         } else {
-            //all field in the segment can be NULL, so the data stream is EOF
+            //all field in the segment can be nullptr, so the data stream is EOF
             res = ColumnReader::seek(position);
             if (OLAP_SUCCESS != res) {
                 return res;
@@ -666,15 +666,15 @@ public:
     FloatintPointColumnReader(uint32_t column_id, uint32_t column_unique_id)
             : ColumnReader(column_id, column_unique_id),
               _eof(false),
-              _data_stream(NULL),
-              _values(NULL) {}
+              _data_stream(nullptr),
+              _values(nullptr) {}
 
     virtual ~FloatintPointColumnReader() {}
 
     virtual OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                             MemPool* mem_pool, OlapReaderStatistics* stats) {
-        if (NULL == streams) {
-            OLAP_LOG_WARNING("input streams is NULL");
+        if (nullptr == streams) {
+            OLAP_LOG_WARNING("input streams is nullptr");
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
@@ -682,34 +682,33 @@ public:
         ColumnReader::init(streams, size, mem_pool, stats);
         _data_stream = extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
-        if (NULL == _data_stream) {
+        if (nullptr == _data_stream) {
             OLAP_LOG_WARNING("specified stream not exist");
             return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
         }
 
         _values = reinterpret_cast<FLOAT_TYPE*>(mem_pool->allocate(size * sizeof(FLOAT_TYPE)));
-
         return OLAP_SUCCESS;
     }
     virtual OLAPStatus seek(PositionProvider* position) {
-        if (NULL == position) {
-            OLAP_LOG_WARNING("input positions is NULL");
+        if (nullptr == position) {
+            OLAP_LOG_WARNING("input positions is nullptr");
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 
-        if (NULL == _data_stream) {
+        if (nullptr == _data_stream) {
             OLAP_LOG_WARNING("reader not init.");
             return OLAP_ERR_NOT_INITED;
         }
 
         OLAPStatus res;
-        if (NULL == _present_reader) {
+        if (nullptr == _present_reader) {
             res = _data_stream->seek(position);
             if (OLAP_SUCCESS != res) {
                 return res;
             }
         } else {
-            //all field in the segment can be NULL, so the data stream is EOF
+            //all field in the segment can be nullptr, so the data stream is EOF
             res = ColumnReader::seek(position);
             if (OLAP_SUCCESS != res) {
                 return res;
@@ -724,7 +723,7 @@ public:
         return OLAP_SUCCESS;
     }
     virtual OLAPStatus skip(uint64_t row_count) {
-        if (NULL == _data_stream) {
+        if (nullptr == _data_stream) {
             OLAP_LOG_WARNING("reader not init.");
             return OLAP_ERR_NOT_INITED;
         }
@@ -734,7 +733,7 @@ public:
     }
 
     virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
-        if (NULL == _data_stream) {
+        if (nullptr == _data_stream) {
             OLAP_LOG_WARNING("reader not init.");
             return OLAP_ERR_NOT_INITED;
         }
@@ -792,11 +791,12 @@ public:
     virtual ~DecimalColumnReader();
     OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size, MemPool* mem_pool,
                     OlapReaderStatistics* stats) override;
-    virtual OLAPStatus seek(PositionProvider* positions);
-    virtual OLAPStatus skip(uint64_t row_count);
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);
+    virtual OLAPStatus seek(PositionProvider* positions) override;
+    virtual OLAPStatus skip(uint64_t row_count) override;
+    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size,
+                                   MemPool* mem_pool) override;
 
-    virtual size_t get_buffer_size() { return sizeof(RunLengthByteReader) * 2; }
+    virtual size_t get_buffer_size() override { return sizeof(RunLengthByteReader) * 2; }
 
 private:
     bool _eof;

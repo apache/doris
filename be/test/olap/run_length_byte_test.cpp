@@ -35,9 +35,9 @@ using namespace testing;
 TEST(TestStream, UncompressOutStream) {
     // write data
     OutStream* out_stream =
-            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor == NULL);
+            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, nullptr);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor == nullptr);
 
     out_stream->write(0x5a);
     out_stream->flush();
@@ -63,9 +63,9 @@ TEST(TestStream, UncompressOutStream) {
 TEST(TestStream, UncompressOutStream2) {
     // write data
     OutStream* out_stream =
-            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor == NULL);
+            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, nullptr);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor == nullptr);
 
     for (int32_t i = 0; i < OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE; i++) {
         out_stream->write(0x5a);
@@ -87,7 +87,7 @@ TEST(TestStream, UncompressOutStream2) {
     offsets.push_back(0);
     offsets.push_back(sizeof(StreamHead) + OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
     InStream* in_stream =
-            new (std::nothrow) InStream(&inputs, offsets, out_stream->get_stream_length(), NULL,
+            new (std::nothrow) InStream(&inputs, offsets, out_stream->get_stream_length(), nullptr,
                                         out_stream->get_total_buffer_size());
 
     char data;
@@ -112,9 +112,9 @@ TEST(TestStream, UncompressOutStream2) {
 TEST(TestStream, UncompressOutStream3) {
     // write data
     OutStream* out_stream =
-            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor == NULL);
+            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, nullptr);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor == nullptr);
 
     for (int32_t i = 0; i < OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE; i++) {
         out_stream->write(0x5a);
@@ -137,7 +137,7 @@ TEST(TestStream, UncompressOutStream3) {
     offsets.push_back(0);
     offsets.push_back(sizeof(StreamHead) + OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
     InStream* in_stream =
-            new (std::nothrow) InStream(&inputs, offsets, out_stream->get_stream_length(), NULL,
+            new (std::nothrow) InStream(&inputs, offsets, out_stream->get_stream_length(), nullptr,
                                         out_stream->get_total_buffer_size());
 
     char data;
@@ -163,9 +163,9 @@ TEST(TestStream, UncompressOutStream3) {
 TEST(TestStream, UncompressInStream) {
     // write data
     OutStream* out_stream =
-            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor == NULL);
+            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, nullptr);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor == nullptr);
 
     out_stream->write(0x5a);
     out_stream->flush();
@@ -179,7 +179,7 @@ TEST(TestStream, UncompressInStream) {
     std::vector<uint64_t> offsets;
     offsets.assign(inputs.size(), 0);
     InStream* in_stream =
-            new (std::nothrow) InStream(&inputs, offsets, out_stream->get_stream_length(), NULL,
+            new (std::nothrow) InStream(&inputs, offsets, out_stream->get_stream_length(), nullptr,
                                         out_stream->get_total_buffer_size());
     SAFE_DELETE(out_stream);
 
@@ -199,8 +199,8 @@ TEST(TestStream, CompressOutStream) {
     // write data
     OutStream* out_stream =
             new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, lz4_compress);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor != NULL);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor != nullptr);
 
     char* write_data = new char[OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE];
     memset(write_data, 0x5a, OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
@@ -228,8 +228,8 @@ TEST(TestStream, CompressOutStream2) {
     // write data
     OutStream* out_stream =
             new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, lz4_compress);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor != NULL);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor != nullptr);
 
     for (int32_t i = 0; i < OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE; i++) {
         out_stream->write(0x5a);
@@ -270,8 +270,8 @@ TEST(TestStream, CompressOutStream3) {
     // write data
     OutStream* out_stream =
             new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, lz4_compress);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor != NULL);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor != nullptr);
 
     for (int32_t i = 0; i < OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE; i++) {
         out_stream->write(0x5a);
@@ -318,8 +318,8 @@ TEST(TestStream, CompressOutStream3) {
 TEST(TestStream, CompressOutStream4) {
     // write data
     OutStream* out_stream = new (std::nothrow) OutStream(18, lz4_compress);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor != NULL);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor != nullptr);
 
     for (int32_t i = 0; i < 15; i++) {
         out_stream->write(0x5a);
@@ -374,8 +374,8 @@ TEST(TestStream, CompressOutStream4) {
 TEST(TestStream, CompressMassOutStream) {
     // write data
     OutStream* out_stream = new (std::nothrow) OutStream(100, lz4_compress);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor != NULL);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor != nullptr);
 
     for (int32_t i = 0; i < 100; i++) {
         out_stream->write(0x5a);
@@ -422,8 +422,8 @@ TEST(TestStream, CompressInStream) {
     // write data
     OutStream* out_stream =
             new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, lz4_compress);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor != NULL);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor != nullptr);
 
     char* write_data = new char[OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE];
     memset(write_data, 0x5a, OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
@@ -465,9 +465,9 @@ TEST(TestStream, CompressInStream) {
 TEST(TestStream, SeekUncompress) {
     // write data
     OutStream* out_stream =
-            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor == NULL);
+            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, nullptr);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor == nullptr);
 
     out_stream->write(0x5a);
 
@@ -490,7 +490,7 @@ TEST(TestStream, SeekUncompress) {
     std::vector<uint64_t> offsets;
     offsets.assign(inputs.size(), 0);
     InStream* in_stream =
-            new (std::nothrow) InStream(&inputs, offsets, out_stream->get_stream_length(), NULL,
+            new (std::nothrow) InStream(&inputs, offsets, out_stream->get_stream_length(), nullptr,
                                         out_stream->get_total_buffer_size());
     ASSERT_EQ(in_stream->available(), 2);
 
@@ -522,9 +522,9 @@ TEST(TestStream, SeekUncompress) {
 TEST(TestStream, SkipUncompress) {
     // write data
     OutStream* out_stream =
-            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
-    ASSERT_TRUE(out_stream != NULL);
-    ASSERT_TRUE(out_stream->_compressor == NULL);
+            new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, nullptr);
+    ASSERT_TRUE(out_stream != nullptr);
+    ASSERT_TRUE(out_stream->_compressor == nullptr);
 
     char write_data[] = {0x5a, 0x5b, 0x5c, 0x5d};
     for (int32_t i = 0; i < sizeof(write_data); i++) {
@@ -544,7 +544,7 @@ TEST(TestStream, SkipUncompress) {
     std::vector<uint64_t> offsets;
     offsets.assign(inputs.size(), 0);
     InStream* in_stream =
-            new (std::nothrow) InStream(&inputs, offsets, out_stream->get_stream_length(), NULL,
+            new (std::nothrow) InStream(&inputs, offsets, out_stream->get_stream_length(), nullptr,
                                         out_stream->get_total_buffer_size());
     ASSERT_EQ(in_stream->available(), sizeof(write_data) + 1);
     in_stream->skip(sizeof(write_data) - 1);
@@ -562,7 +562,7 @@ TEST(TestStream, SeekCompress) {
     // write data
     OutStream* out_stream =
             new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, lz4_compress);
-    ASSERT_TRUE(out_stream != NULL);
+    ASSERT_TRUE(out_stream != nullptr);
 
     for (int32_t i = 0; i < 10; i++) {
         out_stream->write(0x5a);
@@ -615,7 +615,7 @@ TEST(TestStream, SkipCompress) {
     // write data
     OutStream* out_stream =
             new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, lz4_compress);
-    ASSERT_TRUE(out_stream != NULL);
+    ASSERT_TRUE(out_stream != nullptr);
 
     for (int32_t i = 0; i < 10; i++) {
         out_stream->write(0x5a);
@@ -656,12 +656,12 @@ public:
     virtual ~TestRunLengthByte() {}
 
     virtual void SetUp() {
-        system("mkdir -p ./ut_dir");
-        system("rm -rf ./ut_dir/tmp_file");
-        _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
-        ASSERT_TRUE(_out_stream != NULL);
+        ASSERT_EQ(system("mkdir -p ./ut_dir"), 0);
+        ASSERT_EQ(system("rm -rf ./ut_dir/tmp_file"), 0);
+        _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, nullptr);
+        ASSERT_TRUE(_out_stream != nullptr);
         _writer = new (std::nothrow) RunLengthByteWriter(_out_stream);
-        ASSERT_TRUE(_writer != NULL);
+        ASSERT_TRUE(_writer != nullptr);
     }
 
     virtual void TearDown() {
@@ -684,15 +684,15 @@ public:
 
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
                                                    sizeof(StreamHead));
-        ASSERT_TRUE(_shared_buffer != NULL);
+        ASSERT_TRUE(_shared_buffer != nullptr);
 
         _stream = new (std::nothrow)
-                ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), NULL,
+                ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), nullptr,
                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) RunLengthByteReader(_stream);
-        ASSERT_TRUE(_reader != NULL);
+        ASSERT_TRUE(_reader != nullptr);
     }
 
     RunLengthByteReader* _reader;

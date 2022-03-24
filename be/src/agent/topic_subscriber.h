@@ -18,9 +18,10 @@
 #ifndef DORIS_BE_SRC_AGENT_TOPIC_SUBSCRIBER_H
 #define DORIS_BE_SRC_AGENT_TOPIC_SUBSCRIBER_H
 
-#include <boost/thread.hpp>
 #include <map>
+#include <mutex>
 #include <shared_mutex>
+#include <thread>
 
 #include "agent/topic_listener.h"
 #include "gen_cpp/AgentService_types.h"

@@ -19,7 +19,6 @@
 
 #include <sqlext.h>
 
-#include <boost/algorithm/string.hpp>
 #include <codecvt>
 
 #include "common/config.h"
@@ -28,16 +27,16 @@
 #include "runtime/primitive_type.h"
 #include "util/types.h"
 
-#define ODBC_DISPOSE(h, ht, x, op)                                        \
-    {                                                                     \
-        auto rc = x;                                                      \
-        if (rc != SQL_SUCCESS && rc != SQL_SUCCESS_WITH_INFO) {           \
-            return error_status(op, handle_diagnostic_record(h, ht, rc)); \
-        }                                                                 \
-        if (rc == SQL_ERROR) {                                            \
-            auto err_msg = std::string("Error in") + std::string(op);     \
-            return Status::InternalError(err_msg.c_str());                \
-        }                                                                 \
+#define ODBC_DISPOSE(h, ht, x, op)                                                        \
+    {                                                                                     \
+        auto rc = x;                                                                      \
+        if (rc != SQL_SUCCESS && rc != SQL_SUCCESS_WITH_INFO) {                           \
+            return error_status(fmt::to_string(op), handle_diagnostic_record(h, ht, rc)); \
+        }                                                                                 \
+        if (rc == SQL_ERROR) {                                                            \
+            auto err_msg = std::string("Error in") + fmt::to_string(op);                  \
+            return Status::InternalError(err_msg.c_str());                                \
+        }                                                                                 \
     }
 
 static constexpr uint32_t SMALL_COLUMN_SIZE_BUFFER = 100;
@@ -60,7 +59,6 @@ ODBCConnector::ODBCConnector(const ODBCConnectorParam& param)
           _output_expr_ctxs(param.output_expr_ctxs),
           _is_open(false),
           _field_num(0),
-          _row_count(0),
           _env(nullptr),
           _dbc(nullptr),
           _stmt(nullptr) {}
@@ -107,8 +105,8 @@ Status ODBCConnector::open() {
     SQLSetConnectAttr(_dbc, SQL_ATTR_CONNECTION_TIMEOUT, (SQLPOINTER)timeout, 0);
     // Connect to the Database
     ODBC_DISPOSE(_dbc, SQL_HANDLE_DBC,
-                 SQLDriverConnect(_dbc, NULL, (SQLCHAR*)_connect_string.c_str(), SQL_NTS, NULL, 0,
-                                  NULL, SQL_DRIVER_NOPROMPT),
+                 SQLDriverConnect(_dbc, nullptr, (SQLCHAR*)_connect_string.c_str(), SQL_NTS,
+                                  nullptr, 0, nullptr, SQL_DRIVER_NOPROMPT),
                  "driver connect");
 
     LOG(INFO) << "connect success:" << _connect_string.substr(0, _connect_string.find("Pwd="));
@@ -157,15 +155,15 @@ Status ODBCConnector::query() {
                                              ? BIG_COLUMN_SIZE_BUFFER
                                              : SMALL_COLUMN_SIZE_BUFFER;
         column_data->target_value_ptr = malloc(sizeof(char) * column_data->buffer_length);
-        _columns_data.push_back(column_data);
+        _columns_data.emplace_back(column_data);
     }
 
     // setup the binding
     for (int i = 0; i < _field_num; i++) {
         ODBC_DISPOSE(_stmt, SQL_HANDLE_STMT,
-                     SQLBindCol(_stmt, (SQLUSMALLINT)i + 1, _columns_data[i].target_type,
-                                _columns_data[i].target_value_ptr, _columns_data[i].buffer_length,
-                                &(_columns_data[i].strlen_or_ind)),
+                     SQLBindCol(_stmt, (SQLUSMALLINT)i + 1, _columns_data[i]->target_type,
+                                _columns_data[i]->target_value_ptr, _columns_data[i]->buffer_length,
+                                &(_columns_data[i]->strlen_or_ind)),
                      "bind col");
     }
 
@@ -264,7 +262,7 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
                 case TYPE_STRING: {
                     const auto* string_val = (const StringValue*)(item);
 
-                    if (string_val->ptr == NULL) {
+                    if (string_val->ptr == nullptr) {
                         if (string_val->len == 0) {
                             fmt::format_to(_insert_stmt_buffer, "{}", "''");
                         } else {
@@ -294,7 +292,7 @@ Status ODBCConnector::append(const std::string& table_name, RowBatch* batch,
                     fmt::memory_buffer err_out;
                     fmt::format_to(err_out, "can't convert this type to mysql type. type = {}",
                                    _output_expr_ctxs[j]->root()->type().type);
-                    return Status::InternalError(err_out.data());
+                    return Status::InternalError(fmt::to_string(err_out));
                 }
                 }
             }
@@ -389,12 +387,10 @@ std::string ODBCConnector::handle_diagnostic_record(SQLHANDLE hHandle, SQLSMALLI
     while (SQLGetDiagRec(hType, hHandle, ++rec, (SQLCHAR*)(state), &error,
                          reinterpret_cast<SQLCHAR*>(message),
                          (SQLSMALLINT)(sizeof(message) / sizeof(WCHAR)),
-                         (SQLSMALLINT*)NULL) == SQL_SUCCESS) {
+                         (SQLSMALLINT*)nullptr) == SQL_SUCCESS) {
         // Hide data truncated..
         if (wcsncmp(reinterpret_cast<const wchar_t*>(state), L"01004", 5)) {
-            boost::format msg_string("%s %s (%d)");
-            msg_string % state % message % error;
-            diagnostic_msg += msg_string.str();
+            diagnostic_msg += fmt::format("{} {} ({})", state, message, error);
         }
     }
 

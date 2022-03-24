@@ -130,7 +130,7 @@ void ResultCache::fetch(const PFetchCacheRequest* request, PFetchCacheResult* re
         for (auto part_it = part_rowbatch_list.begin(); part_it != part_rowbatch_list.end();
              part_it++) {
             PCacheValue* srcValue = (*part_it)->get_value();
-            if (srcValue != NULL) {
+            if (srcValue != nullptr) {
                 PCacheValue* value = result->add_values();
                 value->CopyFrom(*srcValue);
                 LOG(INFO) << "fetch cache partition key:" << srcValue->param().partition_key();
@@ -228,7 +228,7 @@ void ResultCache::prune() {
               << ", elasticity_size : " << _elasticity_size;
     ResultNode* result_node = _node_list.get_head();
     while (_cache_size > _max_size) {
-        if (result_node == NULL) {
+        if (result_node == nullptr) {
             break;
         }
         result_node = find_min_time_node(result_node);

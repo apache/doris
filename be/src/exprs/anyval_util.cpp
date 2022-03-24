@@ -38,9 +38,11 @@ Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor
                         const std::string& mem_limit_exceeded_msg, AnyVal** result) {
     const int anyval_size = AnyValUtil::any_val_size(type);
     const int anyval_alignment = AnyValUtil::any_val_alignment(type);
-    *result = reinterpret_cast<AnyVal*>(pool->try_allocate_aligned(anyval_size, anyval_alignment));
-    if (*result == NULL) {
-        return pool->mem_tracker()->MemLimitExceeded(state, mem_limit_exceeded_msg, anyval_size);
+    Status rst;
+    *result = reinterpret_cast<AnyVal*>(
+            pool->try_allocate_aligned(anyval_size, anyval_alignment, &rst));
+    if (*result == nullptr) {
+        RETURN_LIMIT_EXCEEDED(pool->mem_tracker(), state, mem_limit_exceeded_msg, anyval_size, rst);
     }
     memset(static_cast<void*>(*result), 0, anyval_size);
     return Status::OK();
@@ -80,6 +82,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_HLL:
     case TYPE_VARCHAR:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
         return pool->add(new StringVal);
 
@@ -97,7 +100,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
 
     default:
         DCHECK(false) << "Unsupported type: " << type.type;
-        return NULL;
+        return nullptr;
     }
 }
 
@@ -145,6 +148,10 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
         break;
     case TYPE_OBJECT:
         out.type = FunctionContext::TYPE_OBJECT;
+        // FIXME(cmy): is this fallthrough meaningful?
+    case TYPE_QUANTILE_STATE:
+        out.type = FunctionContext::TYPE_QUANTILE_STATE;
+        break;
     case TYPE_CHAR:
         out.type = FunctionContext::TYPE_CHAR;
         out.len = type.len;

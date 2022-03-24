@@ -19,7 +19,6 @@ package org.apache.doris.ha;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.persist.EditLog;
 
 import com.google.common.base.Preconditions;
 import com.sleepycat.je.rep.StateChangeEvent;
@@ -29,7 +28,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class BDBStateChangeListener implements StateChangeListener {
-    public static final Logger LOG = LogManager.getLogger(EditLog.class);
+    public static final Logger LOG = LogManager.getLogger(BDBStateChangeListener.class);
 
     public BDBStateChangeListener() {
     }

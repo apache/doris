@@ -68,7 +68,7 @@ public class ShowCreateDbStmt extends ShowStmt {
                                                                                               PaloPrivilege.CREATE_PRIV,
                                                                                               PaloPrivilege.DROP_PRIV),
                                                                                 Operator.OR))) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED,
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                                                 ConnectContext.get().getQualifiedUser(), db);
         }
     }

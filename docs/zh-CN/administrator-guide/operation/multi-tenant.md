@@ -1,6 +1,6 @@
 ---
 {
-    "title": "多租户(Experimental)",
+    "title": "多租户(弃用)",
     "language": "zh-CN"
 }
 ---
@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 多租户(Experimental)
+# 多租户(已弃用)
 
-该功能为实验性质，暂不建议在生产环境使用。
+该功能已弃用。新方案请参阅：[多租户和资源划分](../multi-tenant.md)。
 
 ## 背景
 Doris 作为一款 PB 级别的在线报表与多维分析数据库，对外通过开放云提供云端的数据库服务，并且对于每个云上的客户都单独部署了一套物理集群。对内，一套物理集群部署了多个业务，对于隔离性要求比较高的业务单独搭建了集群。针对以上存在几点问题：

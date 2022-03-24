@@ -70,7 +70,7 @@ struct ColumnTest {
             values[i] = (CppType)rand();
             if (is_null(values[i])) {
                 // set to null
-                EXPECT_TRUE(writer->insert((uint32_t)i, NULL).ok());
+                EXPECT_TRUE(writer->insert((uint32_t)i, nullptr).ok());
             } else {
                 EXPECT_TRUE(writer->insert((uint32_t)i, &values[i]).ok());
             }
@@ -150,7 +150,7 @@ struct ColumnTest {
             values[i] = (CppType)rand();
             if (is_null(values[i])) {
                 // set to null
-                EXPECT_TRUE(writer->insert((uint32_t)i, NULL).ok());
+                EXPECT_TRUE(writer->insert((uint32_t)i, nullptr).ok());
             } else {
                 EXPECT_TRUE(writer->insert((uint32_t)i, &values[i]).ok());
             }
@@ -167,7 +167,7 @@ struct ColumnTest {
                 //CppType oldv = values[idx];
                 values[idx] = (CppType)rand();
                 if (is_null(values[idx])) {
-                    EXPECT_TRUE(writer->update(idx, NULL).ok());
+                    EXPECT_TRUE(writer->update(idx, nullptr).ok());
                 } else {
                     EXPECT_TRUE(writer->update(idx, &values[idx]).ok());
                 }

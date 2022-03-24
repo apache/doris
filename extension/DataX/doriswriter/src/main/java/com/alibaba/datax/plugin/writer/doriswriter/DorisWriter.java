@@ -1,22 +1,19 @@
-/*
-  Licensed to the Apache Software Foundation (ASF) under one
-  or more contributor license agreements.  See the NOTICE file
-  distributed with this work for additional information
-  regarding copyright ownership.  The ASF licenses this file
-  to you under the Apache License, Version 2.0 (the
-  "License"); you may not use this file except in compliance
-  with the License.  You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-  Unless required by applicable law or agreed to in writing,
-  software distributed under the License is distributed on an
-  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-  KIND, either express or implied.  See the License for the
-  specific language governing permissions and limitations
-  under the License.
-  -->
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
 package com.alibaba.datax.plugin.writer.doriswriter;
 
@@ -32,11 +29,9 @@ import com.alibaba.datax.plugin.rdbms.util.RdbmsException;
 import com.alibaba.datax.plugin.rdbms.writer.Constant;
 import com.alibaba.druid.sql.parser.ParserException;
 import com.google.common.base.Strings;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -49,8 +44,6 @@ public class DorisWriter extends Writer {
     }
 
     public static class Task extends com.alibaba.datax.common.spi.Writer.Task {
-        private static final Logger LOG = LoggerFactory.getLogger(DorisWriter.Task.class);
-
         private DorisWriterEmitter dorisWriterEmitter;
         private Key keys;
         private DorisCodec rowCodec;
@@ -62,11 +55,7 @@ public class DorisWriter extends Writer {
         @Override
         public void init() {
             this.keys = new Key(super.getPluginJobConf());
-            if("csv".equalsIgnoreCase(this.keys.getFormat())){
-                this.rowCodec = new DorisCsvCodec(this.keys.getColumns(),this.keys.getColumnSeparator());
-            }else{
-                this.rowCodec = new DorisJsonCodec(this.keys.getColumns());
-            }
+            this.rowCodec = new DorisJsonCodec(this.keys.getColumns());
             this.dorisWriterEmitter = new DorisWriterEmitter(keys);
         }
 
@@ -77,47 +66,43 @@ public class DorisWriter extends Writer {
         @Override
         public void startWrite(RecordReceiver recordReceiver) {
             String lineDelimiter = this.keys.getLineDelimiter();
-            try {
-                DorisFlushBatch flushBatch = new DorisFlushBatch(lineDelimiter);
-                long batchCount = 0;
-                long batchByteSize = 0L;
-                Record record;
-                // loop to get record from datax
-                while ((record = recordReceiver.getFromReader()) != null) {
-                    // check column size
-                    if (record.getColumnNumber() != this.keys.getColumns().size()) {
-                        throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR,
-                                String.format("config writer column info error. because the column number of reader is :%s" +
-                                                "and the column number of writer is:%s. please check you datax job config json.",
-                                        record.getColumnNumber(), this.keys.getColumns().size()));
-                    }
-                    // codec record
-                    final String recordStr = this.rowCodec.serialize(record);
-
-                    // put into buffer
-                    flushBatch.putData(recordStr);
-                    batchCount += 1;
-                    batchByteSize += recordStr.length();
-                    // trigger buffer
-                    if (batchCount >= this.keys.getBatchRows() || batchByteSize >= this.keys.getBatchByteSize()) {
-                        // generate doris stream load label
-                        flush(flushBatch, batchCount, batchByteSize);
-                        // clear buffer
-                        batchCount = 0;
-                        batchByteSize = 0L;
-                        flushBatch = new DorisFlushBatch(lineDelimiter);
-                    }
-                } // end of while
-
-                if (flushBatch.getSize() > 0) {
-                    flush(flushBatch, batchCount, batchByteSize);
+            DorisFlushBatch flushBatch = new DorisFlushBatch(lineDelimiter);
+            long batchCount = 0;
+            long batchByteSize = 0L;
+            Record record;
+            // loop to get record from datax
+            while ((record = recordReceiver.getFromReader()) != null) {
+                // check column size
+                if (record.getColumnNumber() != this.keys.getColumns().size()) {
+                    throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR,
+                            String.format("config writer column info error. because the column number of reader is :%s" +
+                                            "and the column number of writer is:%s. please check you datax job config json.",
+                                    record.getColumnNumber(), this.keys.getColumns().size()));
                 }
-            } catch (Exception e) {
-                throw DataXException.asDataXException(DBUtilErrorCode.WRITE_DATA_ERROR, e);
+                // codec record
+                final String recordStr = this.rowCodec.serialize(record);
+
+                // put into buffer
+                flushBatch.putData(recordStr);
+                batchCount += 1;
+                batchByteSize += recordStr.length();
+                // trigger buffer
+                if (batchCount >= this.keys.getBatchRows() || batchByteSize >= this.keys.getBatchByteSize()) {
+                    // generate doris stream load label
+                    flush(flushBatch);
+                    // clear buffer
+                    batchCount = 0;
+                    batchByteSize = 0L;
+                    flushBatch = new DorisFlushBatch(lineDelimiter);
+                }
+            } // end of while
+
+            if (flushBatch.getSize() > 0) {
+                flush(flushBatch);
             }
         }
 
-        private void flush(DorisFlushBatch flushBatch, long batchCount, long batchByteSize) throws IOException {
+        private void flush(DorisFlushBatch flushBatch) {
             final String label = getStreamLoadLabel();
             flushBatch.setLabel(label);
             dorisWriterEmitter.doStreamLoad(flushBatch);

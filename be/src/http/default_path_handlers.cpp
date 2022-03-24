@@ -144,12 +144,16 @@ void mem_tracker_handler(const WebPageHandler::ArgumentMap& args, std::stringstr
     (*output) << "<tbody>\n";
 
     std::vector<shared_ptr<MemTracker>> trackers;
-    MemTracker::ListTrackers(&trackers);
+    MemTracker::list_process_trackers(&trackers);
     for (const shared_ptr<MemTracker>& tracker : trackers) {
         string parent = tracker->parent() == nullptr ? "none" : tracker->parent()->label();
-        string limit_str = tracker->limit() == -1 ? "none" : ItoaKMGT(tracker->limit());
-        string current_consumption_str = ItoaKMGT(tracker->consumption());
-        string peak_consumption_str = ItoaKMGT(tracker->peak_consumption());
+        string limit_str;
+        string current_consumption_str;
+        string peak_consumption_str;
+        limit_str = tracker->limit() == -1 ? "none" : AccurateItoaKMGT(tracker->limit());
+        current_consumption_str = AccurateItoaKMGT(tracker->consumption());
+        peak_consumption_str = AccurateItoaKMGT(tracker->peak_consumption());
+        
         int64_t use_count = tracker.use_count();
         (*output) << strings::Substitute(
                 "<tr><td>$0</td><td>$1</td><td>$2</td>" // id, parent, limit

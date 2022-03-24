@@ -106,14 +106,13 @@ public class ExportPendingTask extends MasterTask {
                     return Status.CANCELLED;
                 }
                 long backendId = backend.getId();
-                if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backendId)) {
+                if (!Catalog.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
                     return Status.CANCELLED;
                 }
                 TSnapshotRequest snapshotRequest = new TSnapshotRequest();
                 snapshotRequest.setTabletId(paloScanRange.getTabletId());
                 snapshotRequest.setSchemaHash(Integer.parseInt(paloScanRange.getSchemaHash()));
                 snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
-                snapshotRequest.setVersionHash(Long.parseLong(paloScanRange.getVersionHash()));
                 snapshotRequest.setTimeout(job.getTimeoutSecond());
                 snapshotRequest.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
 

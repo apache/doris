@@ -18,10 +18,11 @@
 #include "runtime/file_result_writer.h"
 
 #include "exec/broker_writer.h"
+#include "exec/hdfs_reader_writer.h"
+#include "exec/hdfs_writer.h"
 #include "exec/local_file_writer.h"
 #include "exec/parquet_writer.h"
 #include "exec/s3_writer.h"
-#include "exec/hdfs_reader_writer.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
@@ -30,14 +31,15 @@
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/tuple_row.h"
 #include "runtime/string_value.h"
+#include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/date_func.h"
 #include "util/file_utils.h"
 #include "util/mysql_row_buffer.h"
 #include "util/types.h"
 #include "util/uid_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -46,36 +48,40 @@ const size_t FileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 // deprecated
 FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
                                    const std::vector<ExprContext*>& output_expr_ctxs,
-                                   RuntimeProfile* parent_profile, BufferControlBlock* sinker)
+                                   RuntimeProfile* parent_profile, BufferControlBlock* sinker,
+                                   bool output_object_data)
         : _file_opts(file_opts),
           _output_expr_ctxs(output_expr_ctxs),
           _parent_profile(parent_profile),
           _sinker(sinker) {
-        if (_file_opts->is_local_file) {
-            _storage_type = TStorageBackendType::LOCAL;
-        } else {
-            _storage_type = TStorageBackendType::BROKER;
-        }
-        // The new file writer needs to use fragment instance id as part of the file prefix.
-        // But during the upgrade process, the old version of fe will be called to the new version of be,
-        // resulting in no such attribute. So we need a mock here.
-        _fragment_instance_id.hi = 12345678987654321;
-        _fragment_instance_id.lo = 98765432123456789;
+    if (_file_opts->is_local_file) {
+        _storage_type = TStorageBackendType::LOCAL;
+    } else {
+        _storage_type = TStorageBackendType::BROKER;
     }
+    // The new file writer needs to use fragment instance id as part of the file prefix.
+    // But during the upgrade process, the old version of fe will be called to the new version of be,
+    // resulting in no such attribute. So we need a mock here.
+    _fragment_instance_id.hi = 12345678987654321;
+    _fragment_instance_id.lo = 98765432123456789;
+    _output_object_data = output_object_data;
+}
 
 FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
                                    const TStorageBackendType::type storage_type,
                                    const TUniqueId fragment_instance_id,
                                    const std::vector<ExprContext*>& output_expr_ctxs,
                                    RuntimeProfile* parent_profile, BufferControlBlock* sinker,
-                                   RowBatch* output_batch)
+                                   RowBatch* output_batch, bool output_object_data)
         : _file_opts(file_opts),
           _storage_type(storage_type),
           _fragment_instance_id(fragment_instance_id),
           _output_expr_ctxs(output_expr_ctxs),
           _parent_profile(parent_profile),
           _sinker(sinker),
-          _output_batch(output_batch) {}
+          _output_batch(output_batch) {
+    _output_object_data = output_object_data;
+}
 
 FileResultWriter::~FileResultWriter() {
     _close_file_writer(true);
@@ -139,7 +145,9 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
     } else if (_storage_type == TStorageBackendType::S3) {
         _file_writer = new S3Writer(_file_opts->broker_properties, file_name, 0 /* offset */);
     } else if (_storage_type == TStorageBackendType::HDFS) {
-        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(const_cast<std::map<std::string, std::string>&>(_file_opts->broker_properties), file_name, &_file_writer)); 
+        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(
+                const_cast<std::map<std::string, std::string>&>(_file_opts->broker_properties),
+                file_name, &_file_writer));
     }
     RETURN_IF_ERROR(_file_writer->open());
     switch (_file_opts->file_format) {
@@ -148,7 +156,8 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _parquet_writer = new ParquetWriterWrapper(_file_writer, _output_expr_ctxs,
-                                                   _file_opts->file_properties, _file_opts->schema);
+                                                   _file_opts->file_properties, _file_opts->schema,
+                                                   _output_object_data);
         break;
     default:
         return Status::InternalError(
@@ -163,8 +172,8 @@ Status FileResultWriter::_create_file_writer(const std::string& file_name) {
 // file name format as: my_prefix_{fragment_instance_id}_0.csv
 Status FileResultWriter::_get_next_file_name(std::string* file_name) {
     std::stringstream ss;
-    ss << _file_opts->file_path << print_id(_fragment_instance_id)
-       << "_" << (_file_idx++) << "." << _file_format_to_name();
+    ss << _file_opts->file_path << print_id(_fragment_instance_id) << "_" << (_file_idx++) << "."
+       << _file_format_to_name();
     *file_name = ss.str();
     if (_storage_type == TStorageBackendType::LOCAL) {
         // For local file writer, the file_path is a local dir.
@@ -308,7 +317,7 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
             case TYPE_CHAR:
             case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(item);
-                if (string_val->ptr == NULL) {
+                if (string_val->ptr == nullptr) {
                     if (string_val->len != 0) {
                         _plain_text_outstream << NULL_IN_CSV;
                     }
@@ -324,6 +333,22 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 int output_scale = _output_expr_ctxs[i]->root()->output_scale();
                 decimal_str = decimal_val.to_string(output_scale);
                 _plain_text_outstream << decimal_str;
+                break;
+            }
+            case TYPE_OBJECT:
+            case TYPE_HLL: {
+                if (_output_object_data) {
+                    const StringValue* string_val = (const StringValue*)(item);
+                    if (string_val->ptr == nullptr) {
+                        _plain_text_outstream << NULL_IN_CSV;
+                    } else {
+                        std::string base64_str;
+                        base64_encode(string_val->to_string(), &base64_str);
+                        _plain_text_outstream << base64_str;
+                    }
+                } else {
+                    _plain_text_outstream << NULL_IN_CSV;
+                }
                 break;
             }
             default: {
@@ -459,13 +484,13 @@ Status FileResultWriter::_fill_result_batch() {
     RawValue::write(&written_data_bytes, tuple, tuple_desc->slots()[2], tuple_pool);
 
     StringValue* url_str_val =
-        reinterpret_cast<StringValue*>(tuple->get_slot(tuple_desc->slots()[3]->tuple_offset()));
+            reinterpret_cast<StringValue*>(tuple->get_slot(tuple_desc->slots()[3]->tuple_offset()));
     std::string file_url;
     _get_file_url(&file_url);
     url_str_val->ptr = (char*)_output_batch->tuple_data_pool()->allocate(file_url.length());
     url_str_val->len = file_url.length();
     memcpy(url_str_val->ptr, file_url.c_str(), url_str_val->len);
-    
+
     _output_batch->commit_last_row();
     return Status::OK();
 }

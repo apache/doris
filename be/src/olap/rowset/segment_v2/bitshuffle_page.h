@@ -33,9 +33,12 @@
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/types.h"
+#include "runtime/memory/chunk_allocator.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -121,7 +124,7 @@ public:
         _remain_element_capacity = block_size / SIZE_OF_TYPE;
     }
 
-    size_t count() const { return _count; }
+    size_t count() const override { return _count; }
 
     uint64_t size() const override { return _buffer.size(); }
 
@@ -214,6 +217,8 @@ public:
               _size_of_element(0),
               _cur_index(0) {}
 
+    ~BitShufflePageDecoder() { ChunkAllocator::instance()->free(_chunk); }
+
     Status init() override {
         CHECK(!_parsed);
         if (_data.size < BITSHUFFLE_PAGE_HEADER_SIZE) {
@@ -302,7 +307,7 @@ public:
         // - left == _num_elements when not found (all values < target)
         while (left < right) {
             size_t mid = left + (right - left) / 2;
-            mid_value = &_decoded[mid * SIZE_OF_TYPE];
+            mid_value = &_chunk.data[mid * SIZE_OF_TYPE];
             if (TypeTraits<Type>::cmp(mid_value, value) < 0) {
                 left = mid + 1;
             } else {
@@ -312,7 +317,7 @@ public:
         if (left >= _num_elements) {
             return Status::NotFound("all value small than the value");
         }
-        void* find_value = &_decoded[left * SIZE_OF_TYPE];
+        void* find_value = &_chunk.data[left * SIZE_OF_TYPE];
         if (TypeTraits<Type>::cmp(find_value, value) == 0) {
             *exact_match = true;
         } else {
@@ -343,6 +348,23 @@ public:
         return Status::OK();
     }
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
+            *n = 0;
+            return Status::OK();
+        }
+
+        size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
+
+        dst->insert_many_fix_len_data((char*)&_chunk.data[_cur_index * SIZE_OF_TYPE], max_fetch);
+
+        *n = max_fetch;
+        _cur_index += max_fetch;
+
+        return Status::OK();
+    };
+
     Status peek_next_batch(size_t* n, ColumnBlockView* dst) override {
         return next_batch<false>(n, dst);
     }
@@ -353,15 +375,18 @@ public:
 
 private:
     void _copy_next_values(size_t n, void* data) {
-        memcpy(data, &_decoded[_cur_index * SIZE_OF_TYPE], n * SIZE_OF_TYPE);
+        memcpy(data, &_chunk.data[_cur_index * SIZE_OF_TYPE], n * SIZE_OF_TYPE);
     }
 
     Status _decode() {
         if (_num_elements > 0) {
             int64_t bytes;
-            _decoded.resize(_num_element_after_padding * _size_of_element);
+            if (!ChunkAllocator::instance()->allocate_align(
+                        _num_element_after_padding * _size_of_element, &_chunk)) {
+                return Status::RuntimeError("Decoded Memory Alloc failed");
+            }
             char* in = const_cast<char*>(&_data[BITSHUFFLE_PAGE_HEADER_SIZE]);
-            bytes = bitshuffle::decompress_lz4(in, _decoded.data(), _num_element_after_padding,
+            bytes = bitshuffle::decompress_lz4(in, _chunk.data, _num_element_after_padding,
                                                _size_of_element, 0);
             if (PREDICT_FALSE(bytes < 0)) {
                 // Ideally, this should not happen.
@@ -385,7 +410,8 @@ private:
 
     int _size_of_element;
     size_t _cur_index;
-    faststring _decoded;
+    Chunk _chunk;
+    friend class BinaryDictPageDecoder;
 };
 
 } // namespace segment_v2

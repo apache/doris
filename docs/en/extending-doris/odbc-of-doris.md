@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ODBC of Doris",
+    "title": "Doris On ODBC",
     "language": "en"
 }
 ---
@@ -155,6 +155,100 @@ set enable_odbc_transcation = true;
 ```
 
 Transactions ensure the atomicity of ODBC external table writing, but it will reduce the performance of data writing ., so we can consider turning on the way as appropriate.
+
+## Database ODBC version correspondence
+
+### Centos Operating System
+
+The unixODBC versions used are: 2.3.1, Doris 0.15, centos 7.9, all of which are installed using yum.
+
+#### 1.mysql
+
+| Mysql version | Mysql ODBC version |
+| ------------- | ------------------ |
+| 8.0.27        | 8.0.27, 8.026      |
+| 5.7.36        | 5.3.11, 5.3.13     |
+| 5.6.51        | 5.3.11, 5.3.13     |
+| 5.5.62        | 5.3.11, 5.3.13     |
+
+#### 2. PostgreSQL
+
+PostgreSQL's yum source rpm package address:
+
+````
+https://download.postgresql.org/pub/repos/yum/reporpms/EL-7-x86_64/pgdg-redhat-repo-latest.noarch.rpm
+````
+
+This contains all versions of PostgreSQL from 9.x to 14.x, including the corresponding ODBC version, which can be installed as needed.
+
+| PostgreSQL Version | PostgreSQL ODBC Version      |
+| ------------------ | ---------------------------- |
+| 12.9               | postgresql12-odbc-13.02.0000 |
+| 13.5               | postgresql13-odbc-13.02.0000 |
+| 14.1               | postgresql14-odbc-13.02.0000 |
+| 9.6.24             | postgresql96-odbc-13.02.0000 |
+| 10.6               | postgresql10-odbc-13.02.0000 |
+| 11.6               | postgresql11-odbc-13.02.0000 |
+
+#### 3. Oracle
+
+#### 
+
+| Oracle版本                                                   | Oracle ODBC版本                            |
+| ------------------------------------------------------------ | ------------------------------------------ |
+| Oracle Database 11g Enterprise Edition Release 11.2.0.1.0 - 64bit Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 12c Standard Edition Release 12.2.0.1.0 - 64bit Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 18c Enterprise Edition Release 18.0.0.0.0 - Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 19c Enterprise Edition Release 19.0.0.0.0 - Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+| Oracle Database 21c Enterprise Edition Release 21.0.0.0.0 - Production | oracle-instantclient19.13-odbc-19.13.0.0.0 |
+
+Oracle ODBC driver version download address:
+
+```
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-sqlplus-19.13.0.0.0-2.x86_64.rpm
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-devel-19.13.0.0.0-2.x86_64.rpm
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-odbc-19.13.0.0.0-2.x86_64.rpm
+https://download.oracle.com/otn_software/linux/instantclient/1913000/oracle-instantclient19.13-basic-19.13.0.0.0-2.x86_64.rpm
+```
+
+## Ubuntu operating system
+
+The unixODBC versions used are: 2.3.4, Doris 0.15, Ubuntu 20.04
+
+#### 1. Mysql
+
+| Mysql version | Mysql ODBC version |
+| ------------- | ------------------ |
+| 8.0.27        | 8.0.11, 5.3.13     |
+
+Currently only tested this version, other versions will be added after testing
+
+#### 2. PostgreSQL
+
+| PostgreSQL Version | PostgreSQL ODBC Version |
+| ------------------ | ----------------------- |
+| 12.9               | psqlodbc-12.02.0000     |
+
+For other versions, as long as you download the ODBC driver version that matches the major version of the database, there is no problem. This will continue to supplement the test results of other versions under the Ubuntu system.
+
+#### 3. Oracle
+
+The same as the Oracle database and ODBC correspondence of the Centos operating system, and the following method is used to install the rpm package under ubuntu.
+
+In order to install rpm packages under ubuntu, we also need to install an alien, which is a tool that can convert rpm packages into deb installation packages
+
+````
+sudo apt-get install alien
+````
+
+Then execute the installation of the above four packages
+
+````
+sudo alien -i oracle-instantclient19.13-basic-19.13.0.0.0-2.x86_64.rpm
+sudo alien -i oracle-instantclient19.13-devel-19.13.0.0.0-2.x86_64.rpm
+sudo alien -i oracle-instantclient19.13-odbc-19.13.0.0.0-2.x86_64.rpm
+sudo alien -i oracle-instantclient19.13-sqlplus-19.13.0.0.0-2.x86_64.rpm
+````
 
 ## Data type mapping
 

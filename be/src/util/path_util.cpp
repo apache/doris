@@ -47,6 +47,13 @@ std::string join_path_segments(const string& a, const string& b) {
     }
 }
 
+FilePathDesc join_path_desc_segments(const FilePathDesc& path_desc, const string& b) {
+    FilePathDesc seg_path_desc = path_desc;
+    seg_path_desc.filepath = join_path_segments(path_desc.filepath, b);
+    seg_path_desc.remote_path = join_path_segments(path_desc.remote_path, b);
+    return seg_path_desc;
+}
+
 std::vector<string> join_path_segments_v(const std::vector<string>& v, const string& s) {
     std::vector<string> out;
     for (const string& path : v) {

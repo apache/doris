@@ -28,10 +28,10 @@
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TSocket.h>
 
-#include <boost/thread.hpp>
 #include <condition_variable>
 #include <mutex>
 #include <sstream>
+#include <thread>
 
 #include "util/doris_metrics.h"
 
@@ -110,7 +110,7 @@ Status ThriftServer::ThriftServerEventProcessor::start_and_wait_for_server() {
     _thrift_server->_started = false;
 
     _thrift_server->_server_thread.reset(
-            new boost::thread(&ThriftServer::ThriftServerEventProcessor::supervise, this));
+            new std::thread(&ThriftServer::ThriftServerEventProcessor::supervise, this));
 
     // Loop protects against spurious wakeup. Locks provide necessary fences to ensure
     // visibility.

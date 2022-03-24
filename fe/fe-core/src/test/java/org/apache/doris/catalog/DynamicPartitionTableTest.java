@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.clone.DynamicPartitionScheduler;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
@@ -465,7 +466,7 @@ public class DynamicPartitionTableTest {
         Assert.assertEquals(1, table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
 
         String alter2 = "alter table test.dynamic_partition_replication_num set ('dynamic_partition.replication_num' = '0')";
-        ExceptionChecker.expectThrows(DdlException.class, () -> alterTable(alter2));
+        ExceptionChecker.expectThrows(AnalysisException.class, () -> alterTable(alter2));
         Assert.assertEquals(1, table.getTableProperty().getDynamicPartitionProperty().getReplicaAllocation().getTotalReplicaNum());
     }
 

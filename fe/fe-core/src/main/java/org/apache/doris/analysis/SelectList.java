@@ -30,6 +30,8 @@ import java.util.Map;
  * Select list items plus distinct clause.
  */
 public class SelectList {
+    private static final String SET_VAR_KEY = "set_var";
+
     private boolean isDistinct;
     private Map<String, String> optHints;
 
@@ -79,8 +81,10 @@ public class SelectList {
         return optHints;
     }
 
-    public void setOptHints(Map<String, String> optHints) {
-        this.optHints = optHints;
+    public void setOptHints(Map<String, Map<String, String>> optHints) {
+        if (optHints != null) {
+            this.optHints = optHints.get(SET_VAR_KEY);
+        }
     }
 
     public void reset() {

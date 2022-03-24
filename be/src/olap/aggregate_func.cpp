@@ -119,6 +119,8 @@ AggregateFuncResolver::AggregateFuncResolver() {
                           OLAP_FIELD_TYPE_VARCHAR>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
                           OLAP_FIELD_TYPE_CHAR>();
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
+                          OLAP_FIELD_TYPE_ARRAY>();
 
     // Min Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_TINYINT>();
@@ -199,6 +201,8 @@ AggregateFuncResolver::AggregateFuncResolver() {
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_BITMAP_UNION,
                           OLAP_FIELD_TYPE_VARCHAR>(); //for backward compatibility
+    // quantile_state Aggregate Function
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_QUANTILE_UNION, OLAP_FIELD_TYPE_QUANTILE_STATE>();
 }
 
 AggregateFuncResolver::~AggregateFuncResolver() {

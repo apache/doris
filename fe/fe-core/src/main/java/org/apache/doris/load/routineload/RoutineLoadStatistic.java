@@ -22,12 +22,14 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 public class RoutineLoadStatistic implements Writable {
     /*
@@ -62,6 +64,10 @@ public class RoutineLoadStatistic implements Writable {
     @SerializedName(value = "abortedTaskNum")
     public long abortedTaskNum = 0;
 
+    // Save all transactions current running. Including PREPARE, COMMITTED.
+    // No need to persist, only for tracing txn of routine load job.
+    public Set<Long> runningTxnIds = Sets.newHashSet();
+
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
@@ -87,6 +93,7 @@ public class RoutineLoadStatistic implements Writable {
                 / this.totalTaskExcutionTimeMs * 1000));
         summary.put("committedTaskNum", Long.valueOf(this.committedTaskNum));
         summary.put("abortedTaskNum", Long.valueOf(this.abortedTaskNum));
+        summary.put("runningTxns", runningTxnIds);
         return summary;
     }
 }

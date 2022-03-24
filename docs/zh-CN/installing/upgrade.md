@@ -28,8 +28,29 @@ under the License.
 
 Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以下步骤进行安全升级。
 
-> 注：  
+> **注：**  
+>
+> 1. Doris不支持跨两位版本号进行升级，例如：不能从0.13直接升级到0.15，只能通过0.13.x -> 0.14.x -> 0.15.x，三位版本号可以跨版本升级，比如从0.13.15可以直接升级到0.14.13.1，不必一定要升级0.14.7 或者 0.14.12.1这种版本
 > 1. 以下方式均建立在高可用部署的情况下。即数据 3 副本，FE 高可用情况下。  
+
+## 前置工作
+
+1. 关闭集群副本修复和均衡功能
+
+	升级过程中会有节点重启，所以可能会触发不必要的集群均衡和副本修复逻辑。可以先通过以下命令关闭：
+
+	```
+	# 关闭副本均衡逻辑。关闭后，不会再触发普通表副本的均衡操作。
+	$ mysql-client > admin set frontend config("disable_balance" = "true");
+	
+	# 关闭 colocation 表的副本均衡逻辑。关闭后，不会再触发 colocation 表的副本重分布操作。
+	$ mysql-client > admin set frontend config("disable_colocate_balance" = "true");
+	
+	# 关闭副本调度逻辑。关闭后，所有已产生的副本修复和均衡任务不会再被调度。
+	$ mysql-client > admin set frontend config("disable_tablet_scheduler" = "true");
+	```
+
+	当集群升级完毕后，在通过以上命令将对应配置设为原值即可。
 
 ## 测试 BE 升级正确性
 
@@ -45,7 +66,7 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 3. 在 fe.conf 添加配置：cluster_id=123456
 4. 在 fe.conf 添加配置：metadata\_failure_recovery=true
 5. 拷贝线上环境 Master FE 的元数据目录 palo-meta 到测试环境
-6. 将拷贝到测试环境中的 palo-meta/image/VERSION 文件中的 cluster_id 修改为 123456（即与第3步中相同）
+6. 将拷贝到测试环境中的 doris-meta/image/VERSION 文件中的 cluster_id 修改为 123456（即与第3步中相同）
 7. 在测试环境中，运行 sh bin/start_fe.sh 启动 FE
 8. 通过 FE 日志 fe.log 观察是否启动成功。
 9. 如果启动成功，运行 sh bin/stop_fe.sh 停止测试环境的 FE 进程。
@@ -60,4 +81,4 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 
 1. 确认新版本的文件部署完成后。逐台重启 FE 和 BE 实例即可。
 2. 建议逐台重启 BE 后，再逐台重启 FE。因为通常 Doris 保证 FE 到 BE 的向后兼容性，即老版本的 FE 可以访问新版本的 BE。但可能不支持老版本的 BE 访问新版本的 FE。
-3. 建议确认前一个实例启动成功后，在重启下一个实例。实例启动成功的标识，请参阅安装部署文档。
+3. 建议确认前一个实例启动成功后，再重启下一个实例。实例启动成功的标识，请参阅安装部署文档。

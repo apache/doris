@@ -44,8 +44,7 @@ class Merger;
 //  4. gc output rowset if failed
 class Compaction {
 public:
-    Compaction(TabletSharedPtr tablet, const std::string& label,
-               const std::shared_ptr<MemTracker>& parent_tracker);
+    Compaction(TabletSharedPtr tablet, const std::string& label);
     virtual ~Compaction();
 
     // This is only for http CompactionAction
@@ -84,11 +83,6 @@ protected:
     // the root tracker for this compaction
     std::shared_ptr<MemTracker> _mem_tracker;
 
-    // the child of root, only track rowset readers mem
-    std::shared_ptr<MemTracker> _readers_tracker;
-
-    // the child of root, only track rowset writer mem
-    std::shared_ptr<MemTracker> _writer_tracker;
     TabletSharedPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
@@ -103,7 +97,6 @@ protected:
     CompactionState _state;
 
     Version _output_version;
-    VersionHash _output_version_hash;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };

@@ -18,12 +18,11 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_H
 #define DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_H
 
-#include <boost/cstdint.hpp>
 #include <vector>
 
-#include "codegen/doris_ir.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -35,8 +34,6 @@ class Tuple;
 class TupleRow;
 class MemTracker;
 class RuntimeState;
-
-using std::vector;
 
 // Hash table implementation designed for hash aggregation and hash joins.  This is not
 // templatized and is tailored to the usage pattern for aggregation and joins.  The
@@ -102,23 +99,43 @@ public:
 
     // Insert row into the hash table.  Row will be evaluated over _build_expr_ctxs
     // This will grow the hash table if necessary
-    void IR_ALWAYS_INLINE insert(TupleRow* row) {
+    Status insert(TupleRow* row) {
         if (_num_filled_buckets > _num_buckets_till_resize) {
-            // TODO: next prime instead of double?
-            resize_buckets(_num_buckets * 2);
+            RETURN_IF_ERROR(resize_buckets(_num_buckets * 2));
         }
 
         insert_impl(row);
+        return Status::OK();
     }
 
+    void insert_without_check(TupleRow* row) { insert_impl(row); }
+
     // Insert row into the hash table. if the row is already exist will not insert
-    void IR_ALWAYS_INLINE insert_unique(TupleRow* row) {
+    Status insert_unique(TupleRow* row) {
         if (find(row, false) == end()) {
-            insert(row);
+            return insert(row);
+        }
+        return Status::OK();
+    }
+
+    void insert_unique_without_check(TupleRow* row) {
+        if (find(row, false) == end()) {
+            insert_without_check(row);
         }
     }
 
-    bool IR_ALWAYS_INLINE emplace_key(TupleRow* row, TupleRow** key_addr);
+    Status resize_buckets_ahead(int64_t estimate_buckets) {
+        if (_num_filled_buckets + estimate_buckets > _num_buckets_till_resize) {
+            int64_t new_bucket_size = _num_buckets * 2;
+            while (new_bucket_size <= _num_filled_buckets + estimate_buckets) {
+                new_bucket_size = new_bucket_size * 2;
+            }
+            return resize_buckets(new_bucket_size);
+        }
+        return Status::OK();
+    }
+
+    bool emplace_key(TupleRow* row, TupleRow** key_addr);
 
     // Returns the start iterator for all rows that match 'probe_row'.  'probe_row' is
     // evaluated with _probe_expr_ctxs.  The iterator can be iterated until HashTable::end()
@@ -129,7 +146,7 @@ public:
     // Advancing the returned iterator will go to the next matching row.  The matching
     // rows are evaluated lazily (i.e. computed as the Iterator is moved).
     // Returns HashTable::end() if there is no match.
-    Iterator IR_ALWAYS_INLINE find(TupleRow* probe_row, bool probe = true);
+    Iterator find(TupleRow* probe_row, bool probe = true);
 
     // Returns number of elements in the hash table
     int64_t size() { return _num_nodes; }
@@ -137,8 +154,13 @@ public:
     // Returns the number of buckets
     int64_t num_buckets() { return _buckets.size(); }
 
-    // true if any of the MemTrackers was exceeded
-    bool exceeded_limit() const { return _exceeded_limit; }
+    // Returns the number of filled buckets
+    int64_t num_filled_buckets() { return _num_filled_buckets; }
+
+    // Check the hash table should be shrink
+    bool should_be_shrink(int64_t valid_row) {
+        return valid_row < MAX_BUCKET_OCCUPANCY_FRACTION * (_buckets.size() / 2.0);
+    }
 
     // Returns the load factor (the number of non-empty buckets)
     float load_factor() { return _num_filled_buckets / static_cast<float>(_buckets.size()); }
@@ -150,14 +172,14 @@ public:
 
     // Returns the results of the exprs at 'expr_idx' evaluated over the last row
     // processed by the HashTable.
-    // This value is invalid if the expr evaluated to NULL.
+    // This value is invalid if the expr evaluated to nullptr.
     // TODO: this is an awkward abstraction but aggregation node can take advantage of
     // it and save some expr evaluation calls.
     void* last_expr_value(int expr_idx) const {
         return _expr_values_buffer + _expr_values_buffer_offsets[expr_idx];
     }
 
-    // Returns if the expr at 'expr_idx' evaluated to NULL for the last row.
+    // Returns if the expr at 'expr_idx' evaluated to nullptr for the last row.
     bool last_expr_value_null(int expr_idx) const { return _expr_value_null_bits[expr_idx]; }
 
     // Return beginning of hash table.  Advancing this iterator will traverse all
@@ -174,21 +196,25 @@ public:
 
     inline std::pair<int64_t, int64_t> minmax_node();
 
+    // Load factor that will trigger growing the hash table on insert.  This is
+    // defined as the number of non-empty buckets / total_buckets
+    static constexpr float MAX_BUCKET_OCCUPANCY_FRACTION = 0.75f;
+
     // stl-like iterator interface.
     class Iterator {
     public:
-        Iterator() : _table(NULL), _bucket_idx(-1), _node(nullptr) {}
+        Iterator() : _table(nullptr), _bucket_idx(-1), _node(nullptr) {}
 
         // Iterates to the next element.  In the case where the iterator was
         // from a Find, this will lazily evaluate that bucket, only returning
         // TupleRows that match the current scan row.
         template <bool check_match>
-        void IR_ALWAYS_INLINE next();
+        void next();
 
-        // Returns the current row or NULL if at end.
+        // Returns the current row or nullptr if at end.
         TupleRow* get_row() {
             if (_node == nullptr) {
-                return NULL;
+                return nullptr;
             }
             return _node->data();
         }
@@ -285,14 +311,14 @@ private:
     };
 
     // Returns the next non-empty bucket and updates idx to be the index of that bucket.
-    // If there are no more buckets, returns NULL and sets idx to -1
+    // If there are no more buckets, returns nullptr and sets idx to -1
     Bucket* next_bucket(int64_t* bucket_idx);
 
     // Resize the hash table to 'num_buckets'
-    void resize_buckets(int64_t num_buckets);
+    Status resize_buckets(int64_t num_buckets);
 
     // Insert row into the hash table
-    void IR_ALWAYS_INLINE insert_impl(TupleRow* row);
+    void insert_impl(TupleRow* row);
 
     // Chains the node at 'node_idx' to 'bucket'.  Nodes in a bucket are chained
     // as a linked list; this places the new node at the beginning of the list.
@@ -303,7 +329,7 @@ private:
     void move_node(Bucket* from_bucket, Bucket* to_bucket, Node* node, Node* previous_node);
 
     // Evaluate the exprs over row and cache the results in '_expr_values_buffer'.
-    // Returns whether any expr evaluated to NULL
+    // Returns whether any expr evaluated to nullptr
     // This will be replaced by codegen
     bool eval_row(TupleRow* row, const std::vector<ExprContext*>& exprs);
 
@@ -312,16 +338,16 @@ private:
     // cross compiled because we need to be able to differentiate between EvalBuildRow
     // and EvalProbeRow by name and the _build_expr_ctxs/_probe_expr_ctxs are baked into
     // the codegen'd function.
-    bool IR_NO_INLINE eval_build_row(TupleRow* row) { return eval_row(row, _build_expr_ctxs); }
+    bool eval_build_row(TupleRow* row) { return eval_row(row, _build_expr_ctxs); }
 
     // Evaluate 'row' over _probe_expr_ctxs caching the results in '_expr_values_buffer'
     // This will be replaced by codegen.
-    bool IR_NO_INLINE eval_probe_row(TupleRow* row) { return eval_row(row, _probe_expr_ctxs); }
+    bool eval_probe_row(TupleRow* row) { return eval_row(row, _probe_expr_ctxs); }
 
     // Compute the hash of the values in _expr_values_buffer.
     // This will be replaced by codegen.  We don't want this inlined for replacing
     // with codegen'd functions so the function name does not change.
-    uint32_t IR_NO_INLINE hash_current_row() {
+    uint32_t hash_current_row() {
         if (_var_result_begin == -1) {
             // This handles NULLs implicitly since a constant seed value was put
             // into results buffer for nulls.
@@ -347,10 +373,6 @@ private:
     // allocation_size is the attempted size of the allocation that would have
     // brought us over the mem limit.
     void mem_limit_exceeded(int64_t allocation_size);
-
-    // Load factor that will trigger growing the hash table on insert.  This is
-    // defined as the number of non-empty buckets / total_buckets
-    static const float MAX_BUCKET_OCCUPANCY_FRACTION;
 
     const std::vector<ExprContext*>& _build_expr_ctxs;
     const std::vector<ExprContext*>& _probe_expr_ctxs;
@@ -381,12 +403,7 @@ private:
     // total capacity
     int64_t _total_capacity;
 
-    bool _exceeded_limit; // true if any of _mem_trackers[].limit_exceeded()
-
     std::shared_ptr<MemTracker> _mem_tracker;
-    // Set to true if the hash table exceeds the memory limit. If this is set,
-    // subsequent calls to Insert() will be ignored.
-    bool _mem_limit_exceeded;
 
     std::vector<Bucket> _buckets;
 

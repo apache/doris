@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -73,10 +72,10 @@ public class PublishVersionDaemon extends MasterDaemon {
         return true;
     }
     
-    private void publishVersion() throws UserException {
+    private void publishVersion() {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
-        if (readyTransactionStates == null || readyTransactionStates.isEmpty()) {
+        if (readyTransactionStates.isEmpty()) {
             return;
         }
 
@@ -105,14 +104,12 @@ public class PublishVersionDaemon extends MasterDaemon {
             List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
             for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
                 TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(), 
-                        commitInfo.getVersion(), 
-                        commitInfo.getVersionHash());
+                        commitInfo.getVersion(), 0);
                 partitionVersionInfos.add(versionInfo);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("try to publish version info partitionid [{}], version [{}], version hash [{}]", 
+                    LOG.debug("try to publish version info partitionid [{}], version [{}]", 
                             commitInfo.getPartitionId(), 
-                            commitInfo.getVersion(), 
-                            commitInfo.getVersionHash());
+                            commitInfo.getVersion());
                 }
             }
             Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
@@ -242,7 +239,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     // one transaction exception should not affect other transaction
                     globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(), publishErrorReplicaIds);
                 } catch (Exception e) {
-                    LOG.warn("error happends when finish transaction {} ", transactionState.getTransactionId(), e);
+                    LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
                 }
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 

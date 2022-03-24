@@ -280,9 +280,9 @@ void TimestampedVersionTracker::recover_versioned_tracker(
         while (version_path_iter != timestamped_versions.end()) {
             // add version to _version_graph
             _version_graph.add_version_to_graph((*version_path_iter)->version());
-            version_path_iter++;
+            ++version_path_iter;
         }
-        _path_map_iter++;
+        ++_path_map_iter;
     }
     LOG(INFO) << "recover_versioned_tracker current map info " << get_current_path_map_str();
 }
@@ -335,7 +335,7 @@ void TimestampedVersionTracker::capture_expired_paths(
             int64_t path_version = iter->first;
             path_version_vec->push_back(path_version);
         }
-        iter++;
+        ++iter;
     }
 }
 
@@ -388,11 +388,11 @@ std::string TimestampedVersionTracker::get_current_path_map_str() {
             tracker_info << (*version_path_iter)->version().second;
             tracker_info << "]";
 
-            version_path_iter++;
+            ++version_path_iter;
         }
 
         tracker_info << std::endl;
-        iter++;
+        ++iter;
     }
     return tracker_info.str();
 }
@@ -606,8 +606,8 @@ OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version
             }
             cur_idx = next_idx;
         } else {
-            LOG(WARNING) << "fail to find path in version_graph. "
-                         << "spec_version: " << spec_version.first << "-" << spec_version.second;
+            VLOG_NOTICE << "fail to find path in version_graph. "
+                        << "spec_version: " << spec_version.first << "-" << spec_version.second;
             return OLAP_ERR_VERSION_NOT_EXIST;
         }
     }

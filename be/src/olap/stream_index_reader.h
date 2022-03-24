@@ -54,7 +54,7 @@ private:
 
 class PositionProvider {
 public:
-    PositionProvider() : _entry(NULL), _index(0) {}
+    PositionProvider() : _entry(nullptr), _index(0) {}
     explicit PositionProvider(const PositionEntryReader* entry) : _entry(entry), _index(0) {}
     ~PositionProvider() {}
     int64_t get_next() { return _entry->positions(_index++); }

@@ -21,8 +21,8 @@
 
 #include <vector>
 
-#include "util/logging.h"
 #include "test_util/test_util.h"
+#include "util/logging.h"
 
 using namespace doris;
 using namespace std;
@@ -83,9 +83,9 @@ public:
     int Lookup(int key) {
         std::string result;
         Cache::Handle* handle = _cache->lookup(EncodeKey(&result, key));
-        const int r = (handle == NULL) ? -1 : DecodeValue(_cache->value(handle));
+        const int r = (handle == nullptr) ? -1 : DecodeValue(_cache->value(handle));
 
-        if (handle != NULL) {
+        if (handle != nullptr) {
             _cache->release(handle);
         }
 
@@ -95,7 +95,7 @@ public:
     void Insert(int key, int value, int charge) {
         std::string result;
         _cache->release(_cache->insert(EncodeKey(&result, key), EncodeValue(value), charge,
-                    &CacheTest::Deleter));
+                                       &CacheTest::Deleter));
     }
 
     void InsertDurable(int key, int value, int charge) {
@@ -298,19 +298,22 @@ TEST_F(CacheTest, Prune) {
     insert_LRUCache(cache, key7, 700, CachePriority::DURABLE);
     ASSERT_EQ(5, cache.get_usage());
 
-    auto pred = [](const void* value) -> bool {
-        return false;
-    };
+    auto pred = [](const void* value) -> bool { return false; };
     cache.prune_if(pred);
     ASSERT_EQ(5, cache.get_usage());
 
-    auto pred2 = [](const void* value) -> bool {
-        return true;
-    };
+    auto pred2 = [](const void* value) -> bool { return DecodeValue((void*)value) > 400; };
     cache.prune_if(pred2);
-    ASSERT_EQ(0, cache.get_usage());
+    ASSERT_EQ(2, cache.get_usage());
 
     cache.prune();
+    ASSERT_EQ(0, cache.get_usage());
+
+    for (int i = 1; i <= 5; ++i) {
+        insert_LRUCache(cache, CacheKey {std::to_string(i)}, i, CachePriority::NORMAL);
+        ASSERT_EQ(i, cache.get_usage());
+    }
+    cache.prune_if([](const void*) { return true; });
     ASSERT_EQ(0, cache.get_usage());
 }
 

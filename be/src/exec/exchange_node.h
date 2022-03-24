@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_EXCHANGE_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_EXCHANGE_NODE_H
 
-#include <boost/scoped_ptr.hpp>
-
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
 #include "runtime/data_stream_recvr.h"
@@ -45,20 +43,20 @@ public:
     ExchangeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     virtual ~ExchangeNode() {}
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    virtual Status prepare(RuntimeState* state) override;
     // Blocks until the first batch is available for consumption via GetNext().
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
+    virtual Status open(RuntimeState* state) override;
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
     Status collect_query_statistics(QueryStatistics* statistics) override;
-    virtual Status close(RuntimeState* state);
+    virtual Status close(RuntimeState* state) override;
 
     // the number of senders needs to be set after the c'tor, because it's not
     // recorded in TPlanNode, and before calling prepare()
     void set_num_senders(int num_senders) { _num_senders = num_senders; }
 
 protected:
-    virtual void debug_string(int indentation_level, std::stringstream* out) const;
+    virtual void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
     // Implements GetNext() for the case where _is_merging is true. Delegates the GetNext()
@@ -72,7 +70,7 @@ private:
     int _num_senders; // needed for _stream_recvr construction
 
     // created in prepare() and owned by the RuntimeState
-    boost::shared_ptr<DataStreamRecvr> _stream_recvr;
+    std::shared_ptr<DataStreamRecvr> _stream_recvr;
 
     // our input rows are a prefix of the rows we produce
     RowDescriptor _input_row_desc;
@@ -82,7 +80,7 @@ private:
     // Current batch of rows from the receiver queue being processed by this node.
     // Only valid if _is_merging is false. (If _is_merging is true, GetNext() is
     // delegated to the receiver). Owned by the stream receiver.
-    // boost::scoped_ptr<RowBatch> _input_batch;
+    // std::unique_ptr<RowBatch> _input_batch;
     RowBatch* _input_batch = nullptr;
 
     // Next row to copy from _input_batch. For non-merging exchanges, _input_batch

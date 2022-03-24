@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -28,6 +26,8 @@ import org.apache.doris.thrift.TResourceLimit;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,11 +37,9 @@ import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.json.JSONObject;
-
 // System variable
 public class SessionVariable implements Serializable, Writable {
-    static final Logger LOG = LogManager.getLogger(StmtExecutor.class);
+    static final Logger LOG = LogManager.getLogger(SessionVariable.class);
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
@@ -50,6 +48,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RESOURCE_VARIABLE = "resource_group";
     public static final String AUTO_COMMIT = "autocommit";
     public static final String TX_ISOLATION = "tx_isolation";
+    public static final String TX_READ_ONLY = "tx_read_only";
+    public static final String TRANSACTION_READ_ONLY = "transaction_read_only";
+    public static final String TRANSACTION_ISOLATION = "transaction_isolation";
     public static final String CHARACTER_SET_CLIENT = "character_set_client";
     public static final String CHARACTER_SET_CONNNECTION = "character_set_connection";
     public static final String CHARACTER_SET_RESULTS = "character_set_results";
@@ -148,10 +149,17 @@ public class SessionVariable implements Serializable, Writable {
     // then the coordinator be will use the value of `max_send_batch_parallelism_per_job`
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
 
+    // turn off all automatic join reorder algorithms
+    public static final String DISABLE_JOIN_REORDER = "disable_join_reorder";
+
+    public static final String ENABLE_INFER_PREDICATE = "enable_infer_predicate";
+
     public static final long DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 10_000;
 
     public static final String EXTRACT_WIDE_RANGE_EXPR = "extract_wide_range_expr";
-    
+
+    public static final String PARTITION_PRUNE_ALGORITHM_VERSION = "partition_prune_algorithm_version";
+
     public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
@@ -161,6 +169,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
+
+    public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
+
+    public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
+
+    public static final String BLOCK_ENCRYPTION_MODE = "block_encryption_mode";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -203,7 +217,19 @@ public class SessionVariable implements Serializable, Writable {
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = TX_ISOLATION)
     public String txIsolation = "REPEATABLE-READ";
-
+    
+    // this is used to make mysql client happy
+    @VariableMgr.VarAttr(name = TX_READ_ONLY)
+    public boolean txReadonly = false;
+    
+    // this is used to make mysql client happy
+    @VariableMgr.VarAttr(name = TRANSACTION_READ_ONLY)
+    public boolean transactionReadonly = false;
+    
+    // this is used to make mysql client happy
+    @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION)
+    public String transactionIsolation = "REPEATABLE-READ";
+    
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
     public String charsetClient = "utf8";
@@ -356,6 +382,10 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = EXTRACT_WIDE_RANGE_EXPR, needForward = true)
     public boolean extractWideRangeExpr = true;
+
+    @VariableMgr.VarAttr(name = PARTITION_PRUNE_ALGORITHM_VERSION, needForward = true)
+    public int partitionPruneAlgorithmVersion = 2;
+
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE)
     private String runtimeFilterMode = "GLOBAL";
     @VariableMgr.VarAttr(name = RUNTIME_BLOOM_FILTER_SIZE)
@@ -368,9 +398,9 @@ public class SessionVariable implements Serializable, Writable {
     private int runtimeFilterWaitTimeMs = 1000;
     @VariableMgr.VarAttr(name = RUNTIME_FILTERS_MAX_NUM)
     private int runtimeFiltersMaxNum = 10;
-    // Set runtimeFilterType to IN filter
+    // Set runtimeFilterType to IN_OR_BLOOM filter
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE)
-    private int runtimeFilterType = 1;
+    private int runtimeFilterType = 8;
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM)
     private int runtimeFilterMaxInNum = 1024;
     @VariableMgr.VarAttr(name = ENABLE_VECTORIZED_ENGINE)
@@ -384,6 +414,28 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_LATERAL_VIEW, needForward = true)
     public boolean enableLateralView = false;
 
+    @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
+    private boolean disableJoinReorder = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
+    private boolean enableInferPredicate = false;
+
+    @VariableMgr.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
+    public boolean sqlQuoteShowCreate = true;
+
+    @VariableMgr.VarAttr(name = RETURN_OBJECT_DATA_AS_BINARY)
+    private boolean returnObjectDataAsBinary = false;
+
+    @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
+    private String blockEncryptionMode = "";
+
+    public String getBlockEncryptionMode() {
+        return blockEncryptionMode;
+    }
+
+    public void setBlockEncryptionMode(String blockEncryptionMode) {
+        this.blockEncryptionMode = blockEncryptionMode;
+    }
     public long getMaxExecMemByte() {
         return maxExecMemByte;
     }
@@ -417,7 +469,19 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isAutoCommit() {
         return autoCommit;
     }
+    
+    public boolean isTxReadonly() {
+        return txReadonly;
+    }
 
+    public boolean isTransactionReadonly() {
+        return transactionReadonly;
+    }
+    
+    public String getTransactionIsolation() {
+        return transactionIsolation;
+    }
+    
     public String getTxIsolation() {
         return txIsolation;
     }
@@ -514,6 +578,13 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public boolean isSqlQuoteShowCreate() {
+        return sqlQuoteShowCreate;
+    }
+
+    public void setSqlQuoteShowCreate(boolean sqlQuoteShowCreate) {
+        this.sqlQuoteShowCreate = sqlQuoteShowCreate;
+    }
     public void setLoadMemLimit(long loadMemLimit) {
         this.loadMemLimit = loadMemLimit;
     }
@@ -780,6 +851,10 @@ public class SessionVariable implements Serializable, Writable {
         return extractWideRangeExpr;
     }
 
+    public int getPartitionPruneAlgorithmVersion() {
+        return partitionPruneAlgorithmVersion;
+    }
+
     public int getCpuResourceLimit() {
         return cpuResourceLimit;
     }
@@ -800,6 +875,24 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLateralView = enableLateralView;
     }
 
+    public boolean isDisableJoinReorder() {
+        return disableJoinReorder;
+    }
+
+    public boolean isReturnObjectDataAsBinary() {
+        return returnObjectDataAsBinary;
+    }
+
+    public void setReturnObjectDataAsBinary(boolean returnObjectDataAsBinary) {
+        this.returnObjectDataAsBinary = returnObjectDataAsBinary;
+    }
+
+    public boolean isEnableInferPredicate() {
+        return enableInferPredicate;
+    }
+
+    public void setEnableInferPredicate(boolean enableInferPredicate) { this.enableInferPredicate = enableInferPredicate; }
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
@@ -816,6 +909,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIsReportSuccess(enableProfile);
         tResult.setCodegenLevel(codegenLevel);
         tResult.setEnableVectorizedEngine(enableVectorizedEngine);
+        tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
@@ -882,64 +976,14 @@ public class SessionVariable implements Serializable, Writable {
         Text.writeString(out, root.toString());
     }
 
-    @Deprecated
-    private void readFromStream(DataInput in) throws IOException {
-        codegenLevel = in.readInt();
-        netBufferLength = in.readInt();
-        sqlSafeUpdates = in.readInt();
-        timeZone = Text.readString(in);
-        netReadTimeout = in.readInt();
-        netWriteTimeout = in.readInt();
-        waitTimeout = in.readInt();
-        interactiveTimeout = in.readInt();
-        queryCacheType = in.readInt();
-        autoIncrementIncrement = in.readInt();
-        maxAllowedPacket = in.readInt();
-        sqlSelectLimit = in.readLong();
-        sqlAutoIsNull = in.readBoolean();
-        collationDatabase = Text.readString(in);
-        collationConnection = Text.readString(in);
-        charsetServer = Text.readString(in);
-        charsetResults = Text.readString(in);
-        charsetConnection = Text.readString(in);
-        charsetClient = Text.readString(in);
-        txIsolation = Text.readString(in);
-        autoCommit = in.readBoolean();
-        resourceGroup = Text.readString(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_65) {
-            sqlMode = in.readLong();
-        } else {
-            // read old version SQL mode
-            Text.readString(in);
-            sqlMode = 0L;
-        }
-        enableProfile = in.readBoolean();
-        queryTimeoutS = in.readInt();
-        maxExecMemByte = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_37) {
-            collationServer = Text.readString(in);
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_38) {
-            batchSize = in.readInt();
-            disableStreamPreaggregations = in.readBoolean();
-            parallelExecInstanceNum = in.readInt();
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_62) {
-            exchangeInstanceParallel = in.readInt();
-        }
-    }
 
     public void readFields(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_67) {
-            readFromStream(in);
-        } else {
-            readFromJson(in);
-        }
+        readFromJson(in);
     }
 
     private void readFromJson(DataInput in) throws IOException {
         String json = Text.readString(in);
-        JSONObject root = new JSONObject(json);
+        JSONObject root = (JSONObject) JSONValue.parse(json);
         try {
             for (Field field : SessionVariable.class.getDeclaredFields()) {
                 VarAttr attr = field.getAnnotation(VarAttr.class);
@@ -947,28 +991,29 @@ public class SessionVariable implements Serializable, Writable {
                     continue;
                 }
 
-                if (!root.has(attr.name())) {
+                if (!root.containsKey(attr.name())) {
                     continue;
                 }
 
                 switch (field.getType().getSimpleName()) {
                     case "boolean":
-                        field.set(this, root.getBoolean(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "int":
-                        field.set(this, root.getInt(attr.name()));
+                        // root.get(attr.name()) always return Long type, so need to convert it.
+                        field.set(this, Integer.valueOf(root.get(attr.name()).toString()));
                         break;
                     case "long":
-                        field.set(this, root.getLong(attr.name()));
+                        field.set(this, (Long) root.get(attr.name()));
                         break;
                     case "float":
-                        field.set(this, root.getFloat(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "double":
-                        field.set(this, root.getDouble(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     case "String":
-                        field.set(this, root.getString(attr.name()));
+                        field.set(this, root.get(attr.name()));
                         break;
                     default:
                         // Unsupported type variable.
@@ -1063,3 +1108,4 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 }
+

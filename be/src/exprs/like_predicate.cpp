@@ -179,7 +179,7 @@ void LikePredicate::regexp_like_prepare(FunctionContext* context,
     // If both the pattern and the match parameter are constant, we pre-compile the
     // regular expression once here. Otherwise, the RE is compiled per row in RegexpLike()
     if (context->is_arg_constant(1) && context->is_arg_constant(2)) {
-        StringVal* pattern = NULL;
+        StringVal* pattern = nullptr;
         pattern = reinterpret_cast<StringVal*>(context->get_constant_arg(1));
         if (pattern->is_null) {
             return;
@@ -187,7 +187,7 @@ void LikePredicate::regexp_like_prepare(FunctionContext* context,
         StringVal* match_parameter = reinterpret_cast<StringVal*>(context->get_constant_arg(2));
         std::stringstream error;
         if (match_parameter->is_null) {
-            error << "NULL match parameter";
+            error << "match parameter is null";
             context->set_error(error.str().c_str());
             return;
         }

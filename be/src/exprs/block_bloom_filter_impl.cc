@@ -221,7 +221,7 @@ Status BlockBloomFilter::merge(const BlockBloomFilter& other) {
     // Moreover for a reference "other" to be an AlwaysTrueFilter the reference needs
     // to be created from a nullptr and so we get into undefined behavior territory.
     // Comparing AlwaysTrueFilter with "&other" results in a compiler warning for
-    // comparing a non-null argument "other" with NULL [-Wnonnull-compare].
+    // comparing a non-null argument "other" with nullptr [-Wnonnull-compare].
     // For above reasons, guard against it.
     CHECK_NE(kAlwaysTrueFilter, &other);
 

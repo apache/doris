@@ -19,7 +19,6 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "gen_cpp/PlanNodes_types.h"
@@ -65,7 +64,7 @@ private:
     TDescriptorTable _t_desc_table;
     DescriptorTbl* _desc_tbl;
     TPlanNode _tnode;
-    boost::scoped_ptr<ExecEnv> _env;
+    std::unique_ptr<ExecEnv> _env;
     RuntimeState* _state;
 }; // end class CsvScanNodeTest
 
@@ -250,8 +249,7 @@ TEST_F(CsvScanNodeTest, NormalUse) {
     status = scan_node.open(_state);
     ASSERT_TRUE(status.ok());
 
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), tracker.get());
+    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
@@ -289,7 +287,7 @@ TEST_F(CsvScanNodeTest, continuousDelim) {
     status = scan_node.open(_state);
     ASSERT_TRUE(status.ok());
 
-    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), tracker.get());
+    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
@@ -327,8 +325,7 @@ TEST_F(CsvScanNodeTest, wrong_decimal_format_test) {
     status = scan_node.open(_state);
     ASSERT_TRUE(status.ok());
 
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), tracker.get());
+    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
@@ -356,8 +353,7 @@ TEST_F(CsvScanNodeTest, fill_fix_len_stringi_test) {
     status = scan_node.open(_state);
     ASSERT_TRUE(status.ok());
 
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), tracker.get());
+    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
@@ -401,8 +397,7 @@ TEST_F(CsvScanNodeTest, wrong_fix_len_string_format_test) {
     status = scan_node.open(_state);
     ASSERT_TRUE(status.ok());
 
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), tracker.get());
+    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {

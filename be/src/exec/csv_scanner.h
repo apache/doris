@@ -26,6 +26,7 @@
 
 namespace doris {
 
+// Now, CsvScanNode and CsvScanner are only for unit test
 class CsvScanner {
 public:
     CsvScanner(const std::vector<std::string>& csv_file_paths);

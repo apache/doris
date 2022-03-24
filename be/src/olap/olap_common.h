@@ -31,6 +31,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "env/env.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
 #include "util/hash_util.hpp"
@@ -43,7 +44,6 @@ namespace doris {
 static const int64_t MAX_ROWSET_ID = 1L << 56;
 
 typedef int32_t SchemaHash;
-typedef int64_t VersionHash;
 typedef __int128 int128_t;
 typedef unsigned __int128 uint128_t;
 
@@ -52,7 +52,7 @@ typedef UniqueId TabletUid;
 enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
 
 struct DataDirInfo {
-    std::string path;
+    FilePathDesc path_desc;
     size_t path_hash = 0;
     int64_t disk_capacity = 1; // actual disk capacity
     int64_t available = 0;     // 可用空间，单位字节
@@ -143,7 +143,8 @@ enum FieldType {
     OLAP_FIELD_TYPE_HLL = 23,
     OLAP_FIELD_TYPE_BOOL = 24,
     OLAP_FIELD_TYPE_OBJECT = 25,
-    OLAP_FIELD_TYPE_STRING = 26
+    OLAP_FIELD_TYPE_STRING = 26,
+    OLAP_FIELD_TYPE_QUANTILE_STATE = 27
 };
 
 // Define all aggregation methods supported by Field
@@ -161,16 +162,17 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7,
     // Replace if and only if added value is not null
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
+    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
 };
 
 // Compression algorithm type
 enum OLAPCompressionType {
     // Compression algorithm used for network transmission, low compression rate, low cpu overhead
     OLAP_COMP_TRANSPORT = 1,
-    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead 
-    OLAP_COMP_STORAGE = 2,  
-    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low 
-    OLAP_COMP_LZ4 = 3,       
+    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead
+    OLAP_COMP_STORAGE = 2,
+    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low
+    OLAP_COMP_LZ4 = 3,
 };
 
 enum PushType {
@@ -237,6 +239,8 @@ class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
+static const int GENERAL_DEBUG_COUNT = 4;
+
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
     int64_t io_ns = 0;
@@ -284,6 +288,17 @@ struct OlapReaderStatistics {
     int64_t filtered_segment_number = 0;
     // total number of segment
     int64_t total_segment_number = 0;
+    // general_debug_ns is designed for the purpose of DEBUG, to record any infomations of debugging or profiling.
+    // different from specific meaningful timer such as index_load_ns, general_debug_ns can be used flexibly.
+    // general_debug_ns has associated with OlapScanNode's _general_debug_timer already.
+    // so general_debug_ns' values will update to _general_debug_timer automaticly,
+    // the timer result can be checked through QueryProfile web page easily.
+    // when search general_debug_ns, you can find that general_debug_ns has not been used,
+    // this is because such codes added for debug purpose should not commit, it's just for debuging.
+    // so, please do not delete general_debug_ns defined here
+    // usage example:
+    //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
+    int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
 };
 
 typedef uint32_t ColumnId;

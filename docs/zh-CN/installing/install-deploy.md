@@ -49,6 +49,28 @@ Doris 作为一款开源的 MPP 架构 OLAP 数据库，能够运行在绝大多
 | Java | 1.8 及以上 |
 | GCC  | 4.8.2 及以上 |
 
+#### 操作系统安装要求
+
+##### 设置系统最大打开文件句柄数
+
+```
+vi /etc/security/limits.conf 
+* soft nofile 65536
+* hard nofile 65536
+```
+
+##### 时钟同步
+
+Doris 的元数据要求时间精度要小于5000ms，所以所有集群所有机器要进行时钟同步，避免因为时钟问题引发的元数据不一致导致服务出现异常。
+
+##### 关闭交换分区（swap）
+
+Linux交换分区会给Doris带来很严重的性能问题，需要在安装之前禁用交换分区
+
+##### Liunx文件系统
+
+这里我们推荐使用ext4文件系统，在安装操作系统的时候，请选择ext4文件系统。
+
 #### 开发测试环境
 
 | 模块 | CPU | 内存 | 磁盘 | 网络 | 实例数量 |
@@ -93,10 +115,10 @@ Doris 各个实例直接通过网络进行通讯。以下表格展示了所有�
 | BE | be_port | 9060 | FE --> BE | BE 上 thrift server 的端口，用于接收来自 FE 的请求 |
 | BE | webserver_port | 8040 | BE <--> BE | BE 上的 http server 的端口 |
 | BE | heartbeat\_service_port | 9050 | FE --> BE | BE 上心跳服务端口（thrift），用于接收来自 FE 的心跳 |
-| BE | brpc\_port* | 8060 | FE<-->BE, BE <--> BE | BE 上的 brpc 端口，用于 BE 之间通讯 |
-| FE | http_port * | 8030 | FE <--> FE，用户 |FE 上的 http server 端口 |
+| BE | brpc\_port | 8060 | FE <--> BE, BE <--> BE | BE 上的 brpc 端口，用于 BE 之间通讯 |
+| FE | http_port  | 8030 | FE <--> FE，用户 <--> FE |FE 上的 http server 端口 |
 | FE | rpc_port | 9020 | BE --> FE, FE <--> FE | FE 上的 thrift server 端口，每个fe的配置需要保持一致|
-| FE | query_port | 9030 | 用户 | FE 上的 mysql server 端口 |
+| FE | query_port | 9030 | 用户 <--> FE | FE 上的 mysql server 端口 |
 | FE | edit\_log_port | 9010 | FE <--> FE | FE 上的 bdbje 之间通信用的端口 |
 | Broker | broker\_ipc_port | 8000 | FE --> Broker, BE --> Broker | Broker 上的 thrift server，用于接收请求 |
 
@@ -154,7 +176,7 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
 * 启动FE
 
-    `sh bin/start_fe.sh --daemon`
+    `bin/start_fe.sh --daemon`
 
     FE进程启动进入后台执行。日志默认存放在 log/ 目录下。如启动失败，可以通过查看 log/fe.log 或者 log/fe.out 查看错误信息。
 
@@ -165,6 +187,8 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 * 拷贝 BE 部署文件到所有要部署 BE 的节点
 
     将源码编译生成的 output 下的 be 文件夹拷贝到 BE 的节点的指定部署路径下。
+
+    > 注意：`output/be/lib/debug_info/` 目录下为调试信息文件，文件较大，但实际运行不需要这些文件，可以不部署。
 
 * 修改所有 BE 的配置
 
@@ -178,19 +202,19 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
     **说明**
 
-    - /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
-    - /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+    - /home/disk1/doris.HDD,50，表示存储限制为50GB，HDD;
+    - /home/disk2/doris.SSD,10，存储限制为10GB，SSD；
     - /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
     
     示例2如下：
     
-    **注意：不论HHD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
+    **注意：不论HDD磁盘目录还是SSD磁盘目录，都无需添加后缀，storage_root_path参数里指定medium即可**
     
     `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
     
     **说明**
     
-    - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HHD;
+    - /home/disk1/doris,medium:hdd,capacity:10，表示存储限制为10GB, HDD;
     - /home/disk2/doris,medium:ssd,capacity:50，表示存储限制为50GB, SSD;
 
 * BE webserver_port端口配置
@@ -201,19 +225,19 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
     BE 节点需要先在 FE 中添加，才可加入集群。可以使用 mysql-client([下载MySQL 5.7](https://dev.mysql.com/downloads/mysql/5.7.html)) 连接到 FE：
 
-    `./mysql-client -h host -P port -uroot`
+    `./mysql-client -h fe_host -P query_port -uroot`
 
-    其中 host 为 FE 所在节点 ip；port 为 fe/conf/fe.conf 中的 query_port；默认使用 root 账户，无密码登录。
+    其中 fe_host 为 FE 所在节点 ip；query_port 在 fe/conf/fe.conf 中的；默认使用 root 账户，无密码登录。
 
     登录后，执行以下命令来添加每一个 BE：
 
-    `ALTER SYSTEM ADD BACKEND "host:port";`
+    `ALTER SYSTEM ADD BACKEND "be_host:heartbeat-service_port";`
 
-      	其中 host 为 BE 所在节点 ip；port 为 be/conf/be.conf 中的 heartbeat_service_port。
+    其中 be_host 为 BE 所在节点 ip；heartbeat_service_port 在 be/conf/be.conf 中。
 
 * 启动 BE
 
-    `sh bin/start_be.sh --daemon`
+    `bin/start_be.sh --daemon`
 
     BE 进程将启动并进入后台执行。日志默认存放在 be/log/ 目录下。如启动失败，可以通过查看 be/log/be.log 或者 be/log/be.out 查看错误信息。
 
@@ -223,7 +247,7 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
 #### （可选）FS_Broker 部署
 
-Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存储系统导入数据，需要部署相应的 Broker，默认提供了读取 HDFS 和百度云 BOS 的 fs_broker。fs_broker 是无状态的，建议每一个 FE 和 BE 节点都部署一个 Broker。
+Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存储系统导入数据，需要部署相应的 Broker，默认提供了读取 HDFS 、百度云 BOS 及 Amazon S3 的 fs_broker。fs_broker 是无状态的，建议每一个 FE 和 BE 节点都部署一个 Broker。
 
 * 拷贝源码 fs_broker 的 output 目录下的相应 Broker 目录到需要部署的所有节点上。建议和 BE 或者 FE 目录保持同级。
 
@@ -233,7 +257,7 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
 
  * 启动 Broker
 
-    `sh bin/start_broker.sh --daemon` 启动 Broker。
+    `bin/start_broker.sh --daemon`
 
 * 添加 Broker
 
@@ -241,9 +265,9 @@ Broker 以插件的形式，独立于 Doris 部署。如果需要从第三方存
 
     使用 mysql-client 连接启动的 FE，执行以下命令：
 
-    `ALTER SYSTEM ADD BROKER broker_name "host1:port1","host2:port2",...;`
+    `ALTER SYSTEM ADD BROKER broker_name "broker_host1:broker_ipc_port1","broker_host2:broker_ipc_port2",...;`
 
-    其中 host 为 Broker 所在节点 ip；port 为 Broker 配置文件中的 broker\_ipc\_port。
+    其中 broker_host 为 Broker 所在节点 ip；broker_ipc_port 在 Broker 配置文件中的conf/apache_hdfs_broker.conf。
 
 * 查看 Broker 状态
 
@@ -279,19 +303,19 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 
 添加 Follower 或 Observer。使用 mysql-client 连接到已启动的 FE，并执行：
 
-`ALTER SYSTEM ADD FOLLOWER "host:port";`
+`ALTER SYSTEM ADD FOLLOWER "follower_host:edit_log_port";`
 
 或
 
-`ALTER SYSTEM ADD OBSERVER "host:port";`
+`ALTER SYSTEM ADD OBSERVER "observer_host:edit_log_port";`
 
-其中 host 为 Follower 或 Observer 所在节点 ip，port 为其配置文件 fe.conf 中的 edit\_log\_port。
+其中 follower\_host和observer\_host 为 Follower 或 Observer 所在节点 ip，edit\_log\_port 在其配置文件 fe.conf 中。
 
 配置及启动 Follower 或 Observer。Follower 和 Observer 的配置同 Leader 的配置。第一次启动时，需执行以下命令：
 
-`./bin/start_fe.sh --helper host:port --daemon`
+`./bin/start_fe.sh --helper leader_fe_host:edit_log_port --daemon`
 
-其中 host 为 Leader 所在节点 ip, port 为 Leader 的配置文件 fe.conf 中的 edit_log_port。--helper 参数仅在 follower 和 observer 第一次启动时才需要。
+其中 leader\_fe\_host 为 Leader 所在节点 ip, edit\_log\_port 在 Leader 的配置文件 fe.conf 中。--helper 参数仅在 follower 和 observer 第一次启动时才需要。
 
 查看 Follower 或 Observer 运行状态。使用 mysql-client 连接到任一已启动的 FE，并执行：SHOW PROC '/frontends'; 可以查看当前已加入集群的 FE 及其对应角色。
 

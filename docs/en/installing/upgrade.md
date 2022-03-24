@@ -29,8 +29,28 @@ under the License.
 
 Doris can upgrade smoothly by rolling upgrades. The following steps are recommended for security upgrade.
 
-> Note:
+> **Note:**
+> 1. Doris does not support upgrading across two-digit version numbers, for example: you cannot upgrade directly from 0.13 to 0.15, only through 0.13.x -> 0.14.x -> 0.15.x, and the three-digit version number can be upgraded across versions, such as from 0.13 .15 can be directly upgraded to 0.14.13.1, it is not necessary to upgrade 0.14.7 or 0.14.12.1
 > 1. The following approaches are based on highly available deployments. That is, data 3 replicas, FE high availability.
+
+## Preparen
+
+1. Turn off the replica repair and balance operation.
+
+     There will be node restarts during the upgrade process, so unnecessary cluster balancing and replica repair logic may be triggered. You can close it first with the following command:
+
+     ```
+     # Turn off the replica ealance logic. After it is closed, the balancing operation of the ordinary table replica will no longer be triggered.
+     $ mysql-client> admin set frontend config("disable_balance" = "true");
+     
+     # Turn off the replica balance logic of the colocation table. After it is closed, the replica redistribution operation of the colocation table will no longer be triggered.
+     $ mysql-client> admin set frontend config("disable_colocate_balance" = "true");
+     
+     # Turn off the replica scheduling logic. After shutting down, all generated replica repair and balancing tasks will no longer be scheduled.
+     $ mysql-client> admin set frontend config("disable_tablet_scheduler" = "true");
+     ```
+
+     After the cluster is upgraded, just use the above command to set the corresponding configuration to the original value.
 
 ## Test the correctness of BE upgrade
 

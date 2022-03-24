@@ -40,6 +40,7 @@ import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,7 +51,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import avro.shaded.com.google.common.collect.Maps;
 
 /**
  * The distributed planner is responsible for creating an executable, distributed plan
@@ -293,22 +293,9 @@ public class DistributedPlanner {
     private PlanFragment createTableFunctionFragment(PlanNode node, PlanFragment childFragment) {
         Preconditions.checkState(node instanceof TableFunctionNode);
         node.setChild(0, childFragment.getPlanRoot());
+        node.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         childFragment.addPlanRoot(node);
         return childFragment;
-    }
-
-    /**
-     * When broadcastCost and partitionCost are equal, there is no uniform standard for which join implementation is better.
-     * Some scenarios are suitable for broadcast join, and some scenarios are suitable for shuffle join.
-     * Therefore, we add a SessionVariable to help users choose a better join implementation.
-     */
-    private boolean isBroadcastCostSmaller(long broadcastCost, long partitionCost) {
-        String joinMethod = ConnectContext.get().getSessionVariable().getPreferJoinMethod();
-        if (joinMethod.equalsIgnoreCase("broadcast")) {
-            return broadcastCost <= partitionCost;
-        } else {
-            return broadcastCost < partitionCost;
-        }
     }
 
     /**

@@ -42,7 +42,6 @@
 #include "olap/fs/file_block_manager.h"
 #include "olap/lru_cache.h"
 #include "olap/memtable_flush_executor.h"
-#include "olap/olap_snapshot_converter.h"
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/rowset/alpha_rowset.h"
@@ -111,12 +110,20 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _available_storage_medium_type_count(0),
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
-          _index_stream_lru_cache(NULL),
+          _index_stream_lru_cache(nullptr),
           _file_cache(nullptr),
-          _compaction_mem_tracker(MemTracker::CreateTracker(-1, "AutoCompaction", nullptr, false,
-                                                            false, MemTrackerLevel::OVERVIEW)),
-          _tablet_mem_tracker(MemTracker::CreateTracker(-1, "TabletHeader", nullptr, false, false,
+          _compaction_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::AutoCompaction",
+                                                             nullptr, MemTrackerLevel::OVERVIEW)),
+          _tablet_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::TabletHeader", nullptr,
+                                                         MemTrackerLevel::OVERVIEW)),
+          _schema_change_mem_tracker(MemTracker::create_tracker(
+                  -1, "StorageEngine::SchemaChange", nullptr, MemTrackerLevel::OVERVIEW)),
+          _clone_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Clone", nullptr,
                                                         MemTrackerLevel::OVERVIEW)),
+          _batch_load_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::BatchLoad",
+                                                             nullptr, MemTrackerLevel::OVERVIEW)),
+          _consistency_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Consistency",
+                                                              nullptr, MemTrackerLevel::OVERVIEW)),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -129,13 +136,11 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _s_instance = this;
     }
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
-        MutexLock lock(&_gc_mutex);
+        std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
     });
     REGISTER_HOOK_METRIC(compaction_mem_consumption, [this]() {
         return _compaction_mem_tracker->consumption();
-        // We can get each compaction's detail usage
-        // LOG(INFO) << _compaction_mem_tracker=>LogUsage(2);
     });
 }
 
@@ -203,7 +208,7 @@ Status StorageEngine::_init_store_map() {
     std::string error_msg;
     for (auto& path : _options.store_paths) {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
-                                     _tablet_manager.get(), _txn_manager.get());
+                                     path.remote_path, _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
         threads.emplace_back([store, &error_msg_lock, &error_msg]() {
             auto st = store->init();
@@ -428,7 +433,7 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
     int32_t cluster_id = -1;
     for (auto& it : _store_map) {
         int32_t tmp_cluster_id = it.second->cluster_id();
-        if (tmp_cluster_id == -1) {
+        if (it.second->cluster_id_incomplete()) {
             _is_all_cluster_id_exist = false;
         } else if (tmp_cluster_id == cluster_id) {
             // both have right cluster id, do nothing
@@ -571,7 +576,7 @@ void StorageEngine::stop() {
 #undef THREAD_JOIN
 
 #define THREADS_JOIN(threads)           \
-    for (const auto thread : threads) { \
+    for (const auto& thread : threads) {\
         if (thread) {                   \
             thread->join();             \
         }                               \
@@ -638,8 +643,8 @@ void StorageEngine::_start_clean_cache() {
 OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    std::unique_lock<std::mutex> l(_trash_sweep_lock,std::defer_lock);
-    if(!l.try_lock()) {
+    std::unique_lock<std::mutex> l(_trash_sweep_lock, std::defer_lock);
+    if (!l.try_lock()) {
         LOG(INFO) << "trash and snapshot sweep is running.";
         return res;
     }
@@ -669,7 +674,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     double tmp_usage = 0.0;
     for (DataDirInfo& info : data_dir_infos) {
-        LOG(INFO) << "Start to sweep path " << info.path;
+        LOG(INFO) << "Start to sweep path " << info.path_desc.filepath;
         if (!info.is_used) {
             continue;
         }
@@ -678,7 +683,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         tmp_usage = std::max(tmp_usage, curr_usage);
 
         OLAPStatus curr_res = OLAP_SUCCESS;
-        string snapshot_path = info.path + SNAPSHOT_PREFIX;
+        string snapshot_path = info.path_desc.filepath + SNAPSHOT_PREFIX;
         curr_res = _do_sweep(snapshot_path, local_now, snapshot_expire);
         if (curr_res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path
@@ -686,7 +691,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
             res = curr_res;
         }
 
-        string trash_path = info.path + TRASH_PREFIX;
+        string trash_path = info.path_desc.filepath + TRASH_PREFIX;
         curr_res = _do_sweep(trash_path, local_now, curr_usage > guard_space ? 0 : trash_expire);
         if (curr_res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to sweep trash. [path=%s" << trash_path
@@ -715,11 +720,12 @@ void StorageEngine::_clean_unused_rowset_metas() {
     std::vector<RowsetMetaSharedPtr> invalid_rowset_metas;
     auto clean_rowset_func = [this, &invalid_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
                                                            const std::string& meta_str) -> bool {
+        // return false will break meta iterator, return true to skip this error
         RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
             LOG(WARNING) << "parse rowset meta string failed for rowset_id:" << rowset_id;
-            // return false will break meta iterator, return true to skip this error
+            invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
         if (rowset_meta->tablet_uid() != tablet_uid) {
@@ -727,12 +733,32 @@ void StorageEngine::_clean_unused_rowset_metas() {
                          << ", rowset_id=" << rowset_meta->rowset_id()
                          << ", in_put_tablet_uid=" << tablet_uid
                          << ", tablet_uid in rowset meta=" << rowset_meta->tablet_uid();
+            invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
 
         TabletSharedPtr tablet = _tablet_manager->get_tablet(
-                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(), tablet_uid);
+                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
         if (tablet == nullptr) {
+            // tablet may be dropped
+            // TODO(cmy): this is better to be a VLOG, because drop table is a very common case.
+            // leave it as INFO log for observation. Maybe change it in future.
+            LOG(INFO) << "failed to find tablet " << rowset_meta->tablet_id() << " for rowset: " << rowset_meta->rowset_id()
+                      << ", tablet may be dropped";
+            invalid_rowset_metas.push_back(rowset_meta);
+            return true;
+        }
+        if (tablet->tablet_uid() != rowset_meta->tablet_uid()) {
+            // In this case, we get the tablet using the tablet id recorded in the rowset meta.
+            // but the uid in the tablet is different from the one recorded in the rowset meta.
+            // How this happened:
+            // Replica1 of Tablet A exists on BE1. Because of the clone task, a new replica2 is createed on BE2,
+            // and then replica1 deleted from BE1. After some time, we created replica again on BE1,
+            // which will creates a new tablet with the same id but a different uid.
+            // And in the historical version, when we deleted the replica, we did not delete the corresponding rowset meta,
+            // thus causing the original rowset meta to remain(with same tablet id but different uid).
+            LOG(WARNING) << "rowset's tablet uid " << rowset_meta->tablet_uid() << " does not equal to tablet uid: " << tablet->tablet_uid();
+            invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
@@ -745,11 +771,15 @@ void StorageEngine::_clean_unused_rowset_metas() {
     };
     auto data_dirs = get_stores();
     for (auto data_dir : data_dirs) {
+        if (data_dir->is_remote()) {
+            continue;
+        }
         RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func);
         for (auto& rowset_meta : invalid_rowset_metas) {
             RowsetMetaManager::remove(data_dir->get_meta(), rowset_meta->tablet_uid(),
-                                      rowset_meta->rowset_id());
+                    rowset_meta->rowset_id());
         }
+        LOG(INFO) << "remove " << invalid_rowset_metas.size() << " invalid rowset meta from dir: " << data_dir->path();
         invalid_rowset_metas.clear();
     }
 }
@@ -841,7 +871,7 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
-    MutexLock lock(&_gc_mutex);
+    std::lock_guard<std::mutex> lock(_gc_mutex);
     for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
         if (it->second.use_count() != 1) {
             ++it;
@@ -868,7 +898,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
 
     auto rowset_id = rowset->rowset_id().to_string();
 
-    MutexLock lock(&_gc_mutex);
+    std::lock_guard<std::mutex> lock(_gc_mutex);
     auto it = _unused_rowsets.find(rowset_id);
     if (it == _unused_rowsets.end()) {
         rowset->set_need_delete_file();
@@ -895,7 +925,7 @@ OLAPStatus StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
                                             std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
-    if (shard_path == NULL) {
+    if (shard_path == nullptr) {
         LOG(WARNING) << "invalid output parameter which is null pointer.";
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
@@ -988,20 +1018,18 @@ void StorageEngine::notify_listeners() {
 }
 
 OLAPStatus StorageEngine::execute_task(EngineTask* task) {
-    // 1. add wlock to related tablets
-    // 2. do prepare work
-    // 3. release wlock
     {
         std::vector<TabletInfo> tablet_infos;
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
         std::vector<TabletSharedPtr> related_tablets;
+        std::vector<UniqueWriteLock> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
                     _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
-                tablet->obtain_header_wrlock();
+                wrlocks.push_back(UniqueWriteLock(tablet->get_header_lock()));
             } else {
                 LOG(WARNING) << "could not get tablet before prepare tabletid: "
                              << tablet_info.tablet_id;
@@ -1009,9 +1037,6 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         }
         // add write lock to all related tablets
         OLAPStatus prepare_status = task->prepare();
-        for (TabletSharedPtr& tablet : related_tablets) {
-            tablet->release_header_lock();
-        }
         if (prepare_status != OLAP_SUCCESS) {
             return prepare_status;
         }
@@ -1023,21 +1048,19 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         return exec_status;
     }
 
-    // 1. add wlock to related tablets
-    // 2. do finish work
-    // 3. release wlock
     {
         std::vector<TabletInfo> tablet_infos;
         // related tablets may be changed after execute task, so that get them here again
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
         std::vector<TabletSharedPtr> related_tablets;
+        std::vector<UniqueWriteLock> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
                     _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
-                tablet->obtain_header_wrlock();
+                wrlocks.push_back(UniqueWriteLock(tablet->get_header_lock()));
             } else {
                 LOG(WARNING) << "could not get tablet before finish tabletid: "
                              << tablet_info.tablet_id;
@@ -1045,33 +1068,25 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         }
         // add write lock to all related tablets
         OLAPStatus fin_status = task->finish();
-        for (TabletSharedPtr& tablet : related_tablets) {
-            tablet->release_header_lock();
-        }
         return fin_status;
     }
 }
 
 // check whether any unused rowsets's id equal to rowset_id
 bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id) {
-    MutexLock lock(&_gc_mutex);
+    std::lock_guard<std::mutex> lock(_gc_mutex);
     auto search = _unused_rowsets.find(rowset_id.to_string());
     return search != _unused_rowsets.end();
 }
 
 void StorageEngine::create_cumulative_compaction(
         TabletSharedPtr best_tablet, std::shared_ptr<CumulativeCompaction>& cumulative_compaction) {
-    std::string tracker_label =
-            "StorageEngine:CumulativeCompaction:" + std::to_string(best_tablet->tablet_id());
-    cumulative_compaction.reset(
-            new CumulativeCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
+    cumulative_compaction.reset(new CumulativeCompaction(best_tablet));
 }
 
 void StorageEngine::create_base_compaction(TabletSharedPtr best_tablet,
                                            std::shared_ptr<BaseCompaction>& base_compaction) {
-    std::string tracker_label =
-            "StorageEngine:BaseCompaction:" + std::to_string(best_tablet->tablet_id());
-    base_compaction.reset(new BaseCompaction(best_tablet, tracker_label, _compaction_mem_tracker));
+    base_compaction.reset(new BaseCompaction(best_tablet));
 }
 
 // Return json:

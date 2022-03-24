@@ -24,58 +24,72 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# C++ Format Code
-Doris use `Clang-format` to automatically check the format of your source code.
+# C++ code formatting
 
-## Code Style
-Doris Code Style is based on Google's, makes a few changes. The customized .clang-format
-file is in the root dir of Doris.
-Now, .clang-format file only works on clang-format-8.0.1+.
+Doris uses clang-format for code formatting, and provides a package script in the build-support directory:
 
-## Preparing
-You should install clang-format, or you can use clang-format plugins which support by IDEs or Editors.
+* `clang-format.sh`.
 
-### Install clang-format
-Ubuntu: `apt-get install clang-format` 
+    Format the C/C++ code in the `be/src` and `be/test` directories.
+
+* `check-format.sh`.
+
+    Check the C/C++ code format in the `be/src` and `be/test` directories, and output diff, but the content of the file will not be modified.
+
+## Code style customization
+
+The code style of Doris is slightly modified on the basis of Google Style and is customized as a `.clang-format` file located in the root directory of Doris.
+
+Currently, the `.clang-format` configuration file is adapted to versions above clang-format-8.0.1.
+
+The code that you do not want to be formatted is recorded in the `.clang-format-ignore` file. These codes usually come from third-party code bases, and it is recommended to keep the original code style.
+
+## Environmental preparation
+
+You need to download and install clang-format, or you can use the clang-format plug-in provided by IDE or Editor, as described below.
+
+### Download and install clang-format
+
+Ubuntu: `apt-get install clang-format`
+
+The current version is 10.0, you can also specify the old version, for example: `apt-get install clang-format-9`
 
 Mac: `brew install clang-format`
 
-The current release is 10.0, you can specify old version, e.g.
- 
- `apt-get install clang-format-9`
+Centos 7:
 
-Centos 7: 
+The version of clang-format installed by centos yum is too old and supports too few StyleOptions. It is recommended to compile version 10.0 from source code.
 
-The version of clang-format installed by yum is too old. Compiling clang from source
-is recommended.
+### clang-format plugin
 
-### Clang-format plugins
-Clion IDE supports the plugin "ClangFormat", you can search in `File->Setting->Plugins`
- and download it.
-But the version is not match with clang-format. Judging from the options supported, 
-the version is lower than clang-format-9.0.
+Clion IDE can use the plug-in "ClangFormat", search and download in `File->Setting->Plugins`. But the version can’t match
+The version of the clang-format program matches, judging from the supported StyleOption, it should be lower than clang-format-9.0.
 
-## Usage
+## How to use
 
-### CMD
-Change directory to the root directory of Doris sources and run the following command:
+### Command line operation
+
+cd to the root directory of Doris, and then execute the following command:
+
 `build-support/clang-format.sh`
 
-NOTE: Python3 is required to run the `clang-format.sh` script.
+> Note: The `clang-format.sh` script requires python 3 to be installed on your machine
 
-### Using clang-format in IDEs or Editors
+### Use clang-format in IDE or Editor
+
 #### Clion
-If using the plugin 'ClangFormat' in Clion, choose `Reformat Code` or press the keyboard 
-shortcut.
+
+If Clion uses a plug-in, just click `Reformat Code`.
 
 #### VS Code
-VS Code needs install the extension 'Clang-Format', and specify the executable path of 
-clang-format in settings.
 
-Open the vs code configuration page and search `clang_format`, fill the box as follows.
+VS Code needs to install the extension Clang-Format, but you need to provide the location of the clang-format execution program.
+
+Open the VS Code configuration page, directly search for "clang_format", and fill in
 
 ```
 "clang_format_path": "$clang-format path$",
 "clang_format_style": "file"
 ```
-Then, right click the file and choose `Format Document`.
+
+Then, right-click on `Format Document`.

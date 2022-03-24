@@ -39,7 +39,9 @@
 #include "exprs/math_functions.h"
 #include "exprs/new_in_predicate.h"
 #include "exprs/operators.h"
+#include "exprs/quantile_function.h"
 #include "exprs/string_functions.h"
+#include "exprs/table_function/dummy_table_functions.h"
 #include "exprs/time_operators.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/topn_function.h"
@@ -94,17 +96,6 @@ void Daemon::memory_maintenance_thread() {
         if (env != nullptr) {
             BufferPool* buffer_pool = env->buffer_pool();
             if (buffer_pool != nullptr) buffer_pool->Maintenance();
-
-            // The process limit as measured by our trackers may get out of sync with the
-            // process usage if memory is allocated or freed without updating a MemTracker.
-            // The metric is refreshed whenever memory is consumed or released via a MemTracker,
-            // so on a system with queries executing it will be refreshed frequently. However
-            // if the system is idle, we need to refresh the tracker occasionally since
-            // untracked memory may be allocated or freed, e.g. by background threads.
-            if (env->process_mem_tracker() != nullptr &&
-                !env->process_mem_tracker()->is_consumption_metric_null()) {
-                env->process_mem_tracker()->RefreshConsumptionFromMetric();
-            }
         }
     }
 }
@@ -199,8 +190,10 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
     DorisMetrics::instance()->initialize(init_system_metrics, disk_devices, network_interfaces);
 }
 
-void sigterm_handler(int signo) {
-    k_doris_exit = true;
+void signal_handler(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        k_doris_exit = true;
+    }
 }
 
 int install_signal(int signo, void (*handler)(int)) {
@@ -218,11 +211,11 @@ int install_signal(int signo, void (*handler)(int)) {
 }
 
 void init_signals() {
-    auto ret = install_signal(SIGINT, sigterm_handler);
+    auto ret = install_signal(SIGINT, signal_handler);
     if (ret < 0) {
         exit(-1);
     }
-    ret = install_signal(SIGTERM, sigterm_handler);
+    ret = install_signal(SIGTERM, signal_handler);
     if (ret < 0) {
         exit(-1);
     }
@@ -232,7 +225,7 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     // google::SetVersionString(get_build_version(false));
     // google::ParseCommandLineFlags(&argc, &argv, true);
     google::ParseCommandLineFlags(&argc, &argv, true);
-    init_glog("be", true);
+    init_glog("be");
 
     LOG(INFO) << get_version_string(false);
 
@@ -262,8 +255,10 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     GroupingSetsFunctions::init();
     BitmapFunctions::init();
     HllFunctions::init();
+    QuantileStateFunctions::init();
     HashFunctions::init();
     TopNFunctions::init();
+    DummyTableFunctions::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();

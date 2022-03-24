@@ -44,22 +44,17 @@ class PFetchDataResult;
 
 struct GetResultBatchCtx {
     brpc::Controller* cntl = nullptr;
-    // In version 0.15, we change brpc client from jprotobuf to grpc.
-    // And the response data is moved from rpc attachment to protobuf boby.
-    // This variables is for backwards compatibility when upgrading Doris.
-    // If set to true, the response data is still transferred as attachment.
-    // If set to false, the response data is transferred in protobuf body.
-    bool resp_in_attachment = true;
     PFetchDataResult* result = nullptr;
     google::protobuf::Closure* done = nullptr;
 
-    GetResultBatchCtx(brpc::Controller* cntl_, bool resp_in_attachment_, PFetchDataResult* result_,
+    GetResultBatchCtx(brpc::Controller* cntl_, PFetchDataResult* result_,
                       google::protobuf::Closure* done_)
-            : cntl(cntl_), resp_in_attachment(resp_in_attachment_), result(result_), done(done_) {}
+            : cntl(cntl_), result(result_), done(done_) {}
 
     void on_failure(const Status& status);
     void on_close(int64_t packet_seq, QueryStatistics* statistics = nullptr);
-    void on_data(const std::unique_ptr<TFetchDataResult>& t_result, int64_t packet_seq, bool eos = false);
+    void on_data(const std::unique_ptr<TFetchDataResult>& t_result, int64_t packet_seq,
+                 bool eos = false);
 };
 
 // buffer used for result customer and producer
@@ -94,6 +89,13 @@ public:
         // and the number of written rows is only needed when all things go well.
         if (_query_statistics.get() != nullptr) {
             _query_statistics->set_returned_rows(num_rows);
+        }
+    }
+
+    void update_max_peak_memory_bytes() {
+        if (_query_statistics.get() != nullptr) {
+            int64_t max_peak_memory_bytes = _query_statistics->calculate_max_peak_memory_bytes();
+            _query_statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
         }
     }
 

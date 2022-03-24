@@ -28,6 +28,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
@@ -116,15 +117,17 @@ public class LoadAction extends RestBaseAction {
             redirectAddr = execEnv.getMultiLoadMgr().redirectAddr(fullDbName, label);
         } else {
             // Choose a backend sequentially.
+            SystemInfoService.BeAvailablePredicate beAvailablePredicate =
+                    new SystemInfoService.BeAvailablePredicate(false, false, true);
             List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                    1, true, false, clusterName, null, null);
+                    1, beAvailablePredicate, false, clusterName, null, null);
             if (backendIds == null) {
-                throw new DdlException("No backend alive.");
+                throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
             }
 
             Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
             if (backend == null) {
-                throw new DdlException("No backend alive.");
+                throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
             }
 
             redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());

@@ -17,7 +17,6 @@
 
 #include "util/thrift_client.h"
 
-#include <boost/assign.hpp>
 #include <ostream>
 #include <string>
 
@@ -35,8 +34,8 @@ Status ThriftClientImpl::open() {
         try {
             _transport->close();
         } catch (const apache::thrift::transport::TTransportException& e) {
-            VLOG_CRITICAL << "Error closing socket to: " << ipaddress() << ":" << port() << ", ignoring ("
-                    << e.what() << ")";
+            VLOG_CRITICAL << "Error closing socket to: " << ipaddress() << ":" << port()
+                          << ", ignoring (" << e.what() << ")";
         }
         // In certain cases in which the remote host is overloaded, this failure can
         // happen quite frequently. Let's print this error message without the stack

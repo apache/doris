@@ -55,7 +55,7 @@ ExternalScanContextMgr::~ExternalScanContextMgr() {
 Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<ScanContext>* p_context) {
     std::string context_id = generate_uuid_string();
     std::shared_ptr<ScanContext> context(new ScanContext(context_id));
-    // context->last_access_time  = time(NULL);
+    // context->last_access_time  = time(nullptr);
     {
         std::lock_guard<std::mutex> l(_lock);
         _active_contexts.insert(std::make_pair(context_id, context));
@@ -109,7 +109,7 @@ void ExternalScanContextMgr::gc_expired_context() {
 #ifndef BE_TEST
     while (!_stop_background_threads_latch.wait_for(
             MonoDelta::FromSeconds(doris::config::scan_context_gc_interval_min * 60))) {
-        time_t current_time = time(NULL);
+        time_t current_time = time(nullptr);
         std::vector<std::shared_ptr<ScanContext>> expired_contexts;
         {
             std::lock_guard<std::mutex> l(_lock);

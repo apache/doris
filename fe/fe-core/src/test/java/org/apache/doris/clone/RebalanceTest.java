@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -189,6 +188,9 @@ public class RebalanceTest {
 
         // Disable scheduler's rebalancer adding balance task, add balance tasks manually
         Config.disable_balance = true;
+        // generate statistic map again to create skewmap
+        Config.tablet_rebalancer_type = "partition";
+        generateStatisticMap();
         // Create a new scheduler & checker for redundant tablets handling
         // Call runAfterCatalogReady manually instead of starting daemon thread
         TabletSchedulerStat stat = new TabletSchedulerStat();
@@ -211,7 +213,7 @@ public class RebalanceTest {
             try {
                 tabletCtx.setStorageMedium(TStorageMedium.HDD);
                 tabletCtx.setTablet(olapTable.getPartition(tabletCtx.getPartitionId()).getIndex(tabletCtx.getIndexId()).getTablet(tabletCtx.getTabletId()));
-                tabletCtx.setVersionInfo(1, 0, 1, 0);
+                tabletCtx.setVersionInfo(1, 1);
                 tabletCtx.setSchemaHash(olapTable.getSchemaHashByIndexId(tabletCtx.getIndexId()));
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
 

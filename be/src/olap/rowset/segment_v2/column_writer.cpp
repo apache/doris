@@ -55,7 +55,7 @@ public:
         _rle_encoder.Put(value, run);
     }
 
-    // Returns whether the building nullmap contains NULL
+    // Returns whether the building nullmap contains nullptr
     bool has_null() const { return _has_null; }
 
     OwnedSlice finish() {
@@ -226,7 +226,7 @@ Status ScalarColumnWriter::init() {
     PageBuilder* page_builder = nullptr;
 
     RETURN_IF_ERROR(
-            EncodingInfo::get(get_field()->type_info(), _opts.meta->encoding(), &_encoding_info));
+            EncodingInfo::get(get_field()->type_info().get(), _opts.meta->encoding(), &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;
@@ -285,10 +285,9 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         size_t num_written = remaining;
         RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
 
-        bool is_page_full = (num_written < remaining);
         remaining -= num_written;
 
-        if (is_page_full) {
+        if (_page_builder->is_page_full()) {
             RETURN_IF_ERROR(finish_current_page());
         }
     }
@@ -445,11 +444,11 @@ Status ScalarColumnWriter::finish_current_page() {
     body.push_back(encoded_values.slice());
 
     OwnedSlice nullmap;
-    if (is_nullable() && _null_bitmap_builder->has_null()) {
-        nullmap = _null_bitmap_builder->finish();
-        body.push_back(nullmap.slice());
-    }
     if (_null_bitmap_builder != nullptr) {
+        if (is_nullable() && _null_bitmap_builder->has_null()) {
+            nullmap = _null_bitmap_builder->finish();
+            body.push_back(nullmap.slice());
+        }
         _null_bitmap_builder->reset();
     }
 
@@ -525,8 +524,8 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         if (num_written <
             1) { // page is full, write first item offset and update current length page's start ordinal
             RETURN_IF_ERROR(_length_writer->finish_current_page());
-            _current_length_page_first_ordinal += _lengh_sum_in_cur_page;
-            _lengh_sum_in_cur_page = 0;
+            _current_length_page_first_ordinal += _length_sum_in_cur_page;
+            _length_sum_in_cur_page = 0;
         } else {
             // write child item.
             if (_item_writer->is_nullable()) {
@@ -540,7 +539,7 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                 RETURN_IF_ERROR(_item_writer->append_data(reinterpret_cast<const uint8_t**>(&data),
                                                           col_cursor->length()));
             }
-            _lengh_sum_in_cur_page += col_cursor->length();
+            _length_sum_in_cur_page += col_cursor->length();
         }
         remaining -= num_written;
         col_cursor += num_written;
@@ -580,7 +579,9 @@ Status ArrayColumnWriter::write_ordinal_index() {
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->write_ordinal_index());
     }
-    RETURN_IF_ERROR(_item_writer->write_ordinal_index());
+    if (!has_empty_items()) {
+        RETURN_IF_ERROR(_item_writer->write_ordinal_index());
+    }
     return Status::OK();
 }
 

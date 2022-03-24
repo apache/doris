@@ -175,7 +175,7 @@ public class BackendLoadStatistic {
             throw new LoadBalanceException("backend " + beId + " does not exist");
         }
 
-        isAvailable = be.isAvailable();
+        isAvailable = be.isScheduleAvailable() && be.isLoadAvailable() && be.isQueryAvailable();
 
         ImmutableMap<String, DiskInfo> disks = be.getDisks();
         for (DiskInfo diskInfo : disks.values()) {

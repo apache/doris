@@ -99,6 +99,16 @@ public class TableNameStoredLowercaseTest {
     }
 
     @Test
+    public void testQueryTableAliasCaseInsensitive() throws Exception {
+        String sql1 = "select T1.siteid, t2.k2 from table1 T1 join table2 T2 on t1.siteid = t2.k1" +
+                " where T2.k5 > 1000 order by t1.siteid";
+        dorisAssert.query(sql1).explainQuery();
+
+        String sql2 = "select t.siteid, T.username from (select * from Table1) T";
+        dorisAssert.query(sql2).explainQuery();
+    }
+
+    @Test
     public void testCreateSameTableFailed() {
         String TABle2 = "create table db1.TABle2(k1 int, k2 varchar(32), k3 varchar(32)) "
                 + "AGGREGATE KEY(k1, k2, k3) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";

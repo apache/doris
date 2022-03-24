@@ -23,11 +23,14 @@
 #include "runtime/exec_env.h"
 #include "runtime/file_result_writer.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "runtime/mysql_result_writer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
+
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -75,14 +78,15 @@ Status ResultSink::prepare(RuntimeState* state) {
     // create writer based on sink type
     switch (_sink_type) {
     case TResultSinkType::MYSQL_PROTOCAL:
-        _writer.reset(new (std::nothrow)
-                              MysqlResultWriter(_sender.get(), _output_expr_ctxs, _profile));
+        _writer.reset(new (std::nothrow) MysqlResultWriter(
+                _sender.get(), _output_expr_ctxs, _profile, state->return_object_data_as_binary()));
         break;
     // deprecated
     case TResultSinkType::FILE:
         CHECK(_file_opts.get() != nullptr);
         _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,
-                                                          _profile, _sender.get()));
+                                                          _profile, _sender.get(),
+                                                          state->return_object_data_as_binary()));
         break;
     default:
         return Status::InternalError("Unknown result sink type");
@@ -97,6 +101,10 @@ Status ResultSink::open(RuntimeState* state) {
 }
 
 Status ResultSink::send(RuntimeState* state, RowBatch* batch) {
+    // The memory consumption in the process of sending the results is not recorded in the query memory.
+    // 1. Avoid the query being cancelled when the memory limit is reached after the query result comes out.
+    // 2. If record this memory, also need to record on the receiving end, need to consider the life cycle of MemTracker.
+    SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER();
     return _writer->append_row_batch(batch);
 }
 
@@ -117,11 +125,12 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
 
     // close sender, this is normal path end
     if (_sender) {
-        _sender->update_num_written_rows(_writer->get_written_rows());
+        _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
+        _sender->update_max_peak_memory_bytes();
         _sender->close(final_status);
     }
     state->exec_env()->result_mgr()->cancel_at_time(
-            time(NULL) + config::result_buffer_cancelled_interval_time,
+            time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
 
     Expr::close(_output_expr_ctxs, state);

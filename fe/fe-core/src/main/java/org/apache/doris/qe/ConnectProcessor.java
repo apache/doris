@@ -84,7 +84,7 @@ public class ConnectProcessor {
     private void handleInitDb() {
         String dbName = new String(packetBuf.array(), 1, packetBuf.limit() - 1);
         if (Strings.isNullOrEmpty(ctx.getClusterName())) {
-            ctx.getState().setError("Please enter cluster");
+            ctx.getState().setError(ErrorCode.ERR_CLUSTER_NAME_NULL, "Please enter cluster");
             return;
         }
         dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
@@ -113,15 +113,16 @@ public class ConnectProcessor {
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
-        
+
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-            .setState(ctx.getState().toString()).setQueryTime(elapseMs)
-            .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
-            .setScanRows(statistics == null ? 0 : statistics.getScanRows())
-            .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
-            .setReturnRows(ctx.getReturnRows())
-            .setStmtId(ctx.getStmtId())
-            .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
+                .setState(ctx.getState().toString()).setQueryTime(elapseMs)
+                .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
+                .setScanRows(statistics == null ? 0 : statistics.getScanRows())
+                .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
+                .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
+                .setReturnRows(ctx.getReturnRows())
+                .setStmtId(ctx.getStmtId())
+                .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
@@ -142,14 +143,14 @@ public class ConnectProcessor {
         } else {
             ctx.getAuditEventBuilder().setIsQuery(false);
         }
-        
+
         ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
-        
+
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
             ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
         } else {
-            if (parsedStmt instanceof InsertStmt && ((InsertStmt)parsedStmt).isValuesOrConstantSelect()) {
+            if (parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).isValuesOrConstantSelect()) {
                 // INSERT INTO VALUES may be very long, so we only log at most 1K bytes.
                 int length = Math.min(1024, origStmt.length());
                 ctx.getAuditEventBuilder().setStmt(origStmt.substring(0, length));
@@ -157,7 +158,7 @@ public class ConnectProcessor {
                 ctx.getAuditEventBuilder().setStmt(origStmt);
             }
         }
-        
+
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 
@@ -177,25 +178,19 @@ public class ConnectProcessor {
         } catch (UnsupportedEncodingException e) {
             // impossible
             LOG.error("UTF8 is not supported in this environment.");
-            ctx.getState().setError("Unsupported character set(UTF-8)");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_CHARACTER_SET, "Unsupported character set(UTF-8)");
             return;
         }
         String sqlHash = DigestUtils.md5Hex(originStmt);
         ctx.setSqlHash(sqlHash);
-        try {
-            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt, sqlHash, ctx.getQualifiedUser());
-        } catch (AnalysisException e) {
-            LOG.warn(e.getMessage());
-            ctx.getState().setError(e.getMessage());
-            return;
-        }
+
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
-            .setTimestamp(System.currentTimeMillis())
-            .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
-            .setUser(ctx.getQualifiedUser())
-            .setDb(ctx.getDatabase())
-            .setSqlHash(ctx.getSqlHash());
+                .setTimestamp(System.currentTimeMillis())
+                .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
+                .setUser(ctx.getQualifiedUser())
+                .setDb(ctx.getDatabase())
+                .setSqlHash(ctx.getSqlHash());
 
         // execute this query.
         StatementBase parsedStmt = null;
@@ -226,17 +221,18 @@ public class ConnectProcessor {
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
-            ctx.getState().setError("Doris process failed");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed");
         } catch (UserException e) {
             LOG.warn("Process one query failed because.", e);
-            ctx.getState().setError(e.getMessage());
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             // set is as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe palo bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError(e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -296,17 +292,17 @@ public class ConnectProcessor {
             return;
         }
         if (Strings.isNullOrEmpty(tableName)) {
-            ctx.getState().setError("Empty tableName");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
         }
         Database db = ctx.getCatalog().getDbNullable(ctx.getDatabase());
         if (db == null) {
-            ctx.getState().setError("Unknown database(" + ctx.getDatabase() + ")");
+            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
             return;
         }
         Table table = db.getTableNullable(tableName);
         if (table == null) {
-            ctx.getState().setError("Unknown table(" + tableName + ")");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
             return;
         }
 
@@ -335,8 +331,8 @@ public class ConnectProcessor {
         MysqlCommand command = MysqlCommand.fromCode(code);
         if (command == null) {
             ErrorReport.report(ErrorCode.ERR_UNKNOWN_COM_ERROR);
-            ctx.getState().setError("Unknown command(" + command + ")");
-            LOG.warn("Unknown command(" + command + ")");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + code + ")");
+            LOG.warn("Unknown command(" + code + ")");
             return;
         }
         ctx.setCommand(command);
@@ -359,7 +355,7 @@ public class ConnectProcessor {
                 handlePing();
                 break;
             default:
-                ctx.getState().setError("Unsupported command(" + command + ")");
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
                 LOG.warn("Unsupported command(" + command + ")");
                 break;
         }
@@ -474,18 +470,6 @@ public class ConnectProcessor {
         }
 
         ctx.setThreadLocalInfo();
-
-        if (ctx.getCurrentUserIdentity() == null) {
-            // if we upgrade Master FE first, the request from old FE does not set "current_user_ident".
-            // so ctx.getCurrentUserIdentity() will get null, and causing NullPointerException after using it.
-            // return error directly.
-            TMasterOpResult result = new TMasterOpResult();
-            ctx.getState().setError("Missing current user identity. You need to upgrade this Frontend to the same version as Master Frontend.");
-            result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
-            result.setPacket(getResultPacket());
-            return result;
-        }
-
         StmtExecutor executor = null;
         try {
             // 0 for compatibility.
@@ -503,12 +487,12 @@ public class ConnectProcessor {
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
-            ctx.getState().setError("Doris process failed: " + e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + e.getMessage());
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe Doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError("Unexpected exception: " + e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
         // no matter the master execute success or fail, the master must transfer the result to follower
         // and tell the follower the current journalID.

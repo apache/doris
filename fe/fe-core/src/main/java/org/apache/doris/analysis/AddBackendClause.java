@@ -64,7 +64,7 @@ public class AddBackendClause extends BackendClause {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         super.analyze(analyzer);
-        tag = PropertyAnalyzer.analyzeBackendTagProperties(properties);
+        tag = PropertyAnalyzer.analyzeBackendTagProperties(properties, Tag.DEFAULT_BACKEND_TAG);
     }
 
     @Override

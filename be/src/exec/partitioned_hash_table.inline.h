@@ -53,7 +53,7 @@ template <bool FORCE_NULL_EQUALITY>
 inline int64_t PartitionedHashTable::Probe(Bucket* buckets, int64_t num_buckets,
                                            PartitionedHashTableCtx* ht_ctx, uint32_t hash,
                                            bool* found) {
-    DCHECK(buckets != NULL);
+    DCHECK(buckets != nullptr);
     DCHECK_GT(num_buckets, 0);
     *found = false;
     int64_t bucket_idx = hash & (num_buckets - 1);
@@ -66,7 +66,7 @@ inline int64_t PartitionedHashTable::Probe(Bucket* buckets, int64_t num_buckets,
         Bucket* bucket = &buckets[bucket_idx];
         if (LIKELY(!bucket->filled)) return bucket_idx;
         if (hash == bucket->hash) {
-            if (ht_ctx != NULL &&
+            if (ht_ctx != nullptr &&
                 ht_ctx->Equals<FORCE_NULL_EQUALITY>(GetRow(bucket, ht_ctx->scratch_row_))) {
                 *found = true;
                 return bucket_idx;
@@ -102,7 +102,7 @@ inline PartitionedHashTable::HtData* PartitionedHashTable::InsertInternal(
     if (found) {
         // We need to insert a duplicate node, note that this may fail to allocate memory.
         DuplicateNode* new_node = InsertDuplicateNode(bucket_idx, status);
-        if (UNLIKELY(new_node == NULL)) return NULL;
+        if (UNLIKELY(new_node == nullptr)) return nullptr;
         return &new_node->htdata;
     } else {
         PrepareBucketForInsert(bucket_idx, hash);
@@ -115,7 +115,7 @@ inline bool PartitionedHashTable::Insert(PartitionedHashTableCtx* ht_ctx,
                                          Status* status) {
     HtData* htdata = InsertInternal(ht_ctx, status);
     // If successful insert, update the contents of the newly inserted entry with 'idx'.
-    if (LIKELY(htdata != NULL)) {
+    if (LIKELY(htdata != nullptr)) {
         if (stores_tuples()) {
             htdata->tuple = row->get_tuple(0);
         } else {
@@ -145,7 +145,7 @@ inline PartitionedHashTable::Iterator PartitionedHashTable::FindProbeRow(
     int64_t bucket_idx = Probe<false>(buckets_, num_buckets_, ht_ctx, hash, &found);
     if (found) {
         return Iterator(this, ht_ctx->scratch_row(), bucket_idx,
-                        stores_duplicates() ? buckets_[bucket_idx].bucketData.duplicates : NULL);
+                        stores_duplicates() ? buckets_[bucket_idx].bucketData.duplicates : nullptr);
     }
     return End();
 }
@@ -156,7 +156,7 @@ inline PartitionedHashTable::Iterator PartitionedHashTable::FindBuildRowBucket(
     ++num_probes_;
     uint32_t hash = ht_ctx->expr_values_cache()->CurExprValuesHash();
     int64_t bucket_idx = Probe<true>(buckets_, num_buckets_, ht_ctx, hash, found);
-    DuplicateNode* duplicates = NULL;
+    DuplicateNode* duplicates = nullptr;
     if (stores_duplicates() && LIKELY(bucket_idx != Iterator::BUCKET_NOT_FOUND)) {
         duplicates = buckets_[bucket_idx].bucketData.duplicates;
     }
@@ -166,7 +166,7 @@ inline PartitionedHashTable::Iterator PartitionedHashTable::FindBuildRowBucket(
 inline PartitionedHashTable::Iterator PartitionedHashTable::Begin(
         const PartitionedHashTableCtx* ctx) {
     int64_t bucket_idx = Iterator::BUCKET_NOT_FOUND;
-    DuplicateNode* node = NULL;
+    DuplicateNode* node = nullptr;
     NextFilledBucket(&bucket_idx, &node);
     return Iterator(this, ctx->scratch_row(), bucket_idx, node);
 }
@@ -174,7 +174,7 @@ inline PartitionedHashTable::Iterator PartitionedHashTable::Begin(
 inline PartitionedHashTable::Iterator PartitionedHashTable::FirstUnmatched(
         PartitionedHashTableCtx* ctx) {
     int64_t bucket_idx = Iterator::BUCKET_NOT_FOUND;
-    DuplicateNode* node = NULL;
+    DuplicateNode* node = nullptr;
     NextFilledBucket(&bucket_idx, &node);
     Iterator it(this, ctx->scratch_row(), bucket_idx, node);
     // Check whether the bucket, or its first duplicate node, is matched. If it is not
@@ -191,13 +191,13 @@ inline void PartitionedHashTable::NextFilledBucket(int64_t* bucket_idx, Duplicat
     ++*bucket_idx;
     for (; *bucket_idx < num_buckets_; ++*bucket_idx) {
         if (buckets_[*bucket_idx].filled) {
-            *node = stores_duplicates() ? buckets_[*bucket_idx].bucketData.duplicates : NULL;
+            *node = stores_duplicates() ? buckets_[*bucket_idx].bucketData.duplicates : nullptr;
             return;
         }
     }
     // Reached the end of the hash table.
     *bucket_idx = Iterator::BUCKET_NOT_FOUND;
-    *node = NULL;
+    *node = nullptr;
 }
 
 inline void PartitionedHashTable::PrepareBucketForInsert(int64_t bucket_idx, uint32_t hash) {
@@ -230,7 +230,7 @@ inline PartitionedHashTable::DuplicateNode* PartitionedHashTable::InsertDuplicat
     // Allocate one duplicate node for the new data and one for the preexisting data,
     // if needed.
     while (node_remaining_current_page_ < 1 + !bucket->hasDuplicates) {
-        if (UNLIKELY(!GrowNodeArray(status))) return NULL;
+        if (UNLIKELY(!GrowNodeArray(status))) return nullptr;
     }
     if (!bucket->hasDuplicates) {
         // This is the first duplicate in this bucket. It means that we need to convert
@@ -238,7 +238,7 @@ inline PartitionedHashTable::DuplicateNode* PartitionedHashTable::InsertDuplicat
         next_node_->htdata.flat_row = bucket->bucketData.htdata.flat_row;
         DCHECK(!bucket->matched);
         next_node_->matched = false;
-        next_node_->next = NULL;
+        next_node_->next = nullptr;
         AppendNextNode(bucket);
         bucket->hasDuplicates = true;
         ++num_buckets_with_duplicates_;
@@ -249,8 +249,7 @@ inline PartitionedHashTable::DuplicateNode* PartitionedHashTable::InsertDuplicat
     return AppendNextNode(bucket);
 }
 
-inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::GetRow(HtData& htdata,
-                                                               TupleRow* row) const {
+inline TupleRow* PartitionedHashTable::GetRow(HtData& htdata, TupleRow* row) const {
     if (stores_tuples()) {
         return reinterpret_cast<TupleRow*>(&htdata.tuple);
     } else {
@@ -260,38 +259,37 @@ inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::GetRow(HtData& htdata,
     }
 }
 
-inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::GetRow(Bucket* bucket,
-                                                               TupleRow* row) const {
-    DCHECK(bucket != NULL);
+inline TupleRow* PartitionedHashTable::GetRow(Bucket* bucket, TupleRow* row) const {
+    DCHECK(bucket != nullptr);
     if (UNLIKELY(stores_duplicates() && bucket->hasDuplicates)) {
         DuplicateNode* duplicate = bucket->bucketData.duplicates;
-        DCHECK(duplicate != NULL);
+        DCHECK(duplicate != nullptr);
         return GetRow(duplicate->htdata, row);
     } else {
         return GetRow(bucket->bucketData.htdata, row);
     }
 }
 
-inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::Iterator::GetRow() const {
+inline TupleRow* PartitionedHashTable::Iterator::GetRow() const {
     DCHECK(!AtEnd());
-    DCHECK(table_ != NULL);
-    DCHECK(scratch_row_ != NULL);
+    DCHECK(table_ != nullptr);
+    DCHECK(scratch_row_ != nullptr);
     Bucket* bucket = &table_->buckets_[bucket_idx_];
     if (UNLIKELY(table_->stores_duplicates() && bucket->hasDuplicates)) {
-        DCHECK(node_ != NULL);
+        DCHECK(node_ != nullptr);
         return table_->GetRow(node_->htdata, scratch_row_);
     } else {
         return table_->GetRow(bucket->bucketData.htdata, scratch_row_);
     }
 }
 
-inline Tuple* IR_ALWAYS_INLINE PartitionedHashTable::Iterator::GetTuple() const {
+inline Tuple* PartitionedHashTable::Iterator::GetTuple() const {
     DCHECK(!AtEnd());
     DCHECK(table_->stores_tuples());
     Bucket* bucket = &table_->buckets_[bucket_idx_];
     // TODO: To avoid the hasDuplicates check, store the HtData* in the Iterator.
     if (UNLIKELY(table_->stores_duplicates() && bucket->hasDuplicates)) {
-        DCHECK(node_ != NULL);
+        DCHECK(node_ != nullptr);
         return node_->htdata.tuple;
     } else {
         return bucket->bucketData.htdata.tuple;
@@ -329,7 +327,7 @@ inline bool PartitionedHashTable::Iterator::IsMatched() const {
 
 inline void PartitionedHashTable::Iterator::SetAtEnd() {
     bucket_idx_ = BUCKET_NOT_FOUND;
-    node_ = NULL;
+    node_ = nullptr;
 }
 
 template <const bool READ>
@@ -345,7 +343,7 @@ inline void PartitionedHashTable::Iterator::PrefetchBucket() {
 inline void PartitionedHashTable::Iterator::Next() {
     DCHECK(!AtEnd());
     if (table_->stores_duplicates() && table_->buckets_[bucket_idx_].hasDuplicates &&
-        node_->next != NULL) {
+        node_->next != nullptr) {
         node_ = node_->next;
     } else {
         table_->NextFilledBucket(&bucket_idx_, &node_);
@@ -355,11 +353,11 @@ inline void PartitionedHashTable::Iterator::Next() {
 inline void PartitionedHashTable::Iterator::NextDuplicate() {
     DCHECK(!AtEnd());
     if (table_->stores_duplicates() && table_->buckets_[bucket_idx_].hasDuplicates &&
-        node_->next != NULL) {
+        node_->next != nullptr) {
         node_ = node_->next;
     } else {
         bucket_idx_ = BUCKET_NOT_FOUND;
-        node_ = NULL;
+        node_ = nullptr;
     }
 }
 
@@ -368,7 +366,7 @@ inline void PartitionedHashTable::Iterator::NextUnmatched() {
     Bucket* bucket = &table_->buckets_[bucket_idx_];
     // Check if there is any remaining unmatched duplicate node in the current bucket.
     if (table_->stores_duplicates() && bucket->hasDuplicates) {
-        while (node_->next != NULL) {
+        while (node_->next != nullptr) {
             node_ = node_->next;
             if (!node_->matched) return;
         }
@@ -381,7 +379,7 @@ inline void PartitionedHashTable::Iterator::NextUnmatched() {
         if (!table_->stores_duplicates() || !bucket->hasDuplicates) {
             if (!bucket->matched) return;
         } else {
-            while (node_->matched && node_->next != NULL) {
+            while (node_->matched && node_->next != nullptr) {
                 node_ = node_->next;
             }
             if (!node_->matched) return;

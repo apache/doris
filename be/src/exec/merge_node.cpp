@@ -33,7 +33,7 @@ MergeNode::MergeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorT
           _tuple_id(tnode.merge_node.tuple_id),
           _const_result_expr_idx(0),
           _child_idx(INVALID_CHILD_IDX),
-          _child_row_batch(NULL),
+          _child_row_batch(nullptr),
           _child_eos(false),
           _child_row_idx(0) {}
 
@@ -61,7 +61,7 @@ Status MergeNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status MergeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
-    DCHECK(_tuple_desc != NULL);
+    DCHECK(_tuple_desc != nullptr);
 
     // Prepare const expr lists.
     for (int i = 0; i < _const_result_expr_ctx_lists.size(); ++i) {
@@ -134,10 +134,10 @@ Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
     // Fetch from children, evaluate corresponding exprs and materialize.
     while (_child_idx < _children.size()) {
         // Row batch was either never set or we're moving on to a different child.
-        if (_child_row_batch.get() == NULL) {
+        if (_child_row_batch.get() == nullptr) {
             RETURN_IF_CANCELLED(state);
-            _child_row_batch.reset(new RowBatch(child(_child_idx)->row_desc(), state->batch_size(),
-                                                mem_tracker().get()));
+            _child_row_batch.reset(
+                    new RowBatch(child(_child_idx)->row_desc(), state->batch_size()));
             // Open child and fetch the first row batch.
             RETURN_IF_ERROR(child(_child_idx)->open(state));
             RETURN_IF_ERROR(
@@ -173,7 +173,7 @@ Status MergeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
 
         // Close current child and move on to next one.
         ++_child_idx;
-        _child_row_batch.reset(NULL);
+        _child_row_batch.reset(nullptr);
     }
 
     _child_idx = INVALID_CHILD_IDX;
@@ -186,7 +186,7 @@ Status MergeNode::close(RuntimeState* state) {
         return Status::OK();
     }
     // don't call ExecNode::close(), it always closes all children
-    _child_row_batch.reset(NULL);
+    _child_row_batch.reset(nullptr);
     for (int i = 0; i < _const_result_expr_ctx_lists.size(); ++i) {
         Expr::close(_const_result_expr_ctx_lists[i], state);
     }
@@ -210,10 +210,10 @@ bool MergeNode::eval_and_materialize_exprs(const std::vector<ExprContext*>& ctxs
     int num_conjunct_ctxs = _conjunct_ctxs.size();
 
     do {
-        TupleRow* child_row = NULL;
+        TupleRow* child_row = nullptr;
 
         if (!const_exprs) {
-            DCHECK(_child_row_batch != NULL);
+            DCHECK(_child_row_batch != nullptr);
             // Non-const expr list. Fetch next row from batch.
             child_row = _child_row_batch->get_row(_child_row_idx);
             ++_child_row_idx;

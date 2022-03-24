@@ -55,7 +55,7 @@ class PClearCacheRequest;
 class PartitionRowBatch {
 public:
     PartitionRowBatch(int64 partition_key)
-            : _partition_key(partition_key), _cache_value(NULL), _data_size(0) {}
+            : _partition_key(partition_key), _cache_value(nullptr), _data_size(0) {}
 
     ~PartitionRowBatch() {}
 
@@ -118,10 +118,10 @@ typedef std::unordered_map<PartitionKey, PartitionRowBatch*> PartitionRowBatchMa
 */
 class ResultNode {
 public:
-    ResultNode() : _sql_key(0, 0), _prev(NULL), _next(NULL), _data_size(0) {}
+    ResultNode() : _sql_key(0, 0), _prev(nullptr), _next(nullptr), _data_size(0) {}
 
     ResultNode(const UniqueId& sql_key)
-            : _sql_key(sql_key), _prev(NULL), _next(NULL), _data_size(0) {}
+            : _sql_key(sql_key), _prev(nullptr), _next(nullptr), _data_size(0) {}
 
     virtual ~ResultNode() {}
 
@@ -129,7 +129,8 @@ public:
     PCacheStatus fetch_partition(const PFetchCacheRequest* request,
                                  PartitionRowBatchList& rowBatchList, bool& is_hit_firstkey);
     PCacheStatus update_sql_cache(const PUpdateCacheRequest* request, bool& is_update_firstkey);
-    PCacheStatus update_partition_cache(const PUpdateCacheRequest* request, bool& is_update_firstkey);
+    PCacheStatus update_partition_cache(const PUpdateCacheRequest* request,
+                                        bool& is_update_firstkey);
 
     size_t prune_first();
     void clear();
@@ -166,14 +167,14 @@ public:
 
     const CacheStat* get_first_stat() const {
         if (_partition_list.size() == 0) {
-            return NULL;
+            return nullptr;
         }
         return (*(_partition_list.begin()))->get_stat();
     }
 
     const CacheStat* get_last_stat() const {
         if (_partition_list.size() == 0) {
-            return NULL;
+            return nullptr;
         }
         return (*(_partition_list.end()--))->get_stat();
     }

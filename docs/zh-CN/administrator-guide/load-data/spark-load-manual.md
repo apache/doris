@@ -30,14 +30,10 @@ Spark load 通过外部的 Spark 资源实现对导入数据的预处理，提�
 
 Spark load 是一种异步导入方式，用户需要通过 MySQL 协议创建 Spark 类型导入任务，并通过 `SHOW LOAD` 查看导入结果。
 
-
-
 ## 适用场景
 
 * 源数据在 Spark 可以访问的存储系统中，如 HDFS。
 * 数据量在 几十 GB 到 TB 级别。
-
-
 
 ## 名词解释
 
@@ -46,7 +42,6 @@ Spark load 是一种异步导入方式，用户需要通过 MySQL 协议创建 S
 3. Spark ETL：在导入流程中主要负责数据的 ETL 工作，包括全局字典构建（BITMAP类型）、分区、排序、聚合等。
 4. Broker：Broker 为一个独立的无状态进程。封装了文件系统接口，提供 Doris 读取远端存储系统中文件的能力。
 5. 全局字典： 保存了数据从原始值到编码值映射的数据结构，原始值可以是任意数据类型，而编码后的值为整型；全局字典主要应用于精确去重预计算的场景。
-
 
 ## 基本原理
 
@@ -87,8 +82,6 @@ Spark load 任务的执行主要分为以下5个阶段。
 
 ```
 
-
-
 ## 全局字典
 ### 适用场景
 目前Doris中Bitmap列是使用类库```Roaringbitmap```实现的，而```Roaringbitmap```的输入数据类型只能是整型，因此如果要在导入流程中实现对于Bitmap列的预计算，那么就需要将输入数据的类型转换成整型。
@@ -111,6 +104,9 @@ Spark load 任务的执行主要分为以下5个阶段。
 5. 每次完成聚合计算后，会对数据根据`bucket_id`进行分桶然后写入HDFS中。
 6. 后续broker会拉取HDFS中的文件然后导入Doris Be中。
 
+## Hive Bitmap UDF
+
+Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。详见 [hive-bitmap-udf 文档](../../extending-doris/hive-bitmap-udf.md)
 
 ## 基本操作
 
@@ -376,6 +372,47 @@ PROPERTIES
 
 ```
 
+示例3：上游数据源是hive binary类型情况
+
+```sql
+step 1:新建hive外部表
+CREATE EXTERNAL TABLE hive_t1
+(
+    k1 INT,
+    K2 SMALLINT,
+    k3 varchar(50),
+    uuid varchar(100) //hive中的类型为binary
+)
+ENGINE=hive
+properties
+(
+"database" = "tmp",
+"table" = "t1",
+"hive.metastore.uris" = "thrift://0.0.0.0:8080"
+);
+
+step 2: 提交load命令，要求导入的 doris 表中的列必须在 hive 外部表中存在。
+LOAD LABEL db1.label1
+(
+    DATA FROM TABLE hive_t1
+    INTO TABLE tbl1
+    SET
+    (
+		uuid=binary_bitmap(uuid)
+    )
+)
+WITH RESOURCE 'spark0'
+(
+    "spark.executor.memory" = "2g",
+    "spark.shuffle.compress" = "true"
+)
+PROPERTIES
+(
+    "timeout" = "3600"
+);
+
+```
+
 创建导入的详细语法执行 ```HELP SPARK LOAD``` 查看语法帮助。这里主要介绍 Spark load 的创建导入语法中参数意义和注意事项。
 
 #### Label
@@ -411,6 +448,11 @@ WITH RESOURCE 'spark0'
 适用于doris表聚合列的数据类型为bitmap类型。
 在load命令中指定需要构建全局字典的字段即可，格式为：```doris字段名称=bitmap_dict(hive表字段名称)```
 需要注意的是目前只有在上游数据源为hive表时才支持全局字典的构建。
+
+#### hive binary（bitmap）类型列的导入
+适用于doris表聚合列的数据类型为bitmap类型，且数据源hive表中对应列的数据类型为binary（通过FE中spark-dpp中的org.apache.doris.load.loadv2.dpp.BitmapValue类序列化）类型。
+无需构建全局字典，在load命令中指定相应字段即可，格式为：```doris字段名称=binary_bitmap(hive表字段名称)```
+同样，目前只有在上游数据源为hive表时才支持binary（bitmap）类型的数据导入。
 
 ### 查看导入
 

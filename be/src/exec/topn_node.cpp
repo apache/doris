@@ -37,11 +37,11 @@ namespace doris {
 TopNNode::TopNNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
-          _materialized_tuple_desc(NULL),
-          _tuple_row_less_than(NULL),
-          _tuple_pool(NULL),
+          _materialized_tuple_desc(nullptr),
+          _tuple_row_less_than(nullptr),
+          _tuple_pool(nullptr),
           _num_rows_skipped(0),
-          _priority_queue() {}
+          _priority_queue(nullptr) {}
 
 TopNNode::~TopNNode() {}
 
@@ -95,7 +95,7 @@ Status TopNNode::open(RuntimeState* state) {
 
     // Limit of 0, no need to fetch anything from children.
     if (_limit != 0) {
-        RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+        RowBatch batch(child(0)->row_desc(), state->batch_size());
         bool eos = false;
 
         do {
@@ -167,7 +167,7 @@ Status TopNNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    if (_tuple_pool.get() != NULL) {
+    if (_tuple_pool.get() != nullptr) {
         _tuple_pool->free_all();
     }
     _sort_exec_exprs.close(state);
@@ -182,14 +182,14 @@ void TopNNode::insert_tuple_row(TupleRow* input_row) {
                 _tuple_pool->allocate(_materialized_tuple_desc->byte_size()));
         insert_tuple->materialize_exprs<false>(input_row, *_materialized_tuple_desc,
                                                _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
-                                               _tuple_pool.get(), NULL, NULL);
+                                               _tuple_pool.get(), nullptr, nullptr);
         _priority_queue->push(insert_tuple);
     } else {
         DCHECK(!_priority_queue->empty());
         Tuple* top_tuple = _priority_queue->top();
         _tmp_tuple->materialize_exprs<false>(input_row, *_materialized_tuple_desc,
-                                             _sort_exec_exprs.sort_tuple_slot_expr_ctxs(), NULL,
-                                             NULL, NULL);
+                                             _sort_exec_exprs.sort_tuple_slot_expr_ctxs(), nullptr,
+                                             nullptr, nullptr);
 
         if ((*_tuple_row_less_than)(_tmp_tuple, top_tuple)) {
             // TODO: DeepCopy will allocate new buffers for the string data.  This needs

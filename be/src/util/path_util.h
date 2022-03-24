@@ -21,6 +21,8 @@
 #include <string>
 #include <vector>
 
+#include "env/env.h"
+
 namespace doris {
 namespace path_util {
 
@@ -35,6 +37,8 @@ std::string join_path_segments(const std::string& a, const std::string& b);
 // Join each path segment in a list with a common suffix segment.
 std::vector<std::string> join_path_segments_v(const std::vector<std::string>& v,
                                               const std::string& s);
+
+FilePathDesc join_path_desc_segments(const FilePathDesc& path_desc, const std::string& b);
 
 // Split a path into segments with the appropriate path separator.
 std::vector<std::string> split_path(const std::string& path);

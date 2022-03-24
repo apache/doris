@@ -1156,6 +1156,15 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return !exprSlotIds.retainAll(slotIds);
     }
 
+    // Get all the slotRefs that are bound to the tupleIds.
+    // As long as it is bound to one tuple
+    // Recursively call all levels of expr
+    public void getSlotRefsBoundByTupleIds(List<TupleId> tupleIds, Set<SlotRef> boundSlotRefs) {
+        for (Expr child : children) {
+            child.getSlotRefsBoundByTupleIds(tupleIds, boundSlotRefs);
+        }
+    }
+
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
         for (Expr child : children) {
             child.getIds(tupleIds, slotIds);
@@ -1244,12 +1253,18 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
-        if (targetType.getPrimitiveType().equals(type.getPrimitiveType())) {
+        if (targetType.getPrimitiveType() != PrimitiveType.ARRAY &&
+                targetType.getPrimitiveType() == type.getPrimitiveType()) {
             return this;
         }
         // bitmap must match exactly
         if (targetType.getPrimitiveType() == PrimitiveType.BITMAP) {
             throw new AnalysisException("bitmap column require the function return type is BITMAP");
+        }
+        // TODO(weixiang): why bitmap is so strict but hll is not strict, may be bitmap can be same to hll
+        //  here `quantile_state` is also strict now. may be can be same to hll too.
+        if (targetType.getPrimitiveType() == PrimitiveType.QUANTILE_STATE) {
+            throw new AnalysisException("quantile_state column require the function return type is QUANTILE_STATE");
         }
         // TargetTable's hll column must be hll_hash's result
         if (targetType.getPrimitiveType() == PrimitiveType.HLL) {

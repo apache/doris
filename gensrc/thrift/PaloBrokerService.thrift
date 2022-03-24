@@ -1,3 +1,6 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
@@ -46,11 +49,12 @@ enum TBrokerOpenMode {
 }
 
 struct TBrokerFileStatus {
-    1: required string path; // 文件的路径
-    2: required bool isDir; // 表示文件是个目录还是文件？
-    3: required i64 size; // 文件的大小
-    4: required bool isSplitable; // 如果这个值是false，那么表示这个文件不可以切分，整个文件必须作为
-                                    // 一个完整的map task来进行导入,如果是一个压缩文件返回值也是false
+    1: required string path; //file path
+    2: required bool isDir;  //determine whether it is a directory or a file
+    3: required i64 size;    //file size
+    4: required bool isSplitable; //false mean indicates that the file is indivisible,
+                                  //and the entire file must be imported as a complete map task.
+                                  //the return value of the compressed file is false
 }
 
 struct TBrokerFD {
@@ -165,61 +169,66 @@ struct TBrokerPingBrokerRequest {
 
 service TPaloBrokerService {
     
-    // 返回一个路径下的文件列表
+    // return a list of files under a path
     TBrokerListResponse listPath(1: TBrokerListPathRequest request);
     
-    // 删除一个文件，如果删除文件失败，status code会返回error信息
+    // delete a file, if the deletion of the file fails, the status code will return an error message
     // input:
-    //     path: 删除文件的路径    
+    //     path: path to delete file
     TBrokerOperationStatus deletePath(1: TBrokerDeletePathRequest request);
 
-    // 将文件重命名
+    // rename the file
     TBrokerOperationStatus renamePath(1: TBrokerRenamePathRequest request);
 
-    // 检查一个文件是否存在
+    // check if a file exits
     TBrokerCheckPathExistResponse checkPathExist(1: TBrokerCheckPathExistRequest request);
     
-    // 打开一个文件用来读取
+    // open a file for reading
     // input:
-    //     path: 文件的路径
-    //     startOffset: 读取的起始位置
+    //     path: file path
+    //     startOffset: read start position
     // return:
-    //     fd: 在broker内对这个文件读取流的唯一标识，用户每次读取的时候都需要带着这个fd，原因是一个broker
-    //         上可能有多个client端在读取同一个文件，所以需要用fd来分别标识。
+    //     fd: The unique identifier of the file read stream in the broker. The user needs to
+    //carry this fd every time they read it. The reason is that there may be multiple clients
+    //reading the same file on a broker, so fd is needed to read the file separately identified.
     TBrokerOpenReaderResponse openReader(1: TBrokerOpenReaderRequest request);
     
-    // 读取文件数据
+    // read file data
     // input:
-    //     fd: open reader时返回的fd
-    //     length: 读取的长度
-    //     offset: 用户读取时必须每次带着offset，但是这并不表示用户可以指定offset来读取，这个offset主要是后端
-    //             用来验证是否重复读取时使用的。 在网络通信时很有可能用户发起一次读取，但是并没有得到result，
-    //             然后又读取了一次，很有可能第一次读取已经发生了，只是用户没有收到结果，这样用户发起第二次读取，
-    //             返回的数据是错的，但是用户无法感知。 
+    //     fd: returned when open reader
+    //     length: read file length
+    //     offset: the user must carry the offset every time when reading, but this does not
+    //mean that the user can specify the offset to read. This offset is mainly used by the backend
+    //to verify whether to read repeatedly.During network communication, it is very likely that
+    //the user initiates a read, but does not get the result,and then reads it again. It is very
+    //likely that the first read has already occurred, but the user does not receive the result,
+    //so the user initiates a second read. The data returned is wrong,but the user cannot perceive it.
     // return:
-    //     正常情况下返回binary数据，异常情况，比如reader关闭了，文件读取到文件末尾了等，需要通过status code来返回
-    //     这里的binary以后会封装到一个response对象里。
+    //     under normal circumstances, binary data is returned. In abnormal cases, such as the reader is closed,
+    //the file is read to the end of the file, etc. it needs to be returned through the status code.
     TBrokerReadResponse pread(1: TBrokerPReadRequest request);
     
-    // 将reader的offset定位到特定的位置
+    // position the reader's offset to a specific position
     TBrokerOperationStatus seek(1: TBrokerSeekRequest request);
     
-    // 将reader关闭
+    // close reader
     TBrokerOperationStatus closeReader(1: TBrokerCloseReaderRequest request);
     
-    // 根据path打开一个文件写入流，这个API主要是为以后的backup restore设计的，目前导入来看不需要这个API
-    //    1. 如果文件不存在那么就创建，并返回fd；
-    //    2. 如果文件存在，但是是一个directory，那么返回失败
-    // 这里不提供递归创建文件夹的参数，默认就是文件夹如果不存在，那么就创建
-    // 这个API 目前考虑只是为了备份使用的，跟导入无关。
+    // open a file to write a stream according to the path. This API is mainly designed for backup
+    //and restore in the future. At present, this API is not needed for import.
+    //    1. if the file does not exist then create it and return fd;
+    //    2. if the file exists, but is a directory, return failure
+    //the parameters for recursively creating folders are not provided here.
+    //the default is that if the folder does not exist, it will be created.
+    // this API is currently considered for backup use only, and has nothing to do with importing.
     // input:
-    //     openMode: 打开写入流的方式，可选项：overwrite， create new， append等
+    //     openMode: options to open the write stream：overwrite、create new、append
     TBrokerOpenWriterResponse openWriter(1: TBrokerOpenWriterRequest request);
     
-    // 向fd对应的文件中写入数据
+    // write data to the file corresponding to fd
     TBrokerOperationStatus pwrite(1: TBrokerPWriteRequest request);
     
-    // 将文件写入流关闭
+    // close file write stream
     TBrokerOperationStatus closeWriter(1: TBrokerCloseWriterRequest request);
     
     // 

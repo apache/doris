@@ -121,7 +121,10 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
 }
 
 void ParquetReaderWrap::close() {
-    _parquet->Close();
+    arrow::Status st = _parquet->Close();
+    if (!st.ok()) {
+        LOG(WARNING) << "close parquet file error: " << st.ToString();
+    }
 }
 
 Status ParquetReaderWrap::size(int64_t* size) {
@@ -167,7 +170,7 @@ inline Status ParquetReaderWrap::set_field_null(Tuple* tuple, const SlotDescript
     if (!slot_desc->is_nullable()) {
         std::stringstream str_error;
         str_error << "The field name(" << slot_desc->col_name()
-                  << ") is not allowed null, but Parquet field is NULL.";
+                  << ") is not allowed null, but Parquet field is null.";
         LOG(WARNING) << str_error.str();
         return Status::RuntimeError(str_error.str());
     }
@@ -537,7 +540,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
 ParquetFile::ParquetFile(FileReader* file) : _file(file) {}
 
 ParquetFile::~ParquetFile() {
-    Close();
+    arrow::Status st = Close();
+    if (!st.ok()) {
+        LOG(WARNING) << "close parquet file error: " << st.ToString();
+    }
 }
 
 arrow::Status ParquetFile::Close() {

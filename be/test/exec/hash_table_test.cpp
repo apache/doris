@@ -47,8 +47,8 @@ namespace doris {
 class HashTableTest : public testing::Test {
 public:
     HashTableTest() {
-        _tracker = MemTracker::CreateTracker(-1, "root");
-        _pool_tracker = MemTracker::CreateTracker(-1, "mem-pool", _tracker);
+        _tracker = MemTracker::create_tracker(-1, "root");
+        _pool_tracker = MemTracker::create_tracker(-1, "mem-pool", _tracker);
         _mem_pool.reset(new MemPool(_pool_tracker.get()));
         _state = _pool.add(new RuntimeState(TQueryGlobals()));
         _state->init_instance_mem_tracker();
@@ -106,7 +106,7 @@ protected:
             EXPECT_LT(val, max);
 
             if (all_unique) {
-                EXPECT_TRUE(results[val] == NULL);
+                EXPECT_TRUE(results[val] == nullptr);
             }
 
             EXPECT_EQ(row->get_tuple(0), expected[val]->get_tuple(0));
@@ -196,7 +196,7 @@ TEST_F(HashTableTest, SetupTest) {
 // The hash table is rehashed a few times and the scans/finds are tested again.
 TEST_F(HashTableTest, BasicTest) {
     std::shared_ptr<MemTracker> hash_table_tracker =
-            MemTracker::CreateTracker(-1, "hash-table-basic-tracker", _tracker);
+            MemTracker::create_tracker(-1, "hash-table-basic-tracker", _tracker);
 
     TupleRow* build_rows[5];
     TupleRow* scan_rows[5] = {0};
@@ -260,7 +260,7 @@ TEST_F(HashTableTest, BasicTest) {
 // This tests makes sure we can scan ranges of buckets
 TEST_F(HashTableTest, ScanTest) {
     std::shared_ptr<MemTracker> hash_table_tracker =
-            MemTracker::CreateTracker(-1, "hash-table-scan-tracker", _tracker);
+            MemTracker::create_tracker(-1, "hash-table-scan-tracker", _tracker);
 
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
@@ -314,7 +314,7 @@ TEST_F(HashTableTest, GrowTableTest) {
     int expected_size = 0;
 
     std::shared_ptr<MemTracker> mem_tracker =
-            MemTracker::CreateTracker(1024 * 1024, "hash-table-grow-tracker", _tracker);
+            MemTracker::create_tracker(1024 * 1024, "hash-table-grow-tracker", _tracker);
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
     int64_t num_buckets = 4;
@@ -353,28 +353,25 @@ TEST_F(HashTableTest, GrowTableTest) {
 // This test continues adding to the hash table to trigger the resize code paths
 TEST_F(HashTableTest, GrowTableTest2) {
     int build_row_val = 0;
-    int num_to_add = 1024;
-    int expected_size = 0;
 
     std::shared_ptr<MemTracker> mem_tracker =
-            MemTracker::CreateTracker(1024 * 1024, "hash-table-grow2-tracker", _tracker);
+            MemTracker::create_tracker(1024 * 1024 * 1024, "hash-table-grow2-tracker", _tracker);
     std::vector<bool> is_null_safe = {false};
     int initial_seed = 1;
     int64_t num_buckets = 4;
     HashTable hash_table(_build_expr, _probe_expr, 1, false, is_null_safe, initial_seed,
                          mem_tracker, num_buckets);
 
-    LOG(INFO) << time(NULL);
+    LOG(INFO) << time(nullptr);
 
     // constexpr const int test_size = 5 * 1024 * 1024;
     constexpr const int test_size = 5 * 1024 * 100;
 
     for (int i = 0; i < test_size; ++i) {
         hash_table.insert(create_tuple_row(build_row_val++));
-        expected_size += num_to_add;
     }
 
-    LOG(INFO) << time(NULL);
+    LOG(INFO) << time(nullptr);
 
     // Validate that we can find the entries
     for (int i = 0; i < test_size; ++i) {
@@ -382,7 +379,7 @@ TEST_F(HashTableTest, GrowTableTest2) {
         hash_table.find(probe_row);
     }
 
-    LOG(INFO) << time(NULL);
+    LOG(INFO) << time(nullptr);
 
     size_t counter = 0;
     auto func = [&](TupleRow* row) { counter++; };
@@ -396,6 +393,12 @@ TEST_F(HashTableTest, GrowTableTest2) {
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    if (!doris::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     doris::CpuInfo::init();
+    doris::MemInfo::init();
     return RUN_ALL_TESTS();
 }

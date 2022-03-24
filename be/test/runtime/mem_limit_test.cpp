@@ -24,128 +24,133 @@
 namespace doris {
 
 TEST(MemTrackerTest, SingleTrackerNoLimit) {
-    auto t = MemTracker::CreateTracker();
+    auto t = MemTracker::create_tracker();
     EXPECT_FALSE(t->has_limit());
-    t->Consume(10);
+    t->consume(10);
     EXPECT_EQ(t->consumption(), 10);
-    t->Consume(10);
+    t->consume(10);
     EXPECT_EQ(t->consumption(), 20);
-    t->Release(15);
+    t->release(15);
     EXPECT_EQ(t->consumption(), 5);
-    EXPECT_FALSE(t->LimitExceeded(MemLimit::HARD));
-    t->Release(5);
+    EXPECT_FALSE(t->limit_exceeded());
+    t->release(5);
 }
 
 TEST(MemTestTest, SingleTrackerWithLimit) {
-    auto t = MemTracker::CreateTracker(11, "limit tracker");
+    auto t = MemTracker::create_tracker(11, "limit tracker");
     EXPECT_TRUE(t->has_limit());
-    t->Consume(10);
+    t->consume(10);
     EXPECT_EQ(t->consumption(), 10);
-    EXPECT_FALSE(t->LimitExceeded(MemLimit::HARD));
-    t->Consume(10);
+    EXPECT_FALSE(t->limit_exceeded());
+    t->consume(10);
     EXPECT_EQ(t->consumption(), 20);
-    EXPECT_TRUE(t->LimitExceeded(MemLimit::HARD));
-    t->Release(15);
+    EXPECT_TRUE(t->limit_exceeded());
+    t->release(15);
     EXPECT_EQ(t->consumption(), 5);
-    EXPECT_FALSE(t->LimitExceeded(MemLimit::HARD));
-    t->Release(5);
+    EXPECT_FALSE(t->limit_exceeded());
+    t->release(5);
 }
 
 TEST(MemTestTest, TrackerHierarchy) {
-    auto p = MemTracker::CreateTracker(100);
-    auto c1 = MemTracker::CreateTracker(80, "c1", p);
-    auto c2 = MemTracker::CreateTracker(50, "c2", p);
+    auto p = MemTracker::create_tracker(100);
+    auto c1 = MemTracker::create_tracker(80, "c1", p);
+    auto c2 = MemTracker::create_tracker(50, "c2", p);
 
     // everything below limits
-    c1->Consume(60);
+    c1->consume(60);
     EXPECT_EQ(c1->consumption(), 60);
-    EXPECT_FALSE(c1->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(c1->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c1->limit_exceeded());
+    EXPECT_FALSE(c1->any_limit_exceeded());
     EXPECT_EQ(c2->consumption(), 0);
-    EXPECT_FALSE(c2->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(c2->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c2->limit_exceeded());
+    EXPECT_FALSE(c2->any_limit_exceeded());
     EXPECT_EQ(p->consumption(), 60);
-    EXPECT_FALSE(p->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(p->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(p->limit_exceeded());
+    EXPECT_FALSE(p->any_limit_exceeded());
 
     // p goes over limit
-    c2->Consume(50);
+    c2->consume(50);
     EXPECT_EQ(c1->consumption(), 60);
-    EXPECT_FALSE(c1->LimitExceeded(MemLimit::HARD));
-    EXPECT_TRUE(c1->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c1->limit_exceeded());
+    EXPECT_TRUE(c1->any_limit_exceeded());
     EXPECT_EQ(c2->consumption(), 50);
-    EXPECT_FALSE(c2->LimitExceeded(MemLimit::HARD));
-    EXPECT_TRUE(c2->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c2->limit_exceeded());
+    EXPECT_TRUE(c2->any_limit_exceeded());
     EXPECT_EQ(p->consumption(), 110);
-    EXPECT_TRUE(p->LimitExceeded(MemLimit::HARD));
+    EXPECT_TRUE(p->limit_exceeded());
 
     // c2 goes over limit, p drops below limit
-    c1->Release(20);
-    c2->Consume(10);
+    c1->release(20);
+    c2->consume(10);
     EXPECT_EQ(c1->consumption(), 40);
-    EXPECT_FALSE(c1->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(c1->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c1->limit_exceeded());
+    EXPECT_FALSE(c1->any_limit_exceeded());
     EXPECT_EQ(c2->consumption(), 60);
-    EXPECT_TRUE(c2->LimitExceeded(MemLimit::HARD));
-    EXPECT_TRUE(c2->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_TRUE(c2->limit_exceeded());
+    EXPECT_TRUE(c2->any_limit_exceeded());
     EXPECT_EQ(p->consumption(), 100);
-    EXPECT_FALSE(p->LimitExceeded(MemLimit::HARD));
-    c1->Release(40);
-    c2->Release(60);
+    EXPECT_FALSE(p->limit_exceeded());
+    c1->release(40);
+    c2->release(60);
 }
 
 TEST(MemTestTest, TrackerHierarchyTryConsume) {
-    auto p = MemTracker::CreateTracker(100);
-    auto c1 = MemTracker::CreateTracker(80, "c1", p);
-    auto c2 = MemTracker::CreateTracker(50, "c2", p);
+    auto p = MemTracker::create_tracker(100);
+    auto c1 = MemTracker::create_tracker(80, "c1", p);
+    auto c2 = MemTracker::create_tracker(50, "c2", p);
 
     // everything below limits
-    bool consumption = c1->TryConsume(60);
+    bool consumption = c1->try_consume(60).ok();
     EXPECT_EQ(consumption, true);
     EXPECT_EQ(c1->consumption(), 60);
-    EXPECT_FALSE(c1->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(c1->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c1->limit_exceeded());
+    EXPECT_FALSE(c1->any_limit_exceeded());
     EXPECT_EQ(c2->consumption(), 0);
-    EXPECT_FALSE(c2->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(c2->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c2->limit_exceeded());
+    EXPECT_FALSE(c2->any_limit_exceeded());
     EXPECT_EQ(p->consumption(), 60);
-    EXPECT_FALSE(p->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(p->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(p->limit_exceeded());
+    EXPECT_FALSE(p->any_limit_exceeded());
 
     // p goes over limit
-    consumption = c2->TryConsume(50);
+    consumption = c2->try_consume(50).ok();
     EXPECT_EQ(consumption, false);
     EXPECT_EQ(c1->consumption(), 60);
-    EXPECT_FALSE(c1->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(c1->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c1->limit_exceeded());
+    EXPECT_FALSE(c1->any_limit_exceeded());
     EXPECT_EQ(c2->consumption(), 0);
-    EXPECT_FALSE(c2->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(c2->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c2->limit_exceeded());
+    EXPECT_FALSE(c2->any_limit_exceeded());
     EXPECT_EQ(p->consumption(), 60);
-    EXPECT_FALSE(p->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(p->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(p->limit_exceeded());
+    EXPECT_FALSE(p->any_limit_exceeded());
 
     // c2 goes over limit, p drops below limit
-    c1->Release(20);
-    c2->Consume(10);
+    c1->release(20);
+    c2->consume(10);
     EXPECT_EQ(c1->consumption(), 40);
-    EXPECT_FALSE(c1->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(c1->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c1->limit_exceeded());
+    EXPECT_FALSE(c1->any_limit_exceeded());
     EXPECT_EQ(c2->consumption(), 10);
-    EXPECT_FALSE(c2->LimitExceeded(MemLimit::HARD));
-    EXPECT_FALSE(c2->AnyLimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(c2->limit_exceeded());
+    EXPECT_FALSE(c2->any_limit_exceeded());
     EXPECT_EQ(p->consumption(), 50);
-    EXPECT_FALSE(p->LimitExceeded(MemLimit::HARD));
+    EXPECT_FALSE(p->limit_exceeded());
 
-
-    c1->Release(40);
-    c2->Release(10);
+    c1->release(40);
+    c2->release(10);
 }
 
 } // end namespace doris
 
 int main(int argc, char** argv) {
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    if (!doris::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
+    doris::MemInfo::init();
     return RUN_ALL_TESTS();
 }

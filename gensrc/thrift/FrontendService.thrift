@@ -398,6 +398,10 @@ struct TReportExecStatusParams {
   15: optional i64 loaded_rows
 
   16: optional i64 backend_id
+
+  17: optional i64 loaded_bytes
+
+  18: optional list<Types.TErrorTabletInfo> errorTabletInfos
 }
 
 struct TFeResult {
@@ -592,6 +596,8 @@ struct TStreamLoadPutRequest {
     33: optional bool read_json_by_line
     34: optional string auth_code_uuid
     35: optional i32 send_batch_parallelism
+    36: optional double max_filter_ratio
+    37: optional bool load_to_single_tablet
 }
 
 struct TStreamLoadPutResult {
@@ -648,6 +654,23 @@ struct TLoadTxnCommitRequest {
 }
 
 struct TLoadTxnCommitResult {
+    1: required Status.TStatus status
+}
+
+struct TLoadTxn2PCRequest {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: optional string db
+    5: optional string user_ip
+    6: optional i64 txnId
+    7: optional string operation
+    8: optional i64 auth_code
+    9: optional string auth_code_uuid
+    10: optional i64 thrift_rpc_timeout_ms
+}
+
+struct TLoadTxn2PCResult {
     1: required Status.TStatus status
 }
 
@@ -716,34 +739,36 @@ struct TWaitingTxnStatusResult {
 }
 
 service FrontendService {
-    TGetDbsResult getDbNames(1:TGetDbsParams params)
-    TGetTablesResult getTableNames(1:TGetTablesParams params)
-    TDescribeTableResult describeTable(1:TDescribeTableParams params)
-    TShowVariableResult showVariables(1:TShowVariableRequest params)
-    TReportExecStatusResult reportExecStatus(1:TReportExecStatusParams params)
+    TGetDbsResult getDbNames(1: TGetDbsParams params)
+    TGetTablesResult getTableNames(1: TGetTablesParams params)
+    TDescribeTableResult describeTable(1: TDescribeTableParams params)
+    TShowVariableResult showVariables(1: TShowVariableRequest params)
+    TReportExecStatusResult reportExecStatus(1: TReportExecStatusParams params)
 
-    MasterService.TMasterResult finishTask(1:MasterService.TFinishTaskRequest request)
-    MasterService.TMasterResult report(1:MasterService.TReportRequest request)
+    MasterService.TMasterResult finishTask(1: MasterService.TFinishTaskRequest request)
+    MasterService.TMasterResult report(1: MasterService.TReportRequest request)
     MasterService.TFetchResourceResult fetchResource()
     
     // those three method are used for asynchronous mini load which will be abandoned
-    TFeResult miniLoad(1:TMiniLoadRequest request)
-    TFeResult updateMiniEtlTaskStatus(1:TUpdateMiniEtlTaskStatusRequest request)
-    TFeResult loadCheck(1:TLoadCheckRequest request)
+    TFeResult miniLoad(1: TMiniLoadRequest request)
+    TFeResult updateMiniEtlTaskStatus(1: TUpdateMiniEtlTaskStatusRequest request)
+    TFeResult loadCheck(1: TLoadCheckRequest request)
     // this method is used for streaming mini load
-    TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request)
-    TFeResult isMethodSupported(TIsMethodSupportedRequest request)
+    TMiniLoadBeginResult miniLoadBegin(1: TMiniLoadBeginRequest request)
+    TFeResult isMethodSupported(1: TIsMethodSupportedRequest request)
 
-    TMasterOpResult forward(TMasterOpRequest params)
+    TMasterOpResult forward(1: TMasterOpRequest params)
 
-    TListTableStatusResult listTableStatus(1:TGetTablesParams params)
-    TListPrivilegesResult listTablePrivilegeStatus(1:TGetTablesParams params)
-    TListPrivilegesResult listSchemaPrivilegeStatus(1:TGetTablesParams params)
-    TListPrivilegesResult listUserPrivilegeStatus(1:TGetTablesParams params)
+    TListTableStatusResult listTableStatus(1: TGetTablesParams params)
+    TListPrivilegesResult listTablePrivilegeStatus(1: TGetTablesParams params)
+    TListPrivilegesResult listSchemaPrivilegeStatus(1: TGetTablesParams params)
+    TListPrivilegesResult listUserPrivilegeStatus(1: TGetTablesParams params)
 
-    TFeResult updateExportTaskStatus(1:TUpdateExportTaskStatusRequest request)
+    TFeResult updateExportTaskStatus(1: TUpdateExportTaskStatusRequest request)
 
     TLoadTxnBeginResult loadTxnBegin(1: TLoadTxnBeginRequest request)
+    TLoadTxnCommitResult loadTxnPreCommit(1: TLoadTxnCommitRequest request)
+    TLoadTxn2PCResult loadTxn2PC(1: TLoadTxn2PCRequest request)
     TLoadTxnCommitResult loadTxnCommit(1: TLoadTxnCommitRequest request)
     TLoadTxnRollbackResult loadTxnRollback(1: TLoadTxnRollbackRequest request)
 

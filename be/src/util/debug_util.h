@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_DEBUG_UTIL_H
 #define DORIS_BE_SRC_COMMON_UTIL_DEBUG_UTIL_H
 
-#include <boost/cstdint.hpp>
 #include <ostream>
 #include <string>
 

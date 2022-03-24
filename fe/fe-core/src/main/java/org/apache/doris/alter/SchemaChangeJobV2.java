@@ -36,7 +36,6 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.SchemaVersionAndHash;
@@ -59,7 +58,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
@@ -67,10 +65,8 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -254,7 +250,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowShortKeyColumnCount, shadowSchemaHash,
-                                    Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
+                                    Partition.PARTITION_INIT_VERSION,
                                     originKeysType, TStorageType.COLUMN, storageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
                                     tbl.isInMemory(),
@@ -307,7 +303,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         // create all replicas success.
         // add all shadow indexes to catalog
-        tbl.writeLock();
+        tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             addShadowIndexToCatalog(tbl);
@@ -386,7 +382,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                 // the schema change task will transform the data before visible version(included).
                 long visibleVersion = partition.getVisibleVersion();
-                long visibleVersionHash = partition.getVisibleVersionHash();
 
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
@@ -407,7 +402,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     shadowIdxId, originIdxId,
                                     shadowTabletId, originTabletId, shadowReplica.getId(),
                                     shadowSchemaHash, originSchemaHash,
-                                    visibleVersion, visibleVersionHash, jobId, JobType.SCHEMA_CHANGE);
+                                    visibleVersion, jobId, JobType.SCHEMA_CHANGE);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
@@ -465,7 +460,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
          */
-        tbl.writeLock();
+        tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
@@ -474,7 +469,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 Preconditions.checkNotNull(partition, partitionId);
 
                 long visiableVersion = partition.getVisibleVersion();
-                long visiableVersionHash = partition.getVisibleVersionHash();
                 short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
@@ -486,7 +480,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         int healthyReplicaNum = 0;
                         for (Replica replica : replicas) {
                             if (replica.getLastFailedVersion() < 0
-                                    && replica.checkVersionCatchUp(visiableVersion, visiableVersionHash, false)) {
+                                    && replica.checkVersionCatchUp(visiableVersion, false)) {
                                 healthyReplicaNum++;
                             }
                         }
@@ -815,170 +809,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         return taskInfos;
     }
 
-    /**
-     * read data need to persist when job not finish
-     */
-    private void readJobNotFinishData(DataInput in) throws IOException {
-        int partitionNum = in.readInt();
-        for (int i = 0; i < partitionNum; i++) {
-            long partitionId = in.readLong();
-            int indexNum = in.readInt();
-            for (int j = 0; j < indexNum; j++) {
-                long shadowIndexId = in.readLong();
-                int tabletNum = in.readInt();
-                Map<Long, Long> tabletMap = Maps.newHashMapWithExpectedSize(tabletNum);
-                for (int k = 0; k < tabletNum; k++) {
-                    long shadowTabletId = in.readLong();
-                    long originTabletId = in.readLong();
-                    tabletMap.put(shadowTabletId, originTabletId);
-                }
-                partitionIndexTabletMap.put(partitionId, shadowIndexId, tabletMap);
-                // shadow index
-                MaterializedIndex shadowIndex = MaterializedIndex.read(in);
-                partitionIndexMap.put(partitionId, shadowIndexId, shadowIndex);
-            }
-        }
-
-        // shadow index info
-        int indexNum = in.readInt();
-        for (int i = 0; i < indexNum; i++) {
-            long shadowIndexId = in.readLong();
-            long originIndexId = in.readLong();
-            String indexName = Text.readString(in);
-            // index schema
-            int colNum = in.readInt();
-            List<Column> schema = Lists.newArrayListWithCapacity(colNum);
-            for (int j = 0; j < colNum; j++) {
-                schema.add(Column.read(in));
-            }
-            int schemaVersion = in.readInt();
-            int schemaVersionHash = in.readInt();
-            SchemaVersionAndHash schemaVersionAndHash = new SchemaVersionAndHash(schemaVersion, schemaVersionHash);
-            short shortKeyCount = in.readShort();
-
-            indexIdMap.put(shadowIndexId, originIndexId);
-            indexIdToName.put(shadowIndexId, indexName);
-            indexSchemaMap.put(shadowIndexId, schema);
-            indexSchemaVersionAndHashMap.put(shadowIndexId, schemaVersionAndHash);
-            indexShortKeyMap.put(shadowIndexId, shortKeyCount);
-        }
-
-        // bloom filter
-        hasBfChange = in.readBoolean();
-        if (hasBfChange) {
-            int bfNum = in.readInt();
-            bfColumns = Sets.newHashSetWithExpectedSize(bfNum);
-            for (int i = 0; i < bfNum; i++) {
-                bfColumns.add(Text.readString(in));
-            }
-            bfFpp = in.readDouble();
-        }
-
-        watershedTxnId = in.readLong();
-
-        // index
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
-            indexChange = in.readBoolean();
-            if (indexChange) {
-                if (in.readBoolean()) {
-                    int indexCount = in.readInt();
-                    this.indexes = new ArrayList<>();
-                    for (int i = 0; i < indexCount; ++i) {
-                        this.indexes.add(Index.read(in));
-                    }
-                } else {
-                    this.indexes = null;
-                }
-            }
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_84) {
-            storageFormat = TStorageFormat.valueOf(Text.readString(in));
-        }
-    }
-
-    /**
-     * read data need to persist when job finished
-     */
-    private void readJobFinishedData(DataInput in) throws IOException {
-        // shadow index info
-        int indexNum = in.readInt();
-        for (int i = 0; i < indexNum; i++) {
-            long shadowIndexId = in.readLong();
-            long originIndexId = in.readLong();
-            String indexName = Text.readString(in);
-            int schemaVersion = in.readInt();
-            int schemaVersionHash = in.readInt();
-            SchemaVersionAndHash schemaVersionAndHash = new SchemaVersionAndHash(schemaVersion, schemaVersionHash);
-
-            indexIdMap.put(shadowIndexId, originIndexId);
-            indexIdToName.put(shadowIndexId, indexName);
-            indexSchemaVersionAndHashMap.put(shadowIndexId, schemaVersionAndHash);
-        }
-
-        // bloom filter
-        hasBfChange = in.readBoolean();
-        if (hasBfChange) {
-            int bfNum = in.readInt();
-            bfColumns = Sets.newHashSetWithExpectedSize(bfNum);
-            for (int i = 0; i < bfNum; i++) {
-                bfColumns.add(Text.readString(in));
-            }
-            bfFpp = in.readDouble();
-        }
-
-        watershedTxnId = in.readLong();
-
-        // index
-        indexChange = in.readBoolean();
-        if (indexChange) {
-            if (in.readBoolean()) {
-                int indexCount = in.readInt();
-                this.indexes = new ArrayList<>();
-                for (int i = 0; i < indexCount; ++i) {
-                    this.indexes.add(Index.read(in));
-                }
-            } else {
-                this.indexes = null;
-            }
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_84) {
-            storageFormat = TStorageFormat.valueOf(Text.readString(in));
-        }
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this, AlterJobV2.class);
         Text.writeString(out, json);
     }
-
-    /**
-     * This method is only used to deserialize the text mate which version is less than 86.
-     * If the meta version >=86, it will be deserialized by the `read` of AlterJobV2 rather than here.
-     */
-    public static SchemaChangeJobV2 read(DataInput in) throws IOException {
-        Preconditions.checkState(Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86);
-        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2();
-        schemaChangeJob.readFields(in);
-        return schemaChangeJob;
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_80) {
-            boolean isMetaPruned = in.readBoolean();
-            if (isMetaPruned) {
-                readJobFinishedData(in);
-            } else {
-                readJobNotFinishData(in);
-            }
-        } else {
-            readJobNotFinishData(in);
-        }
-    }
-
 }

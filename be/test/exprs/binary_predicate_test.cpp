@@ -59,9 +59,9 @@ public:
         slot_desc.__set_isMaterialized(true);
         ttbl.slotDescriptors.push_back(slot_desc);
 
-        DescriptorTbl* desc_tbl = NULL;
+        DescriptorTbl* desc_tbl = nullptr;
         ASSERT_TRUE(DescriptorTbl::create(_object_pool, ttbl, &desc_tbl).ok());
-        ASSERT_TRUE(desc_tbl != NULL);
+        ASSERT_TRUE(desc_tbl != nullptr);
         _runtime_state->set_desc_tbl(desc_tbl);
 
         std::vector<TTupleId> row_tuples;
@@ -78,9 +78,9 @@ public:
         _schema.push_back(field);
     }
     virtual void TearDown() {
-        if (_object_pool != NULL) {
+        if (_object_pool != nullptr) {
             delete _object_pool;
-            _object_pool = NULL;
+            _object_pool = nullptr;
         }
     }
 
@@ -128,12 +128,12 @@ public:
             expr_node.__set_int_literal(int_literal);
             exprs.nodes.push_back(expr_node);
         }
-        Expr* root_expr = NULL;
+        Expr* root_expr = nullptr;
 
         if (Expr::create_expr_tree(_object_pool, exprs, &root_expr).ok()) {
             return root_expr;
         } else {
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -151,13 +151,13 @@ private:
 
 TEST_F(BinaryOpTest, PrepareTest) {
     Expr* expr = create_expr();
-    ASSERT_TRUE(expr != NULL);
+    ASSERT_TRUE(expr != nullptr);
     ASSERT_TRUE(expr->prepare(runtime_state(), *row_desc()).ok());
 }
 
 TEST_F(BinaryOpTest, NormalTest) {
     Expr* expr = create_expr();
-    ASSERT_TRUE(expr != NULL);
+    ASSERT_TRUE(expr != nullptr);
     ASSERT_TRUE(expr->prepare(runtime_state(), *row_desc()).ok());
     int capacity = 256;
     VectorizedRowBatch* vec_row_batch =
@@ -187,11 +187,11 @@ TEST_F(BinaryOpTest, SimplePerformanceTest) {
     ASSERT_EQ(1, _row_desc->tuple_descriptors().size());
     for (int capacity = 128; capacity <= 1024 * 128; capacity *= 2) {
         Expr* expr = create_expr();
-        ASSERT_TRUE(expr != NULL);
+        ASSERT_TRUE(expr != nullptr);
         ASSERT_TRUE(expr->prepare(runtime_state(), *row_desc()).ok());
         int size = 1024 * 1024 / capacity;
         VectorizedRowBatch* vec_row_batches[size];
-        srand(time(NULL));
+        srand(time(nullptr));
 
         for (int i = 0; i < size; ++i) {
             vec_row_batches[i] = object_pool()->add(new VectorizedRowBatch(_schema, capacity));

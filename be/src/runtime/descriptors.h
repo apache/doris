@@ -31,9 +31,10 @@
 #include "gen_cpp/FrontendService_types.h" // for TTupleId
 #include "gen_cpp/Types_types.h"
 #include "runtime/types.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
-class ColumnWithTypeAndName;
+struct ColumnWithTypeAndName;
 }
 
 namespace doris {
@@ -103,12 +104,15 @@ public:
 
     std::string debug_string() const;
 
+    vectorized::MutableColumnPtr get_empty_mutable_column() const;
+
+    doris::vectorized::DataTypePtr get_data_type_ptr() const;
+
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
-    friend class TupleDescriptor;
 
     const SlotId _id;
     const TypeDescriptor _type;
@@ -157,7 +161,6 @@ public:
 private:
     std::string _name;
     std::string _database;
-    TableId _id;
     int _num_cols;
     int _num_clustering_cols;
 };
@@ -183,6 +186,24 @@ class BrokerTableDescriptor : public TableDescriptor {
 public:
     BrokerTableDescriptor(const TTableDescriptor& tdesc);
     virtual ~BrokerTableDescriptor();
+    virtual std::string debug_string() const;
+
+private:
+};
+
+class HiveTableDescriptor : public TableDescriptor {
+public:
+    HiveTableDescriptor(const TTableDescriptor& tdesc);
+    virtual ~HiveTableDescriptor();
+    virtual std::string debug_string() const;
+
+private:
+};
+
+class IcebergTableDescriptor : public TableDescriptor {
+public:
+    IcebergTableDescriptor(const TTableDescriptor& tdesc);
+    virtual ~IcebergTableDescriptor();
     virtual std::string debug_string() const;
 
 private:
@@ -244,7 +265,7 @@ private:
 class TupleDescriptor {
 public:
     // virtual ~TupleDescriptor() {}
-    int byte_size() const { return _byte_size; }
+    int64_t byte_size() const { return _byte_size; }
     int num_materialized_slots() const { return _num_materialized_slots; }
     int num_null_slots() const { return _num_null_slots; }
     int num_null_bytes() const { return _num_null_bytes; }
@@ -287,7 +308,7 @@ private:
 
     const TupleId _id;
     TableDescriptor* _table_desc;
-    int _byte_size;
+    int64_t _byte_size;
     int _num_null_slots;
     int _num_null_bytes;
     int _num_materialized_slots;
@@ -378,10 +399,7 @@ public:
     // to GetAvgRowSize()
     int get_row_size() const;
 
-    int num_materialized_slots() const {
-        DCHECK(_num_materialized_slots != 0);
-        return _num_materialized_slots;
-    }
+    int num_materialized_slots() const { return _num_materialized_slots; }
 
     int num_null_slots() const { return _num_null_slots; }
 
@@ -406,7 +424,7 @@ public:
 
     // Populate row_tuple_ids with our ids.
     void to_thrift(std::vector<TTupleId>* row_tuple_ids);
-    void to_protobuf(google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids);
+    void to_protobuf(google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids) const;
 
     // Return true if the tuple ids of this descriptor are a prefix
     // of the tuple ids of other_desc.

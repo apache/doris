@@ -27,7 +27,6 @@
 #include "util/compress.h"
 
 using namespace std;
-using namespace boost;
 
 namespace doris {
 
@@ -49,19 +48,19 @@ protected:
     }
 
     void RunTest(THdfsCompression::type format) {
-        boost::scoped_ptr<Codec> compressor;
-        boost::scoped_ptr<Codec> decompressor;
+        std::unique_ptr<Codec> compressor;
+        std::unique_ptr<Codec> decompressor;
         MemPool* mem_pool = new MemPool;
 
-        EXPECT_TRUE(Codec::create_compressor(NULL, mem_pool, true, format, &compressor).ok());
-        EXPECT_TRUE(Codec::create_compressor(NULL, mem_pool, true, format, &decompressor).ok());
+        EXPECT_TRUE(Codec::create_compressor(nullptr, mem_pool, true, format, &compressor).ok());
+        EXPECT_TRUE(Codec::create_compressor(nullptr, mem_pool, true, format, &decompressor).ok());
 
-        uint8_t* compressed = NULL;
+        uint8_t* compressed = nullptr;
         int compressed_length = 0;
         EXPECT_TRUE(
                 compressor->process_block(sizeof(_input), _input, &compressed_length, &compressed)
                         .ok());
-        uint8_t* output = NULL;
+        uint8_t* output = nullptr;
         int out_len = 0;
         EXPECT_TRUE(
                 decompressor->process_block(compressed_length, compressed, &out_len, &output).ok());

@@ -25,15 +25,45 @@ under the License.
 -->
 
 # CREATE DATABASE
-## description
+
+## Description
+
     该语句用于新建数据库（database）
     语法：
-        CREATE DATABASE [IF NOT EXISTS] db_name;
+        CREATE DATABASE [IF NOT EXISTS] db_name
+        [PROPERTIES ("key"="value", ...)];
+
+1. PROPERTIES
+    该数据库的附加信息，可以缺省。
+    1）如果创建 Iceberg 数据库，则需要在 properties 中提供以下信息：
+    ```
+        PROPERTIES (
+            "iceberg.database" = "iceberg_db_name",
+            "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
+            "iceberg.catalog.type" = "HIVE_CATALOG"
+            )
+
+    ```
+    其中 `iceberg.database` 是 Iceberg 对应的库名；  
+    `iceberg.hive.metastore.uris` 是 hive metastore 服务地址。  
+    `iceberg.catalog.type` 默认为 `HIVE_CATALOG`。当前仅支持 `HIVE_CATALOG`，后续会支持更多 Iceberg catalog 类型。
 
 ## example
     1. 新建数据库 db_test
+        ```
         CREATE DATABASE db_test;
+        ```
         
+    2. 新建 Iceberg 数据库 iceberg_test
+        ```
+        CREATE DATABASE `iceberg_test`
+        PROPERTIES (
+        "iceberg.database" = "doris",
+        "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
+        "iceberg.catalog.type" = "HIVE_CATALOG"
+        );
+        ```
+
 ## keyword
     CREATE,DATABASE
     

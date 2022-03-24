@@ -98,7 +98,7 @@ TEST_F(SchemaSchemataScannerTest, normal_use) {
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(NULL != tuple_desc);
+    ASSERT_TRUE(nullptr != tuple_desc);
     status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
     Tuple* tuple = (Tuple*)g_tuple_buf;
@@ -115,7 +115,7 @@ TEST_F(SchemaSchemataScannerTest, one_column) {
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(NULL != tuple_desc);
+    ASSERT_TRUE(nullptr != tuple_desc);
     status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
     Tuple* tuple = (Tuple*)g_tuple_buf;
@@ -144,14 +144,14 @@ TEST_F(SchemaSchemataScannerTest, input_fail) {
     db_num = 1;
     desc_num = 1;
     SchemaSchemataScanner scanner;
-    Status status = scanner.init(NULL, &_obj_pool);
+    Status status = scanner.init(nullptr, &_obj_pool);
     ASSERT_FALSE(status.ok());
     status = scanner.init(&_param, &_obj_pool);
     ASSERT_TRUE(status.ok());
     status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
     bool eos = false;
-    status = scanner.get_next_row(NULL, &_mem_pool, &eos);
+    status = scanner.get_next_row(nullptr, &_mem_pool, &eos);
     ASSERT_FALSE(status.ok());
 }
 

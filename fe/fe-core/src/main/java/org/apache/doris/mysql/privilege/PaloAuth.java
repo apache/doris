@@ -42,7 +42,6 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.ldap.LdapClient;
 import org.apache.doris.ldap.LdapPrivsChecker;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.persist.LdapInfo;
@@ -52,13 +51,13 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -85,6 +84,8 @@ public class PaloAuth implements Writable {
 
     private RoleManager roleManager = new RoleManager();;
     private UserPropertyMgr propertyMgr = new UserPropertyMgr();
+
+    private LdapInfo ldapInfo = new LdapInfo();
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -124,8 +125,16 @@ public class PaloAuth implements Writable {
         return tablePrivTable;
     }
 
+    public LdapInfo getLdapInfo() {
+        return ldapInfo;
+    }
+
+    public void setLdapInfo(LdapInfo ldapInfo) {
+        this.ldapInfo = ldapInfo;
+    }
+
     private GlobalPrivEntry grantGlobalPrivs(UserIdentity userIdentity, boolean errOnExist, boolean errOnNonExist,
-            PrivBitSet privs) throws DdlException {
+                                             PrivBitSet privs) throws DdlException {
         if (errOnExist && errOnNonExist) {
             throw new DdlException("Can only specified errOnExist or errOnNonExist");
         }
@@ -1026,13 +1035,13 @@ public class PaloAuth implements Writable {
 
     // set ldap admin password.
     public void setLdapPassword(SetLdapPassVar stmt) {
-        LdapClient.init(stmt.getLdapPassword());
-        LdapInfo info = new LdapInfo(stmt.getLdapPassword());
-        Catalog.getCurrentCatalog().getEditLog().logSetLdapPassword(info);
+        ldapInfo = new LdapInfo(stmt.getLdapPassword());
+        Catalog.getCurrentCatalog().getEditLog().logSetLdapPassword(ldapInfo);
+        LOG.info("finished to set ldap password.");
     }
 
     public void replaySetLdapPassword(LdapInfo info) {
-        LdapClient.init(info.getLdapPasswd());
+        ldapInfo = info;
         LOG.debug("finish replaying ldap admin password.");
     }
 
@@ -1158,6 +1167,24 @@ public class PaloAuth implements Writable {
         readLock();
         try {
             return propertyMgr.getResourceTags(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public long getExecMemLimit(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getExecMemLimit(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public long getLoadMemLimit(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getLoadMemLimit(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1602,6 +1629,7 @@ public class PaloAuth implements Writable {
         tablePrivTable.write(out);
         resourcePrivTable.write(out);
         propertyMgr.write(out);
+        ldapInfo.write(out);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -1609,10 +1637,11 @@ public class PaloAuth implements Writable {
         userPrivTable = (UserPrivTable) PrivTable.read(in);
         dbPrivTable = (DbPrivTable) PrivTable.read(in);
         tablePrivTable = (TablePrivTable) PrivTable.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_87) {
-            resourcePrivTable = (ResourcePrivTable) PrivTable.read(in);
-        }
+        resourcePrivTable = (ResourcePrivTable) PrivTable.read(in);
         propertyMgr = UserPropertyMgr.read(in);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_106) {
+            ldapInfo = LdapInfo.read(in);
+        }
 
         if (userPrivTable.isEmpty()) {
             // init root and admin user
@@ -1629,6 +1658,7 @@ public class PaloAuth implements Writable {
         sb.append(resourcePrivTable).append("\n");
         sb.append(roleManager).append("\n");
         sb.append(propertyMgr).append("\n");
+        sb.append(ldapInfo).append("\n");
         return sb.toString();
     }
 }

@@ -71,8 +71,8 @@ void BufferPool::PageHandle::Open(Page* page, ClientHandle* client) {
 }
 
 void BufferPool::PageHandle::Reset() {
-    page_ = NULL;
-    client_ = NULL;
+    page_ = nullptr;
+    client_ = nullptr;
 }
 
 int BufferPool::PageHandle::pin_count() const {
@@ -119,7 +119,7 @@ Status BufferPool::RegisterClient(const string& name, ReservationTracker* parent
                                   int64_t reservation_limit, RuntimeProfile* profile,
                                   ClientHandle* client) {
     DCHECK(!client->is_registered());
-    DCHECK(parent_reservation != NULL);
+    DCHECK(parent_reservation != nullptr);
     client->impl_ = new Client(this, //file_group,
                                name, parent_reservation, mem_tracker, reservation_limit, profile);
     return Status::OK();
@@ -129,7 +129,7 @@ void BufferPool::DeregisterClient(ClientHandle* client) {
     if (!client->is_registered()) return;
     client->impl_->Close(); // Will DCHECK if any remaining buffers or pinned pages.
     delete client->impl_;   // Will DCHECK if there are any remaining pages.
-    client->impl_ = NULL;
+    client->impl_ = nullptr;
 }
 
 Status BufferPool::CreatePage(ClientHandle* client, int64_t len, PageHandle* handle,
@@ -378,8 +378,7 @@ BufferPool::Client::Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group
           buffers_allocated_bytes_(0) {
     // Set up a child profile with buffer pool info.
     RuntimeProfile* child_profile = profile->create_child("Buffer pool", true, true);
-    reservation_.InitChildTracker(child_profile, parent_reservation, mem_tracker.get(),
-                                  reservation_limit);
+    reservation_.InitChildTracker(child_profile, parent_reservation, nullptr, reservation_limit);
     counters_.alloc_time = ADD_TIMER(child_profile, "AllocTime");
     counters_.cumulative_allocations =
             ADD_COUNTER(child_profile, "CumulativeAllocations", TUnit::UNIT);
@@ -405,7 +404,7 @@ BufferPool::Page* BufferPool::Client::CreatePinnedPage(BufferHandle&& buffer) {
 }
 
 void BufferPool::Client::DestroyPageInternal(PageHandle* handle, BufferHandle* out_buffer) {
-    DCHECK(handle->is_pinned() || out_buffer == NULL);
+    DCHECK(handle->is_pinned() || out_buffer == nullptr);
     Page* page = handle->page_;
     // Remove the page from the list that it is currently present in (if any).
     {
@@ -422,12 +421,12 @@ void BufferPool::Client::DestroyPageInternal(PageHandle* handle, BufferHandle* o
         --num_pages_;
     }
 
-    //if (page->write_handle != NULL) {
+    //if (page->write_handle != nullptr) {
     // Discard any on-disk data.
     //file_group_->DestroyWriteHandle(move(page->write_handle));
     //}
     //
-    if (out_buffer != NULL) {
+    if (out_buffer != nullptr) {
         DCHECK(page->buffer.is_open());
         *out_buffer = std::move(page->buffer);
         buffers_allocated_bytes_ += out_buffer->len();
@@ -482,7 +481,7 @@ Status BufferPool::Client::StartMoveToPinned(ClientHandle* client, Page* page) {
     // back to the pinned state.
     pinned_pages_.enqueue(page);
     DCHECK(page->buffer.is_open());
-    DCHECK(page->write_handle != NULL);
+    DCHECK(page->write_handle != nullptr);
     // Don't need on-disk data.
     cl.unlock(); // Don't block progress for other threads operating on other pages.
     return file_group_->RestoreData(move(page->write_handle), page->buffer.mem_range());
@@ -600,7 +599,7 @@ Status BufferPool::Client::CleanPages(std::unique_lock<std::mutex>* client_lock,
 void BufferPool::Client::WriteDirtyPagesAsync(int64_t min_bytes_to_write) {
   DCHECK_GE(min_bytes_to_write, 0);
   DCHECK_LE(min_bytes_to_write, dirty_unpinned_pages_.bytes());
- // if (file_group_ == NULL) {
+ // if (file_group_ == nullptr) {
     // Spilling disabled - there should be no unpinned pages to write.
     DCHECK_EQ(0, min_bytes_to_write);
     DCHECK_EQ(0, dirty_unpinned_pages_.bytes());
@@ -623,10 +622,10 @@ void BufferPool::Client::WriteDirtyPagesAsync(int64_t min_bytes_to_write) {
       && (bytes_written < min_bytes_to_write
              || in_flight_write_pages_.size() < target_writes)) {
     Page* page = dirty_unpinned_pages_.tail(); // LIFO.
-    DCHECK(page != NULL) << "Should have been enough dirty unpinned pages";
+    DCHECK(page != nullptr) << "Should have been enough dirty unpinned pages";
     {
       std::lock_guard<SpinLock> pl(page->buffer_lock);
-      DCHECK(file_group_ != NULL);
+      DCHECK(file_group_ != nullptr);
       DCHECK(page->buffer.is_open());
       COUNTER_ADD(counters().bytes_written, page->len);
       COUNTER_ADD(counters().write_io_ops, 1);

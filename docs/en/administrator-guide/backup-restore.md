@@ -5,7 +5,7 @@
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -45,6 +45,14 @@ The backup operation is to upload the data of the specified table or partition d
 2. Metadata preparation and upload
 
 	After the data file snapshot is uploaded, Frontend first writes the corresponding metadata to the local file, and then uploads the local metadata file to the remote warehouse through broker. Finish the final backup job.
+	
+3. Dynamic partition table description
+
+    If the table is a dynamic partition table, the dynamic partition attribute will be automatically disabled after backup. When restoring, you need to manually enable the dynamic partition attribute of the table. The command is as follows:
+
+    ```sql
+    ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
+    ````
 
 ### Restore
 
@@ -94,7 +102,8 @@ The commands related to the backup recovery function are as follows. The followi
 
 1. CREATE REPOSITORY
 
-	Create a remote warehouse Path for backup or recovery.
+	Create a remote warehouse Path for backup or recovery. This command needs to access the remote storage through the Broker. Different brokers need to provide different parameters. For details, please refer to [Broker Document] (broker.md), or directly back up to the remote storage supporting AWS S3 protocol through S3 protocol. For details, please refer to [CREATE REPOSITORY DOCUMENT] (../sql-reference/sql-statements/Data%20Definition/CREATE%20REPOSITORY.md)
+
 
 1. BACKUP
 

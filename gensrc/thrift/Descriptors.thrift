@@ -237,6 +237,18 @@ struct TSchemaTable {
 struct TBrokerTable {
 }
 
+struct THiveTable {
+  1: required string db_name
+  2: required string table_name
+  3: required map<string, string> properties
+}
+
+struct TIcebergTable {
+  1: required string db_name
+  2: required string table_name
+  3: required map<string, string> properties
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -255,6 +267,8 @@ struct TTableDescriptor {
   14: optional TBrokerTable BrokerTable
   15: optional TEsTable esTable
   16: optional TOdbcTable odbcTable
+  17: optional THiveTable hiveTable
+  18: optional TIcebergTable icebergTable
 }
 
 struct TDescriptorTable {

@@ -141,4 +141,10 @@ public class TableName implements Writable {
         db = Text.readString(in);
         tbl = Text.readString(in);
     }
+
+    public TableName cloneWithoutAnalyze() {
+        TableName tableName = new TableName(this.db, this.tbl);
+        return tableName;
+    }
 }
+

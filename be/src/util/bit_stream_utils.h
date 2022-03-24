@@ -90,7 +90,7 @@ public:
     // 'buffer' is the buffer to read from.  The buffer's length is 'buffer_len'.
     BitReader(const uint8_t* buffer, int buffer_len);
 
-    BitReader() : buffer_(NULL), max_bytes_(0) {}
+    BitReader() : buffer_(nullptr), max_bytes_(0) {}
 
     // Gets the next value from the buffer.  Returns true if 'v' could be read or false if
     // there are not enough bytes left. num_bits must be <= 32.
@@ -124,7 +124,7 @@ public:
     // Maximum byte length of a vlq encoded int
     static const int MAX_VLQ_BYTE_LEN = 5;
 
-    bool is_initialized() const { return buffer_ != NULL; }
+    bool is_initialized() const { return buffer_ != nullptr; }
 
 private:
     // Used by SeekToBit() and GetValue() to fetch the

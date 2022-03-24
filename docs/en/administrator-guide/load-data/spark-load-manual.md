@@ -92,8 +92,6 @@ The implementation of spark load task is mainly divided into the following five 
 
 ```
 
-
-
 ## Global dictionary
 
 ### Applicable scenarios
@@ -131,6 +129,10 @@ In the existing Doris import process, the data structure of global dictionary is
 5. After each aggregation calculation, the data will be calculated according to the `bucket_id`is divided into buckets and then written into HDFS.
 
 6. Subsequent brokers will pull the files in HDFS and import them into Doris be.
+
+## Hive Bitmap UDF
+
+Spark supports loading hive-generated bitmap data directly into Doris, see [hive-bitmap-udf documentation](../../extending-doris/hive-bitmap-udf.md)
 
 ## Basic operation
 
@@ -407,6 +409,48 @@ PROPERTIES
 
 ```
 
+Example 3: when the upstream data source is hive binary type table
+
+```sql
+step 1: create hive external table
+CREATE EXTERNAL TABLE hive_t1
+(
+    k1 INT,
+    K2 SMALLINT,
+    k3 varchar(50),
+    uuid varchar(100)
+)
+ENGINE=hive
+properties
+(
+"database" = "tmp",
+"table" = "t1",
+"hive.metastore.uris" = "thrift://0.0.0.0:8080"
+);
+
+step 2: submit load command
+LOAD LABEL db1.label1
+(
+    DATA FROM TABLE hive_t1
+    INTO TABLE tbl1
+    (k1,k2,k3)
+    SET
+    (
+		uuid=binary_bitmap(uuid)
+    )
+)
+WITH RESOURCE 'spark0'
+(
+    "spark.executor.memory" = "2g",
+    "spark.shuffle.compress" = "true"
+)
+PROPERTIES
+(
+    "timeout" = "3600"
+);
+
+```
+
 You can view the details syntax about creating load by input `help spark load`. This paper mainly introduces the parameter meaning and precautions in the creation and load syntax of spark load.
 
 #### Label
@@ -448,6 +492,14 @@ The data type applicable to the aggregate columns of the Doris table is of type 
 In the load command, you can specify the field to build a global dictionary. The format is: '```doris field name=bitmap_dict(hive_table field name)```
 
 It should be noted that the construction of global dictionary is supported only when the upstream data source is hive table.
+
+#### Load when data source is hive binary type table
+
+The data type applicable to the aggregate column of the doris table is bitmap type, and the data type of the corresponding column in the hive table of the data source is binary (through the org.apache.doris.load.loadv2.dpp.BitmapValue (FE spark-dpp) class serialized) type.
+
+There is no need to build a global dictionary, just specify the corresponding field in the load command, the format is: ```doris field name=binary_bitmap (hive table field name)```
+
+Similarly, the binary (bitmap) type of data import is currently only supported when the upstream data source is a hive table.
 
 ### Show load
 

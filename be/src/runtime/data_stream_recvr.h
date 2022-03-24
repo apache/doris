@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
 #define DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
 
-#include <boost/scoped_ptr.hpp>
 #include <mutex>
 
 #include "common/object_pool.h"
@@ -73,7 +72,7 @@ public:
 
     // Returns next row batch in data stream; blocks if there aren't any.
     // Retains ownership of the returned batch. The caller must acquire data from the
-    // returned batch before the next call to get_batch(). A NULL returned batch indicated
+    // returned batch before the next call to get_batch(). A nullptr returned batch indicated
     // eos. Must only be called if _is_merging is false.
     // TODO: This is currently only exposed to the non-merging version of the exchange.
     // Refactor so both merging and non-merging exchange use get_next(RowBatch*, bool* eos).
@@ -89,8 +88,7 @@ public:
     // queues. The exprs used in less_than must have already been prepared and opened.
     Status create_merger(const TupleRowComparator& less_than);
 
-    Status create_parallel_merger(const TupleRowComparator& less_than, uint32_t batch_size,
-                                  MemTracker* mem_tracker);
+    Status create_parallel_merger(const TupleRowComparator& less_than, uint32_t batch_size);
     // Fill output_batch with the next batch of rows obtained by merging the per-sender
     // input streams. Must only be called if _is_merging is true.
     Status get_next(RowBatch* output_batch, bool* eos);
@@ -102,7 +100,6 @@ public:
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     PlanNodeId dest_node_id() const { return _dest_node_id; }
     const RowDescriptor& row_desc() const { return _row_desc; }
-    std::shared_ptr<MemTracker> mem_tracker() const { return _mem_tracker; }
 
     void add_sub_plan_statistics(const PQueryStatistics& statistics, int sender_id) {
         _sub_plan_query_statistics_recvr->insert(statistics, sender_id);
@@ -116,10 +113,9 @@ private:
     friend class DataStreamMgr;
     class SenderQueue;
 
-    DataStreamRecvr(DataStreamMgr* stream_mgr, const std::shared_ptr<MemTracker>& parent_tracker,
-                    const RowDescriptor& row_desc, const TUniqueId& fragment_instance_id,
-                    PlanNodeId dest_node_id, int num_senders, bool is_merging,
-                    int total_buffer_limit, RuntimeProfile* profile,
+    DataStreamRecvr(DataStreamMgr* stream_mgr, const RowDescriptor& row_desc,
+                    const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
+                    bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
                     std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr);
 
     // If receive queue is full, done is enqueue pending, and return with *done is nullptr
@@ -167,7 +163,7 @@ private:
     std::vector<SenderQueue*> _sender_queues;
 
     // SortedRunMerger used to merge rows from different senders.
-    boost::scoped_ptr<SortedRunMerger> _merger;
+    std::unique_ptr<SortedRunMerger> _merger;
 
     std::vector<std::unique_ptr<SortedRunMerger>> _child_mergers;
 

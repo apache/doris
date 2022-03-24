@@ -35,6 +35,7 @@ struct StorePath {
     std::string path;
     int64_t capacity_bytes;
     TStorageMedium::type storage_medium;
+    std::string remote_path;
 };
 
 // parse a single root path of storage_root_path

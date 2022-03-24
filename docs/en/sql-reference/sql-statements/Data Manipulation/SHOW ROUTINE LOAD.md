@@ -25,13 +25,58 @@ under the License.
 -->
 
 # SHOW ROUTINE LOAD
+## description
+    This statement is used to show the running status of the Routine Load job
+    grammar:
+        SHOW [ALL] ROUTINE LOAD [FOR jobName] [LIKE pattern];
+
+    Result description:
+
+                  Id: Job ID
+                Name: job name
+          CreateTime: Job creation time
+           PauseTime: Last job pause time
+             EndTime: The end time of the job
+              DbName: corresponding database name
+           TableName: Corresponding table name
+               State: job running status
+      DataSourceType: Data source type: KAFKA
+      CurrentTaskNum: current number of subtasks
+       JobProperties: Job configuration details
+DataSourceProperties: Data source configuration details
+    CustomProperties: custom configuration
+           Statistic: job running status statistics
+            Progress: Job running progress
+                 Lag: job delay status
+ReasonOfStateChanged: Reason of job status change
+        ErrorLogUrls: The viewing address of the filtered data with unqualified quality
+            OtherMsg: Other error messages
+
+    * State
+
+        There are the following 4 states:
+
+        * NEED_SCHEDULE: The job is waiting to be scheduled
+        * RUNNING: The job is running
+        * PAUSED: The job is suspended
+        * STOPPED: The job has ended
+        * CANCELLED: The job has been cancelled
+
+    * Progress
+
+        For Kafka data sources, the offset currently consumed by each partition is displayed. For example, {"0":"2"} means that the consumption progress of Kafka partition 0 is 2.
+
+    * Lag
+
+        For Kafka data sources, the consumption delay of each partition is displayed. For example, {"0":10} means that the consumption delay of Kafka partition 0 is 10.
+
 ## example
 
 1. Show all routine import jobs named test 1 (including stopped or cancelled jobs). The result is one or more lines.
 
 SHOW ALL ROUTINE LOAD FOR test1;
 
-2. Show the current running routine import job named test1
+2. Show the current running routine load job named test1
 
 SHOW ROUTINE LOAD FOR test1;
 
@@ -52,6 +97,11 @@ SHOW ROUTINE LOAD FOR example_db.test1;
 6. Display all routine import jobs named test1 (including stopped or cancelled jobs) under example_db. The result is one or more lines.
 
 SHOW ALL ROUTINE LOAD FOR example_db.test1;
+
+7. Show the current running routine load jobs under example_db with name match test1
+
+use example_db;
+SHOW ROUTINE LOAD LIKE "%test1%";
 
 ## keyword
 SHOW,ROUTINE,LOAD

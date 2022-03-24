@@ -102,6 +102,14 @@ date 参数是合法的日期。format 规定日期/时间的输出格式。
 
 %% | 用于表示 %
 
+还可以使用三种特殊格式：
+
+yyyyMMdd
+
+yyyy-MM-dd
+
+yyyy-MM-dd HH:mm:ss
+
 ## example
 
 ```

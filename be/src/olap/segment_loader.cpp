@@ -30,9 +30,9 @@ void SegmentLoader::create_global_instance(size_t capacity) {
     _s_instance = &instance;
 }
 
-SegmentLoader::SegmentLoader(size_t capacity)
-    : _mem_tracker(MemTracker::CreateTracker(capacity, "SegmentLoader", nullptr, true, true, MemTrackerLevel::OVERVIEW)) {
-        _cache = std::unique_ptr<Cache>(new_typed_lru_cache("SegmentCache", capacity, LRUCacheType::NUMBER, _mem_tracker));
+SegmentLoader::SegmentLoader(size_t capacity) {
+    _cache = std::unique_ptr<Cache>(
+            new_typed_lru_cache("SegmentLoader:SegmentCache", capacity, LRUCacheType::NUMBER));
 }
 
 bool SegmentLoader::_lookup(const SegmentLoader::CacheKey& key, SegmentCacheHandle* handle) {
@@ -44,20 +44,21 @@ bool SegmentLoader::_lookup(const SegmentLoader::CacheKey& key, SegmentCacheHand
     return true;
 }
 
-void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::CacheValue& value, SegmentCacheHandle* handle) {
+void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::CacheValue& value,
+                            SegmentCacheHandle* handle) {
     auto deleter = [](const doris::CacheKey& key, void* value) {
-        SegmentLoader::CacheValue* cache_value = (SegmentLoader::CacheValue*) value;
+        SegmentLoader::CacheValue* cache_value = (SegmentLoader::CacheValue*)value;
         cache_value->segments.clear();
         delete cache_value;
     };
 
-    auto lru_handle = _cache->insert(key.encode(), &value, sizeof(SegmentLoader::CacheValue), deleter, CachePriority::NORMAL);
+    auto lru_handle = _cache->insert(key.encode(), &value, sizeof(SegmentLoader::CacheValue),
+                                     deleter, CachePriority::NORMAL);
     *handle = SegmentCacheHandle(_cache.get(), lru_handle);
 }
 
 OLAPStatus SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
-                                        SegmentCacheHandle* cache_handle,
-                                        bool use_cache) {
+                                        SegmentCacheHandle* cache_handle, bool use_cache) {
     SegmentLoader::CacheKey cache_key(rowset->rowset_id());
     if (_lookup(cache_key, cache_handle)) {
         cache_handle->owned = false;
@@ -81,17 +82,18 @@ OLAPStatus SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
 }
 
 OLAPStatus SegmentLoader::prune() {
-    bool (*pred)(const void* value) = [](const void* value) -> bool {
-        int64_t curtime = UnixMillis();
-        SegmentLoader::CacheValue* cache_value = (SegmentLoader::CacheValue*) value;
-        return curtime - cache_value->last_visit_time > config::tablet_rowset_stale_sweep_time_sec * 1000;
+    const int64_t curtime = UnixMillis();
+    auto pred = [curtime](const void* value) -> bool {
+        SegmentLoader::CacheValue* cache_value = (SegmentLoader::CacheValue*)value;
+        return (cache_value->last_visit_time + config::tablet_rowset_stale_sweep_time_sec * 1000) <
+               curtime;
     };
 
     MonotonicStopWatch watch;
     watch.start();
     int64_t prune_num = _cache->prune_if(pred);
-    LOG(INFO) << "prune " << prune_num << " entries in segment cache. cost(ms): "
-            << watch.elapsed_time() / 1000 / 1000;
+    LOG(INFO) << "prune " << prune_num
+              << " entries in segment cache. cost(ms): " << watch.elapsed_time() / 1000 / 1000;
     return OLAP_SUCCESS;
 }
 

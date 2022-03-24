@@ -25,7 +25,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 
 namespace doris {
 
@@ -40,7 +40,7 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     DCHECK(is_producer());
     DCHECK(_rpc_context == nullptr);
     std::shared_ptr<PBackendService_Stub> stub(
-            state->exec_env()->brpc_stub_cache()->get_stub(*addr));
+            state->exec_env()->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
         std::string msg =
                 fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port);
@@ -94,7 +94,8 @@ Status IRuntimeFilter::join_rpc() {
         if (_rpc_context->cntl.Failed()) {
             LOG(WARNING) << "runtimefilter rpc err:" << _rpc_context->cntl.ErrorText();
             // reset stub cache
-            ExecEnv::GetInstance()->brpc_stub_cache()->erase(_rpc_context->cntl.remote_side());
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    _rpc_context->cntl.remote_side());
         }
     }
     return Status::OK();

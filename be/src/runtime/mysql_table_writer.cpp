@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "runtime/mysql_table_writer.h"
+
 #include <mysql/mysql.h>
 
-#define __DorisMysql MYSQL
 #include <sstream>
 
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "runtime/mysql_table_writer.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "util/types.h"
@@ -54,8 +54,8 @@ Status MysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string&
 
     MYSQL* res = mysql_real_connect(_mysql_conn, conn_info.host.c_str(), conn_info.user.c_str(),
                                     conn_info.passwd.c_str(), conn_info.db.c_str(), conn_info.port,
-                                    NULL, // unix socket
-                                    0);   // flags
+                                    nullptr, // unix socket
+                                    0);      // flags
     if (res == nullptr) {
         std::stringstream ss;
         ss << "mysql_real_connect failed because " << mysql_error(_mysql_conn);
@@ -122,7 +122,7 @@ Status MysqlTableWriter::insert_row(TupleRow* row) {
         case TYPE_STRING: {
             const StringValue* string_val = (const StringValue*)(item);
 
-            if (string_val->ptr == NULL) {
+            if (string_val->ptr == nullptr) {
                 if (string_val->len == 0) {
                     ss << "\'\'";
                 } else {

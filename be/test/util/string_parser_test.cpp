@@ -97,7 +97,7 @@ void test_float_value(const std::string& s, StringParser::ParseResult exp_result
     EXPECT_EQ(exp_result, result);
 
     if (exp_result == StringParser::PARSE_SUCCESS && result == exp_result) {
-        T exp_val = strtod(s.c_str(), NULL);
+        T exp_val = strtod(s.c_str(), nullptr);
         EXPECT_EQ(exp_val, val);
     }
 }

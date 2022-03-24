@@ -52,8 +52,8 @@ public:
     OLAPStatus make_snapshot(const TSnapshotRequest& request, std::string* snapshot_path,
                              bool* allow_incremental_clone);
 
-    std::string get_schema_hash_full_path(const TabletSharedPtr& ref_tablet,
-                                          const std::string& location) const;
+    FilePathDesc get_schema_hash_full_path(const TabletSharedPtr& ref_tablet,
+                                           const FilePathDesc& location_desc) const;
 
     // @brief 释放snapshot
     // @param snapshot_path [in] 要被释放的snapshot的路径，只包含到ID
@@ -61,11 +61,14 @@ public:
 
     static SnapshotManager* instance();
 
-    OLAPStatus convert_rowset_ids(const string& clone_dir, int64_t tablet_id,
+    OLAPStatus convert_rowset_ids(const FilePathDesc& clone_dir_desc, int64_t tablet_id,
                                   const int32_t& schema_hash);
 
 private:
-    SnapshotManager() : _snapshot_base_id(0) {}
+    SnapshotManager() : _snapshot_base_id(0) {
+        _mem_tracker = MemTracker::create_tracker(-1, "SnapshotManager", nullptr,
+                                                  MemTrackerLevel::OVERVIEW);
+    }
 
     OLAPStatus _calc_snapshot_id_path(const TabletSharedPtr& tablet, int64_t timeout_s,
                                       std::string* out_path);
@@ -73,7 +76,7 @@ private:
     std::string _get_header_full_path(const TabletSharedPtr& ref_tablet,
                                       const std::string& schema_hash_path) const;
 
-    OLAPStatus _link_index_and_data_files(const std::string& header_path,
+    OLAPStatus _link_index_and_data_files(const FilePathDesc& header_path_desc,
                                           const TabletSharedPtr& ref_tablet,
                                           const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
@@ -84,13 +87,13 @@ private:
     OLAPStatus _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet,
                                      std::string* snapshot_id_path);
 
-    OLAPStatus _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path,
+    OLAPStatus _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const FilePathDesc& new_path_desc,
                                  TabletSchema& tablet_schema, const RowsetId& next_id,
                                  RowsetMetaPB* new_rs_meta_pb);
 
     OLAPStatus _convert_beta_rowsets_to_alpha(const TabletMetaSharedPtr& new_tablet_meta,
                                               const vector<RowsetMetaSharedPtr>& rowset_metas,
-                                              const std::string& dst_path);
+                                              const FilePathDesc& dst_path_desc);
 
 private:
     static SnapshotManager* _s_instance;
@@ -99,6 +102,9 @@ private:
     // snapshot
     Mutex _snapshot_mutex;
     uint64_t _snapshot_base_id;
+
+    // TODO(zxy) used after
+    std::shared_ptr<MemTracker> _mem_tracker = nullptr;
 }; // SnapshotManager
 
 } // namespace doris

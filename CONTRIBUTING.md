@@ -23,9 +23,9 @@ Thank you very much for your interest in the Doris project. We welcome your sugg
 
 Your suggestions, comments and comments on Doris can be made directly through GitHub's [Issues] (https://github.com/apache/incubator-doris/issues/new/selection).
 
-There are many ways to participate in and contribute to Doris projects: code implementation, test writing, process tool improvement, document improvement, and so on. Any contribution will be welcomed and you will be added to the list of contributors. Further, with sufficient contributions, you will have the opportunity to become a Commiter of Aapche with Apache mailbox and be included in the list of [Apache Commiters] (http://people.apache.org/committer-index.html).
+There are many ways to participate in and contribute to Doris projects: code implementation, test writing, process tool improvement, document improvement, and so on. Any contribution will be welcomed and you will be added to the list of contributors. Further, with sufficient contributions, you will have the opportunity to become a Commiter of Apache with Apache mailbox and be included in the list of [Apache Commiters] (http://people.apache.org/committer-index.html).
 
-Any questions, you can contact us to get timely answers, including Wechat, Gitter (GitHub instant messaging tool), e-mail and so on.
+Any questions, you can contact us to get timely answers, including dev mail list or Slack.
 
 ## Initial contact
 
@@ -33,8 +33,7 @@ For the first time in Doris community, you can:
 
 * Follow [Doris Github](https://github.com/apache/incubator-doris)
 * Subscribe to our [mailing list] (./subscribe-mail-list.md);
-* Join Doris Wechat Group (add micro-signal: morningman-cmy, note: join Doris Group) and ask questions at any time.
-* Enter Doris's [Gitter] (./gitter.md) chat room;
+* Join Doris [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
 
 Learn the development trends of Doris project in time and give your opinions on the topics you are concerned about.
 

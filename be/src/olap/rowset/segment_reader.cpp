@@ -37,8 +37,7 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
                              const std::set<uint32_t>& load_bf_columns,
                              const Conditions* conditions, const DeleteHandler* delete_handler,
                              const DelCondSatisfied delete_status, Cache* lru_cache,
-                             RuntimeState* runtime_state, OlapReaderStatistics* stats,
-                             const std::shared_ptr<MemTracker>& parent_tracker)
+                             RuntimeState* runtime_state, OlapReaderStatistics* stats)
         : _file_name(file),
           _segment_group(segment_group),
           _segment_id(segment_id),
@@ -53,14 +52,13 @@ SegmentReader::SegmentReader(const std::string file, SegmentGroup* segment_group
           _block_count(0),
           _num_rows_in_block(0),
           _null_supported(false),
-          _mmap_buffer(NULL),
-          _include_blocks(NULL),
+          _mmap_buffer(nullptr),
+          _include_blocks(nullptr),
           _is_using_mmap(false),
           _is_data_loaded(false),
           _buffer_size(0),
-          _tracker(MemTracker::CreateTracker(-1, "SegmentReader:" + file, parent_tracker, false)),
-          _mem_pool(new MemPool(_tracker.get())),
-          _shared_buffer(NULL),
+          _mem_pool(new MemPool("SegmentReader:" + file)),
+          _shared_buffer(nullptr),
           _lru_cache(lru_cache),
           _runtime_state(runtime_state),
           _stats(stats) {}
@@ -83,12 +81,8 @@ SegmentReader::~SegmentReader() {
         }
     }
 
-    _lru_cache = NULL;
+    _lru_cache = nullptr;
     _file_handler.close();
-
-    if (_is_data_loaded && _runtime_state != NULL) {
-        MemTracker::update_limits(_buffer_size * -1, _runtime_state->mem_trackers());
-    }
 
     for (auto& it : _streams) {
         delete it.second;
@@ -145,7 +139,7 @@ OLAPStatus SegmentReader::_load_segment_file() {
     if (_is_using_mmap) {
         _mmap_buffer = StorageByteBuffer::mmap(&_file_handler, 0, PROT_READ, MAP_PRIVATE);
 
-        if (NULL == _mmap_buffer) {
+        if (nullptr == _mmap_buffer) {
             OLAP_LOG_WARNING("fail to call mmap, using default mode");
             return OLAP_ERR_MALLOC_ERROR;
         }
@@ -157,7 +151,7 @@ OLAPStatus SegmentReader::_load_segment_file() {
 OLAPStatus SegmentReader::_set_decompressor() {
     switch (_header_message().compress_kind()) {
     case COMPRESS_NONE: {
-        _decompressor = NULL;
+        _decompressor = nullptr;
         break;
     }
 #ifdef DORIS_WITH_LZO
@@ -211,7 +205,7 @@ OLAPStatus SegmentReader::init(bool is_using_cache) {
 
     _shared_buffer =
             StorageByteBuffer::create(_header_message().stream_buffer_size() + sizeof(StreamHead));
-    if (_shared_buffer == NULL) {
+    if (_shared_buffer == nullptr) {
         OLAP_LOG_WARNING("fail to create shared buffer. [size=%lu]", sizeof(StorageByteBuffer));
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -247,13 +241,6 @@ OLAPStatus SegmentReader::seek_to_block(uint32_t first_block, uint32_t last_bloc
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to create reader");
             return res;
-        }
-
-        if (_runtime_state != NULL) {
-            MemTracker::update_limits(_buffer_size, _runtime_state->mem_trackers());
-            if (MemTracker::limit_exceeded(_runtime_state->mem_trackers())) {
-                return OLAP_ERR_FETCH_MEMORY_EXCEEDED;
-            }
         }
 
         _is_data_loaded = true;
@@ -441,9 +428,9 @@ OLAPStatus SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t
 }
 
 OLAPStatus SegmentReader::_init_include_blocks(uint32_t first_block, uint32_t last_block) {
-    if (NULL == _include_blocks) {
+    if (nullptr == _include_blocks) {
         _include_blocks = new (std::nothrow) uint8_t[_block_count];
-        if (NULL == _include_blocks) {
+        if (nullptr == _include_blocks) {
             OLAP_LOG_WARNING("fail to malloc include block array");
             return OLAP_ERR_MALLOC_ERROR;
         }
@@ -471,7 +458,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
 
     _pick_delete_row_groups(first_block, last_block);
 
-    if (NULL == _conditions || _conditions->columns().size() == 0) {
+    if (nullptr == _conditions || _conditions->columns().size() == 0) {
         return OLAP_SUCCESS;
     }
 
@@ -512,8 +499,8 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
 
     if (_remain_block < MIN_FILTER_BLOCK_NUM) {
         VLOG_TRACE << "bloom filter is ignored for too few block remained. "
-                 << "remain_block=" << _remain_block
-                 << ", const_time=" << timer.get_elapse_time_us();
+                   << "remain_block=" << _remain_block
+                   << ", const_time=" << timer.get_elapse_time_us();
         return OLAP_SUCCESS;
     }
 
@@ -549,7 +536,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
     }
 
     VLOG_TRACE << "pick row groups finished. remain_block=" << _remain_block
-             << ", const_time=" << timer.get_elapse_time_us();
+               << ", const_time=" << timer.get_elapse_time_us();
     return OLAP_SUCCESS;
 }
 
@@ -616,14 +603,14 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
         ColumnId table_column_id = _unique_id_to_tablet_id_map[unique_column_id];
         FieldType type = _get_field_type_by_index(table_column_id);
 
-        char* stream_buffer = NULL;
+        char* stream_buffer = nullptr;
         char key_buf[OLAP_LRU_CACHE_MAX_KEY_LENGTH];
         CacheKey key =
                 _construct_index_stream_key(key_buf, sizeof(key_buf), _file_handler.file_name(),
                                             unique_column_id, message.kind());
         _cache_handle[cache_handle_index] = _lru_cache->lookup(key);
 
-        if (NULL != _cache_handle[cache_handle_index]) {
+        if (nullptr != _cache_handle[cache_handle_index]) {
             // 1. If you are in lru, take out the buffer and use it to initialize the index reader
             is_using_cache = true;
             stream_buffer =
@@ -631,7 +618,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
         } else {
             // 2. If it is not in lru, you need to create an index stream.
             stream_buffer = new (std::nothrow) char[stream_length];
-            if (NULL == stream_buffer) {
+            if (nullptr == stream_buffer) {
                 OLAP_LOG_WARNING(
                         "fail to malloc index stream. "
                         "[column_unique_id = %u, offset = %lu]",
@@ -651,7 +638,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
                 // Put the read index into lru.
                 _cache_handle[cache_handle_index] = _lru_cache->insert(
                         key, stream_buffer, stream_length, &_delete_cached_index_stream);
-                if (NULL == _cache_handle[cache_handle_index]) {
+                if (nullptr == _cache_handle[cache_handle_index]) {
                     // It may be that malloc in cache insert failed, first return success
                     LOG(FATAL) << "fail to insert lru cache.";
                 }
@@ -661,7 +648,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
 
         if (message.kind() == StreamInfoMessage::ROW_INDEX) {
             StreamIndexReader* index_message = new (std::nothrow) StreamIndexReader;
-            if (index_message == NULL) {
+            if (index_message == nullptr) {
                 OLAP_LOG_WARNING("fail to malloc memory. [size=%lu]", sizeof(StreamIndexReader));
                 return OLAP_ERR_MALLOC_ERROR;
             }
@@ -679,7 +666,7 @@ OLAPStatus SegmentReader::_load_index(bool is_using_cache) {
             _block_count = index_message->entry_count();
         } else {
             BloomFilterIndexReader* bf_message = new (std::nothrow) BloomFilterIndexReader;
-            if (bf_message == NULL) {
+            if (bf_message == nullptr) {
                 OLAP_LOG_WARNING("fail to malloc memory. [size=%lu]",
                                  sizeof(BloomFilterIndexReader));
                 return OLAP_ERR_MALLOC_ERROR;
@@ -813,8 +800,8 @@ OLAPStatus SegmentReader::_seek_to_block_directly(int64_t block_id,
         if (OLAP_SUCCESS != (res = _column_readers[cid]->seek(&position))) {
             if (OLAP_ERR_COLUMN_STREAM_EOF == res) {
                 VLOG_TRACE << "Stream EOF. tablet_id=" << _segment_group->get_tablet_id()
-                         << ", column_id=" << _column_readers[cid]->column_unique_id()
-                         << ", block_id=" << block_id;
+                           << ", column_id=" << _column_readers[cid]->column_unique_id()
+                           << ", block_id=" << block_id;
                 return OLAP_ERR_DATA_EOF;
             } else {
                 OLAP_LOG_WARNING(
@@ -836,10 +823,6 @@ OLAPStatus SegmentReader::_reset_readers() {
 
     for (std::map<StreamName, ReadOnlyFileStream*>::iterator it = _streams.begin();
          it != _streams.end(); ++it) {
-        if (_runtime_state != NULL) {
-            MemTracker::update_limits(-1 * it->second->get_buffer_size(),
-                                      _runtime_state->mem_trackers());
-        }
         delete it->second;
     }
 
@@ -849,10 +832,6 @@ OLAPStatus SegmentReader::_reset_readers() {
          it != _column_readers.end(); ++it) {
         if ((*it) == nullptr) {
             continue;
-        }
-        if (_runtime_state != NULL) {
-            MemTracker::update_limits(-1 * (*it)->get_buffer_size(),
-                                      _runtime_state->mem_trackers());
         }
         delete (*it);
     }

@@ -18,6 +18,13 @@
 #include "olap/schema.h"
 
 #include "olap/row_block2.h"
+#include "olap/uint24.h"
+#include "vec/columns/column_complex.h"
+#include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/predicate_column.h"
+#include "vec/core/types.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
@@ -100,6 +107,69 @@ void Schema::_init(const std::vector<const Field*>& cols, const std::vector<Colu
 Schema::~Schema() {
     for (auto col : _cols) {
         delete col;
+    }
+}
+
+vectorized::DataTypePtr Schema::get_data_type_ptr(const Field& field) {
+    return vectorized::DataTypeFactory::instance().create_data_type(field);
+}
+
+vectorized::IColumn::MutablePtr Schema::get_predicate_column_nullable_ptr(FieldType type,
+                                                                          bool is_null) {
+    vectorized::IColumn::MutablePtr ptr = Schema::get_predicate_column_ptr(type);
+    if (is_null) {
+        return doris::vectorized::ColumnNullable::create(std::move(ptr),
+                                                         doris::vectorized::ColumnUInt8::create());
+    }
+    return ptr;
+}
+
+vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type) {
+    switch (type) {
+    case OLAP_FIELD_TYPE_BOOL:
+        return doris::vectorized::PredicateColumnType<bool>::create();
+
+    case OLAP_FIELD_TYPE_TINYINT:
+        return doris::vectorized::PredicateColumnType<doris::vectorized::Int8>::create();
+
+    case OLAP_FIELD_TYPE_SMALLINT:
+        return doris::vectorized::PredicateColumnType<doris::vectorized::Int16>::create();
+
+    case OLAP_FIELD_TYPE_INT:
+        return doris::vectorized::PredicateColumnType<doris::vectorized::Int32>::create();
+
+    case OLAP_FIELD_TYPE_FLOAT:
+        return doris::vectorized::PredicateColumnType<doris::vectorized::Float32>::create();
+
+    case OLAP_FIELD_TYPE_DOUBLE:
+        return doris::vectorized::PredicateColumnType<doris::vectorized::Float64>::create();
+
+    case OLAP_FIELD_TYPE_BIGINT:
+        return doris::vectorized::PredicateColumnType<doris::vectorized::Int64>::create();
+
+    case OLAP_FIELD_TYPE_LARGEINT:
+        return doris::vectorized::PredicateColumnType<doris::vectorized::Int128>::create();
+
+    case OLAP_FIELD_TYPE_DATE:
+        return doris::vectorized::PredicateColumnType<uint24_t>::create();
+
+    case OLAP_FIELD_TYPE_DATETIME:
+        return doris::vectorized::PredicateColumnType<uint64_t>::create();
+
+    case OLAP_FIELD_TYPE_CHAR:
+    case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_STRING:
+        if (config::enable_low_cardinality_optimize) {
+            return doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create();
+        }
+        return doris::vectorized::PredicateColumnType<StringValue>::create();
+
+    case OLAP_FIELD_TYPE_DECIMAL:
+        return doris::vectorized::PredicateColumnType<decimal12_t>::create();
+
+    default:
+        DCHECK(false);
+        return nullptr;
     }
 }
 

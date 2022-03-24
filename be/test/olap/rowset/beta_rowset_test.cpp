@@ -52,8 +52,9 @@ protected:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
+
         char buffer[MAX_PATH_LEN];
-        getcwd(buffer, MAX_PATH_LEN);
+        ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
 
         ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
@@ -133,7 +134,7 @@ protected:
         rowset_writer_context->tablet_schema_hash = 1111;
         rowset_writer_context->partition_id = 10;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->rowset_path_prefix = "./data_test/data/beta_rowset_test";
+        rowset_writer_context->path_desc.filepath = "./data_test/data/beta_rowset_test";
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
@@ -175,8 +176,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         // k2 := k1 * 10
         // k3 := 4096 * i + rid
         for (int i = 0; i < num_segments; ++i) {
-            auto tracker = std::make_shared<MemTracker>();
-            MemPool mem_pool(tracker.get());
+            MemPool mem_pool("BetaRowsetTest");
             for (int rid = 0; rid < rows_per_segment; ++rid) {
                 uint32_t k1 = rid * 10 + i;
                 uint32_t k2 = k1 * 10;
@@ -353,7 +353,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     doris::SegmentLoader::create_global_instance(1000);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

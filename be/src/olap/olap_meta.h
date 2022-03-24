@@ -48,10 +48,6 @@ public:
 
     std::string get_root_path();
 
-    OLAPStatus get_tablet_convert_finished(bool& flag);
-
-    OLAPStatus set_tablet_convert_finished();
-
 private:
     std::string _root_path;
     rocksdb::DB* _db;

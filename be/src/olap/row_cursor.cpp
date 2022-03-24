@@ -28,7 +28,8 @@ using std::string;
 using std::vector;
 
 namespace doris {
-RowCursor::RowCursor() : _fixed_len(0), _variable_len(0), _string_field_count(0), _long_text_buf(nullptr) {}
+RowCursor::RowCursor()
+        : _fixed_len(0), _variable_len(0), _string_field_count(0), _long_text_buf(nullptr) {}
 
 RowCursor::~RowCursor() {
     delete[] _owned_fixed_buf;
@@ -55,13 +56,12 @@ OLAPStatus RowCursor::_init(const std::vector<uint32_t>& columns) {
     }
 
     _fixed_len = _schema->schema_size();
-    _fixed_buf = new (nothrow) char[_fixed_len];
+    _fixed_buf = new (nothrow) char[_fixed_len]();
     if (_fixed_buf == nullptr) {
         LOG(WARNING) << "Fail to malloc _fixed_buf.";
         return OLAP_ERR_MALLOC_ERROR;
     }
     _owned_fixed_buf = _fixed_buf;
-    memset(_fixed_buf, 0, _fixed_len);
 
     return OLAP_SUCCESS;
 }
@@ -78,7 +78,8 @@ OLAPStatus RowCursor::_init(const std::vector<TabletColumn>& schema,
     return _init(columns);
 }
 
-OLAPStatus RowCursor::_init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys) {
+OLAPStatus RowCursor::_init_scan_key(const TabletSchema& schema,
+                                     const std::vector<std::string>& scan_keys) {
     // NOTE: cid equal with column index
     // Hyperloglog cannot be key, no need to handle it
     _variable_len = 0;
@@ -226,7 +227,7 @@ OLAPStatus RowCursor::allocate_memory_for_string_type(const TabletSchema& schema
             slice->data = *(long_text_ptr);
             slice->size = DEFAULT_TEXT_LENGTH;
             ++long_text_ptr;
-        } else if (_variable_len > 0){
+        } else if (_variable_len > 0) {
             variable_ptr = column_schema(cid)->allocate_memory(fixed_ptr + 1, variable_ptr);
         }
     }
@@ -324,12 +325,11 @@ std::string RowCursor::to_string() const {
 }
 OLAPStatus RowCursor::_alloc_buf() {
     // variable_len for null bytes
-    _variable_buf = new (nothrow) char[_variable_len];
+    _variable_buf = new (nothrow) char[_variable_len]();
     if (_variable_buf == nullptr) {
         OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
         return OLAP_ERR_MALLOC_ERROR;
     }
-    memset(_variable_buf, 0, _variable_len);
     if (_string_field_count > 0) {
         _long_text_buf = (char**)malloc(_string_field_count * sizeof(char*));
         if (_long_text_buf == nullptr) {

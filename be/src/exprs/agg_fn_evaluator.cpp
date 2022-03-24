@@ -14,16 +14,21 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warray-bounds"
+#elif defined(__GNUC__) || defined(__GNUG__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
 #pragma GCC diagnostic ignored "-Wstringop-overflow="
+#endif
 
 #include "exprs/agg_fn_evaluator.h"
 
 #include <sstream>
 
 #include "common/logging.h"
-#include "exec/aggregation_node.h"
 #include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
@@ -84,10 +89,10 @@ Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, bool is_analy
     int node_idx = 0;
     for (int i = 0; i < desc.nodes[0].num_children; ++i) {
         ++node_idx;
-        Expr* expr = NULL;
-        ExprContext* ctx = NULL;
+        Expr* expr = nullptr;
+        ExprContext* ctx = nullptr;
         RETURN_IF_ERROR(
-                Expr::create_tree_from_thrift(pool, desc.nodes, NULL, &node_idx, &expr, &ctx));
+                Expr::create_tree_from_thrift(pool, desc.nodes, nullptr, &node_idx, &expr, &ctx));
         (*result)->_input_exprs_ctxs.push_back(ctx);
     }
     return Status::OK();
@@ -102,15 +107,15 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc, bool is_analytic_fn)
           _function_type(desc.fn.binary_type),
           _total_mem_consumption(0),
           _accumulated_mem_consumption(0),
-          _intermediate_slot_desc(NULL),
-          _output_slot_desc(NULL),
-          _init_fn(NULL),
-          _update_fn(NULL),
-          _remove_fn(NULL),
-          _merge_fn(NULL),
-          _serialize_fn(NULL),
-          _get_value_fn(NULL),
-          _finalize_fn(NULL) {
+          _intermediate_slot_desc(nullptr),
+          _output_slot_desc(nullptr),
+          _init_fn(nullptr),
+          _update_fn(nullptr),
+          _remove_fn(nullptr),
+          _merge_fn(nullptr),
+          _serialize_fn(nullptr),
+          _get_value_fn(nullptr),
+          _finalize_fn(nullptr) {
     if (_fn.name.function_name == "count") {
         _agg_op = COUNT;
     } else if (_fn.name.function_name == "min") {
@@ -141,17 +146,17 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
                                const SlotDescriptor* output_slot_desc,
                                const std::shared_ptr<MemTracker>& mem_tracker,
                                FunctionContext** agg_fn_ctx) {
-    DCHECK(pool != NULL);
-    DCHECK(intermediate_slot_desc != NULL);
-    DCHECK(_intermediate_slot_desc == NULL);
+    DCHECK(pool != nullptr);
+    DCHECK(intermediate_slot_desc != nullptr);
+    DCHECK(_intermediate_slot_desc == nullptr);
     _output_slot_desc = output_slot_desc;
-    //DCHECK(_intermediate_slot_desc == NULL);
+    //DCHECK(_intermediate_slot_desc == nullptr);
     _intermediate_slot_desc = intermediate_slot_desc;
 
     _string_buffer_len = 0;
-    _mem_tracker = mem_tracker;
+    _mem_tracker = MemTracker::create_virtual_tracker(-1, "AggFnEvaluator", mem_tracker);
 
-    Status status = Expr::prepare(_input_exprs_ctxs, state, desc, _mem_tracker);
+    Status status = Expr::prepare(_input_exprs_ctxs, state, desc, mem_tracker);
     RETURN_IF_ERROR(status);
 
     ObjectPool* obj_pool = state->obj_pool();
@@ -162,7 +167,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
     }
 
     // window has intermediate_slot_type
-    if (_intermediate_slot_desc != NULL) {
+    if (_intermediate_slot_desc != nullptr) {
         _staging_intermediate_val = create_any_val(obj_pool, _intermediate_slot_desc->type());
         _staging_merge_input_val = create_any_val(obj_pool, _intermediate_slot_desc->type());
     }
@@ -196,40 +201,40 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
     // Load the function pointers.
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
             _fn.id, _fn.aggregate_fn.init_fn_symbol, _fn.hdfs_location, _fn.checksum, &_init_fn,
-            NULL));
+            nullptr));
 
     RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
             _fn.id, _fn.aggregate_fn.update_fn_symbol, _fn.hdfs_location, _fn.checksum, &_update_fn,
-            NULL));
+            nullptr));
 
     // Merge() is not loaded if evaluating the agg fn as an analytic function.
     if (!_is_analytic_fn) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
                 _fn.id, _fn.aggregate_fn.merge_fn_symbol, _fn.hdfs_location, _fn.checksum,
-                &_merge_fn, NULL));
+                &_merge_fn, nullptr));
     }
 
     // Serialize and Finalize are optional
     if (!_fn.aggregate_fn.serialize_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
                 _fn.id, _fn.aggregate_fn.serialize_fn_symbol, _fn.hdfs_location, _fn.checksum,
-                &_serialize_fn, NULL));
+                &_serialize_fn, nullptr));
     }
     if (!_fn.aggregate_fn.finalize_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
                 _fn.id, _fn.aggregate_fn.finalize_fn_symbol, _fn.hdfs_location, _fn.checksum,
-                &_finalize_fn, NULL));
+                &_finalize_fn, nullptr));
     }
 
     if (!_fn.aggregate_fn.get_value_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
                 _fn.id, _fn.aggregate_fn.get_value_fn_symbol, _fn.hdfs_location, _fn.checksum,
-                &_get_value_fn, NULL));
+                &_get_value_fn, nullptr));
     }
     if (!_fn.aggregate_fn.remove_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
                 _fn.id, _fn.aggregate_fn.remove_fn_symbol, _fn.hdfs_location, _fn.checksum,
-                &_remove_fn, NULL));
+                &_remove_fn, nullptr));
     }
 
     std::vector<FunctionContext::TypeDesc> arg_types;
@@ -264,13 +269,13 @@ Status AggFnEvaluator::open(RuntimeState* state, FunctionContext* agg_fn_ctx) {
 void AggFnEvaluator::close(RuntimeState* state) {
     Expr::close(_input_exprs_ctxs, state);
     if (UNLIKELY(_total_mem_consumption > 0)) {
-        _mem_tracker->Release(_total_mem_consumption);
+        _mem_tracker->release(_total_mem_consumption);
     }
 }
 
 // Utility to put val into an AnyVal struct
 inline void AggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& type, AnyVal* dst) {
-    if (slot == NULL) {
+    if (slot == nullptr) {
         dst->is_null = true;
         return;
     }
@@ -314,6 +319,7 @@ inline void AggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& 
     case TYPE_HLL:
     case TYPE_OBJECT:
     case TYPE_STRING:
+    case TYPE_QUANTILE_STATE:
         reinterpret_cast<const StringValue*>(slot)->to_string_val(
                 reinterpret_cast<StringVal*>(dst));
         return;
@@ -384,6 +390,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src, const SlotDescrip
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
         *reinterpret_cast<StringValue*>(slot) =
                 StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
@@ -411,7 +418,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src, const SlotDescrip
 
 bool AggFnEvaluator::is_in_hybridmap(void* input_val, Tuple* dst, bool* is_add_buckets) {
     bool is_in_hashset = false;
-    HybridSetBase* _set_ptr = NULL;
+    HybridSetBase* _set_ptr = nullptr;
     _set_ptr = _hybrid_map->find_or_insert_set(reinterpret_cast<uint64_t>(dst), is_add_buckets);
     is_in_hashset = _set_ptr->find(input_val);
 
@@ -424,7 +431,7 @@ bool AggFnEvaluator::is_in_hybridmap(void* input_val, Tuple* dst, bool* is_add_b
 
 // This function would be replaced in codegen.
 void AggFnEvaluator::init(FunctionContext* agg_fn_ctx, Tuple* dst) {
-    DCHECK(_init_fn != NULL);
+    DCHECK(_init_fn != nullptr);
     reinterpret_cast<InitFn>(_init_fn)(agg_fn_ctx, _staging_intermediate_val);
     set_output_slot(_staging_intermediate_val, _intermediate_slot_desc, dst);
     agg_fn_ctx->impl()->set_num_updates(0);
@@ -435,7 +442,7 @@ void AggFnEvaluator::update_mem_limlits(int len) {
     _accumulated_mem_consumption += len;
     // per 16M , update mem_tracker one time
     if (UNLIKELY(_accumulated_mem_consumption > 16777216)) {
-        _mem_tracker->Consume(_accumulated_mem_consumption);
+        _mem_tracker->consume(_accumulated_mem_consumption);
         _total_mem_consumption += _accumulated_mem_consumption;
         _accumulated_mem_consumption = 0;
     }
@@ -566,6 +573,7 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_STRING: {
             StringVal* value = reinterpret_cast<StringVal*>(_staging_input_vals[i]);
             memcpy(begin, value->ptr, value->len);
@@ -659,12 +667,12 @@ bool AggFnEvaluator::sum_distinct_data_filter(TupleRow* row, Tuple* dst) {
 
 void AggFnEvaluator::update_or_merge(FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst,
                                      void* fn) {
-    if (fn == NULL) {
+    if (fn == nullptr) {
         return;
     }
 
     bool dst_null = dst->is_null(_intermediate_slot_desc->null_indicator_offset());
-    void* dst_slot = NULL;
+    void* dst_slot = nullptr;
 
     if (!dst_null) {
         dst_slot = dst->get_slot(_intermediate_slot_desc->tuple_offset());
@@ -780,7 +788,7 @@ void AggFnEvaluator::merge(FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* ds
 
 static void set_any_val2(const SlotDescriptor* desc, Tuple* tuple, AnyVal* dst) {
     bool is_null = tuple->is_null(desc->null_indicator_offset());
-    void* slot = NULL;
+    void* slot = nullptr;
     if (!is_null) {
         slot = tuple->get_slot(desc->tuple_offset());
     }
@@ -788,7 +796,7 @@ static void set_any_val2(const SlotDescriptor* desc, Tuple* tuple, AnyVal* dst) 
 }
 
 void AggFnEvaluator::merge(FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst) {
-    DCHECK(_merge_fn != NULL);
+    DCHECK(_merge_fn != nullptr);
 
     set_any_val2(_intermediate_slot_desc, dst, _staging_intermediate_val);
     set_any_val2(_intermediate_slot_desc, src, _staging_merge_input_val);
@@ -813,16 +821,16 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
                                            const SlotDescriptor* dst_slot_desc, Tuple* dst,
                                            void* fn, bool add_null) {
     // DCHECK_EQ(dst_slot_desc->type().type, _return_type.type);
-    if (src == NULL) {
+    if (src == nullptr) {
         src = dst;
     }
-    if (fn == NULL && src == dst) {
+    if (fn == nullptr && src == dst) {
         return;
     }
 
     // same
     bool src_slot_null = add_null || src->is_null(_intermediate_slot_desc->null_indicator_offset());
-    void* src_slot = NULL;
+    void* src_slot = nullptr;
 
     if (!src_slot_null) {
         src_slot = src->get_slot(_intermediate_slot_desc->tuple_offset());
@@ -832,9 +840,9 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     // if (_is_analytic_fn) {
     // No fn was given but the src and dst tuples are different (doing a finalize()).
     // Just copy the src slot into the dst tuple.
-    if (fn == NULL) {
+    if (fn == nullptr) {
         DCHECK_EQ(_intermediate_slot_desc->type(), dst_slot_desc->type());
-        RawValue::write(src_slot, dst, dst_slot_desc, NULL);
+        RawValue::write(src_slot, dst, dst_slot_desc, nullptr);
         return;
     }
     // }
@@ -894,6 +902,7 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING: {
         typedef StringVal (*Fn)(FunctionContext*, AnyVal*);
         StringVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
@@ -922,11 +931,11 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
 }
 
 void AggFnEvaluator::serialize(FunctionContext* agg_fn_ctx, Tuple* tuple) {
-    serialize_or_finalize(agg_fn_ctx, NULL, _intermediate_slot_desc, tuple, _serialize_fn);
+    serialize_or_finalize(agg_fn_ctx, nullptr, _intermediate_slot_desc, tuple, _serialize_fn);
 }
 
 //void AggFnEvaluator::finalize(FunctionContext* agg_fn_ctx, Tuple* tuple) {
-//    serialize_or_finalize(agg_fn_ctx, NULL, _output_slot_desc, tuple, _finalize_fn);
+//    serialize_or_finalize(agg_fn_ctx, nullptr, _output_slot_desc, tuple, _finalize_fn);
 //}
 
 std::string AggFnEvaluator::debug_string(const std::vector<AggFnEvaluator*>& exprs) {
@@ -944,11 +953,6 @@ std::string AggFnEvaluator::debug_string(const std::vector<AggFnEvaluator*>& exp
 std::string AggFnEvaluator::debug_string() const {
     std::stringstream out;
     out << "AggFnEvaluator(op=" << _agg_op;
-#if 0
-    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        out << " " << _input_exprs[i]->debug_string() << ")";
-    }
-#endif
 
     out << ")";
     return out.str();
@@ -956,4 +960,8 @@ std::string AggFnEvaluator::debug_string() const {
 
 } // namespace doris
 
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__) || defined(__GNUG__)
 #pragma GCC diagnostic pop
+#endif

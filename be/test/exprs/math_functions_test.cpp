@@ -262,7 +262,36 @@ TEST_F(MathFunctionsTest, unhex) {
     delete context;
 }
 
-} // namespace doris
+
+TEST_F(MathFunctionsTest, round_up_to) {
+
+    DoubleVal r0(0);
+    DoubleVal r1(1);
+    DoubleVal r2(3);
+    DoubleVal r3(4);
+    DoubleVal r4(3.5);
+    DoubleVal r5(3.55);
+
+    DoubleVal r6(222500);
+
+    ASSERT_EQ(r0, MathFunctions::round_up_to(ctx, DoubleVal(0), IntVal(0)));
+    ASSERT_EQ(r1, MathFunctions::round_up_to(ctx, DoubleVal(0.5), IntVal(0)));
+    ASSERT_EQ(r1, MathFunctions::round_up_to(ctx, DoubleVal(0.51), IntVal(0)));
+    // not 2
+    ASSERT_EQ(r2, MathFunctions::round_up_to(ctx, DoubleVal(2.5), IntVal(0)));
+    ASSERT_EQ(r3, MathFunctions::round_up_to(ctx, DoubleVal(3.5), IntVal(0)));
+
+    ASSERT_EQ(r4, MathFunctions::round_up_to(ctx, DoubleVal(3.5451), IntVal(1)));
+    ASSERT_EQ(r5, MathFunctions::round_up_to(ctx, DoubleVal(3.5451), IntVal(2)));
+
+    // not 3.54
+    ASSERT_EQ(r5, MathFunctions::round_up_to(ctx, DoubleVal(3.5450), IntVal(2)));
+
+    // not 222400
+    ASSERT_EQ(r6, MathFunctions::round_up_to(ctx, DoubleVal(222450.00), IntVal(-2)));
+}
+
+}// namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

@@ -17,7 +17,10 @@
 
 #include "exec/hdfs_writer.h"
 
+#include <filesystem>
+
 #include "common/logging.h"
+#include "service/backend_options.h"
 
 namespace doris {
 const static std::string FS_KEY = "fs.defaultFS";
@@ -47,11 +50,30 @@ Status HDFSWriter::open() {
         // the path already exists
         return Status::AlreadyExist(_path + " already exists.");
     }
+
+    std::filesystem::path hdfs_path(_path);
+    std::string hdfs_dir = hdfs_path.parent_path().string();
+    exists = hdfsExists(_hdfs_fs, hdfs_dir.c_str());
+    if (exists != 0) {
+        LOG(INFO) << "hdfs dir doesn't exist, create it: " << hdfs_dir;
+        int ret = hdfsCreateDirectory(_hdfs_fs, hdfs_dir.c_str());
+        if (ret != 0) {
+            std::stringstream ss;
+            ss << "create dir failed. " << "(BE: " << BackendOptions::get_localhost() << ")"
+                    << " namenode: " << _namenode << " path: " << hdfs_dir
+                    << ", err: " << strerror(errno);
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
+    }
     // open file
     _hdfs_file = hdfsOpenFile(_hdfs_fs, _path.c_str(), O_WRONLY, 0, 0, 0);
     if (_hdfs_file == nullptr) {
         std::stringstream ss;
-        ss << "open file failed. namenode:" << _namenode << " path:" << _path;
+        ss << "open file failed. " << "(BE: " << BackendOptions::get_localhost() << ")"
+                << " namenode:" << _namenode << " path:" << _path
+                << ", err: " << strerror(errno);
+        LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
     LOG(INFO) << "open file. namenode:" << _namenode << " path:" << _path;
@@ -66,7 +88,9 @@ Status HDFSWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_len
     int32_t result = hdfsWrite(_hdfs_fs, _hdfs_file, buf, buf_len);
     if (result < 0) {
         std::stringstream ss;
-        ss << "write file failed. namenode:" << _namenode << " path:" << _path;
+        ss << "write file failed. " << "(BE: " << BackendOptions::get_localhost() << ")"
+                << "namenode:" << _namenode << " path:" << _path
+                << ", err: " << strerror(errno);
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -91,7 +115,9 @@ Status HDFSWriter::close() {
     int result = hdfsFlush(_hdfs_fs, _hdfs_file);
     if (result == -1) {
         std::stringstream ss;
-        ss << "failed to flush hdfs file. namenode:" << _namenode << " path:" << _path;
+        ss << "failed to flush hdfs file. " << "(BE: " << BackendOptions::get_localhost() << ")"
+                << "namenode:" << _namenode << " path:" << _path
+                << ", err: " << strerror(errno);
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -124,7 +150,7 @@ Status HDFSWriter::_connect() {
     // set other conf
     if (!_properties.empty()) {
         std::map<std::string, std::string>::iterator iter;
-        for (iter = _properties.begin(); iter != _properties.end(); iter++) {
+        for (iter = _properties.begin(); iter != _properties.end(); ++iter) {
             hdfsBuilderConfSetStr(hdfs_builder, iter->first.c_str(), iter->second.c_str());
         }
     }
@@ -139,34 +165,38 @@ Status HDFSWriter::_connect() {
 
 Status HDFSWriter::_parse_properties(std::map<std::string, std::string>& prop) {
     std::map<std::string, std::string>::iterator iter;
-    for (iter = prop.begin(); iter != prop.end(); iter++) {
+    for (iter = prop.begin(); iter != prop.end();) {
         if (iter->first.compare(FS_KEY) == 0) {
             _namenode = iter->second;
-            prop.erase(iter);
-        }
-        if (iter->first.compare(USER) == 0) {
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(USER) == 0) {
             _user = iter->second;
-            prop.erase(iter);
-        }
-        if (iter->first.compare(KERBEROS_PRINCIPAL) == 0) {
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(KERBEROS_PRINCIPAL) == 0) {
             _kerb_principal = iter->second;
-            prop.erase(iter);
-        }
-        if (iter->first.compare(KERB_TICKET_CACHE_PATH) == 0) {
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(KERB_TICKET_CACHE_PATH) == 0) {
             _kerb_ticket_cache_path = iter->second;
-            prop.erase(iter);
-        }
-        if (iter->first.compare(TOKEN) == 0) {
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(TOKEN) == 0) {
             _token = iter->second;
-            prop.erase(iter);
+            iter = prop.erase(iter);
+        } else {
+            ++iter;
         }
     }
 
     if (_namenode.empty()) {
-        DCHECK(false) << "hdfs properties is incorrect.";
-        LOG(ERROR) << "hdfs properties is incorrect.";
+        LOG(WARNING) << "hdfs properties is incorrect.";
         return Status::InternalError("hdfs properties is incorrect");
     }
+
+    // if the format of _path is hdfs://ip:port/path, replace it to /path.
+    // path like hdfs://ip:port/path can't be used by libhdfs3.
+    if (_path.find(_namenode) != _path.npos) {
+        _path = _path.substr(_namenode.size());
+    }
+
     return Status::OK();
 }
 

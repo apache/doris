@@ -211,7 +211,7 @@ int64_t BackendService::get_trash_used_capacity() {
     StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
 
     for (const auto& root_path_info : data_dir_infos) {
-        std::string lhs_trash_path = root_path_info.path + TRASH_PREFIX;
+        std::string lhs_trash_path = root_path_info.path_desc.filepath + TRASH_PREFIX;
         std::filesystem::path trash_path(lhs_trash_path);
         result += StorageEngine::instance()->get_file_or_directory_size(trash_path);
     }
@@ -225,11 +225,11 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
     for (const auto& root_path_info : data_dir_infos) {
         TDiskTrashInfo diskTrashInfo;
 
-        diskTrashInfo.__set_root_path(root_path_info.path);
+        diskTrashInfo.__set_root_path(root_path_info.path_desc.filepath);
 
         diskTrashInfo.__set_state(root_path_info.is_used ? "ONLINE" : "OFFLINE");
 
-        std::string lhs_trash_path = root_path_info.path + TRASH_PREFIX;
+        std::string lhs_trash_path = root_path_info.path_desc.filepath + TRASH_PREFIX;
         std::filesystem::path trash_path(lhs_trash_path);
         diskTrashInfo.__set_trash_used_capacity(
                 StorageEngine::instance()->get_file_or_directory_size(trash_path));
@@ -263,7 +263,7 @@ void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParam
     _exec_env->external_scan_context_mgr()->create_scan_context(&p_context);
     p_context->fragment_instance_id = fragment_instance_id;
     p_context->offset = 0;
-    p_context->last_access_time = time(NULL);
+    p_context->last_access_time = time(nullptr);
     if (params.__isset.keep_alive_min) {
         p_context->keep_alive_min = params.keep_alive_min;
     } else {
@@ -331,7 +331,7 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
             result_.status = t_status;
         }
     }
-    context->last_access_time = time(NULL);
+    context->last_access_time = time(nullptr);
 }
 
 void BackendService::close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) {

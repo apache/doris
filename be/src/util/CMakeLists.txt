@@ -77,9 +77,10 @@ set(UTIL_FILES
   cidr.cpp
   core_local.cpp
   uid_util.cpp
-  aes_util.cpp
+  encryption_util.cpp
   string_util.cpp
   md5.cpp
+  sm3.cpp
   thrift_rpc_helper.cpp
   faststring.cc
   slice.cpp
@@ -99,13 +100,16 @@ set(UTIL_FILES
   timezone_utils.cpp
   easy_json.cc
   mustache/mustache.cc
-  brpc_stub_cache.cpp
+  brpc_client_cache.cpp
   zlib.cpp
   pprof_utils.cpp
   s3_uri.cpp
   s3_storage_backend.cpp
   s3_util.cpp
   topn_counter.cpp
+  tuple_row_zorder_compare.cpp
+  quantile_state.cpp
+  jni-util.cpp
 )
 
 if (WITH_MYSQL)

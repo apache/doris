@@ -17,14 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import avro.shaded.com.google.common.collect.Lists;
-import org.apache.commons.collections.ListUtils;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
-import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -33,11 +30,11 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import com.google.common.collect.Lists;
+
 import java.io.File;
 import java.util.List;
 import java.util.UUID;
-
-import avro.shaded.com.google.common.collect.Lists;
 
 /**
  * @author wangcong
@@ -131,6 +128,35 @@ public class CreateTableLikeTest {
         MysqlTable newTbl = (MysqlTable) newDb.getTableOrDdlException(newTblName);
         MysqlTable existedTbl = (MysqlTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, 0);
+    }
+
+    @Test
+    public void testDeepCopyOfDistributionInfo() throws Exception {
+        String createTableSql = "CREATE TABLE IF NOT EXISTS test.bucket_distribution_test (\n" +
+                "  `dt` bigint(20) NULL COMMENT \"\",\n" +
+                "  `id1` bigint(20) NULL COMMENT \"\",\n" +
+                "  `last_time` varchar(20) MAX NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`dt`, `id1`) \n" +
+                "PARTITION BY RANGE(`dt`) \n" +
+                "(\n" +
+                "    PARTITION p1 VALUES  [(\"20220101\"),(\"20220201\")),\n" +
+                "    partition p2 VALUES  [(\"20211201\"),(\"20220101\"))\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`id1`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");";
+        createTable(createTableSql);
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable table = (OlapTable) db.getTableOrDdlException("bucket_distribution_test");
+        DistributionInfo default_info = table.getDefaultDistributionInfo();
+        DistributionInfo previous = null;
+        for (Partition p : table.getPartitions()) {
+            Assert.assertFalse(p.getDistributionInfo() == default_info);
+            Assert.assertFalse(p.getDistributionInfo() == previous);
+            previous = p.getDistributionInfo();
+        }
     }
 
     @Test

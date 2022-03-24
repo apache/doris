@@ -100,6 +100,14 @@ public:
 
     ~Schema();
 
+    static vectorized::DataTypePtr get_data_type_ptr(const Field& field);
+
+    static vectorized::IColumn::MutablePtr get_predicate_column_ptr(FieldType type);
+
+    static vectorized::IColumn::MutablePtr get_predicate_column_nullable_ptr(FieldType type, bool is_null = false);
+
+    const std::vector<Field*>& columns() const { return _cols; }
+
     const Field* column(ColumnId cid) const { return _cols[cid]; }
 
     Field* mutable_column(ColumnId cid) const { return _cols[cid]; }
@@ -124,6 +132,7 @@ public:
     size_t num_columns() const { return _cols.size(); }
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
+    ColumnId column_id(size_t index) const { return _col_ids[index]; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     bool has_sequence_col() const { return _has_sequence_col; }
 

@@ -25,7 +25,7 @@
 
 namespace doris {
 IntegerColumnReader::IntegerColumnReader(uint32_t column_unique_id)
-        : _eof(false), _column_unique_id(column_unique_id), _data_reader(NULL) {}
+        : _eof(false), _column_unique_id(column_unique_id), _data_reader(nullptr) {}
 
 IntegerColumnReader::~IntegerColumnReader() {
     SAFE_DELETE(_data_reader);
@@ -33,8 +33,8 @@ IntegerColumnReader::~IntegerColumnReader() {
 
 OLAPStatus IntegerColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams,
                                      bool is_sign) {
-    if (NULL == streams) {
-        OLAP_LOG_WARNING("input streams is NULL");
+    if (nullptr == streams) {
+        OLAP_LOG_WARNING("input streams is nullptr");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -42,14 +42,14 @@ OLAPStatus IntegerColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* 
     ReadOnlyFileStream* data_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
-    if (data_stream == NULL) {
-        OLAP_LOG_WARNING("specified stream is NULL");
+    if (data_stream == nullptr) {
+        OLAP_LOG_WARNING("specified stream is nullptr");
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
 
     _data_reader = new (std::nothrow) RunLengthIntegerReader(data_stream, is_sign);
 
-    if (NULL == _data_reader) {
+    if (nullptr == _data_reader) {
         OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -72,11 +72,10 @@ OLAPStatus IntegerColumnReader::next(int64_t* value) {
 
 StringColumnDirectReader::StringColumnDirectReader(uint32_t column_unique_id,
                                                    uint32_t dictionary_size)
-        : _eof(false),
-          _column_unique_id(column_unique_id),
-          _values(NULL),
-          _data_stream(NULL),
-          _length_reader(NULL) {}
+        : _column_unique_id(column_unique_id),
+          _values(nullptr),
+          _data_stream(nullptr),
+          _length_reader(nullptr) {}
 
 StringColumnDirectReader::~StringColumnDirectReader() {
     SAFE_DELETE(_length_reader);
@@ -84,15 +83,15 @@ StringColumnDirectReader::~StringColumnDirectReader() {
 
 OLAPStatus StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams,
                                           int size, MemPool* mem_pool) {
-    if (NULL == streams) {
-        OLAP_LOG_WARNING("input streams is NULL");
+    if (nullptr == streams) {
+        OLAP_LOG_WARNING("input streams is nullptr");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
     // Get data stream according to column id and type
     _data_stream = extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
-    if (NULL == _data_stream) {
+    if (nullptr == _data_stream) {
         OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
@@ -102,14 +101,14 @@ OLAPStatus StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStrea
     ReadOnlyFileStream* length_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::LENGTH, streams);
 
-    if (NULL == length_stream) {
+    if (nullptr == length_stream) {
         OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
 
     _length_reader = new (std::nothrow) RunLengthIntegerReader(length_stream, false);
 
-    if (NULL == _length_reader) {
+    if (nullptr == _length_reader) {
         OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -270,12 +269,12 @@ StringColumnDictionaryReader::StringColumnDictionaryReader(uint32_t column_uniqu
         : _eof(false),
           _dictionary_size(dictionary_size),
           _column_unique_id(column_unique_id),
-          _values(NULL),
+          _values(nullptr),
           //_dictionary_size(0),
-          //_offset_dictionary(NULL),
-          //_dictionary_data_buffer(NULL),
-          _read_buffer(NULL),
-          _data_reader(NULL) {}
+          //_offset_dictionary(nullptr),
+          //_dictionary_data_buffer(nullptr),
+          _read_buffer(nullptr),
+          _data_reader(nullptr) {}
 
 StringColumnDictionaryReader::~StringColumnDictionaryReader() {
     //SAFE_DELETE_ARRAY(_offset_dictionary);
@@ -289,7 +288,7 @@ OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileS
     ReadOnlyFileStream* dictionary_data_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::DICTIONARY_DATA, streams);
 
-    if (NULL == dictionary_data_stream) {
+    if (nullptr == dictionary_data_stream) {
         OLAP_LOG_WARNING("dictionary data stream not found. [unique id = %u]", _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
@@ -297,7 +296,7 @@ OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileS
     ReadOnlyFileStream* dictionary_length_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::LENGTH, streams);
 
-    if (NULL == dictionary_length_stream) {
+    if (nullptr == dictionary_length_stream) {
         OLAP_LOG_WARNING("dictionary length stream not found. [unique id = %u]", _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
@@ -310,7 +309,7 @@ OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileS
     int64_t read_buffer_size = 1024;
     char* _read_buffer = new (std::nothrow) char[read_buffer_size];
 
-    if (NULL == _read_buffer) {
+    if (nullptr == _read_buffer) {
         OLAP_LOG_WARNING("fail to malloc read buffer. [size = %lu]", read_buffer_size);
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -331,7 +330,7 @@ OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileS
             SAFE_DELETE_ARRAY(_read_buffer);
             read_buffer_size = length;
 
-            if (NULL == (_read_buffer = new (std::nothrow) char[read_buffer_size])) {
+            if (nullptr == (_read_buffer = new (std::nothrow) char[read_buffer_size])) {
                 OLAP_LOG_WARNING("fail to malloc read buffer. [size = %lu]", read_buffer_size);
                 return OLAP_ERR_MALLOC_ERROR;
             }
@@ -353,14 +352,14 @@ OLAPStatus StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileS
     ReadOnlyFileStream* data_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
-    if (NULL == data_stream) {
+    if (nullptr == data_stream) {
         OLAP_LOG_WARNING("data stream not found. [unique id = %u]", _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
 
     _data_reader = new (std::nothrow) RunLengthIntegerReader(data_stream, false);
 
-    if (NULL == _data_reader) {
+    if (nullptr == _data_reader) {
         OLAP_LOG_WARNING("fail to malloc data reader");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -470,10 +469,10 @@ OLAPStatus StringColumnDictionaryReader::next_vector(ColumnVector* column_vector
 
 ColumnReader::ColumnReader(uint32_t column_id, uint32_t column_unique_id)
         : _value_present(false),
-          _is_null(NULL),
+          _is_null(nullptr),
           _column_id(column_id),
           _column_unique_id(column_unique_id),
-          _present_reader(NULL) {}
+          _present_reader(nullptr) {}
 
 ColumnReader* ColumnReader::create(uint32_t column_id, const TabletSchema& schema,
                                    const UniqueIdToColumnIdMap& included,
@@ -489,15 +488,15 @@ ColumnReader* ColumnReader::create(uint32_t column_id, const std::vector<TabletC
     if (column_id >= schema.size()) {
         LOG(WARNING) << "invalid column_id, column_id=" << column_id
                      << ", columns_size=" << schema.size();
-        return NULL;
+        return nullptr;
     }
 
     const TabletColumn& column = schema[column_id];
-    ColumnReader* reader = NULL;
+    ColumnReader* reader = nullptr;
     int32_t column_unique_id = column.unique_id();
 
     if (0 == included.count(column_unique_id)) {
-        return NULL;
+        return nullptr;
     }
 
     if (0 == segment_included.count(column_unique_id)) {
@@ -513,7 +512,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id, const std::vector<TabletC
             return new (std::nothrow) NullValueReader(column_id, column_unique_id);
         } else {
             OLAP_LOG_WARNING("not null field has no default value");
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -597,7 +596,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id, const std::vector<TabletC
                     "known encoding format. data may be generated by higher version,"
                     "try updating olap/ngine binary to solve this problem");
             // TODO. define a new return code
-            return NULL;
+            return nullptr;
         }
 
         break;
@@ -638,7 +637,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id, const std::vector<TabletC
             LOG(WARNING) << "known encoding format. data may be generated by higher version, "
                          << "try updating olap/ngine binary to solve this problem";
             // TODO. define a new return code
-            return NULL;
+            return nullptr;
         }
 
         break;
@@ -663,7 +662,7 @@ ColumnReader::~ColumnReader() {
 
 OLAPStatus ColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                               MemPool* mem_pool, OlapReaderStatistics* stats) {
-    if (NULL == streams) {
+    if (nullptr == streams) {
         OLAP_LOG_WARNING("null parameters given.");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -676,14 +675,14 @@ OLAPStatus ColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams
     _is_null = reinterpret_cast<bool*>(mem_pool->allocate(size));
     memset(_is_null, 0, size);
 
-    if (NULL == present_stream) {
-        _present_reader = NULL;
+    if (nullptr == present_stream) {
+        _present_reader = nullptr;
         _value_present = false;
     } else {
         VLOG_TRACE << "create null present_stream for column_id:" << _column_unique_id;
         _present_reader = new (std::nothrow) BitFieldReader(present_stream);
 
-        if (NULL == _present_reader) {
+        if (nullptr == _present_reader) {
             OLAP_LOG_WARNING("malloc present reader failed.");
             return OLAP_ERR_MALLOC_ERROR;
         }
@@ -700,7 +699,7 @@ OLAPStatus ColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams
 }
 
 OLAPStatus ColumnReader::seek(PositionProvider* position) {
-    if (NULL != _present_reader) {
+    if (nullptr != _present_reader) {
         return _present_reader->seek(position);
     }
 
@@ -715,7 +714,7 @@ OLAPStatus ColumnReader::next_vector(ColumnVector* column_vector, uint32_t size,
                                      MemPool* mem_pool) {
     OLAPStatus res = OLAP_SUCCESS;
     column_vector->set_is_null(_is_null);
-    if (NULL != _present_reader) {
+    if (nullptr != _present_reader) {
         column_vector->set_no_nulls(false);
         for (uint32_t i = 0; i < size; ++i) {
             bool value = false;
@@ -734,7 +733,7 @@ OLAPStatus ColumnReader::next_vector(ColumnVector* column_vector, uint32_t size,
 }
 
 uint64_t ColumnReader::_count_none_nulls(uint64_t rows) {
-    if (_present_reader != NULL) {
+    if (_present_reader != nullptr) {
         OLAPStatus res = OLAP_SUCCESS;
         uint64_t result = 0;
 
@@ -757,8 +756,8 @@ uint64_t ColumnReader::_count_none_nulls(uint64_t rows) {
 TinyColumnReader::TinyColumnReader(uint32_t column_id, uint32_t column_unique_id)
         : ColumnReader(column_id, column_unique_id),
           _eof(false),
-          _values(NULL),
-          _data_reader(NULL) {}
+          _values(nullptr),
+          _data_reader(nullptr) {}
 
 TinyColumnReader::~TinyColumnReader() {
     SAFE_DELETE(_data_reader);
@@ -766,8 +765,8 @@ TinyColumnReader::~TinyColumnReader() {
 
 OLAPStatus TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                                   MemPool* mem_pool, OlapReaderStatistics* stats) {
-    if (NULL == streams) {
-        OLAP_LOG_WARNING("input streams is NULL");
+    if (nullptr == streams) {
+        OLAP_LOG_WARNING("input streams is nullptr");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -775,7 +774,7 @@ OLAPStatus TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* str
     ReadOnlyFileStream* data_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
-    if (NULL == data_stream) {
+    if (nullptr == data_stream) {
         OLAP_LOG_WARNING("specified stream not exist");
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
@@ -783,7 +782,7 @@ OLAPStatus TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* str
     _values = reinterpret_cast<char*>(mem_pool->allocate(size));
     _data_reader = new (std::nothrow) RunLengthByteReader(data_stream);
 
-    if (NULL == _data_reader) {
+    if (nullptr == _data_reader) {
         OLAP_LOG_WARNING("malloc data reader failed");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -793,7 +792,7 @@ OLAPStatus TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* str
 
 OLAPStatus TinyColumnReader::seek(PositionProvider* positions) {
     OLAPStatus res;
-    if (NULL == _present_reader) {
+    if (nullptr == _present_reader) {
         res = _data_reader->seek(positions);
         if (OLAP_SUCCESS != res) {
             return res;
@@ -859,9 +858,9 @@ OLAPStatus TinyColumnReader::next_vector(ColumnVector* column_vector, uint32_t s
 DecimalColumnReader::DecimalColumnReader(uint32_t column_id, uint32_t column_unique_id)
         : ColumnReader(column_id, column_unique_id),
           _eof(false),
-          _values(NULL),
-          _int_reader(NULL),
-          _frac_reader(NULL) {}
+          _values(nullptr),
+          _int_reader(nullptr),
+          _frac_reader(nullptr) {}
 
 DecimalColumnReader::~DecimalColumnReader() {
     SAFE_DELETE(_int_reader);
@@ -870,8 +869,8 @@ DecimalColumnReader::~DecimalColumnReader() {
 
 OLAPStatus DecimalColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                                      MemPool* mem_pool, OlapReaderStatistics* stats) {
-    if (NULL == streams) {
-        OLAP_LOG_WARNING("input streams is NULL");
+    if (nullptr == streams) {
+        OLAP_LOG_WARNING("input streams is nullptr");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -884,7 +883,7 @@ OLAPStatus DecimalColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* 
     ReadOnlyFileStream* int_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
-    if (NULL == int_stream) {
+    if (nullptr == int_stream) {
         OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
@@ -892,21 +891,21 @@ OLAPStatus DecimalColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* 
     ReadOnlyFileStream* frac_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::SECONDARY, streams);
 
-    if (NULL == frac_stream) {
+    if (nullptr == frac_stream) {
         OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
 
     _int_reader = new (std::nothrow) RunLengthIntegerReader(int_stream, true);
 
-    if (NULL == _int_reader) {
+    if (nullptr == _int_reader) {
         OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader");
         return OLAP_ERR_MALLOC_ERROR;
     }
 
     _frac_reader = new (std::nothrow) RunLengthIntegerReader(frac_stream, true);
 
-    if (NULL == _frac_reader) {
+    if (nullptr == _frac_reader) {
         OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -916,7 +915,7 @@ OLAPStatus DecimalColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* 
 
 OLAPStatus DecimalColumnReader::seek(PositionProvider* positions) {
     OLAPStatus res;
-    if (NULL == _present_reader) {
+    if (nullptr == _present_reader) {
         res = _int_reader->seek(positions);
         if (OLAP_SUCCESS != res) {
             return res;
@@ -928,7 +927,7 @@ OLAPStatus DecimalColumnReader::seek(PositionProvider* positions) {
             return res;
         }
     } else {
-        //all field in the segment can be NULL, so the data stream is EOF
+        //all field in the segment can be nullptr, so the data stream is EOF
         res = ColumnReader::seek(positions);
         if (OLAP_SUCCESS != res) {
             return res;
@@ -1025,9 +1024,9 @@ OLAPStatus DecimalColumnReader::next_vector(ColumnVector* column_vector, uint32_
 LargeIntColumnReader::LargeIntColumnReader(uint32_t column_id, uint32_t column_unique_id)
         : ColumnReader(column_id, column_unique_id),
           _eof(false),
-          _values(NULL),
-          _high_reader(NULL),
-          _low_reader(NULL) {}
+          _values(nullptr),
+          _high_reader(nullptr),
+          _low_reader(nullptr) {}
 
 LargeIntColumnReader::~LargeIntColumnReader() {
     SAFE_DELETE(_high_reader);
@@ -1036,8 +1035,8 @@ LargeIntColumnReader::~LargeIntColumnReader() {
 
 OLAPStatus LargeIntColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                                       MemPool* mem_pool, OlapReaderStatistics* stats) {
-    if (NULL == streams) {
-        OLAP_LOG_WARNING("input streams is NULL");
+    if (nullptr == streams) {
+        OLAP_LOG_WARNING("input streams is nullptr");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -1050,26 +1049,26 @@ OLAPStatus LargeIntColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>*
     // 从map中找到需要的流，LargeIntColumnReader的数据应该由一条DATA流组成
     ReadOnlyFileStream* high_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
-    if (NULL == high_stream) {
+    if (nullptr == high_stream) {
         OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
 
     ReadOnlyFileStream* low_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::SECONDARY, streams);
-    if (NULL == low_stream) {
+    if (nullptr == low_stream) {
         OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
         return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
     }
 
     _high_reader = new (std::nothrow) RunLengthIntegerReader(high_stream, true);
-    if (NULL == _high_reader) {
+    if (nullptr == _high_reader) {
         OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader.");
         return OLAP_ERR_MALLOC_ERROR;
     }
 
     _low_reader = new (std::nothrow) RunLengthIntegerReader(low_stream, true);
-    if (NULL == _low_reader) {
+    if (nullptr == _low_reader) {
         OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader.");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -1079,7 +1078,7 @@ OLAPStatus LargeIntColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>*
 
 OLAPStatus LargeIntColumnReader::seek(PositionProvider* positions) {
     OLAPStatus res;
-    if (NULL == _present_reader) {
+    if (nullptr == _present_reader) {
         res = _high_reader->seek(positions);
         if (OLAP_SUCCESS != res) {
             return res;
@@ -1090,7 +1089,7 @@ OLAPStatus LargeIntColumnReader::seek(PositionProvider* positions) {
             return res;
         }
     } else {
-        //all field in the segment can be NULL, so the data stream is EOF
+        //all field in the segment can be nullptr, so the data stream is EOF
         res = ColumnReader::seek(positions);
         if (OLAP_SUCCESS != res) {
             OLAP_LOG_WARNING("fail to seek null stream of largeint");
@@ -1144,7 +1143,7 @@ OLAPStatus LargeIntColumnReader::next_vector(ColumnVector* column_vector, uint32
 
     if (column_vector->no_nulls()) {
         for (uint32_t i = 0; i < size; ++i) {
-            int64_t* value = NULL;
+            int64_t* value = nullptr;
             value = (int64_t*)(_values + i);
             res = _high_reader->next(value);
             if (OLAP_SUCCESS != res) {
@@ -1160,7 +1159,7 @@ OLAPStatus LargeIntColumnReader::next_vector(ColumnVector* column_vector, uint32
         }
     } else {
         for (uint32_t i = 0; i < size; ++i) {
-            int64_t* value = NULL;
+            int64_t* value = nullptr;
             if (!is_null[i]) {
                 value = (int64_t*)(_values + i);
                 res = _high_reader->next(value);

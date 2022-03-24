@@ -138,7 +138,7 @@ struct SegmentMetaInfo {
     SegmentMetaInfo() {
         range.first = range.last = 0;
         buffer.length = 0;
-        buffer.data = NULL;
+        buffer.data = nullptr;
     }
 
     const size_t count() const { return range.last - range.first; }
@@ -291,7 +291,6 @@ private:
     size_t _num_rows;
     std::vector<TabletColumn>* _short_key_columns;
 
-    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _mem_pool;
     DISALLOW_COPY_AND_ASSIGN(MemIndex);
 };

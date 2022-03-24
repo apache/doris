@@ -176,7 +176,7 @@ TEST_F(SorterTest, init_sort_exec_exprs) {
     // empty  sort_tuple_slot_expr
     {
         SortExecExprs exec_exprs;
-        Status status = exec_exprs.init(_ordering_exprs, NULL, get_object_pool());
+        Status status = exec_exprs.init(_ordering_exprs, nullptr, get_object_pool());
         ASSERT_TRUE(status.ok());
     }
     // full sort_tuple_slot_expr
@@ -190,7 +190,7 @@ TEST_F(SorterTest, init_sort_exec_exprs) {
 TEST_F(SorterTest, prepare_sort_exec_exprs) {
     {
         SortExecExprs exec_exprs;
-        Status status = exec_exprs.init(_ordering_exprs, NULL, get_object_pool());
+        Status status = exec_exprs.init(_ordering_exprs, nullptr, get_object_pool());
         ASSERT_TRUE(status.ok());
         status = exec_exprs.prepare(_runtime_state, *_child_row_desc, *_output_row_desc);
         ASSERT_TRUE(status.ok());

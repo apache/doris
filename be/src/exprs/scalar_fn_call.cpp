@@ -32,10 +32,10 @@ namespace doris {
 ScalarFnCall::ScalarFnCall(const TExprNode& node)
         : Expr(node),
           _vararg_start_idx(node.__isset.vararg_start_idx ? node.vararg_start_idx : -1),
-          _scalar_fn_wrapper(NULL),
-          _prepare_fn(NULL),
-          _close_fn(NULL),
-          _scalar_fn(NULL) {
+          _scalar_fn_wrapper(nullptr),
+          _prepare_fn(nullptr),
+          _close_fn(nullptr),
+          _scalar_fn(nullptr) {
     DCHECK_NE(_fn.binary_type, TFunctionBinaryType::HIVE);
 }
 
@@ -72,9 +72,8 @@ Status ScalarFnCall::prepare(RuntimeState* state, const RowDescriptor& desc, Exp
     }
 
     _fn_context_index = context->register_func(state, return_type, arg_types, varargs_buffer_size);
-    // _scalar_fn = OpcodeRegistry::instance()->get_function_ptr(_opcode);
     Status status = Status::OK();
-    if (_scalar_fn == NULL) {
+    if (_scalar_fn == nullptr) {
         if (SymbolsUtil::is_mangled(_fn.scalar_fn.symbol)) {
             status = UserFunctionCache::instance()->get_function_ptr(
                     _fn.id, _fn.scalar_fn.symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn,
@@ -87,62 +86,12 @@ Status ScalarFnCall::prepare(RuntimeState* state, const RowDescriptor& desc, Exp
             // ColumnType ret_type(INVALID_TYPE);
             // ret_type = ColumnType(thrift_to_type(_fn.ret_type));
             std::string symbol = SymbolsUtil::mangle_user_function(_fn.scalar_fn.symbol, arg_types,
-                                                                   _fn.has_var_args, NULL);
+                                                                   _fn.has_var_args, nullptr);
+
             status = UserFunctionCache::instance()->get_function_ptr(
                     _fn.id, symbol, _fn.hdfs_location, _fn.checksum, &_scalar_fn, &_cache_entry);
         }
     }
-#if 0
-    // If the codegen object hasn't been created yet and we're calling a builtin or native
-    // UDF with <= 8 non-variadic arguments, we can use the interpreted path and call the
-    // builtin without codegen. This saves us the overhead of creating the codegen object
-    // when it's not necessary (i.e., in plan fragments with no codegen-enabled operators).
-    // In addition, we can never codegen char arguments.
-    // TODO: codegen for char arguments
-    if (char_arg || (!state->codegen_created() && num_fixed_args() <= 8 &&
-                     (_fn.binary_type == TFunctionBinaryType::BUILTIN ||
-                      _fn.binary_type == TFunctionBinaryType::NATIVE))) {
-        // Builtins with char arguments must still have <= 8 arguments.
-        // TODO: delete when we have codegen for char arguments
-        if (char_arg) {
-            DCHECK(num_fixed_args() <= 8 && _fn.binary_type == TFunctionBinaryType::BUILTIN);
-        }
-        Status status = UserFunctionCache::instance()->GetSoFunctionPtr(
-            _fn.hdfs_location, _fn.scalar_fn.symbol, &_scalar_fn, &cache_entry_);
-        if (!status.ok()) {
-            if (_fn.binary_type == TFunctionBinaryType::BUILTIN) {
-                // Builtins symbols should exist unless there is a version mismatch.
-                status.SetErrorMsg(ErrorMsg(TErrorCode::MISSING_BUILTIN,
-                                            _fn.name.function_name, _fn.scalar_fn.symbol));
-                return status;
-            } else {
-                DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::NATIVE);
-                return Status::InternalError(strings::Substitute("Problem loading UDF '$0':\n$1",
-                                         _fn.name.function_name, status.GetDetail()));
-                return status;
-            }
-        }
-    } else {
-        // If we got here, either codegen is enabled or we need codegen to run this function.
-        LlvmCodeGen* codegen;
-        RETURN_IF_ERROR(state->GetCodegen(&codegen));
-
-        if (_fn.binary_type == TFunctionBinaryType::IR) {
-            std::string local_path;
-            RETURN_IF_ERROR(UserFunctionCache::instance()->GetLocalLibPath(
-                    _fn.hdfs_location, UserFunctionCache::TYPE_IR, &local_path));
-            // Link the UDF module into this query's main module (essentially copy the UDF
-            // module into the main module) so the UDF's functions are available in the main
-            // module.
-            RETURN_IF_ERROR(codegen->LinkModule(local_path));
-        }
-
-        Function* ir_udf_wrapper;
-        RETURN_IF_ERROR(GetCodegendComputeFn(state, &ir_udf_wrapper));
-        // TODO: don't do this for child exprs
-        codegen->AddFunctionToJit(ir_udf_wrapper, &_scalar_fn_wrapper);
-    }
-#endif
     if (_fn.scalar_fn.__isset.prepare_fn_symbol) {
         RETURN_IF_ERROR(get_function(state, _fn.scalar_fn.prepare_fn_symbol,
                                      reinterpret_cast<void**>(&_prepare_fn)));
@@ -160,10 +109,10 @@ Status ScalarFnCall::open(RuntimeState* state, ExprContext* ctx,
     // Opens and inits children
     RETURN_IF_ERROR(Expr::open(state, ctx, scope));
     FunctionContext* fn_ctx = ctx->fn_context(_fn_context_index);
-    if (_scalar_fn != NULL) {
+    if (_scalar_fn != nullptr) {
         // We're in the interpreted path (i.e. no JIT). Populate our FunctionContext's
         // staging_input_vals, which will be reused across calls to _scalar_fn.
-        DCHECK(_scalar_fn_wrapper == NULL);
+        DCHECK(_scalar_fn_wrapper == nullptr);
         ObjectPool* obj_pool = state->obj_pool();
         std::vector<AnyVal*>* input_vals = fn_ctx->impl()->staging_input_vals();
         for (int i = 0; i < num_fixed_args(); ++i) {
@@ -185,7 +134,7 @@ Status ScalarFnCall::open(RuntimeState* state, ExprContext* ctx,
         fn_ctx->impl()->set_constant_args(constant_args);
     }
 
-    if (_prepare_fn != NULL) {
+    if (_prepare_fn != nullptr) {
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
             _prepare_fn(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
             if (fn_ctx->has_error()) {
@@ -205,7 +154,7 @@ Status ScalarFnCall::open(RuntimeState* state, ExprContext* ctx,
     if (_fn.name.function_name == "round" && _type.type == TYPE_DOUBLE) {
         DCHECK_EQ(_children.size(), 2);
         if (_children[1]->is_constant()) {
-            IntVal scale_arg = _children[1]->get_int_val(ctx, NULL);
+            IntVal scale_arg = _children[1]->get_int_val(ctx, nullptr);
             _output_scale = scale_arg.val;
         }
     }
@@ -215,7 +164,7 @@ Status ScalarFnCall::open(RuntimeState* state, ExprContext* ctx,
 
 void ScalarFnCall::close(RuntimeState* state, ExprContext* context,
                          FunctionContext::FunctionStateScope scope) {
-    if (_fn_context_index != -1 && _close_fn != NULL) {
+    if (_fn_context_index != -1 && _close_fn != nullptr) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
         _close_fn(fn_ctx, FunctionContext::THREAD_LOCAL);
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
@@ -238,21 +187,6 @@ Status ScalarFnCall::get_function(RuntimeState* state, const std::string& symbol
         _fn.binary_type == TFunctionBinaryType::HIVE) {
         return UserFunctionCache::instance()->get_function_ptr(_fn.id, symbol, _fn.hdfs_location,
                                                                _fn.checksum, fn, &_cache_entry);
-    } else {
-#if 0
-        DCHECK_EQ(_fn.binary_type, TFunctionBinaryType::IR);
-        LlvmCodeGen* codegen;
-        RETURN_IF_ERROR(state->GetCodegen(&codegen));
-        Function* ir_fn = codegen->module()->getFunction(symbol);
-        if (ir_fn == NULL) {
-            std::stringstream ss;
-            ss << "Unable to locate function " << symbol
-                << " from LLVM module " << _fn.hdfs_location;
-            return Status::InternalError(ss.str());
-        }
-        codegen->AddFunctionToJit(ir_fn, fn);
-        return Status::OK()();
-#endif
     }
     return Status::OK();
 }
@@ -264,7 +198,7 @@ void ScalarFnCall::evaluate_children(ExprContext* context, TupleRow* row,
     uint8_t* varargs_buffer = fn_ctx->impl()->varargs_buffer();
     for (int i = 0; i < _children.size(); ++i) {
         void* src_slot = context->get_value(_children[i], row);
-        AnyVal* dst_val = NULL;
+        AnyVal* dst_val = nullptr;
         if (_vararg_start_idx == -1 || i < _vararg_start_idx) {
             dst_val = (*input_vals)[i];
         } else {
@@ -277,7 +211,7 @@ void ScalarFnCall::evaluate_children(ExprContext* context, TupleRow* row,
 
 template <typename RETURN_TYPE>
 RETURN_TYPE ScalarFnCall::interpret_eval(ExprContext* context, TupleRow* row) {
-    DCHECK(_scalar_fn != NULL);
+    DCHECK(_scalar_fn != nullptr);
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
     std::vector<AnyVal*>* input_vals = fn_ctx->impl()->staging_input_vals();
 
@@ -427,8 +361,8 @@ typedef CollectionVal (*ArrayWrapper)(ExprContext*, TupleRow*);
 // TODO: macroify this?
 BooleanVal ScalarFnCall::get_boolean_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_BOOLEAN);
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<BooleanVal>(context, row);
     }
     BooleanWrapper fn = reinterpret_cast<BooleanWrapper>(_scalar_fn_wrapper);
@@ -437,8 +371,8 @@ BooleanVal ScalarFnCall::get_boolean_val(ExprContext* context, TupleRow* row) {
 
 TinyIntVal ScalarFnCall::get_tiny_int_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_TINYINT);
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<TinyIntVal>(context, row);
     }
     TinyIntWrapper fn = reinterpret_cast<TinyIntWrapper>(_scalar_fn_wrapper);
@@ -447,8 +381,8 @@ TinyIntVal ScalarFnCall::get_tiny_int_val(ExprContext* context, TupleRow* row) {
 
 SmallIntVal ScalarFnCall::get_small_int_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_SMALLINT);
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<SmallIntVal>(context, row);
     }
     SmallIntWrapper fn = reinterpret_cast<SmallIntWrapper>(_scalar_fn_wrapper);
@@ -457,8 +391,8 @@ SmallIntVal ScalarFnCall::get_small_int_val(ExprContext* context, TupleRow* row)
 
 IntVal ScalarFnCall::get_int_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_INT);
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<IntVal>(context, row);
     }
     IntWrapper fn = reinterpret_cast<IntWrapper>(_scalar_fn_wrapper);
@@ -467,8 +401,8 @@ IntVal ScalarFnCall::get_int_val(ExprContext* context, TupleRow* row) {
 
 BigIntVal ScalarFnCall::get_big_int_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_BIGINT);
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<BigIntVal>(context, row);
     }
     BigIntWrapper fn = reinterpret_cast<BigIntWrapper>(_scalar_fn_wrapper);
@@ -477,8 +411,8 @@ BigIntVal ScalarFnCall::get_big_int_val(ExprContext* context, TupleRow* row) {
 
 LargeIntVal ScalarFnCall::get_large_int_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_LARGEINT);
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<LargeIntVal>(context, row);
     }
     LargeIntWrapper fn = reinterpret_cast<LargeIntWrapper>(_scalar_fn_wrapper);
@@ -487,8 +421,8 @@ LargeIntVal ScalarFnCall::get_large_int_val(ExprContext* context, TupleRow* row)
 
 FloatVal ScalarFnCall::get_float_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_FLOAT);
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<FloatVal>(context, row);
     }
     FloatWrapper fn = reinterpret_cast<FloatWrapper>(_scalar_fn_wrapper);
@@ -497,8 +431,8 @@ FloatVal ScalarFnCall::get_float_val(ExprContext* context, TupleRow* row) {
 
 DoubleVal ScalarFnCall::get_double_val(ExprContext* context, TupleRow* row) {
     DCHECK(_type.type == TYPE_DOUBLE || _type.type == TYPE_TIME);
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<DoubleVal>(context, row);
     }
 
@@ -508,8 +442,8 @@ DoubleVal ScalarFnCall::get_double_val(ExprContext* context, TupleRow* row) {
 
 StringVal ScalarFnCall::get_string_val(ExprContext* context, TupleRow* row) {
     DCHECK(_type.is_string_type());
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<StringVal>(context, row);
     }
     StringWrapper fn = reinterpret_cast<StringWrapper>(_scalar_fn_wrapper);
@@ -518,8 +452,8 @@ StringVal ScalarFnCall::get_string_val(ExprContext* context, TupleRow* row) {
 
 DateTimeVal ScalarFnCall::get_datetime_val(ExprContext* context, TupleRow* row) {
     DCHECK(_type.is_date_type());
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<DateTimeVal>(context, row);
     }
     DatetimeWrapper fn = reinterpret_cast<DatetimeWrapper>(_scalar_fn_wrapper);
@@ -528,8 +462,8 @@ DateTimeVal ScalarFnCall::get_datetime_val(ExprContext* context, TupleRow* row) 
 
 DecimalV2Val ScalarFnCall::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_DECIMALV2);
-    DCHECK(context != NULL);
-    if (_scalar_fn_wrapper == NULL) {
+    DCHECK(context != nullptr);
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<DecimalV2Val>(context, row);
     }
     DecimalV2Wrapper fn = reinterpret_cast<DecimalV2Wrapper>(_scalar_fn_wrapper);
@@ -538,9 +472,9 @@ DecimalV2Val ScalarFnCall::get_decimalv2_val(ExprContext* context, TupleRow* row
 
 CollectionVal ScalarFnCall::get_array_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_ARRAY);
-    DCHECK(context != NULL);
+    DCHECK(context != nullptr);
 
-    if (_scalar_fn_wrapper == NULL) {
+    if (_scalar_fn_wrapper == nullptr) {
         return interpret_eval<CollectionVal>(context, row);
     }
 

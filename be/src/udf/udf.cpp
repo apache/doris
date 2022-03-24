@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include "common/logging.h"
+#include "gen_cpp/types.pb.h"
 #include "olap/hll.h"
 #include "runtime/decimalv2_value.h"
 
@@ -50,7 +51,7 @@ public:
         return reinterpret_cast<uint8_t*>(realloc(ptr, byte_size));
     }
 
-    void free(uint8_t* ptr) { free(ptr); }
+    void free(uint8_t* ptr) { ::free(ptr); }
 };
 
 class RuntimeState {
@@ -81,8 +82,8 @@ FunctionContextImpl::FunctionContextImpl(doris_udf::FunctionContext* parent)
           _num_updates(0),
           _num_removes(0),
           _context(parent),
-          _pool(NULL),
-          _state(NULL),
+          _pool(nullptr),
+          _state(nullptr),
           _debug(false),
           _version(doris_udf::FunctionContext::V2_0),
           _num_warnings(0),
@@ -108,7 +109,7 @@ void FunctionContextImpl::close() {
     }
 
     free(_varargs_buffer);
-    _varargs_buffer = NULL;
+    _varargs_buffer = nullptr;
 
     _closed = true;
 }
@@ -129,6 +130,11 @@ void FunctionContextImpl::free_local_allocations() {
 
 void FunctionContextImpl::set_constant_args(const std::vector<doris_udf::AnyVal*>& constant_args) {
     _constant_args = constant_args;
+}
+
+void FunctionContextImpl::set_constant_cols(
+        const std::vector<doris::ColumnPtrWrapper*>& constant_cols) {
+    _constant_cols = constant_cols;
 }
 
 bool FunctionContextImpl::check_allocations_empty() {
@@ -187,9 +193,24 @@ FunctionContext* FunctionContextImpl::clone(MemPool* pool) {
             create_context(_state, pool, _intermediate_type, _return_type, _arg_types,
                            _varargs_buffer_size, _debug);
     new_context->_impl->_constant_args = _constant_args;
+    new_context->_impl->_constant_cols = _constant_cols;
     new_context->_impl->_fragment_local_fn_state = _fragment_local_fn_state;
     return new_context;
 }
+
+// TODO: to be implemented
+void FunctionContextImpl::serialize(PFunctionContext* pcontext) const {
+    // pcontext->set_string_result(_string_result);
+    // pcontext->set_num_updates(_num_updates);
+    // pcontext->set_num_removes(_num_removes);
+    // pcontext->set_num_warnings(_num_warnings);
+    // pcontext->set_error_msg(_error_msg);
+    // PUniqueId* query_id = pcontext->mutable_query_id();
+    // query_id->set_hi(_context->query_id().hi);
+    // query_id->set_lo(_context->query_id().lo);
+}
+
+void FunctionContextImpl::derialize(const PFunctionContext& pcontext) {}
 
 } // namespace doris
 
@@ -199,8 +220,8 @@ static const int MAX_WARNINGS = 1000;
 FunctionContext* FunctionContext::create_test_context() {
     FunctionContext* context = new FunctionContext();
     context->impl()->_debug = true;
-    context->impl()->_state = NULL;
-    context->impl()->_pool = new doris::FreePool(NULL);
+    context->impl()->_state = nullptr;
+    context->impl()->_pool = new doris::FreePool(nullptr);
     return context;
 }
 
@@ -220,8 +241,8 @@ FunctionContext::DorisVersion FunctionContext::version() const {
 }
 
 const char* FunctionContext::user() const {
-    if (_impl->_state == NULL) {
-        return NULL;
+    if (_impl->_state == nullptr) {
+        return nullptr;
     }
 
     return _impl->_state->user().c_str();
@@ -269,7 +290,7 @@ uint8_t* FunctionContext::reallocate(uint8_t* ptr, int byte_size) {
 }
 
 void FunctionContext::free(uint8_t* buffer) {
-    if (buffer == NULL) {
+    if (buffer == nullptr) {
         return;
     }
 
@@ -338,7 +359,7 @@ bool FunctionContext::add_warning(const char* warning_msg) {
     std::stringstream ss;
     ss << "UDF WARNING: " << warning_msg;
 
-    if (_impl->_state != NULL) {
+    if (_impl->_state != nullptr) {
         return _impl->_state->log_error(ss.str());
     } else {
         std::cerr << ss.str() << std::endl;
@@ -369,7 +390,7 @@ bool StringVal::resize(FunctionContext* ctx, int64_t new_len) {
     return false;
 }
 
-StringVal StringVal::copy_from(FunctionContext* ctx, const uint8_t* buf, size_t len) {
+StringVal StringVal::copy_from(FunctionContext* ctx, const uint8_t* buf, int64_t len) {
     StringVal result(ctx, len);
     if (!result.is_null) {
         memcpy(result.ptr, buf, len);
@@ -382,13 +403,13 @@ StringVal StringVal::create_temp_string_val(FunctionContext* ctx, int64_t len) {
     return StringVal((uint8_t*)ctx->impl()->string_result().c_str(), len);
 }
 
-void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len) {
+void StringVal::append(FunctionContext* ctx, const uint8_t* buf, int64_t buf_len) {
     if (UNLIKELY(len + buf_len > StringVal::MAX_LENGTH)) {
         ctx->set_error(
                 "Concatenated string length larger than allowed limit of "
                 "1 GB character data.");
         ctx->free(ptr);
-        ptr = NULL;
+        ptr = nullptr;
         len = 0;
         is_null = true;
     } else {
@@ -398,14 +419,14 @@ void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len)
     }
 }
 
-void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len,
-                       const uint8_t* buf2, size_t buf2_len) {
+void StringVal::append(FunctionContext* ctx, const uint8_t* buf, int64_t buf_len,
+                       const uint8_t* buf2, int64_t buf2_len) {
     if (UNLIKELY(len + buf_len + buf2_len > StringVal::MAX_LENGTH)) {
         ctx->set_error(
                 "Concatenated string length larger than allowed limit of "
                 "1 GB character data.");
         ctx->free(ptr);
-        ptr = NULL;
+        ptr = nullptr;
         len = 0;
         is_null = true;
     } else {
@@ -418,7 +439,7 @@ void StringVal::append(FunctionContext* ctx, const uint8_t* buf, size_t buf_len,
 
 const FunctionContext::TypeDesc* FunctionContext::get_arg_type(int arg_idx) const {
     if (arg_idx < 0 || arg_idx >= _impl->_arg_types.size()) {
-        return NULL;
+        return nullptr;
     }
     return &_impl->_arg_types[arg_idx];
 }
@@ -487,4 +508,61 @@ void HllVal::agg_merge(const HllVal& other) {
     }
 }
 
+bool FunctionContext::is_arg_constant(int i) const {
+    if (i < 0 || i >= _impl->_constant_args.size()) {
+        return false;
+    }
+    return _impl->_constant_args[i] != nullptr;
+}
+
+bool FunctionContext::is_col_constant(int i) const {
+    if (i < 0 || i >= _impl->_constant_cols.size()) {
+        return false;
+    }
+    return _impl->_constant_cols[i] != nullptr;
+}
+
+AnyVal* FunctionContext::get_constant_arg(int i) const {
+    if (i < 0 || i >= _impl->_constant_args.size()) {
+        return nullptr;
+    }
+    return _impl->_constant_args[i];
+}
+
+doris::ColumnPtrWrapper* FunctionContext::get_constant_col(int i) const {
+    if (i < 0 || i >= _impl->_constant_cols.size()) {
+        return nullptr;
+    }
+    return _impl->_constant_cols[i];
+}
+
+int FunctionContext::get_num_args() const {
+    return _impl->_arg_types.size();
+}
+
+int FunctionContext::get_num_constant_args() const {
+    return _impl->_constant_args.size();
+}
+
+const FunctionContext::TypeDesc& FunctionContext::get_return_type() const {
+    return _impl->_return_type;
+}
+
+void* FunctionContext::get_function_state(FunctionStateScope scope) const {
+    // assert(!_impl->_closed);
+    switch (scope) {
+    case THREAD_LOCAL:
+        return _impl->_thread_local_fn_state;
+        break;
+    case FRAGMENT_LOCAL:
+        return _impl->_fragment_local_fn_state;
+        break;
+    default:
+        // TODO: signal error somehow
+        return nullptr;
+    }
+}
+std::ostream& operator<<(std::ostream& os, const StringVal& string_val) {
+    return os << string_val.to_string();
+}
 } // namespace doris_udf

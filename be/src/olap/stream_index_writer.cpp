@@ -109,7 +109,7 @@ PositionEntryWriter* StreamIndexWriter::mutable_entry(uint32_t index) {
         return &_index_to_write[index];
     }
 
-    return NULL;
+    return nullptr;
 }
 
 size_t StreamIndexWriter::entry_size() {
@@ -136,8 +136,8 @@ size_t StreamIndexWriter::output_size() {
 }
 
 OLAPStatus StreamIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) {
-    if (NULL == buffer) {
-        OLAP_LOG_WARNING("given buffer is NULL");
+    if (nullptr == buffer) {
+        OLAP_LOG_WARNING("given buffer is null");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -162,7 +162,7 @@ OLAPStatus StreamIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) 
 
     _header.block_count = _index_to_write.size();
     VLOG_TRACE << "header info. pos: " << _header.position_format
-             << ", stat:" << _header.statistic_format << ", entry_size:" << entry_size;
+               << ", stat:" << _header.statistic_format << ", entry_size:" << entry_size;
     memcpy(buffer, reinterpret_cast<char*>(&_header), sizeof(_header));
     // set offset, write data
     char* write_offset = buffer + sizeof(_header);

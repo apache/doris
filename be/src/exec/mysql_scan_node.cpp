@@ -48,15 +48,15 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
         return Status::OK();
     }
 
-    if (NULL == state) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
-    if (NULL == _tuple_desc) {
+    if (nullptr == _tuple_desc) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
@@ -65,8 +65,8 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
     const MySQLTableDescriptor* mysql_table =
             static_cast<const MySQLTableDescriptor*>(_tuple_desc->table_desc());
 
-    if (NULL == mysql_table) {
-        return Status::InternalError("mysql table pointer is NULL.");
+    if (nullptr == mysql_table) {
+        return Status::InternalError("mysql table pointer is nullptr.");
     }
 
     _my_param.host = mysql_table->host();
@@ -77,19 +77,19 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
     // new one scanner
     _mysql_scanner.reset(new (std::nothrow) MysqlScanner(_my_param));
 
-    if (_mysql_scanner.get() == NULL) {
+    if (_mysql_scanner.get() == nullptr) {
         return Status::InternalError("new a mysql scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool("MysqlScanNode"));
 
-    if (_tuple_pool.get() == NULL) {
+    if (_tuple_pool.get() == nullptr) {
         return Status::InternalError("new a mem pool failed.");
     }
 
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 
-    if (_text_converter.get() == NULL) {
+    if (_text_converter.get() == nullptr) {
         return Status::InternalError("new a text convertor failed.");
     }
 
@@ -102,8 +102,8 @@ Status MysqlScanNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::open(state));
     VLOG_CRITICAL << "MysqlScanNode::Open";
 
-    if (NULL == state) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
     }
 
     if (!_is_init) {
@@ -148,8 +148,8 @@ Status MysqlScanNode::write_text_slot(char* value, int value_length, SlotDescrip
 Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     VLOG_CRITICAL << "MysqlScanNode::GetNext";
 
-    if (NULL == state || NULL == row_batch || NULL == eos) {
-        return Status::InternalError("input is NULL pointer");
+    if (nullptr == state || nullptr == row_batch || nullptr == eos) {
+        return Status::InternalError("input is nullptr pointer");
     }
 
     if (!_is_init) {
@@ -164,7 +164,7 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
     int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();
     void* tuple_buffer = _tuple_pool->allocate(tuple_buffer_size);
 
-    if (NULL == tuple_buffer) {
+    if (nullptr == tuple_buffer) {
         return Status::InternalError("Allocate memory failed.");
     }
 
@@ -183,8 +183,8 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
         }
 
         // read mysql
-        char** data = NULL;
-        unsigned long* length = NULL;
+        char** data = nullptr;
+        unsigned long* length = nullptr;
         RETURN_IF_ERROR(_mysql_scanner->get_next_row(&data, &length, &mysql_eos));
 
         if (mysql_eos) {
@@ -212,7 +212,7 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
                     _tuple->set_null(slot_desc->null_indicator_offset());
                 } else {
                     std::stringstream ss;
-                    ss << "nonnull column contains NULL. table=" << _table_name
+                    ss << "nonnull column contains nullptr. table=" << _table_name
                        << ", column=" << slot_desc->col_name();
                     return Status::InternalError(ss.str());
                 }

@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
 #define DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "common/status.h"
@@ -72,7 +71,7 @@ class Tuple;
 // directly followed by the var len portion. (Fixed len and var len are interleaved).
 // If any tuple in the row is nullable, then there is a bitstring of null tuple
 // indicators at the header of the block. The order of bits in the null indicators
-// bitstring corresponds to the order of tuples in the block. The NULL tuples are not
+// bitstring corresponds to the order of tuples in the block. The nullptr tuples are not
 // stored in the body of the block, only as set bits in the null indicators bitsting.
 //
 // The behavior of reads and writes is as follows:
@@ -104,7 +103,7 @@ class Tuple;
 //     from the end of the same block. Don't interleave fixed and var len data.
 //   - It would be good to allocate the null indicators at the end of each block and grow
 //     this array as new rows are inserted in the block. If we do so, then there will be
-//     fewer gaps in case of many rows with NULL tuples.
+//     fewer gaps in case of many rows with nullptr tuples.
 //   - We will want to multithread this. Add a AddBlock() call so the synchronization
 //     happens at the block level. This is a natural extension.
 //   - Instead of allocating all blocks from the block_mgr, allocate some blocks that
@@ -171,7 +170,7 @@ public:
     // Initializes the tuple stream object on behalf of node 'node_id'. Must be called
     // once before any of the other APIs.
     // If 'pinned' is true, the tuple stream starts of pinned, otherwise it is unpinned.
-    // If 'profile' is non-NULL, counters are created.
+    // If 'profile' is non-nullptr, counters are created.
     // 'node_id' is only used for error reporting.
     Status init(int node_id, RuntimeProfile* profile, bool pinned);
 
@@ -186,8 +185,8 @@ public:
     bool add_row(TupleRow* row, Status* status);
 
     // Allocates space to store a row of size 'size' and returns a pointer to the memory
-    // when successful. Returns NULL if there is not enough memory or an error occurred.
-    // When returning NULL, sets *status. The returned memory is guaranteed to fit on one
+    // when successful. Returns nullptr if there is not enough memory or an error occurred.
+    // When returning nullptr, sets *status. The returned memory is guaranteed to fit on one
     // block.
     uint8_t* allocate_row(int size, Status* status);
 
@@ -199,10 +198,10 @@ public:
     // begin reading. Otherwise this must be called after the last AddRow() and
     // before get_next().
     // delete_on_read: Blocks are deleted after they are read.
-    // If got_buffer is NULL, this function will fail (with a bad status) if no buffer
+    // If got_buffer is nullptr, this function will fail (with a bad status) if no buffer
     // is available. If got_buffer is non-null, this function will not fail on OOM and
     // *got_buffer is true if a buffer was pinned.
-    Status prepare_for_read(bool delete_on_read, bool* got_buffer = NULL);
+    Status prepare_for_read(bool delete_on_read, bool* got_buffer = nullptr);
 
     // Pins all blocks in this stream and switches to pinned mode.
     // If there is not enough memory, *pinned is set to false and the stream is unmodified.
@@ -216,14 +215,14 @@ public:
 
     // Get the next batch of output rows. Memory is still owned by the BufferedTupleStream2
     // and must be copied out by the caller.
-    // If 'indices' is non-NULL, that is also populated for each returned row with the
+    // If 'indices' is non-nullptr, that is also populated for each returned row with the
     // index for that row.
-    Status get_next(RowBatch* batch, bool* eos, std::vector<RowIdx>* indices = NULL);
+    Status get_next(RowBatch* batch, bool* eos, std::vector<RowIdx>* indices = nullptr);
 
     // Returns all the rows in the stream in batch. This pins the entire stream
     // in the process.
     // *got_rows is false if the stream could not be pinned.
-    Status get_rows(boost::scoped_ptr<RowBatch>* batch, bool* got_rows);
+    Status get_rows(std::unique_ptr<RowBatch>* batch, bool* got_rows);
 
     // Must be called once at the end to cleanup all resources. Idempotent.
     void close();
@@ -245,7 +244,7 @@ public:
     int blocks_pinned() const { return _num_pinned; }
     int blocks_unpinned() const { return _blocks.size() - _num_pinned - _num_small_blocks; }
     bool has_read_block() const { return _read_block != _blocks.end(); }
-    bool has_write_block() const { return _write_block != NULL; }
+    bool has_write_block() const { return _write_block != nullptr; }
     bool using_small_buffers() const { return _use_small_buffers; }
     bool has_tuple_footprint() const {
         return _fixed_tuple_row_size > 0 || !_string_slots.empty() || _nullable_tuple;
@@ -330,7 +329,7 @@ private:
     // The block index of the current read block.
     int _read_block_idx;
 
-    // The current block for writing. NULL if there is no available block to write to.
+    // The current block for writing. nullptr if there is no available block to write to.
     BufferedBlockMgr2::Block* _write_block;
 
     // Number of pinned blocks in _blocks, stored to avoid iterating over the list

@@ -57,23 +57,28 @@ Explain:
 4) Node offline operations are used to secure offline nodes. This operation is asynchronous. If successful, the node will eventually be removed from the metadata. If it fails, the offline will not be completed.
 5) The offline operation of the node can be cancelled manually. See CANCEL DECOMMISSION for details
 6) Load error hub:
-Currently, two types of Hub are supported: Mysql and Broker. You need to specify "type" = "mysql" or "type" = "broker" in PROPERTIES.
-If you need to delete the current load error hub, you can set type to null.
-1) When using the Mysql type, the error information generated when importing will be inserted into the specified MySQL library table, and then the error information can be viewed directly through the show load warnings statement.
+   Currently, two types of Hub are supported: Mysql and Broker. You need to specify "type" = "mysql" or "type" = "broker" in PROPERTIES.
+   If you need to delete the current load error hub, you can set type to null.
+   1) When using the Mysql type, the error information generated when importing will be inserted into the specified MySQL library table, and then the error information can be viewed directly through the show load warnings statement.
 
-Hub of Mysql type needs to specify the following parameters:
-host: mysql host
-port: mysql port
-user: mysql user
-password: mysql password
-database mysql database
-table: mysql table
+     Hub of Mysql type needs to specify the following parameters:
+     host: mysql host
+     port: mysql port
+     user: mysql user
+     password: mysql password
+     database mysql database
+     table: mysql table
 
-2) When the Broker type is used, the error information generated when importing will form a file and be written to the designated remote storage system through the broker. Make sure that the corresponding broker is deployed
-Hub of Broker type needs to specify the following parameters:
-Broker: Name of broker
-Path: Remote Storage Path
-Other properties: Other information necessary to access remote storage, such as authentication information.
+   2) When the Broker type is used, the error information generated when importing will form a file and be written to the designated remote storage system through the broker. Make sure that the corresponding broker is deployed
+     Hub of Broker type needs to specify the following parameters:
+     Broker: Name of broker
+     Path: Remote Storage Path
+     Other properties: Other information necessary to access remote storage, such as authentication information.
+
+7) Modify BE node attributes currently supports the following attributes:
+   1. tag.location：Resource tag
+   2. disable_query: Query disabled attribute
+   3. disable_load: Load disabled attribute
 
 ## example
 
@@ -120,6 +125,14 @@ ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
 9. Modify BE resource tag
 
 ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
+
+10. Modify the query disabled attribute of BE
+
+ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_query" = "true");
+
+11. Modify the load disabled attribute of BE
+       
+ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_load" = "true"); 
 
 ## keyword
 AGE,SYSTEM,BACKGROUND,BROKER,FREE

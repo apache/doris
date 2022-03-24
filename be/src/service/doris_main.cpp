@@ -19,12 +19,16 @@
 #include <sys/file.h>
 #include <unistd.h>
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread/recursive_mutex.hpp>
-#include <boost/thread/thread.hpp>
 #include <condition_variable>
+#include <cstring>
+#include <errno.h>
 #include <mutex>
+#include <setjmp.h>
+#include <thread>
+#include <unistd.h>
 #include <unordered_map>
+
+#include "util/jni-util.h"
 
 #if defined(LEAK_SANITIZER)
 #include <sanitizer/lsan_interface.h>
@@ -35,17 +39,20 @@
 #include <thrift/TOutput.h>
 
 #include "agent/heartbeat_server.h"
-#include "agent/status.h"
 #include "agent/topic_subscriber.h"
 #include "common/config.h"
 #include "common/daemon.h"
 #include "common/logging.h"
 #include "common/resource_tls.h"
+#include "common/signal_handler.h"
 #include "common/status.h"
+#include "common/utils.h"
+#include "env/env.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
+#include "runtime/minidump.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -56,6 +63,11 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
+
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER)
+#include "runtime/tcmalloc_hook.h"
+#endif
 
 static void help(const char*);
 
@@ -74,7 +86,203 @@ static void thrift_output(const char* x) {
 
 } // namespace doris
 
+// These code is referenced from clickhouse
+// It is used to check the SIMD instructions
+enum class InstructionFail {
+    NONE = 0,
+    SSE3 = 1,
+    SSSE3 = 2,
+    SSE4_1 = 3,
+    SSE4_2 = 4,
+    POPCNT = 5,
+    AVX = 6,
+    AVX2 = 7,
+    AVX512 = 8,
+    ARM_NEON = 9
+};
+
+auto instruction_fail_to_string(InstructionFail fail)
+{
+    switch (fail)
+    {
+#define ret(x) return std::make_tuple(STDERR_FILENO, x, ARRAY_SIZE(x) - 1)
+        case InstructionFail::NONE:
+            ret("NONE");
+        case InstructionFail::SSE3:
+            ret("SSE3");
+        case InstructionFail::SSSE3:
+            ret("SSSE3");
+        case InstructionFail::SSE4_1:
+            ret("SSE4.1");
+        case InstructionFail::SSE4_2:
+            ret("SSE4.2");
+        case InstructionFail::POPCNT:
+            ret("POPCNT");
+        case InstructionFail::AVX:
+            ret("AVX");
+        case InstructionFail::AVX2:
+            ret("AVX2");
+        case InstructionFail::AVX512:
+            ret("AVX512");
+        case InstructionFail::ARM_NEON:
+            ret("ARM_NEON");
+    }
+    __builtin_unreachable();
+}
+
+
+sigjmp_buf jmpbuf;
+
+void sig_ill_check_handler(int, siginfo_t *, void *)
+{
+    siglongjmp(jmpbuf, 1);
+}
+
+/// Check if necessary SSE extensions are available by trying to execute some sse instructions.
+/// If instruction is unavailable, SIGILL will be sent by kernel.
+void check_required_instructions_impl(volatile InstructionFail & fail)
+{
+#if defined(__SSE3__)
+    fail = InstructionFail::SSE3;
+    __asm__ volatile ("addsubpd %%xmm0, %%xmm0" : : : "xmm0");
+#endif
+
+#if defined(__SSSE3__)
+    fail = InstructionFail::SSSE3;
+    __asm__ volatile ("pabsw %%xmm0, %%xmm0" : : : "xmm0");
+
+#endif
+
+#if defined(__SSE4_1__)
+    fail = InstructionFail::SSE4_1;
+    __asm__ volatile ("pmaxud %%xmm0, %%xmm0" : : : "xmm0");
+#endif
+
+#if defined(__SSE4_2__)
+    fail = InstructionFail::SSE4_2;
+    __asm__ volatile ("pcmpgtq %%xmm0, %%xmm0" : : : "xmm0");
+#endif
+
+    /// Defined by -msse4.2
+#if defined(__POPCNT__)
+    fail = InstructionFail::POPCNT;
+    {
+        uint64_t a = 0;
+        uint64_t b = 0;
+        __asm__ volatile ("popcnt %1, %0" : "=r"(a) :"r"(b) :);
+    }
+#endif
+
+#if defined(__AVX__)
+    fail = InstructionFail::AVX;
+    __asm__ volatile ("vaddpd %%ymm0, %%ymm0, %%ymm0" : : : "ymm0");
+#endif
+
+#if defined(__AVX2__)
+    fail = InstructionFail::AVX2;
+    __asm__ volatile ("vpabsw %%ymm0, %%ymm0" : : : "ymm0");
+#endif
+
+#if defined(__AVX512__)
+    fail = InstructionFail::AVX512;
+    __asm__ volatile ("vpabsw %%zmm0, %%zmm0" : : : "zmm0");
+#endif
+
+#if defined(__ARM_NEON__)
+    fail = InstructionFail::ARM_NEON;
+    __asm__ volatile ("vadd.i32  q8, q8, q8" : : : "q8");
+#endif
+
+    fail = InstructionFail::NONE;
+}
+
+bool write_retry(int fd, const char * data, size_t size)
+{
+    if (!size)
+        size = strlen(data);
+
+    while (size != 0)
+    {
+        ssize_t res = ::write(fd, data, size);
+
+        if ((-1 == res || 0 == res) && errno != EINTR)
+            return false;
+
+        if (res > 0)
+        {
+            data += res;
+            size -= res;
+        }
+    }
+
+    return true;
+}
+
+/// Macros to avoid using strlen(), since it may fail if SSE is not supported.
+#define WRITE_ERROR(data) do \
+    { \
+        static_assert(__builtin_constant_p(data)); \
+        if (!write_retry(STDERR_FILENO, data, ARRAY_SIZE(data) - 1)) \
+            _Exit(1); \
+    } while (false)
+
+/// Check SSE and others instructions availability. Calls exit on fail.
+/// This function must be called as early as possible, even before main, because static initializers may use unavailable instructions.
+void check_required_instructions()
+{
+    struct sigaction sa{};
+    struct sigaction sa_old{};
+    sa.sa_sigaction = sig_ill_check_handler;
+    sa.sa_flags = SA_SIGINFO;
+    auto signal = SIGILL;
+    if (sigemptyset(&sa.sa_mask) != 0
+        || sigaddset(&sa.sa_mask, signal) != 0
+        || sigaction(signal, &sa, &sa_old) != 0)
+    {
+        /// You may wonder about strlen.
+        /// Typical implementation of strlen is using SSE4.2 or AVX2.
+        /// But this is not the case because it's compiler builtin and is executed at compile time.
+
+        WRITE_ERROR("Can not set signal handler\n");
+        _Exit(1);
+    }
+
+    volatile InstructionFail fail = InstructionFail::NONE;
+
+    if (sigsetjmp(jmpbuf, 1))
+    {
+        WRITE_ERROR("Instruction check fail. The CPU does not support ");
+        if (!std::apply(write_retry, instruction_fail_to_string(fail)))
+            _Exit(1);
+        WRITE_ERROR(" instruction set.\n");
+        WRITE_ERROR("For example, if your CPU does not support AVX2, you need to rebuild the Doris BE with: USE_AVX2=0 sh build.sh --be");
+        _Exit(1);
+    }
+
+    check_required_instructions_impl(fail);
+
+    if (sigaction(signal, &sa_old, nullptr))
+    {
+        WRITE_ERROR("Can not set signal handler\n");
+        _Exit(1);
+    }
+}
+
+struct Checker
+{
+    Checker()
+    {
+        check_required_instructions();
+    }
+} checker
+#ifndef __APPLE__
+    __attribute__((init_priority(101)))    /// Run before other static initializers.
+#endif
+;
+
 int main(int argc, char** argv) {
+    doris::signal::InstallFailureSignalHandler();
+
     // check if print version or help
     if (argc > 1) {
         if (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0) {
@@ -132,7 +340,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+#if !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && \
+        !defined(THREAD_SANITIZER)
     // Aggressive decommit is required so that unused pages in the TCMalloc page heap are
     // not backed by physical pages and do not contribute towards memory consumption.
     MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit", 1);
@@ -143,7 +352,15 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
+    if (doris::config::track_new_delete) {
+        init_hook();
+    }
 #endif
+
+    if (!doris::Env::init()) {
+        LOG(FATAL) << "init env failed.";
+        exit(-1);
+    }
 
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
@@ -245,11 +462,11 @@ int main(int argc, char** argv) {
     // 4. heart beat server
     doris::TMasterInfo* master_info = exec_env->master_info();
     doris::ThriftServer* heartbeat_thrift_server;
-    doris::AgentStatus heartbeat_status = doris::create_heartbeat_server(
+    doris::Status heartbeat_status = doris::create_heartbeat_server(
             exec_env, doris::config::heartbeat_service_port, &heartbeat_thrift_server,
             doris::config::heartbeat_service_thread_count, master_info);
 
-    if (doris::AgentStatus::DORIS_SUCCESS != heartbeat_status) {
+    if (!heartbeat_status.ok()) {
         LOG(ERROR) << "Heartbeat services did not start correctly, exiting";
         doris::shutdown_logging();
         exit(1);
@@ -257,17 +474,44 @@ int main(int argc, char** argv) {
 
     status = heartbeat_thrift_server->start();
     if (!status.ok()) {
-        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting";
+        LOG(ERROR) << "Doris BE HeartBeat Service did not start correctly, exiting: " << status.get_error_msg();
         doris::shutdown_logging();
         exit(1);
     }
+
+    // 5. init minidump
+    doris::Minidump minidump;
+    status = minidump.init();
+    if (!status.ok()) {
+        LOG(ERROR) << "Failed to initialize minidump: " << status.get_error_msg();
+        doris::shutdown_logging();
+        exit(1);
+    }
+
+#ifdef LIBJVM
+    // 6. init jni
+    status = doris::JniUtil::Init();
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to initialize JNI: " << status.get_error_msg();
+        doris::shutdown_logging();
+        exit(1);
+    }
+#endif
 
     while (!doris::k_doris_exit) {
 #if defined(LEAK_SANITIZER)
         __lsan_do_leak_check();
 #endif
+
+#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
+        doris::MemInfo::refresh_current_mem();
+#endif
+         // TODO(zxy) 10s is too long to clear the expired task mem tracker.
+         // It should be actively triggered at the end of query/load.
+        doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(10);
     }
+
     http_service.stop();
     brpc_service.join();
     daemon.stop();
@@ -276,6 +520,7 @@ int main(int argc, char** argv) {
     be_server->stop();
     be_server->join();
     engine->stop();
+    minidump.stop();
 
     delete be_server;
     be_server = nullptr;
@@ -294,3 +539,4 @@ static void help(const char* progname) {
     printf("  -v, --version      output version information, then exit\n");
     printf("  -?, --help         show this help, then exit\n");
 }
+

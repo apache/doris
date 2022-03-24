@@ -108,9 +108,12 @@ public class InlineViewRef extends TableRef {
         // TODO(zc)
         // view_.getTableName().toString().toLowerCase(), view.getName().toLowerCase()
         if (view.isLocalView()) {
-            aliases_ = new String[] { view.getName() };
+            aliases_ = new String[]{view.getName()};
         } else {
-            aliases_ = new String[] { name.toString(), view.getName() };
+            aliases_ = new String[]{name.toString(), view.getName()};
+        }
+        if (origTblRef.getLateralViewRefs() != null) {
+            lateralViewRefs = (ArrayList<LateralViewRef>) origTblRef.getLateralViewRefs().clone();
         }
     }
 
@@ -222,6 +225,9 @@ public class InlineViewRef extends TableRef {
             LOG.debug("inline view " + getUniqueAlias() + " smap: " + sMap.debugString());
             LOG.debug("inline view " + getUniqueAlias() + " baseTblSmap: " + baseTblSmap.debugString());
         }
+
+        // anlayzeLateralViewRefs
+        analyzeLateralViewRef(analyzer);
 
         // Now do the remaining join analysis
         analyzeJoin(analyzer);
@@ -424,6 +430,10 @@ public class InlineViewRef extends TableRef {
 
     public View getView() {
         return view;
+    }
+
+    public QueryStmt getQueryStmt() {
+        return queryStmt;
     }
 
     @Override

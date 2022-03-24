@@ -20,16 +20,16 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
-#include <boost/thread.hpp>
 #include <mutex>
+#include <thread>
 
 #include "common/configbase.h"
 #include "test_util/test_util.h"
 #include "util/logging.h"
+#include "util/thread_group.h"
 
 using std::vector;
-using boost::thread;
-using boost::thread_group;
+using std::thread;
 
 namespace doris {
 
@@ -49,14 +49,14 @@ TEST(InternalQueue, TestBasic) {
     InternalQueue<IntNode> list;
     ASSERT_TRUE(list.empty());
     ASSERT_EQ(list.size(), 0);
-    ASSERT_TRUE(list.dequeue() == NULL);
+    ASSERT_TRUE(list.dequeue() == nullptr);
     ASSERT_TRUE(list.validate());
 
     list.enqueue(&one);
     ASSERT_TRUE(!list.empty());
     ASSERT_EQ(list.size(), 1);
     IntNode* i = list.dequeue();
-    ASSERT_TRUE(i != NULL);
+    ASSERT_TRUE(i != nullptr);
     ASSERT_TRUE(list.empty());
     ASSERT_EQ(list.size(), 0);
     ASSERT_EQ(i->value, 1);
@@ -70,22 +70,22 @@ TEST(InternalQueue, TestBasic) {
     ASSERT_TRUE(list.validate());
 
     i = list.dequeue();
-    ASSERT_TRUE(i != NULL);
+    ASSERT_TRUE(i != nullptr);
     ASSERT_EQ(i->value, 1);
     ASSERT_TRUE(list.validate());
 
     i = list.dequeue();
-    ASSERT_TRUE(i != NULL);
+    ASSERT_TRUE(i != nullptr);
     ASSERT_EQ(i->value, 2);
     ASSERT_TRUE(list.validate());
 
     i = list.dequeue();
-    ASSERT_TRUE(i != NULL);
+    ASSERT_TRUE(i != nullptr);
     ASSERT_EQ(i->value, 3);
     ASSERT_TRUE(list.validate());
 
     i = list.dequeue();
-    ASSERT_TRUE(i != NULL);
+    ASSERT_TRUE(i != nullptr);
     ASSERT_EQ(i->value, 4);
     ASSERT_TRUE(list.validate());
 
@@ -96,7 +96,7 @@ TEST(InternalQueue, TestBasic) {
 
     IntNode* node = list.head();
     int val = 1;
-    while (node != NULL) {
+    while (node != nullptr) {
         ASSERT_EQ(node->value, val);
         node = node->next();
         ++val;
@@ -104,7 +104,7 @@ TEST(InternalQueue, TestBasic) {
 
     node = list.tail();
     val = 4;
-    while (node != NULL) {
+    while (node != nullptr) {
         ASSERT_EQ(node->value, val);
         node = node->prev();
         --val;
@@ -112,11 +112,11 @@ TEST(InternalQueue, TestBasic) {
 
     for (int i = 0; i < 4; ++i) {
         node = list.pop_back();
-        ASSERT_TRUE(node != NULL);
+        ASSERT_TRUE(node != nullptr);
         ASSERT_EQ(node->value, 4 - i);
         ASSERT_TRUE(list.validate());
     }
-    ASSERT_TRUE(list.pop_back() == NULL);
+    ASSERT_TRUE(list.pop_back() == nullptr);
     ASSERT_EQ(list.size(), 0);
     ASSERT_TRUE(list.empty());
 }
@@ -149,7 +149,7 @@ TEST(InternalQueue, TestRemove) {
     ASSERT_EQ(queue.size(), nodes.size() / 2);
     for (int i = 0; i < nodes.size() / 2; ++i) {
         IntNode* node = queue.dequeue();
-        ASSERT_TRUE(node != NULL);
+        ASSERT_TRUE(node != nullptr);
         ASSERT_EQ(node->value, i * 2 + 1);
     }
 }
@@ -178,7 +178,7 @@ void ConsumerThread(InternalQueue<IntNode>* queue, int num_consumes, int delta,
     int previous_value = -1;
     for (int i = 0; i < num_consumes && !*failed;) {
         IntNode* node = queue->dequeue();
-        if (node == NULL) {
+        if (node == nullptr) {
             continue;
         }
         ++i;
@@ -277,8 +277,8 @@ TEST(InternalQueue, TestMultiProducerMultiConsumer) {
         }
 
         InternalQueue<IntNode> queue;
-        thread_group consumers;
-        thread_group producers;
+        ThreadGroup consumers;
+        ThreadGroup producers;
 
         for (int i = 0; i < num_producers; ++i) {
             producers.add_thread(new thread(ProducerThread, &queue, num_per_producer, &nodes,

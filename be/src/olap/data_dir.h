@@ -21,9 +21,11 @@
 #include <cstdint>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 
 #include "common/status.h"
+#include "env/env.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
@@ -44,21 +46,24 @@ class DataDir {
 public:
     DataDir(const std::string& path, int64_t capacity_bytes = -1,
             TStorageMedium::type storage_medium = TStorageMedium::HDD,
+            const std::string& remote_path = "",
             TabletManager* tablet_manager = nullptr, TxnManager* txn_manager = nullptr);
     ~DataDir();
 
     Status init();
     void stop_bg_worker();
 
-    const std::string& path() const { return _path; }
+    const std::string& path() const { return _path_desc.filepath; }
+    const FilePathDesc& path_desc() const { return _path_desc;}
     size_t path_hash() const { return _path_hash; }
     bool is_used() const { return _is_used; }
     void set_is_used(bool is_used) { _is_used = is_used; }
     int32_t cluster_id() const { return _cluster_id; }
+    bool cluster_id_incomplete() const { return _cluster_id_incomplete; }
 
     DataDirInfo get_dir_info() {
         DataDirInfo info;
-        info.path = _path;
+        info.path_desc = _path_desc;
         info.path_hash = _path_hash;
         info.disk_capacity = _disk_capacity_bytes;
         info.available = _available_bytes;
@@ -78,6 +83,8 @@ public:
     OlapMeta* get_meta() { return _meta; }
 
     bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
+
+    bool is_remote() const { return _env->is_remote_env(); }
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
@@ -108,10 +115,6 @@ public:
 
     void perform_path_gc_by_tablet();
 
-    bool convert_old_data_success();
-
-    OLAPStatus set_convert_finished();
-
     // check if the capacity reach the limit after adding the incoming data
     // return true if limit reached, otherwise, return false.
     // TODO(cmy): for now we can not precisely calculate the capacity Doris used,
@@ -130,18 +133,19 @@ public:
 
     void disks_compaction_num_increment(int64_t delta);
 
+    Env* env() {
+        return _env;
+    }
+
 private:
-    std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
     Status _init_capacity();
-    Status _init_file_system();
     Status _init_meta();
 
     Status _check_disk();
     OLAPStatus _read_and_write_test_file();
-    Status _read_cluster_id(const std::string& cluster_id_path, int32_t* cluster_id);
-    Status _write_cluster_id_to_path(const std::string& path, int32_t cluster_id);
-    OLAPStatus _clean_unfinished_converting_data();
+    Status read_cluster_id(Env* env, const std::string& cluster_id_path, int32_t* cluster_id);
+    Status _write_cluster_id_to_path(const FilePathDesc& path_desc, int32_t cluster_id);
     // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
     // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
     // process will log fatal.
@@ -156,7 +160,7 @@ private:
 private:
     bool _stop_bg_worker = false;
 
-    std::string _path;
+    FilePathDesc _path_desc;
     size_t _path_hash;
     // user specified capacity
     int64_t _capacity_bytes;
@@ -168,11 +172,12 @@ private:
     int64_t _disk_capacity_bytes;
     TStorageMedium::type _storage_medium;
     bool _is_used;
+    Env* _env = nullptr;
 
-    std::string _file_system;
     TabletManager* _tablet_manager;
     TxnManager* _txn_manager;
     int32_t _cluster_id;
+    bool _cluster_id_incomplete = false;
     // This flag will be set true if this store was not in root path when reloading
     bool _to_be_deleted;
 
@@ -191,11 +196,8 @@ private:
     std::set<std::string> _all_check_paths;
     std::set<std::string> _all_tablet_schemahash_paths;
 
-    RWMutex _pending_path_mutex;
+    mutable std::shared_mutex _pending_path_mutex;
     std::set<std::string> _pending_path_ids;
-
-    // used in convert process
-    bool _convert_old_data_success;
 
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
     IntGauge* disks_total_capacity;

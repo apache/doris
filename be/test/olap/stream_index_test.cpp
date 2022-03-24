@@ -335,7 +335,7 @@ TEST_F(TestStreamIndex, statistic) {
     ASSERT_EQ(OLAP_SUCCESS, stat.init(OLAP_FIELD_TYPE_INT, true));
 
     WrapperField* field = WrapperField::create_by_type(OLAP_FIELD_TYPE_INT);
-    ASSERT_TRUE(NULL != field);
+    ASSERT_TRUE(nullptr != field);
     char string_buffer[256];
 
     static const uint32_t loop = 10;

@@ -24,17 +24,17 @@
 namespace doris {
 
 BitFieldReader::BitFieldReader(ReadOnlyFileStream* input)
-        : _input(input), _byte_reader(NULL), _current('\0'), _bits_left(0) {}
+        : _input(input), _byte_reader(nullptr), _current('\0'), _bits_left(0) {}
 
 BitFieldReader::~BitFieldReader() {
     SAFE_DELETE(_byte_reader);
 }
 
 OLAPStatus BitFieldReader::init() {
-    if (NULL == _byte_reader) {
+    if (nullptr == _byte_reader) {
         _byte_reader = new (std::nothrow) RunLengthByteReader(_input);
 
-        if (NULL == _byte_reader) {
+        if (nullptr == _byte_reader) {
             OLAP_LOG_WARNING("fail to create RunLengthByteReader");
             return OLAP_ERR_MALLOC_ERROR;
         }

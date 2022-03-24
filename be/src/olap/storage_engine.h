@@ -31,7 +31,6 @@
 #include <thread>
 #include <vector>
 
-#include "agent/status.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/BackendService_types.h"
@@ -185,8 +184,17 @@ public:
 
     Status get_compaction_status_json(std::string* result);
 
+    std::shared_ptr<MemTracker> compaction_mem_tracker() { return _compaction_mem_tracker; }
     std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
     std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
+    std::shared_ptr<MemTracker> clone_mem_tracker() { return _clone_mem_tracker; }
+    std::shared_ptr<MemTracker> batch_load_mem_tracker() { return _batch_load_mem_tracker; }
+    std::shared_ptr<MemTracker> consistency_mem_tracker() { return _consistency_mem_tracker; }
+
+    // check cumulative compaction config
+    void check_cumulative_compaction_config();
+
+    Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
 
 private:
     // Instance should be inited from `static open()`
@@ -218,9 +226,6 @@ private:
     // unused rowset monitor thread
     void _unused_rowset_monitor_thread_callback();
 
-    // check cumulative compaction config
-    void _check_cumulative_compaction_config();
-
     // garbage sweep thread process function. clear snapshot and trash folder
     void _garbage_sweeper_thread_callback();
 
@@ -244,7 +249,7 @@ private:
 
     // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
     // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
-    // When the disk status is unusable, but the unused logo is not detected, you need to download it from root_path
+    // When the disk status is unusable, but the unused logo is not _push_tablet_into_submitted_compactiondetected, you need to download it from root_path
     // Reload the data.
     void _start_disk_stat_monitor();
 
@@ -254,12 +259,16 @@ private:
                                                             std::vector<DataDir*>& data_dirs,
                                                             bool check_score);
 
-    void _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
+    void _update_cumulative_compaction_policy();
+
+    bool _push_tablet_into_submitted_compaction(TabletSharedPtr tablet,
                                                 CompactionType compaction_type);
     void _pop_tablet_from_submitted_compaction(TabletSharedPtr tablet,
                                                CompactionType compaction_type);
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
+
+    Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type);
 
 private:
     struct CompactionCandidate {
@@ -313,13 +322,22 @@ private:
 
     static StorageEngine* _s_instance;
 
-    Mutex _gc_mutex;
+    std::mutex _gc_mutex;
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
+    // Count the memory consumption of all Base and Cumulative tasks.
     std::shared_ptr<MemTracker> _compaction_mem_tracker;
+    // Count the memory consumption of all Segment read.
     std::shared_ptr<MemTracker> _tablet_mem_tracker;
+    // Count the memory consumption of all SchemaChange tasks.
     std::shared_ptr<MemTracker> _schema_change_mem_tracker;
+    // Count the memory consumption of all EngineCloneTask.
+    std::shared_ptr<MemTracker> _clone_mem_tracker;
+    // Count the memory consumption of all EngineBatchLoadTask.
+    std::shared_ptr<MemTracker> _batch_load_mem_tracker;
+    // Count the memory consumption of all EngineChecksumTask.
+    std::shared_ptr<MemTracker> _consistency_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _unused_rowset_monitor_thread;

@@ -563,7 +563,7 @@ bool EsScanNode::to_ext_literal(ExprContext* context, Expr* expr, TExtLiteral* l
     case TExprNodeType::DECIMAL_LITERAL:
     case TExprNodeType::STRING_LITERAL:
     case TExprNodeType::DATE_LITERAL:
-        return to_ext_literal(expr->type().type, context->get_value(expr, NULL), literal);
+        return to_ext_literal(expr->type().type, context->get_value(expr, nullptr), literal);
     default:
         return false;
     }
@@ -771,11 +771,12 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
             }
             const string& val = col.string_vals[val_idx];
             size_t val_size = val.size();
-            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
-            if (UNLIKELY(buffer == NULL)) {
+            Status rst;
+            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size, &rst));
+            if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(
                         ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
-                return tuple_pool->mem_tracker()->MemLimitExceeded(NULL, details, val_size);
+                RETURN_LIMIT_EXCEEDED(tuple_pool->mem_tracker(), nullptr, details, val_size, rst);
             }
             memcpy(buffer, val.data(), val_size);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;

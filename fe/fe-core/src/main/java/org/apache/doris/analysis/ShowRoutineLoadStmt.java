@@ -36,7 +36,7 @@ import java.util.List;
   Show routine load progress by routine load name
 
   syntax:
-      SHOW [ALL] ROUTINE LOAD [database.][name]
+      SHOW [ALL] ROUTINE LOAD [FOR JobName] [LIKE pattern]
 
       without ALL: only show job which is not final
       with ALL: show all of job include history job
@@ -50,14 +50,16 @@ import java.util.List;
 
       example:
         show routine load named test in database1
-        SHOW ROUTINE LOAD database1.test;
-
-        show routine load in database1
-        SHOW ROUTINE LOAD database1;
+        use database1
+        SHOW ROUTINE LOAD for test;
 
         show routine load in database1 include history
         use database1;
         SHOW ALL ROUTINE LOAD;
+
+        show routine load in database1 whose name match pattern "%test%"
+        use database1;
+        SHOW ROUTINE LOAD LIKE "%test%";
 
         show routine load in all of database
         please use show proc
@@ -81,6 +83,7 @@ public class ShowRoutineLoadStmt extends ShowStmt {
                     .add("CustomProperties")
                     .add("Statistic")
                     .add("Progress")
+                    .add("Lag")
                     .add("ReasonOfStateChanged")
                     .add("ErrorLogUrls")
                     .add("OtherMsg")
@@ -90,11 +93,12 @@ public class ShowRoutineLoadStmt extends ShowStmt {
     private String dbFullName; // optional
     private String name; // optional
     private boolean includeHistory = false;
+    private String pattern; // optional
 
-
-    public ShowRoutineLoadStmt(LabelName labelName, boolean includeHistory) {
+    public ShowRoutineLoadStmt(LabelName labelName, boolean includeHistory, String pattern) {
         this.labelName = labelName;
         this.includeHistory = includeHistory;
+        this.pattern = pattern;
     }
 
     public String getDbFullName() {
@@ -107,6 +111,10 @@ public class ShowRoutineLoadStmt extends ShowStmt {
 
     public boolean isIncludeHistory() {
         return includeHistory;
+    }
+
+    public String getPattern() {
+        return pattern;
     }
 
     @Override

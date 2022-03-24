@@ -50,32 +50,31 @@ namespace doris {
         }                                                                                \
     } while (0);
 
-#define POS_PARAM_VALIDATE(pos)                                         \
+#define POS_PARAM_VALIDATE(pos)                                            \
+    do {                                                                   \
+        if (nullptr == pos) {                                              \
+            OLAP_LOG_WARNING("fail to find, nullptr position parameter."); \
+            return OLAP_ERR_INPUT_PARAMETER_ERROR;                         \
+        }                                                                  \
+    } while (0);
+
+#define SLICE_PARAM_VALIDATE(slice)                                     \
     do {                                                                \
-        if (NULL == pos) {                                              \
-            OLAP_LOG_WARNING("fail to find, NULL position parameter."); \
+        if (nullptr == slice) {                                         \
+            OLAP_LOG_WARNING("fail to find, nullptr slice parameter."); \
             return OLAP_ERR_INPUT_PARAMETER_ERROR;                      \
         }                                                               \
     } while (0);
 
-#define SLICE_PARAM_VALIDATE(slice)                                  \
-    do {                                                             \
-        if (NULL == slice) {                                         \
-            OLAP_LOG_WARNING("fail to find, NULL slice parameter."); \
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;                   \
-        }                                                            \
-    } while (0);
-
 SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* schema,
                            const std::string& rowset_path_prefix, Version version,
-                           VersionHash version_hash, bool delete_flag, int32_t segment_group_id,
+                           bool delete_flag, int32_t segment_group_id,
                            int32_t num_segments)
         : _tablet_id(tablet_id),
           _rowset_id(rowset_id),
           _schema(schema),
           _rowset_path_prefix(rowset_path_prefix),
           _version(version),
-          _version_hash(version_hash),
           _delete_flag(delete_flag),
           _segment_group_id(segment_group_id),
           _num_segments(num_segments) {
@@ -94,7 +93,8 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const T
         const TabletColumn& column = _schema->column(i);
         _short_key_columns.push_back(column);
         _short_key_length += column.index_length() + 1; // 1 for null byte
-        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_STRING) {
+        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+            column.type() == OLAP_FIELD_TYPE_STRING) {
             _new_short_key_length += sizeof(Slice) + 1;
         } else {
             _new_short_key_length += column.index_length() + 1;
@@ -117,14 +117,13 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const T
           _partition_id(partition_id),
           _txn_id(transaction_id) {
     _version = {-1, -1};
-    _version_hash = 0;
     _load_id.set_hi(0);
     _load_id.set_lo(0);
     _index_loaded = false;
     _ref_count = 0;
     _short_key_length = 0;
     _new_short_key_length = 0;
-    _short_key_buf = NULL;
+    _short_key_buf = nullptr;
     _new_segment_created = false;
     _empty = false;
 
@@ -132,7 +131,8 @@ SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const T
         const TabletColumn& column = _schema->column(i);
         _short_key_columns.push_back(column);
         _short_key_length += column.index_length() + 1; // 1 for null byte
-        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_STRING) {
+        if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+            column.type() == OLAP_FIELD_TYPE_STRING) {
             _new_short_key_length += sizeof(Slice) + 1;
         } else {
             _new_short_key_length += column.index_length() + 1;
@@ -272,7 +272,7 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         }
         const TabletColumn& column = _schema->column(i);
 
-        // nullptr is checked in olap_cond.cpp eval, note: When we apply column statistic, Field can be NULL when type is Varchar.
+        // nullptr is checked in olap_cond.cpp eval, note: When we apply column statistic, Field can be nullptr when type is Varchar.
         WrapperField* first = nullptr;
         WrapperField* second = nullptr;
 
@@ -320,11 +320,11 @@ OLAPStatus SegmentGroup::add_zone_maps(
     for (size_t i = 0; i < zone_map_fields.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
-        DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
+        DCHECK(first != nullptr) << "failed to allocate memory for field: " << i;
         first->copy(zone_map_fields[i].first);
 
         WrapperField* second = WrapperField::create(column);
-        DCHECK(second != NULL) << "failed to allocate memory for field: " << i;
+        DCHECK(second != nullptr) << "failed to allocate memory for field: " << i;
         second->copy(zone_map_fields[i].second);
 
         _zone_maps.push_back(std::make_pair(first, second));
@@ -339,14 +339,14 @@ OLAPStatus SegmentGroup::add_zone_maps(
     for (size_t i = 0; i < zone_map_strings.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
-        DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
+        DCHECK(first != nullptr) << "failed to allocate memory for field: " << i;
         RETURN_NOT_OK(first->from_string(zone_map_strings[i].first));
         if (null_vec[i]) {
-            //[min, max] -> [NULL, max]
+            //[min, max] -> [nullptr, max]
             first->set_null();
         }
         WrapperField* second = WrapperField::create(column);
-        DCHECK(first != NULL) << "failed to allocate memory for field: " << i;
+        DCHECK(first != nullptr) << "failed to allocate memory for field: " << i;
         RETURN_NOT_OK(second->from_string(zone_map_strings[i].second));
         _zone_maps.push_back(std::make_pair(first, second));
     }
@@ -577,21 +577,22 @@ OLAPStatus SegmentGroup::add_segment() {
     // 打开文件
     ++_num_segments;
 
-    OLAPIndexHeaderMessage* index_header = NULL;
+    OLAPIndexHeaderMessage* index_header = nullptr;
     // 构造Proto格式的Header
     index_header = _file_header.mutable_message();
     index_header->set_start_version(_version.first);
     index_header->set_end_version(_version.second);
-    index_header->set_cumulative_version_hash(_version_hash);
+    // Version hash is useless but it is a required field in header message pb
+    index_header->set_cumulative_version_hash(0);
     index_header->set_segment(_num_segments - 1);
     index_header->set_num_rows_per_block(_schema->num_rows_per_row_block());
     index_header->set_delete_flag(_delete_flag);
     index_header->set_null_supported(true);
 
     // 分配一段存储short key的内存, 初始化index_row
-    if (_short_key_buf == NULL) {
+    if (_short_key_buf == nullptr) {
         _short_key_buf = new (std::nothrow) char[_short_key_length];
-        if (_short_key_buf == NULL) {
+        if (_short_key_buf == nullptr) {
             OLAP_LOG_WARNING("malloc short_key_buf error.");
             return OLAP_ERR_MALLOC_ERROR;
         }
@@ -763,7 +764,7 @@ OLAPStatus SegmentGroup::copy_files_to(const std::string& dir) {
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
         std::string data_file_to_copy = construct_data_file_path(segment_id);
-        if (copy_file(data_file_to_copy, dest_data_file) != OLAP_SUCCESS) {
+        if (!FileUtils::copy_file(data_file_to_copy, dest_data_file).ok()) {
             LOG(WARNING) << "fail to copy data file. from=" << data_file_to_copy
                          << ", to=" << dest_data_file << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
@@ -774,7 +775,7 @@ OLAPStatus SegmentGroup::copy_files_to(const std::string& dir) {
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
         std::string index_file_to_copy = construct_index_file_path(segment_id);
-        if (copy_file(index_file_to_copy, dest_index_file) != OLAP_SUCCESS) {
+        if (!FileUtils::copy_file(index_file_to_copy, dest_index_file).ok()) {
             LOG(WARNING) << "fail to copy index file. from=" << index_file_to_copy
                          << ", to=" << dest_index_file << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
@@ -1005,12 +1006,12 @@ std::string SegmentGroup::_construct_old_file_path(const std::string& path_prefi
                                                    const std::string& suffix) const {
     char file_path[OLAP_MAX_PATH_LEN];
     if (_segment_group_id == -1) {
-        snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%ld_%d%s", path_prefix.c_str(),
-                 _tablet_id, _version.first, _version.second, _version_hash, segment_id,
+        snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%d%s", path_prefix.c_str(),
+                 _tablet_id, _version.first, _version.second, segment_id,
                  suffix.c_str());
     } else {
-        snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%ld_%d_%d%s", path_prefix.c_str(),
-                 _tablet_id, _version.first, _version.second, _version_hash, _segment_group_id,
+        snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%d_%d%s", path_prefix.c_str(),
+                 _tablet_id, _version.first, _version.second, _segment_group_id,
                  segment_id, suffix.c_str());
     }
 
@@ -1022,8 +1023,8 @@ std::string SegmentGroup::_construct_err_sg_file_path(const std::string& path_pr
                                                       int32_t segment_id,
                                                       const std::string& suffix) const {
     char file_path[OLAP_MAX_PATH_LEN];
-    snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%ld_%d%s", path_prefix.c_str(),
-             _tablet_id, _version.first, _version.second, _version_hash, segment_id,
+    snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%d%s", path_prefix.c_str(),
+             _tablet_id, _version.first, _version.second, segment_id,
              suffix.c_str());
 
     return file_path;

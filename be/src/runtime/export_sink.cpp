@@ -22,12 +22,12 @@
 #include <sstream>
 
 #include "exec/broker_writer.h"
+#include "exec/hdfs_reader_writer.h"
 #include "exec/local_file_writer.h"
 #include "exec/s3_writer.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "gutil/strings/numbers.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/mysql_table_sink.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -71,10 +71,8 @@ Status ExportSink::prepare(RuntimeState* state) {
     _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
 
-    _mem_tracker = MemTracker::CreateTracker(-1, "ExportSink", state->instance_mem_tracker());
-
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _mem_tracker));
+    RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _row_desc, _expr_mem_tracker));
 
     // TODO(lingbin): add some Counter
     _bytes_written_counter = ADD_COUNTER(profile(), "BytesExported", TUnit::BYTES);
@@ -180,7 +178,7 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
             case TYPE_STRING: {
                 const StringValue* string_val = (const StringValue*)(item);
 
-                if (string_val->ptr == NULL) {
+                if (string_val->ptr == nullptr) {
                     if (string_val->len == 0) {
                     } else {
                         (*ss) << "\\N";
@@ -258,6 +256,15 @@ Status ExportSink::open_file_writer() {
         _file_writer.reset(s3_writer);
         break;
     }
+    case TFileType::FILE_HDFS: {
+        FileWriter* hdfs_writer;
+        RETURN_IF_ERROR(HdfsReaderWriter::create_writer(
+                const_cast<std::map<std::string, std::string>&>(_t_export_sink.properties),
+                _t_export_sink.export_path + "/" + file_name, &hdfs_writer));
+        RETURN_IF_ERROR(hdfs_writer->open());
+        _file_writer.reset(hdfs_writer);
+        break;
+    }
     default: {
         std::stringstream ss;
         ss << "Unknown file type, type=" << _t_export_sink.file_type;
@@ -274,7 +281,7 @@ std::string ExportSink::gen_file_name() {
     const TUniqueId& id = _state->fragment_instance_id();
 
     struct timeval tv;
-    gettimeofday(&tv, NULL);
+    gettimeofday(&tv, nullptr);
 
     std::stringstream file_name;
     file_name << "export-data-" << print_id(id) << "-" << (tv.tv_sec * 1000 + tv.tv_usec / 1000);

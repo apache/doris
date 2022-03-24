@@ -135,6 +135,17 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             // Nothing to balance: cluster is empty.
             return Lists.newArrayList();
         }
+		
+        NavigableSet<Long> keySet = info.beByTotalReplicaCount.keySet();
+        if (keySet.isEmpty() || keySet.last() == 0L) {
+            // the number of replica on specified medium we get from getReplicaNumByBeIdAndStorageMedium() is
+            // defined by table properties,but in fact there may not has SSD/HDD disk on this backend.
+            // So if we found that no SSD/HDD disk on this backend, set the replica number to 0,
+            // but the partitionInfoBySkew doesn't consider this scene, medium has no SSD/HDD disk also skew,
+            // cause rebalance exception
+            return Lists.newArrayList();
+        }
+
 
         List<PartitionMove> moves = Lists.newArrayList();
         for (int i = 0; i < maxMovesNum; ++i) {

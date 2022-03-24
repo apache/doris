@@ -133,11 +133,11 @@ ColumnWriter::ColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
           _column(column),
           _stream_factory(stream_factory),
           _index(column.type()),
-          _is_present(NULL),
-          _is_present_stream(NULL),
-          _index_stream(NULL),
+          _is_present(nullptr),
+          _is_present_stream(nullptr),
+          _index_stream(nullptr),
           _is_found_nulls(false),
-          _bf(NULL),
+          _bf(nullptr),
           _num_rows_per_row_block(num_rows_per_row_block),
           _bf_fpp(bf_fpp) {}
 
@@ -156,14 +156,14 @@ OLAPStatus ColumnWriter::init() {
         _is_present_stream =
                 _stream_factory->create_stream(unique_column_id(), StreamInfoMessage::PRESENT);
 
-        if (NULL == _is_present_stream) {
+        if (nullptr == _is_present_stream) {
             OLAP_LOG_WARNING("fail to allocate IS PRESENT STREAM");
             return OLAP_ERR_MALLOC_ERROR;
         }
 
         _is_present = new (std::nothrow) BitFieldWriter(_is_present_stream);
 
-        if (NULL == _is_present) {
+        if (nullptr == _is_present) {
             OLAP_LOG_WARNING("fail to allocate IS PRESENT Writer");
             return OLAP_ERR_MALLOC_ERROR;
         }
@@ -191,7 +191,7 @@ OLAPStatus ColumnWriter::init() {
     _index_stream =
             _stream_factory->create_stream(unique_column_id(), StreamInfoMessage::ROW_INDEX);
 
-    if (NULL == _index_stream) {
+    if (nullptr == _index_stream) {
         OLAP_LOG_WARNING("fail to allocate Index STREAM");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -200,13 +200,13 @@ OLAPStatus ColumnWriter::init() {
     if (is_bf_column()) {
         _bf_index_stream =
                 _stream_factory->create_stream(unique_column_id(), StreamInfoMessage::BLOOM_FILTER);
-        if (NULL == _bf_index_stream) {
+        if (nullptr == _bf_index_stream) {
             OLAP_LOG_WARNING("fail to allocate bloom filter index stream");
             return OLAP_ERR_MALLOC_ERROR;
         }
 
         _bf = new (std::nothrow) BloomFilter();
-        if (NULL == _bf) {
+        if (nullptr == _bf) {
             OLAP_LOG_WARNING("fail to allocate bloom filter");
             return OLAP_ERR_MALLOC_ERROR;
         }
@@ -238,15 +238,14 @@ OLAPStatus ColumnWriter::write(RowCursor* row_cursor) {
         if (!is_null) {
             if (_column.type() == OLAP_FIELD_TYPE_CHAR ||
                 _column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-                _column.type() == OLAP_FIELD_TYPE_HLL ||
-                _column.type() == OLAP_FIELD_TYPE_STRING) {
+                _column.type() == OLAP_FIELD_TYPE_HLL || _column.type() == OLAP_FIELD_TYPE_STRING) {
                 Slice* slice = reinterpret_cast<Slice*>(buf);
                 _bf->add_bytes(slice->data, slice->size);
             } else {
                 _bf->add_bytes(buf, row_cursor->column_size(_column_id));
             }
         } else {
-            _bf->add_bytes(NULL, 0);
+            _bf->add_bytes(nullptr, 0);
         }
     }
 
@@ -270,7 +269,7 @@ OLAPStatus ColumnWriter::create_row_index_entry() {
         _bf_index.add_bloom_filter(_bf);
 
         _bf = new (std::nothrow) BloomFilter();
-        if (NULL == _bf) {
+        if (nullptr == _bf) {
             OLAP_LOG_WARNING("fail to allocate bloom filter");
             return OLAP_ERR_MALLOC_ERROR;
         }
@@ -324,7 +323,7 @@ void ColumnWriter::_remove_is_present_positions() {
 OLAPStatus ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     OLAPStatus res = OLAP_SUCCESS;
 
-    if (NULL != _is_present) {
+    if (nullptr != _is_present) {
         if (OLAP_SUCCESS != (res = _is_present->flush())) {
             return res;
         }
@@ -335,12 +334,12 @@ OLAPStatus ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
         }
     }
 
-    char* index_buf = NULL;
+    char* index_buf = nullptr;
     // char* index_statistic_buf = NULL;
     // Write index pb
     size_t pb_size = _index.output_size();
     index_buf = new (std::nothrow) char[pb_size];
-    ColumnMessage* column = NULL;
+    ColumnMessage* column = nullptr;
 
     if (OLAP_SUCCESS != _index.write_to_buffer(index_buf, pb_size)) {
         OLAP_LOG_WARNING("fail to serialize index");
@@ -399,7 +398,7 @@ FINALIZE_EXIT:
 }
 
 void ColumnWriter::record_position() {
-    if (NULL != _is_present) {
+    if (nullptr != _is_present) {
         _is_present->get_position(&_index_entry);
     }
 }
@@ -432,7 +431,7 @@ ByteColumnWriter::ByteColumnWriter(uint32_t column_id, OutStreamFactory* stream_
                                    const TabletColumn& column, size_t num_rows_per_row_block,
                                    double bf_fpp)
         : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
-          _writer(NULL) {}
+          _writer(nullptr) {}
 
 ByteColumnWriter::~ByteColumnWriter() {
     SAFE_DELETE(_writer);
@@ -448,14 +447,14 @@ OLAPStatus ByteColumnWriter::init() {
     OutStreamFactory* factory = stream_factory();
     OutStream* stream = factory->create_stream(unique_column_id(), StreamInfoMessage::DATA);
 
-    if (NULL == stream) {
+    if (nullptr == stream) {
         OLAP_LOG_WARNING("fail to allocate DATA STREAM");
         return OLAP_ERR_MALLOC_ERROR;
     }
 
     _writer = new (std::nothrow) RunLengthByteWriter(stream);
 
-    if (NULL == _writer) {
+    if (nullptr == _writer) {
         OLAP_LOG_WARNING("fail to allocate RunLengthByteWriter");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -492,7 +491,7 @@ IntegerColumnWriter::IntegerColumnWriter(uint32_t column_id, uint32_t unique_col
         : _column_id(column_id),
           _unique_column_id(unique_column_id),
           _stream_factory(stream_factory),
-          _writer(NULL),
+          _writer(nullptr),
           _is_signed(is_singed) {}
 
 IntegerColumnWriter::~IntegerColumnWriter() {
@@ -502,14 +501,14 @@ IntegerColumnWriter::~IntegerColumnWriter() {
 OLAPStatus IntegerColumnWriter::init() {
     OutStream* stream = _stream_factory->create_stream(_unique_column_id, StreamInfoMessage::DATA);
 
-    if (NULL == stream) {
+    if (nullptr == stream) {
         OLAP_LOG_WARNING("fail to allocate DATA STREAM");
         return OLAP_ERR_MALLOC_ERROR;
     }
 
     _writer = new (std::nothrow) RunLengthIntegerWriter(stream, _is_signed);
 
-    if (NULL == _writer) {
+    if (nullptr == _writer) {
         OLAP_LOG_WARNING("fail to allocate RunLengthIntegerWriter");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -525,10 +524,10 @@ VarStringColumnWriter::VarStringColumnWriter(uint32_t column_id, OutStreamFactor
         : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
           _use_dictionary_encoding(false),
           _dict_total_size(0),
-          _dict_stream(NULL),
-          _length_writer(NULL),
-          _data_stream(NULL),
-          _id_writer(NULL) {}
+          _dict_stream(nullptr),
+          _length_writer(nullptr),
+          _data_stream(nullptr),
+          _id_writer(nullptr) {}
 
 VarStringColumnWriter::~VarStringColumnWriter() {
     SAFE_DELETE(_length_writer);
@@ -548,7 +547,7 @@ OLAPStatus VarStringColumnWriter::init() {
     OutStream* length_stream =
             stream_factory()->create_stream(unique_column_id(), StreamInfoMessage::LENGTH);
 
-    if (NULL == _dict_stream || NULL == length_stream || NULL == _data_stream) {
+    if (nullptr == _dict_stream || nullptr == length_stream || nullptr == _data_stream) {
         OLAP_LOG_WARNING("fail to create stream.");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -556,7 +555,7 @@ OLAPStatus VarStringColumnWriter::init() {
     _length_writer = new (std::nothrow) RunLengthIntegerWriter(length_stream, false);
     _id_writer = new (std::nothrow) RunLengthIntegerWriter(_data_stream, false);
 
-    if (NULL == _length_writer || NULL == _id_writer) {
+    if (nullptr == _length_writer || nullptr == _id_writer) {
         OLAP_LOG_WARNING("fail to create writer.");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -639,35 +638,6 @@ OLAPStatus VarStringColumnWriter::_finalize_direct_encoding() {
     //uint32_t block_id = 0;
 
     _dict_stream->suppress();
-#if 0
-
-    for (uint32_t i = 0; i <= _string_id.size(); i++) {
-        //Unlike other types, the record position of string will write entries to _block_row_count
-        // Other types have no effect until the next call to create_index_row_entry.
-        while (block_id < _block_row_count.size() - 1 &&
-                i == _block_row_count[block_id]) {
-            _data_stream->get_position(index()->mutable_entry(block_id));
-            _length_writer->get_position(index()->mutable_entry(block_id));
-            block_id++;
-        }
-
-        if (i != _string_id.size()) {
-            const std::string& str = _string_keys[_string_id[i]];
-
-            if (OLAP_SUCCESS != (res = _data_stream->write(str.c_str(),
-                                       str.length()))) {
-                OLAP_LOG_WARNING("fail to write string content.");
-                return res;
-            }
-
-            if (OLAP_SUCCESS != (res = _length_writer->write(str.length()))) {
-                OLAP_LOG_WARNING("fail to write string length.");
-                return res;
-            }
-        }
-    }
-
-#endif
     return OLAP_SUCCESS;
 }
 
@@ -754,8 +724,8 @@ DecimalColumnWriter::DecimalColumnWriter(uint32_t column_id, OutStreamFactory* s
                                          const TabletColumn& column, size_t num_rows_per_row_block,
                                          double bf_fpp)
         : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
-          _int_writer(NULL),
-          _frac_writer(NULL) {}
+          _int_writer(nullptr),
+          _frac_writer(nullptr) {}
 
 DecimalColumnWriter::~DecimalColumnWriter() {
     SAFE_DELETE(_int_writer);
@@ -775,7 +745,7 @@ OLAPStatus DecimalColumnWriter::init() {
     OutStream* frac_stream =
             stream_factory()->create_stream(unique_column_id(), StreamInfoMessage::SECONDARY);
 
-    if (NULL == int_stream || NULL == frac_stream) {
+    if (nullptr == int_stream || nullptr == frac_stream) {
         OLAP_LOG_WARNING("fail to create stream.");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -783,7 +753,7 @@ OLAPStatus DecimalColumnWriter::init() {
     _int_writer = new (std::nothrow) RunLengthIntegerWriter(int_stream, true);
     _frac_writer = new (std::nothrow) RunLengthIntegerWriter(frac_stream, true);
 
-    if (NULL == _int_writer || NULL == _frac_writer) {
+    if (nullptr == _int_writer || nullptr == _frac_writer) {
         OLAP_LOG_WARNING("fail to create writer.");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -828,8 +798,8 @@ LargeIntColumnWriter::LargeIntColumnWriter(uint32_t column_id, OutStreamFactory*
                                            const TabletColumn& column,
                                            size_t num_rows_per_row_block, double bf_fpp)
         : ColumnWriter(column_id, stream_factory, column, num_rows_per_row_block, bf_fpp),
-          _high_writer(NULL),
-          _low_writer(NULL) {}
+          _high_writer(nullptr),
+          _low_writer(nullptr) {}
 
 LargeIntColumnWriter::~LargeIntColumnWriter() {
     SAFE_DELETE(_high_writer);
@@ -849,7 +819,7 @@ OLAPStatus LargeIntColumnWriter::init() {
     OutStream* low_stream =
             stream_factory()->create_stream(unique_column_id(), StreamInfoMessage::SECONDARY);
 
-    if (NULL == high_stream || NULL == low_stream) {
+    if (nullptr == high_stream || nullptr == low_stream) {
         OLAP_LOG_WARNING("fail to create stream.");
         return OLAP_ERR_MALLOC_ERROR;
     }
@@ -857,7 +827,7 @@ OLAPStatus LargeIntColumnWriter::init() {
     _high_writer = new (std::nothrow) RunLengthIntegerWriter(high_stream, true);
     _low_writer = new (std::nothrow) RunLengthIntegerWriter(low_stream, true);
 
-    if (NULL == _high_writer || NULL == _low_writer) {
+    if (nullptr == _high_writer || nullptr == _low_writer) {
         OLAP_LOG_WARNING("fail to create writer.");
         return OLAP_ERR_MALLOC_ERROR;
     }

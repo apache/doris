@@ -22,8 +22,6 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
-    aggregation_node.cpp
-    aggregation_node_ir.cpp
     analytic_eval_node.cpp
     blocking_join_node.cpp
     broker_scan_node.cpp
@@ -32,13 +30,14 @@ set(EXEC_FILES
     base_scanner.cpp
     broker_scanner.cpp
     cross_join_node.cpp
+    csv_scan_node.cpp
+    csv_scanner.cpp
     data_sink.cpp
     decompressor.cpp
     empty_set_node.cpp
     exec_node.cpp
     exchange_node.cpp
     hash_join_node.cpp
-    hash_join_node_ir.cpp
     hash_table.cpp
     local_file_reader.cpp
     merge_node.cpp
@@ -48,7 +47,6 @@ set(EXEC_FILES
     text_converter.cpp
     topn_node.cpp
     sort_exec_exprs.cpp
-    olap_rewrite_node.cpp
     olap_scan_node.cpp
     olap_scanner.cpp
     olap_common.cpp
@@ -58,6 +56,7 @@ set(EXEC_FILES
     plain_text_line_reader.cpp
     csv_scan_node.cpp
     csv_scanner.cpp
+    table_function_node.cpp
     es_scan_node.cpp
     es_http_scan_node.cpp
     es_http_scanner.cpp
@@ -68,7 +67,6 @@ set(EXEC_FILES
     es/es_query_builder.cpp
     spill_sort_node.cc
     union_node.cpp
-    union_node_ir.cpp
     set_operation_node.cpp
     intersect_node.cpp
     except_node.cpp
@@ -88,11 +86,11 @@ set(EXEC_FILES
     schema_scanner/schema_table_privileges_scanner.cpp
     schema_scanner/schema_schema_privileges_scanner.cpp
     schema_scanner/schema_user_privileges_scanner.cpp
+    schema_scanner/schema_files_scanner.cpp
+    schema_scanner/schema_partitions_scanner.cpp
 
     partitioned_hash_table.cc
-    partitioned_hash_table_ir.cc
     partitioned_aggregation_node.cc
-    partitioned_aggregation_node_ir.cc
     odbc_scan_node.cpp
     local_file_writer.cpp
     broker_writer.cpp

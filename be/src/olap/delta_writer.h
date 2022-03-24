@@ -21,17 +21,18 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/tablet.h"
-#include "util/spinlock.h"
 
 namespace doris {
 
 class FlushToken;
 class MemTable;
 class MemTracker;
+class RowBatch;
 class Schema;
 class StorageEngine;
 class Tuple;
 class TupleDescriptor;
+class TupleRow;
 class SlotDescriptor;
 
 enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };
@@ -43,29 +44,29 @@ struct WriteRequest {
     int64_t txn_id;
     int64_t partition_id;
     PUniqueId load_id;
-    bool need_gen_rollup;
     TupleDescriptor* tuple_desc;
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots;
+    bool is_high_priority = false;
 };
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
-    static OLAPStatus open(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
-                           DeltaWriter** writer);
+    static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
 
     ~DeltaWriter();
 
     OLAPStatus init();
 
     OLAPStatus write(Tuple* tuple);
+    OLAPStatus write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
     // flush the last memtable to flush queue, must call it before close_wait()
     OLAPStatus close();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    OLAPStatus close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+    OLAPStatus close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken);
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
@@ -85,9 +86,10 @@ public:
     // Wait all memtable in flush queue to be flushed
     OLAPStatus wait_flush();
 
+    int64_t tablet_id() { return _tablet->tablet_id(); }
+
 private:
-    DeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
-                StorageEngine* storage_engine);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
 
     // push a full memtable to flush executor
     OLAPStatus _flush_memtable_async();
@@ -102,8 +104,6 @@ private:
     WriteRequest _req;
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;
-    RowsetSharedPtr _new_rowset;
-    TabletSharedPtr _new_tablet;
     std::unique_ptr<RowsetWriter> _rowset_writer;
     std::shared_ptr<MemTable> _mem_table;
     std::unique_ptr<Schema> _schema;
@@ -112,13 +112,12 @@ private:
 
     StorageEngine* _storage_engine;
     std::unique_ptr<FlushToken> _flush_token;
-    std::shared_ptr<MemTracker> _parent_mem_tracker;
     std::shared_ptr<MemTracker> _mem_tracker;
 
     // The counter of number of segment flushed already.
     int64_t _segment_counter = 0;
 
-    SpinLock _lock;
+    std::mutex _lock;
 };
 
 } // namespace doris

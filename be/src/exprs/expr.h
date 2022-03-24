@@ -34,8 +34,7 @@
 #include "runtime/tuple_row.h"
 #include "runtime/types.h"
 #include "udf/udf.h"
-//#include <boost/scoped_ptr.hpp>
-//
+
 #undef USING_DORIS_UDF
 #define USING_DORIS_UDF using namespace doris_udf
 
@@ -51,12 +50,11 @@ class RuntimeState;
 class TColumnValue;
 class TExpr;
 class TExprNode;
-class SetVar;
 class TupleIsNullPredicate;
 class VectorizedRowBatch;
 class Literal;
 class MemTracker;
-class UserFunctionCacheEntry;
+struct UserFunctionCacheEntry;
 
 // This is the superclass of all expr evaluation nodes.
 class Expr {
@@ -77,7 +75,7 @@ public:
     // evaluate expr and return pointer to result. The result is
     // valid as long as 'row' doesn't change.
     // TODO: stop having the result cached in this Expr object
-    void* get_value(TupleRow* row) { return NULL; }
+    void* get_value(TupleRow* row) { return nullptr; }
 
     // Vectorize Evalute expr and return result column index.
     // Result cached in batch and valid as long as batch.
@@ -149,7 +147,7 @@ public:
     static const Expr* expr_without_cast(const Expr* expr);
 
     // Returns true if expr doesn't contain slotrefs, ie, can be evaluated
-    // with get_value(NULL). The default implementation returns true if all of
+    // with get_value(nullptr). The default implementation returns true if all of
     // the children are constant.
     virtual bool is_constant() const;
 
@@ -177,26 +175,24 @@ public:
 
     /// Create a new ScalarExpr based on thrift Expr 'texpr'. The newly created ScalarExpr
     /// is stored in ObjectPool 'pool' and returned in 'expr' on success. 'row_desc' is the
-    /// tuple row descriptor of the input tuple row. On failure, 'expr' is set to NULL and
+    /// tuple row descriptor of the input tuple row. On failure, 'expr' is set to nullptr and
     /// the expr tree (if created) will be closed. Error status will be returned too.
     static Status create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
-                         ObjectPool* pool, Expr** expr, const std::shared_ptr<MemTracker>& tracker);
+                         ObjectPool* pool, Expr** expr);
 
     /// Create a new ScalarExpr based on thrift Expr 'texpr'. The newly created ScalarExpr
     /// is stored in ObjectPool 'state->obj_pool()' and returned in 'expr'. 'row_desc' is
     /// the tuple row descriptor of the input tuple row. Returns error status on failure.
     static Status create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
-                         Expr** expr, const std::shared_ptr<MemTracker>& tracker);
+                         Expr** expr);
 
     /// Convenience functions creating multiple ScalarExpr.
     static Status create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
-                         RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs,
-                         const std::shared_ptr<MemTracker>& tracker);
+                         RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs);
 
     /// Convenience functions creating multiple ScalarExpr.
     static Status create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
-                         RuntimeState* state, std::vector<Expr*>* exprs,
-                         const std::shared_ptr<MemTracker>& tracker);
+                         RuntimeState* state, std::vector<Expr*>* exprs);
 
     /// Convenience function for preparing multiple expr trees.
     /// Allocations from 'ctxs' will be counted against 'tracker'.
@@ -207,7 +203,7 @@ public:
     /// Convenience function for opening multiple expr trees.
     static Status open(const std::vector<ExprContext*>& ctxs, RuntimeState* state);
 
-    /// Clones each ExprContext for multiple expr trees. 'new_ctxs' must be non-NULL.
+    /// Clones each ExprContext for multiple expr trees. 'new_ctxs' must be non-nullptr.
     /// Idempotent: if '*new_ctxs' is empty, a clone of each context in 'ctxs' will be added
     /// to it, and if non-empty, it is assumed CloneIfNotExists() was already called and the
     /// call is a no-op. The new ExprContexts are created in state->obj_pool().
@@ -232,7 +228,7 @@ public:
                                       std::vector<int>* offsets, int* var_result_begin);
 
     /// If this expr is constant, evaluates the expr with no input row argument and returns
-    /// the output. Returns NULL if the argument is not constant. The returned AnyVal* is
+    /// the output. Returns nullptr if the argument is not constant. The returned AnyVal* is
     /// owned by this expr. This should only be called after Open() has been called on this
     /// expr.
     virtual AnyVal* get_const_val(ExprContext* context);
@@ -401,7 +397,7 @@ private:
     /// Creates an expr tree for the node rooted at 'node_idx' via depth-first traversal.
     /// parameters
     ///   nodes: vector of thrift expression nodes to be translated
-    ///   parent: parent of node at node_idx (or NULL for node_idx == 0)
+    ///   parent: parent of node at node_idx (or nullptr for node_idx == 0)
     ///   node_idx:
     ///     in: root of TExprNode tree
     ///     out: next node in 'nodes' that isn't part of tree

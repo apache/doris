@@ -10,12 +10,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <ext/hash_map>
-using __gnu_cxx::hash;
-using __gnu_cxx::hash_map; // Not used in this file.
-#include <ext/hash_set>
-using __gnu_cxx::hash;
-using __gnu_cxx::hash_set; // Not used in this file.
 #include <iterator>
 using std::back_insert_iterator;
 using std::iterator_traits;

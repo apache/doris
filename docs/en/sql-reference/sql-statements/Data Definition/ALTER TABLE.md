@@ -54,6 +54,7 @@ under the License.
             2) If the bucket mode is not specified, the bucket method used by the built-in table is automatically used.
             3) If the bucket mode is specified, only the bucket number can be modified, and the bucket mode or bucket column cannot be modified.
             4) ["key"="value"] section can set some properties of the partition, see CREATE TABLE for details.
+            5) Adding partitions to non-partitioned table is not supported.           
 
     2. Delete the partition
         grammar:
@@ -208,6 +209,12 @@ under the License.
         grammer:
             MODIFY COLUMN col1 COMMENT "new column comment"
 
+	12. Modify engine type
+
+        Only the MySQL type can be changed to the ODBC type. The value of driver is the name of the driver in the odbc.init configuration.
+
+        grammar:
+            MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
      
     Rename supports modification of the following names:
     1. Modify the table name
@@ -225,13 +232,13 @@ under the License.
     Bitmap index supports the following modifications:
     1. create bitmap index
         grammar:
-            ADD INDEX index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
+            ADD INDEX [IF NOT EXISTS] index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
         note:
             1. only supports bitmap index for current version
             2. BITMAP index only supports apply on single column
     2. drop index
         grammar:
-            DROP INDEX index_name;
+            DROP INDEX [IF EXISTS] index_name;
 
 ## example
 
@@ -362,17 +369,19 @@ under the License.
 
         ALTER TABLE example_db.my_table set ("colocate_with" = "t1");
 
-    13. Change the bucketing mode of the table from Random Distribution to Hash Distribution
+    13. Change the bucketing mode of the table from Hash Distribution to Random Distribution
 
-        ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
+        ALTER TABLE example_db.my_table set ("distribution_type" = "random");
     
     14. Modify the dynamic partition properties of the table (support adding dynamic partition properties to tables without dynamic partition properties)
     
         ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
     
-        If you need to add dynamic partition attributes to a table without dynamic partition attributes, you need to specify all dynamic partition attributes
+        If you need to add dynamic partition attributes to a table without dynamic partition attributes, you need to specify all dynamic partition attributes.
+        (Note:Adding dynamic partition attributes to non-partitioned table is not supported)
     
         ALTER TABLE example_db.my_table set ("dynamic_partition.enable"= "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end "= "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+       
 
     15. Modify the in_memory property of the table
 
@@ -395,6 +404,10 @@ under the License.
     20. Modify column comment
 
         ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
+
+    21. Modify engine Type
+
+        ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
         
     [rename]
     1. Modify the table named table1 to table2
@@ -408,9 +421,9 @@ under the License.
     
     [index]
     1. create index on table1 column siteid using bitmap 
-        ALTER TABLE table1 ADD INDEX index_name  [USING BITMAP] (siteid) COMMENT 'balabala';
+        ALTER TABLE table1 ADD INDEX [IF NOT EXISTS] index_name  [USING BITMAP] (siteid) COMMENT 'balabala';
     2. drop bitmap index of table1
-        ALTER TABLE table1 DROP INDEX index_name;
+        ALTER TABLE table1 DROP INDEX [IF EXISTS] index_name;
 
 ## keyword
 

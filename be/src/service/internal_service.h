@@ -97,11 +97,11 @@ public:
                         ::google::protobuf::Closure* done) override;
 
     void send_data(google::protobuf::RpcController* controller, const PSendDataRequest* request,
-                   PSendDataResult* response, google::protobuf::Closure* done);
+                   PSendDataResult* response, google::protobuf::Closure* done) override;
     void commit(google::protobuf::RpcController* controller, const PCommitRequest* request,
-                PCommitResult* response, google::protobuf::Closure* done);
+                PCommitResult* response, google::protobuf::Closure* done) override;
     void rollback(google::protobuf::RpcController* controller, const PRollbackRequest* request,
-                  PRollbackResult* response, google::protobuf::Closure* done);
+                  PRollbackResult* response, google::protobuf::Closure* done) override;
     void fold_constant_expr(google::protobuf::RpcController* controller,
                             const PConstantExprRequest* request, PConstantExprResult* response,
                             google::protobuf::Closure* done) override;

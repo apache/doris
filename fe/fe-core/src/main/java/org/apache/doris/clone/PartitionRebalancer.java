@@ -279,8 +279,8 @@ public class PartitionRebalancer extends Rebalancer {
     // So we can't do skew check.
     // Just do some basic checks, e.g. server available.
     private void checkMoveValidation(TabletMove move) throws IllegalStateException {
-        boolean fromAvailable = infoService.checkBackendAvailable(move.fromBe);
-        boolean toAvailable = infoService.checkBackendAvailable(move.toBe);
+        boolean fromAvailable = infoService.checkBackendScheduleAvailable(move.fromBe);
+        boolean toAvailable = infoService.checkBackendScheduleAvailable(move.toBe);
         Preconditions.checkState(fromAvailable && toAvailable, move + "'s bes are not all available: from " + fromAvailable + ", to " + toAvailable);
         // To be improved
     }

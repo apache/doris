@@ -25,12 +25,12 @@
 #include "olap/schema.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "test_util/test_util.h"
 #include "util/condition_variable.h"
 #include "util/hash_util.hpp"
 #include "util/mutex.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/random.h"
-#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -55,7 +55,7 @@ TEST_F(SkipTest, Empty) {
     std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 
-    TestComparator cmp;
+    TestComparator* cmp = new TestComparator();
     SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
     ASSERT_TRUE(!list.Contains(10));
 
@@ -67,6 +67,7 @@ TEST_F(SkipTest, Empty) {
     ASSERT_TRUE(!iter.Valid());
     iter.SeekToLast();
     ASSERT_TRUE(!iter.Valid());
+    delete cmp;
 }
 
 TEST_F(SkipTest, InsertAndLookup) {
@@ -77,7 +78,7 @@ TEST_F(SkipTest, InsertAndLookup) {
     const int R = 5000;
     Random rnd(1000);
     std::set<Key> keys;
-    TestComparator cmp;
+    TestComparator* cmp = new TestComparator();
     SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
     for (int i = 0; i < N; i++) {
         Key key = rnd.Next() % R;
@@ -147,6 +148,7 @@ TEST_F(SkipTest, InsertAndLookup) {
         }
         ASSERT_TRUE(!iter.Valid());
     }
+    delete cmp;
 }
 
 // Only non-DUP model will use Find() and InsertWithHint().
@@ -158,7 +160,7 @@ TEST_F(SkipTest, InsertWithHintNoneDupModel) {
     const int R = 5000;
     Random rnd(1000);
     std::set<Key> keys;
-    TestComparator cmp;
+    TestComparator* cmp = new TestComparator();
     SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
     SkipList<Key, TestComparator>::Hint hint;
     for (int i = 0; i < N; i++) {
@@ -179,6 +181,7 @@ TEST_F(SkipTest, InsertWithHintNoneDupModel) {
             ASSERT_EQ(keys.count(i), 0);
         }
     }
+    delete cmp;
 }
 
 // We want to make sure that with a single writer and multiple
@@ -259,7 +262,7 @@ private:
 
     std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
-
+    std::shared_ptr<TestComparator> _comparator;
     // SkipList is not protected by _mu.  We just use a single writer
     // thread to modify it.
     SkipList<Key, TestComparator> _list;
@@ -268,8 +271,9 @@ public:
     ConcurrentTest()
             : _mem_tracker(new MemTracker(-1)),
               _mem_pool(new MemPool(_mem_tracker.get())),
-              _list(TestComparator(), _mem_pool.get(), false) {}
-
+              _comparator(new TestComparator()),
+              _list(_comparator.get(), _mem_pool.get(), false) {}
+    
     // REQUIRES: External synchronization
     void write_step(Random* rnd) {
         const uint32_t k = rnd->Next() % K;
@@ -358,7 +362,7 @@ public:
 
     enum ReaderState { STARTING, RUNNING, DONE };
 
-    explicit TestState(int s) : _seed(s), _quit_flag(NULL), _state(STARTING), _cv_state(&_mu) {}
+    explicit TestState(int s) : _seed(s), _quit_flag(false), _state(STARTING), _cv_state(&_mu) {}
 
     void wait(ReaderState s) {
         _mu.lock();
@@ -409,7 +413,7 @@ static void run_concurrent(int run) {
         for (int i = 0; i < kSize; i++) {
             state._t.write_step(&rnd);
         }
-        state._quit_flag.store(true, std::memory_order_release); // Any non-NULL arg will do
+        state._quit_flag.store(true, std::memory_order_release); // Any non-nullptr arg will do
         state.wait(TestState::DONE);
     }
 }

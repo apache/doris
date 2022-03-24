@@ -61,9 +61,10 @@ namespace doris {
 
 OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
                          size_t* written_len, OLAPCompressionType compression_type) {
-    if (NULL == src_buf || NULL == dest_buf || NULL == written_len) {
-        OLAP_LOG_WARNING("input param with NULL pointer. [src_buf=%p dest_buf=%p written_len=%p]",
-                         src_buf, dest_buf, written_len);
+    if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
+        OLAP_LOG_WARNING(
+                "input param with nullptr pointer. [src_buf=%p dest_buf=%p written_len=%p]",
+                src_buf, dest_buf, written_len);
 
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -135,9 +136,10 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
 
 OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
                            size_t* written_len, OLAPCompressionType compression_type) {
-    if (NULL == src_buf || NULL == dest_buf || NULL == written_len) {
-        OLAP_LOG_WARNING("input param with NULL pointer. [src_buf=%p dest_buf=%p written_len=%p]",
-                         src_buf, dest_buf, written_len);
+    if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
+        OLAP_LOG_WARNING(
+                "input param with nullptr pointer. [src_buf=%p dest_buf=%p written_len=%p]",
+                src_buf, dest_buf, written_len);
 
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
@@ -148,7 +150,7 @@ OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, 
     case OLAP_COMP_TRANSPORT: {
         int lzo_res = lzo1x_decompress_safe(reinterpret_cast<const lzo_byte*>(src_buf), src_len,
                                             reinterpret_cast<unsigned char*>(dest_buf), written_len,
-                                            NULL);
+                                            nullptr);
         if (LZO_E_OK != lzo_res) {
             OLAP_LOG_WARNING(
                     "decompress failed."
@@ -167,7 +169,7 @@ OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, 
     case OLAP_COMP_STORAGE: {
         int lzo_res = lzo1c_decompress_safe(reinterpret_cast<const lzo_byte*>(src_buf), src_len,
                                             reinterpret_cast<unsigned char*>(dest_buf), written_len,
-                                            NULL);
+                                            nullptr);
         if (LZO_E_OK != lzo_res) {
             OLAP_LOG_WARNING(
                     "decompress failed."
@@ -564,7 +566,7 @@ uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len) {
 }
 
 OLAPStatus gen_timestamp_string(string* out_string) {
-    time_t now = time(NULL);
+    time_t now = time(nullptr);
     tm local_tm;
 
     if (localtime_r(&now, &local_tm) == nullptr) {
@@ -642,7 +644,7 @@ OLAPStatus move_to_trash(const std::filesystem::path& schema_hash_root,
             OLAP_SUCCESS, "access dir failed. [dir=" + source_parent_dir);
 
     if (sub_dirs.empty() && sub_files.empty()) {
-        LOG(INFO) << "remove empty dir " << source_parent_dir;
+        VLOG_NOTICE << "remove empty dir " << source_parent_dir;
         // no need to exam return status
         Env::Default()->delete_dir(source_parent_dir);
     }
@@ -654,64 +656,6 @@ int operator-(const BinarySearchIterator& left, const BinarySearchIterator& righ
     return *left - *right;
 }
 
-OLAPStatus copy_file(const string& src, const string& dest) {
-    int src_fd = -1;
-    int dest_fd = -1;
-    char buf[1024 * 1024];
-    OLAPStatus res = OLAP_SUCCESS;
-
-    src_fd = ::open(src.c_str(), O_RDONLY);
-    if (src_fd < 0) {
-        char errmsg[64];
-        LOG(WARNING) << "failed to open file. [err='" << strerror_r(errno, errmsg, 64)
-                     << "' file_name=" << src << "]";
-        res = OLAP_ERR_FILE_NOT_EXIST;
-        goto COPY_EXIT;
-    }
-
-    dest_fd = ::open(dest.c_str(), O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
-    if (dest_fd < 0) {
-        char errmsg[64];
-        LOG(WARNING) << "failed to open file to write. [err='" << strerror_r(errno, errmsg, 64)
-                     << "' file_name=" << dest << "]";
-        res = OLAP_ERR_FILE_NOT_EXIST;
-        goto COPY_EXIT;
-    }
-
-    while (true) {
-        ssize_t rd_size = ::read(src_fd, buf, sizeof(buf));
-        if (rd_size < 0) {
-            OLAP_LOG_WARNING("failed to read from file. [err=%m file_name=%s fd=%d size=%ld]",
-                             src.c_str(), src_fd, rd_size);
-            return OLAP_ERR_IO_ERROR;
-        } else if (0 == rd_size) {
-            break;
-        }
-
-        ssize_t wr_size = ::write(dest_fd, buf, rd_size);
-        if (wr_size != rd_size) {
-            OLAP_LOG_WARNING(
-                    "failed to write to file. [err=%m file_name=%s fd=%d rd_size=%ld "
-                    "wr_size=%ld]",
-                    dest.c_str(), dest_fd, rd_size, wr_size);
-            res = OLAP_ERR_IO_ERROR;
-            goto COPY_EXIT;
-        }
-    }
-
-COPY_EXIT:
-    if (src_fd >= 0) {
-        ::close(src_fd);
-    }
-
-    if (dest_fd >= 0) {
-        ::close(dest_fd);
-    }
-
-    VLOG_NOTICE << "copy file success. [src=" << src << " dest=" << dest << "]";
-
-    return res;
-}
 OLAPStatus read_write_test_file(const string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
@@ -752,7 +696,7 @@ OLAPStatus read_write_test_file(const string& test_file_path) {
     }
     std::unique_ptr<char, decltype(&std::free)> read_buff(read_test_buff, &std::free);
     // generate random numbers
-    uint32_t rand_seed = static_cast<uint32_t>(time(NULL));
+    uint32_t rand_seed = static_cast<uint32_t>(time(nullptr));
     for (size_t i = 0; i < TEST_FILE_BUF_SIZE; ++i) {
         int32_t tmp_value = rand_r(&rand_seed);
         write_test_buff[i] = static_cast<char>(tmp_value);
@@ -799,64 +743,6 @@ bool check_datapath_rw(const string& path) {
     return false;
 }
 
-OLAPStatus copy_dir(const string& src_dir, const string& dst_dir) {
-    std::filesystem::path src_path(src_dir);
-    std::filesystem::path dst_path(dst_dir);
-
-    try {
-        // Check whether the function call is valid
-        if (!std::filesystem::exists(src_path) || !std::filesystem::is_directory(src_path)) {
-            OLAP_LOG_WARNING("Source dir not exist or is not a dir.[src_path=%s]",
-                             src_path.string().c_str());
-            return OLAP_ERR_CREATE_FILE_ERROR;
-        }
-
-        if (std::filesystem::exists(dst_path)) {
-            LOG(WARNING) << "Dst dir already exists.[dst_path=" << dst_path.string() << "]";
-            return OLAP_ERR_CREATE_FILE_ERROR;
-        }
-
-        // Create the destination directory
-        if (!std::filesystem::create_directory(dst_path)) {
-            LOG(WARNING) << "Unable to create dst dir.[dst_path=" << dst_path.string() << "]";
-            return OLAP_ERR_CREATE_FILE_ERROR;
-        }
-    } catch (...) {
-        OLAP_LOG_WARNING("input invalid[src_path=%s dst_path=%s]", src_path.string().c_str(),
-                         dst_path.string().c_str());
-        ;
-        return OLAP_ERR_STL_ERROR;
-    }
-
-    // Iterate through the source directory
-    for (std::filesystem::directory_iterator file(src_path);
-         file != std::filesystem::directory_iterator(); ++file) {
-        try {
-            std::filesystem::path current = file->path();
-            if (std::filesystem::is_directory(current)) {
-                // Found directory: Recursion
-                OLAPStatus res = OLAP_SUCCESS;
-                if (OLAP_SUCCESS !=
-                    (res = copy_dir(current.string(), (dst_path / current.filename()).string()))) {
-                    OLAP_LOG_WARNING("Fail to copy file.[src_path=%s dst_path=%s res=%d]",
-                                     src_path.string().c_str(), dst_path.string().c_str(), res);
-                    ;
-                    return OLAP_ERR_CREATE_FILE_ERROR;
-                }
-            } else {
-                // Found file: Copy
-                std::filesystem::copy_file(current, (dst_path / current.filename()).string());
-            }
-        } catch (...) {
-            OLAP_LOG_WARNING("Fail to copy file.[src_path=%s dst_path=%s]",
-                             src_path.string().c_str(), dst_path.string().c_str());
-            ;
-            return OLAP_ERR_STL_ERROR;
-        }
-    }
-    return OLAP_SUCCESS;
-}
-
 __thread char Errno::_buf[BUF_SIZE]; ///< buffer instance
 
 const char* Errno::str() {
@@ -878,7 +764,7 @@ int Errno::no() {
 
 template <>
 bool valid_signed_number<int128_t>(const std::string& value_str) {
-    char* endptr = NULL;
+    char* endptr = nullptr;
     const char* value_string = value_str.c_str();
     int64_t value = strtol(value_string, &endptr, 10);
     if (*endptr != 0) {
@@ -957,32 +843,32 @@ bool valid_datetime(const string& value_str) {
             return false;
         }
 
-        int month = strtol(what[2].str().c_str(), NULL, 10);
+        int month = strtol(what[2].str().c_str(), nullptr, 10);
         if (month < 1 || month > 12) {
             OLAP_LOG_WARNING("invalid month. [month=%d]", month);
             return false;
         }
 
-        int day = strtol(what[3].str().c_str(), NULL, 10);
+        int day = strtol(what[3].str().c_str(), nullptr, 10);
         if (day < 1 || day > 31) {
             OLAP_LOG_WARNING("invalid day. [day=%d]", day);
             return false;
         }
 
         if (what[4].length()) {
-            int hour = strtol(what[5].str().c_str(), NULL, 10);
+            int hour = strtol(what[5].str().c_str(), nullptr, 10);
             if (hour < 0 || hour > 23) {
                 OLAP_LOG_WARNING("invalid hour. [hour=%d]", hour);
                 return false;
             }
 
-            int minute = strtol(what[6].str().c_str(), NULL, 10);
+            int minute = strtol(what[6].str().c_str(), nullptr, 10);
             if (minute < 0 || minute > 59) {
                 OLAP_LOG_WARNING("invalid minute. [minute=%d]", minute);
                 return false;
             }
 
-            int second = strtol(what[7].str().c_str(), NULL, 10);
+            int second = strtol(what[7].str().c_str(), nullptr, 10);
             if (second < 0 || second > 59) {
                 OLAP_LOG_WARNING("invalid second. [second=%d]", second);
                 return false;

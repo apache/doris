@@ -38,6 +38,7 @@
 #include "exprs/is_null_predicate.h"
 #include "exprs/literal.h"
 #include "exprs/null_literal.h"
+#include "exprs/rpc_fn_call.h"
 #include "exprs/scalar_fn_call.h"
 #include "exprs/slot_ref.h"
 #include "exprs/tuple_is_null_predicate.h"
@@ -65,7 +66,7 @@ void init_builtins_dummy() {
     // Call one function from each of the classes to pull all the symbols
     // from that class in.
     // TODO: is there a better way to do this?
-    AggregateFunctions::init_null(NULL, NULL);
+    AggregateFunctions::init_null(nullptr, nullptr);
 }
 
 FunctionContext* Expr::register_function_context(ExprContext* ctx, RuntimeState* state,
@@ -141,6 +142,7 @@ Expr::Expr(const TypeDescriptor& type)
     case TYPE_HLL:
     case TYPE_OBJECT:
     case TYPE_STRING:
+    case TYPE_QUANTILE_STATE:
         _node_type = (TExprNodeType::STRING_LITERAL);
         break;
 
@@ -198,6 +200,7 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref)
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_STRING:
             _node_type = (TExprNodeType::STRING_LITERAL);
             break;
@@ -243,12 +246,12 @@ Expr::~Expr() {}
 Status Expr::create_expr_tree(ObjectPool* pool, const TExpr& texpr, ExprContext** ctx) {
     // input is empty
     if (texpr.nodes.size() == 0) {
-        *ctx = NULL;
+        *ctx = nullptr;
         return Status::OK();
     }
     int node_idx = 0;
-    Expr* e = NULL;
-    Status status = create_tree_from_thrift(pool, texpr.nodes, NULL, &node_idx, &e, ctx);
+    Expr* e = nullptr;
+    Status status = create_tree_from_thrift(pool, texpr.nodes, nullptr, &node_idx, &e, ctx);
     if (status.ok() && node_idx + 1 != texpr.nodes.size()) {
         status = Status::InternalError(
                 "Expression tree only partially reconstructed. Not all thrift nodes were used.");
@@ -280,20 +283,20 @@ Status Expr::create_tree_from_thrift(ObjectPool* pool, const std::vector<TExprNo
         return Status::InternalError("Failed to reconstruct expression tree from thrift.");
     }
     int num_children = nodes[*node_idx].num_children;
-    Expr* expr = NULL;
+    Expr* expr = nullptr;
     RETURN_IF_ERROR(create_expr(pool, nodes[*node_idx], &expr));
-    DCHECK(expr != NULL);
-    if (parent != NULL) {
+    DCHECK(expr != nullptr);
+    if (parent != nullptr) {
         parent->add_child(expr);
     } else {
-        DCHECK(root_expr != NULL);
-        DCHECK(ctx != NULL);
+        DCHECK(root_expr != nullptr);
+        DCHECK(ctx != nullptr);
         *root_expr = expr;
         *ctx = pool->add(new ExprContext(expr));
     }
     for (int i = 0; i < num_children; i++) {
         *node_idx += 1;
-        RETURN_IF_ERROR(create_tree_from_thrift(pool, nodes, expr, node_idx, NULL, NULL));
+        RETURN_IF_ERROR(create_tree_from_thrift(pool, nodes, expr, node_idx, nullptr, nullptr));
         // we are expecting a child, but have used all nodes
         // this means we have been given a bad tree and must fail
         if (*node_idx >= nodes.size()) {
@@ -357,6 +360,10 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
             *expr = pool->add(new IfNullExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "coalesce") {
             *expr = pool->add(new CoalesceExpr(texpr_node));
+        } else if (texpr_node.fn.binary_type == TFunctionBinaryType::RPC) {
+            *expr = pool->add(new RPCFnCall(texpr_node));
+        } else if (ArithmeticExpr::is_valid(texpr_node.fn.name.function_name)) {
+            *expr = pool->add(ArithmeticExpr::from_fn_name(texpr_node));
         } else {
             *expr = pool->add(new ScalarFnCall(texpr_node));
         }
@@ -401,22 +408,6 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
         *expr = pool->add(new InfoFunc(texpr_node));
         return Status::OK();
     }
-#if 0
-    case TExprNodeType::FUNCTION_CALL: {
-        if (!texpr_node.__isset.fn_call_expr) {
-            return Status::InternalError("Udf call not set in thrift node");
-        }
-
-        if (texpr_node.fn_call_expr.fn.binary_type == TFunctionBinaryType::HIVE) {
-            DCHECK(false);  //temp add, can't get here
-            //*expr = pool->Add(new HiveUdfCall(texpr_node));
-        } else {
-            *expr = pool->add(new NativeUdfExpr(texpr_node));
-        }
-
-        return Status::OK();
-    }
-#endif
 
     default:
         std::stringstream os;
@@ -459,8 +450,8 @@ int Expr::compute_results_layout(const std::vector<Expr*>& exprs, std::vector<in
     for (int i = 0; i < exprs.size(); ++i) {
         data[i].expr_idx = i;
 
-        if (exprs[i]->type().type == TYPE_CHAR || exprs[i]->type().type == TYPE_VARCHAR
-         || exprs[i]->type().type == TYPE_STRING) {
+        if (exprs[i]->type().type == TYPE_CHAR || exprs[i]->type().type == TYPE_VARCHAR ||
+            exprs[i]->type().type == TYPE_STRING) {
             data[i].byte_size = 16;
             data[i].variable_length = true;
         } else {
@@ -560,21 +551,11 @@ void Expr::close(RuntimeState* state, ExprContext* context,
     for (int i = 0; i < _children.size(); ++i) {
         _children[i]->close(state, context, scope);
     }
-    // TODO(zc)
-#if 0
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
-        // This is the final, non-cloned context to close. Clean up the whole Expr.
-        if (cache_entry_ != NULL) {
-            LibCache::instance()->DecrementUseCount(cache_entry_);
-            cache_entry_ = NULL;
-        }
-    }
-#endif
 }
 
 Status Expr::clone_if_not_exists(const std::vector<ExprContext*>& ctxs, RuntimeState* state,
                                  std::vector<ExprContext*>* new_ctxs) {
-    DCHECK(new_ctxs != NULL);
+    DCHECK(new_ctxs != nullptr);
     if (!new_ctxs->empty()) {
         // 'ctxs' was already cloned into '*new_ctxs', nothing to do.
         DCHECK_EQ(new_ctxs->size(), ctxs.size());
@@ -665,61 +646,62 @@ const Expr* Expr::expr_without_cast(const Expr* expr) {
 
 doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
     if (!is_constant()) {
-        return NULL;
+        return nullptr;
     }
-    if (_constant_val.get() != NULL) {
+    if (_constant_val.get() != nullptr) {
         return _constant_val.get();
     }
     switch (_type.type) {
     case TYPE_BOOLEAN: {
-        _constant_val.reset(new BooleanVal(get_boolean_val(context, NULL)));
+        _constant_val.reset(new BooleanVal(get_boolean_val(context, nullptr)));
         break;
     }
     case TYPE_TINYINT: {
-        _constant_val.reset(new TinyIntVal(get_tiny_int_val(context, NULL)));
+        _constant_val.reset(new TinyIntVal(get_tiny_int_val(context, nullptr)));
         break;
     }
     case TYPE_SMALLINT: {
-        _constant_val.reset(new SmallIntVal(get_small_int_val(context, NULL)));
+        _constant_val.reset(new SmallIntVal(get_small_int_val(context, nullptr)));
         break;
     }
     case TYPE_INT: {
-        _constant_val.reset(new IntVal(get_int_val(context, NULL)));
+        _constant_val.reset(new IntVal(get_int_val(context, nullptr)));
         break;
     }
     case TYPE_BIGINT: {
-        _constant_val.reset(new BigIntVal(get_big_int_val(context, NULL)));
+        _constant_val.reset(new BigIntVal(get_big_int_val(context, nullptr)));
         break;
     }
     case TYPE_LARGEINT: {
-        _constant_val.reset(new LargeIntVal(get_large_int_val(context, NULL)));
+        _constant_val.reset(new LargeIntVal(get_large_int_val(context, nullptr)));
         break;
     }
     case TYPE_FLOAT: {
-        _constant_val.reset(new FloatVal(get_float_val(context, NULL)));
+        _constant_val.reset(new FloatVal(get_float_val(context, nullptr)));
         break;
     }
     case TYPE_DOUBLE:
     case TYPE_TIME: {
-        _constant_val.reset(new DoubleVal(get_double_val(context, NULL)));
+        _constant_val.reset(new DoubleVal(get_double_val(context, nullptr)));
         break;
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING: {
-        _constant_val.reset(new StringVal(get_string_val(context, NULL)));
+        _constant_val.reset(new StringVal(get_string_val(context, nullptr)));
         break;
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        _constant_val.reset(new DateTimeVal(get_datetime_val(context, NULL)));
+        _constant_val.reset(new DateTimeVal(get_datetime_val(context, nullptr)));
         break;
     }
 
     case TYPE_DECIMALV2: {
-        _constant_val.reset(new DecimalV2Val(get_decimalv2_val(context, NULL)));
+        _constant_val.reset(new DecimalV2Val(get_decimalv2_val(context, nullptr)));
         break;
     }
     case TYPE_NULL: {
@@ -727,13 +709,13 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         break;
     }
     case TYPE_ARRAY: {
-        _constant_val.reset(new CollectionVal(get_array_val(context, NULL)));
+        _constant_val.reset(new CollectionVal(get_array_val(context, nullptr)));
         break;
     }
     default:
         DCHECK(false) << "Type not implemented: " << type();
     }
-    DCHECK(_constant_val.get() != NULL);
+    DCHECK(_constant_val.get() != nullptr);
     return _constant_val.get();
 }
 
@@ -843,10 +825,9 @@ void Expr::assign_fn_ctx_idx(int* next_fn_ctx_idx) {
 }
 
 Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
-                    ObjectPool* pool, Expr** scalar_expr,
-                    const std::shared_ptr<MemTracker>& tracker) {
+                    ObjectPool* pool, Expr** scalar_expr) {
     *scalar_expr = nullptr;
-    Expr* root;
+    Expr* root = nullptr;
     RETURN_IF_ERROR(create_expr(pool, texpr.nodes[0], &root));
     RETURN_IF_ERROR(create_tree(texpr, pool, root));
     // TODO pengyubing replace by Init()
@@ -867,12 +848,11 @@ Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeSt
 }
 
 Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
-                    RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs,
-                    const std::shared_ptr<MemTracker>& tracker) {
+                    RuntimeState* state, ObjectPool* pool, std::vector<Expr*>* exprs) {
     exprs->clear();
     for (const TExpr& texpr : texprs) {
-        Expr* expr;
-        RETURN_IF_ERROR(create(texpr, row_desc, state, pool, &expr, tracker));
+        Expr* expr = nullptr;
+        RETURN_IF_ERROR(create(texpr, row_desc, state, pool, &expr));
         DCHECK(expr != nullptr);
         exprs->push_back(expr);
     }
@@ -880,14 +860,13 @@ Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_d
 }
 
 Status Expr::create(const TExpr& texpr, const RowDescriptor& row_desc, RuntimeState* state,
-                    Expr** scalar_expr, const std::shared_ptr<MemTracker>& tracker) {
-    return Expr::create(texpr, row_desc, state, state->obj_pool(), scalar_expr, tracker);
+                    Expr** scalar_expr) {
+    return Expr::create(texpr, row_desc, state, state->obj_pool(), scalar_expr);
 }
 
 Status Expr::create(const std::vector<TExpr>& texprs, const RowDescriptor& row_desc,
-                    RuntimeState* state, std::vector<Expr*>* exprs,
-                    const std::shared_ptr<MemTracker>& tracker) {
-    return Expr::create(texprs, row_desc, state, state->obj_pool(), exprs, tracker);
+                    RuntimeState* state, std::vector<Expr*>* exprs) {
+    return Expr::create(texprs, row_desc, state, state->obj_pool(), exprs);
 }
 
 Status Expr::create_tree(const TExpr& texpr, ObjectPool* pool, Expr* root) {

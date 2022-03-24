@@ -18,11 +18,9 @@
 #ifndef DORIS_BE_RUNTIME_RESULT_BUFFER_MGR_H
 #define DORIS_BE_RUNTIME_RESULT_BUFFER_MGR_H
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/thread/thread.hpp>
 #include <map>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -36,7 +34,7 @@ namespace doris {
 
 class TFetchDataResult;
 class BufferControlBlock;
-class GetResultBatchCtx;
+struct GetResultBatchCtx;
 class PUniqueId;
 
 // manage all result buffer control block in one backend
@@ -50,7 +48,7 @@ public:
     // the returned sender do not need release
     // sender is not used when call cancel or unregister
     Status create_sender(const TUniqueId& query_id, int buffer_size,
-                         boost::shared_ptr<BufferControlBlock>* sender);
+                         std::shared_ptr<BufferControlBlock>* sender);
     // fetch data, used by RPC
     Status fetch_data(const TUniqueId& fragment_id, TFetchDataResult* result);
 
@@ -63,10 +61,10 @@ public:
     Status cancel_at_time(time_t cancel_time, const TUniqueId& query_id);
 
 private:
-    typedef std::unordered_map<TUniqueId, boost::shared_ptr<BufferControlBlock>> BufferMap;
+    typedef std::unordered_map<TUniqueId, std::shared_ptr<BufferControlBlock>> BufferMap;
     typedef std::map<time_t, std::vector<TUniqueId>> TimeoutMap;
 
-    boost::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
+    std::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
 
     // used to erase the buffer that fe not clears
     // when fe crush, this thread clear the buffer avoid memory leak in this backend

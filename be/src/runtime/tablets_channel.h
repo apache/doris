@@ -54,14 +54,14 @@ class OlapTableSchemaParam;
 // Write channel for a particular (load, index).
 class TabletsChannel {
 public:
-    TabletsChannel(const TabletsChannelKey& key, const std::shared_ptr<MemTracker>& mem_tracker);
+    TabletsChannel(const TabletsChannelKey& key, bool is_high_priority);
 
     ~TabletsChannel();
 
-    Status open(const PTabletWriterOpenRequest& params);
+    Status open(const PTabletWriterOpenRequest& request);
 
     // no-op when this channel has been closed or cancelled
-    Status add_batch(const PTabletWriterAddBatchRequest& batch);
+    Status add_batch(const PTabletWriterAddBatchRequest& request, PTabletWriterAddBatchResult* response);
 
     // Mark sender with 'sender_id' as closed.
     // If all senders are closed, close this channel, set '*finished' to true, update 'tablet_vec'
@@ -84,7 +84,7 @@ public:
 
 private:
     // open all writer
-    Status _open_all_writers(const PTabletWriterOpenRequest& params);
+    Status _open_all_writers(const PTabletWriterOpenRequest& request);
 
 private:
     // id of this load channel
@@ -118,12 +118,18 @@ private:
 
     // tablet_id -> TabletChannel
     std::unordered_map<int64_t, DeltaWriter*> _tablet_writers;
+    // broken tablet ids.
+    // If a tablet write fails, it's id will be added to this set.
+    // So that following batch will not handle this tablet anymore.
+    std::unordered_set<int64_t> _broken_tablets;
 
     std::unordered_set<int64_t> _partition_ids;
 
     std::shared_ptr<MemTracker> _mem_tracker;
 
     static std::atomic<uint64_t> _s_tablet_writer_count;
+
+    bool _is_high_priority = false;
 };
 
 } // namespace doris

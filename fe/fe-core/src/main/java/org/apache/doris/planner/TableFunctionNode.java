@@ -18,34 +18,130 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LateralViewRef;
+import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TTableFunctionNode;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 public class TableFunctionNode extends PlanNode {
 
-    private LateralViewRef lateralViewRef;
+    private List<LateralViewRef> lateralViewRefs;
+    private ArrayList<Expr> fnCallExprList;
+    private List<TupleId> lateralViewTupleIds;
 
-    private FunctionCallExpr fnCallExpr;
+    // The output slot ids of TableFunctionNode
+    // Only the slot whose id is in this list will be output by TableFunctionNode
+    private List<SlotId> outputSlotIds = Lists.newArrayList();
 
-    protected TableFunctionNode(PlanNodeId id, PlanNode inputNode, LateralViewRef lateralViewRef) {
+    protected TableFunctionNode(PlanNodeId id, PlanNode inputNode, List<LateralViewRef> lateralViewRefs) {
         super(id, "TABLE FUNCTION NODE");
         tupleIds.addAll(inputNode.getTupleIds());
         tblRefIds.addAll(inputNode.getTupleIds());
-        tupleIds.add(lateralViewRef.getDesc().getId());
-        tblRefIds.add(lateralViewRef.getDesc().getId());
+        lateralViewTupleIds = lateralViewRefs.stream().map(e -> e.getDesc().getId())
+                .collect(Collectors.toList());
+        tupleIds.addAll(lateralViewTupleIds);
+        tblRefIds.addAll(lateralViewTupleIds);
         children.add(inputNode);
-        this.lateralViewRef = lateralViewRef;
+        this.lateralViewRefs = lateralViewRefs;
+    }
+
+    /**
+     * This function is mainly used to calculate @outputSlotIds.
+     * After the PlanNode executes the @fnCallExpr,
+     * it needs to perform projection operation.
+     * This function is used to calculate which columns should be projected.
+     * The slot belongs to outputSlotIds should be retained after the projection is completed.
+     * Slots in selectItems and unassigned predicates should be projected.
+     * <p>
+     * Case1: The slot belongs to selectItems. The outputSlotIds should include it.
+     * For example:
+     * Query: select k1, v1 from table lateral view explode_split(v1, ",") t1 as c1;
+     * The outputSlots: [k1, v1, c1]
+     * <p>
+     * Case2: The slot belongs to where clause and the predicate has not been assigned.
+     * Query: select k1 from table a lateral view explode_split(v1, ",") t1 as c1, table b where a.v1=b.v1;
+     * The outputSlots: [a.k1, a.v1, t1.c1]
+     * <p>
+     * Case3: The slot neither is part of the unassigned predicate, nor appears in the selectItems.
+     * Query: select k1 from table a lateral view explode_split(v1, ",") t1 as c1;
+     * The outputSlots: [k1, c1]
+     */
+    public void projectSlots(Analyzer analyzer, SelectStmt selectStmt) throws AnalysisException {
+        // TODO(ml): Support project calculations that include aggregation and sorting in select stmt
+        if ((selectStmt.hasAggInfo() || selectStmt.getSortInfo() != null || selectStmt.hasAnalyticInfo())
+                && selectStmt.hasInlineView()) {
+            // The query must be rewritten like TableFunctionPlanTest.aggColumnInOuterQuery()
+            throw new AnalysisException("Please treat the query containing the lateral view as a inline view"
+                    + "and extract your aggregation/sort/window functions to the outer query."
+                    + "For example select sum(a) from (select a from table lateral view xxx) tmp1");
+        }
+        Set<SlotRef> outputSlotRef = Sets.newHashSet();
+        // case1
+        List<Expr> baseTblResultExprs = selectStmt.getBaseTblResultExprs();
+        for (Expr resultExpr : baseTblResultExprs) {
+            // find all slotRef bound by tupleIds in resultExpr
+            resultExpr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+        }
+        // case2
+        List<Expr> remainConjuncts = analyzer.getRemainConjuncts(tupleIds);
+        for (Expr expr : remainConjuncts) {
+            expr.getSlotRefsBoundByTupleIds(tupleIds, outputSlotRef);
+        }
+        // set output slot ids
+        for (SlotRef slotRef : outputSlotRef) {
+            outputSlotIds.add(slotRef.getSlotId());
+        }
+
+        // For all other slots from input node which are not in outputSlotIds,
+        // set them as nullable, so that we can set them to null in TableFunctionNode
+        // TODO(cmy): This should be done with a ProjectionNode
+        PlanNode inputNode = getChild(0);
+        List<TupleId> inputTupleIds = inputNode.getTupleIds();
+        for (TupleId tupleId : inputTupleIds) {
+            TupleDescriptor td = analyzer.getTupleDesc(tupleId);
+            for (SlotDescriptor sd : td.getSlots()) {
+                if (!outputSlotIds.contains(sd.getId())) {
+                    sd.setIsNullable(true);
+                }
+            }
+        }
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
-        fnCallExpr = lateralViewRef.getFnExpr();
+        fnCallExprList = new ArrayList<>(lateralViewRefs.stream().map(e -> e.getFnExpr()).collect(Collectors.toList()));
+        /*
+        When the expression of the lateral view involves the column of the subquery,
+        the column needs to be rewritten as the real column in the subquery through childrenSmap.
+        Example:
+          select e1 from (select a from t1) tmp1 lateral view explode_split(a, ",") tmp2 as e1
+          Slot 'a' is originally linked to tuple 'tmp1'. <tmp1.a>
+          But tmp1 is just a virtual and unreal inline view tuple.
+          So we need to push down 'a' and hang it on the real tuple 't1'. <t1.a>
+         */
+        outputSmap = getCombinedChildSmap();
+        fnCallExprList = Expr.substituteList(fnCallExprList, outputSmap, analyzer, false);
+        // end
+
         computeStats(analyzer);
     }
 
@@ -59,10 +155,27 @@ public class TableFunctionNode extends PlanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(prefix + "table function: ").append(fnCallExpr.toSql() + "\n");
+        output.append(prefix + "table function: ");
+        for (Expr fnExpr : fnCallExprList) {
+            output.append(fnExpr.toSql() + " ");
+        }
+        output.append("\n");
+
+        output.append(prefix + "lateral view tuple id: ");
+        for (TupleId tupleId : lateralViewTupleIds) {
+            output.append(tupleId.asInt() + " ");
+        }
+        output.append("\n");
+
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();
         }
+
+        output.append(prefix + "output slot id: ");
+        for (SlotId slotId : outputSlotIds) {
+            output.append(slotId.asInt() + " ");
+        }
+        output.append("\n");
 
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(
@@ -76,6 +189,10 @@ public class TableFunctionNode extends PlanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.TABLE_FUNCTION_NODE;
         msg.table_function_node = new TTableFunctionNode();
-        msg.table_function_node.setFnCallExpr(fnCallExpr.treeToThrift());
+        msg.table_function_node.setFnCallExprList(Expr.treesToThrift(fnCallExprList));
+        for (SlotId slotId : outputSlotIds) {
+            msg.table_function_node.addToOutputSlotIds(slotId.asInt());
+        }
     }
 }
+

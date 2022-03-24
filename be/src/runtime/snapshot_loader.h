@@ -33,7 +33,7 @@ namespace doris {
 
 class ExecEnv;
 class StorageBackend;
-class FileStat;
+struct FileStat;
 
 /*
  * Upload:
@@ -85,11 +85,6 @@ private:
                                           std::vector<std::string>* local_files);
 
     bool _end_with(const std::string& str, const std::string& match);
-
-    void _assemble_file_name(const std::string& snapshot_path, const std::string& tablet_path,
-                             int64_t tablet_id, int64_t start_version, int64_t end_version,
-                             int64_t version_hash, int32_t seg_num, const std::string suffix,
-                             std::string* snapshot_file, std::string* tablet_file);
 
     Status _replace_tablet_id(const std::string& file_name, int64_t tablet_id,
                               std::string* new_file_name);

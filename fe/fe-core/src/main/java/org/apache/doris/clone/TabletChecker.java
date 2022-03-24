@@ -70,7 +70,7 @@ public class TabletChecker extends MasterDaemon {
     private TabletScheduler tabletScheduler;
     private TabletSchedulerStat stat;
 
-    HashMap<String, AtomicLong> tabletCountByStatus = new HashMap<String, AtomicLong>(){{
+    HashMap<String, AtomicLong> tabletCountByStatus = new HashMap<String, AtomicLong>() {{
         put("total", new AtomicLong(0L));
         put("unhealthy", new AtomicLong(0L));
         put("added", new AtomicLong(0L));
@@ -81,7 +81,7 @@ public class TabletChecker extends MasterDaemon {
     // db id -> (tbl id -> PrioPart)
     // priority of replicas of partitions in this table will be set to VERY_HIGH if not healthy
     private com.google.common.collect.Table<Long, Long, Set<PrioPart>> prios = HashBasedTable.create();
-    
+
     // represent a partition which need to be repaired preferentially
     public static class PrioPart {
         public long partId;
@@ -125,7 +125,7 @@ public class TabletChecker extends MasterDaemon {
     }
 
     public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler,
-            TabletSchedulerStat stat) {
+                         TabletSchedulerStat stat) {
         super("tablet checker", FeConstants.tablet_checker_interval_ms);
         this.catalog = catalog;
         this.infoService = infoService;
@@ -187,7 +187,6 @@ public class TabletChecker extends MasterDaemon {
                 tblMap.remove(repairTabletInfo.tblId);
             }
         }
-
     }
 
     /*
@@ -356,7 +355,6 @@ public class TabletChecker extends MasterDaemon {
                         infoService,
                         db.getClusterName(),
                         partition.getVisibleVersion(),
-                        partition.getVisibleVersionHash(),
                         tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         aliveBeIdsInCluster);
 
@@ -405,7 +403,7 @@ public class TabletChecker extends MasterDaemon {
         if (prioPartIsHealthy && isInPrios) {
             // if all replicas in this partition are healthy, remove this partition from
             // priorities.
-            LOG.debug("partition is healthy, remove from prios: {}-{}-{}",
+            LOG.info("partition is healthy, remove from prios: {}-{}-{}",
                     db.getId(), tbl.getId(), partition.getId());
             removePrios(new RepairTabletInfo(db.getId(),
                     tbl.getId(), Lists.newArrayList(partition.getId())));

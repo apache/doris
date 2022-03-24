@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_TOPN_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_TOPN_NODE_H
 
-#include <boost/scoped_ptr.hpp>
 #include <queue>
 
 #include "exec/exec_node.h"
@@ -75,7 +74,7 @@ private:
     TupleDescriptor* _materialized_tuple_desc;
 
     // Comparator for _priority_queue.
-    boost::scoped_ptr<TupleRowComparator> _tuple_row_less_than;
+    std::unique_ptr<TupleRowComparator> _tuple_row_less_than;
 
     // After computing the TopN in the priority_queue, pop them and put them in this vector
     std::vector<Tuple*> _sorted_top_n;
@@ -86,7 +85,7 @@ private:
     Tuple* _tmp_tuple;
 
     // Stores everything referenced in _priority_queue
-    boost::scoped_ptr<MemPool> _tuple_pool;
+    std::unique_ptr<MemPool> _tuple_pool;
 
     // Iterator over elements in _sorted_top_n.
     std::vector<Tuple*>::iterator _get_next_iter;
@@ -102,7 +101,7 @@ private:
     // Number of rows skipped. Used for adhering to _offset.
     int64_t _num_rows_skipped;
 
-    // The priority queue will never have more elements in it than the LIMIT.      
+    // The priority queue will never have more elements in it than the LIMIT.
     std::unique_ptr<SortingHeap<Tuple*, std::vector<Tuple*>, TupleRowComparator>> _priority_queue;
 
     // END: Members that must be Reset()

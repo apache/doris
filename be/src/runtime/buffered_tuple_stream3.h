@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
 #define DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
 
-#include <boost/scoped_ptr.hpp>
 #include <functional>
 #include <set>
 #include <vector>
@@ -31,7 +30,6 @@
 
 namespace doris {
 
-class MemTracker;
 class RuntimeState;
 class RowDescriptor;
 class SlotDescriptor;
@@ -137,7 +135,7 @@ class TupleRow;
 /// +--------+-----------+-----------+-----------+-------------+
 ///  <--4b--> <---12b---> <----8b---> <---12b---> <----10b---->
 ///
-/// Example layout for a row with the second tuple nullable ((1, "hello"), NULL)
+/// Example layout for a row with the second tuple nullable ((1, "hello"), nullptr)
 /// with all var len data stored in the stream:
 /// <- null tuple bitstring -> <---- tuple 1 -----> <- var len -> <- next row ...
 /// +-------------------------+--------+-----------+------------+
@@ -334,10 +332,9 @@ public:
     /// process. If the current unused reservation is not sufficient to pin the stream in
     /// memory, this will try to increase the reservation. If that fails, 'got_rows' is set
     /// to false.
-    Status GetRows(const std::shared_ptr<MemTracker>& tracker, boost::scoped_ptr<RowBatch>* batch,
-                   bool* got_rows) WARN_UNUSED_RESULT;
+    Status GetRows(std::unique_ptr<RowBatch>* batch, bool* got_rows) WARN_UNUSED_RESULT;
 
-    /// Must be called once at the end to cleanup all resources. If 'batch' is non-NULL,
+    /// Must be called once at the end to cleanup all resources. If 'batch' is non-nullptr,
     /// attaches buffers from pinned pages that rows returned from GetNext() may reference.
     /// Otherwise deletes all pages. Does nothing if the stream was already closed. The
     /// 'flush' mode is forwarded to RowBatch::AddBuffer() when attaching buffers.
@@ -475,7 +472,7 @@ private:
     /// True if there is currently an active write iterator into the stream.
     bool has_write_iterator_;
 
-    /// The current page for writing. NULL if there is no write iterator or no current
+    /// The current page for writing. nullptr if there is no write iterator or no current
     /// write page. Always pinned. Size is 'default_page_len_', except temporarily while
     /// appending a larger row between AddRowCustomBegin() and AddRowCustomEnd().
     Page* write_page_;
@@ -563,7 +560,7 @@ private:
 
     /// Determines what page size is needed to fit a row of 'row_size' bytes.
     /// Returns an error if the row cannot fit in a page.
-    Status CalcPageLenForRow(int64_t row_size, int64_t* page_len);
+    void CalcPageLenForRow(int64_t row_size, int64_t* page_len);
 
     /// Wrapper around NewWritePage() that allocates a new write page that fits a row of
     /// 'row_size' bytes. Increases reservation if needed to allocate the next page.

@@ -25,6 +25,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
@@ -70,6 +71,15 @@ public class LoadAction extends RestBaseController {
         this.isStreamLoad = true;
         executeCheckPassword(request, response);
         return executeWithoutPassword(request, response, db, table);
+    }
+
+    @RequestMapping(path = "/api/{" + DB_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
+    public Object streamLoad2PC(HttpServletRequest request,
+                                   HttpServletResponse response,
+                                   @PathVariable(value = DB_KEY) String db) {
+        this.isStreamLoad = true;
+        executeCheckPassword(request, response);
+        return executeStreamLoad2PC(request, db);
     }
 
     // Same as Multi load, to be compatible with http v1's response body,
@@ -128,15 +138,17 @@ public class LoadAction extends RestBaseController {
                 }
             } else {
                 // Choose a backend sequentially.
+                SystemInfoService.BeAvailablePredicate beAvailablePredicate =
+                        new SystemInfoService.BeAvailablePredicate(false, false, true);
                 List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                        1, true, false, clusterName, null, null);
+                        1, beAvailablePredicate, false, clusterName, null, null);
                 if (backendIds == null) {
-                    return new RestBaseResult("No backend alive.");
+                    return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
                 }
 
                 Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
                 if (backend == null) {
-                    return new RestBaseResult("No backend alive.");
+                    return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
                 }
 
                 redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
@@ -147,6 +159,55 @@ public class LoadAction extends RestBaseController {
 
             RedirectView redirectView = redirectTo(request, redirectAddr);
             return redirectView;
+        } catch (Exception e) {
+            return new RestBaseResult(e.getMessage());
+        }
+    }
+
+    private Object executeStreamLoad2PC(HttpServletRequest request, String db) {
+        try {
+            String dbName = db;
+
+            final String clusterName = ConnectContext.get().getClusterName();
+            if (Strings.isNullOrEmpty(clusterName)) {
+                return new RestBaseResult("No cluster selected.");
+            }
+
+            if (Strings.isNullOrEmpty(dbName)) {
+                return new RestBaseResult("No database selected.");
+            }
+
+            if (Strings.isNullOrEmpty(request.getHeader(TXN_ID_KEY))) {
+                return new RestBaseResult("No transaction id selected.");
+            }
+
+            String txnOperation = request.getHeader(TXN_OPERATION_KEY);
+            if (Strings.isNullOrEmpty(txnOperation)) {
+                return new RestBaseResult("No transaction operation(\'commit\' or \'abort\') selected.");
+            }
+
+            // Choose a backend sequentially.
+            SystemInfoService.BeAvailablePredicate beAvailablePredicate =
+                    new SystemInfoService.BeAvailablePredicate(false, false, true);
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
+                    1, beAvailablePredicate, false, clusterName, null, null);
+            if (backendIds == null) {
+                return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
+            }
+
+            Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            if (backend == null) {
+                return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
+            }
+
+            TNetworkAddress redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+
+            LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
+                    redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
+
+            RedirectView redirectView = redirectTo(request, redirectAddr);
+            return redirectView;
+
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());
         }

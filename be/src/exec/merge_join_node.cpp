@@ -47,7 +47,7 @@ int compare_value(const StringValue* left_value, const StringValue* right_value)
 }
 
 MergeJoinNode::MergeJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs), _out_batch(NULL) {}
+        : ExecNode(pool, tnode, descs), _out_batch(nullptr) {}
 
 MergeJoinNode::~MergeJoinNode() {}
 
@@ -57,7 +57,7 @@ Status MergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     const std::vector<TEqJoinCondition>& cmp_conjuncts = tnode.merge_join_node.cmp_conjuncts;
 
     for (int i = 0; i < cmp_conjuncts.size(); ++i) {
-        ExprContext* ctx = NULL;
+        ExprContext* ctx = nullptr;
         RETURN_IF_ERROR(Expr::create_expr_tree(_pool, cmp_conjuncts[i].left, &ctx));
         _left_expr_ctxs.push_back(ctx);
         RETURN_IF_ERROR(Expr::create_expr_tree(_pool, cmp_conjuncts[i].right, &ctx));
@@ -129,10 +129,8 @@ Status MergeJoinNode::prepare(RuntimeState* state) {
         _right_tuple_idx.push_back(_row_descriptor.get_tuple_idx(right_tuple_desc->id()));
     }
 
-    _left_child_ctx.reset(
-            new ChildReaderContext(row_desc(), state->batch_size(), state->instance_mem_tracker()));
-    _right_child_ctx.reset(
-            new ChildReaderContext(row_desc(), state->batch_size(), state->instance_mem_tracker()));
+    _left_child_ctx.reset(new ChildReaderContext(row_desc(), state->batch_size()));
+    _right_child_ctx.reset(new ChildReaderContext(row_desc(), state->batch_size()));
 
     return Status::OK();
 }
@@ -207,28 +205,28 @@ Status MergeJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* e
 }
 
 void MergeJoinNode::create_output_row(TupleRow* out, TupleRow* left, TupleRow* right) {
-    if (left == NULL) {
+    if (left == nullptr) {
         memset(out, 0, _left_tuple_size);
     } else {
         memcpy(out, left, _left_tuple_size);
     }
 
-    if (right != NULL) {
+    if (right != nullptr) {
         for (int i = 0; i < _right_tuple_size; ++i) {
             out->set_tuple(_right_tuple_idx[i], right->get_tuple(i));
         }
     } else {
         for (int i = 0; i < _right_tuple_size; ++i) {
-            out->set_tuple(_right_tuple_idx[i], NULL);
+            out->set_tuple(_right_tuple_idx[i], nullptr);
         }
     }
 }
 
 Status MergeJoinNode::compare_row(TupleRow* left_row, TupleRow* right_row, bool* is_lt) {
-    if (left_row == NULL) {
+    if (left_row == nullptr) {
         *is_lt = false;
         return Status::OK();
-    } else if (right_row == NULL) {
+    } else if (right_row == nullptr) {
         *is_lt = true;
         return Status::OK();
     }
@@ -259,7 +257,7 @@ Status MergeJoinNode::get_next_row(RuntimeState* state, TupleRow* out_row, bool*
     TupleRow* left_row = _left_child_ctx->current_row;
     TupleRow* right_row = _right_child_ctx->current_row;
 
-    if (left_row == NULL && right_row == NULL) {
+    if (left_row == nullptr && right_row == nullptr) {
         *eos = true;
         return Status::OK();
     }
@@ -268,10 +266,10 @@ Status MergeJoinNode::get_next_row(RuntimeState* state, TupleRow* out_row, bool*
     RETURN_IF_ERROR(compare_row(left_row, right_row, &is_lt));
 
     if (is_lt) {
-        create_output_row(out_row, left_row, NULL);
+        create_output_row(out_row, left_row, nullptr);
         RETURN_IF_ERROR(get_input_row(state, 0));
     } else {
-        create_output_row(out_row, NULL, right_row);
+        create_output_row(out_row, nullptr, right_row);
         RETURN_IF_ERROR(get_input_row(state, 1));
     }
 
@@ -279,7 +277,7 @@ Status MergeJoinNode::get_next_row(RuntimeState* state, TupleRow* out_row, bool*
 }
 
 Status MergeJoinNode::get_input_row(RuntimeState* state, int child_idx) {
-    ChildReaderContext* ctx = NULL;
+    ChildReaderContext* ctx = nullptr;
 
     if (child_idx == 0) {
         ctx = _left_child_ctx.get();
@@ -290,19 +288,17 @@ Status MergeJoinNode::get_input_row(RuntimeState* state, int child_idx) {
     // loop util read a valid data
     while (!ctx->is_eos && ctx->row_idx >= ctx->batch.num_rows()) {
         // transfer ownership before get new batch
-        if (NULL != _out_batch) {
+        if (nullptr != _out_batch) {
             ctx->batch.transfer_resource_ownership(_out_batch);
         }
 
         if (child_idx == 0) {
-            _left_child_ctx.reset(new ChildReaderContext(child(child_idx)->row_desc(),
-                                                         state->batch_size(),
-                                                         state->instance_mem_tracker()));
+            _left_child_ctx.reset(
+                    new ChildReaderContext(child(child_idx)->row_desc(), state->batch_size()));
             ctx = _left_child_ctx.get();
         } else {
-            _right_child_ctx.reset(new ChildReaderContext(child(child_idx)->row_desc(),
-                                                          state->batch_size(),
-                                                          state->instance_mem_tracker()));
+            _right_child_ctx.reset(
+                    new ChildReaderContext(child(child_idx)->row_desc(), state->batch_size()));
             ctx = _right_child_ctx.get();
         }
 
@@ -310,7 +306,7 @@ Status MergeJoinNode::get_input_row(RuntimeState* state, int child_idx) {
     }
 
     if (ctx->row_idx >= ctx->batch.num_rows()) {
-        ctx->current_row = NULL;
+        ctx->current_row = nullptr;
         return Status::OK();
     }
 

@@ -18,8 +18,6 @@
 #ifndef DORIS_BE_UDF_UDA_TEST_HARNESS_H
 #define DORIS_BE_UDF_UDA_TEST_HARNESS_H
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/shared_ptr.hpp>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -67,7 +65,7 @@ protected:
               _merge_fn(merge_fn),
               _serialize_fn(serialize_fn),
               _finalize_fn(finalize_fn),
-              _result_comparator_fn(NULL),
+              _result_comparator_fn(nullptr),
               _num_input_values(0) {}
 
     // Runs the UDA in all the modes, validating the result is 'expected' each time.
@@ -101,7 +99,7 @@ private:
     SerializeFn _serialize_fn;
     FinalizeFn _finalize_fn;
 
-    // Customer comparator, NULL if default == should be used.
+    // Customer comparator, nullptr if default == should be used.
     ResultComparator _result_comparator_fn;
 
     // Set during execute() by subclass

@@ -24,13 +24,13 @@
 #include <vector>
 
 #include "common/status.h"
+#include "env/env.h"
 
 namespace doris {
 
 class BlockId;
 class Env;
-class MemTracker;
-class Slice;
+struct Slice;
 
 namespace fs {
 
@@ -57,7 +57,7 @@ public:
     // blocks correspond to a file).
     // For convenience, the path interface is directly exposed. At that time, the path()
     // method should be removed.
-    virtual const std::string& path() const = 0;
+    virtual const FilePathDesc& path_desc() const = 0;
 };
 
 // A block that has been opened for writing. There may only be a single
@@ -170,17 +170,15 @@ public:
 // used to specify directories based on block type (e.g. to prefer bloom block
 // placement into SSD-backed directories).
 struct CreateBlockOptions {
+    CreateBlockOptions(const FilePathDesc& new_path_desc) { path_desc = new_path_desc; }
+    CreateBlockOptions(const std::string& path) { path_desc.filepath = path; }
     // const std::string tablet_id;
-    const std::string path;
+    FilePathDesc path_desc;
 };
 
 // Block manager creation options.
 struct BlockManagerOptions {
     BlockManagerOptions() = default;
-
-    // The memory tracker under which all new memory trackers will be parented.
-    // If NULL, new memory trackers will be parented to the root tracker.
-    std::shared_ptr<MemTracker> parent_mem_tracker;
 
     // If false, metrics will not be produced.
     bool enable_metric = false;
@@ -229,7 +227,8 @@ public:
     // may fail.
     //
     // Does not modify 'block' on error.
-    virtual Status open_block(const std::string& path, std::unique_ptr<ReadableBlock>* block) = 0;
+    virtual Status open_block(const FilePathDesc& path_desc,
+                              std::unique_ptr<ReadableBlock>* block) = 0;
 
     // Retrieves the IDs of all blocks under management by this block manager.
     // These include ReadableBlocks as well as WritableBlocks.
@@ -239,6 +238,11 @@ public:
     // concurrent operations are ongoing, some of the blocks themselves may not
     // even exist after the call.
     virtual Status get_all_block_ids(std::vector<BlockId>* block_ids) = 0;
+
+    virtual Status delete_block(const FilePathDesc& path_desc, bool is_dir = false) = 0;
+
+    virtual Status link_file(const FilePathDesc& src_path_desc,
+                             const FilePathDesc& dest_path_desc) = 0;
 
     static const std::string block_manager_preflush_control;
 };

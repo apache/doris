@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include <cstdint>
+#include <iostream>
 #include <vector>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
@@ -28,13 +29,19 @@
 // object serves as the interface object between the UDF/UDA and the doris process.
 namespace doris {
 class FunctionContextImpl;
-}
+struct ColumnPtrWrapper;
+struct StringValue;
+class BitmapValue;
+class DecimalV2Value;
+class DateTimeValue;
+struct CollectionValue;
+} // namespace doris
 
 namespace doris_udf {
 
 // All input and output values will be one of the structs below. The struct is a simple
-// object containing a boolean to store if the value is NULL and the value itself. The
-// value is unspecified if the NULL boolean is set.
+// object containing a boolean to store if the value is nullptr and the value itself. The
+// value is unspecified if the nullptr boolean is set.
 struct AnyVal;
 struct BooleanVal;
 struct TinyIntVal;
@@ -77,7 +84,8 @@ public:
         TYPE_FIXED_BUFFER,
         TYPE_DECIMALV2,
         TYPE_OBJECT,
-        TYPE_ARRAY
+        TYPE_ARRAY,
+        TYPE_QUANTILE_STATE
     };
 
     struct TypeDesc {
@@ -124,7 +132,7 @@ public:
     // Returns the version of Doris that's currently running.
     DorisVersion version() const;
 
-    // Returns the user that is running the query. Returns NULL if it is not
+    // Returns the user that is running the query. Returns nullptr if it is not
     // available.
     const char* user() const;
 
@@ -149,7 +157,7 @@ public:
     // Returns true if there's been an error set.
     bool has_error() const;
 
-    // Returns the current error message. Returns NULL if there is no error.
+    // Returns the current error message. Returns nullptr if there is no error.
     const char* error_msg() const;
 
     // Allocates memory for UDAs. All UDA allocations should use this if possible instead of
@@ -191,7 +199,7 @@ public:
     /// Methods for maintaining state across UDF/UDA function calls. SetFunctionState() can
     /// be used to store a pointer that can then be retreived via GetFunctionState(). If
     /// GetFunctionState() is called when no pointer is set, it will return
-    /// NULL. SetFunctionState() does not take ownership of 'ptr'; it is up to the UDF/UDA
+    /// nullptr. SetFunctionState() does not take ownership of 'ptr'; it is up to the UDF/UDA
     /// to clean up any function state if necessary.
     void set_function_state(FunctionStateScope scope, void* ptr);
     void* get_function_state(FunctionStateScope scope) const;
@@ -212,18 +220,22 @@ public:
     int get_num_constant_args() const;
 
     // Returns the type information for the arg_idx-th argument (0-indexed, not including
-    // the FunctionContext* argument). Returns NULL if arg_idx is invalid.
+    // the FunctionContext* argument). Returns nullptr if arg_idx is invalid.
     const TypeDesc* get_arg_type(int arg_idx) const;
 
     // Returns true if the arg_idx-th input argument (0 indexed, not including the
     // FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
     bool is_arg_constant(int arg_idx) const;
 
+    bool is_col_constant(int arg_idx) const;
+
     // Returns a pointer to the value of the arg_idx-th input argument (0 indexed, not
-    // including the FunctionContext* argument). Returns NULL if the argument is not
+    // including the FunctionContext* argument). Returns nullptr if the argument is not
     // constant. This function can be used to obtain user-specified constants in a UDF's
     // Init() or Close() functions.
     AnyVal* get_constant_arg(int arg_idx) const;
+
+    doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
 
     // Create a test FunctionContext object. The caller is responsible for calling delete
     // on it. This context has additional debugging validation enabled.
@@ -251,7 +263,7 @@ private:
 //
 // The UDF must return one of the *Val structs. The UDF must accept a pointer
 // to a FunctionContext object and then a const reference for each of the input arguments.
-// NULL input arguments will have NULL passed in.
+// nullptr input arguments will have nullptr passed in.
 // Examples of valid Udf signatures are:
 //  1) DoubleVal Example1(FunctionContext* context);
 //  2) IntVal Example2(FunctionContext* context, const IntVal& a1, const DoubleVal& a2);
@@ -581,7 +593,7 @@ struct DateTimeVal : public AnyVal {
     bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
 };
 
-// Note: there is a difference between a NULL string (is_null == true) and an
+// Note: there is a difference between a nullptr string (is_null == true) and an
 // empty string (len == 0).
 struct StringVal : public AnyVal {
     static const int MAX_LENGTH = (1 << 30);
@@ -591,13 +603,13 @@ struct StringVal : public AnyVal {
 
     // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
     // so the buffer must exist as long as this StringVal does.
-    StringVal() : len(0), ptr(NULL) {}
+    StringVal() : len(0), ptr(nullptr) {}
 
     // Construct a StringVal from ptr/len. Note: this does not make a copy of ptr
     // so the buffer must exist as long as this StringVal does.
     StringVal(uint8_t* ptr, int64_t len) : len(len), ptr(ptr) {}
 
-    // Construct a StringVal from NULL-terminated c-string. Note: this does not make a
+    // Construct a StringVal from nullptr-terminated c-string. Note: this does not make a
     // copy of ptr so the underlying string must exist as long as this StringVal does.
     StringVal(const char* ptr) : len(strlen(ptr)), ptr((uint8_t*)ptr) {}
 
@@ -636,17 +648,19 @@ struct StringVal : public AnyVal {
     bool operator!=(const StringVal& other) const { return !(*this == other); }
 
     /// Will create a new StringVal with the given dimension and copy the data from the
-    /// parameters. In case of an error will return a NULL string and set an error on the
+    /// parameters. In case of an error will return a nullptr string and set an error on the
     /// function context.
-    static StringVal copy_from(FunctionContext* ctx, const uint8_t* buf, size_t len);
+    static StringVal copy_from(FunctionContext* ctx, const uint8_t* buf, int64_t len);
 
     /// Append the passed buffer to this StringVal. Reallocate memory to fit the buffer. If
     /// the memory allocation becomes too large, will set an error on FunctionContext and
-    /// return a NULL string.
-    void append(FunctionContext* ctx, const uint8_t* buf, size_t len);
-    void append(FunctionContext* ctx, const uint8_t* buf, size_t len, const uint8_t* buf2,
-                size_t buf2_len);
+    /// return a nullptr string.
+    void append(FunctionContext* ctx, const uint8_t* buf, int64_t len);
+    void append(FunctionContext* ctx, const uint8_t* buf, int64_t len, const uint8_t* buf2,
+                int64_t buf2_len);
+    std::string to_string() const { return std::string((char*)ptr, len); }
 };
+std::ostream& operator<<(std::ostream& os, const StringVal& string_val);
 
 struct DecimalV2Val : public AnyVal {
     __int128 val;
@@ -736,7 +750,7 @@ struct CollectionVal : public AnyVal {
     CollectionVal() = default;
 
     CollectionVal(void* data, uint32_t length, bool has_null, bool* null_signs)
-            : data(data), length(length), has_null(has_null), null_signs(null_signs){};
+            : data(data), length(length), has_null(has_null), null_signs(null_signs) {};
 
     static CollectionVal null() {
         CollectionVal val;

@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TBrokerScanNode;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TPlanNode;
@@ -82,7 +83,7 @@ public abstract class LoadScanNode extends ScanNode {
 
         // substitute SlotRef in filter expression
         // where expr must be equal first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
-        Expr newWhereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
+        Expr newWhereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
         List<SlotRef> slots = Lists.newArrayList();
         newWhereExpr.collect(SlotRef.class, slots);
 
@@ -110,6 +111,16 @@ public abstract class LoadScanNode extends ScanNode {
             if (!expr.getType().isBitmapType()) {
                 String errorMsg = String.format("bitmap column %s require the function return type is BITMAP",
                         slotDesc.getColumn().getName());
+                throw new AnalysisException(errorMsg);
+            }
+        }
+    }
+
+    protected void checkQuantileStateCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
+        if (slotDesc.getColumn().getAggregationType() == AggregateType.QUANTILE_UNION) {
+            expr.analyze(analyzer);
+            if (!expr.getType().isQuantileStateType()) {
+                String errorMsg = String.format("quantile_state column %s require the function return type is QUANTILE_STATE");
                 throw new AnalysisException(errorMsg);
             }
         }
@@ -171,6 +182,10 @@ public abstract class LoadScanNode extends ScanNode {
             }
 
             checkBitmapCompatibility(analyzer, destSlotDesc, expr);
+
+            checkQuantileStateCompatibility(analyzer, destSlotDesc, expr);
+
+            // check quantile_state
 
             if (negative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
                 expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));

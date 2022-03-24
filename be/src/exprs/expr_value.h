@@ -57,7 +57,7 @@ struct ExprValue {
               float_val(0.0),
               double_val(0.0),
               string_data(),
-              string_val(NULL, 0),
+              string_val(),
               datetime_val(),
               decimalv2_val(0),
               array_val() {}
@@ -100,7 +100,7 @@ struct ExprValue {
     void* set_to_zero(const TypeDescriptor& type) {
         switch (type.type) {
         case TYPE_NULL:
-            return NULL;
+            return nullptr;
 
         case TYPE_BOOLEAN:
             bool_val = false;
@@ -140,7 +140,7 @@ struct ExprValue {
 
         default:
             DCHECK(false);
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -148,7 +148,7 @@ struct ExprValue {
     void* set_to_min(const TypeDescriptor& type) {
         switch (type.type) {
         case TYPE_NULL:
-            return NULL;
+            return nullptr;
 
         case TYPE_BOOLEAN:
             bool_val = false;
@@ -188,7 +188,7 @@ struct ExprValue {
 
         default:
             DCHECK(false);
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -196,7 +196,7 @@ struct ExprValue {
     void* set_to_max(const TypeDescriptor& type) {
         switch (type.type) {
         case TYPE_NULL:
-            return NULL;
+            return nullptr;
 
         case TYPE_BOOLEAN:
             bool_val = true;
@@ -236,7 +236,7 @@ struct ExprValue {
 
         default:
             DCHECK(false);
-            return NULL;
+            return nullptr;
         }
     }
 };

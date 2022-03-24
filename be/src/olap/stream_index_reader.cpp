@@ -20,11 +20,11 @@
 namespace doris {
 
 PositionEntryReader::PositionEntryReader()
-        : _positions(NULL), _positions_count(0), _statistics_offset(0) {}
+        : _positions(nullptr), _positions_count(0), _statistics_offset(0) {}
 
 OLAPStatus PositionEntryReader::init(StreamIndexHeader* header, FieldType type,
                                      bool null_supported) {
-    if (NULL == header) {
+    if (nullptr == header) {
         return OLAP_ERR_INIT_FAILED;
     }
 
@@ -68,7 +68,7 @@ int32_t PositionEntryReader::positions_count() const {
 }
 
 StreamIndexReader::StreamIndexReader()
-        : _buffer(NULL),
+        : _buffer(nullptr),
           _buffer_size(0),
           _start_offset(0),
           _step_size(0),
@@ -85,7 +85,7 @@ StreamIndexReader::~StreamIndexReader() {
 
 OLAPStatus StreamIndexReader::init(char* buffer, size_t buffer_size, FieldType type,
                                    bool is_using_cache, bool null_supported) {
-    if (NULL == buffer) {
+    if (nullptr == buffer) {
         OLAP_LOG_WARNING("buffer given is invalid.");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }

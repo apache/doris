@@ -47,15 +47,15 @@ static bool iequals(const std::string& a, const std::string& b) {
     return true;
 }
 
-bool init_glog(const char* basename, bool install_signal_handler) {
+bool init_glog(const char* basename) {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
 
     if (logging_initialized) {
         return true;
     }
 
-    if (install_signal_handler) {
-        google::InstallFailureSignalHandler();
+    if (getenv("DORIS_LOG_TO_STDERR") != nullptr) {
+        FLAGS_alsologtostderr = true;
     }
 
     // don't log to stderr
@@ -107,7 +107,7 @@ bool init_glog(const char* basename, bool install_signal_handler) {
         FLAGS_log_split_method = "size";
         std::string sizestr = rollmode.substr(sizeflag.size(), rollmode.size() - sizeflag.size());
         if (sizestr.size() != 0) {
-            char* end = NULL;
+            char* end = nullptr;
             errno = 0;
             const char* sizecstr = sizestr.c_str();
             int64_t ret64 = strtoll(sizecstr, &end, 10);
@@ -162,8 +162,8 @@ std::string FormatTimestampForLog(MicrosecondsInt64 micros_since_epoch) {
 /// Custom your log format here
 void TaggableLogger::flush() {
     _stream << _message;
-    Tags *head = _tags;
-    Tags *next;
+    Tags* head = _tags;
+    Tags* next;
     while (head) {
         next = head->next;
         _stream << "|" << head->key << "=" << head->value;

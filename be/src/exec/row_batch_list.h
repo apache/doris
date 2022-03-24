@@ -42,7 +42,7 @@ public:
     class TupleRowIterator {
     public:
         // Dummy constructor
-        TupleRowIterator() : _list(NULL), _row_idx(0) {}
+        TupleRowIterator() : _list(nullptr), _row_idx(0) {}
         virtual ~TupleRowIterator() {}
 
         // Returns true if this iterator is at the end, i.e. get_row() cannot be called.

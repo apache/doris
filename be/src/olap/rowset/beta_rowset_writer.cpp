@@ -53,14 +53,15 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) {       // abnormal exit, remove all files generated
         _segment_writer.reset(); // ensure all files are closed
         Status st;
+        Env* env = Env::get_env(_context.path_desc.storage_medium);
         for (int i = 0; i < _num_segment; ++i) {
-            auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix,
+            auto path_desc = BetaRowset::segment_file_path(_context.path_desc,
                                                       _context.rowset_id, i);
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
-            WARN_IF_ERROR(Env::Default()->delete_file(path),
-                          strings::Substitute("Failed to delete file=$0", path));
+            WARN_IF_ERROR(env->delete_file(path_desc.filepath),
+                          strings::Substitute("Failed to delete file=$0", path_desc.filepath));
         }
     }
 }
@@ -81,7 +82,6 @@ OLAPStatus BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
         _rowset_meta->set_load_id(_context.load_id);
     } else {
         _rowset_meta->set_version(_context.version);
-        _rowset_meta->set_version_hash(_context.version_hash);
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
 
@@ -112,7 +112,7 @@ template OLAPStatus BetaRowsetWriter::_add_row(const ContiguousRow& row);
 
 OLAPStatus BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
-    RETURN_NOT_OK(rowset->link_files_to(_context.rowset_path_prefix, _context.rowset_id));
+    RETURN_NOT_OK(rowset->link_files_to(_context.path_desc, _context.rowset_id));
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
@@ -196,7 +196,7 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     }
 
     RowsetSharedPtr rowset;
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_path_prefix,
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.path_desc,
                                                _rowset_meta, &rowset);
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
@@ -207,24 +207,25 @@ RowsetSharedPtr BetaRowsetWriter::build() {
 }
 
 OLAPStatus BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
-    auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix, _context.rowset_id,
+    auto path_desc = BetaRowset::segment_file_path(_context.path_desc, _context.rowset_id,
                                               _num_segment++);
     // TODO(lingbin): should use a more general way to get BlockManager object
     // and tablets with the same type should share one BlockManager object;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_context.path_desc.storage_medium);
     std::unique_ptr<fs::WritableBlock> wblock;
-    fs::CreateBlockOptions opts({path});
+    fs::CreateBlockOptions opts(path_desc);
     DCHECK(block_mgr != nullptr);
     Status st = block_mgr->create_block(opts, &wblock);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable block. path=" << path;
+        LOG(WARNING) << "failed to create writable block. path=" << path_desc.filepath 
+                     << ", err: " << st.get_error_msg();
         return OLAP_ERR_INIT_FAILED;
     }
 
     DCHECK(wblock != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
-    writer->reset(new segment_v2::SegmentWriter(wblock.get(), _num_segment,
-                                                _context.tablet_schema, writer_options, _context.parent_mem_tracker));
+    writer->reset(new segment_v2::SegmentWriter(wblock.get(), _num_segment, _context.tablet_schema,
+                                                writer_options));
     {
         std::lock_guard<SpinLock> l(_lock);
         _wblocks.push_back(std::move(wblock));

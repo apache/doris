@@ -20,7 +20,6 @@ package org.apache.doris.load;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -383,11 +382,7 @@ public class DppConfig implements Writable {
 
     public void readFields(DataInput in) throws IOException {
         boolean readPaloPath = false;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_12) {
-            if (in.readBoolean()) {
-                readPaloPath = true;
-            }
-        } else {
+        if (in.readBoolean()) {
             readPaloPath = true;
         }
         if (readPaloPath) {
@@ -397,11 +392,7 @@ public class DppConfig implements Writable {
         httpPort = in.readInt();
 
         boolean readHadoopConfigs = false;
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_12) {
-            if (in.readBoolean()) {
-                readHadoopConfigs = true;
-            }
-        } else {
+        if (in.readBoolean()) {
             readHadoopConfigs = true;
         }
         if (readHadoopConfigs) {
@@ -412,11 +403,7 @@ public class DppConfig implements Writable {
             }
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_15) {
-            this.priority = TPriority.valueOf(Text.readString(in));
-        } else {
-            this.priority = TPriority.NORMAL;
-        }
+        this.priority = TPriority.valueOf(Text.readString(in));
     }
 
     @Override

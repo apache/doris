@@ -458,9 +458,8 @@ TEST_F(BrokerScanNodeTest, normal) {
     status = scan_node.open(&_runtime_state);
     ASSERT_TRUE(status.ok());
 
-    auto tracker = std::make_shared<MemTracker>();
     // Get batch
-    RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size(), tracker.get());
+    RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size());
 
     bool eos = false;
     status = scan_node.get_next(&_runtime_state, &batch, &eos);

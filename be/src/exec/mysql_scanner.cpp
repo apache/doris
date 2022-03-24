@@ -19,26 +19,28 @@
 
 #define __DorisMysql MYSQL
 #define __DorisMysqlRes MYSQL_RES
+#include "common/config.h"
 #include "common/logging.h"
 #include "mysql_scanner.h"
-
-#include "common/config.h"
 
 namespace doris {
 
 MysqlScanner::MysqlScanner(const MysqlScannerParam& param)
-        : _my_param(param), _my_conn(NULL), _my_result(NULL), _is_open(false), _field_num(0) {}
+        : _my_param(param),
+          _my_conn(nullptr),
+          _my_result(nullptr),
+          _is_open(false),
+          _field_num(0) {}
 
 MysqlScanner::~MysqlScanner() {
     if (_my_result) {
         mysql_free_result(_my_result);
-        _my_result = NULL;
+        _my_result = nullptr;
     }
 
     if (_my_conn) {
         mysql_close(_my_conn);
-        _my_conn = NULL;
-		mysql_library_end();
+        _my_conn = nullptr;
     }
 }
 
@@ -48,9 +50,9 @@ Status MysqlScanner::open() {
         return Status::OK();
     }
 
-    _my_conn = mysql_init(NULL);
+    _my_conn = mysql_init(nullptr);
 
-    if (NULL == _my_conn) {
+    if (nullptr == _my_conn) {
         return Status::InternalError("mysql init failed.");
     }
 
@@ -59,9 +61,10 @@ Status MysqlScanner::open() {
     unsigned int mysql_ct = config::external_table_connect_timeout_sec;
     mysql_options(_my_conn, MYSQL_OPT_CONNECT_TIMEOUT, &mysql_ct);
     mysql_options(_my_conn, MYSQL_OPT_READ_TIMEOUT, &mysql_ct);
-    if (NULL == mysql_real_connect(_my_conn, _my_param.host.c_str(), _my_param.user.c_str(),
-                                   _my_param.passwd.c_str(), _my_param.db.c_str(),
-                                   atoi(_my_param.port.c_str()), NULL, _my_param.client_flag)) {
+    if (nullptr == mysql_real_connect(_my_conn, _my_param.host.c_str(), _my_param.user.c_str(),
+                                      _my_param.passwd.c_str(), _my_param.db.c_str(),
+                                      atoi(_my_param.port.c_str()), nullptr,
+                                      _my_param.client_flag)) {
         LOG(WARNING) << "connect Mysql: "
                      << "Host: " << _my_param.host << " user: " << _my_param.user
                      << " passwd: " << _my_param.passwd << " db: " << _my_param.db
@@ -101,7 +104,7 @@ Status MysqlScanner::query(const std::string& query) {
     // use store result because mysql table is small, can load in memory avoid of many RPC
     _my_result = mysql_store_result(_my_conn);
 
-    if (NULL == _my_result) {
+    if (nullptr == _my_result) {
         return _error_status("mysql store result failed.");
     }
 
@@ -152,24 +155,24 @@ Status MysqlScanner::get_next_row(char*** buf, unsigned long** lengths, bool* eo
         return Status::InternalError("GetNextRow before open.");
     }
 
-    if (NULL == buf || NULL == lengths || NULL == eos) {
+    if (nullptr == buf || nullptr == lengths || nullptr == eos) {
         return Status::InternalError("input parameter invalid.");
     }
 
-    if (NULL == _my_result) {
+    if (nullptr == _my_result) {
         return Status::InternalError("get next row before query.");
     }
 
     *buf = mysql_fetch_row(_my_result);
 
-    if (NULL == *buf) {
+    if (nullptr == *buf) {
         *eos = true;
         return Status::OK();
     }
 
     *lengths = mysql_fetch_lengths(_my_result);
 
-    if (NULL == *lengths) {
+    if (nullptr == *lengths) {
         return _error_status("mysql fetch row failed.");
     }
 

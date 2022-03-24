@@ -308,10 +308,10 @@ private:
 
     template <typename SetType>
     struct SetLookupState {
-        /// If true, there is at least one NULL constant in the IN list.
+        /// If true, there is at least one nullptr constant in the IN list.
         bool contains_null;
 
-        /// The set of all non-NULL constant values in the IN list.
+        /// The set of all non-nullptr constant values in the IN list.
         /// Note: std::unordered_set and std::binary_search performed worse based on the
         /// in-predicate-benchmark
         std::set<SetType> val_set;

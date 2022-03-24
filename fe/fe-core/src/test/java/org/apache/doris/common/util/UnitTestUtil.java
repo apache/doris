@@ -65,14 +65,14 @@ public class UnitTestUtil {
     public static final int SCHEMA_HASH = 0;
 
     public static Database createDb(long dbId, long tableId, long partitionId, long indexId,
-                                    long tabletId, long backendId, long version, long versionHash) {
+                                    long tabletId, long backendId, long version) {
         // Catalog.getCurrentInvertedIndex().clear();
 
         // replica
         long replicaId = 0;
-        Replica replica1 = new Replica(replicaId, backendId, ReplicaState.NORMAL, version, versionHash, 0);
-        Replica replica2 = new Replica(replicaId + 1, backendId + 1, ReplicaState.NORMAL, version, versionHash, 0);
-        Replica replica3 = new Replica(replicaId + 2, backendId + 2, ReplicaState.NORMAL, version, versionHash, 0);
+        Replica replica1 = new Replica(replicaId, backendId, ReplicaState.NORMAL, version, 0);
+        Replica replica2 = new Replica(replicaId + 1, backendId + 1, ReplicaState.NORMAL, version, 0);
+        Replica replica3 = new Replica(replicaId + 2, backendId + 2, ReplicaState.NORMAL, version, 0);
         
         // tablet
         Tablet tablet = new Tablet(tabletId);

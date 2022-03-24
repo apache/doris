@@ -18,8 +18,8 @@
 #include <cctz/time_zone.h>
 #include <gtest/gtest.h>
 
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 
 #include "gutil/strings/substitute.h"
@@ -45,7 +45,6 @@ public:
             "rowset_state": "VISIBLE",
             "start_version": 2,
             "end_version": 2,
-            "version_hash": 8391828013814912580,
             "num_rows": 3929,
             "total_disk_size": 84699,
             "data_disk_size": 84464,
@@ -293,7 +292,6 @@ public:
     }
 
 private:
-    OlapMeta* _meta;
     std::string _json_rowset_meta;
 };
 

@@ -23,12 +23,17 @@ import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Maps;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.List;
 import java.util.Map;
 
 public class ModifyBackendClause extends BackendClause {
     protected Map<String, String> properties = Maps.newHashMap();
-    private Tag tag;
+    protected Map<String, String> analyzedProperties = Maps.newHashMap();
+    private Tag tag = null;
+    private Boolean isQueryDisabled = null;
+    private Boolean isLoadDisabled = null;
 
     public ModifyBackendClause(List<String> hostPorts, Map<String, String> properties) {
         super(hostPorts);
@@ -38,11 +43,36 @@ public class ModifyBackendClause extends BackendClause {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         super.analyze(analyzer);
-        tag = PropertyAnalyzer.analyzeBackendTagProperties(properties);
+        tag = PropertyAnalyzer.analyzeBackendTagProperties(properties, null);
+        isQueryDisabled = PropertyAnalyzer.analyzeBackendDisableProperties(properties,
+                PropertyAnalyzer.PROPERTIES_DISABLE_QUERY, null);
+        isLoadDisabled = PropertyAnalyzer.analyzeBackendDisableProperties(properties,
+                PropertyAnalyzer.PROPERTIES_DISABLE_LOAD, null);
+        if (tag != null) {
+            analyzedProperties.put(tag.type, tag.value);
+        }
+        if (isQueryDisabled != null) {
+            analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DISABLE_QUERY, String.valueOf(isQueryDisabled));
+        }
+        if (isLoadDisabled != null) {
+            analyzedProperties.put(PropertyAnalyzer.PROPERTIES_DISABLE_LOAD, String.valueOf(isLoadDisabled));
+        }
+        if (!properties.isEmpty()) {
+            throw new AnalysisException("unknown properties setting for key ("
+                    + StringUtils.join(properties.keySet(), ",") + ")");
+        }
     }
 
     public Tag getTag() {
         return tag;
+    }
+
+    public Boolean isQueryDisabled() {
+        return isQueryDisabled;
+    }
+
+    public Boolean isLoadDisabled() {
+        return isLoadDisabled;
     }
 
     @Override
@@ -55,6 +85,15 @@ public class ModifyBackendClause extends BackendClause {
                 sb.append(", ");
             }
         }
+        sb.append(" SET (");
+        for (String key : analyzedProperties.keySet()) {
+            sb.append("\"").append(key).append("\"=\"");
+            sb.append(analyzedProperties.get(analyzedProperties.get(key))).append("\",");
+        }
+        if (!analyzedProperties.isEmpty()) {
+            sb.deleteCharAt(sb.length() - 1);
+        }
+        sb.append(")");
         return sb.toString();
     }
 }

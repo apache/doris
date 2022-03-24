@@ -21,18 +21,16 @@
 #include <sys/resource.h>
 #include <sys/time.h>
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread/thread.hpp>
 #include <functional>
 #include <iostream>
 #include <mutex>
+#include <thread>
 
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "gen_cpp/RuntimeProfile_types.h"
 #include "util/binary_cast.hpp"
 #include "util/stopwatch.hpp"
-
 
 namespace doris {
 
@@ -54,8 +52,9 @@ namespace doris {
     ScopedTimer<ThreadCpuStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c)
 #define CANCEL_SAFE_SCOPED_TIMER(c, is_cancelled) \
     ScopedTimer<MonotonicStopWatch> MACRO_CONCAT(SCOPED_TIMER, __COUNTER__)(c, is_cancelled)
-#define SCOPED_RAW_TIMER(c) \
-    ScopedRawTimer<MonotonicStopWatch, int64_t> MACRO_CONCAT(SCOPED_RAW_TIMER, __COUNTER__)(c)
+#define SCOPED_RAW_TIMER(c)                                                                  \
+    doris::ScopedRawTimer<doris::MonotonicStopWatch, int64_t> MACRO_CONCAT(SCOPED_RAW_TIMER, \
+                                                                           __COUNTER__)(c)
 #define SCOPED_ATOMIC_TIMER(c)                                                                 \
     ScopedRawTimer<MonotonicStopWatch, std::atomic<int64_t>> MACRO_CONCAT(SCOPED_ATOMIC_TIMER, \
                                                                           __COUNTER__)(c)
@@ -66,14 +65,14 @@ namespace doris {
     /*ThreadCounterMeasurement                                        \
       MACRO_CONCAT(SCOPED_THREAD_COUNTER_MEASUREMENT, __COUNTER__)(c)*/
 #else
-#define ADD_COUNTER(profile, name, type) NULL
-#define ADD_TIMER(profile, name) NULL
+#define ADD_COUNTER(profile, name, type) nullptr
+#define ADD_TIMER(profile, name) nullptr
 #define SCOPED_TIMER(c)
 #define SCOPED_RAW_TIMER(c)
 #define SCOPED_ATOMIC_TIMER(c)
 #define COUNTER_UPDATE(c, v)
 #define COUNTER_SET(c, v)
-#define ADD_THREADCOUNTERS(profile, prefix) NULL
+#define ADD_THREADCOUNTERS(profile, prefix) nullptr
 #define SCOPED_THREAD_COUNTER_MEASUREMENT(c)
 #endif
 
@@ -112,7 +111,7 @@ public:
 
         virtual void set(double value) {
             DCHECK_EQ(sizeof(value), sizeof(int64_t));
-            _value.store(binary_cast<double,int64_t>(value));
+            _value.store(binary_cast<double, int64_t>(value));
         }
 
         virtual int64_t value() const { return _value.load(); }
@@ -148,7 +147,9 @@ public:
 
         virtual void add(int64_t delta) {
             int64_t new_val = current_value_.add(delta);
-            UpdateMax(new_val);
+            if (delta > 0) {
+                UpdateMax(new_val);
+            }
         }
 
         /// Tries to increase the current value by delta. If current_value() + delta
@@ -319,7 +320,7 @@ public:
     // RuntimeProfile object.
     // If parent_counter_name is a non-empty string, the counter is added as a child of
     // parent_counter_name.
-    // Returns NULL if the counter already exists.
+    // Returns nullptr if the counter already exists.
     DerivedCounter* add_derived_counter(const std::string& name, TUnit::type type,
                                         const DerivedCounterFunction& counter_fn,
                                         const std::string& parent_counter_name);
@@ -328,7 +329,7 @@ public:
     // that the caller can update.  The counter is owned by the RuntimeProfile object.
     ThreadCounters* add_thread_counters(const std::string& prefix);
 
-    // Gets the counter object with 'name'.  Returns NULL if there is no counter with
+    // Gets the counter object with 'name'.  Returns nullptr if there is no counter with
     // that name.
     Counter* get_counter(const std::string& name);
 
@@ -349,7 +350,7 @@ public:
     // TODO: EventSequences are not merged by Merge()
     EventSequence* add_event_sequence(const std::string& key);
 
-    // Returns a pointer to the info string value for 'key'.  Returns NULL if
+    // Returns a pointer to the info string value for 'key'.  Returns nullptr if
     // the key does not exist.
     const std::string* get_info_string(const std::string& key);
 
@@ -539,7 +540,7 @@ private:
 class ScopedCounter {
 public:
     ScopedCounter(RuntimeProfile::Counter* counter, int64_t val) : _val(val), _counter(counter) {
-        if (counter == NULL) {
+        if (counter == nullptr) {
             return;
         }
 
@@ -548,7 +549,7 @@ public:
 
     // Increment the counter when object is destroyed
     ~ScopedCounter() {
-        if (_counter != NULL) {
+        if (_counter != nullptr) {
             _counter->update(_val);
         }
     }
@@ -570,7 +571,7 @@ class ScopedTimer {
 public:
     ScopedTimer(RuntimeProfile::Counter* counter, const bool* is_cancelled = nullptr)
             : _counter(counter), _is_cancelled(is_cancelled) {
-        if (counter == NULL) {
+        if (counter == nullptr) {
             return;
         }
         DCHECK(counter->type() == TUnit::TIME_NS);
@@ -584,7 +585,7 @@ public:
     bool is_cancelled() { return _is_cancelled != nullptr && *_is_cancelled; }
 
     void UpdateCounter() {
-        if (_counter != NULL && !is_cancelled()) {
+        if (_counter != nullptr && !is_cancelled()) {
             _counter->update(_sw.elapsed_time());
         }
     }

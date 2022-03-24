@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma
+#pragma once
 
 #include <stdint.h>
 #include <time.h>

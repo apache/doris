@@ -29,7 +29,7 @@ GEN_OBJECTS = $(patsubst ${BUILD_DIR}/thrift/%.thrift, ${BUILD_DIR}/gen_cpp/%_ty
 all: ${GEN_OBJECTS} ${OBJECTS}
 .PHONY: all
 
-THRIFT_CPP_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen cpp -out ${BUILD_DIR}/gen_cpp
+THRIFT_CPP_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen cpp -out ${BUILD_DIR}/gen_cpp --allow-64bit-consts -strict
 
 ${BUILD_DIR}/gen_cpp:
 	mkdir -p $@

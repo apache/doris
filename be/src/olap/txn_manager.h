@@ -32,7 +32,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "agent/status.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/BackendService_types.h"
@@ -80,8 +79,7 @@ public:
                           const RowsetSharedPtr& rowset_ptr, bool is_recovery);
 
     OLAPStatus publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                           TTransactionId transaction_id, const Version& version,
-                           VersionHash version_hash);
+                           TTransactionId transaction_id, const Version& version);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     OLAPStatus rollback_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
@@ -105,7 +103,7 @@ public:
     // not persist rowset meta because
     OLAPStatus publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                           const Version& version, VersionHash version_hash);
+                           const Version& version);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     OLAPStatus rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
@@ -162,7 +160,7 @@ private:
             txn_tablet_map_t;
     typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
 
-    inline RWMutex& _get_txn_map_lock(TTransactionId transactionId);
+    inline std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
 
     inline txn_tablet_map_t& _get_txn_tablet_map(TTransactionId transactionId);
 
@@ -188,13 +186,13 @@ private:
     // The _txn_partition_maps[i] should be constructed/deconstructed/modified alongside with '_txn_tablet_maps[i]'
     txn_partition_map_t* _txn_partition_maps;
 
-    RWMutex* _txn_map_locks;
+    std::shared_mutex* _txn_map_locks;
 
     Mutex* _txn_mutex;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager
 
-inline RWMutex& TxnManager::_get_txn_map_lock(TTransactionId transactionId) {
+inline std::shared_mutex& TxnManager::_get_txn_map_lock(TTransactionId transactionId) {
     return _txn_map_locks[transactionId & (_txn_map_shard_size - 1)];
 }
 

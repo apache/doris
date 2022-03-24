@@ -35,7 +35,7 @@ Syntax:
     CREATE [EXTERNAL] TABLE [IF NOT EXISTS] [database.]table_name
     (column_definition1[, column_definition2, ...]
     [, index_definition1[, ndex_definition12,]])
-    [ENGINE = [olap|mysql|broker|hive]]
+    [ENGINE = [olap|mysql|broker|hive|iceberg]]
     [key_desc]
     [COMMENT "table comment"]
     [partition_desc]
@@ -88,15 +88,26 @@ Syntax:
             This type can only be queried by hll_union_agg, hll_cardinality, hll_hash functions.
         BITMAP
             BITMAP type, No need to specify length. Represent a set of unsigned bigint numbers, the largest element could be 2^64 - 1
+        QUANTILE_STATE
+            QUANTILE_STATE type, No need to specify length. Represents the quantile pre-aggregation result. Currently, only numerical raw data types are supported such as `int`,`float`,`double`, etc.
+            If the number of elements is less than 2048, the explict data is stored. 
+            If the number of elements is greater than 2048, the intermediate result of the pre-aggregation of the TDigest algorithm is stored.
+            
     ```
     agg_type: Aggregation type. If not specified, the column is key column. Otherwise, the column   is value column.
 
        * SUM、MAX、MIN、REPLACE
        * HLL_UNION: Only for HLL type
-       * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will occur if and only if the newly imported data is a non-null value. If the newly imported data is null, Doris will still retain the original value. Note: if NOT NULL is specified in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it to NULL and will not report an error to the user. Users can leverage this aggregate type to achieve importing some of columns.
+       * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will occur if and only if the newly imported data is a non-null value. If the newly imported data is null, Doris will still retain the original value. Note: if NOT NULL is specified in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it to NULL and will not report an error to the user. Users can leverage this aggregate type to achieve importing some of columns .**It should be noted here that the default value should be NULL, not an empty string. If it is an empty string, you should replace it with an empty string**.
        * BITMAP_UNION: Only for BITMAP type
+       * QUANTILE_UNION: Only for QUANTILE_STATE type
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
-    Notice: The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
+    
+    Notice: 
+    
+        The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
+        
+        The origin value of QUANTILE_UNION column should be a numeric type such as TINYINT, INT, FLOAT, DOUBLE, DECIMAL, etc.
 2. index_definition
     Syntax:
         `INDEX index_name (col_name[, col_name, ...]) [USING BITMAP] COMMENT 'xxxxxx'`
@@ -106,7 +117,7 @@ Syntax:
     Notice:
         Only support BITMAP index in current version, BITMAP can only apply to single column
 3. ENGINE type
-    Default is olap. Options are: olap, mysql, broker, hive
+    Default is olap. Options are: olap, mysql, broker, hive, iceberg
     1) For mysql, properties should include:
 
         ```
@@ -125,6 +136,7 @@ Syntax:
         table_name in CREATE TABLE stmt is table is Doris. They can be different or same.
         MySQL table created in Doris is for accessing data in MySQL database.
         Doris does not maintain and store any data from MySQL table.
+
     2) For broker, properties should include:
 
         ```
@@ -144,7 +156,7 @@ Syntax:
         ```
     
         For different broker, the broker properties are different
-    Notice:
+        Notice:
         Files name in "path" is separated by ",". If file name includes ",", use "%2c" instead.     If file name includes "%", use "%25" instead.
         Support CSV and Parquet. Support GZ, BZ2, LZ4, LZO(LZOP)
     3) For hive, properties should include:
@@ -156,7 +168,22 @@ Syntax:
         )
         ```
         "database" is the name of the database corresponding to the hive table, "table" is the name of the hive table, and "hive.metastore.uris" is the hive metastore service address.
-        Notice: At present, hive external tables are only used for Spark Load and query is not supported.
+
+    4) For iceberg, properties should include:
+        ```
+        PROPERTIES (
+            "iceberg.database" = "iceberg_db_name",
+            "iceberg.table" = "iceberg_table_name",
+            "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
+            "iceberg.catalog.type" = "HIVE_CATALOG"
+            )
+
+        ```
+        database is the name of the database corresponding to Iceberg.  
+        table is the name of the table corresponding to Iceberg.
+        hive.metastore.uris is the address of the hive metastore service.  
+        catalog.type defaults to HIVE_CATALOG. Currently, only HIVE_CATALOG is supported, more Iceberg catalog types will be supported later.
+        
 4. key_desc
     Syntax:
         key_type(k1[,k2 ...])
@@ -187,7 +214,7 @@ Syntax:
             ...
             )
             ```
-
+        
         Explain:
             Use the specified key column and the specified range of values for partitioning.
             1) Partition name only support [A-z0-9_]
@@ -223,7 +250,7 @@ Syntax:
                 ...
                 )
             ```
-
+        
             Explain:
                 Use the specified key column and the formulated enumeration value for partitioning.
                 1) Partition name only support [A-z0-9_]
@@ -232,10 +259,10 @@ Syntax:
                 3) Partition is a collection of enumerated values, partition values cannot be duplicated between partitions
                 4) NULL values cannot be imported
                 5) partition values cannot be defaulted, at least one must be specified
-
+        
         2) Multi-column partition
             Syntax.
-
+        
             ```
                 PARTITION BY LIST(k1, k2)
                 (
@@ -244,7 +271,7 @@ Syntax:
                 ...
                 )
             ```
-
+        
             Explain:
                 1) the partition of a multi-column partition is a collection of tuple enumeration values
                 2) The number of tuple values per partition must be equal to the number of columns in the partition
@@ -252,10 +279,17 @@ Syntax:
 
 6. distribution_desc
     1) Hash
-    Syntax:
+       Syntax:
         `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
-    Explain:
-        The default buckets is 10.
+       Explain:
+         Hash bucketing using the specified key column.
+    2) Random
+       Syntax:
+        `DISTRIBUTED BY RANDOM [BUCKETS num]`
+       Explain:
+         Use random numbers for bucketing.
+    Suggestion: It is recommended to use random bucketing when there is no suitable key for hash bucketing to make the data of the table evenly distributed.   
+
 7. PROPERTIES
     1) If ENGINE type is olap. User can specify storage medium, cooldown time and replication   number:
 
@@ -317,6 +351,7 @@ Syntax:
        dynamic_partition.create_history_partition: specifies whether create history partitions, default value is false
        dynamic_partition.history_partition_num: used to specify the number of history partitions when enable create_history_partition
        dynamic_partition.reserved_history_periods: Used to specify the range of reserved history periods
+       
        ```
     5)  You can create multiple Rollups in bulk when building a table
     grammar:
@@ -325,9 +360,9 @@ Syntax:
                      [FROM from_index_name]
                       [PROPERTIES ("key"="value", ...)],...)
     ```
-
+    
     6) if you want to use the inmemory table feature, specify it in properties
-
+    
         ```
         PROPERTIES (
            "in_memory"="true"
@@ -610,8 +645,21 @@ Syntax:
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
-
-9. Create 2 colocate join table.
+9. Create a table with QUANTILE_UNION column (the origin value of **v1** and **v2** columns must be **numeric** types）
+    
+    ```
+    CREATE TABLE example_db.example_table
+    (
+    k1 TINYINT,
+    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    v1 QUANTILE_STATE QUANTILE_UNION,
+    v2 QUANTILE_STATE QUANTILE_UNION
+    )
+    ENGINE=olap
+    AGGREGATE KEY(k1, k2)
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
+    ```
+10. Create 2 colocate join table.
 
     ```
     CREATE TABLE `t1` (
@@ -634,7 +682,7 @@ Syntax:
     );
     ```
 
-10. Create a broker table, with file on BOS.
+11. Create a broker table, with file on BOS.
 
     ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -652,7 +700,7 @@ Syntax:
     );
     ```
 
-11. Create a table with a bitmap index 
+12. Create a table with a bitmap index 
 
     ```
     CREATE TABLE example_db.table_hash
@@ -669,7 +717,7 @@ Syntax:
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
     
-12. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
+13. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
 
     ```
     [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
@@ -699,7 +747,7 @@ Syntax:
         "dynamic_partition.buckets" = "32"
          );
      ```
-13. Create a table with rollup index
+14. Create a table with rollup index
 ```
     CREATE TABLE example_db.rolup_index_table
     (
@@ -719,7 +767,7 @@ Syntax:
     PROPERTIES("replication_num" = "3");
 ```
 
-14. Create a inmemory table:
+15. Create a inmemory table:
 
 ```
     CREATE TABLE example_db.table_hash
@@ -737,7 +785,7 @@ Syntax:
     PROPERTIES ("in_memory"="true");
 ```
 
-15. Create a hive external table
+16. Create a hive external table
 ```
     CREATE TABLE example_db.table_hive
     (
@@ -754,7 +802,7 @@ Syntax:
     );
 ```
 
-16. Specify the replica distribution of the table through replication_allocation
+17. Specify the replica distribution of the table through replication_allocation
 
 ```	
     CREATE TABLE example_db.table_hash
@@ -785,6 +833,19 @@ Syntax:
     "dynamic_partition.buckets" = "32",
     "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
+```
+
+17. Create an Iceberg external table
+
+```
+    CREATE TABLE example_db.t_iceberg 
+    ENGINE=ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_db",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.hive.metastore.uris"  =  "thrift://127.0.0.1:9083",
+    "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    );
 ```
 
 ## keyword

@@ -28,18 +28,19 @@
 
 namespace doris {
 
-#define REGISTER_ENTITY_HOOK_METRIC(entity, owner, metric, func)                                \
-    owner->metric = (UIntGauge*)(entity->register_metric<UIntGauge>(&METRIC_##metric));         \
+#define REGISTER_ENTITY_HOOK_METRIC(entity, owner, metric, func)                        \
+    owner->metric = (UIntGauge*)(entity->register_metric<UIntGauge>(&METRIC_##metric)); \
     entity->register_hook(#metric, [&]() { owner->metric->set_value(func()); });
 
-#define REGISTER_HOOK_METRIC(metric, func)                                                      \
-    REGISTER_ENTITY_HOOK_METRIC(DorisMetrics::instance()->server_entity(), DorisMetrics::instance(), metric, func)
+#define REGISTER_HOOK_METRIC(metric, func)                                 \
+    REGISTER_ENTITY_HOOK_METRIC(DorisMetrics::instance()->server_entity(), \
+                                DorisMetrics::instance(), metric, func)
 
-#define DEREGISTER_ENTITY_HOOK_METRIC(entity, name)                                             \
-    entity->deregister_metric(&METRIC_##name);                                                  \
+#define DEREGISTER_ENTITY_HOOK_METRIC(entity, name) \
+    entity->deregister_metric(&METRIC_##name);      \
     entity->deregister_hook(#name);
 
-#define DEREGISTER_HOOK_METRIC(name)                                                            \
+#define DEREGISTER_HOOK_METRIC(name) \
     DEREGISTER_ENTITY_HOOK_METRIC(DorisMetrics::instance()->server_entity(), name)
 
 class DorisMetrics {
@@ -124,6 +125,10 @@ public:
     IntCounter* memtable_flush_total;
     IntCounter* memtable_flush_duration_us;
 
+    IntCounter* attach_task_thread_count;
+    IntCounter* switch_thread_mem_tracker_count;
+    IntCounter* switch_thread_mem_tracker_err_cb_count;
+
     IntGauge* memory_pool_bytes_total;
     IntGauge* process_thread_num;
     IntGauge* process_fd_num_used;
@@ -177,10 +182,12 @@ public:
     UIntGauge* small_file_cache_count;
     UIntGauge* stream_load_pipe_count;
     UIntGauge* brpc_endpoint_stub_count;
+    UIntGauge* brpc_function_endpoint_stub_count;
     UIntGauge* tablet_writer_count;
 
     UIntGauge* compaction_mem_consumption;
     UIntGauge* load_mem_consumption;
+    UIntGauge* load_channel_mem_consumption;
     UIntGauge* query_mem_consumption;
     UIntGauge* schema_change_mem_consumption;
     UIntGauge* tablet_meta_mem_consumption;

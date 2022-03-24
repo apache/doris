@@ -112,7 +112,7 @@ Status GzipDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
         *decompressed_len = output_max_len - _z_strm.avail_out;
 
         VLOG_TRACE << "gzip dec ret: " << ret << " input_bytes_read: " << *input_bytes_read
-                 << " decompressed_len: " << *decompressed_len;
+                   << " decompressed_len: " << *decompressed_len;
 
         if (ret == Z_BUF_ERROR) {
             // Z_BUF_ERROR indicates that inflate() could not consume more input or
@@ -295,7 +295,7 @@ Status Lz4FrameDecompressor::decompress(uint8_t* input, size_t input_len, size_t
     // decompress
     size_t output_len = output_max_len;
     ret = LZ4F_decompress(_dctx, (void*)output, &output_len, (void*)src, &src_size,
-                          /* LZ4F_decompressOptions_t */ NULL);
+                          /* LZ4F_decompressOptions_t */ nullptr);
     if (LZ4F_isError(ret)) {
         std::stringstream ss;
         ss << "Decompression error: " << std::string(LZ4F_getErrorName(ret));

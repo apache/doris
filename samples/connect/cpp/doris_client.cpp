@@ -37,25 +37,25 @@ using std::string;
 
 DorisClient::DorisClient() {
     //init connection
-    _client = mysql_init(NULL);
-    if (_client == NULL) {
+    _client = mysql_init(nullptr);
+    if (_client == nullptr) {
         std::cout << "Error:" << mysql_error(_client);
     }
 }
 
 DorisClient::~DorisClient() {
     //close connection
-    if (_client != NULL) {
+    if (_client != nullptr) {
         mysql_close(_client);
     }
 }
 
 bool DorisClient::init(const string& host, const string& user, const string& passwd,
-                      const string& db_name, int port, const string& sock) {
+                       const string& db_name, int port, const string& sock) {
     // create connection
     _client = mysql_real_connect(_client, host.c_str(), user.c_str(), passwd.c_str(),
-            db_name.c_str(), port, sock.c_str(), 0);
-    if (_client == NULL) {
+                                 db_name.c_str(), port, sock.c_str(), 0);
+    if (_client == nullptr) {
         std::cout << "Error: " << mysql_error(_client);
         return false;
     }
@@ -74,7 +74,7 @@ bool DorisClient::exec(const string& sql) {
         std::cout << "Query result:" << std::endl;
         for (int i = 0; i < num_rows; i++) {
             _row = mysql_fetch_row(_result);
-            if (_row < 0) {
+            if (_row == nullptr) {
                 break;
             }
             for (int j = 0; j < num_fields; j++) {
@@ -129,9 +129,10 @@ int main() {
     std::cout << "init new DorisClient" << std::endl;
 
     // create doris table
-    string sql_create_table = "CREATE TABLE cpp_doris_table(siteid INT,citycode SMALLINT,pv BIGINT SUM) "\
-                            "AGGREGATE KEY(siteid, citycode) DISTRIBUTED BY HASH(siteid) BUCKETS 10 "\
-                            "PROPERTIES(\"replication_num\" = \"1\")";
+    string sql_create_table =
+            "CREATE TABLE cpp_doris_table(siteid INT,citycode SMALLINT,pv BIGINT SUM) "
+            "AGGREGATE KEY(siteid, citycode) DISTRIBUTED BY HASH(siteid) BUCKETS 10 "
+            "PROPERTIES(\"replication_num\" = \"1\")";
     std::cout << sql_create_table << std::endl;
     client_new.exec(sql_create_table);
 

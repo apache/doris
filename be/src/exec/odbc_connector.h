@@ -18,20 +18,19 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTOR_H
 #define DORIS_BE_SRC_QUERY_EXEC_ODBC_CONNECTOR_H
 
+#include <fmt/format.h>
 #include <sql.h>
 
 #include <boost/format.hpp>
-#include <boost/ptr_container/ptr_vector.hpp>
 #include <cstdlib>
-#include <fmt/format.h>
 #include <string>
 #include <vector>
 
-#include "exprs/expr_context.h"
-#include "runtime/row_batch.h"
 #include "common/status.h"
+#include "exprs/expr_context.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/descriptors.h"
+#include "runtime/row_batch.h"
 
 namespace doris {
 
@@ -59,7 +58,6 @@ struct DataBinding {
     ~DataBinding() { free(target_value_ptr); }
     DataBinding(const DataBinding&) = delete;
     DataBinding& operator=(const DataBinding&) = delete;
-    
 };
 
 // ODBC Connector for scan data from ODBC
@@ -75,14 +73,16 @@ public:
 
     // write for ODBC table
     Status init_to_write(RuntimeProfile* profile);
-    Status append(const std::string& table_name, RowBatch* batch, uint32_t start_send_row, uint32_t* num_row_sent);
+    Status append(const std::string& table_name, RowBatch* batch, uint32_t start_send_row,
+                  uint32_t* num_row_sent);
 
     // use in ODBC transaction
     Status begin_trans();  // should be call after connect and before query or init_to_write
     Status abort_trans();  // should be call after transaction abort
     Status finish_trans(); // should be call after transaction commit
 
-    const DataBinding& get_column_data(int i) const { return _columns_data.at(i); }
+    const DataBinding& get_column_data(int i) const { return *_columns_data.at(i).get(); }
+
 private:
     void _init_profile(RuntimeProfile*);
 
@@ -111,15 +111,13 @@ private:
     bool _is_open;
     bool _is_in_transaction;
 
-
     SQLSMALLINT _field_num;
-    uint64_t _row_count;
 
     SQLHENV _env;
     SQLHDBC _dbc;
     SQLHSTMT _stmt;
 
-    boost::ptr_vector<DataBinding> _columns_data;
+    std::vector<std::unique_ptr<DataBinding>> _columns_data;
 };
 
 } // namespace doris

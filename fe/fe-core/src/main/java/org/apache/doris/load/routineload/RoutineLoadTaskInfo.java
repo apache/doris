@@ -189,6 +189,7 @@ public abstract class RoutineLoadTaskInfo {
                     DebugUtil.printId(id), jobId, e);
             throw e;
         }
+        routineLoadJob.jobStatistic.runningTxnIds.add(txnId);
         return true;
     }
 

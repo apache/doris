@@ -59,6 +59,7 @@ public:
 };
 
 void HeapAction::handle(HttpRequest* req) {
+    std::lock_guard<std::mutex> lock(kPprofActionMutex);
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     (void)kPprofDefaultSampleSecs; // Avoid unused variable warning.
 
@@ -66,8 +67,6 @@ void HeapAction::handle(HttpRequest* req) {
 
     HttpChannel::send_reply(req, str);
 #else
-    std::lock_guard<std::mutex> lock(kPprofActionMutex);
-
     int seconds = kPprofDefaultSampleSecs;
     const std::string& seconds_str = req->param(SECOND_KEY);
     if (!seconds_str.empty()) {
@@ -225,7 +224,9 @@ void CmdlineAction::handle(HttpRequest* req) {
         return;
     }
     char buf[1024];
-    fscanf(fp, "%s ", buf);
+    // Ignore unused return value
+    if (fscanf(fp, "%1023s ", buf))
+        ;
     fclose(fp);
     std::string str = buf;
 
@@ -290,8 +291,10 @@ Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server, ObjectP
     http_server->register_handler(HttpMethod::GET, "/pprof/heap", pool.add(new HeapAction()));
     http_server->register_handler(HttpMethod::GET, "/pprof/growth", pool.add(new GrowthAction()));
     http_server->register_handler(HttpMethod::GET, "/pprof/profile", pool.add(new ProfileAction()));
-    http_server->register_handler(HttpMethod::GET, "/pprof/pmuprofile", pool.add(new PmuProfileAction()));
-    http_server->register_handler(HttpMethod::GET, "/pprof/contention", pool.add(new ContentionAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/pmuprofile",
+                                  pool.add(new PmuProfileAction()));
+    http_server->register_handler(HttpMethod::GET, "/pprof/contention",
+                                  pool.add(new ContentionAction()));
     http_server->register_handler(HttpMethod::GET, "/pprof/cmdline", pool.add(new CmdlineAction()));
     auto action = pool.add(new SymbolAction(exec_env->bfd_parser()));
     http_server->register_handler(HttpMethod::GET, "/pprof/symbol", action);

@@ -1,3 +1,15 @@
+diff -uprN a/src/CMakeLists.txt b/src/CMakeLists.txt
+--- a/src/CMakeLists.txt  2021-09-23 22:03:55.000000000 +0800
++++ b/src/CMakeLists.txt        2022-01-18 00:58:22.411061469 +0800
+@@ -46,7 +46,7 @@ SET(HEADER
+     common/XmlConfig.h)
+
+ ADD_LIBRARY(libhdfs3-static STATIC ${libhdfs3_SOURCES} ${libhdfs3_PROTO_SOURCES} ${libhdfs3_PROTO_HEADERS})
+-ADD_LIBRARY(libhdfs3-shared SHARED ${libhdfs3_SOURCES} ${libhdfs3_PROTO_SOURCES} ${libhdfs3_PROTO_HEADERS})
++ADD_LIBRARY(libhdfs3-shared STATIC ${libhdfs3_SOURCES} ${libhdfs3_PROTO_SOURCES} ${libhdfs3_PROTO_HEADERS})
+
+ ADD_CUSTOM_COMMAND(
+     TARGET libhdfs3-shared libhdfs3-static
 diff --git a/src/client/FileSystem.cpp b/src/client/FileSystem.cpp
 index 6c347c7..6aec1a3 100644
 --- a/src/client/FileSystem.cpp
@@ -102,3 +114,25 @@ index 9aa9d7b..53893a1 100644
  
          if (output) {
              free(output);
+diff -uprN a/src/CMakeLists.txt b/src/CMakeLists.txt
+--- a/bootstrap 2022-02-26 16:12:06.065389096 +0800
++++ b/bootstrap 2022-02-26 16:11:45.989378097 +0800
+@@ -111,11 +111,17 @@ if [[ ! -x ${cmake} ]]; then
+     die "cannot found cmake"
+ fi
+
++arch=$(uname -i)
++if  [[ $arch == arm* ]] || [[ $arch = aarch64 ]]; then
++    CMAKE_EXTRA_FLAGS="-DENABLE_SSE=0"
++fi
++
+ # Configure
+ ${cmake} -DENABLE_DEBUG=${enable_build} -DCMAKE_INSTALL_PREFIX=${prefix_dirs} \
+     -DCMAKE_C_COMPILER=${c_compiler} -DCMAKE_CXX_COMPILER=${cxx_compiler} \
+     -DCMAKE_PREFIX_PATH=${dependency_dir} -DENABLE_BOOST=${enable_boost} \
+     -DENABLE_COVERAGE=${enable_coverage} -DENABLE_LIBCPP=${enable_clang_lib} ${source_dir} \
++    $CMAKE_EXTRA_FLAGS \
+     || die "failed to configure the project"
+
+ echo 'bootstrap success. Run "make" to build.'
+

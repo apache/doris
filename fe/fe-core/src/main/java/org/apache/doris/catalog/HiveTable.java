@@ -19,6 +19,9 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.thrift.THiveTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -38,7 +41,7 @@ public class HiveTable extends Table {
 
     private static final String HIVE_DB = "database";
     private static final String HIVE_TABLE = "table";
-    private static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
+    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
 
     private String hiveDb;
     private String hiveTable;
@@ -126,5 +129,14 @@ public class HiveTable extends Table {
             String val = Text.readString(in);
             hiveProperties.put(key, val);
         }
+    }
+
+    @Override
+    public TTableDescriptor toThrift() {
+        THiveTable tHiveTable = new THiveTable(getHiveDb(), getHiveTable(), getHiveProperties());
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE,
+                fullSchema.size(), 0, getName(), "");
+        tTableDescriptor.setHiveTable(tHiveTable);
+        return tTableDescriptor;
     }
 }

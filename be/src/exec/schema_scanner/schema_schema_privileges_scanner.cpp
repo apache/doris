@@ -100,13 +100,13 @@ Status SchemaSchemaPrivilegesScanner::fill_one_row(Tuple* tuple, MemPool* pool) 
 
 Status SchemaSchemaPrivilegesScanner::fill_one_col(const std::string* src, MemPool* pool,
                                                    void* slot) {
-    if (NULL == slot || NULL == pool || NULL == src) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == slot || nullptr == pool || nullptr == src) {
+        return Status::InternalError("input pointer is nullptr.");
     }
     StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
     str_slot->len = src->length();
     str_slot->ptr = (char*)pool->allocate(str_slot->len);
-    if (NULL == str_slot->ptr) {
+    if (nullptr == str_slot->ptr) {
         return Status::InternalError("Allocate memcpy failed.");
     }
     memcpy(str_slot->ptr, src->c_str(), str_slot->len);
@@ -115,21 +115,21 @@ Status SchemaSchemaPrivilegesScanner::fill_one_col(const std::string* src, MemPo
 
 Status SchemaSchemaPrivilegesScanner::get_new_table() {
     TGetTablesParams table_params;
-    if (NULL != _param->wild) {
+    if (nullptr != _param->wild) {
         table_params.__set_pattern(*(_param->wild));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         table_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             table_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             table_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(SchemaHelper::list_schema_privilege_status(*(_param->ip), _param->port,
                                                                    table_params, &_priv_result));
     } else {
@@ -143,8 +143,8 @@ Status SchemaSchemaPrivilegesScanner::get_next_row(Tuple* tuple, MemPool* pool, 
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
-    if (NULL == tuple || NULL == pool || NULL == eos) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
     }
     if (_priv_index >= _priv_result.privileges.size()) {
         *eos = true;

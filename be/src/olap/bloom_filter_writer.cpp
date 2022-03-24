@@ -50,8 +50,8 @@ uint64_t BloomFilterIndexWriter::estimate_buffered_memory() {
 
 OLAPStatus BloomFilterIndexWriter::write_to_buffer(OutStream* out_stream) {
     OLAPStatus res = OLAP_SUCCESS;
-    if (NULL == out_stream) {
-        OLAP_LOG_WARNING("out stream is NULL");
+    if (nullptr == out_stream) {
+        OLAP_LOG_WARNING("out stream is null");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
@@ -79,8 +79,8 @@ OLAPStatus BloomFilterIndexWriter::write_to_buffer(OutStream* out_stream) {
 
 OLAPStatus BloomFilterIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) {
     OLAPStatus res = OLAP_SUCCESS;
-    if (NULL == buffer) {
-        OLAP_LOG_WARNING("out stream is NULL.");
+    if (nullptr == buffer) {
+        OLAP_LOG_WARNING("out stream is nullptr.");
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 

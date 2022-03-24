@@ -81,7 +81,7 @@ import java.util.stream.Collectors;
  *   LoadManager.lock
  *     LoadJob.lock
  */
-public class LoadManager implements Writable{
+public class LoadManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(LoadManager.class);
 
     private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
@@ -108,19 +108,19 @@ public class LoadManager implements Writable{
             if (stmt.getBrokerDesc() != null && stmt.getBrokerDesc().isMultiLoadBroker()) {
                 if (!Catalog.getCurrentCatalog().getLoadInstance()
                         .isUncommittedLabel(dbId, stmt.getLabel().getLabelName())) {
-                    throw new DdlException("label: " + stmt.getLabel().getLabelName() + " not found!") ;
+                    throw new DdlException("label: " + stmt.getLabel().getLabelName() + " not found!");
                 }
-
             } else {
                 checkLabelUsed(dbId, stmt.getLabel().getLabelName());
                 if (stmt.getBrokerDesc() == null && stmt.getResourceDesc() == null) {
                     throw new DdlException("LoadManager only support the broker and spark load.");
                 }
-                if (loadJobScheduler.isQueueFull()) {
-                    throw new DdlException("There are more than " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
-                            + "please retry later.");
+                if (unprotectedGetUnfinishedJobNum() >= Config.desired_max_waiting_jobs) {
+                    throw new DdlException("There are more than " + Config.desired_max_waiting_jobs + " unfinished load jobs, "
+                            + "please retry later. You can use `SHOW LOAD` to view submitted jobs");
                 }
             }
+
             loadJob = BulkLoadJob.fromLoadStmt(stmt);
             createLoadJob(loadJob);
         } finally {
@@ -132,6 +132,11 @@ public class LoadManager implements Writable{
         // It guarantee that load job has not been changed before edit log.
         loadJobScheduler.submitJob(loadJob);
         return loadJob.getId();
+    }
+
+    private long unprotectedGetUnfinishedJobNum() {
+        return idToLoadJob.values().parallelStream()
+                .filter(j -> (j.getState() != JobState.FINISHED && j.getState() != JobState.CANCELLED)).count();
     }
 
     /**
@@ -149,7 +154,7 @@ public class LoadManager implements Writable{
         }
         Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
         Table table = database.getTableOrDdlException(request.tbl);
-        LoadJob loadJob = null;
+        MiniLoadJob loadJob = null;
         writeLock();
         try {
             loadJob = new MiniLoadJob(database.getId(), table.getId(), request);
@@ -158,6 +163,7 @@ public class LoadManager implements Writable{
             // for other kind of load job, execute the job after adding job.
             // Mini load job must be executed before release write lock.
             // Otherwise, the duplicated request maybe get the transaction id before transaction of mini load is begun.
+            loadJob.beginTxn();
             loadJob.unprotectedExecute();
             createLoadJob(loadJob);
         } catch (DuplicatedRequestException e) {
@@ -249,8 +255,8 @@ public class LoadManager implements Writable{
     public void replayCreateLoadJob(LoadJob loadJob) {
         createLoadJob(loadJob);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
-                         .add("msg", "replay create load job")
-                         .build());
+                .add("msg", "replay create load job")
+                .build());
     }
 
     // add load job and also add to to callback factory
@@ -281,7 +287,7 @@ public class LoadManager implements Writable{
     }
 
     public void recordFinishedLoadJob(String label, long transactionId, String dbName, long tableId, EtlJobType jobType,
-            long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
+                                      long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
 
         // get db id
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbName);
@@ -392,9 +398,9 @@ public class LoadManager implements Writable{
         }
         job.unprotectReadEndOperation(operation);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId())
-                         .add("operation", operation)
-                         .add("msg", "replay end load job")
-                         .build());
+                .add("operation", operation)
+                .add("msg", "replay end load job")
+                .build());
     }
 
     public void replayUpdateLoadJobStateInfo(LoadJob.LoadJobStateUpdateInfo info) {
@@ -461,11 +467,6 @@ public class LoadManager implements Writable{
         }
     }
 
-    // only for those jobs which transaction is not started
-    public void processTimeoutJobs() {
-        idToLoadJob.values().stream().forEach(entity -> entity.processTimeout());
-    }
-
     // only for those jobs which have etl state, like SparkLoadJob
     public void processEtlStateJobs() {
         idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.ETL))
@@ -475,7 +476,7 @@ public class LoadManager implements Writable{
                     } catch (DataQualityException e) {
                         LOG.info("update load job etl status failed. job id: {}", job.getId(), e);
                         job.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_QUALITY_UNSATISFIED, DataQualityException.QUALITY_FAIL_MSG),
-                                                  true, true);
+                                true, true);
                     } catch (UserException e) {
                         LOG.warn("update load job etl status failed. job id: {}", job.getId(), e);
                         job.cancelJobWithoutCheck(new FailMsg(CancelType.ETL_RUN_FAIL, e.getMessage()), true, true);
@@ -536,7 +537,7 @@ public class LoadManager implements Writable{
             List<LoadJob> loadJobList = Lists.newArrayList();
             if (Strings.isNullOrEmpty(labelValue)) {
                 loadJobList.addAll(labelToLoadJobs.values()
-                                           .stream().flatMap(Collection::stream).collect(Collectors.toList()));
+                        .stream().flatMap(Collection::stream).collect(Collectors.toList()));
             } else {
                 // check label value
                 if (accurateMatch) {
@@ -667,7 +668,7 @@ public class LoadManager implements Writable{
     }
 
     public void initJobProgress(Long jobId, TUniqueId loadId, Set<TUniqueId> fragmentIds,
-            List<Long> relatedBackendIds) {
+                                List<Long> relatedBackendIds) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
             job.initLoadProgress(loadId, fragmentIds, relatedBackendIds);
@@ -675,10 +676,10 @@ public class LoadManager implements Writable{
     }
 
     public void updateJobProgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId,
-                                  long scannedRows, boolean isDone) {
+                                  long scannedRows, long scannedBytes, boolean isDone) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
-            job.updateProgress(beId, loadId, fragmentId, scannedRows, isDone);
+            job.updateProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
         }
     }
 

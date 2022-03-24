@@ -48,7 +48,7 @@ public:
     template <class T>
     Status serialize(T* obj, std::vector<uint8_t>* result) {
         uint32_t len = 0;
-        uint8_t* buffer = NULL;
+        uint8_t* buffer = nullptr;
         RETURN_IF_ERROR(serialize<T>(obj, &len, &buffer));
         result->resize(len);
         memcpy(&((*result)[0]), buffer, len);

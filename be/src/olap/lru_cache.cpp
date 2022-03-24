@@ -16,6 +16,7 @@
 #include "olap/olap_index.h"
 #include "olap/row_block.h"
 #include "olap/utils.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 
 using std::string;
@@ -90,7 +91,7 @@ LRUHandle* HandleTable::insert(LRUHandle* h) {
     _head_insert(head, h);
     ++_elems;
 
-    if (old == NULL) {
+    if (old == nullptr) {
         if (_elems > _length) {
             // Since each cache entry is fairly large, we aim for a small
             // average linked list length (<= 1).
@@ -123,7 +124,7 @@ void HandleTable::remove(const LRUHandle* h) {
 
 LRUHandle** HandleTable::_find_pointer(const CacheKey& key, uint32_t hash) {
     LRUHandle** ptr = &(_list[hash & (_length - 1)]->next_hash);
-    while (*ptr != NULL && ((*ptr)->hash != hash || key != (*ptr)->key())) {
+    while (*ptr != nullptr && ((*ptr)->hash != hash || key != (*ptr)->key())) {
         ptr = &(*ptr)->next_hash;
     }
 
@@ -156,7 +157,7 @@ void HandleTable::_resize() {
     uint32_t count = 0;
     for (uint32_t i = 0; i < _length; i++) {
         LRUHandle* h = _list[i]->next_hash;
-        while (h != NULL) {
+        while (h != nullptr) {
             LRUHandle* next = h->next_hash;
             uint32_t hash = h->hash;
             LRUHandle* head = new_list[hash & (new_length - 1)];
@@ -208,7 +209,7 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
 }
 
 Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
-    MutexLock l(&_mutex);
+    std::lock_guard<std::mutex> l(_mutex);
     ++_lookup_count;
     LRUHandle* e = _table.lookup(key, hash);
     if (e != nullptr) {
@@ -231,7 +232,7 @@ void LRUCache::release(Cache::Handle* handle) {
     LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
     bool last_ref = false;
     {
-        MutexLock l(&_mutex);
+        std::lock_guard<std::mutex> l(_mutex);
         last_ref = _unref(e);
         if (last_ref) {
             _usage -= e->total_size;
@@ -308,7 +309,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     memcpy(e->key_data, key.data(), key.size());
     LRUHandle* to_remove_head = nullptr;
     {
-        MutexLock l(&_mutex);
+        std::lock_guard<std::mutex> l(_mutex);
 
         // Free the space following strict LRU policy until enough space
         // is freed or the lru list is empty
@@ -343,11 +344,11 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     return reinterpret_cast<Cache::Handle*>(e);
 }
 
-void LRUCache::erase(const CacheKey& key, uint32_t hash) {
+void LRUCache::erase(const CacheKey& key, uint32_t hash, MemTracker* tracker) {
     LRUHandle* e = nullptr;
     bool last_ref = false;
     {
-        MutexLock l(&_mutex);
+        std::lock_guard<std::mutex> l(_mutex);
         e = _table.remove(key, hash);
         if (e != nullptr) {
             last_ref = _unref(e);
@@ -367,29 +368,19 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash) {
     }
 }
 
-void LRUCache::_prune_one(LRUHandle* old) {
-    DCHECK(old->in_cache);
-    DCHECK(old->refs == 1); // LRU list contains elements which may be evicted
-    _lru_remove(old);
-    _table.remove(old);
-    old->in_cache = false;
-    _unref(old);
-    _usage -= old->total_size;
-}
-
 int64_t LRUCache::prune() {
     LRUHandle* to_remove_head = nullptr;
     {
-        MutexLock l(&_mutex);
+        std::lock_guard<std::mutex> l(_mutex);
         while (_lru_normal.next != &_lru_normal) {
             LRUHandle* old = _lru_normal.next;
-            _prune_one(old);
+            _evict_one_entry(old);
             old->next = to_remove_head;
             to_remove_head = old;
         }
         while (_lru_durable.next != &_lru_durable) {
             LRUHandle* old = _lru_durable.next;
-            _prune_one(old);
+            _evict_one_entry(old);
             old->next = to_remove_head;
             to_remove_head = old;
         }
@@ -404,34 +395,30 @@ int64_t LRUCache::prune() {
     return pruned_count;
 }
 
-int64_t LRUCache::prune_if(bool (*pred)(const void* value)) {
+int64_t LRUCache::prune_if(CacheValuePredicate pred) {
     LRUHandle* to_remove_head = nullptr;
     {
-        MutexLock l(&_mutex);
+        std::lock_guard<std::mutex> l(_mutex);
         LRUHandle* p = _lru_normal.next;
         while (p != &_lru_normal) {
-            LRUHandle* old = _lru_normal.next;
-            if (pred(old->value)) {
-                _prune_one(old);
-                old->next = to_remove_head;
-                to_remove_head = old;
-                p = _lru_normal.next;
-            } else {
-                p = p->next;
+            LRUHandle* next = p->next;
+            if (pred(p->value)) {
+                _evict_one_entry(p);
+                p->next = to_remove_head;
+                to_remove_head = p;
             }
+            p = next;
         }
 
         p = _lru_durable.next;
         while (p != &_lru_durable) {
-            LRUHandle* old = _lru_durable.next;
-            if (pred(old->value)) {
-                _prune_one(old);
-                old->next = to_remove_head;
-                to_remove_head = old;
-                p = _lru_durable.next;
-            } else {
-                p = p->next;
+            LRUHandle* next = p->next;
+            if (pred(p->value)) {
+                _evict_one_entry(p);
+                p->next = to_remove_head;
+                to_remove_head = p;
             }
+            p = next;
         }
     }
     int64_t pruned_count = 0;
@@ -452,15 +439,19 @@ uint32_t ShardedLRUCache::_shard(uint32_t hash) {
     return hash >> (32 - kNumShardBits);
 }
 
-ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
-                                 LRUCacheType type, std::shared_ptr<MemTracker> parent)
-        : _name(name), _last_id(1),
-        _mem_tracker(MemTracker::CreateTracker(-1, name, parent, true, false, MemTrackerLevel::OVERVIEW)) {
+ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type)
+        : _name(name),
+          _last_id(1),
+          _mem_tracker(MemTracker::create_tracker(-1, name, nullptr, MemTrackerLevel::OVERVIEW)) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     const size_t per_shard = (total_capacity + (kNumShards - 1)) / kNumShards;
     for (int s = 0; s < kNumShards; s++) {
         _shards[s] = new LRUCache(type);
         _shards[s]->set_capacity(per_shard);
     }
+    // After the lru cache is created in the main thread, the main thread will not switch to the
+    // lru cache mem tracker again, so manually clear the untracked mem in tls.
+    thread_local_ctx.get()->_thread_mem_tracker_mgr->clear_untracked_mems();
 
     _entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("lru_cache:") + name, {{"name", name}});
@@ -474,17 +465,22 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
 }
 
 ShardedLRUCache::~ShardedLRUCache() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     for (int s = 0; s < kNumShards; s++) {
         delete _shards[s];
     }
     _entity->deregister_hook(_name);
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
-    _mem_tracker->Release(_mem_tracker->consumption());
 }
 
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
                                        void (*deleter)(const CacheKey& key, void* value),
                                        CachePriority priority) {
+    // The memory of the parameter value should be recorded in the tls mem tracker,
+    // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
+    thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(),
+                                                                                charge);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     const uint32_t hash = _hash_slice(key);
     return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, priority);
 }
@@ -495,13 +491,15 @@ Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {
 }
 
 void ShardedLRUCache::release(Handle* handle) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
     _shards[_shard(h->hash)]->release(handle);
 }
 
 void ShardedLRUCache::erase(const CacheKey& key) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     const uint32_t hash = _hash_slice(key);
-    _shards[_shard(hash)]->erase(key, hash);
+    _shards[_shard(hash)]->erase(key, hash, _mem_tracker.get());
 }
 
 void* ShardedLRUCache::value(Handle* handle) {
@@ -518,6 +516,7 @@ uint64_t ShardedLRUCache::new_id() {
 }
 
 int64_t ShardedLRUCache::prune() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t num_prune = 0;
     for (int s = 0; s < kNumShards; s++) {
         num_prune += _shards[s]->prune();
@@ -525,7 +524,8 @@ int64_t ShardedLRUCache::prune() {
     return num_prune;
 }
 
-int64_t ShardedLRUCache::prune_if(bool (*pred)(const void* value)) {
+int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t num_prune = 0;
     for (int s = 0; s < kNumShards; s++) {
         num_prune += _shards[s]->prune_if(pred);
@@ -549,18 +549,17 @@ void ShardedLRUCache::update_cache_metrics() const {
     usage->set_value(total_usage);
     lookup_count->set_value(total_lookup_count);
     hit_count->set_value(total_hit_count);
-    usage_ratio->set_value(total_capacity == 0 ? 0 : ((double) total_usage / total_capacity));
-    hit_ratio->set_value(total_lookup_count == 0 ? 0 : ((double) total_hit_count / total_lookup_count));
-    
-    _mem_tracker->Consume(total_usage - _mem_tracker->consumption());
+    usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
+    hit_ratio->set_value(total_lookup_count == 0 ? 0
+                                                 : ((double)total_hit_count / total_lookup_count));
 }
 
-Cache* new_lru_cache(const std::string& name, size_t capacity, std::shared_ptr<MemTracker> parent_tracker) {
-    return new ShardedLRUCache(name, capacity, LRUCacheType::SIZE, parent_tracker);
+Cache* new_lru_cache(const std::string& name, size_t capacity) {
+    return new ShardedLRUCache(name, capacity, LRUCacheType::SIZE);
 }
 
-Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type, std::shared_ptr<MemTracker> parent_tracker) {
-    return new ShardedLRUCache(name, capacity, type, parent_tracker);
+Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type) {
+    return new ShardedLRUCache(name, capacity, type);
 }
 
 } // namespace doris

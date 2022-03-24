@@ -21,8 +21,8 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
-#include <boost/thread.hpp>
 #include <mutex>
+#include <thread>
 
 namespace doris {
 
@@ -91,16 +91,16 @@ public:
 
     void Run() {
         for (int i = 0; i < _nthreads; ++i) {
-            _threads.push_back(boost::shared_ptr<boost::thread>(
-                    new boost::thread(std::bind(&MultiThreadTest::inserter_thread, this, i))));
-            _threads.push_back(boost::shared_ptr<boost::thread>(
-                    new boost::thread(std::bind(&MultiThreadTest::RemoverThread, this))));
+            _threads.push_back(std::shared_ptr<std::thread>(
+                    new std::thread(std::bind(&MultiThreadTest::inserter_thread, this, i))));
+            _threads.push_back(std::shared_ptr<std::thread>(
+                    new std::thread(std::bind(&MultiThreadTest::RemoverThread, this))));
         }
 
         // We add an extra thread to ensure that there aren't enough elements in
         // the queue to go around.  This way, we test removal after shutdown.
-        _threads.push_back(boost::shared_ptr<boost::thread>(
-                new boost::thread(std::bind(&MultiThreadTest::RemoverThread, this))));
+        _threads.push_back(std::shared_ptr<std::thread>(
+                new std::thread(std::bind(&MultiThreadTest::RemoverThread, this))));
 
         for (int i = 0; i < _threads.size(); ++i) {
             _threads[i]->join();
@@ -120,7 +120,7 @@ public:
     }
 
 private:
-    typedef std::vector<boost::shared_ptr<boost::thread>> ThreadVector;
+    typedef std::vector<std::shared_ptr<std::thread>> ThreadVector;
 
     int _iterations;
     int _nthreads;

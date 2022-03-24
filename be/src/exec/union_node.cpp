@@ -27,8 +27,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "util/runtime_profile.h"
 
-//
-
 namespace doris {
 
 UnionNode::UnionNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -154,8 +152,7 @@ Status UnionNode::get_next_materialized(RuntimeState* state, RowBatch* row_batch
         // Child row batch was either never set or we're moving on to a different child.
         if (_child_batch.get() == nullptr) {
             DCHECK_LT(_child_idx, _children.size());
-            _child_batch.reset(new RowBatch(child(_child_idx)->row_desc(), state->batch_size(),
-                                            mem_tracker().get()));
+            _child_batch.reset(new RowBatch(child(_child_idx)->row_desc(), state->batch_size()));
             _child_row_idx = 0;
             // open the current child unless it's the first child, which was already opened in
             // UnionNode::open().
@@ -277,20 +274,6 @@ Status UnionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) 
     return Status::OK();
 }
 
-#if 0
-Status UnionNode::reset(RuntimeState* state) {
-    _child_idx = 0;
-    _child_batch.reset();
-    _child_row_idx = 0;
-    _child_eos = false;
-    _const_expr_list_idx = 0;
-    // Since passthrough is disabled in subplans, verify that there is no passthrough child
-    // that needs to be closed.
-    DCHECK_EQ(_to_close_child_idx, -1);
-    return ExecNode::reset(state);
-}
-#endif
-
 Status UnionNode::close(RuntimeState* state) {
     if (is_closed()) return Status::OK();
     _child_batch.reset();
@@ -314,6 +297,48 @@ void UnionNode::debug_string(int indentation_level, std::stringstream* out) cons
     *out << "] \n";
     ExecNode::debug_string(indentation_level, out);
     *out << ")" << std::endl;
+}
+
+void UnionNode::materialize_exprs(const std::vector<ExprContext*>& exprs, TupleRow* row,
+                                  uint8_t* tuple_buf, RowBatch* dst_batch) {
+    DCHECK(!dst_batch->at_capacity());
+    Tuple* dst_tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    TupleRow* dst_row = dst_batch->get_row(dst_batch->add_row());
+    // dst_tuple->materialize_exprs<false, false>(row, *_tuple_desc, exprs,
+    dst_tuple->materialize_exprs<false>(row, *_tuple_desc, exprs, dst_batch->tuple_data_pool(),
+                                        nullptr, nullptr);
+    dst_row->set_tuple(0, dst_tuple);
+    dst_batch->commit_last_row();
+}
+
+void UnionNode::materialize_batch(RowBatch* dst_batch, uint8_t** tuple_buf) {
+    // Take all references to member variables out of the loop to reduce the number of
+    // loads and stores.
+    RowBatch* child_batch = _child_batch.get();
+    int tuple_byte_size = _tuple_desc->byte_size();
+    uint8_t* cur_tuple = *tuple_buf;
+    const std::vector<ExprContext*>& child_exprs = _child_expr_lists[_child_idx];
+
+    int num_rows_to_process = std::min(child_batch->num_rows() - _child_row_idx,
+                                       dst_batch->capacity() - dst_batch->num_rows());
+    FOREACH_ROW_LIMIT(child_batch, _child_row_idx, num_rows_to_process, batch_iter) {
+        TupleRow* child_row = batch_iter.get();
+        materialize_exprs(child_exprs, child_row, cur_tuple, dst_batch);
+        cur_tuple += tuple_byte_size;
+    }
+
+    _child_row_idx += num_rows_to_process;
+    *tuple_buf = cur_tuple;
+}
+
+Status UnionNode::get_error_msg(const std::vector<ExprContext*>& exprs) {
+    for (auto expr_ctx : exprs) {
+        std::string expr_error = expr_ctx->get_error_msg();
+        if (!expr_error.empty()) {
+            return Status::RuntimeError(expr_error);
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris

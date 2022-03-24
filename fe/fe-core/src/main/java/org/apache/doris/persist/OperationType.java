@@ -67,6 +67,7 @@ public class OperationType {
     public static final short OP_BATCH_DROP_ROLLUP = 124;
     public static final short OP_REMOVE_ALTER_JOB_V2 = 125;
     public static final short OP_MODIFY_COMMENT = 126;
+    public static final short OP_MODIFY_TABLE_ENGINE = 127;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -87,8 +88,10 @@ public class OperationType {
     @Deprecated
     public static final short OP_FINISH_ASYNC_DELETE = 44;
     public static final short OP_UPDATE_REPLICA = 45;
+    @Deprecated
     public static final short OP_BACKEND_TABLETS_INFO = 46;
     public static final short OP_SET_REPLICA_STATUS = 47;
+    public static final short OP_BACKEND_REPLICAS_INFO = 48;
 
     public static final short OP_ADD_BACKEND = 50;
     public static final short OP_DROP_BACKEND = 51;

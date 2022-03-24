@@ -30,22 +30,22 @@ public:
     static Expr* from_thrift(const TExprNode& node);
 };
 
-#define CAST_EXPR_DEFINE(CLASS)                                                 \
-    class CLASS : public CastExpr {                                             \
-    public:                                                                     \
-        CLASS(const TExprNode& node) : CastExpr(node) {}                        \
-        virtual ~CLASS() {}                                                     \
-        virtual Expr* clone(ObjectPool* pool) const override {                  \
-            return pool->add(new CLASS(*this));                                 \
-        }                                                                       \
-        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*);    \
-        virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);   \
-        virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*); \
-        virtual IntVal get_int_val(ExprContext* context, TupleRow*);            \
-        virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*);     \
-        virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*); \
-        virtual FloatVal get_float_val(ExprContext* context, TupleRow*);        \
-        virtual DoubleVal get_double_val(ExprContext* context, TupleRow*);      \
+#define CAST_EXPR_DEFINE(CLASS)                                                          \
+    class CLASS : public CastExpr {                                                      \
+    public:                                                                              \
+        CLASS(const TExprNode& node) : CastExpr(node) {}                                 \
+        virtual ~CLASS() {}                                                              \
+        virtual Expr* clone(ObjectPool* pool) const override {                           \
+            return pool->add(new CLASS(*this));                                          \
+        }                                                                                \
+        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;    \
+        virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*) override;   \
+        virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*) override; \
+        virtual IntVal get_int_val(ExprContext* context, TupleRow*) override;            \
+        virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*) override;     \
+        virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override; \
+        virtual FloatVal get_float_val(ExprContext* context, TupleRow*) override;        \
+        virtual DoubleVal get_double_val(ExprContext* context, TupleRow*) override;      \
     };
 
 CAST_EXPR_DEFINE(CastBooleanExpr);

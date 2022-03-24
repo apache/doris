@@ -27,7 +27,6 @@ namespace doris {
 using doris_udf::FunctionContext;
 
 class MemPool;
-class MemTracker;
 class ObjectPool;
 class RuntimeState;
 class Tuple;
@@ -96,7 +95,7 @@ public:
     /// 'agg_fn'. The returned AggFn lives in the ObjectPool of 'state'. 'row_desc' is
     /// the row descriptor of the input tuple row; 'intermediate_slot_desc' is the slot
     /// descriptor of the intermediate value; 'output_slot_desc' is the slot descriptor
-    /// of the output value. On failure, returns error status and sets 'agg_fn' to NULL.
+    /// of the output value. On failure, returns error status and sets 'agg_fn' to nullptr.
     static Status Create(const TExpr& texpr, const RowDescriptor& row_desc,
                          const SlotDescriptor& intermediate_slot_desc,
                          const SlotDescriptor& output_slot_desc, RuntimeState* state,

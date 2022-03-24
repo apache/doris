@@ -36,18 +36,18 @@ SchemaScanNode::SchemaScanNode(ObjectPool* pool, const TPlanNode& tnode, const D
           _is_init(false),
           _table_name(tnode.schema_scan_node.table_name),
           _tuple_id(tnode.schema_scan_node.tuple_id),
-          _src_tuple_desc(NULL),
-          _dest_tuple_desc(NULL),
+          _src_tuple_desc(nullptr),
+          _dest_tuple_desc(nullptr),
           _tuple_idx(0),
           _slot_num(0),
-          _tuple_pool(NULL),
-          _schema_scanner(NULL),
-          _src_tuple(NULL),
-          _dest_tuple(NULL) {}
+          _tuple_pool(nullptr),
+          _schema_scanner(nullptr),
+          _src_tuple(nullptr),
+          _dest_tuple(nullptr) {}
 
 SchemaScanNode::~SchemaScanNode() {
     delete[] reinterpret_cast<char*>(_src_tuple);
-    _src_tuple = NULL;
+    _src_tuple = nullptr;
 }
 
 Status SchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -94,23 +94,23 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
         return Status::OK();
     }
 
-    if (NULL == state) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
 
     // new one mem pool
-    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker().get()));
+    _tuple_pool.reset(new (std::nothrow) MemPool());
 
-    if (NULL == _tuple_pool.get()) {
+    if (nullptr == _tuple_pool.get()) {
         return Status::InternalError("Allocate MemPool failed.");
     }
 
     // get dest tuple desc
     _dest_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
-    if (NULL == _dest_tuple_desc) {
+    if (nullptr == _dest_tuple_desc) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
 
@@ -119,28 +119,28 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
     const SchemaTableDescriptor* schema_table =
             static_cast<const SchemaTableDescriptor*>(_dest_tuple_desc->table_desc());
 
-    if (NULL == schema_table) {
+    if (nullptr == schema_table) {
         return Status::InternalError("Failed to get schema table descriptor.");
     }
 
     // new one scanner
     _schema_scanner.reset(SchemaScanner::create(schema_table->schema_table_type()));
 
-    if (NULL == _schema_scanner.get()) {
-        return Status::InternalError("schema scanner get NULL pointer.");
+    if (nullptr == _schema_scanner.get()) {
+        return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
     RETURN_IF_ERROR(_schema_scanner->init(&_scanner_param, _pool));
     // get column info from scanner
     _src_tuple_desc = _schema_scanner->tuple_desc();
 
-    if (NULL == _src_tuple_desc) {
+    if (nullptr == _src_tuple_desc) {
         return Status::InternalError("failed to get src schema tuple desc.");
     }
 
     _src_tuple = reinterpret_cast<Tuple*>(new (std::nothrow) char[_src_tuple_desc->byte_size()]);
 
-    if (NULL == _src_tuple) {
+    if (nullptr == _src_tuple) {
         return Status::InternalError("new src tuple failed.");
     }
 
@@ -170,8 +170,10 @@ Status SchemaScanNode::prepare(RuntimeState* state) {
         }
 
         if (_src_tuple_desc->slots()[j]->type().type != _dest_tuple_desc->slots()[i]->type().type) {
-            LOG(WARNING) << "schema not match. input is " << _src_tuple_desc->slots()[j]->type()
-                         << " and output is " << _dest_tuple_desc->slots()[i]->type();
+            LOG(WARNING) << "schema not match. input is " << _src_tuple_desc->slots()[j]->col_name()
+                         << "(" << _src_tuple_desc->slots()[j]->type() << ") and output is "
+                         << _dest_tuple_desc->slots()[i]->col_name() << "("
+                         << _dest_tuple_desc->slots()[i]->type() << ")";
             return Status::InternalError("schema not match.");
         }
         _index_map[i] = j;
@@ -189,8 +191,8 @@ Status SchemaScanNode::open(RuntimeState* state) {
         return Status::InternalError("Open before Init.");
     }
 
-    if (NULL == state) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
     }
 
     SCOPED_TIMER(_runtime_profile->total_time_counter());
@@ -234,8 +236,8 @@ Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
         return Status::InternalError("GetNext before Init.");
     }
 
-    if (NULL == state || NULL == row_batch || NULL == eos) {
-        return Status::InternalError("input pointer is NULL.");
+    if (nullptr == state || nullptr == row_batch || nullptr == eos) {
+        return Status::InternalError("input pointer is nullptr.");
     }
 
     RETURN_IF_CANCELLED(state);
@@ -250,7 +252,7 @@ Status SchemaScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* 
     int tuple_buffer_size = row_batch->capacity() * _dest_tuple_desc->byte_size();
     void* tuple_buffer = _tuple_pool->allocate(tuple_buffer_size);
 
-    if (NULL == tuple_buffer) {
+    if (nullptr == tuple_buffer) {
         return Status::InternalError("Allocate tuple buffer failed.");
     }
 

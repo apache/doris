@@ -30,6 +30,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OlapTableSink;
@@ -86,12 +87,15 @@ public class UpdatePlanner extends Planner {
         /* END */
         olapScanNode.init(analyzer);
         olapScanNode.finalize(analyzer);
+        if (VectorizedUtil.isVectorized()) {
+            olapScanNode.convertToVectoriezd();
+        }
         scanNodeList.add(olapScanNode);
         // 2. gen olap table sink
         OlapTableSink olapTableSink = new OlapTableSink(targetTable, computeTargetTupleDesc(), null);
         olapTableSink.init(analyzer.getContext().queryId(), txnId, targetDBId,
                 analyzer.getContext().getSessionVariable().queryTimeoutS,
-                analyzer.getContext().getSessionVariable().sendBatchParallelism);
+                analyzer.getContext().getSessionVariable().sendBatchParallelism, false);
         olapTableSink.complete();
         // 3. gen plan fragment
         PlanFragment planFragment = new PlanFragment(fragmentIdGenerator_.getNextId(), olapScanNode,

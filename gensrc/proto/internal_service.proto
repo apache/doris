@@ -22,7 +22,6 @@ option java_package = "org.apache.doris.proto";
 
 import "data.proto";
 import "descriptors.proto";
-import "status.proto";
 import "types.proto";
 
 option cc_generic_services = true;
@@ -45,6 +44,8 @@ message PTransmitDataParams {
     optional PQueryStatistics query_statistics = 8;
 
     optional PBlock block = 9;
+    // transfer the RowBatch to the Controller Attachment
+    optional bool transfer_by_attachment = 10 [default = false];
 };
 
 message PTransmitDataResult {
@@ -69,9 +70,11 @@ message PTabletWriterOpenRequest {
     required POlapTableSchemaParam schema = 4;
     repeated PTabletWithPartition tablets = 5;
     required int32 num_senders = 6;
-    required bool need_gen_rollup = 7;
+    required bool need_gen_rollup = 7;  //Deprecated, not used since alter job v2
     optional int64 load_mem_limit = 8;
     optional int64 load_channel_timeout_s = 9;
+    optional bool is_high_priority = 10 [default = false];
+    optional string sender_ip = 11 [default = ""];
 };
 
 message PTabletWriterOpenResult {
@@ -96,7 +99,15 @@ message PTabletWriterAddBatchRequest {
     repeated int64 partition_ids = 8;
     // the backend which send this request
     optional int64 backend_id = 9 [default = -1];
+    // transfer the RowBatch to the Controller Attachment
+    optional bool transfer_by_attachment = 10 [default = false];
+    optional bool is_high_priority = 11 [default = false];
 };
+
+message PTabletError {
+    optional int64 tablet_id = 1;
+    optional string msg = 2;
+}
 
 message PTabletWriterAddBatchResult {
     required PStatus status = 1;
@@ -104,6 +115,7 @@ message PTabletWriterAddBatchResult {
     optional int64 execution_time_us = 3;
     optional int64 wait_lock_time_us = 4;
     optional int64 wait_execution_time_us = 5;
+    repeated PTabletError tablet_errors = 6;
 };
 
 // tablet writer cancel
@@ -123,14 +135,6 @@ message PExecPlanFragmentRequest {
 
 message PExecPlanFragmentResult {
     required PStatus status = 1;
-};
-
-enum PPlanFragmentCancelReason {
-    // 0 is reserved
-    LIMIT_REACH = 1;
-    USER_CANCEL = 2;
-    INTERNAL_ERROR = 3;
-    TIMEOUT = 4;
 };
 
 message PCancelPlanFragmentRequest {
@@ -336,10 +340,18 @@ message PMinMaxFilter {
     required PColumnValue max_val = 3;
 };
 
+message PInFilter {
+    required PColumnType column_type = 1;
+    repeated PColumnValue values = 2;
+    optional string ignored_msg = 3;
+}
+
 enum PFilterType {
     UNKNOW_FILTER = 0;
     BLOOM_FILTER = 1;
     MINMAX_FILTER = 2;
+    IN_FILTER = 3;
+    IN_OR_BLOOM_FILTER = 4;
 };
 
 message PMergeFilterRequest {
@@ -349,6 +361,7 @@ message PMergeFilterRequest {
     required PFilterType filter_type = 4;
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
+    optional PInFilter in_filter = 7;
 };
 
 message PMergeFilterResponse {
@@ -362,6 +375,7 @@ message PPublishFilterRequest {
     required PFilterType filter_type = 4;
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
+    optional PInFilter in_filter = 7;
 };
 
 message PPublishFilterResponse {
@@ -406,15 +420,6 @@ message PResetRPCChannelResponse {
     required PStatus status = 1;
     repeated string channels = 2;
 };
-
-message PHandShakeRequest {
-    optional string hello = 1;
-}
-
-message PHandShakeResponse {
-    optional PStatus status = 1;
-    optional string hello = 2;
-}
 
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);

@@ -49,7 +49,7 @@ public class SimpleScheduler {
     // backend id -> (try time, reason)
     // There will be multi threads to read and modify this map.
     // But only one thread (UpdateBlacklistThread) will modify the `Pair`.
-    // So using concurrenty map is enough
+    // So using concurrent map is enough
     private static Map<Long, Pair<Integer, String>> blacklistBackends = Maps.newConcurrentMap();
     private static UpdateBlacklistThread updateBlacklistThread;
 
@@ -87,7 +87,7 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException("there is no scanNode Backend. " +
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG +
                 getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
@@ -119,7 +119,7 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException("there is no scanNode Backend. " +
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG +
                 getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
@@ -161,7 +161,7 @@ public class SimpleScheduler {
             }
         }
         // no backend returned
-        throw new UserException("there is no scanNode Backend. "
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
                 + getBackendErrorMsg(Lists.newArrayList(backends.keySet()), backends, 3));
     }
 
@@ -178,6 +178,8 @@ public class SimpleScheduler {
             } else if (blacklistBackends.containsKey(beId)) {
                 Pair<Integer, String> pair = blacklistBackends.get(beId);
                 res.add(beId + ": in black list(" + (pair == null ? "unknown" : pair.second) + ")");
+            } else if (!be.isQueryAvailable()) {
+                res.add(beId + ": disable query");
             } else {
                 res.add(beId + ": unknown");
             }
@@ -195,7 +197,7 @@ public class SimpleScheduler {
     }
 
     public static boolean isAvailable(Backend backend) {
-        return (backend != null && backend.isAlive() && !blacklistBackends.containsKey(backend.getId()));
+        return (backend != null && backend.isQueryAvailable() && !blacklistBackends.containsKey(backend.getId()));
     }
     
     private static class UpdateBlacklistThread implements Runnable {

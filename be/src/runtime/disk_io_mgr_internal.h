@@ -156,14 +156,14 @@ public:
     // in_flight_queue AND have not prepared a range by setting next_range_to_start.
     // The rule to make sure readers are scheduled correctly is to ensure anytime a
     // range is put on the in_flight_queue or anytime next_range_to_start is set to
-    // NULL, the reader is scheduled.
+    // nullptr, the reader is scheduled.
 
     // Adds range to in_flight_ranges, scheduling this reader on the disk threads
     // if necessary.
     // Reader lock must be taken before this.
     void schedule_scan_range(DiskIoMgr::ScanRange* range) {
         DCHECK_EQ(_state, Active);
-        DCHECK(range != NULL);
+        DCHECK(range != nullptr);
         RequestContext::PerDiskState& state = _disk_states[range->disk_id()];
         state.in_flight_ranges()->enqueue(range);
         state.schedule_context(this, range->disk_id());
@@ -379,7 +379,7 @@ private:
             _num_remaining_ranges = 0;
             _is_on_queue = false;
             _num_threads_in_op = 0;
-            _next_scan_range_to_start = NULL;
+            _next_scan_range_to_start = nullptr;
         }
 
     private:
@@ -392,7 +392,7 @@ private:
         // For each disk, keeps track if the context is on this disk's queue, indicating
         // the disk must do some work for this context. The disk needs to do work in 4 cases:
         //  1) in_flight_ranges is not empty, the disk needs to read for this reader.
-        //  2) next_range_to_start is NULL, the disk needs to prepare a scan range to be
+        //  2) next_range_to_start is nullptr, the disk needs to prepare a scan range to be
         //     read next.
         //  3) the reader has been cancelled and this disk needs to participate in the
         //     cleanup.
@@ -425,7 +425,7 @@ private:
         // picks the next range to start. The range is set here and also added to the
         // _ready_to_start_ranges queue. The reader pulls from the queue in FIFO order,
         // so the ranges from different disks are round-robined. When the range is pulled
-        // off the _ready_to_start_ranges queue, it sets this variable to NULL, so the disk
+        // off the _ready_to_start_ranges queue, it sets this variable to nullptr, so the disk
         // knows to populate it again and add it to _ready_to_start_ranges i.e. it is used
         // as a flag by DiskIoMgr::GetNextScanRange to determine if it needs to add another
         // range to _ready_to_start_ranges.

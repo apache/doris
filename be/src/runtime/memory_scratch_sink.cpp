@@ -73,7 +73,7 @@ Status MemoryScratchSink::prepare(RuntimeState* state) {
 }
 
 Status MemoryScratchSink::send(RuntimeState* state, RowBatch* batch) {
-    if (NULL == batch || 0 == batch->num_rows()) {
+    if (nullptr == batch || 0 == batch->num_rows()) {
         return Status::OK();
     }
     std::shared_ptr<arrow::RecordBatch> result;

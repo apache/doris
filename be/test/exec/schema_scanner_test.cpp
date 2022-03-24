@@ -65,7 +65,7 @@ TEST_F(SchemaScannerTest, normal_use) {
     status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(NULL != tuple_desc);
+    ASSERT_TRUE(nullptr != tuple_desc);
     ASSERT_EQ(65, tuple_desc->byte_size());
     Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos;
@@ -82,14 +82,14 @@ TEST_F(SchemaScannerTest, input_fail) {
     status = scanner.start((RuntimeState*)1);
     ASSERT_TRUE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(NULL != tuple_desc);
+    ASSERT_TRUE(nullptr != tuple_desc);
     ASSERT_EQ(65, tuple_desc->byte_size());
     bool eos;
-    status = scanner.get_next_row(NULL, &_mem_pool, &eos);
+    status = scanner.get_next_row(nullptr, &_mem_pool, &eos);
     ASSERT_FALSE(status.ok());
 }
 TEST_F(SchemaScannerTest, invalid_param) {
-    SchemaScanner scanner(NULL, sizeof(s_test_columns) / sizeof(SchemaScanner::ColumnDesc));
+    SchemaScanner scanner(nullptr, sizeof(s_test_columns) / sizeof(SchemaScanner::ColumnDesc));
     Status status = scanner.init(&_param, &_obj_pool);
     ASSERT_FALSE(status.ok());
 }
@@ -99,7 +99,7 @@ TEST_F(SchemaScannerTest, no_init_use) {
     Status status = scanner.start((RuntimeState*)1);
     ASSERT_FALSE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(NULL == tuple_desc);
+    ASSERT_TRUE(nullptr == tuple_desc);
     Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos;
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);

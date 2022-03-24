@@ -113,8 +113,12 @@ Status AutoIncrementIterator::next_batch(RowBlockV2* block) {
 //      }
 class MergeIteratorContext {
 public:
-    MergeIteratorContext(RowwiseIterator* iter, std::shared_ptr<MemTracker> parent)
-            : _iter(iter), _block(iter->schema(), 1024, std::move(parent)) {}
+    MergeIteratorContext(RowwiseIterator* iter) : _iter(iter), _block(iter->schema(), 1024) {}
+
+    MergeIteratorContext(const MergeIteratorContext&) = delete;
+    MergeIteratorContext(MergeIteratorContext&&) = delete;
+    MergeIteratorContext& operator=(const MergeIteratorContext&) = delete;
+    MergeIteratorContext& operator=(MergeIteratorContext&&) = delete;
 
     ~MergeIteratorContext() {
         delete _iter;
@@ -151,6 +155,7 @@ private:
 
 private:
     RowwiseIterator* _iter;
+
     // used to store data load from iterator
     RowBlockV2 _block;
 
@@ -181,10 +186,9 @@ Status MergeIteratorContext::advance() {
 }
 
 Status MergeIteratorContext::_load_next_block() {
-    Status st;
     do {
         _block.clear();
-        st = _iter->next_batch(&_block);
+        Status st = _iter->next_batch(&_block);
         if (!st.ok()) {
             _valid = false;
             if (st.is_end_of_file()) {
@@ -202,30 +206,36 @@ Status MergeIteratorContext::_load_next_block() {
 class MergeIterator : public RowwiseIterator {
 public:
     // MergeIterator takes the ownership of input iterators
-    MergeIterator(std::list<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent) : _origin_iters(std::move(iters)) {
-        // use for count the mem use of Block use in Merge
-        _mem_tracker = MemTracker::CreateTracker(-1, "MergeIterator", parent, false);
-    }
+    MergeIterator(std::vector<RowwiseIterator*> iters, int sequence_id_idx)
+            : _origin_iters(std::move(iters)),
+              _sequence_id_idx(sequence_id_idx),
+              _merge_heap(MergeContextComparator(_sequence_id_idx)) {}
 
     ~MergeIterator() override {
-        while (!_merge_heap->empty()) {
-            auto ctx = _merge_heap->top();
-            _merge_heap->pop();
+        while (!_merge_heap.empty()) {
+            auto ctx = _merge_heap.top();
+            _merge_heap.pop();
             delete ctx;
         }
     }
+
     Status init(const StorageReadOptions& opts) override;
+
     Status next_batch(RowBlockV2* block) override;
 
     const Schema& schema() const override { return *_schema; }
 
 private:
     // It will be released after '_merge_heap' has been built.
-    std::list<RowwiseIterator*> _origin_iters;
+    std::vector<RowwiseIterator*> _origin_iters;
+
+    int _sequence_id_idx;
 
     std::unique_ptr<Schema> _schema;
 
     struct MergeContextComparator {
+        explicit MergeContextComparator(int idx) : sequence_id_idx(idx) {};
+
         bool operator()(const MergeIteratorContext* lhs, const MergeIteratorContext* rhs) const {
             auto lhs_row = lhs->current_row();
             auto rhs_row = rhs->current_row();
@@ -233,16 +243,30 @@ private:
             if (cmp_res != 0) {
                 return cmp_res > 0;
             }
+
+            // Second: If sequence_id_idx != 0 means we need to compare sequence. sequence only use
+            // in unique key. so keep reverse order of sequence id here
+            if (sequence_id_idx != -1) {
+                auto l_cell = lhs_row.cell(sequence_id_idx);
+                auto r_cell = rhs_row.cell(sequence_id_idx);
+                auto res = lhs_row.schema()->column(sequence_id_idx)->compare_cell(l_cell, r_cell);
+                if (res != 0) return res < 0;
+            }
             // if row cursors equal, compare segment id.
             // here we sort segment id in reverse order, because of the row order in AGG_KEYS
             // dose no matter, but in UNIQUE_KEYS table we only read the latest is one, so we
             // return the row in reverse order of segment id
             return lhs->data_id() < rhs->data_id();
         }
+
+        int sequence_id_idx;
     };
-    using MergeHeap = std::priority_queue<MergeIteratorContext*, std::vector<MergeIteratorContext*>,
-                                          MergeContextComparator>;
-    std::unique_ptr<MergeHeap> _merge_heap;
+
+    using MergeHeap = std::priority_queue<MergeIteratorContext*, 
+                                        std::vector<MergeIteratorContext*>,
+                                        MergeContextComparator>;
+
+    MergeHeap _merge_heap;
 };
 
 Status MergeIterator::init(const StorageReadOptions& opts) {
@@ -251,24 +275,24 @@ Status MergeIterator::init(const StorageReadOptions& opts) {
     }
     _schema.reset(new Schema((*(_origin_iters.begin()))->schema()));
 
-    _merge_heap.reset(new MergeHeap);
     for (auto iter : _origin_iters) {
-        std::unique_ptr<MergeIteratorContext> ctx(new MergeIteratorContext(iter, _mem_tracker));
+        std::unique_ptr<MergeIteratorContext> ctx(new MergeIteratorContext(iter));
         RETURN_IF_ERROR(ctx->init(opts));
         if (!ctx->valid()) {
             continue;
         }
-        _merge_heap->push(ctx.release());
+        _merge_heap.push(ctx.release());
     }
+
     _origin_iters.clear();
     return Status::OK();
 }
 
 Status MergeIterator::next_batch(RowBlockV2* block) {
     size_t row_idx = 0;
-    for (; row_idx < block->capacity() && !_merge_heap->empty(); ++row_idx) {
-        auto ctx = _merge_heap->top();
-        _merge_heap->pop();
+    for (; row_idx < block->capacity() && !_merge_heap.empty(); ++row_idx) {
+        auto ctx = _merge_heap.top();
+        _merge_heap.pop();
 
         RowBlockRow dst_row = block->row(row_idx);
         // copy current row to block
@@ -276,7 +300,7 @@ Status MergeIterator::next_batch(RowBlockV2* block) {
 
         RETURN_IF_ERROR(ctx->advance());
         if (ctx->valid()) {
-            _merge_heap->push(ctx);
+            _merge_heap.push(ctx);
         } else {
             // Release ctx earlier to reduce resource consumed
             delete ctx;
@@ -297,17 +321,14 @@ public:
     // Iterators' ownership it transfered to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators any more.
-    UnionIterator(std::list<RowwiseIterator*> iters, std::shared_ptr<MemTracker> parent)
-            : _origin_iters(std::move(iters)) {
-        _mem_tracker = MemTracker::CreateTracker(-1, "UnionIterator", parent, false);
-    }
+    UnionIterator(std::vector<RowwiseIterator*>& v) : _origin_iters(v.begin(), v.end()) {}
 
     ~UnionIterator() override {
-        for (auto iter : _origin_iters) {
-            delete iter;
-        }
+        std::for_each(_origin_iters.begin(), _origin_iters.end(), std::default_delete<RowwiseIterator>());
     }
+
     Status init(const StorageReadOptions& opts) override;
+
     Status next_batch(RowBlockV2* block) override;
 
     const Schema& schema() const override { return *_schema; }
@@ -315,7 +336,7 @@ public:
 private:
     std::unique_ptr<Schema> _schema;
     RowwiseIterator* _cur_iter = nullptr;
-    std::list<RowwiseIterator*> _origin_iters;
+    std::deque<RowwiseIterator*> _origin_iters;
 };
 
 Status UnionIterator::init(const StorageReadOptions& opts) {
@@ -348,18 +369,18 @@ Status UnionIterator::next_batch(RowBlockV2* block) {
     return Status::EndOfFile("End of UnionIterator");
 }
 
-RowwiseIterator* new_merge_iterator(std::list<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent) {
+RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*> inputs, int sequence_id_idx) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new MergeIterator(std::move(inputs), parent);
+    return new MergeIterator(std::move(inputs), sequence_id_idx);
 }
 
-RowwiseIterator* new_union_iterator(std::list<RowwiseIterator*> inputs, std::shared_ptr<MemTracker> parent) {
+RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
     }
-    return new UnionIterator(std::move(inputs), parent);
+    return new UnionIterator(inputs);
 }
 
 RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows) {

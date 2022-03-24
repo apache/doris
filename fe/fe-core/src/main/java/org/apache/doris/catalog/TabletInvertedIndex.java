@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.ImmutableSet;
-import org.apache.commons.lang3.tuple.ImmutableTriple;
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPartitionVersionInfo;
@@ -35,13 +32,16 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Ordering;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Ordering;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
 
+import org.apache.commons.lang3.tuple.ImmutableTriple;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -170,13 +170,12 @@ public class TabletInvertedIndex {
 
                                 if (needRecover(replica, tabletMeta.getOldSchemaHash(), backendTabletInfo)) {
                                     LOG.warn("replica {} of tablet {} on backend {} need recovery. "
-                                                    + "replica in FE: {}, report version {}-{}, report schema hash: {},"
+                                                    + "replica in FE: {}, report version {}, report schema hash: {},"
                                                     + " is bad: {}, is version missing: {}",
                                             replica.getId(), tabletId, backendId, replica,
                                             backendTabletInfo.getVersion(),
-                                            backendTabletInfo.getVersionHash(),
                                             backendTabletInfo.getSchemaHash(),
-                                            backendTabletInfo.isSetUsed() ? backendTabletInfo.isUsed() : "unknown",
+                                            backendTabletInfo.isSetUsed() ? !backendTabletInfo.isUsed() : "false",
                                             backendTabletInfo.isSetVersionMiss() ? backendTabletInfo.isVersionMiss() : "unset");
                                     synchronized (tabletRecoveryMap) {
                                         tabletRecoveryMap.put(tabletMeta.getDbId(), tabletId);
@@ -213,23 +212,10 @@ public class TabletInvertedIndex {
                                                     + "clear it from backend [{}]", transactionId, backendId);
                                         } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                                             TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(tabletMeta.getTableId());
-                                            PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(partitionId);
-                                            if (partitionCommitInfo == null) {
-                                                /*
-                                                 * This may happen as follows:
-                                                 * 1. txn is committed on BE, and report commit info to FE
-                                                 * 2. FE received report and begin to assemble partitionCommitInfos.
-                                                 * 3. At the same time, some of partitions have been dropped, so partitionCommitInfos does not contain these partitions.
-                                                 * 4. So we will not able to get partitionCommitInfo here.
-                                                 *
-                                                 * Just print a log to observe
-                                                 */
-                                                LOG.info("failed to find partition commit info. table: {}, partition: {}, tablet: {}, txn id: {}",
-                                                        tabletMeta.getTableId(), partitionId, tabletId, transactionState.getTransactionId());
-                                            } else {
+                                            PartitionCommitInfo partitionCommitInfo = tableCommitInfo == null ? null : tableCommitInfo.getPartitionCommitInfo(partitionId);
+                                            if (partitionCommitInfo != null) {
                                                 TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(tabletMeta.getPartitionId(),
-                                                        partitionCommitInfo.getVersion(),
-                                                        partitionCommitInfo.getVersionHash());
+                                                        partitionCommitInfo.getVersion(), 0);
                                                 synchronized (transactionsToPublish) {
                                                     ListMultimap<Long, TPartitionVersionInfo> map = transactionsToPublish.get(transactionState.getDbId());
                                                     if (map == null) {
@@ -270,9 +256,10 @@ public class TabletInvertedIndex {
         long end = System.currentTimeMillis();
         LOG.info("finished to do tablet diff with backend[{}]. sync: {}. metaDel: {}. foundValid: {}. foundInvalid: {}."
                         + " migration: {}. found invalid transactions {}. found republish transactions {}. tabletInMemorySync: {}."
-                        + " cost: {} ms", backendId, tabletSyncMap.size(),
+                        + " need recovery: {}. cost: {} ms", backendId, tabletSyncMap.size(),
                 tabletDeleteFromMeta.size(), foundTabletsWithValidSchema.size(), foundTabletsWithInvalidSchema.size(),
-                tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(), tabletToInMemory.size(), (end - start));
+                tabletMigrationMap.size(), transactionsToClear.size(), transactionsToPublish.size(), tabletToInMemory.size(),
+                tabletRecoveryMap.size(), (end - start));
     }
 
     public Long getTabletIdByReplica(long replicaId) {
@@ -319,13 +306,11 @@ public class TabletInvertedIndex {
         }
 
         long versionInFe = replicaInFe.getVersion();
-        long versionHashInFe = replicaInFe.getVersionHash();
 
         if (backendTabletInfo.getVersion() > versionInFe) {
             // backend replica's version is larger or newer than replica in FE, sync it.
             return true;
-        } else if (versionInFe == backendTabletInfo.getVersion() && versionHashInFe == backendTabletInfo.getVersionHash()
-                && replicaInFe.isBad()) {
+        } else if (versionInFe == backendTabletInfo.getVersion() && replicaInFe.isBad()) {
             // backend replica's version is equal to replica in FE, but replica in FE is bad, while backend replica is good, sync it
             return true;
         }
@@ -354,23 +339,8 @@ public class TabletInvertedIndex {
             return true;
         }
 
-        if (schemaHashInFe != backendTabletInfo.getSchemaHash()
-                || backendTabletInfo.getVersion() == -1 && backendTabletInfo.getVersionHash() == 0) {
+        if (schemaHashInFe != backendTabletInfo.getSchemaHash() || backendTabletInfo.getVersion() == -1) {
             // no data file exist on BE, maybe this is a newly created schema change tablet. no need to recovery
-            return false;
-        }
-
-        if (replicaInFe.getVersionHash() == 0 && backendTabletInfo.getVersion() == replicaInFe.getVersion() - 1) {
-            /*
-             * This is very tricky:
-             * 1. Assume that we want to create a replica with version (X, Y), the init version of replica in FE
-             *      is (X, Y), and BE will create a replica with version (X+1, 0).
-             * 2. BE will report version (X+1, 0), and FE will sync with this version, change to (X+1, 0), too.
-             * 3. When restore, BE will restore the replica with version (X, Y) (which is the visible version of partition)
-             * 4. BE report the version (X-Y), and than we fall into here
-             *
-             * Actually, the version (X+1, 0) is a 'virtual' version, so here we ignore this kind of report
-             */
             return false;
         }
 
