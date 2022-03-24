@@ -208,6 +208,12 @@ You can try to compile Doris directly in your own Linux environment.
 
          REPOSITORY_URL contains all third-party library source code packages and their historical versions.
 
+3. `fatal error: Killed signal terminated program ...`
+
+     If you encounter the above error when compiling with a Docker image, it may be that the memory allocated to the image is insufficient (the default memory size allocated by Docker is 2GB, and the peak memory usage during the compilation process is greater than 2GB).
+
+     Try to increase the allocated memory of the image appropriately, 4GB ~ 8GB is recommended.
+
 ## Special statement
 
 Starting from version 0.13, the dependency on the two third-party libraries [1] and [2] will be removed in the default compiled output. These two third-party libraries are under [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html). This license is incompatible with [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0), so it should not appear in the Apache release by default.
