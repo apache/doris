@@ -417,6 +417,11 @@ Status NodeChannel::close_wait(RuntimeState* state) {
 }
 
 void NodeChannel::cancel(const std::string& cancel_msg) {
+    // set _is_closed to true finally
+    Defer set_closed {[&]() {
+        std::lock_guard<std::mutex> l(_closed_lock);
+        _is_closed = true;
+    }};
     // we don't need to wait last rpc finished, cause closure's release/reset will join.
     // But do we need brpc::StartCancel(call_id)?
     _cancel_with_msg(cancel_msg);
