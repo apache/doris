@@ -33,8 +33,8 @@ OLAPStatus BaseCompaction::prepare_compact() {
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    MutexLock lock(_tablet->get_base_lock(), TRY_LOCK);
-    if (!lock.own_lock()) {
+    std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
         return OLAP_ERR_BE_TRY_BE_LOCK_ERROR;
     }
@@ -50,8 +50,8 @@ OLAPStatus BaseCompaction::prepare_compact() {
 }
 
 OLAPStatus BaseCompaction::execute_compact_impl() {
-    MutexLock lock(_tablet->get_base_lock(), TRY_LOCK);
-    if (!lock.own_lock()) {
+    std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
         return OLAP_ERR_BE_TRY_BE_LOCK_ERROR;
     }

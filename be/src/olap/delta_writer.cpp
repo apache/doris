@@ -109,7 +109,7 @@ OLAPStatus DeltaWriter::init() {
         if (!base_migration_rlock.owns_lock()) {
             return OLAP_ERR_RWLOCK_ERROR;
         }
-        MutexLock push_lock(_tablet->get_push_lock());
+        std::lock_guard<std::mutex> push_lock(_tablet->get_push_lock());
         RETURN_NOT_OK(_storage_engine->txn_manager()->prepare_txn(_req.partition_id, _tablet,
                                                                   _req.txn_id, _req.load_id));
     }

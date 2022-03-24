@@ -48,10 +48,12 @@ usage() {
 Usage: $0 <options>
   Optional options:
      --be               build Backend
+     --meta-tool        build Backend meta tool
      --fe               build Frontend and Spark Dpp application
      --broker           build Broker
      --ui               build Frontend web ui with npm
      --spark-dpp        build Spark DPP application
+     --java-udf         build Java UDF
      --clean            clean and build target
      -j                 build Backend parallel
 
@@ -63,11 +65,13 @@ Usage: $0 <options>
   Eg.
     $0                                      build all
     $0 --be                                 build Backend without clean
+    $0 --meta-tool                          build Backend meta tool
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application, without web UI
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend, without web UI
     $0 --spark-dpp                          build Spark DPP application alone
     $0 --fe --ui                            build Frontend web ui with npm
     $0 --broker                             build Broker
+    $0 --be --fe --java-udf                 build Backend and Frontend with Java UDF
 
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info.
@@ -105,10 +109,12 @@ OPTS=$(getopt \
   -n $0 \
   -o '' \
   -l 'be' \
+  -l 'meta-tool' \
   -l 'fe' \
   -l 'broker' \
   -l 'ui' \
   -l 'spark-dpp' \
+  -l 'java-udf' \
   -l 'clean' \
   -l 'help' \
   -o 'hj:' \
@@ -126,6 +132,7 @@ BUILD_FE=
 BUILD_BROKER=
 BUILD_UI=
 BUILD_SPARK_DPP=
+BUILD_JAVA_UDF=0
 CLEAN=
 HELP=0
 PARAMETER_COUNT=$#
@@ -148,10 +155,12 @@ else
     while true; do
         case "$1" in
             --be) BUILD_BE=1 ; shift ;;
+            --meta-tool) BUILD_META_TOOL="ON" ; shift ;;
             --fe) BUILD_FE=1 ; shift ;;
             --ui) BUILD_UI=1 ; shift ;;
             --broker) BUILD_BROKER=1 ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
+            --java-udf) BUILD_JAVA_UDF=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;
@@ -167,6 +176,8 @@ else
         BUILD_BROKER=1
         BUILD_UI=1
         BUILD_SPARK_DPP=1
+        BUILD_JAVA_UDF=0
+        BUILD_META_TOOL="OFF"
         CLEAN=0
     fi
 fi
@@ -207,7 +218,7 @@ if [[ -z ${USE_LIBCPP} ]]; then
     USE_LIBCPP=OFF
 fi
 if [[ -z ${BUILD_META_TOOL} ]]; then
-    BUILD_META_TOOL=ON
+    BUILD_META_TOOL=OFF
 fi
 if [[ -z ${USE_LLD} ]]; then
     USE_LLD=OFF
@@ -222,6 +233,7 @@ echo "Get params:
     BUILD_BROKER        -- $BUILD_BROKER
     BUILD_UI            -- $BUILD_UI
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
+    BUILD_JAVA_UDF      -- $BUILD_JAVA_UDF
     PARALLEL            -- $PARALLEL
     CLEAN               -- $CLEAN
     WITH_MYSQL          -- $WITH_MYSQL
@@ -246,18 +258,23 @@ make
 
 # Assesmble FE modules
 FE_MODULES=
-if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 -o ${BUILD_BE} -eq 1 ]; then
-    if [ ${BUILD_FE} -eq 1 -a ${BUILD_BE} -eq 1 ]; then
-        FE_MODULES="fe-common,spark-dpp,fe-core,java-udf"
-    elif [ ${BUILD_FE} -eq 1 -a ${BUILD_BE} -eq 0 ]; then
-        FE_MODULES="fe-common,spark-dpp,fe-core"
-    elif [ ${BUILD_BE} -eq 1 -a ${BUILD_SPARK_DPP} -eq 0 ]; then
-        FE_MODULES="fe-common,fe-core,java-udf"
-    elif [ ${BUILD_BE} -eq 1 -a ${BUILD_SPARK_DPP} -eq 1 ]; then
-        FE_MODULES="fe-common,fe-core,java-udf,spark-dpp"
-    else
-        FE_MODULES="fe-common,spark-dpp"
+if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 -o ${BUILD_JAVA_UDF} -eq 1 ]; then
+    modules=("fe-common")
+    if [ ${BUILD_FE} -eq 1 ]; then
+        modules+=("fe-core")
+        BUILD_DOCS="ON"
     fi
+    if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
+        modules+=("spark-dpp")
+    fi
+    if [ ${BUILD_JAVA_UDF} -eq 1 ]; then
+        modules+=("java-udf")
+        if [ ${BUILD_FE} -eq 0 ]; then
+            modules+=("fe-core")
+            BUILD_DOCS="ON"
+        fi
+    fi
+    FE_MODULES=$(IFS=, ; echo "${modules[*]}")
 fi
 
 # Clean and build Backend
@@ -283,27 +300,22 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DUSE_LIBCPP=${USE_LIBCPP} \
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
             -DUSE_LLD=${USE_LLD} \
+            -DBUILD_JAVA_UDF=${BUILD_JAVA_UDF} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
     ${BUILD_SYSTEM} install
-    echo "Build Frontend Modules: java-udf"
-    cd ${DORIS_HOME}/fe
-    if [ ${CLEAN} -eq 1 ]; then
-        clean_fe
-    fi
-    if [ ${BUILD_FE} -eq 0 ]; then
-      ${MVN_CMD} package -pl fe-common,fe-core,java-udf -DskipTests
-    fi
     cd ${DORIS_HOME}
 fi
 
-# Build docs, should be built before Frontend
-echo "Build docs"
-cd ${DORIS_HOME}/docs
-./build_help_zip.sh
-cd ${DORIS_HOME}
+if [ "${BUILD_DOCS}" = "ON" ] ; then
+    # Build docs, should be built before Frontend
+    echo "Build docs"
+    cd ${DORIS_HOME}/docs
+    ./build_help_zip.sh
+    cd ${DORIS_HOME}
+fi
 
 function build_ui() {
     # check NPM env here, not in env.sh.
@@ -397,7 +409,11 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/include/* ${DORIS_OUTPUT}/udf/include/
     cp -r -p ${DORIS_HOME}/webroot/be/* ${DORIS_OUTPUT}/be/www/
-    cp -r -p ${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar ${DORIS_OUTPUT}/be/lib/
+    
+    java_udf_path=${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar
+    if [ -f ${java_udf_path} ];then
+        cp ${java_udf_path} ${DORIS_OUTPUT}/be/lib/
+    fi
 
     cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/be/www/
     mkdir -p ${DORIS_OUTPUT}/be/log

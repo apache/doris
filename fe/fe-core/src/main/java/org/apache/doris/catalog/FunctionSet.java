@@ -1670,6 +1670,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         null,
                         prefix + STDDEV_POP_FINALIZE_SYMBOL.get(t),
                         false, false, false));
+
                 //vec stddev stddev_samp stddev_pop
                 addBuiltin(AggregateFunction.createBuiltin("stddev",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,

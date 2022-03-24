@@ -99,6 +99,7 @@ public:
         // Poison this chunk to make asan can detect invalid access
         ASAN_POISON_MEMORY_REGION(ptr, size);
         std::lock_guard<SpinLock> l(_lock);
+        // TODO(zxy) The memory of vector resize is not recorded in chunk allocator mem tracker
         _chunk_lists[idx].push_back(ptr);
     }
 
@@ -118,9 +119,13 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
           _arenas(CpuInfo::get_max_num_cores()) {
     _mem_tracker =
             MemTracker::create_tracker(-1, "ChunkAllocator", nullptr, MemTrackerLevel::OVERVIEW);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
+    // After the ChunkAllocator is created in the main thread, the main thread will not switch to the
+    // chunk allocator mem tracker again, so manually clear the untracked mem in tls.
+    thread_local_ctx.get()->_thread_mem_tracker_mgr->clear_untracked_mems();
 
     _chunk_allocator_metric_entity =
             DorisMetrics::instance()->metric_registry()->register_entity("chunk_allocator");
