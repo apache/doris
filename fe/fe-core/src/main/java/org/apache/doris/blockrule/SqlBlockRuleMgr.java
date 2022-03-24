@@ -79,6 +79,19 @@ public class SqlBlockRuleMgr implements Writable {
         return Lists.newArrayList(nameToSqlBlockRuleMap.values());
     }
 
+    // check limitation's  effectiveness of a sql_block_rule
+    public static void verifyLimitations(SqlBlockRule sqlBlockRule) throws DdlException {
+        if (sqlBlockRule.getPartitionNum() < 0){
+            throw new DdlException("the value of partition_num can't be a negative");
+        }
+        if (sqlBlockRule.getTabletNum() < 0){
+            throw new DdlException("the value of tablet_num can't be a negative");
+        }
+        if (sqlBlockRule.getCardinality() < 0){
+            throw new DdlException("the value of cardinality can't be a negative");
+        }
+    }
+
     public void createSqlBlockRule(CreateSqlBlockRuleStmt stmt) throws UserException {
         writeLock();
         try {
@@ -87,6 +100,7 @@ public class SqlBlockRuleMgr implements Writable {
             if (existRule(ruleName)) {
                 throw new DdlException("the sql block rule " + ruleName + " already create");
             }
+            verifyLimitations(sqlBlockRule);
             unprotectedAdd(sqlBlockRule);
             Catalog.getCurrentCatalog().getEditLog().logCreateSqlBlockRule(sqlBlockRule);
         } finally {
@@ -107,6 +121,7 @@ public class SqlBlockRuleMgr implements Writable {
             if (!existRule(ruleName)) {
                 throw new DdlException("the sql block rule " + ruleName + " not exist");
             }
+            verifyLimitations(sqlBlockRule);
             SqlBlockRule originRule = nameToSqlBlockRuleMap.get(ruleName);
             SqlBlockUtil.checkAlterValidate(sqlBlockRule, originRule);
             if (StringUtils.isEmpty(sqlBlockRule.getSql())) {
