@@ -58,8 +58,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
         return OLAP_ERR_HEADER_HAS_PENDING_DATA;
     }
 
-    _tablet->obtain_push_lock();
-
+    std::lock_guard<std::mutex> lock(_tablet->get_push_lock());
     // TODO(ygl): the tablet should not under schema change or rollup or load
     do {
         std::vector<RowsetSharedPtr> consistent_rowsets;
@@ -165,9 +164,6 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
             break;
         }
     } while (0);
-
-    _tablet->release_push_lock();
-
     return res;
 }
 

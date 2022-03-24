@@ -1477,9 +1477,9 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
 
     // begin to find deltas to convert from base tablet to new tablet so that
     // obtain base tablet and new tablet's push lock and header write lock to prevent loading data
-    base_tablet->obtain_push_lock();
-    new_tablet->obtain_push_lock();
     {
+        std::lock_guard<std::mutex> base_tablet_lock(base_tablet->get_push_lock());
+        std::lock_guard<std::mutex> new_tablet_lock(new_tablet->get_push_lock());
         WriteLock base_tablet_rdlock(base_tablet->get_header_lock());
         WriteLock new_tablet_rdlock(new_tablet->get_header_lock());
         // check if the tablet has alter task
@@ -1589,8 +1589,6 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
 
         } while (0);
     }
-    new_tablet->release_push_lock();
-    base_tablet->release_push_lock();
 
     do {
         if (res != OLAP_SUCCESS) {
@@ -1911,11 +1909,10 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
                                                    rowset_writer->rowset_id().to_string());
         // Add the new version of the data to the header
         // In order to prevent the occurrence of deadlock, we must first lock the old table, and then lock the new table
-        sc_params.new_tablet->obtain_push_lock();
+        std::lock_guard<std::mutex> lock(sc_params.new_tablet->get_push_lock());
         RowsetSharedPtr new_rowset = rowset_writer->build();
         if (new_rowset == nullptr) {
             LOG(WARNING) << "failed to build rowset, exit alter process";
-            sc_params.new_tablet->release_push_lock();
             goto PROCESS_ALTER_EXIT;
         }
         res = sc_params.new_tablet->add_rowset(new_rowset, false);
@@ -1931,14 +1928,12 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
                          << ", version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second;
             StorageEngine::instance()->add_unused_rowset(new_rowset);
-            sc_params.new_tablet->release_push_lock();
             goto PROCESS_ALTER_EXIT;
         } else {
             VLOG_NOTICE << "register new version. tablet=" << sc_params.new_tablet->full_name()
                         << ", version=" << rs_reader->version().first << "-"
                         << rs_reader->version().second;
         }
-        sc_params.new_tablet->release_push_lock();
 
         VLOG_TRACE << "succeed to convert a history version."
                    << " version=" << rs_reader->version().first << "-"
