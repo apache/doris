@@ -111,7 +111,7 @@ template <PrimitiveType type>
 void BloomFilterColumnPredicate<type>::evaluate(vectorized::IColumn& column, uint16_t* sel,
                                                 uint16_t* size) const {
     uint16_t new_size = 0;
-    using T = typename PrimitiveTypeTraits<type>::CppType;
+    using T = typename PredicatePrimitiveTypeTraits<type>::PredicateFieldType;
 
     if (column.is_nullable()) {
         auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
