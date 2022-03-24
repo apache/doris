@@ -48,6 +48,11 @@ public:
     inline bool is_nullable() const { return _is_nullable; }
     inline bool is_bf_column() const { return _is_bf_column; }
     inline bool has_bitmap_index() const { return _has_bitmap_index; }
+    inline bool is_length_variable_type() const {
+        return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
+               _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
+               _type == OLAP_FIELD_TYPE_OBJECT || _type == OLAP_FIELD_TYPE_QUANTILE_STATE;
+    }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     bool has_reference_column() const { return _has_referenced_column; }
@@ -143,7 +148,8 @@ public:
     inline void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     inline bool has_sequence_col() const { return _sequence_col_idx != -1; }
     inline int32_t sequence_col_idx() const { return _sequence_col_idx; }
-    vectorized::Block create_block(const std::vector<uint32_t>& return_columns,
+    vectorized::Block create_block(
+            const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
 
 private:

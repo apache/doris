@@ -39,7 +39,8 @@ Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor
     const int anyval_size = AnyValUtil::any_val_size(type);
     const int anyval_alignment = AnyValUtil::any_val_alignment(type);
     Status rst;
-    *result = reinterpret_cast<AnyVal*>(pool->try_allocate_aligned(anyval_size, anyval_alignment, &rst));
+    *result = reinterpret_cast<AnyVal*>(
+            pool->try_allocate_aligned(anyval_size, anyval_alignment, &rst));
     if (*result == nullptr) {
         RETURN_LIMIT_EXCEEDED(pool->mem_tracker(), state, mem_limit_exceeded_msg, anyval_size, rst);
     }
@@ -81,6 +82,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_HLL:
     case TYPE_VARCHAR:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
         return pool->add(new StringVal);
 
@@ -147,6 +149,9 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
     case TYPE_OBJECT:
         out.type = FunctionContext::TYPE_OBJECT;
         // FIXME(cmy): is this fallthrough meaningful?
+    case TYPE_QUANTILE_STATE:
+        out.type = FunctionContext::TYPE_QUANTILE_STATE;
+        break;
     case TYPE_CHAR:
         out.type = FunctionContext::TYPE_CHAR;
         out.len = type.len;

@@ -232,7 +232,11 @@ Where url is the url given by ErrorURL.
 
     ```Curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
-10. a simple load json
+10. load a table with QUANTILE_STATE columns, which can be columns in the table or a column in the data used to generate QUANTILE_STATE columns, you can also use TO_QUANTILE_STATE to transfer numberical data to QUANTILE_STATE. 2048 is an optional parameter representing the precision of the TDigest algorithm, the valid value is [2048, 10000], the larger the value, the higher the precision, default is 2048
+    
+    ```Curl --location-trusted -u root -H "columns: k1, k2, v1, v2, v1=to_quantile_state(v1, 2048)" -T testData http://host:port/api/testDb/testTbl/_stream_load```
+
+11. a simple load json
        table schema:
            `category` varchar(512) NULL COMMENT "",
            `author` varchar(512) NULL COMMENT "",
@@ -247,7 +251,7 @@ Where url is the url given by ErrorURL.
             {"category":"Java","author":"avc","title":"Effective Java","price":95}
             {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
             
-11. Matched load json by jsonpaths
+12. Matched load json by jsonpaths
        For example json data:
            [
            {"category":"xuxb111","author":"1avc","title":"SayingsoftheCentury","price":895},
@@ -260,7 +264,7 @@ Where url is the url given by ErrorURL.
         1）If the json data starts as an array and each object in the array is a record, you need to set the strip_outer_array to true to represent the flat array.
         2）If the json data starts with an array, and each object in the array is a record, our ROOT node is actually an object in the array when we set jsonpath.
 
-12. User specifies the json_root node
+13. User specifies the json_root node
        For example json data:
             {
             "RECORDS":[
@@ -272,9 +276,9 @@ Where url is the url given by ErrorURL.
        Matched imports are made by specifying jsonpath parameter, such as `category`, `author`, and `price`, for example:
          curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
-13. delete all data which key columns match the load data 
+14. delete all data which key columns match the load data 
     curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
-14. delete all data which key columns match the load data where flag is true, others append
+15. delete all data which key columns match the load data where flag is true, others append
     curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1"  -T testData http://host:port/api/testDb/testTbl/_stream_load
 
 ## keyword

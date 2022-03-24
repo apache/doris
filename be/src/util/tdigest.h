@@ -211,7 +211,7 @@ public:
 
     // merge in another t-digest
     inline void merge(const TDigest* other) {
-        std::vector<const TDigest*> others{other};
+        std::vector<const TDigest*> others {other};
         add(others.cbegin(), others.cend());
     }
 
@@ -232,7 +232,7 @@ public:
              std::vector<const TDigest*>::const_iterator end) {
         if (iter != end) {
             auto size = std::distance(iter, end);
-            TDigestQueue pq(TDigestComparator{});
+            TDigestQueue pq(TDigestComparator {});
             for (; iter != end; iter++) {
                 pq.push((*iter));
             }
@@ -288,7 +288,7 @@ public:
             return 0.0;
         } else if (_processed.size() == 1) {
             VLOG_CRITICAL << "one processed value "
-                    << " _min " << _min << " _max " << _max;
+                          << " _min " << _min << " _max " << _max;
             // exactly one centroid, should have _max==_min
             auto width = _max - _min;
             if (x < _min) {
@@ -306,20 +306,20 @@ public:
             auto n = _processed.size();
             if (x <= _min) {
                 VLOG_CRITICAL << "below _min "
-                        << " _min " << _min << " x " << x;
+                              << " _min " << _min << " x " << x;
                 return 0;
             }
 
             if (x >= _max) {
                 VLOG_CRITICAL << "above _max "
-                        << " _max " << _max << " x " << x;
+                              << " _max " << _max << " x " << x;
                 return 1;
             }
 
             // check for the left tail
             if (x <= mean(0)) {
                 VLOG_CRITICAL << "left tail "
-                        << " _min " << _min << " mean(0) " << mean(0) << " x " << x;
+                              << " _min " << _min << " mean(0) " << mean(0) << " x " << x;
 
                 // note that this is different than mean(0) > _min ... this guarantees interpolation works
                 if (mean(0) - _min > 0) {
@@ -332,7 +332,7 @@ public:
             // and the right tail
             if (x >= mean(n - 1)) {
                 VLOG_CRITICAL << "right tail"
-                        << " _max " << _max << " mean(n - 1) " << mean(n - 1) << " x " << x;
+                              << " _max " << _max << " mean(n - 1) " << mean(n - 1) << " x " << x;
 
                 if (_max - mean(n - 1) > 0) {
                     return 1.0 - (_max - x) / (_max - mean(n - 1)) * weight(n - 1) /
@@ -352,7 +352,7 @@ public:
             DCHECK_LE(0.0, z1);
             DCHECK_LE(0.0, z2);
             VLOG_CRITICAL << "middle "
-                    << " z1 " << z1 << " z2 " << z2 << " x " << x;
+                          << " z1 " << z1 << " z2 " << z2 << " x " << x;
 
             return weightedAverage(_cumulative[i - 1], z2, _cumulative[i], z1) / _processed_weight;
         }
@@ -443,12 +443,16 @@ public:
     }
 
     uint32_t serialized_size() {
-        return sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(uint32_t) * 3 +
+        return sizeof(uint32_t) + sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(uint32_t) * 3 +
                _processed.size() * sizeof(Centroid) + _unprocessed.size() * sizeof(Centroid) +
                _cumulative.size() * sizeof(Weight);
     }
 
-    void serialize(uint8_t* writer) {
+    size_t serialize(uint8_t* writer) {
+        uint8_t* dst = writer;
+        uint32_t total_size = serialized_size();
+        memcpy(writer, &total_size, sizeof(uint32_t));
+        writer += sizeof(uint32_t);
         memcpy(writer, &_compression, sizeof(Value));
         writer += sizeof(Value);
         memcpy(writer, &_min, sizeof(Value));
@@ -475,6 +479,7 @@ public:
         size = _unprocessed.size();
         memcpy(writer, &size, sizeof(uint32_t));
         writer += sizeof(uint32_t);
+        //TODO(weixiang): may be once memcpy is enough!
         for (int i = 0; i < size; i++) {
             memcpy(writer, &_unprocessed[i], sizeof(Centroid));
             writer += sizeof(Centroid);
@@ -487,9 +492,13 @@ public:
             memcpy(writer, &_cumulative[i], sizeof(Weight));
             writer += sizeof(Weight);
         }
+        return writer - dst;
     }
 
     void unserialize(const uint8_t* type_reader) {
+        uint32_t total_length = 0;
+        memcpy(&total_length, type_reader, sizeof(uint32_t));
+        type_reader += sizeof(uint32_t);
         memcpy(&_compression, type_reader, sizeof(Value));
         type_reader += sizeof(Value);
         memcpy(&_min, type_reader, sizeof(Value));
@@ -579,7 +588,7 @@ private:
         if (tdigests.size() == 0) return;
 
         size_t total = 0;
-        CentroidListQueue pq(CentroidListComparator{});
+        CentroidListQueue pq(CentroidListComparator {});
         for (auto& td : tdigests) {
             auto& sorted = td->_processed;
             auto size = sorted.size();
@@ -684,14 +693,15 @@ private:
             auto dq = w / total;
             auto k2 = integratedLocation(q + dq);
             if (k2 - k1 > 1 && w != 1) {
-                VLOG_CRITICAL << "Oversize centroid at " << std::distance(sorted.cbegin(), iter) << " k1 "
-                        << k1 << " k2 " << k2 << " dk " << (k2 - k1) << " w " << w << " q " << q;
+                VLOG_CRITICAL << "Oversize centroid at " << std::distance(sorted.cbegin(), iter)
+                              << " k1 " << k1 << " k2 " << k2 << " dk " << (k2 - k1) << " w " << w
+                              << " q " << q;
                 badWeight++;
             }
             if (k2 - k1 > 1.5 && w != 1) {
                 VLOG_CRITICAL << "Egregiously Oversize centroid at "
-                        << std::distance(sorted.cbegin(), iter) << " k1 " << k1 << " k2 " << k2
-                        << " dk " << (k2 - k1) << " w " << w << " q " << q;
+                              << std::distance(sorted.cbegin(), iter) << " k1 " << k1 << " k2 "
+                              << k2 << " dk " << (k2 - k1) << " w " << w << " q " << q;
                 badWeight++;
             }
             q += dq;
