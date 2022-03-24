@@ -35,7 +35,9 @@ streamLoad {
 
 // stream load 100 rows
 def rowCount = 100
-def rowIt = java.util.stream.LongStream.range(0, rowCount) // [0, rowCount)
+// range: [0, rowCount)
+// or rangeClosed: [0, rowCount]
+def rowIt = range(0, rowCount)
         .mapToObj({i -> [i, "a_" + i]}) // change Long to List<Long, String>
         .iterator()
 

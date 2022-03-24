@@ -17,6 +17,8 @@
 
 package org.apache.doris.regression.action
 
+import groovy.transform.stc.ClosureParams
+import groovy.transform.stc.FromString
 import groovy.util.logging.Slf4j
 import java.sql.Connection
 
@@ -41,7 +43,7 @@ class TestAction implements SuiteAction {
     @Override
     void run() {
         try{
-            def result = doRun(context.conn)
+            def result = doRun(context.getConnection())
             if (check != null) {
                 check.call(result.result, result.exception, result.startTime, result.endTime)
             } else {
@@ -131,7 +133,7 @@ class TestAction implements SuiteAction {
         this.exception = exceptionMsgSupplier.call()
     }
 
-    void check(Closure check) {
+    void check(@ClosureParams(value = FromString, options = ["String,Throwable,Long,Long"]) Closure check) {
         this.check = check
     }
 
