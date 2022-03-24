@@ -79,6 +79,8 @@ public class HashJoinNode extends PlanNode {
     private String colocateReason = ""; // if can not do colocate join, set reason here
     private boolean isBucketShuffle = false; // the flag for bucket shuffle join
 
+    private List<SlotId> hashOutputSlotIds;
+
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef,
                         List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
         super(id, "HASH JOIN");
@@ -168,6 +170,18 @@ public class HashJoinNode extends PlanNode {
         colocateReason = reason;
     }
 
+    private void initHashOutputSlotIds(List<SlotId> slotIdList) {
+        hashOutputSlotIds = new ArrayList<>(slotIdList);
+        List<SlotId> otherAndConjunctSlotIds = Lists.newArrayList();
+        Expr.getIds(otherJoinConjuncts, null, otherAndConjunctSlotIds);
+        Expr.getIds(conjuncts, null, otherAndConjunctSlotIds);
+        for (SlotId slotId : otherAndConjunctSlotIds) {
+            if (!hashOutputSlotIds.contains(slotId)) {
+                hashOutputSlotIds.add(slotId);
+            }
+        }
+    }
+
     @Override
     public void initOutputSlotIds(Set<SlotId> slotIdSet, Analyzer analyzer) {
         outputSlotIds = Lists.newArrayList();
@@ -179,6 +193,7 @@ public class HashJoinNode extends PlanNode {
                 }
             }
         }
+        initHashOutputSlotIds(outputSlotIds);
     }
 
     // output slots + predicate slots = input slots
@@ -195,6 +210,10 @@ public class HashJoinNode extends PlanNode {
         List<SlotId> otherConjunctSlotIds = Lists.newArrayList();
         Expr.getIds(otherJoinConjuncts, null, otherConjunctSlotIds);
         result.addAll(otherConjunctSlotIds);
+        // conjunct
+        List<SlotId> conjunctSlotIds = Lists.newArrayList();
+        Expr.getIds(conjuncts, null, conjunctSlotIds);
+        result.addAll(conjunctSlotIds);
         return result;
     }
 
@@ -645,6 +664,11 @@ public class HashJoinNode extends PlanNode {
                 msg.hash_join_node.addToOutputSlotIds(slotId.asInt());
             }
         }
+        if (hashOutputSlotIds != null) {
+            for (SlotId slotId : hashOutputSlotIds) {
+                msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
+            }
+        }
     }
 
     @Override
@@ -678,7 +702,14 @@ public class HashJoinNode extends PlanNode {
                 "cardinality=%s", cardinality)).append("\n");
         if (outputSlotIds != null) {
             output.append(detailPrefix).append("output slot ids: ");
-            for (SlotId slotId: outputSlotIds) {
+            for (SlotId slotId : outputSlotIds) {
+                output.append(slotId).append(" ");
+            }
+            output.append("\n");
+        }
+        if (hashOutputSlotIds != null) {
+            output.append(detailPrefix).append("hash output slot ids: ");
+            for (SlotId slotId : hashOutputSlotIds) {
                 output.append(slotId).append(" ");
             }
             output.append("\n");

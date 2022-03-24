@@ -98,4 +98,14 @@ public class ProjectPlannerFunctionTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("output slot ids: 0"));
     }
+
+    // keep b.k1 after a join b
+    // keep a.k2, b.k1, b.k2 after <a,b> hash table
+    @Test
+    public void projectHashTable() throws Exception {
+        String queryStr = "desc verbose select b.k1 from test.t1 a right join test.t1 b on a.k1=b.k1 and b.k2>1 where a.k2>1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("output slot ids: 1"));
+        Assert.assertTrue(explainString.contains("hash output slot ids: 1 2 3"));
+    }
 }

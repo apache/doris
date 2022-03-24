@@ -642,8 +642,7 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _build_unique(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN),
           _is_right_semi_anti(_join_op == TJoinOp::RIGHT_ANTI_JOIN ||
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
-          _is_outer_join(_match_all_build || _match_all_probe),
-          _output_slot_ids(tnode.hash_join_node.output_slot_ids){
+          _is_outer_join(_match_all_build || _match_all_probe) {
     _runtime_filter_descs = tnode.runtime_filters;
     init_join_op();
 
