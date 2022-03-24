@@ -170,6 +170,7 @@ public class HashJoinNode extends PlanNode {
         colocateReason = reason;
     }
 
+    // output slots + conjunct slots + other conjunct slots = hash output slots
     private void initHashOutputSlotIds(List<SlotId> slotIdList) {
         hashOutputSlotIds = new ArrayList<>(slotIdList);
         List<SlotId> otherAndConjunctSlotIds = Lists.newArrayList();
@@ -183,12 +184,12 @@ public class HashJoinNode extends PlanNode {
     }
 
     @Override
-    public void initOutputSlotIds(Set<SlotId> slotIdSet, Analyzer analyzer) {
+    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
         outputSlotIds = Lists.newArrayList();
         for (TupleId tupleId : tupleIds) {
             for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getSlots()) {
                 if (slotDescriptor.isMaterialized() &&
-                        (slotIdSet == null || slotIdSet.contains(slotDescriptor.getId()))) {
+                        (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
                     outputSlotIds.add(slotDescriptor.getId());
                 }
             }

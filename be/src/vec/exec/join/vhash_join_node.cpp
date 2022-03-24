@@ -210,17 +210,9 @@ struct ProcessHashTableProbe {
         }
     }
 
-    // output probe side result column
-//    void probe_side_output_column(MutableColumns& mcol, int column_length, int size) {
-//        for (int i = 0; i < column_length; ++i) {
-//            auto& column = _probe_block.get_by_position(i).column;
-//            column->replicate(&_items_counts[0], size, *mcol[i]);
-//        }
-//    }
-
-    void probe_side_output_column(MutableColumns& mcol, std::vector<int> _left_output_slot_idx, int size) {
-        for (int i = 0; i < _left_output_slot_idx.size(); ++i) {
-            if (_left_output_slot_idx[i]) {
+    void probe_side_output_column(MutableColumns& mcol, const std::vector<int>& left_output_slot_idx, int size) {
+        for (int i = 0; i < left_output_slot_idx.size(); ++i) {
+            if (left_output_slot_idx[i]) {
                 auto& column = _probe_block.get_by_position(i).column;
                 column->replicate(&_items_counts[0], size, *mcol[i]);
             } else {

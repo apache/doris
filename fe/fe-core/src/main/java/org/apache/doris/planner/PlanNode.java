@@ -866,7 +866,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     // The slotIdSet could be null
-    public void initOutputSlotIds(Set<SlotId> slotIdSet, Analyzer analyzer) throws NotImplementedException {
+    // The output slots is subset of required slots when there are more than one child
+    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) throws NotImplementedException {
         throw new NotImplementedException("The `initOutputSlotIds` hasn't been implemented in " + planNodeName);
     }
 
