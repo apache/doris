@@ -49,7 +49,7 @@ public:
 
     /// Add a free buffer to the free lists. May free buffers to the system allocator
     /// if the list becomes full. Caller should not hold 'lock_'
-    void AddFreeBuffer(BufferHandle&& buffer);
+    bool AddFreeBuffer(BufferHandle&& buffer);
 
     /// Try to get a free buffer of 'buffer_len' bytes from this arena. Returns true and
     /// sets 'buffer' if found or false if not found. Caller should not hold 'lock_'.
@@ -72,8 +72,7 @@ public:
     /// boost::std::unique_lock because it is movable.
     std::pair<int64_t, int64_t> FreeSystemMemory(int64_t target_bytes_to_free,
                                                  int64_t target_bytes_to_claim,
-                                                 std::unique_lock<SpinLock>* arena_lock,
-                                                 MemTracker* tracker);
+                                                 std::unique_lock<SpinLock>* arena_lock);
 
     /// Add a clean page to the arena. Caller must hold the page's client's lock and not
     /// hold 'lock_' or any Page::lock_.
@@ -225,7 +224,6 @@ Status BufferPool::BufferAllocator::Allocate(ClientHandle* client, int64_t len,
     RETURN_IF_ERROR(AllocateInternal(len, buffer));
     DCHECK(buffer->is_open());
     buffer->client_ = client;
-    _mem_tracker->consume_cache(len);
     return Status::OK();
 }
 
@@ -307,6 +305,7 @@ Status BufferPool::BufferAllocator::AllocateInternal(int64_t len, BufferHandle* 
         system_bytes_remaining_.add(len);
         return status;
     }
+    _mem_tracker->consume_cache(len);
     return Status::OK();
 }
 
@@ -355,8 +354,7 @@ int64_t BufferPool::BufferAllocator::ScavengeBuffers(bool slow_but_sure, int cur
         FreeBufferArena* arena = per_core_arenas_[core_to_check].get();
         int64_t bytes_needed = target_bytes - bytes_found;
         bytes_found += arena->FreeSystemMemory(bytes_needed, bytes_needed,
-                                               slow_but_sure ? &arena_locks[i] : nullptr,
-                                               _mem_tracker.get())
+                                               slow_but_sure ? &arena_locks[i] : nullptr)
                                .second;
         if (bytes_found == target_bytes) break;
     }
@@ -380,7 +378,9 @@ void BufferPool::BufferAllocator::Free(BufferHandle&& handle) {
     handle.client_ = nullptr; // Buffer is no longer associated with a client.
     FreeBufferArena* arena = per_core_arenas_[handle.home_core_].get();
     handle.Poison();
-    arena->AddFreeBuffer(std::move(handle));
+    if (!arena->AddFreeBuffer(std::move(handle))) {
+        _mem_tracker->release_cache(handle.len());
+    }
 }
 
 void BufferPool::BufferAllocator::AddCleanPage(const std::unique_lock<std::mutex>& client_lock,
@@ -414,7 +414,7 @@ void BufferPool::BufferAllocator::ReleaseMemory(int64_t bytes_to_free) {
         int core_to_check = (current_core + i) % per_core_arenas_.size();
         FreeBufferArena* arena = per_core_arenas_[core_to_check].get();
         // Free but don't claim any memory.
-        bytes_freed += arena->FreeSystemMemory(bytes_to_free - bytes_freed, 0, nullptr, _mem_tracker.get()).first;
+        bytes_freed += arena->FreeSystemMemory(bytes_to_free - bytes_freed, 0, nullptr).first;
         if (bytes_freed >= bytes_to_free) return;
     }
 }
@@ -431,6 +431,7 @@ int64_t BufferPool::BufferAllocator::FreeToSystem(std::vector<BufferHandle>&& bu
         buffer.Unpoison();
         system_allocator_->Free(std::move(buffer));
     }
+    _mem_tracker->release_cache(bytes_freed);
     return bytes_freed;
 }
 
@@ -490,16 +491,17 @@ BufferPool::FreeBufferArena::~FreeBufferArena() {
     }
 }
 
-void BufferPool::FreeBufferArena::AddFreeBuffer(BufferHandle&& buffer) {
+bool BufferPool::FreeBufferArena::AddFreeBuffer(BufferHandle&& buffer) {
     std::lock_guard<SpinLock> al(lock_);
     if (config::disable_mem_pools) {
         int64_t len = buffer.len();
         parent_->system_allocator_->Free(std::move(buffer));
         parent_->system_bytes_remaining_.add(len);
-        return;
+        return false;
     }
     PerSizeLists* lists = GetListsForSize(buffer.len());
     lists->AddFreeBuffer(std::move(buffer));
+    return true;
 }
 
 bool BufferPool::FreeBufferArena::RemoveCleanPage(bool claim_buffer, Page* page) {
@@ -554,7 +556,7 @@ bool BufferPool::FreeBufferArena::EvictCleanPage(
 */
 std::pair<int64_t, int64_t> BufferPool::FreeBufferArena::FreeSystemMemory(
         int64_t target_bytes_to_free, int64_t target_bytes_to_claim,
-        std::unique_lock<SpinLock>* arena_lock, MemTracker* tracker) {
+        std::unique_lock<SpinLock>* arena_lock) {
     DCHECK_GT(target_bytes_to_free, 0);
     DCHECK_GE(target_bytes_to_free, target_bytes_to_claim);
     int64_t bytes_freed = 0;
@@ -631,7 +633,6 @@ std::pair<int64_t, int64_t> BufferPool::FreeBufferArena::FreeSystemMemory(
         parent_->system_bytes_remaining_.add(bytes_freed - bytes_claimed);
     }
     if (arena_lock != nullptr) *arena_lock = std::move(al);
-    tracker->release(bytes_freed);
     return std::make_pair(bytes_freed, bytes_claimed);
 }
 
