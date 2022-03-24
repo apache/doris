@@ -36,7 +36,7 @@ under the License.
 1. 需要预先安装好集群
 2. 修改配置文件`${DORIS_HOME}/conf/regression-conf.groovy`，设置jdbc url、用户等配置项
 3. 创建测试用例文件并编写用例
-4. 如果用例文件包含`qt` Action，则需要创建关联的的data文件，比如`suites/demo/qt_action.groovy`这个例子，需要用到`data/demo/qt_action.out`这个TSV文件来校验输出是否一致
+4. 如果用例文件包含`qt` Action，则需要创建关联的data文件，比如`suites/demo/qt_action.groovy`这个例子，需要用到`data/demo/qt_action.out`这个TSV文件来校验输出是否一致
 5. 运行`${DORIS_HOME}/run-regression-test.sh`测试全部用例,或运行`${DORIS_HOME}/run-regression-test.sh --run <suiteName>` 测试若干用例，更多例子见"启动脚本例子"章节
 
 ## 目录结构
@@ -114,7 +114,7 @@ customConf1 = "test_custom_conf_value"
 ## 编写用例的步骤
 1. 进入`${DORIS_HOME}/regression-test`目录
 2. 根据测试的目的来选择用例的目录，正确性测试存在`suites/correctness`，而性能测试存在`suites/performance`
-3. 新建一个groovy用例文件，增加若干`Action`用于测试，Action讲在后续章节具体说明
+3. 新建一个groovy用例文件，增加若干`Action`用于测试，Action将在后续章节具体说明
 
 ## Action
 Action是一个测试框架默认提供的测试行为，使用DSL来定义。
@@ -178,6 +178,7 @@ try {
      *    return xxx(args)
      * } catch (Throwable t) {
      *     // do nothing
+     *     return null
      * }
      */
     try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -446,6 +447,10 @@ streamLoad {
     }
 }
 ```
+
+### 其他Action
+thread, lazyCheck, events, connect, selectUnionAll
+具体可以在这个目录找到例子: `${DORIS_HOME}/regression-test/suites/demo`
 
 ## 启动脚本例子
 ```shell

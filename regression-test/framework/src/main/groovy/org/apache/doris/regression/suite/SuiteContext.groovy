@@ -22,40 +22,75 @@ import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.OutputUtils
 import org.apache.doris.regression.util.Recorder
 import groovy.util.logging.Slf4j
-import org.apache.doris.regression.util.CloseableIterator
 
 import java.sql.Connection
+import java.sql.DriverManager
+import java.util.concurrent.ExecutorService
 
 @Slf4j
 @CompileStatic
 class SuiteContext implements Closeable {
     public final File file
-    public final Connection conn
+    private final Connection conn
+    public final ThreadLocal<Connection> threadLocalConn = new ThreadLocal<>()
     public final Config config
     public final File dataPath
     public final File outputFile
+    public final ThreadLocal<OutputUtils.OutputBlocksIterator> threadLocalOutputIterator = new ThreadLocal<>()
+    public final ExecutorService executorService
     public final Recorder recorder
 //    public final File tmpOutputPath
-    public final CloseableIterator<Iterator<List<String>>> outputIterator
     private volatile OutputUtils.OutputBlocksWriter outputBlocksWriter
 
-    SuiteContext(File file, Connection conn, Config config, Recorder recorder) {
+    SuiteContext(File file, Connection conn, ExecutorService executorService, Config config, Recorder recorder) {
         this.file = file
         this.conn = conn
         this.config = config
+        this.executorService = executorService
         this.recorder = recorder
 
         def path = new File(config.suitePath).relativePath(file)
         def outputRelativePath = path.substring(0, path.lastIndexOf(".")) + ".out"
         this.outputFile = new File(new File(config.dataPath), outputRelativePath)
         this.dataPath = this.outputFile.getParentFile().getCanonicalFile()
-        if (!config.otherConfigs.getProperty("qt.generate.out", "false").toBoolean()
-                && outputFile.exists()) {
-            this.outputIterator = OutputUtils.iterator(outputFile)
-        }
 //        def dataParentPath = new File(config.dataPath).parentFile.absolutePath
 //        def tmpOutputPath = "${dataParentPath}/tmp_output/${outputRelativePath}".toString()
 //        this.tmpOutputPath = new File(tmpOutputPath)
+    }
+
+    Connection getConnection() {
+        def threadConn = threadLocalConn.get()
+        if (threadConn != null) {
+            return threadConn
+        }
+        return this.conn
+    }
+
+    public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
+        def originConnection = threadLocalConn.get()
+        try {
+            log.info("Create new connection for user '${user}'")
+            return DriverManager.getConnection(url, user, password).withCloseable { newConn ->
+                threadLocalConn.set(newConn)
+                return actionSupplier.call()
+            }
+        } finally {
+            log.info("Recover original connection")
+            if (originConnection == null) {
+                threadLocalConn.remove()
+            } else {
+                threadLocalConn.set(originConnection)
+            }
+        }
+    }
+
+    OutputUtils.OutputBlocksIterator getOutputIterator() {
+        def outputIt = threadLocalOutputIterator.get()
+        if (outputIt == null) {
+            outputIt = OutputUtils.iterator(outputFile)
+            threadLocalOutputIterator.set(outputIt)
+        }
+        return outputIt
     }
 
     OutputUtils.OutputBlocksWriter getOutputWriter(boolean deleteIfExist) {
@@ -84,15 +119,17 @@ class SuiteContext implements Closeable {
         }
     }
 
+    void closeThreadLocal() {
+        def outputIterator = threadLocalOutputIterator.get()
+        if (outputIterator != null) {
+            outputIterator.close()
+            threadLocalOutputIterator.remove()
+        }
+    }
+
     @Override
     void close() {
-        if (outputIterator != null) {
-            try {
-                outputIterator.close()
-            } catch (Throwable t) {
-                log.warn("Close outputFile failed", t)
-            }
-        }
+        closeThreadLocal()
 
         if (outputBlocksWriter != null) {
             outputBlocksWriter.close()
