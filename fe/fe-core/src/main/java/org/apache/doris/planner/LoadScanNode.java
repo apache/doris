@@ -116,6 +116,16 @@ public abstract class LoadScanNode extends ScanNode {
         }
     }
 
+    protected void checkQuantileStateCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
+        if (slotDesc.getColumn().getAggregationType() == AggregateType.QUANTILE_UNION) {
+            expr.analyze(analyzer);
+            if (!expr.getType().isQuantileStateType()) {
+                String errorMsg = String.format("quantile_state column %s require the function return type is QUANTILE_STATE");
+                throw new AnalysisException(errorMsg);
+            }
+        }
+    }
+
     protected void finalizeParams(Map<String, SlotDescriptor> slotDescByName,
                                   Map<String, Expr> exprMap,
                                   TBrokerScanRangeParams params,
@@ -172,6 +182,10 @@ public abstract class LoadScanNode extends ScanNode {
             }
 
             checkBitmapCompatibility(analyzer, destSlotDesc, expr);
+
+            checkQuantileStateCompatibility(analyzer, destSlotDesc, expr);
+
+            // check quantile_state
 
             if (negative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
                 expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));

@@ -79,6 +79,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_OBJECT;
     } else if (0 == upper_type_str.compare("ARRAY")) {
         type = OLAP_FIELD_TYPE_ARRAY;
+    } else if (0 == upper_type_str.compare("QUANTILE_STATE")) {
+        type = OLAP_FIELD_TYPE_QUANTILE_STATE;
     } else {
         LOG(WARNING) << "invalid type string. [type='" << type_str << "']";
         type = OLAP_FIELD_TYPE_UNKNOWN;
@@ -108,6 +110,8 @@ FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::s
         aggregation_type = OLAP_FIELD_AGGREGATION_HLL_UNION;
     } else if (0 == upper_str.compare("BITMAP_UNION")) {
         aggregation_type = OLAP_FIELD_AGGREGATION_BITMAP_UNION;
+    } else if (0 == upper_str.compare("QUANTILE_UNION")) {
+        aggregation_type = OLAP_FIELD_AGGREGATION_QUANTILE_UNION;
     } else {
         LOG(WARNING) << "invalid aggregation type string. [aggregation='" << str << "']";
         aggregation_type = OLAP_FIELD_AGGREGATION_UNKNOWN;
@@ -189,6 +193,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case OLAP_FIELD_TYPE_OBJECT:
         return "OBJECT";
+    case OLAP_FIELD_TYPE_QUANTILE_STATE:
+        return "QUANTILE_STATE";
 
     default:
         return "UNKNOWN";
@@ -221,6 +227,9 @@ std::string TabletColumn::get_string_by_aggregation_type(FieldAggregationMethod 
     case OLAP_FIELD_AGGREGATION_BITMAP_UNION:
         return "BITMAP_UNION";
 
+    case OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
+        return "QUANTILE_UNION";
+
     default:
         return "UNKNOWN";
     }
@@ -247,6 +256,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return 4;
     case TPrimitiveType::DOUBLE:
         return 8;
+    case TPrimitiveType::QUANTILE_STATE:
     case TPrimitiveType::OBJECT:
         return 16;
     case TPrimitiveType::CHAR:
@@ -493,7 +503,8 @@ void TabletSchema::init_field_index_for_test() {
     }
 }
 
-vectorized::Block TabletSchema::create_block(const std::vector<uint32_t>& return_columns,
+vectorized::Block TabletSchema::create_block(
+        const std::vector<uint32_t>& return_columns,
         const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
     vectorized::Block block;
     for (int i = 0; i < return_columns.size(); ++i) {

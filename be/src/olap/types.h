@@ -503,11 +503,15 @@ template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_OBJECT> {
     using CppType = Slice;
 };
+
+template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_QUANTILE_STATE> {
+    using CppType = Slice;
+};
 template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_ARRAY> {
     using CppType = CollectionValue;
 };
-
 template <FieldType field_type>
 struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     using CppType = typename CppTypeTraits<field_type>::CppType;
@@ -1205,6 +1209,25 @@ template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_OBJECT> : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
     /*
      * Object type only used as value, so
+     * cmp/from_string/set_to_max/set_to_min function
+     * in this struct has no significance
+     */
+
+    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
+    static void copy_object(void* dest, const void* src, MemPool* mem_pool) {
+        auto dst_slice = reinterpret_cast<Slice*>(dest);
+        auto src_slice = reinterpret_cast<const Slice*>(src);
+        DCHECK_EQ(src_slice->size, 0);
+        dst_slice->data = src_slice->data;
+        dst_slice->size = 0;
+    }
+};
+
+template <>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_QUANTILE_STATE>
+        : public FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> {
+    /*
+     * quantile_state type only used as value, so
      * cmp/from_string/set_to_max/set_to_min function
      * in this struct has no significance
      */

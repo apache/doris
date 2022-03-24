@@ -84,7 +84,8 @@ public:
         TYPE_FIXED_BUFFER,
         TYPE_DECIMALV2,
         TYPE_OBJECT,
-        TYPE_ARRAY
+        TYPE_ARRAY,
+        TYPE_QUANTILE_STATE
     };
 
     struct TypeDesc {

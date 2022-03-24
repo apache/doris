@@ -110,6 +110,7 @@ void CaseExpr::get_child_val(int child_idx, ExprContext* ctx, TupleRow* row, Any
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
         *reinterpret_cast<StringVal*>(dst) = _children[child_idx]->get_string_val(ctx, row);
         break;
@@ -155,6 +156,7 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
         return AnyValUtil::equals(type, *reinterpret_cast<const StringVal*>(v1),
                                   *reinterpret_cast<const StringVal*>(v2));

@@ -364,8 +364,8 @@ public class CreateTableStmt extends DdlStmt {
                 && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
             columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
         }
-        boolean hasHll = false;
-        boolean hasBitmap = false;
+        boolean hasObjectStored = false;
+        String objectStoredColumn = "";
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
@@ -380,12 +380,9 @@ public class CreateTableStmt extends DdlStmt {
                 }
             }
 
-            if (columnDef.getType().isHllType()) {
-                hasHll = true;
-            }
-
-            if (columnDef.getAggregateType() == AggregateType.BITMAP_UNION) {
-                hasBitmap = columnDef.getType().isBitmapType();
+            if (columnDef.getType().isObjectStored()) {
+                hasObjectStored = true;
+                objectStoredColumn = columnDef.getName();
             }
 
             if (!columnSet.add(columnDef.getName())) {
@@ -393,12 +390,8 @@ public class CreateTableStmt extends DdlStmt {
             }
         }
 
-        if (hasHll && keysDesc.getKeysType() != KeysType.AGG_KEYS) {
-            throw new AnalysisException("HLL must be used in AGG_KEYS");
-        }
-
-        if (hasBitmap && keysDesc.getKeysType() != KeysType.AGG_KEYS) {
-            throw new AnalysisException("BITMAP_UNION must be used in AGG_KEYS");
+        if (hasObjectStored && keysDesc.getKeysType() != KeysType.AGG_KEYS) {
+            throw new AnalysisException("column:" + objectStoredColumn + " must be used in AGG_KEYS.");
         }
 
         if (engineName.equals("olap")) {

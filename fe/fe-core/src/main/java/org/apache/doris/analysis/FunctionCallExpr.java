@@ -532,6 +532,25 @@ public class FunctionCallExpr extends Expr {
             return;
         }
 
+        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.QUANTILE_UNION)) {
+            if (children.size() != 1) {
+                throw new AnalysisException(fnName + "function could only have one child");
+            }
+            Type inputType = getChild(0).getType();
+            if (!inputType.isQuantileStateType()) {
+                throw new AnalysisException(fnName + " function's argument should be of QUANTILE_STATE type, but was" + inputType);
+            }
+        }
+
+        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.TO_QUANTILE_STATE)) {
+            if (children.size() != 2) {
+                throw new AnalysisException(fnName + "function must have two children");
+            }
+            if (!getChild(1).isConstant()) {
+                throw new AnalysisException(fnName + "function's second argument should be constant");
+            }
+        }
+
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
                 || fnName.getFunction().equalsIgnoreCase("HLL_CARDINALITY")
                 || fnName.getFunction().equalsIgnoreCase("HLL_RAW_AGG"))

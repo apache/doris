@@ -39,4 +39,5 @@ ADD_BE_TEST(topn_function_test)
 ADD_BE_TEST(runtime_filter_test)
 ADD_BE_TEST(bloom_filter_predicate_test)
 ADD_BE_TEST(array_functions_test)
+ADD_BE_TEST(quantile_function_test)
 

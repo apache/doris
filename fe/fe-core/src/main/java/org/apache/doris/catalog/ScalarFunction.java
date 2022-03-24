@@ -162,6 +162,7 @@ public class ScalarFunction extends Function {
                 case HLL:
                 case BITMAP:
                 case STRING:
+                case QUANTILE_STATE:
                     beFn += "_string_val";
                     break;
                 case DATE:
