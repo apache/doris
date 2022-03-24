@@ -90,11 +90,14 @@ AggregateFunctionPtr create_aggregate_function_stddev_pop(const std::string& nam
 
 void register_aggregate_function_stddev_variance(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("variance_samp", create_aggregate_function_variance_samp<false>);
-    factory.register_function("variance", create_aggregate_function_variance_pop<false>);
+    factory.register_function("variance_samp", create_aggregate_function_variance_samp<false>, true);
+    factory.register_function("stddev_samp", create_aggregate_function_stddev_samp<true>);
+    factory.register_function("stddev_samp", create_aggregate_function_stddev_samp<true>, true);
     factory.register_alias("variance_samp", "var_samp");
+
+    factory.register_function("variance", create_aggregate_function_variance_pop<false>);
     factory.register_alias("variance", "var_pop");
     factory.register_alias("variance", "variance_pop");
-    factory.register_function("stddev_samp", create_aggregate_function_stddev_samp<true>);
     factory.register_function("stddev", create_aggregate_function_stddev_pop<true>);
     factory.register_alias("stddev", "stddev_pop");
 }
