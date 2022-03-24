@@ -69,7 +69,7 @@ struct BaseData {
     }
 
     static const DataTypePtr get_return_type() {
-        return make_nullable(std::make_shared<DataTypeNumber<Float64>>());
+        return std::make_shared<DataTypeNumber<Float64>>();
     }
 
     void merge(const BaseData& rhs) {
@@ -83,7 +83,7 @@ struct BaseData {
         count = sum_count;
     }
 
-    void add(const IColumn** columns, size_t row_num) {
+    virtual void add(const IColumn** columns, size_t row_num) {
         const auto& sources = static_cast<const ColumnVector<T>&>(*columns[0]);
         double source_data = sources.get_data()[row_num];
 
@@ -145,7 +145,7 @@ struct BaseDatadecimal {
     }
 
     static const DataTypePtr get_return_type() {
-        return make_nullable(std::make_shared<DataTypeDecimal<Decimal128>>(27, 9));
+        return std::make_shared<DataTypeDecimal<Decimal128>>(27, 9);
     }
 
     void merge(const BaseDatadecimal& rhs) {
@@ -164,7 +164,7 @@ struct BaseDatadecimal {
         count += rhs.count;
     }
 
-    void add(const IColumn** columns, size_t row_num) {
+    virtual void add(const IColumn** columns, size_t row_num) {
         DecimalV2Value source_data = DecimalV2Value();
         const auto& sources = static_cast<const ColumnDecimal<Decimal128>&>(*columns[0]);
         source_data = (DecimalV2Value)sources.get_data()[row_num];
@@ -191,14 +191,12 @@ struct PopData : Data {
     using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>,
                                             ColumnVector<Float64>>;
     void insert_result_into(IColumn& to) const {
-        ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        auto& col = static_cast<ColVecResult&>(nullable_column.get_nested_column());
+        auto& col = assert_cast<ColVecResult&>(to);
         if constexpr (IsDecimalNumber<T>) {
             col.get_data().push_back(this->get_pop_result().value());
         } else {
             col.get_data().push_back(this->get_pop_result());
         }
-        nullable_column.get_null_map_data().push_back(0);
     }
 };
 
@@ -220,6 +218,24 @@ struct SampData : Data {
             nullable_column.get_null_map_data().push_back(0);
         }
     }
+
+    static const DataTypePtr get_return_type() {
+        return make_nullable(Data::get_return_type());
+    }
+
+    void add(const IColumn** columns, size_t row_num) override {
+        if (columns[0]->is_nullable()) {
+            const auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
+            if (!nullable_column.is_null_at(row_num)) {
+                const IColumn* new_columns[1];
+                new_columns[0] = &nullable_column.get_nested_column();
+                Data::add(new_columns, row_num);
+            }
+        } else {
+            Data::add(columns, row_num);
+        }
+    }
+
 };
 
 template <typename Data>
@@ -251,8 +267,6 @@ public:
                                                                                     {}) {}
 
     String get_name() const override { return Data::name(); }
-
-    bool insert_to_null_default() const override { return false; }
 
     DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
