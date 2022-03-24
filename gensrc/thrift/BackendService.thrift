@@ -146,8 +146,6 @@ service BackendService {
     AgentService.TMiniLoadEtlStatusResult get_etl_status(
             1:AgentService.TMiniLoadEtlStatusRequest request);
 
-    AgentService.TAgentResult delete_etl_files(1:AgentService.TDeleteEtlFilesRequest request);
-
     Status.TStatus submit_export_task(1:TExportTaskRequest request);
 
     PaloInternalService.TExportStatusResult get_export_status(1:Types.TUniqueId task_id);

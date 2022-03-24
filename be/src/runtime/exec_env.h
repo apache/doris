@@ -38,7 +38,6 @@ class BufferPool;
 class CgroupsMgr;
 class DataStreamMgr;
 class DiskIoMgr;
-class EtlJobMgr;
 class EvHttpServer;
 class ExternalScanContextMgr;
 class FragmentMgr;
@@ -133,7 +132,6 @@ public:
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
     TMasterInfo* master_info() { return _master_info; }
-    EtlJobMgr* etl_job_mgr() { return _etl_job_mgr; }
     LoadPathMgr* load_path_mgr() { return _load_path_mgr; }
     DiskIoMgr* disk_io_mgr() { return _disk_io_mgr; }
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr; }
@@ -214,7 +212,6 @@ private:
     FragmentMgr* _fragment_mgr = nullptr;
     ResultCache* _result_cache = nullptr;
     TMasterInfo* _master_info = nullptr;
-    EtlJobMgr* _etl_job_mgr = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;
     DiskIoMgr* _disk_io_mgr = nullptr;
     TmpFileMgr* _tmp_file_mgr = nullptr;
