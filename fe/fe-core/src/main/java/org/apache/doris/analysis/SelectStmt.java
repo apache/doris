@@ -1132,12 +1132,8 @@ public class SelectStmt extends QueryStmt {
                                     "GROUP BY clause?): " + orderByElements.get(i).getExpr().toSql());
                 }
 
-                if (sortInfo.getOrderingExprs().get(i).type.isHllType()) {
-                    throw new AnalysisException("ORDER BY expression could not contain hll column.");
-                }
-
-                if (sortInfo.getOrderingExprs().get(i).type.isBitmapType()) {
-                    throw new AnalysisException("ORDER BY expression could not contain bitmap column.");
+                if (sortInfo.getOrderingExprs().get(i).type.isObjectStored()) {
+                    throw new AnalysisException("ORDER BY expression could not contain object-stored columnx.");
                 }
             }
         }

@@ -26,6 +26,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.h"
 #include "util/bitmap_value.h"
+#include "util/quantile_state.h"
 
 namespace doris {
 
@@ -576,6 +577,51 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
 };
 
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_QUANTILE_UNION, OLAP_FIELD_TYPE_QUANTILE_STATE> {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {
+        DCHECK_EQ(src_null, false);
+        dst->set_not_null();
+
+        auto* src_slice = reinterpret_cast<const Slice*>(src);
+        auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+
+        // we use zero size represent this slice is a agg object
+        dst_slice->size = 0;
+        auto* dst_quantile_state = new QuantileState<double>(*src_slice);
+
+        dst_slice->data = reinterpret_cast<char*>(dst_quantile_state);
+
+        agg_pool->add(dst_quantile_state);
+    }
+
+    static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
+        DCHECK_EQ(src.is_null(), false);
+
+        auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        auto* src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+        auto* dst_quantile_state = reinterpret_cast<QuantileState<double>*>(dst_slice->data);
+
+        if (mem_pool == nullptr) { // for query
+            QuantileState<double> src_state(*src_slice);
+            dst_quantile_state->merge(src_state);
+        } else { // for stream load
+            auto* src_state = reinterpret_cast<QuantileState<double>*>(src_slice->data);
+            dst_quantile_state->merge(*src_state);
+        }
+    }
+
+    // The quantile_state object memory will be released by ObjectPool
+    static void finalize(RowCursorCell* src, MemPool* mem_pool) {
+        auto* slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
+        auto* quantile_state = reinterpret_cast<QuantileState<double>*>(slice->data);
+
+        slice->data = (char*)mem_pool->allocate(quantile_state->get_serialized_size());
+        slice->size = quantile_state->serialize((uint8_t*)slice->data);
+        quantile_state->clear();
+    }
+};
 template <FieldAggregationMethod aggMethod, FieldType fieldType,
           FieldType subType = OLAP_FIELD_TYPE_NONE>
 struct AggregateTraits : public AggregateFuncTraits<aggMethod, fieldType, subType> {

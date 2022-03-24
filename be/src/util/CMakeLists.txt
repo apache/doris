@@ -108,6 +108,7 @@ set(UTIL_FILES
   s3_util.cpp
   topn_counter.cpp
   tuple_row_zorder_compare.cpp
+  quantile_state.cpp
   jni-util.cpp
 )
 

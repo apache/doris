@@ -31,8 +31,8 @@ Status ColumnVectorBatch::resize(size_t new_cap) {
     return Status::OK();
 }
 
-Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, std::shared_ptr<const TypeInfo> type_info,
-                                 Field* field,
+Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable,
+                                 std::shared_ptr<const TypeInfo> type_info, Field* field,
                                  std::unique_ptr<ColumnVectorBatch>* column_vector_batch) {
     if (is_scalar_type(type_info->type())) {
         std::unique_ptr<ColumnVectorBatch> local;
@@ -117,6 +117,11 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, std::sh
             local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_OBJECT>::CppType>(
                     type_info, is_nullable));
             break;
+        case OLAP_FIELD_TYPE_QUANTILE_STATE:
+            local.reset(new ScalarColumnVectorBatch<
+                        CppTypeTraits<OLAP_FIELD_TYPE_QUANTILE_STATE>::CppType>(type_info,
+                                                                                is_nullable));
+            break;
         default:
             return Status::NotSupported("unsupported type for ColumnVectorBatch: " +
                                         std::to_string(type_info->type()));
@@ -139,8 +144,7 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, std::sh
                     array_type_info->item_type_info(), field->get_sub_field(0), &elements));
 
             std::unique_ptr<ColumnVectorBatch> offsets;
-            auto offsets_type_info =
-                    get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
+            auto offsets_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
             RETURN_IF_ERROR(ColumnVectorBatch::create(init_capacity + 1, false, offsets_type_info,
                                                       nullptr, &offsets));
 
@@ -160,8 +164,8 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, std::sh
 }
 
 template <class ScalarType>
-ScalarColumnVectorBatch<ScalarType>::ScalarColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info,
-                                                             bool is_nullable)
+ScalarColumnVectorBatch<ScalarType>::ScalarColumnVectorBatch(
+        std::shared_ptr<const TypeInfo> type_info, bool is_nullable)
         : ColumnVectorBatch(type_info, is_nullable), _data(0) {}
 
 template <class ScalarType>
@@ -176,7 +180,8 @@ Status ScalarColumnVectorBatch<ScalarType>::resize(size_t new_cap) {
     return Status::OK();
 }
 
-ArrayColumnVectorBatch::ArrayColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info, bool is_nullable,
+ArrayColumnVectorBatch::ArrayColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info,
+                                               bool is_nullable,
                                                ScalarColumnVectorBatch<uint32_t>* offsets,
                                                ColumnVectorBatch* elements)
         : ColumnVectorBatch(type_info, is_nullable), _data(0) {

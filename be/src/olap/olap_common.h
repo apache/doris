@@ -143,7 +143,8 @@ enum FieldType {
     OLAP_FIELD_TYPE_HLL = 23,
     OLAP_FIELD_TYPE_BOOL = 24,
     OLAP_FIELD_TYPE_OBJECT = 25,
-    OLAP_FIELD_TYPE_STRING = 26
+    OLAP_FIELD_TYPE_STRING = 26,
+    OLAP_FIELD_TYPE_QUANTILE_STATE = 27
 };
 
 // Define all aggregation methods supported by Field
@@ -161,16 +162,17 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7,
     // Replace if and only if added value is not null
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
+    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
 };
 
 // Compression algorithm type
 enum OLAPCompressionType {
     // Compression algorithm used for network transmission, low compression rate, low cpu overhead
     OLAP_COMP_TRANSPORT = 1,
-    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead 
-    OLAP_COMP_STORAGE = 2,  
-    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low 
-    OLAP_COMP_LZ4 = 3,       
+    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead
+    OLAP_COMP_STORAGE = 2,
+    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low
+    OLAP_COMP_LZ4 = 3,
 };
 
 enum PushType {
@@ -289,12 +291,12 @@ struct OlapReaderStatistics {
     // general_debug_ns is designed for the purpose of DEBUG, to record any infomations of debugging or profiling.
     // different from specific meaningful timer such as index_load_ns, general_debug_ns can be used flexibly.
     // general_debug_ns has associated with OlapScanNode's _general_debug_timer already.
-    // so general_debug_ns' values will update to _general_debug_timer automaticly, 
+    // so general_debug_ns' values will update to _general_debug_timer automaticly,
     // the timer result can be checked through QueryProfile web page easily.
-    // when search general_debug_ns, you can find that general_debug_ns has not been used, 
+    // when search general_debug_ns, you can find that general_debug_ns has not been used,
     // this is because such codes added for debug purpose should not commit, it's just for debuging.
     // so, please do not delete general_debug_ns defined here
-    // usage example: 
+    // usage example:
     //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
     int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
 };

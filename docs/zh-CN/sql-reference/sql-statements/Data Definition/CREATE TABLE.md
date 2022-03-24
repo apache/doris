@@ -89,6 +89,8 @@ under the License.
             程度系统内控制，并且HLL列只能通过配套的hll_union_agg、Hll_cardinality、hll_hash进行查询或使用
         BITMAP
             bitmap列类型，不需要指定长度和默认值。表示整型的集合，元素最大支持到2^64 - 1
+        QUANTILE_STATE
+            QUANTILE_STATE列类型，不需要指定长度和默认值，表示分位数预聚合结果。目前仅支持原始数据为数值类型如：TINYINT、INT、FLOAT、DOUBLE、DECIMAL。当元素个数小于2048时存储明细数据，当元素个数大于2048时存储 [TDigest](https://github.com/tdunning/t-digest/blob/main/docs/t-digest-paper/histo.pdf) 算法预聚合的中间结果
     ```
 
     agg_type：聚合类型，如果不指定，则该列为 key 列。否则，该列为 value 列
@@ -96,13 +98,17 @@ under the License.
        * SUM、MAX、MIN、REPLACE
        * HLL_UNION(仅用于HLL列，为HLL独有的聚合方式)、
        * BITMAP_UNION(仅用于 BITMAP 列，为 BITMAP 独有的聚合方式)、
+       * QUANTILE_UNION(仅用于 QUANTILE_STATE 列，为 QUANTILE_STATE 独有的聚合方式)
        * REPLACE_IF_NOT_NULL：这个聚合类型的含义是当且仅当新导入数据是非NULL值时会发生替换行为，如果新导入的数据是NULL，那么Doris仍然会保留原值。注意：如果用在建表时REPLACE_IF_NOT_NULL列指定了NOT NULL，那么Doris仍然会将其转化NULL，不会向用户报错。用户可以借助这个类型完成部分列导入的功能。**这里要注意的是字段默认值要给NULL，而不能是空字符串，如果是空字符串，会给你替换成空字符串**。
        * 该类型只对聚合模型(key_desc的type为AGGREGATE KEY)有用，其它模型不需要指这个。
 
     是否允许为NULL: 默认允许为 NULL。NULL 值在导入数据中用 \N 来表示
 
     注意：
-        BITMAP_UNION聚合类型列在导入时的原始数据类型必须是TINYINT,SMALLINT,INT,BIGINT。
+    
+        BITMAP_UNION聚合类型列在导入时的原始数据类型必须是TINYINT,SMALLINT,INT,BIGINT。     
+        
+        QUANTILE_UNION聚合类型列在导入时的原始数据类型必须是数值类型如:TINYINT、INT、FLOAT、DOUBLE、DECIMAL
 
 2. index_definition
     语法：
@@ -668,7 +674,22 @@ under the License.
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
-9. 创建两张支持Colocate Join的表t1 和t2
+1. 创建一张含有QUANTILE_UNION聚合类型的表（v1和v2列的原始数据类型必须是数值类型）
+
+```
+    CREATE TABLE example_db.example_table
+    (
+    k1 TINYINT,
+    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    v1 QUANTILE_STATE QUANTILE_UNION,
+    v2 QUANTILE_STATE QUANTILE_UNION
+    )
+    ENGINE=olap
+    AGGREGATE KEY(k1, k2)
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
+```
+
+10. 创建两张支持Colocate Join的表t1 和t2
 
 ```
     CREATE TABLE `t1` (
@@ -692,7 +713,7 @@ under the License.
     );
 ```
 
-10. 创建一个数据文件存储在BOS上的 broker 外部表
+11. 创建一个数据文件存储在BOS上的 broker 外部表
 
 ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -710,7 +731,7 @@ under the License.
     )
 ```
 
-11. 创建一个带有bitmap 索引的表
+12. 创建一个带有bitmap 索引的表
 
 ```
     CREATE TABLE example_db.table_hash
@@ -727,7 +748,7 @@ under the License.
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
 ```
 
-12. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，并删除3天前的分区。例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
+13. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，并删除3天前的分区。例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
 
 ```
 [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
@@ -759,7 +780,7 @@ under the License.
      );
 ```
 
-13. 创建一个带有rollup索引的表
+14. 创建一个带有rollup索引的表
 ```
     CREATE TABLE example_db.rollup_index_table
     (
@@ -778,7 +799,7 @@ under the License.
     )
     PROPERTIES("replication_num" = "3");
 ```
-14. 创建一个内存表
+15. 创建一个内存表
 
 ```
     CREATE TABLE example_db.table_hash
@@ -796,7 +817,7 @@ under the License.
     PROPERTIES ("in_memory"="true");
 ```
 
-15. 创建一个hive外部表
+16. 创建一个hive外部表
 
 ```
     CREATE TABLE example_db.table_hive
@@ -814,7 +835,7 @@ under the License.
     );
 ```
 
-16. 通过 replication_allocation 指定表的副本分布
+17. 通过 replication_allocation 指定表的副本分布
 
 ```	
     CREATE TABLE example_db.table_hash

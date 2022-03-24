@@ -598,7 +598,15 @@ public class SingleNodePlanner {
                             returnColumnValidate = false;
                             break;
                         }
-                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("multi_distinct_count")) {
+                    } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.QUANTILE_UNION)) {
+                        if (col.getAggregationType() != AggregateType.QUANTILE_UNION) {
+                            turnOffReason =
+                                    "Aggregate Operator not match: QUANTILE_UNION <---> " + col.getAggregationType();
+                            returnColumnValidate = false;
+                            break;
+                        }
+                    }
+                    else if (aggExpr.getFnName().getFunction().equalsIgnoreCase("multi_distinct_count")) {
                         // count(distinct k1), count(distinct k2) / count(distinct k1,k2) can turn on pre aggregation
                         if ((!col.isKey())) {
                             turnOffReason = "Multi count or sum distinct with non-key column: " + col.getName();

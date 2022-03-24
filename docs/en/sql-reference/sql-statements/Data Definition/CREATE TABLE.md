@@ -88,6 +88,11 @@ Syntax:
             This type can only be queried by hll_union_agg, hll_cardinality, hll_hash functions.
         BITMAP
             BITMAP type, No need to specify length. Represent a set of unsigned bigint numbers, the largest element could be 2^64 - 1
+        QUANTILE_STATE
+            QUANTILE_STATE type, No need to specify length. Represents the quantile pre-aggregation result. Currently, only numerical raw data types are supported such as `int`,`float`,`double`, etc.
+            If the number of elements is less than 2048, the explict data is stored. 
+            If the number of elements is greater than 2048, the intermediate result of the pre-aggregation of the TDigest algorithm is stored.
+            
     ```
     agg_type: Aggregation type. If not specified, the column is key column. Otherwise, the column   is value column.
 
@@ -95,8 +100,14 @@ Syntax:
        * HLL_UNION: Only for HLL type
        * REPLACE_IF_NOT_NULL: The meaning of this aggregation type is that substitution will occur if and only if the newly imported data is a non-null value. If the newly imported data is null, Doris will still retain the original value. Note: if NOT NULL is specified in the REPLACE_IF_NOT_NULL column when the user creates the table, Doris will convert it to NULL and will not report an error to the user. Users can leverage this aggregate type to achieve importing some of columns .**It should be noted here that the default value should be NULL, not an empty string. If it is an empty string, you should replace it with an empty string**.
        * BITMAP_UNION: Only for BITMAP type
+       * QUANTILE_UNION: Only for QUANTILE_STATE type
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
-    Notice: The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
+    
+    Notice: 
+    
+        The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
+        
+        The origin value of QUANTILE_UNION column should be a numeric type such as TINYINT, INT, FLOAT, DOUBLE, DECIMAL, etc.
 2. index_definition
     Syntax:
         `INDEX index_name (col_name[, col_name, ...]) [USING BITMAP] COMMENT 'xxxxxx'`
@@ -125,6 +136,7 @@ Syntax:
         table_name in CREATE TABLE stmt is table is Doris. They can be different or same.
         MySQL table created in Doris is for accessing data in MySQL database.
         Doris does not maintain and store any data from MySQL table.
+
     2) For broker, properties should include:
 
         ```
@@ -633,8 +645,21 @@ Syntax:
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
-
-9. Create 2 colocate join table.
+9. Create a table with QUANTILE_UNION column (the origin value of **v1** and **v2** columns must be **numeric** types）
+    
+    ```
+    CREATE TABLE example_db.example_table
+    (
+    k1 TINYINT,
+    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    v1 QUANTILE_STATE QUANTILE_UNION,
+    v2 QUANTILE_STATE QUANTILE_UNION
+    )
+    ENGINE=olap
+    AGGREGATE KEY(k1, k2)
+    DISTRIBUTED BY HASH(k1) BUCKETS 32;
+    ```
+10. Create 2 colocate join table.
 
     ```
     CREATE TABLE `t1` (
@@ -657,7 +682,7 @@ Syntax:
     );
     ```
 
-10. Create a broker table, with file on BOS.
+11. Create a broker table, with file on BOS.
 
     ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -675,7 +700,7 @@ Syntax:
     );
     ```
 
-11. Create a table with a bitmap index 
+12. Create a table with a bitmap index 
 
     ```
     CREATE TABLE example_db.table_hash
@@ -692,7 +717,7 @@ Syntax:
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
     
-12. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
+13. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
 
     ```
     [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
@@ -722,7 +747,7 @@ Syntax:
         "dynamic_partition.buckets" = "32"
          );
      ```
-13. Create a table with rollup index
+14. Create a table with rollup index
 ```
     CREATE TABLE example_db.rolup_index_table
     (
@@ -742,7 +767,7 @@ Syntax:
     PROPERTIES("replication_num" = "3");
 ```
 
-14. Create a inmemory table:
+15. Create a inmemory table:
 
 ```
     CREATE TABLE example_db.table_hash
@@ -760,7 +785,7 @@ Syntax:
     PROPERTIES ("in_memory"="true");
 ```
 
-15. Create a hive external table
+16. Create a hive external table
 ```
     CREATE TABLE example_db.table_hive
     (
@@ -777,7 +802,7 @@ Syntax:
     );
 ```
 
-16. Specify the replica distribution of the table through replication_allocation
+17. Specify the replica distribution of the table through replication_allocation
 
 ```	
     CREATE TABLE example_db.table_hash

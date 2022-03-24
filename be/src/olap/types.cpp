@@ -16,6 +16,7 @@
 // under the License.
 
 #include "olap/types.h"
+
 #include <memory>
 
 namespace doris {
@@ -83,6 +84,7 @@ ScalarTypeInfoResolver::ScalarTypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_STRING>();
     add_mapping<OLAP_FIELD_TYPE_HLL>();
     add_mapping<OLAP_FIELD_TYPE_OBJECT>();
+    add_mapping<OLAP_FIELD_TYPE_QUANTILE_STATE>();
 }
 
 ScalarTypeInfoResolver::~ScalarTypeInfoResolver() {}
@@ -127,7 +129,7 @@ public:
 
     std::shared_ptr<const TypeInfo> get_type_info(const TabletColumn& column) {
         DCHECK(column.get_subtype_count() == 1) << "more than 1 child type.";
-        const auto &sub_column = column.get_sub_column(0);
+        const auto& sub_column = column.get_sub_column(0);
         if (is_scalar_type(sub_column.type())) {
             return get_type_info(sub_column.type());
         } else {
@@ -136,7 +138,8 @@ public:
     }
 
     std::shared_ptr<const TypeInfo> get_type_info(const segment_v2::ColumnMetaPB& column_meta_pb) {
-        DCHECK(column_meta_pb.children_columns_size() >= 1 && column_meta_pb.children_columns_size() <= 3)
+        DCHECK(column_meta_pb.children_columns_size() >= 1 &&
+               column_meta_pb.children_columns_size() <= 3)
                 << "more than 3 children or no children.";
         const auto& child_type = column_meta_pb.children_columns(0);
         if (is_scalar_type((FieldType)child_type.type())) {
@@ -149,9 +152,8 @@ public:
 private:
     template <FieldType item_type>
     void add_mapping() {
-        _type_mapping.emplace(
-                item_type,
-                std::shared_ptr<const TypeInfo>(new ArrayTypeInfo(get_scalar_type_info(item_type))));
+        _type_mapping.emplace(item_type, std::shared_ptr<const TypeInfo>(new ArrayTypeInfo(
+                                                 get_scalar_type_info(item_type))));
     }
 
     // item_type_info -> list_type_info

@@ -169,7 +169,10 @@ under the License.
     9. 导入含有BITMAP列的表，可以是表中的列或者数据中的列用于生成BITMAP列，也可以使用bitmap_empty填充空的Bitmap
         curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
-    10. 简单模式，导入json数据
+    10. 导入含有QUANTILE_STATE列的表，可以是表中的列或者数据中的列用于生成QUANTILE_STATE列，也可以使用to_quantile_state 函数将**数值类型**的原始数据转化为**QUANTILE_STATE**类型, 其中2048是可以选参数 代表 TDigest 算法的精度，有效值为[2048,10000],数值越大精度越高，默认2048 
+        curl --location-trusted -u root -H "columns: k1, k2, v1, v2, v1=to_quantile_state(v1, 2048)" -T testData http://host:port/api/testDb/testTbl/_stream_load
+
+    11. 简单模式，导入json数据
          表结构： 
 
            `category` varchar(512) NULL COMMENT "",
@@ -185,7 +188,7 @@ under the License.
             {"category":"Java","author":"avc","title":"Effective Java","price":95}
             {"category":"Linux","author":"avc","title":"Linux kernel","price":195}    
 
-    11. 匹配模式，导入json数据
+    12. 匹配模式，导入json数据
        json数据格式：
            [
            {"category":"xuxb111","author":"1avc","title":"SayingsoftheCentury","price":895},
@@ -198,7 +201,7 @@ under the License.
            1）如果json数据是以数组开始，并且数组中每个对象是一条记录，则需要将strip_outer_array设置成true，表示展平数组。
            2）如果json数据是以数组开始，并且数组中每个对象是一条记录，在设置jsonpath时，我们的ROOT节点实际上是数组中对象。
 
-    12. 用户指定json根节点
+    13. 用户指定json根节点
        json数据格式:
             {
             "RECORDS":[
@@ -210,12 +213,12 @@ under the License.
         通过指定jsonpath进行精准导入，例如只导入category、author、price三个属性  
          curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
-    13. 删除与这批导入key 相同的数据
+    14. 删除与这批导入key 相同的数据
          curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
-    14. 将这批数据中与flag 列为ture 的数据相匹配的列删除，其他行正常追加
+    15. 将这批数据中与flag 列为ture 的数据相匹配的列删除，其他行正常追加
          curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1"  -T testData http://host:port/api/testDb/testTbl/_stream_load
          
-    15. 导入数据到含有sequence列的UNIQUE_KEYS表中
+    16. 导入数据到含有sequence列的UNIQUE_KEYS表中
         curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/_stream_load
 
 ## keyword
