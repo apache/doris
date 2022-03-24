@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# explode_bitmap
+# explode_numbers
 
 ## description
 
