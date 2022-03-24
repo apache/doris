@@ -217,7 +217,6 @@ struct ProcessHashTableProbe {
             column->replicate(&_items_counts[0], size, *mcol[i]);
         }
     }
-
     // Only process the join with no other join conjunt, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
@@ -333,7 +332,6 @@ struct ProcessHashTableProbe {
         {
             SCOPED_TIMER(_probe_side_output_timer);
             probe_side_output_column(mcol, right_col_idx, current_offset);
-
         }
 
         output_block->swap(mutable_block.to_block());
