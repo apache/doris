@@ -123,6 +123,8 @@ ChunkAllocator::ChunkAllocator(size_t reserve_limit)
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
+    // After the ChunkAllocator is created in the main thread, the main thread will not switch to the
+    // chunk allocator mem tracker again, so manually clear the untracked mem in tls.
     thread_local_ctx.get()->_thread_mem_tracker_mgr->clear_untracked_mems();
 
     _chunk_allocator_metric_entity =

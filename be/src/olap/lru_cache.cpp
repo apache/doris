@@ -449,6 +449,8 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
         _shards[s] = new LRUCache(type);
         _shards[s]->set_capacity(per_shard);
     }
+    // After the lru cache is created in the main thread, the main thread will not switch to the
+    // lru cache mem tracker again, so manually clear the untracked mem in tls.
     thread_local_ctx.get()->_thread_mem_tracker_mgr->clear_untracked_mems();
 
     _entity = DorisMetrics::instance()->metric_registry()->register_entity(

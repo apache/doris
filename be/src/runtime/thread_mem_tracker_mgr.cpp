@@ -76,7 +76,7 @@ void ThreadMemTrackerMgr::exceeded(int64_t mem_usage, Status st) {
     if (_consume_err_cb.cb_func != nullptr) {
         _consume_err_cb.cb_func();
     }
-    if (_task_id != "") {
+    if (is_attach_task()) {
         if (_consume_err_cb.cancel_task == true) {
             exceeded_cancel_task(rst.to_string());
         } else {

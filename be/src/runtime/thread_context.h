@@ -38,6 +38,9 @@
 #define GLOBAL_STOP_THREAD_LOCAL_MEM_TRACKER() \
     auto VARNAME_LINENUM(stop_tracker) = StopThreadMemTracker(false)
 // Switch thread mem tracker during task execution.
+// After the non-query thread switches the mem tracker, if the thread will not switch the mem
+// tracker again in the short term, can consider manually clear_untracked_mems.
+// The query thread will automatically clear_untracked_mems when detach_task.
 #define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
     auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker, false)
 #define SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
