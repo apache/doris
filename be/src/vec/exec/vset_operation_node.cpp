@@ -17,6 +17,7 @@
 
 #include "vec/exec/vset_operation_node.h"
 
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "vec/exprs/vexpr.h"
 namespace doris {
@@ -228,6 +229,8 @@ void VSetOperationNode::hash_table_init() {
 //build a hash table from child(0)
 Status VSetOperationNode::hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(0)->open(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(
+                "Vec Set Operation Node, while constructing the hash table");
     Block block;
     MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
 
@@ -244,7 +247,6 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
         _hash_table_mem_tracker->consume(allocated_bytes);
         _mem_used += allocated_bytes;
 
-        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Set Operation Node, while getting next from the child 0.");
         if (block.rows() != 0) { mutable_block.merge(block); }
 
         // make one block for each 4 gigabytes
@@ -254,7 +256,6 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
             RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
-            RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
             mutable_block = MutableBlock();
             ++index;
             last_mem_used = _mem_used;
@@ -263,7 +264,6 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
 
     _build_blocks.emplace_back(mutable_block.to_block());
     RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
-    RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Set Operation Node, while constructing the hash table.");
     return Status::OK();
 }
 

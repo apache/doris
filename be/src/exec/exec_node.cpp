@@ -57,6 +57,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -208,6 +209,7 @@ Status ExecNode::prepare(RuntimeState* state) {
     _mem_tracker = MemTracker::create_tracker(-1, "ExecNode:" + _runtime_profile->name(),
                                               state->instance_mem_tracker(),
                                               MemTrackerLevel::VERBOSE, _runtime_profile.get());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     _expr_mem_tracker = MemTracker::create_tracker(-1, "ExecNode:Exprs:" + _runtime_profile->name(),
                                                    _mem_tracker);
 
@@ -226,6 +228,7 @@ Status ExecNode::prepare(RuntimeState* state) {
 }
 
 Status ExecNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));

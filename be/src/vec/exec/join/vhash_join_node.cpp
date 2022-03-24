@@ -20,6 +20,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
+#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "vec/core/materialize_block.h"
 #include "vec/exprs/vexpr.h"
@@ -921,6 +922,7 @@ Status HashJoinNode::open(RuntimeState* state) {
 
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Hash join, while constructing the hash table.");
     SCOPED_TIMER(_build_timer);
     MutableBlock mutable_block(child(1)->row_desc().tuple_descriptors());
 
@@ -936,7 +938,6 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
         RETURN_IF_ERROR(child(1)->get_next(state, &block, &eos));
         _hash_table_mem_tracker->consume(block.allocated_bytes());
         _mem_used += block.allocated_bytes();
-        RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Hash join, while getting next from the child 1.");
 
         if (block.rows() != 0) { mutable_block.merge(block); }
 
@@ -947,7 +948,6 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
             RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
-            RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
 
             mutable_block = MutableBlock();
             ++index;
@@ -957,7 +957,6 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
 
     _build_blocks.emplace_back(mutable_block.to_block());
     RETURN_IF_ERROR(_process_build_block(state, _build_blocks[index], index));
-    RETURN_IF_INSTANCE_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
 
     return std::visit(
             [&](auto&& arg) -> Status {
