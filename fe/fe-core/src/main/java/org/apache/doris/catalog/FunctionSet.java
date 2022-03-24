@@ -1600,6 +1600,9 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
 
             // vectorized
             for (Type kt : Type.getSupportedTypes()) {
+                if (kt.isNull()) {
+                    continue;
+                }
                 addBuiltin(AggregateFunction.createBuiltin("max_by", Lists.newArrayList(t, kt), t, Type.VARCHAR,
                         "", "", "", "", "", null, "",
                         true, true, false, true));
