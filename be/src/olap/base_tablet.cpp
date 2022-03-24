@@ -17,6 +17,7 @@
 
 #include "olap/base_tablet.h"
 
+#include "env/env_remote_mgr.h"
 #include "gutil/strings/substitute.h"
 #include "olap/data_dir.h"
 #include "util/doris_metrics.h"
@@ -69,14 +70,9 @@ void BaseTablet::_gen_tablet_path() {
         root_path_desc.filepath = _data_dir->path_desc().filepath;
         root_path_desc.storage_name = _storage_param.storage_name();
         root_path_desc.storage_medium = fs::fs_util::get_t_storage_medium(_storage_param.storage_medium());
-        if (_data_dir->is_remote()) {
-            switch (root_path_desc.storage_medium) {
-                case TStorageMedium::S3:
-                default:
-                {
-                    root_path_desc.remote_path = _storage_param.s3_storage_param().root_path();
-                }
-            }
+        if (_data_dir->is_remote() && !Env::get_remote_mgr()->get_root_path(
+                _storage_param.storage_name(), &(root_path_desc.remote_path)).ok()) {
+            LOG(WARNING) << "get_root_path failed for storage_name: " << _storage_param.storage_name();
         }
         FilePathDescStream desc_s;
         desc_s << root_path_desc << DATA_PREFIX;

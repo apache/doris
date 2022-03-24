@@ -38,6 +38,9 @@ public:
     Status create_remote_storage(const StorageParamPB& storage_param);
 
     Status get_storage_param(const std::string& storage_name, StorageParamPB* storage_param);
+
+    Status get_root_path(const std::string& storage_name, std::string* root_path);
+
 private:
     Status _create_remote_storage_internal(const StorageParamPB& storage_param);
     Status _check_exist(const StorageParamPB& storage_param_pb);

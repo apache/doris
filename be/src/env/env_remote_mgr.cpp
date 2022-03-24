@@ -129,6 +129,21 @@ Status RemoteEnvMgr::get_storage_param(const std::string& storage_name, StorageP
     return Status::OK();
 }
 
+Status RemoteEnvMgr::get_root_path(const std::string& storage_name, std::string* root_path) {
+    ReadLock rdlock(&_remote_env_lock);
+    if (_remote_env_map.find(storage_name) == _remote_env_map.end()) {
+        return Status::InternalError("storage_name not exist: " + storage_name);
+    }
+    switch (_storage_param_map[storage_name].storage_medium()) {
+        case TStorageMedium::S3:
+        default:
+        {
+            *root_path = _storage_param_map[storage_name].s3_storage_param().root_path();
+        }
+    }
+    return Status::OK();
+}
+
 Status RemoteEnvMgr::_check_exist(const StorageParamPB& storage_param_pb) {
     StorageParamPB old_storage_param;
     RETURN_IF_ERROR(get_storage_param(storage_param_pb.storage_name(), &old_storage_param));

@@ -797,17 +797,10 @@ void DataDir::disks_compaction_num_increment(int64_t delta) {
 OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     OLAPStatus res = OLAP_SUCCESS;
     FilePathDesc storage_root_desc = _path_desc;
-    StorageParamPB storage_param;
-    if (is_remote()) {
-        RETURN_WITH_WARN_IF_ERROR(Env::get_remote_mgr()->get_storage_param(segment_path_desc.storage_name, &storage_param),
-                                  OLAP_ERR_OTHER_ERROR, "get_storage_param failed for storage_name: " + segment_path_desc.storage_name);
-    }
-    switch (storage_param.storage_medium()) {
-        case TStorageMedium::S3:
-        default:
-        {
-            storage_root_desc.remote_path = storage_param.s3_storage_param().root_path();
-        }
+    if (is_remote() && !Env::get_remote_mgr()->get_root_path(
+            segment_path_desc.storage_name, &(storage_root_desc.remote_path)).ok()) {
+        LOG(WARNING) << "get_root_path failed for storage_name: " << segment_path_desc.storage_name;
+        return OLAP_ERR_OTHER_ERROR;
     }
 
     // 1. get timestamp string
@@ -848,8 +841,27 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     }
     lock.unlock();
 
-    // 3. move remote file to trash if needed
+
+    // 3. create target dir, or the rename() function will fail.
+    string trash_local_file = trash_local_file_stream.str();
+    std::filesystem::path trash_local_path(trash_local_file);
+    string trash_local_dir = trash_local_path.parent_path().string();
+    if (!FileUtils::check_exist(trash_local_dir) && !FileUtils::create_dir(trash_local_dir).ok()) {
+        OLAP_LOG_WARNING("delete file failed. due to mkdir failed. [file=%s new_dir=%s]",
+                         segment_path_desc.filepath.c_str(), trash_local_dir.c_str());
+        return OLAP_ERR_OS_ERROR;
+    }
+
+    // 4. move remote file to trash if needed
     if (is_remote()) {
+        std::string trash_storage_name_path = trash_root_desc_s.path_desc().filepath + "/" + STORAGE_NAME;
+        Status st = env_util::write_string_to_file(
+                Env::Default(), Slice(segment_path_desc.storage_name), trash_storage_name_path);
+        if (!st.ok()) {
+            LOG(WARNING) << "fail to write storage_name to trash path: " << trash_storage_name_path
+                         << ", error:" << st.to_string();
+            return OLAP_ERR_OS_ERROR;
+        }
         std::shared_ptr<Env> env = Env::get_env(segment_path_desc);
         if (env == nullptr) {
             LOG(WARNING) << "env is invalid: " << segment_path_desc.storage_name;
@@ -876,16 +888,6 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
             LOG(WARNING) << "File check exist error: " << segment_path_desc.remote_path;
             return OLAP_ERR_OS_ERROR;
         }
-    }
-
-    // 4. create target dir, or the rename() function will fail.
-    string trash_local_file = trash_local_file_stream.str();
-    std::filesystem::path trash_local_path(trash_local_file);
-    string trash_local_dir = trash_local_path.parent_path().string();
-    if (!FileUtils::check_exist(trash_local_dir) && !FileUtils::create_dir(trash_local_dir).ok()) {
-        OLAP_LOG_WARNING("delete file failed. due to mkdir failed. [file=%s new_dir=%s]",
-                         segment_path_desc.filepath.c_str(), trash_local_dir.c_str());
-        return OLAP_ERR_OS_ERROR;
     }
 
     // 5. move file to trash

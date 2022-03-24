@@ -26,6 +26,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
+#include <boost/algorithm/string/trim.hpp>
 #include <cstdio>
 #include <filesystem>
 #include <new>
@@ -36,6 +37,8 @@
 #include "agent/cgroups_mgr.h"
 #include "agent/task_worker_pool.h"
 #include "env/env.h"
+#include "env/env_remote_mgr.h"
+#include "env/env_util.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
@@ -693,7 +696,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         FilePathDesc trash_path_desc = trash_path_desc_s.path_desc();
         curr_res = _do_sweep(trash_path_desc, local_now, curr_usage > guard_space ? 0 : trash_expire);
         if (curr_res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to sweep trash. [path=%s" << trash_path_desc.filepath
+            LOG(WARNING) << "failed to sweep trash. path=" << trash_path_desc.filepath
                          << ", err_code=" << curr_res;
             res = curr_res;
         }
@@ -816,22 +819,35 @@ OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const ti
 
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
-                if (scan_root_desc.is_remote()) {
-                    std::filesystem::path local_path(path_name);
-                    std::stringstream remote_file_stream;
-                    remote_file_stream << scan_root_desc.remote_path << "/" << local_path.filename().string();
-                    std::shared_ptr<Env> env = Env::get_env(scan_root_desc);
-                    if (env == nullptr) {
-                        LOG(WARNING) << "env is invalid: " << scan_root_desc.debug_string();
-                        res = OLAP_ERR_OS_ERROR;
+                std::string storage_name_path = path_name + "/" + STORAGE_NAME;
+                if (scan_root_desc.is_remote() && FileUtils::check_exist(storage_name_path)) {
+                    faststring buf;
+                    if (!env_util::read_file_to_string(Env::Default(), storage_name_path, &buf).ok()) {
+                        LOG(WARNING) << "read storage_name failed: " << storage_name_path;
                         continue;
                     }
-                    Status ret = env->delete_dir(remote_file_stream.str());
-                    if (!ret.ok()) {
-                        LOG(WARNING) << "fail to remove file or directory. path=" << remote_file_stream.str()
-                                     << ", error=" << ret.to_string();
-                        res = OLAP_ERR_OS_ERROR;
-                        continue;
+                    FilePathDesc remote_path_desc = scan_root_desc;
+                    remote_path_desc.storage_name = buf.ToString();
+                    boost::algorithm::trim(remote_path_desc.storage_name);
+                    std::shared_ptr<Env> env = Env::get_env(remote_path_desc);
+                    if (env != nullptr) {
+                        std::string remote_root_path;
+                        if (!Env::get_remote_mgr()->get_root_path(
+                                remote_path_desc.storage_name, &remote_root_path)) {
+                            LOG(WARNING) << "read storage root_path failed: " << remote_path_desc.storage_name;
+                            continue;
+                        }
+                        remote_path_desc.remote_path = remote_root_path + TRASH_PREFIX;
+                        std::filesystem::path local_path(path_name);
+                        std::stringstream remote_file_stream;
+                        remote_file_stream << remote_path_desc.remote_path << "/" << local_path.filename().string();
+                        Status ret = env->delete_dir(remote_file_stream.str());
+                        if (!ret.ok()) {
+                            LOG(WARNING) << "fail to remove file or directory. path=" << remote_file_stream.str()
+                                         << ", error=" << ret.to_string();
+                            res = OLAP_ERR_OS_ERROR;
+                            continue;
+                        }
                     }
                 }
                 Status ret = FileUtils::remove_all(path_name);
