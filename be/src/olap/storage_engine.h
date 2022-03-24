@@ -322,7 +322,7 @@ private:
 
     static StorageEngine* _s_instance;
 
-    Mutex _gc_mutex;
+    std::mutex _gc_mutex;
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 

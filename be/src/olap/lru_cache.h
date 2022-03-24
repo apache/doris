@@ -339,7 +339,7 @@ private:
     size_t _capacity = 0;
 
     // _mutex protects the following state.
-    Mutex _mutex;
+    std::mutex _mutex;
     size_t _usage = 0;
 
     // Dummy head of LRU list.
