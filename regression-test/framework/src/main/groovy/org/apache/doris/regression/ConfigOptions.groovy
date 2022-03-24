@@ -43,6 +43,7 @@ class ConfigOptions {
     static Option genOutOpt
     static Option forceGenOutOpt
     static Option parallelOpt
+    static Option actionParallelOpt
     static Option randomOrderOpt
     static Option timesOpt
     static Option withOutLoadDataOpt
@@ -180,6 +181,14 @@ class ConfigOptions {
                 .longOpt("parallel")
                 .desc("the num of threads running test")
                 .build()
+        actionParallelOpt = Option.builder("actionParallel")
+                .argName("parallel")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("actionParallel")
+                .desc("the num of threads running for thread action")
+                .build()
         randomOrderOpt = Option.builder("randomOrder")
                 .required(false)
                 .hasArg(false)
@@ -219,6 +228,7 @@ class ConfigOptions {
                 .addOption(confFileOpt)
                 .addOption(forceGenOutOpt)
                 .addOption(parallelOpt)
+                .addOption(actionParallelOpt)
                 .addOption(randomOrderOpt)
                 .addOption(withOutLoadDataOpt)
 

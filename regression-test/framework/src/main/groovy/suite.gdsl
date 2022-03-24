@@ -1,0 +1,83 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// GDSL guide: https://confluence.jetbrains.com/display/GRVY/Scripting+IDE+for+DSL+awareness
+
+def suiteContext = context(
+    pathRegexp: ".*/regression-test/suites/.*",
+    filetypes: ["groovy"]
+)
+
+def suiteClassName = "org.apache.doris.regression.suite.Suite"
+
+def bindAction = { actionName, actionClassName ->
+    def closureBody = context(scope: closureScope(isArg: false))
+    contributor([closureBody]) {
+        if (enclosingCall(actionName)) {
+            def actionClass = findClass(actionClassName)
+            delegatesTo(actionClass)
+        }
+    }
+}
+
+bindAction("test", "org.apache.doris.regression.action.TestAction")
+bindAction("explain", "org.apache.doris.regression.action.ExplainAction")
+bindAction("streamLoad", "org.apache.doris.regression.action.StreamLoadAction")
+
+// bind qt_xxx and order_qt_xxx methods
+contributor([suiteContext]) {
+    def place = getPlace()
+    if (place == null || !place.getClass().getName().contains("GrReferenceExpressionImpl")) {
+        return
+    }
+    def invokeMethodName = place.getQualifiedReferenceName()
+    if (invokeMethodName == null) {
+        return
+    }
+    if (invokeMethodName.startsWith("qt_") || invokeMethodName.startsWith("order_qt_")) {
+        def suiteClass = findClass(suiteClassName)
+        def quickTestMethods = suiteClass.findMethodsByName("quickTest")
+        method(name: invokeMethodName, bindsTo: quickTestMethods[0])
+    }
+}
+
+contributor([suiteContext]) {
+    // bind assertXxx
+    def assertionsClass = findClass("org.junit.jupiter.api.Assertions")
+    delegatesTo(assertionsClass)
+
+    if (enclosingCall("check") ||
+            (!enclosingCall("test") &&
+            !enclosingCall("explain") &&
+            !enclosingCall("streamLoad"))) {
+        // bind other suite method and field
+        def suiteClass = findClass(suiteClassName)
+        delegatesTo(suiteClass)
+
+        // bind try_xxx
+        suiteClass.methods.each { m ->
+            if (m.isConstructor()) {
+                return
+            }
+            def parameters = m.getParameterList().getParameters().collectEntries { p ->
+                [p.name, p.getType().getPresentableText()]
+            }
+            def returnType = m.returnType.getPresentableText()
+            method(name: "try_${m.name}", bindsTo: m, params: parameters, type: returnType)
+        }
+    }
+}

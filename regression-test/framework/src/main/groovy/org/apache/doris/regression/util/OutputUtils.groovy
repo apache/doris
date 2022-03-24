@@ -26,7 +26,7 @@ import org.apache.commons.io.LineIterator
 
 @CompileStatic
 class OutputUtils {
-    static toCsvString(List<Object> row) {
+    static String toCsvString(List<Object> row) {
         StringWriter writer = new StringWriter()
         def printer = new CSVPrinter(new PrintWriter(writer), CSVFormat.MYSQL)
         for (int i = 0; i < row.size(); ++i) {
@@ -35,17 +35,13 @@ class OutputUtils {
         return writer.toString()
     }
 
-    static assertEquals(Iterator<List<String>> expect, Iterator<List<Object>> real, String info) {
+    static String checkOutput(Iterator<List<String>> expect, Iterator<List<Object>> real, String info) {
         while (true) {
             if (expect.hasNext() && !real.hasNext()) {
-                def res = "${info}, line not match, real line is empty, but expect is ${expect.next()}"
-                return res
-                // throw new IllegalStateException("${info}, line not match, real line is empty, but expect is ${expect.next()}")
+                return "${info}, result mismatch, real line is empty, but expect is ${expect.next()}"
             }
             if (!expect.hasNext() && real.hasNext()) {
-                def res = "${info}, line not match, expect line is empty, but real is ${toCsvString(real.next())}"
-                return res
-                // throw new IllegalStateException("${info}, line not match, expect line is empty, but real is ${toCsvString(real.next())}")
+                return "${info}, result mismatch, expect line is empty, but real is ${toCsvString(real.next())}"
             }
             if (!expect.hasNext() && !real.hasNext()) {
                 break
@@ -54,14 +50,12 @@ class OutputUtils {
             def expectCsvString = toCsvString(expect.next() as List<Object>)
             def realCsvString = toCsvString(real.next())
             if (!expectCsvString.equals(realCsvString)) {
-                def res = "${info}, line not match.\nExpect line is: ${expectCsvString}\nBut real is   : ${realCsvString}"
-                return res
-                // throw new IllegalStateException("${info}, line not match.\nExpect line is: ${expectCsvString}\nBut real is   : ${realCsvString}")
+                return "${info}, result mismatch.\nExpect line is: ${expectCsvString}\nBut real is   : ${realCsvString}"
             }
         }
     }
 
-    static CloseableIterator<Iterator<List<String>>> iterator(File file) {
+    static OutputBlocksIterator iterator(File file) {
         def it = new ReusableIterator<String>(new LineIteratorAdaptor(new LineIterator(new FileReader(file))))
         return new OutputBlocksIterator(it)
     }
@@ -103,7 +97,7 @@ class OutputUtils {
             }
         }
 
-        void write(Iterator<List<String>> real, String comment) {
+        synchronized void write(Iterator<List<String>> real, String comment) {
             if (writer != null) {
                 writer.println("-- !${comment} --")
                 while (real.hasNext()) {
@@ -113,16 +107,40 @@ class OutputUtils {
             }
         }
 
-        void close() {
+        synchronized void close() {
             if (writer != null) {
                 writer.close()
             }
         }
     }
 
-    static class OutputBlocksIterator implements CloseableIterator<Iterator<List<String>>> {
+    static class TagBlockIterator implements Iterator<List<String>> {
+        private final String tag
+        private Iterator<List<String>> it
+
+        TagBlockIterator(String tag, Iterator<List<String>> it) {
+            this.tag = tag
+            this.it = it
+        }
+
+        String getTag() {
+            return tag
+        }
+
+        @Override
+        boolean hasNext() {
+            return it.hasNext()
+        }
+
+        @Override
+        List<String> next() {
+            return it.next()
+        }
+    }
+
+    static class OutputBlocksIterator implements CloseableIterator<TagBlockIterator> {
         private ReusableIterator<String> lineIt
-        private CsvParserIterator cache
+        private TagBlockIterator cache
         private boolean cached
 
         OutputBlocksIterator(ReusableIterator<String> lineIt) {
@@ -146,17 +164,21 @@ class OutputUtils {
                     return false
                 }
 
+                String tag = null
                 // find next comment block
                 while (true) {
                     String blockComment = lineIt.next() // skip block comment, e.g. -- !qt_sql_1 --
                     if (blockComment.startsWith("-- !") && blockComment.endsWith(" --")) {
+                        if (blockComment.startsWith("-- !")) {
+                            tag = blockComment.substring("-- !".length(), blockComment.length() - " --".length()).trim()
+                        }
                         break
                     }
                     if (!lineIt.hasNext()) {
                         return false
                     }
                 }
-                cache = new CsvParserIterator(new SkipLastEmptyLineIterator(new OutputBlockIterator(lineIt)))
+                cache = new TagBlockIterator(tag, new CsvParserIterator(new SkipLastEmptyLineIterator(new OutputBlockIterator(lineIt))))
                 cached = true
                 return true
             } else {
@@ -164,8 +186,23 @@ class OutputUtils {
             }
         }
 
+        boolean hasNextTagBlock(String tag) {
+            while (hasNext()) {
+                if (Objects.equals(tag, cache.tag)) {
+                    return true
+                }
+
+                // drain out
+                def it = next()
+                while (it.hasNext()) {
+                    it.next()
+                }
+            }
+            return false
+        }
+
         @Override
-        Iterator<List<String>> next() {
+        TagBlockIterator next() {
             if (hasNext()) {
                 cached = false
                 return cache

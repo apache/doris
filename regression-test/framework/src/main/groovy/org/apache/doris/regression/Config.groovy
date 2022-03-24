@@ -57,6 +57,7 @@ class Config {
     public Set<String> groups = new HashSet<>()
     public InetSocketAddress feHttpInetSocketAddress
     public Integer parallel
+    public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
 
@@ -124,6 +125,7 @@ class Config {
         config.generateOutputFile = cmd.hasOption(genOutOpt)
         config.forceGenerateOutputFile = cmd.hasOption(forceGenOutOpt)
         config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "1"))
+        config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
@@ -226,6 +228,11 @@ class Config {
             log.info("Set parallel to 1 because not specify.".toString())
         }
 
+        if (config.actionParallel == null) {
+            config.actionParallel = 10
+            log.info("Set actionParallel to 10 because not specify.".toString())
+        }
+
         if (config.randomOrder == null) {
             config.randomOrder = false
             log.info("set randomOrder to false because not specify.".toString())
@@ -263,15 +270,15 @@ class Config {
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
             if (jdbcUrl.contains("?")) {
-                // e.g: jdbc:mysql://locahost:8080/?a=b
+                // e.g: jdbc:mysql://localhost:8080/?a=b
                 urlWithDb = jdbcUrl.substring(0, jdbcUrl.lastIndexOf("/"))
                 urlWithDb += ("/" + defaultDb) + jdbcUrl.substring(jdbcUrl.lastIndexOf("?"))
             } else {
-                // e.g: jdbc:mysql://locahost:8080/
+                // e.g: jdbc:mysql://localhost:8080/
                 urlWithDb += defaultDb
             }
         } else {
-            // e.g: jdbc:mysql://locahost:8080
+            // e.g: jdbc:mysql://localhost:8080
             urlWithDb += ("/" + defaultDb)
         }
         this.jdbcUrl = urlWithDb
