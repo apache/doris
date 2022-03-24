@@ -209,7 +209,7 @@ void LRUCache::_lru_append(LRUHandle* list, LRUHandle* e) {
 }
 
 Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
-    MutexLock l(&_mutex);
+    std::lock_guard<std::mutex> l(_mutex);
     ++_lookup_count;
     LRUHandle* e = _table.lookup(key, hash);
     if (e != nullptr) {
@@ -232,7 +232,7 @@ void LRUCache::release(Cache::Handle* handle) {
     LRUHandle* e = reinterpret_cast<LRUHandle*>(handle);
     bool last_ref = false;
     {
-        MutexLock l(&_mutex);
+        std::lock_guard<std::mutex> l(_mutex);
         last_ref = _unref(e);
         if (last_ref) {
             _usage -= e->total_size;
@@ -309,7 +309,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     memcpy(e->key_data, key.data(), key.size());
     LRUHandle* to_remove_head = nullptr;
     {
-        MutexLock l(&_mutex);
+        std::lock_guard<std::mutex> l(_mutex);
 
         // Free the space following strict LRU policy until enough space
         // is freed or the lru list is empty
@@ -348,7 +348,7 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash, MemTracker* tracker) {
     LRUHandle* e = nullptr;
     bool last_ref = false;
     {
-        MutexLock l(&_mutex);
+        std::lock_guard<std::mutex> l(_mutex);
         e = _table.remove(key, hash);
         if (e != nullptr) {
             last_ref = _unref(e);
@@ -371,7 +371,7 @@ void LRUCache::erase(const CacheKey& key, uint32_t hash, MemTracker* tracker) {
 int64_t LRUCache::prune() {
     LRUHandle* to_remove_head = nullptr;
     {
-        MutexLock l(&_mutex);
+        std::lock_guard<std::mutex> l(_mutex);
         while (_lru_normal.next != &_lru_normal) {
             LRUHandle* old = _lru_normal.next;
             _evict_one_entry(old);
@@ -398,7 +398,7 @@ int64_t LRUCache::prune() {
 int64_t LRUCache::prune_if(CacheValuePredicate pred) {
     LRUHandle* to_remove_head = nullptr;
     {
-        MutexLock l(&_mutex);
+        std::lock_guard<std::mutex> l(_mutex);
         LRUHandle* p = _lru_normal.next;
         while (p != &_lru_normal) {
             LRUHandle* next = p->next;

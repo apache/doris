@@ -55,46 +55,6 @@ namespace doris {
         }                                                                     \
     } while (0)
 
-#define PTHREAD_RWLOCK_INIT_WITH_LOG(lockptr, param)                         \
-    do {                                                                     \
-        int lock_ret = 0;                                                    \
-        if (0 != (lock_ret = pthread_rwlock_init(lockptr, param))) {         \
-            LOG(FATAL) << "fail to init rwlock. err=" << strerror(lock_ret); \
-        }                                                                    \
-    } while (0)
-
-#define PTHREAD_RWLOCK_DESTROY_WITH_LOG(lockptr)                                \
-    do {                                                                        \
-        int lock_ret = 0;                                                       \
-        if (0 != (lock_ret = pthread_rwlock_destroy(lockptr))) {                \
-            LOG(FATAL) << "fail to destroy rwlock. err=" << strerror(lock_ret); \
-        }                                                                       \
-    } while (0)
-
-#define PTHREAD_RWLOCK_RDLOCK_WITH_LOG(lockptr)                                   \
-    do {                                                                          \
-        int lock_ret = 0;                                                         \
-        if (0 != (lock_ret = pthread_rwlock_rdlock(lockptr))) {                   \
-            LOG(FATAL) << "fail to lock reader lock. err=" << strerror(lock_ret); \
-        }                                                                         \
-    } while (0)
-
-#define PTHREAD_RWLOCK_WRLOCK_WITH_LOG(lockptr)                                   \
-    do {                                                                          \
-        int lock_ret = 0;                                                         \
-        if (0 != (lock_ret = pthread_rwlock_wrlock(lockptr))) {                   \
-            LOG(FATAL) << "fail to lock writer lock. err=" << strerror(lock_ret); \
-        }                                                                         \
-    } while (0)
-
-#define PTHREAD_RWLOCK_UNLOCK_WITH_LOG(lockptr)                                \
-    do {                                                                       \
-        int lock_ret = 0;                                                      \
-        if (0 != (lock_ret = pthread_rwlock_unlock(lockptr))) {                \
-            LOG(FATAL) << "fail to unlock rwlock. err=" << strerror(lock_ret); \
-        }                                                                      \
-    } while (0)
-
 Mutex::Mutex() {
     PTHREAD_MUTEX_INIT_WITH_LOG(&_lock, nullptr);
 }
