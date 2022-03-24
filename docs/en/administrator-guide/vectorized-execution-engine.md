@@ -101,7 +101,7 @@ After the vectorized execution engine is enabled,  `V` mark will be added before
 
 ## Some differences from the row-store execution engine
 
-In most scenarios, users only need to turn on the seesion variable by default to transparently enable the vectorized execution engine and improve the performance of SQL execution. However, **the current vectorized execution engine is different from the original row-stored execution engine in the following minor details, which requires users to know**. This part of the difference is divided into two categories
+In most scenarios, users only need to turn on the session variable by default to transparently enable the vectorized execution engine and improve the performance of SQL execution. However, **the current vectorized execution engine is different from the original row-stored execution engine in the following minor details, which requires users to know**. This part of the difference is divided into two categories
 
 * **Type A** : functions that need to be deprecated and deprecated or depended on by the inline execution engine.
 * **Type B**: Not supported on the vectorized execution engine in the short term, but will be supported by development in the future.
