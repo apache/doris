@@ -395,11 +395,8 @@ struct THashJoinNode {
   // equi-join predicate, only use in vec exec engine
   5: optional Exprs.TExpr vother_join_conjunct
 
-  // output column
-  6: optional list<Types.TSlotId> output_slot_ids
-
   // hash output column
-  7: optional list<Types.TSlotId> hash_output_slot_ids
+  6: optional list<Types.TSlotId> hash_output_slot_ids
 }
 
 struct TMergeJoinNode {
@@ -795,6 +792,9 @@ struct TPlanNode {
   40: optional Exprs.TExpr vconjunct
 
   41: optional TTableFunctionNode table_function_node
+
+  // output column
+  42: optional list<Types.TSlotId> output_slot_ids
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

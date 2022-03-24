@@ -660,11 +660,6 @@ public class HashJoinNode extends PlanNode {
         if (votherJoinConjunct != null) {
             msg.hash_join_node.setVotherJoinConjunct(votherJoinConjunct.treeToThrift());
         }
-        if (outputSlotIds != null) {
-            for (SlotId slotId : outputSlotIds) {
-                msg.hash_join_node.addToOutputSlotIds(slotId.asInt());
-            }
-        }
         if (hashOutputSlotIds != null) {
             for (SlotId slotId : hashOutputSlotIds) {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
@@ -701,6 +696,7 @@ public class HashJoinNode extends PlanNode {
         }
         output.append(detailPrefix).append(String.format(
                 "cardinality=%s", cardinality)).append("\n");
+        // todo unify in plan node
         if (outputSlotIds != null) {
             output.append(detailPrefix).append("output slot ids: ");
             for (SlotId slotId : outputSlotIds) {

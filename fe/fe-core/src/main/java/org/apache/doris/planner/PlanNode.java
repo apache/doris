@@ -494,6 +494,11 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         }
 
         msg.compact_data = compactData;
+        if (outputSlotIds != null) {
+            for (SlotId slotId : outputSlotIds) {
+                msg.addToOutputSlotIds(slotId.asInt());
+            }
+        }
         toThrift(msg);
         container.addToNodes(msg);
         if (this instanceof ExchangeNode) {
