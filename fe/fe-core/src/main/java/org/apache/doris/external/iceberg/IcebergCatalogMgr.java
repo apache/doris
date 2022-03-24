@@ -23,14 +23,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.IcebergProperty;
 import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
+import org.apache.doris.external.iceberg.util.IcebergUtils;
 
 import com.google.common.base.Enums;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -204,7 +204,7 @@ public class IcebergCatalogMgr {
 
         // check iceberg table if exists in doris database
         if (!db.createTableWithLock(table, false, stmt.isSetIfNotExists()).first) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exist");
+            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }
         LOG.info("successfully create table[{}-{}]", tableName, table.getId());
     }
