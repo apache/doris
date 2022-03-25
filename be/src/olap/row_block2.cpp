@@ -17,6 +17,7 @@
 
 #include "olap/row_block2.h"
 
+#include <algorithm>
 #include <sstream>
 #include <utility>
 
@@ -190,16 +191,16 @@ Status RowBlockV2::_copy_data_to_column(int cid,
     }
     case OLAP_FIELD_TYPE_STRING: {
         auto column_string = assert_cast<vectorized::ColumnString*>(column);
-
+        size_t limit = config::string_type_length_soft_limit_bytes;
         for (uint16_t j = 0; j < _selected_size; ++j) {
             if (!nullable_mark_array[j]) {
                 uint16_t row_idx = _selection_vector[j];
                 auto slice = reinterpret_cast<const Slice*>(column_block(cid).cell_ptr(row_idx));
-                if (LIKELY(slice->size <= MAX_SIZE_OF_VEC_STRING)) {
+                if (LIKELY(slice->size <= limit)) {
                     column_string->insert_data(slice->data, slice->size);
                 } else {
-                    return Status::NotSupported(
-                            "Not support string len over than 1MB in vec engine.");
+                    return Status::NotSupported(fmt::format(
+                            "Not support string len over than {} in vec engine.", limit));
                 }
             } else {
                 column_string->insert_default();

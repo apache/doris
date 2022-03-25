@@ -22,11 +22,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -58,16 +60,28 @@ public class HashDistributionDesc extends DistributionDesc {
     }
 
     @Override
-    public void analyze(Set<String> cols) throws AnalysisException {
+    public void analyze(Set<String> colSet, List<ColumnDef> columnDefs) throws AnalysisException {
         if (numBucket <= 0) {
             throw new AnalysisException("Number of hash distribution should be larger than zero.");
         }
         if (distributionColumnNames == null || distributionColumnNames.size() == 0) {
             throw new AnalysisException("Number of hash column should be larger than zero.");
         }
+        Set<String> distColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (String columnName : distributionColumnNames) {
-            if (!cols.contains(columnName)) {
+            if (!colSet.contains(columnName)) {
                 throw new AnalysisException("Distribution column(" + columnName + ") doesn't exist.");
+            }
+            if (!distColSet.add(columnName)) {
+                throw new AnalysisException("Duplicated distribution column " + columnName);
+            }
+            for (ColumnDef columnDef : columnDefs) {
+                if (columnDef.getName().equals(columnName)) {
+                    if (columnDef.getType().isScalarType(PrimitiveType.STRING)) {
+                        throw new AnalysisException("String Type should not be used in distribution column["
+                                + columnDef.getName() + "].");
+                    }
+                }
             }
         }
     }
