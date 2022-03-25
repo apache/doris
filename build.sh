@@ -368,31 +368,27 @@ DORIS_OUTPUT=${DORIS_HOME}/output/
 mkdir -p ${DORIS_OUTPUT}
 
 # Copy Frontend and Backend
-if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
-    if [ ${BUILD_FE} -eq 1 ]; then
-        install -d ${DORIS_OUTPUT}/fe/bin ${DORIS_OUTPUT}/fe/conf \
-                   ${DORIS_OUTPUT}/fe/webroot/ ${DORIS_OUTPUT}/fe/lib/ \
-                   ${DORIS_OUTPUT}/fe/spark-dpp/
+if [ ${BUILD_FE} -eq 1 ]; then
+    install -d ${DORIS_OUTPUT}/fe/bin ${DORIS_OUTPUT}/fe/conf \
+               ${DORIS_OUTPUT}/fe/webroot/ ${DORIS_OUTPUT}/fe/lib/
 
-        cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
-        cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
-        rm -rf ${DORIS_OUTPUT}/fe/lib/*
-        cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
-        cp -r -p ${DORIS_HOME}/fe/fe-core/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
-        cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
-        cp -r -p ${DORIS_HOME}/webroot/static ${DORIS_OUTPUT}/fe/webroot/
-        cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
+    cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
+    cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
+    rm -rf ${DORIS_OUTPUT}/fe/lib/*
+    cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/fe/fe-core/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/webroot/static ${DORIS_OUTPUT}/fe/webroot/
 
-        cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/fe/webroot/static/
-        mkdir -p ${DORIS_OUTPUT}/fe/log
-        mkdir -p ${DORIS_OUTPUT}/fe/doris-meta
+    cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/fe/webroot/static/
+    mkdir -p ${DORIS_OUTPUT}/fe/log
+    mkdir -p ${DORIS_OUTPUT}/fe/doris-meta
+fi
 
-    elif [ ${BUILD_SPARK_DPP} -eq 1 ]; then
-        install -d ${DORIS_OUTPUT}/fe/spark-dpp/
-        rm -rf ${DORIS_OUTPUT}/fe/spark-dpp/*
-        cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
-    fi
-
+if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
+    install -d ${DORIS_OUTPUT}/fe/spark-dpp/
+    rm -rf ${DORIS_OUTPUT}/fe/spark-dpp/*
+    cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
 fi
 
 if [ ${BUILD_BE} -eq 1 ]; then
