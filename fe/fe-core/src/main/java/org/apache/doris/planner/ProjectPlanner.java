@@ -41,7 +41,7 @@ public class ProjectPlanner {
     }
 
     public void projectSingleNodePlan(List<Expr> resultExprs, PlanNode root) {
-        Set<SlotId> resultSlotIds = getSlotIds(resultExprs);
+        Set<SlotId> resultSlotIds = getSlotIds(resultExprs, root);
         projectPlanNode(resultSlotIds, root);
     }
 
@@ -65,9 +65,11 @@ public class ProjectPlanner {
         }
     }
 
-    private Set<SlotId> getSlotIds(List<Expr> resultExprs) {
+    private Set<SlotId> getSlotIds(List<Expr> resultExprs, PlanNode root) {
+        List<Expr> resExprs = Expr.substituteList(resultExprs,
+                root.getOutputSmap(), analyzer, false);
         Set<SlotId> result = Sets.newHashSet();
-        for (Expr expr : resultExprs) {
+        for (Expr expr : resExprs) {
             List<SlotId> slotIdList = Lists.newArrayList();
             expr.getIds(null, slotIdList);
             result.addAll(slotIdList);

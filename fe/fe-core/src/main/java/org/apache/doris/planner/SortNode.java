@@ -24,7 +24,6 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
@@ -37,11 +36,11 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -154,20 +153,9 @@ public class SortNode extends PlanNode {
 
     @Override
     public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
-        Set<SlotId> result = Sets.newHashSet();
-        TupleDescriptor sortTupleDesc = info.getSortTupleDescriptor();
-        for (SlotDescriptor slotDescriptor : sortTupleDesc.getSlots()) {
-            if (slotDescriptor.isMaterialized()) {
-                if (slotDescriptor.getSourceExprs().isEmpty()) {
-                    throw new NotImplementedException("Could not find the source slot of sort slot:"
-                            + slotDescriptor.getId());
-                }
-                List<SlotId> sourceSlotIds = Lists.newArrayList();
-                Expr.getIds(slotDescriptor.getSourceExprs(), null, sourceSlotIds);
-                result.addAll(sourceSlotIds);
-            }
-        }
-        return result;
+        List<SlotId> result = Lists.newArrayList();
+        Expr.getIds(resolvedTupleExprs, null, result);
+        return new HashSet<>(result);
     }
 
     @Override
