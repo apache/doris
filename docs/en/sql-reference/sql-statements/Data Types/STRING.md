@@ -27,7 +27,7 @@ under the License.
 # STRING
 ## Description
 STRING (M)
-A variable length string, max legnth is 2147483643(2GB - 4).
+A variable length string, max legnth is 2147483643(2GB - 4). The length of the String type is also limited by the configuration `string_type_length_soft_limit_bytes` of be, the actual maximum length that can be stored take the minimum value of both, the String type can only be used in the value column, not in the key column and the partition and bucket columns
 
 Note: Variable length strings are stored in UTF-8 encoding, so usually English characters occupies 1 byte, and Chinese characters occupies 3 bytes.
 
