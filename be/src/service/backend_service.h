@@ -98,23 +98,6 @@ public:
         _agent_server->publish_cluster_state(result, request);
     }
 
-    virtual void submit_etl_task(TAgentResult& result,
-                                 const TMiniLoadEtlTaskRequest& request) override {
-        VLOG_RPC << "submit_etl_task. request is "
-                 << apache::thrift::ThriftDebugString(request).c_str();
-        _agent_server->submit_etl_task(result, request);
-    }
-
-    virtual void get_etl_status(TMiniLoadEtlStatusResult& result,
-                                const TMiniLoadEtlStatusRequest& request) override {
-        _agent_server->get_etl_status(result, request);
-    }
-
-    virtual void delete_etl_files(TAgentResult& result,
-                                  const TDeleteEtlFilesRequest& request) override {
-        _agent_server->delete_etl_files(result, request);
-    }
-
     // DorisServer service
     virtual void exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                     const TExecPlanFragmentParams& params) override;
