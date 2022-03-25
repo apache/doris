@@ -55,10 +55,10 @@ struct DataDirInfo {
     FilePathDesc path_desc;
     size_t path_hash = 0;
     int64_t disk_capacity = 1; // actual disk capacity
-    int64_t available = 0;     // 可用空间，单位字节
+    int64_t available = 0;     // available space, in bytes unit
     int64_t data_used_capacity = 0;
-    bool is_used = false;                                      // 是否可用标识
-    TStorageMedium::type storage_medium = TStorageMedium::HDD; // 存储介质类型：SSD|HDD
+    bool is_used = false;                                      // whether available mark
+    TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
 };
 
 // Sort DataDirInfo by available space.
@@ -114,8 +114,7 @@ enum DelCondSatisfied {
     DEL_NOT_SATISFIED = 1,     //not satisfy delete condition
     DEL_PARTIAL_SATISFIED = 2, //partially satisfy delete condition
 };
-
-// 定义Field支持的所有数据类型
+// Define all data types supported by Field.
 enum FieldType {
     OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
