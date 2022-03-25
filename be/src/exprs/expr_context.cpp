@@ -28,6 +28,7 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
 #include "util/stack_util.h"
@@ -53,6 +54,7 @@ Status ExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                             const std::shared_ptr<MemTracker>& tracker) {
     DCHECK(!_prepared);
     _mem_tracker = tracker;
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     DCHECK(_pool.get() == nullptr);
     _prepared = true;
     _pool.reset(new MemPool(_mem_tracker.get()));
@@ -64,6 +66,7 @@ Status ExprContext::open(RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     _opened = true;
     // Fragment-local state is only initialized for original contexts. Clones inherit the
     // original's fragment state and only need to have thread-local state initialized.
@@ -110,6 +113,7 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx) {
     DCHECK(_prepared);
     DCHECK(_opened);
     DCHECK(*new_ctx == nullptr);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     *new_ctx = state->obj_pool()->add(new ExprContext(_root));
     (*new_ctx)->_pool.reset(new MemPool(_pool->mem_tracker()));
@@ -130,6 +134,7 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx, Expr* root
     DCHECK(_prepared);
     DCHECK(_opened);
     DCHECK(*new_ctx == nullptr);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     *new_ctx = state->obj_pool()->add(new ExprContext(root));
     (*new_ctx)->_pool.reset(new MemPool(_pool->mem_tracker()));
@@ -147,6 +152,7 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx, Expr* root
 }
 
 void ExprContext::free_local_allocations() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     free_local_allocations(_fn_contexts);
 }
 

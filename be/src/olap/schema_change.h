@@ -242,8 +242,6 @@ private:
     virtual ~SchemaChangeHandler();
     SchemaChangeHandler(const SchemaChangeHandler&) = delete;
     SchemaChangeHandler& operator=(const SchemaChangeHandler&) = delete;
-
-    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
 using RowBlockDeleter = std::function<void(RowBlock*)>;

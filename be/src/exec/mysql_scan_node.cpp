@@ -53,6 +53,7 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -99,6 +100,7 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
 }
 
 Status MysqlScanNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     VLOG_CRITICAL << "MysqlScanNode::Open";
 
@@ -159,6 +161,7 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
 
     // create new tuple buffer for row_batch
     int tuple_buffer_size = row_batch->capacity() * _tuple_desc->byte_size();

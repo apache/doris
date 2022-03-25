@@ -17,7 +17,6 @@
 
 #include "vec/exec/vset_operation_node.h"
 
-#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "vec/exprs/vexpr.h"
 namespace doris {
@@ -115,6 +114,7 @@ Status VSetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status VSetOperationNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(ExecNode::open(state));
     // open result expr lists.
     for (const std::vector<VExprContext*>& exprs : _child_expr_lists) {
@@ -126,6 +126,7 @@ Status VSetOperationNode::open(RuntimeState* state) {
 
 Status VSetOperationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     _hash_table_mem_tracker = MemTracker::create_virtual_tracker(-1, "VSetOperationNode:HashTable");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");

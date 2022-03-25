@@ -22,7 +22,6 @@
 #include "exec/exec_node.h"
 #include "runtime/mem_pool.h"
 #include "runtime/row_batch.h"
-#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -204,6 +203,7 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
 
 Status AggregationNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _exec_timer = ADD_TIMER(runtime_profile(), "ExecTime");
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
@@ -332,8 +332,9 @@ Status AggregationNode::prepare(RuntimeState* state) {
 }
 
 Status AggregationNode::open(RuntimeState* state) {
-    RETURN_IF_ERROR(ExecNode::open(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("aggregator, while execute open.");
+    RETURN_IF_ERROR(ExecNode::open(state));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
@@ -368,6 +369,7 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
 }
 
 Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("aggregator, while execute get_next.");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 

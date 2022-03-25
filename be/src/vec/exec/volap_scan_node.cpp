@@ -21,7 +21,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "runtime/thread_context.h"
 #include "util/priority_thread_pool.hpp"
 #include "vec/core/block.h"
 #include "vec/exec/volap_scanner.h"
@@ -446,6 +445,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
 
     // check if Canceled.
     if (state->is_cancelled()) {

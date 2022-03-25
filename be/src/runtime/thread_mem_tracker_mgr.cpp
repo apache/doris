@@ -72,7 +72,7 @@ void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details
 
 void ThreadMemTrackerMgr::exceeded(int64_t mem_usage, Status st) {
     auto rst = _mem_trackers[_tracker_id]->mem_limit_exceeded(
-            nullptr, "In TCMalloc Hook, " + _consume_err_cb.cancel_msg, mem_usage, st);
+            nullptr, fmt::format("In TCMalloc Hook, {}", _consume_err_cb.cancel_msg), mem_usage, st);
     if (_consume_err_cb.cb_func != nullptr) {
         _consume_err_cb.cb_func();
     }

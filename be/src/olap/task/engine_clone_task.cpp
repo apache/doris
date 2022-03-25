@@ -30,6 +30,7 @@
 #include "olap/rowset/rowset_factory.h"
 #include "olap/snapshot_manager.h"
 #include "runtime/client_cache.h"
+#include "runtime/thread_context.h"
 #include "util/thrift_rpc_helper.h"
 
 using std::set;
@@ -63,6 +64,7 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& 
 
 OLAPStatus EngineCloneTask::execute() {
     // register the tablet to avoid it is deleted by gc thread during clone process
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
     StorageEngine::instance()->tablet_manager()->register_clone_tablet(_clone_req.tablet_id);
     OLAPStatus st = _do_clone();
     StorageEngine::instance()->tablet_manager()->unregister_clone_tablet(_clone_req.tablet_id);

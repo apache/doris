@@ -183,6 +183,7 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     state_ = state;
 
     mem_pool_.reset(new MemPool(mem_tracker().get()));
@@ -244,6 +245,7 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
 
 Status PartitionedAggregationNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     // Open the child before consuming resources in this node.
     RETURN_IF_ERROR(child(0)->open(state));
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -341,6 +343,7 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
 }
 
 Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     // 1. `!need_finalize` means this aggregation node not the level two aggregation node
     // 2. `grouping_exprs_.size() == 0 ` means is not group by
     // 3. `child(0)->rows_returned() == 0` mean not data from child
