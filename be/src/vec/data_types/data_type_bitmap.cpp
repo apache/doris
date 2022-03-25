@@ -24,7 +24,7 @@
 namespace doris::vectorized {
 
 // binary: <size array> | <bitmap array>
-//  <size array>: column num | bitmap1 size | bitmap2 size | ...
+//  <size array>: row num | bitmap1 size | bitmap2 size | ...
 //  <bitmap array>: bitmap1 | bitmap2 | ...
 int64_t DataTypeBitMap::get_uncompressed_serialized_bytes(const IColumn& column) const {
     auto ptr = column.convert_to_full_column_if_const();
@@ -44,19 +44,19 @@ char* DataTypeBitMap::serialize(const IColumn& column, char* buf) const {
     auto ptr = column.convert_to_full_column_if_const();
     auto& data_column = assert_cast<const ColumnBitmap&>(*ptr);
 
-    // serialize the bitmap size array, column num saves at index 0
-    const auto column_num = column.size();
-    size_t bitmap_size_array[column_num + 1];
-    bitmap_size_array[0] = column_num;
-    for (size_t i = 0; i < column.size(); ++i) {
+    // serialize the bitmap size array, row num saves at index 0
+    const auto row_num = column.size();
+    size_t bitmap_size_array[row_num + 1];
+    bitmap_size_array[0] = row_num;
+    for (size_t i = 0; i < row_num; ++i) {
         auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
         bitmap_size_array[i + 1] = bitmap.getSizeInBytes();
     }
-    auto allocate_len_size = sizeof(size_t) * (column_num + 1);
+    auto allocate_len_size = sizeof(size_t) * (row_num + 1);
     memcpy(buf, bitmap_size_array, allocate_len_size);
     buf += allocate_len_size;
     // serialize each bitmap
-    for (size_t i = 0; i < column_num; ++i) {
+    for (size_t i = 0; i < row_num; ++i) {
         auto& bitmap = const_cast<BitmapValue&>(data_column.get_element(i));
         bitmap.write(buf);
         buf += bitmap_size_array[i + 1];
@@ -70,18 +70,18 @@ const char* DataTypeBitMap::deserialize(const char* buf, IColumn* column) const 
     auto& data = data_column.get_data();
 
     // deserialize the bitmap size array
-    size_t column_num = *reinterpret_cast<const size_t*>(buf);
+    size_t row_num = *reinterpret_cast<const size_t*>(buf);
     buf += sizeof(size_t);
-    size_t bitmap_size_array[column_num];
-    memcpy(bitmap_size_array, buf, sizeof(size_t) * column_num);
-    buf += sizeof(size_t) * column_num;
+    size_t bitmap_size_array[row_num];
+    memcpy(bitmap_size_array, buf, sizeof(size_t) * row_num);
+    buf += sizeof(size_t) * row_num;
     // deserialize each bitmap
-    data.resize(column_num);
-    for (int i = 0; i < column_num ; ++i) {
+    data.resize(row_num);
+    for (int i = 0; i < row_num ; ++i) {
         data[i].deserialize(buf);
         buf += bitmap_size_array[i];
     }
-    
+
     return buf;
 }
 
