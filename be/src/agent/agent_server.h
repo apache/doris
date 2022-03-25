@@ -47,6 +47,12 @@ public:
     // TODO(lingbin): This method is deprecated, should be removed later.
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
 
+    // Multi-Load will still use the following 3 methods for now.
+    void submit_etl_task(TAgentResult& agent_result, const TMiniLoadEtlTaskRequest& request);
+    void get_etl_status(TMiniLoadEtlStatusResult& agent_result,
+                        const TMiniLoadEtlStatusRequest& request);
+    void delete_etl_files(TAgentResult& result, const TDeleteEtlFilesRequest& request);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
 
