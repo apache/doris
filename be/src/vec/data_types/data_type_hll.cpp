@@ -23,22 +23,22 @@
 
 namespace doris::vectorized {
 
-// Two part of binary: <column num > + <size array> | <hll data array>
-// first: column num | hll1 size | hll2 size | ...
+// Two part of binary: <row num > + <size array> | <hll data array>
+// first: row num | hll1 size | hll2 size | ...
 // second: hll1 | hll2 | ...
 char* DataTypeHLL::serialize(const IColumn& column, char* buf) const {
     auto ptr = column.convert_to_full_column_if_const();
     auto& data_column = assert_cast<const ColumnHLL&>(*ptr);
 
-    size_t column_num = column.size();
-    size_t hll_size_array[column_num + 1];
-    hll_size_array[0] = column_num;
+    size_t row_num = column.size();
+    size_t hll_size_array[row_num + 1];
+    hll_size_array[0] = row_num;
 
-    auto allocate_len_size = sizeof(size_t) * (column_num + 1);
+    auto allocate_len_size = sizeof(size_t) * (row_num + 1);
     char* buf_start = buf;
     buf += allocate_len_size;
 
-    for (size_t i = 0; i < column_num; ++i) {
+    for (size_t i = 0; i < row_num; ++i) {
         auto& hll = const_cast<HyperLogLog&>(data_column.get_element(i));
         size_t actual_size = hll.serialize(reinterpret_cast<uint8_t*>(buf));
         hll_size_array[i + 1] = actual_size;
@@ -49,21 +49,21 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf) const {
     return buf;
 }
 
-// Two part of binary: <column num > + <size array> | <hll data array>
-// first: column num | hll1 size | hll2 size | ...
+// Two part of binary: <row num > + <size array> | <hll data array>
+// first: row num | hll1 size | hll2 size | ...
 // second: hll1 | hll2 | ...
 const char* DataTypeHLL::deserialize(const char* buf, IColumn* column) const {
     auto& data_column = assert_cast<ColumnHLL&>(*column);
     auto& data = data_column.get_data();
 
-    size_t column_num = *reinterpret_cast<const size_t*>(buf);
+    size_t row_num = *reinterpret_cast<const size_t*>(buf);
     buf += sizeof(size_t);
-    size_t hll_size_array[column_num];
-    memcpy(hll_size_array, buf, sizeof(size_t) * column_num);
-    buf += sizeof(size_t) * column_num;
+    size_t hll_size_array[row_num];
+    memcpy(hll_size_array, buf, sizeof(size_t) * row_num);
+    buf += sizeof(size_t) * row_num;
 
-    data.resize(column_num);
-    for (int i = 0; i < column_num; ++i) {
+    data.resize(row_num);
+    for (int i = 0; i < row_num; ++i) {
         data[i].deserialize(Slice(buf, hll_size_array[i]));
         buf += hll_size_array[i];
     }

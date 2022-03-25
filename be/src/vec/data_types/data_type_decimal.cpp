@@ -62,7 +62,7 @@ void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
     ostr.write(str.data(), str.size());
 }
 
-// binary: column_num | value1 | value2 | ...
+// binary: row_num | value1 | value2 | ...
 template <typename T>
 int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& column) const {
     return sizeof(uint32_t) + column.size() * sizeof(FieldType);
@@ -70,28 +70,28 @@ int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& col
 
 template <typename T>
 char* DataTypeDecimal<T>::serialize(const IColumn& column, char* buf) const {
-    // column num
-    const auto column_num = column.size();
-    *reinterpret_cast<uint32_t*>(buf) = column_num;
-    buf += sizeof(uint32_t); 
+    // row num
+    const auto row_num = column.size();
+    *reinterpret_cast<uint32_t*>(buf) = row_num;
+    buf += sizeof(uint32_t);
     // column values
     auto ptr = column.convert_to_full_column_if_const();
     const auto* origin_data = assert_cast<const ColumnType&>(*ptr.get()).get_data().data();
-    memcpy(buf, origin_data, column_num * sizeof(FieldType));
-    buf += column_num * sizeof(FieldType);
+    memcpy(buf, origin_data, row_num * sizeof(FieldType));
+    buf += row_num * sizeof(FieldType);
     return buf;
 }
 
 template <typename T>
 const char* DataTypeDecimal<T>::deserialize(const char* buf, IColumn* column) const {
-    // column num
-    uint32_t column_num = *reinterpret_cast<const uint32_t*>(buf);
+    // row num
+    uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
     buf += sizeof(uint32_t);
     // column values
     auto& container = assert_cast<ColumnType*>(column)->get_data();
-    container.resize(column_num);
-    memcpy(container.data(), buf, column_num * sizeof(FieldType));
-    buf += column_num * sizeof(FieldType);
+    container.resize(row_num);
+    memcpy(container.data(), buf, row_num * sizeof(FieldType));
+    buf += row_num * sizeof(FieldType);
     return buf;
 }
 

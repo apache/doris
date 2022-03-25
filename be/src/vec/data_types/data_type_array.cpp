@@ -63,7 +63,7 @@ char* DataTypeArray::serialize(const IColumn& column, char* buf) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
 
-    // column num
+    // row num
     *reinterpret_cast<uint32_t*>(buf) = column.size();
     buf += sizeof(IColumn::Offset);
     // offsets
@@ -77,13 +77,13 @@ const char* DataTypeArray::deserialize(const char* buf, IColumn* column) const {
     auto* data_column = assert_cast<ColumnArray*>(column);
     auto& offsets = data_column->get_offsets();
 
-    // column num
-    uint32_t column_num = *reinterpret_cast<const IColumn::Offset*>(buf);
+    // row num
+    uint32_t row_num = *reinterpret_cast<const IColumn::Offset*>(buf);
     buf += sizeof(IColumn::Offset);
     // offsets
-    offsets.resize(column_num);
-    memcpy(offsets.data(), buf, sizeof(IColumn::Offset) * column_num);
-    buf += sizeof(IColumn::Offset) * column_num;
+    offsets.resize(row_num);
+    memcpy(offsets.data(), buf, sizeof(IColumn::Offset) * row_num);
+    buf += sizeof(IColumn::Offset) * row_num;
     // children
     return get_nested_type()->deserialize(buf, data_column->get_data_ptr()->assume_mutable());
 }

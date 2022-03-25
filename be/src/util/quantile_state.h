@@ -26,7 +26,7 @@
 
 namespace doris {
 
-class Slice;
+struct Slice;
 class TDigest;
 
 const static int QUANTILE_STATE_EXPLICIT_NUM = 2048;
