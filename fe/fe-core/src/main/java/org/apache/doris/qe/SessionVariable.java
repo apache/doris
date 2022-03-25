@@ -176,8 +176,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BLOCK_ENCRYPTION_MODE = "block_encryption_mode";
 
-    // TODO(ml): change to all node project
-    public static final String ENABLE_HASH_PROJECT = "enable_hash_project";
+    public static final String ENABLE_PROJECTION = "enable_projection";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -432,8 +431,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
     private String blockEncryptionMode = "";
 
-    @VariableMgr.VarAttr(name = ENABLE_HASH_PROJECT)
-    private boolean enableHashProject = false;
+    @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
+    private boolean enableProjection = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -899,8 +898,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableInferPredicate(boolean enableInferPredicate) { this.enableInferPredicate = enableInferPredicate; }
 
-    public boolean isEnableHashProject() {
-        return enableHashProject;
+    public boolean isEnableProjection() {
+        return enableProjection;
     }
 
     // Serialize to thrift object

@@ -173,7 +173,7 @@ public class Planner {
         }
 
         if (analyzer.getContext() != null
-                && analyzer.getContext().getSessionVariable().isEnableHashProject()
+                && analyzer.getContext().getSessionVariable().isEnableProjection()
                 && statement instanceof SelectStmt) {
             ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
             projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);

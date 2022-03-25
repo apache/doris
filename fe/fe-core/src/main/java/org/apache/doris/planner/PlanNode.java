@@ -870,12 +870,53 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         }
     }
 
-    // The slotIdSet could be null
-    // The output slots is subset of required slots when there are more than one child
+    /**
+     * If an plan node implements this method, the plan node itself supports project optimization.
+     * @param requiredSlotIdSet: The upper plan node's requirement slot set for the current plan node.
+     *                        The requiredSlotIdSet could be null when the upper plan node cannot
+     *                         calculate the required slot.
+     * @param analyzer
+     * @throws NotImplementedException
+     *
+     * For example:
+     * Query: select a.k1 from a, b where a.k1=b.k1
+     * PlanNodeTree:
+     *     output exprs: a.k1
+     *           |
+     *     hash join node
+     *   (input slots: a.k1, b.k1)
+     *        |      |
+     *  scan a(k1)   scan b(k1)
+     *
+     * Function params: requiredSlotIdSet = a.k1
+     * After function:
+     *     hash join node
+     *   (output slots: a.k1)
+     *   (input slots: a.k1, b.k1)
+     */
     public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) throws NotImplementedException {
         throw new NotImplementedException("The `initOutputSlotIds` hasn't been implemented in " + planNodeName);
     }
 
+    /**
+     * If an plan node implements this method, its child plan node has the ability to implement the project.
+     * The return value of this method will be used as
+     *     the input(requiredSlotIdSet) of child plan node method initOutputSlotIds.
+     * That is to say, only when the plan node implements this method,
+     *     its children can realize project optimization.
+     *
+     * @return The requiredSlotIdSet of this plan node
+     * @throws NotImplementedException
+     * PlanNodeTree:
+     *         agg node(group by a.k1)
+     *           |
+     *     hash join node(a.k1=b.k1)
+     *        |      |
+     *  scan a(k1)   scan b(k1)
+     * After function:
+     *         agg node
+     *    (required slots: a.k1)
+     */
     public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
         throw new NotImplementedException("The `computeInputSlotIds` hasn't been implemented in " + planNodeName);
     }
