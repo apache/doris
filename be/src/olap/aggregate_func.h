@@ -102,7 +102,8 @@ struct BaseAggregateFuncs {
             auto _type_info = get_collection_type_info(sub_type);
             _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
         } else {
-            auto _type_info = get_type_info(field_type);
+            // get type at compile time for performance
+            auto _type_info = get_scalar_type_info<field_type>();
             _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
         }
     }

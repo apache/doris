@@ -388,7 +388,7 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init(opts));
     }
-    auto offset_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
+    auto offset_type_info = get_scalar_type_info(OLAP_FIELD_TYPE_UNSIGNED_INT);
     RETURN_IF_ERROR(
             ColumnVectorBatch::create(1024, false, offset_type_info, nullptr, &_length_batch));
     return Status::OK();

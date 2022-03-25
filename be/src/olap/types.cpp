@@ -22,24 +22,6 @@ namespace doris {
 
 void (*FieldTypeTraits<OLAP_FIELD_TYPE_CHAR>::set_to_max)(void*) = nullptr;
 
-template <typename TypeTraitsClass>
-ScalarTypeInfo::ScalarTypeInfo(TypeTraitsClass t)
-        : _equal(TypeTraitsClass::equal),
-          _cmp(TypeTraitsClass::cmp),
-          _shallow_copy(TypeTraitsClass::shallow_copy),
-          _deep_copy(TypeTraitsClass::deep_copy),
-          _copy_object(TypeTraitsClass::copy_object),
-          _direct_copy(TypeTraitsClass::direct_copy),
-          _direct_copy_may_cut(TypeTraitsClass::direct_copy_may_cut),
-          _convert_from(TypeTraitsClass::convert_from),
-          _from_string(TypeTraitsClass::from_string),
-          _to_string(TypeTraitsClass::to_string),
-          _set_to_max(TypeTraitsClass::set_to_max),
-          _set_to_min(TypeTraitsClass::set_to_min),
-          _hash_code(TypeTraitsClass::hash_code),
-          _size(TypeTraitsClass::size),
-          _field_type(TypeTraitsClass::type) {}
-
 class ScalarTypeInfoResolver {
     DECLARE_SINGLETON(ScalarTypeInfoResolver);
 
@@ -134,11 +116,10 @@ public:
     }
 
 private:
-    template <FieldType item_type>
+    template <FieldType field_type>
     void add_mapping() {
-        _type_mapping.emplace(
-                item_type,
-                std::shared_ptr<const TypeInfo>(new ArrayTypeInfo(get_scalar_type_info(item_type))));
+        _type_mapping.emplace(field_type, std::shared_ptr<const TypeInfo>(new ArrayTypeInfo(
+                                                  get_scalar_type_info(field_type))));
     }
 
     // item_type_info -> list_type_info

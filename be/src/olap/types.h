@@ -47,7 +47,6 @@ class TabletColumn;
 class TypeInfo {
 public:
     virtual ~TypeInfo() = default;
-    ;
     virtual bool equal(const void* left, const void* right) const = 0;
     virtual int cmp(const void* left, const void* right) const = 0;
 
@@ -131,6 +130,24 @@ public:
 
     inline FieldType type() const override { return _field_type; }
 
+    template <typename TypeTraitsClass>
+    ScalarTypeInfo(TypeTraitsClass t)
+            : _equal(TypeTraitsClass::equal),
+              _cmp(TypeTraitsClass::cmp),
+              _shallow_copy(TypeTraitsClass::shallow_copy),
+              _deep_copy(TypeTraitsClass::deep_copy),
+              _copy_object(TypeTraitsClass::copy_object),
+              _direct_copy(TypeTraitsClass::direct_copy),
+              _direct_copy_may_cut(TypeTraitsClass::direct_copy_may_cut),
+              _convert_from(TypeTraitsClass::convert_from),
+              _from_string(TypeTraitsClass::from_string),
+              _to_string(TypeTraitsClass::to_string),
+              _set_to_max(TypeTraitsClass::set_to_max),
+              _set_to_min(TypeTraitsClass::set_to_min),
+              _hash_code(TypeTraitsClass::hash_code),
+              _size(TypeTraitsClass::size),
+              _field_type(TypeTraitsClass::type) {}
+
 private:
     bool (*_equal)(const void* left, const void* right);
     int (*_cmp)(const void* left, const void* right);
@@ -155,8 +172,6 @@ private:
     const FieldType _field_type;
 
     friend class ScalarTypeInfoResolver;
-    template <typename TypeTraitsClass>
-    ScalarTypeInfo(TypeTraitsClass t);
 };
 
 class ArrayTypeInfo : public TypeInfo {
@@ -1192,6 +1207,14 @@ struct TypeTraits : public FieldTypeTraits<field_type> {
     static const FieldType type = field_type;
     static const int32_t size = sizeof(CppType);
 };
+
+// get ScalarTypeInfo at compile time for performance
+template <FieldType field_type>
+inline TypeInfo* get_scalar_type_info() {
+    static constexpr TypeTraits<field_type> traits;
+    static auto _scala_type_info = ScalarTypeInfo(traits);
+    return dynamic_cast<TypeInfo*>(&_scala_type_info);
+}
 
 } // namespace doris
 
