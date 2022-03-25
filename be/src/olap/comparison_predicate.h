@@ -47,11 +47,10 @@ class VectorizedRowBatch;
         void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,                \
                          bool* flags) const override;                                              \
         void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override; \
-        const T& get_value() const { return _value; }                                              \
-        void set_dict_code(int32_t code) { _dict_code = code; }                                    \
-                                                                                                   \
+        void set_dict_code_if_necessary(vectorized::IColumn& column) override;                     \
     private:                                                                                       \
         T _value;                                                                                  \
+        bool _dict_code_inited = false;                                                            \
         int32_t _dict_code;                                                                        \
     };
 

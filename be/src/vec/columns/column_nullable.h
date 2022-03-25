@@ -278,10 +278,6 @@ public:
         get_nested_column().convert_dict_codes_if_necessary();
     }
 
-    void set_predicate_dict_code_if_necessary(doris::ColumnPredicate* predicate) override {
-        get_nested_column().set_predicate_dict_code_if_necessary(predicate);
-    }
-
 private:
     WrappedPtr nested_column;
     WrappedPtr null_map;

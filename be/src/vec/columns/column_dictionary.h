@@ -54,6 +54,7 @@ namespace doris::vectorized {
  */
 template <typename T>
 class ColumnDictionary final : public COWHelper<IColumn, ColumnDictionary<T>> {
+    static_assert(IsNumber<T>);
 private:
     friend class COWHelper<IColumn, ColumnDictionary>;
 
@@ -241,45 +242,15 @@ public:
         }
     }
 
-    void set_predicate_dict_code_if_necessary(doris::ColumnPredicate* predicate) override {
-        switch (predicate->type()) {
-        case PredicateType::EQ:
-        case PredicateType::NE: {
-            // cast to EqualPredicate, just to get value, may not be EqualPredicate
-            auto* comp_pred = reinterpret_cast<doris::EqualPredicate<StringValue>*>(predicate);
-            auto pred_value = comp_pred->get_value();
-            auto code = _dict.find_code(pred_value);
-            comp_pred->set_dict_code(code);
-            break;
-        }
-        case PredicateType::LT:
-        case PredicateType::LE:
-        case PredicateType::GT:
-        case PredicateType::GE: {
-            // cast to LessPredicate, just to get value, may not be LessPredicate
-            auto* comp_pred = reinterpret_cast<doris::LessPredicate<StringValue>*>(predicate);
-            auto pred_value = comp_pred->get_value();
-            auto less = predicate->type() == PredicateType::LT ||
-                        predicate->type() == PredicateType::LE;
-            auto eq = predicate->type() == PredicateType::LE ||
-                      predicate->type() == PredicateType::GE;
-            auto code = _dict.find_bound_code(pred_value, less, eq);
-            comp_pred->set_dict_code(code);
-            break;
-        }
-        case PredicateType::InList:
-        case PredicateType::NotInList: {
-            auto* in_pred = reinterpret_cast<doris::InListPredicate<StringValue>*>(predicate);
-            auto pred_values = in_pred->get_values();
-            auto code_set = _dict.find_codes(pred_values);
-            in_pred->set_dict_codes(code_set);
-            break;
-        }
-        default:
-            LOG(FATAL) << "PredicateType: " << static_cast<int>(predicate->type())
-                       <<  " not supported in ColumnDictionary";
-            break;
-        }
+    int32_t find_code(const StringValue& value) const { return _dict.find_code(value); }
+
+    int32_t find_code_by_bound(const StringValue& value, bool lower, bool eq) const {
+        return _dict.find_code_by_bound(value, lower, eq);
+    }
+
+    phmap::flat_hash_set<int32_t> find_codes(
+            const phmap::flat_hash_set<StringValue>& values) const {
+        return _dict.find_codes(values);
     }
 
     bool is_dict_inited() const { return _dict_inited; }
@@ -328,7 +299,7 @@ public:
             _inverted_index[value] = _inverted_index.size();
         }
 
-        inline T find_code(const StringValue& value) const {
+        inline int32_t find_code(const StringValue& value) const {
             auto it = _inverted_index.find(value);
             if (it != _inverted_index.end()) {
                 return it->second;
@@ -336,7 +307,7 @@ public:
             return -1;
         }
 
-        inline T find_bound_code(const StringValue& value, bool lower, bool eq) const {
+        inline int32_t find_code_by_bound(const StringValue& value, bool lower, bool eq) const {
             auto code = find_code(value);
             if (code >= 0) {
                 return code;

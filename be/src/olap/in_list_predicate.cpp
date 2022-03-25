@@ -282,6 +282,33 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(NotInListPredicate, ==)
 IN_LIST_PRED_BITMAP_EVALUATE(InListPredicate, &=)
 IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, -=)
 
+#define IN_LIST_PRED_SET_DICT_CODE(CLASS)                                                      \
+    template <class T>                                                                         \
+    void CLASS<T>::set_dict_code_if_necessary(vectorized::IColumn& column) {                   \
+        if (_dict_code_inited) {                                                               \
+            return;                                                                            \
+        }                                                                                      \
+        if constexpr (std::is_same_v<T, StringValue>) {                                        \
+            auto* col_ptr = column.get_ptr().get();                                            \
+            if (column.is_nullable()) {                                                        \
+                auto nullable_col =                                                            \
+                        reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);                \
+                col_ptr = nullable_col->get_nested_column_ptr().get();                         \
+            }                                                                                  \
+            if (col_ptr->is_column_dictionary()) {                                             \
+                auto& dict_col =                                                               \
+                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
+                                *col_ptr);                                                     \
+                auto code_set = dict_col.find_codes(_values);                                  \
+                _dict_codes = std::move(code_set);                                             \
+                _dict_code_inited = true;                                                      \
+            }                                                                                  \
+        }                                                                                      \
+    }
+
+IN_LIST_PRED_SET_DICT_CODE(InListPredicate)
+IN_LIST_PRED_SET_DICT_CODE(NotInListPredicate)
+
 #define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                                \
     template CLASS<int8_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int8_t>&& values,       \
                                   bool opposite);                                                  \
@@ -388,5 +415,9 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotInListPredicate)
 
 IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(NotInListPredicate)
+
+template void InListPredicate<StringValue>::set_dict_code_if_necessary(vectorized::IColumn& column);
+template void NotInListPredicate<StringValue>::set_dict_code_if_necessary(
+        vectorized::IColumn& column);
 
 } //namespace doris

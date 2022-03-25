@@ -86,6 +86,8 @@ public:
     virtual void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {};
     uint32_t column_id() const { return _column_id; }
 
+    virtual void set_dict_code_if_necessary(vectorized::IColumn& column) { }
+
 protected:
     uint32_t _column_id;
     bool _opposite;

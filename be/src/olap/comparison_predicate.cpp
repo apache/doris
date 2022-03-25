@@ -502,6 +502,64 @@ COMPARISON_PRED_BITMAP_EVALUATE(LessEqualPredicate, <=)
 COMPARISON_PRED_BITMAP_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
 
+
+#define COMPARISON_PRED_SET_DICT_CODE(CLASS)                                                   \
+    template <class T>                                                                         \
+    void CLASS<T>::set_dict_code_if_necessary(vectorized::IColumn& column) {                   \
+        if (_dict_code_inited) {                                                               \
+            return;                                                                            \
+        }                                                                                      \
+        if constexpr (std::is_same_v<T, StringValue>) {                                        \
+            auto* col_ptr = column.get_ptr().get();                                            \
+            if (column.is_nullable()) {                                                        \
+                auto nullable_col =                                                            \
+                        reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);                \
+                col_ptr = nullable_col->get_nested_column_ptr().get();                         \
+            }                                                                                  \
+            if (col_ptr->is_column_dictionary()) {                                             \
+                auto& dict_col =                                                               \
+                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
+                                *col_ptr);                                                     \
+                auto code = dict_col.find_code(_value);                                        \
+                _dict_code = code;                                                             \
+                _dict_code_inited = true;                                                      \
+            }                                                                                  \
+        }                                                                                      \
+    }
+
+COMPARISON_PRED_SET_DICT_CODE(EqualPredicate)
+COMPARISON_PRED_SET_DICT_CODE(NotEqualPredicate)
+
+#define RAMGE_COMPARISON_PRED_SET_DICT_CODE(CLASS, OP)                                         \
+    template <class T>                                                                         \
+    void CLASS<T>::set_dict_code_if_necessary(vectorized::IColumn& column) {                   \
+        if (_dict_code_inited) {                                                               \
+            return;                                                                            \
+        }                                                                                      \
+        if constexpr (std::is_same_v<T, StringValue>) {                                        \
+            auto* col_ptr = column.get_ptr().get();                                            \
+            if (column.is_nullable()) {                                                        \
+                auto nullable_col =                                                            \
+                        reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);                \
+                col_ptr = nullable_col->get_nested_column_ptr().get();                         \
+            }                                                                                  \
+                                                                                               \
+            if (col_ptr->is_column_dictionary()) {                                             \
+                auto& dict_col =                                                               \
+                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
+                                *col_ptr);                                                     \
+                auto code = dict_col.find_code_by_bound(_value, 0 OP 1, 1 OP 1);               \
+                _dict_code = code;                                                             \
+                _dict_code_inited = true;                                                      \
+            }                                                                                  \
+        }                                                                                      \
+    }
+
+RAMGE_COMPARISON_PRED_SET_DICT_CODE(LessPredicate, <)
+RAMGE_COMPARISON_PRED_SET_DICT_CODE(LessEqualPredicate, <=)
+RAMGE_COMPARISON_PRED_SET_DICT_CODE(GreaterPredicate, >)
+RAMGE_COMPARISON_PRED_SET_DICT_CODE(GreaterEqualPredicate, >=)
+
 #define COMPARISON_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                         \
     template CLASS<int8_t>::CLASS(uint32_t column_id, const int8_t& value, bool opposite);     \
     template CLASS<int16_t>::CLASS(uint32_t column_id, const int16_t& value, bool opposite);   \
@@ -685,5 +743,15 @@ COMPARISON_PRED_COLUMN_EVALUATE_VEC_DECLARATION(LessPredicate)
 COMPARISON_PRED_COLUMN_EVALUATE_VEC_DECLARATION(LessEqualPredicate)
 COMPARISON_PRED_COLUMN_EVALUATE_VEC_DECLARATION(GreaterPredicate)
 COMPARISON_PRED_COLUMN_EVALUATE_VEC_DECLARATION(GreaterEqualPredicate)
+
+#define COMPARISON_PRED_SET_DICT_CODE_DECLARATION(CLASS) \
+template void CLASS<StringValue>::set_dict_code_if_necessary(vectorized::IColumn& column);
+
+COMPARISON_PRED_SET_DICT_CODE_DECLARATION(EqualPredicate)
+COMPARISON_PRED_SET_DICT_CODE_DECLARATION(NotEqualPredicate)
+COMPARISON_PRED_SET_DICT_CODE_DECLARATION(LessPredicate)
+COMPARISON_PRED_SET_DICT_CODE_DECLARATION(LessEqualPredicate)
+COMPARISON_PRED_SET_DICT_CODE_DECLARATION(GreaterPredicate)
+COMPARISON_PRED_SET_DICT_CODE_DECLARATION(GreaterEqualPredicate)
 
 } //namespace doris

@@ -96,12 +96,10 @@ class VectorizedRowBatch;
         void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override; \
         void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
         void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
-        const phmap::flat_hash_set<T>& get_values() const { return _values; }                     \
-        void set_dict_codes(phmap::flat_hash_set<int32_t>& dict_codes) {                          \
-            _dict_codes = std::move(dict_codes);                                                  \
-        }                                                                                         \
+        void set_dict_code_if_necessary(vectorized::IColumn& column) override;                    \
     private:                                                                                      \
         phmap::flat_hash_set<T> _values;                                                          \
+        bool _dict_code_inited = false;                                                           \
         phmap::flat_hash_set<int32_t> _dict_codes;                                                \
     };
 
