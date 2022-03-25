@@ -211,48 +211,48 @@ private:
     RuntimeProfile::Counter* _disks_accessed_bitmap;
 
     // Total number of bytes read locally, updated at end of each range scan
-    AtomicInt<int64_t> _bytes_read_local;
+    std::atomic<int64_t> _bytes_read_local {0};
 
     // Total number of bytes read via short circuit read, updated at end of each range scan
-    AtomicInt<int64_t> _bytes_read_short_circuit;
+    std::atomic<int64_t> _bytes_read_short_circuit {0};
 
     // Total number of bytes read from date node cache, updated at end of each range scan
-    AtomicInt<int64_t> _bytes_read_dn_cache;
+    std::atomic<int64_t> _bytes_read_dn_cache {0};
 
     // Total number of bytes from remote reads that were expected to be local.
-    AtomicInt<int64_t> _unexpected_remote_bytes;
+    std::atomic<int64_t> _unexpected_remote_bytes {0};
 
     // The number of buffers that have been returned to the reader (via get_next) that the
     // reader has not returned. Only included for debugging and diagnostics.
-    AtomicInt<int> _num_buffers_in_reader;
+    std::atomic<int> _num_buffers_in_reader {0};
 
     // The number of scan ranges that have been completed for this reader.
-    AtomicInt<int> _num_finished_ranges;
+    std::atomic<int> _num_finished_ranges {0};
 
     // The number of scan ranges that required a remote read, updated at the end of each
     // range scan. Only used for diagnostics.
-    AtomicInt<int> _num_remote_ranges;
+    std::atomic<int> _num_remote_ranges {0};
 
     // The total number of scan ranges that have not been started. Only used for
     // diagnostics. This is the sum of all unstarted_scan_ranges across all disks.
-    AtomicInt<int> _num_unstarted_scan_ranges;
+    std::atomic<int> _num_unstarted_scan_ranges {0};
 
     // The number of buffers that are being used for this reader. This is the sum
     // of all buffers in ScanRange queues and buffers currently being read into (i.e. about
     // to be queued).
-    AtomicInt<int> _num_used_buffers;
+    std::atomic<int> _num_used_buffers {0};
 
     // The total number of ready buffers across all ranges.  Ready buffers are buffers
     // that have been read from disk but not retrieved by the caller.
     // This is the sum of all queued buffers in all ranges for this reader context.
-    AtomicInt<int> _num_ready_buffers;
+    std::atomic<int> _num_ready_buffers {0};
 
     // The total (sum) of queue capacities for finished scan ranges. This value
     // divided by _num_finished_ranges is the average for finished ranges and
     // used to seed the starting queue capacity for future ranges. The assumption
     // is that if previous ranges were fast, new ones will be fast too. The scan
     // range adjusts the queue capacity dynamically so a rough approximation will do.
-    AtomicInt<int> _total_range_queue_capacity;
+    std::atomic<int> _total_range_queue_capacity {0};
 
     // The initial queue size for new scan ranges. This is always
     // _total_range_queue_capacity / _num_finished_ranges but stored as a separate
@@ -437,7 +437,7 @@ private:
         // entire operation, we need this ref count to keep track of which thread should do
         // final resource cleanup during cancellation.
         // Only the thread that sees the count at 0 should do the final cleanup.
-        AtomicInt<int> _num_threads_in_op;
+        std::atomic<int> _num_threads_in_op {0};
 
         // Queue of write ranges to process for this disk. A write range is always added
         // to _in_flight_ranges in get_next_request_range(). There is a separate

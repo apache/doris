@@ -151,7 +151,7 @@ private:
     bool _is_merging;
 
     // total number of bytes held across all sender queues.
-    AtomicInt<int> _num_buffered_bytes;
+    std::atomic<int> _num_buffered_bytes;
 
     // Memtracker for batches in the sender queue(s).
     std::shared_ptr<MemTracker> _mem_tracker;
