@@ -37,7 +37,8 @@ void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFact
 void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_lead_lag(AggregateFunctionSimpleFactory& factory);
-void register_aggregate_function_stddev_variance(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_stddev_variance_samp(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& factory);
@@ -56,7 +57,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_combinator_distinct(instance);
         register_aggregate_function_reader(instance); // register aggregate function for agg reader
         register_aggregate_function_window_rank(instance);
-        register_aggregate_function_stddev_variance(instance);
+        register_aggregate_function_stddev_variance_pop(instance);
         register_aggregate_function_topn(instance);
         register_aggregate_function_approx_count_distinct(instance);
         register_aggregate_function_group_concat(instance);
@@ -65,6 +66,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
         register_aggregate_function_combinator_null(instance);
 
+        register_aggregate_function_stddev_variance_samp(instance);
         register_aggregate_function_reader_no_spread(instance);
         register_aggregate_function_window_lead_lag(instance);
         register_aggregate_function_HLL_union_agg(instance);

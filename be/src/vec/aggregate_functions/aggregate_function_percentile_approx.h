@@ -105,7 +105,7 @@ public:
 
     String get_name() const override { return "percentile_approx"; }
 
-    bool insert_to_null_default() const override { return false; }
+    //bool insert_to_null_default() const override { return false; }
 
     DataTypePtr get_return_type() const override {
         return make_nullable(std::make_shared<DataTypeFloat64>());

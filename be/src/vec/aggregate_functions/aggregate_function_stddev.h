@@ -68,10 +68,6 @@ struct BaseData {
         return get_result(res);
     }
 
-    static const DataTypePtr get_return_type() {
-        return std::make_shared<DataTypeNumber<Float64>>();
-    }
-
     void merge(const BaseData& rhs) {
         if (rhs.count == 0) {
             return;
@@ -83,8 +79,8 @@ struct BaseData {
         count = sum_count;
     }
 
-    virtual void add(const IColumn** columns, size_t row_num) {
-        const auto& sources = static_cast<const ColumnVector<T>&>(*columns[0]);
+    void add(const IColumn* column, size_t row_num) {
+        const auto& sources = static_cast<const ColumnVector<T>&>(*column);
         double source_data = sources.get_data()[row_num];
 
         double delta = source_data - mean;
@@ -144,10 +140,6 @@ struct BaseDatadecimal {
         return get_result(res);
     }
 
-    static const DataTypePtr get_return_type() {
-        return std::make_shared<DataTypeDecimal<Decimal128>>(27, 9);
-    }
-
     void merge(const BaseDatadecimal& rhs) {
         if (rhs.count == 0) {
             return;
@@ -164,9 +156,9 @@ struct BaseDatadecimal {
         count += rhs.count;
     }
 
-    virtual void add(const IColumn** columns, size_t row_num) {
+    void add(const IColumn* column, size_t row_num) {
         DecimalV2Value source_data = DecimalV2Value();
-        const auto& sources = static_cast<const ColumnDecimal<Decimal128>&>(*columns[0]);
+        const auto& sources = static_cast<const ColumnDecimal<Decimal128>&>(*column);
         source_data = (DecimalV2Value)sources.get_data()[row_num];
 
         DecimalV2Value new_count = DecimalV2Value();
@@ -200,13 +192,71 @@ struct PopData : Data {
     }
 };
 
+template <typename Data>
+struct StddevName : Data {
+    static const char* name() { return "stddev"; }
+};
+
+template <typename Data>
+struct VarianceName : Data {
+    static const char* name() { return "variance"; }
+};
+
+template <typename Data>
+struct VarianceSampName : Data {
+    static const char* name() { return "variance_samp"; }
+};
+
+template <typename Data>
+struct StddevSampName : Data {
+    static const char* name() { return "stddev_samp"; }
+};
+
+template <typename Data, bool is_nullable = false>
+class AggregateFunctionPop final
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionPop<Data, is_nullable>> {
+public:
+    AggregateFunctionPop(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionPop<Data, is_nullable>>(
+                      argument_types_, {}) {}
+
+    String get_name() const override { return Data::name(); }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
+
+    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
+             Arena*) const override {
+        this->data(place).add(columns[0], row_num);
+    }
+
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+
+    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
+               Arena*) const override {
+        this->data(place).merge(this->data(rhs));
+    }
+
+    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
+        this->data(place).write(buf);
+    }
+
+    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
+                     Arena*) const override {
+        this->data(place).read(buf);
+    }
+
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        this->data(place).insert_result_into(to);
+    }
+};
+
 template <typename T, typename Data>
 struct SampData : Data {
     using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>,
                                             ColumnVector<Float64>>;
     void insert_result_into(IColumn& to) const {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        if (this->count == 1) {
+        if (this->count == 1 || this->count == 0) {
             nullable_column.insert_default();
         } else {
             auto& col = static_cast<ColVecResult&>(nullable_column.get_nested_column());
@@ -218,61 +268,32 @@ struct SampData : Data {
             nullable_column.get_null_map_data().push_back(0);
         }
     }
-
-    static const DataTypePtr get_return_type() {
-        return make_nullable(Data::get_return_type());
-    }
-
-    void add(const IColumn** columns, size_t row_num) override {
-        if (columns[0]->is_nullable()) {
-            const auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
-            if (!nullable_column.is_null_at(row_num)) {
-                const IColumn* new_columns[1];
-                new_columns[0] = &nullable_column.get_nested_column();
-                Data::add(new_columns, row_num);
-            }
-        } else {
-            Data::add(columns, row_num);
-        }
-    }
-
 };
 
-template <typename Data>
-struct StddevData : Data {
-    static const char* name() { return "stddev"; }
-};
-
-template <typename Data>
-struct VarianceData : Data {
-    static const char* name() { return "variance"; }
-};
-
-template <typename Data>
-struct VarianceSampData : Data {
-    static const char* name() { return "variance_samp"; }
-};
-
-template <typename Data>
-struct StddevSampData : Data {
-    static const char* name() { return "stddev_samp"; }
-};
-
-template <typename Data>
-class AggregateFunctionStddevSamp final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionStddevSamp<Data>> {
+template <typename Data, bool is_nullable>
+class AggregateFunctionSamp final
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSamp<Data, is_nullable>> {
 public:
-    AggregateFunctionStddevSamp(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionStddevSamp<Data>>(argument_types_,
-                                                                                    {}) {}
+    AggregateFunctionSamp(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSamp<Data, is_nullable>>(
+                      argument_types_, {}) {}
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override { return Data::get_return_type(); }
+    DataTypePtr get_return_type() const override {
+        return make_nullable(std::make_shared<DataTypeFloat64>());
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        this->data(place).add(columns, row_num);
+        if constexpr (is_nullable) {
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
+            if (!nullable_column->is_null_at(row_num)) {
+                this->data(place).add(&nullable_column->get_nested_column(), row_num);
+            }
+        } else {
+            this->data(place).add(columns[0], row_num);
+        }
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
