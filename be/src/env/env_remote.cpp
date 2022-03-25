@@ -195,7 +195,7 @@ Status RemoteEnv::new_writable_file(const WritableFileOptions& opts, const std::
     if (opts.mode == MUST_EXIST) {
         RETURN_IF_ERROR(get_file_size(fname, &file_size));
     }
-    result->reset(new RemoteWritableFile(fname, get_storage_backend(), file_size));
+    result->reset(new RemoteWritableFile(fname, _storage_backend, file_size));
     return Status::OK();
 }
 
@@ -210,12 +210,11 @@ Status RemoteEnv::new_random_rw_file(const RandomRWFileOptions& opts, const std:
 }
 
 Status RemoteEnv::path_exists(const std::string& fname, bool is_dir) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
     Status status = Status::OK();
     if (is_dir) {
-        status = storage_backend->exist_dir(fname);
+        status = _storage_backend->exist_dir(fname);
     } else {
-        status = storage_backend->exist(fname);
+        status = _storage_backend->exist(fname);
     }
     RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("path_exists failed: $0, err=$1",
                                                                fname, status.to_string()));
@@ -231,36 +230,31 @@ Status RemoteEnv::iterate_dir(const std::string& dir, const std::function<bool(c
 }
 
 Status RemoteEnv::delete_file(const std::string& fname) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->rm(fname);
+    Status status = _storage_backend->rm(fname);
     RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("delete_file failed: $0, err=$1",
                                                                fname, status.to_string()));
     return Status::OK();
 }
 
 Status RemoteEnv::create_dir(const std::string& name) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    return storage_backend->mkdir(name);
+    return _storage_backend->mkdir(name);
 }
 
 Status RemoteEnv::create_dir_if_missing(const string& dirname, bool* created) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    if (storage_backend->exist_dir(dirname)) {
+    if (_storage_backend->exist_dir(dirname)) {
         *created = true;
         return Status::OK();
     }
-    return storage_backend->mkdir(dirname);
+    return _storage_backend->mkdir(dirname);
 }
 
 Status RemoteEnv::create_dirs(const string& dirname) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    return storage_backend->mkdirs(dirname);
+    return _storage_backend->mkdirs(dirname);
 }
 
 // Delete the specified directory.
 Status RemoteEnv::delete_dir(const std::string& dirname) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->rmdir(dirname);
+    Status status = _storage_backend->rmdir(dirname);
     RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("delete_dir failed: $0, err=$1",
                                                                dirname, status.to_string()));
     return Status::OK();
@@ -271,8 +265,7 @@ Status RemoteEnv::sync_dir(const string& dirname) {
 }
 
 Status RemoteEnv::is_directory(const std::string& path, bool* is_dir) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->exist(path);
+    Status status = _storage_backend->exist(path);
     if (status.ok()) {
         *is_dir = false;
         return Status::OK();
@@ -281,7 +274,7 @@ Status RemoteEnv::is_directory(const std::string& path, bool* is_dir) {
         return status;
     }
 
-    status = storage_backend->exist_dir(path);
+    status = _storage_backend->exist_dir(path);
     if (status.ok()) {
         *is_dir = true;
         return Status::OK();
@@ -314,8 +307,7 @@ Status RemoteEnv::copy_path(const std::string& src, const std::string& target) {
 }
 
 Status RemoteEnv::rename_file(const std::string& src, const std::string& target) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->rename(src, target);
+    Status status = _storage_backend->rename(src, target);
     RETURN_NOT_OK_STATUS_WITH_WARN(
             status, strings::Substitute("rename_file failed: from $0 to $1, err=$2", src, target,
                                         status.to_string()));
@@ -323,8 +315,7 @@ Status RemoteEnv::rename_file(const std::string& src, const std::string& target)
 }
 
 Status RemoteEnv::rename_dir(const std::string& src, const std::string& target) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->rename_dir(src, target);
+    Status status = _storage_backend->rename_dir(src, target);
     RETURN_NOT_OK_STATUS_WITH_WARN(
             status, strings::Substitute("rename_dir failed: from $0 to $1, err=$2", src, target,
                                         status.to_string()));
@@ -332,8 +323,7 @@ Status RemoteEnv::rename_dir(const std::string& src, const std::string& target) 
 }
 
 Status RemoteEnv::link_file(const std::string& old_path, const std::string& new_path) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->copy(old_path, new_path);
+    Status status = _storage_backend->copy(old_path, new_path);
     RETURN_NOT_OK_STATUS_WITH_WARN(
             status, strings::Substitute("link_file failed: from $0 to $1, err=$2", old_path,
                                         new_path, status.to_string()));
