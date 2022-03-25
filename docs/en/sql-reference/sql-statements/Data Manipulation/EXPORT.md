@@ -1,4 +1,4 @@
----
+﻿---
 {
     "title": "EXPORT",
     "language": "en"
@@ -95,7 +95,7 @@ under the License.
        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("label" = "mylabel", "column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
     4. Export the row meet condition k1 = 1 in the testTbl table to hdfs.
-       EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WHERE k1=1 WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
+       EXPORT TABLE testTbl WHERE k1=1 TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
     5. Export all data in the testTbl table to the local.
        EXPORT TABLE testTbl TO "file:///home/data/a";

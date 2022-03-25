@@ -1,4 +1,4 @@
----
+﻿---
 {
     "title": "EXPORT",
     "language": "zh-CN"
@@ -95,7 +95,7 @@ under the License.
         EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("label" = "mylabel", "column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
     
     4. 将 testTbl 表中 k1 = 1 的行导出到 hdfs 上。
-        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WHERE k1=1 WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
+        EXPORT TABLE testTbl WHERE k1=1 TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
     5. 将 testTbl 表中的所有数据导出到本地。
         EXPORT TABLE testTbl TO "file:///home/data/a";
