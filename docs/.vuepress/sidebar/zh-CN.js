@@ -265,9 +265,10 @@ module.exports = [
         children: [
           "compiling-deploying",
           "initializing",
-          "space-management",
+          "space-list",
+          "system-settings",
           "cluster-managenent",
-          "system-settings"
+          "space-management"
         ],
       },
       {
