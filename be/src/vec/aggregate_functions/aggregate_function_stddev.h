@@ -28,6 +28,7 @@ namespace doris::vectorized {
 template <typename T, bool is_stddev>
 struct BaseData {
     BaseData() : mean(0.0), m2(0.0), count(0) {}
+    virtual ~BaseData() {}
 
     void write(BufferWritable& buf) const {
         write_binary(mean, buf);
@@ -102,6 +103,7 @@ struct BaseData {
 template <bool is_stddev>
 struct BaseDatadecimal {
     BaseDatadecimal() : mean(0), m2(0), count(0) {}
+    virtual ~BaseDatadecimal() {}
 
     void write(BufferWritable& buf) const {
         write_binary(mean, buf);

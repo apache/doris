@@ -79,7 +79,7 @@ bool DataTypeString::equals(const IDataType& rhs) const {
 }
 
 // binary: <size array> | total length | <value array>
-//  <size array> : column num | offset1 |offset2 | ...
+//  <size array> : row num | offset1 |offset2 | ...
 //  <value array> : <value1> | <value2 | ...
 int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column) const {
     auto ptr = column.convert_to_full_column_if_const();
@@ -91,7 +91,7 @@ char* DataTypeString::serialize(const IColumn& column, char* buf) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
 
-    // column num
+    // row num
     *reinterpret_cast<uint32_t*>(buf) = column.size();
     buf += sizeof(uint32_t);
     // offsets
@@ -113,13 +113,13 @@ const char* DataTypeString::deserialize(const char* buf, IColumn* column) const 
     ColumnString::Chars& data = column_string->get_chars();
     ColumnString::Offsets& offsets = column_string->get_offsets();
 
-    // column num
-    uint32_t column_num = *reinterpret_cast<const uint32_t*>(buf);
+    // row num
+    uint32_t row_num = *reinterpret_cast<const uint32_t*>(buf);
     buf += sizeof(uint32_t);
     // offsets
-    offsets.resize(column_num);
-    memcpy(offsets.data(), buf, sizeof(uint32_t) * column_num);
-    buf += sizeof(uint32_t) * column_num;
+    offsets.resize(row_num);
+    memcpy(offsets.data(), buf, sizeof(uint32_t) * row_num);
+    buf += sizeof(uint32_t) * row_num;
     // total length
     uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf); 
     buf += sizeof(uint64_t);
