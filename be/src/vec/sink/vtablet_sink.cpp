@@ -116,10 +116,11 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
             RETURN_IF_ERROR(state->append_error_msg_to_file(
                     []() -> std::string { return ""; },
                     [&]() -> std::string {
-                    fmt::memory_buffer buf;
-                    fmt::format_to(buf, "no partition for this tuple. tuple=[]");
-                    return fmt::to_string(buf);
-                    }, &stop_processing));
+                        fmt::memory_buffer buf;
+                        fmt::format_to(buf, "no partition for this tuple. tuple=[]");
+                        return fmt::to_string(buf);
+                    },
+                    &stop_processing));
             _number_filtered_rows++;
             if (stop_processing) {
                 return Status::EndOfFile("Encountered unqualified data, stop processing");
@@ -163,9 +164,11 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
     const auto num_rows = block->rows();
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](int row) {
-         filter_bitmap->Set(row, true);
-         return state->append_error_msg_to_file([]() -> std::string { return ""; },
-                 [&error_msg]() -> std::string { return fmt::to_string(error_msg); }, stop_processing);
+        filter_bitmap->Set(row, true);
+        return state->append_error_msg_to_file(
+                []() -> std::string { return ""; },
+                [&error_msg]() -> std::string { return fmt::to_string(error_msg); },
+                stop_processing);
     };
 
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
@@ -200,12 +203,8 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
                 const auto column_string =
                         assert_cast<const vectorized::ColumnString*>(real_column_ptr.get());
 
-                size_t limit = MAX_SIZE_OF_VEC_STRING;
-                if (desc->type().type != TYPE_STRING) {
-                    DCHECK(desc->type().len >= 0);
-                    limit = std::min(limit, (size_t)desc->type().len);
-                }
-
+                size_t limit =
+                        std::min(config::string_type_length_soft_limit_bytes, desc->type().len);
                 for (int j = 0; j < num_rows; ++j) {
                     if (!filter_bitmap->Get(j)) {
                         auto str_val = column_string->get_data_at(j);
@@ -219,14 +218,14 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
                             fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
                             fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
                             fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
-                        } else if (str_val.size > MAX_SIZE_OF_VEC_STRING) {
+                        } else if (str_val.size > limit) {
                             fmt::format_to(
                                     error_msg, "{}",
                                     "the length of input string is too long than vec schema. ");
                             fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
                             fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
                             fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
-                            fmt::format_to(error_msg, "limit length: {}; ", MAX_SIZE_OF_VEC_STRING);
+                            fmt::format_to(error_msg, "limit length: {}; ", limit);
                             fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
                         }
 

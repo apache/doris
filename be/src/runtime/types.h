@@ -46,7 +46,6 @@ struct TypeDescriptor {
     /// Only set if type == TYPE_CHAR or type == TYPE_VARCHAR
     int len;
     static const int MAX_VARCHAR_LENGTH = OLAP_VARCHAR_MAX_LENGTH;
-    static const int MAX_STRING_LENGTH = OLAP_STRING_MAX_LENGTH;
     static const int MAX_CHAR_LENGTH = 255;
     static const int MAX_CHAR_INLINE_LENGTH = 128;
 
@@ -100,7 +99,7 @@ struct TypeDescriptor {
     static TypeDescriptor create_string_type() {
         TypeDescriptor ret;
         ret.type = TYPE_STRING;
-        ret.len = MAX_STRING_LENGTH;
+        ret.len = config::string_type_length_soft_limit_bytes;
         return ret;
     }
 

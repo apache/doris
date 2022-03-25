@@ -198,7 +198,6 @@ public class ScalarType extends Type {
                 return createVarcharType();
             case "STRING":
             case "TEXT":
-            case "BLOB":
                 return createStringType();
             case "HLL":
                 return createHllType();

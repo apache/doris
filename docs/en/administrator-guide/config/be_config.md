@@ -1519,3 +1519,8 @@ Translated with www.DeepL.com/Translator (free version)
 * Type: int32
 * Description: The maximum amount of data read by each OlapScanner.
 * Default: 1024
+
+### `string_type_length_soft_limit_bytes`
+* Type: int32
+* Description: A soft limit of string type length.
+* Description: 1048576
