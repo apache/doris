@@ -1117,9 +1117,9 @@ template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
     static OLAPStatus from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
-        if (value_len > OLAP_STRING_MAX_LENGTH) {
+        if (value_len > config::string_type_length_soft_limit_bytes) {
             LOG(WARNING) << "the len of value string is too long, len=" << value_len
-                         << ", max_len=" << OLAP_STRING_MAX_LENGTH;
+                         << ", max_len=" << config::string_type_length_soft_limit_bytes;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;
         }
 

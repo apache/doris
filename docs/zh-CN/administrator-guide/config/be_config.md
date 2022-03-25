@@ -1516,3 +1516,8 @@ webserver默认工作线程数
 * 类型: int32
 * 描述: 每个OlapScanner 读取的最大数据量
 * 默认值: 1024
+
+### `string_type_length_soft_limit_bytes`
+* 类型: int32
+* 描述: String 类型最大长度的软限，单位是字节
+* 默认值: 1048576
