@@ -90,7 +90,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block** next_block) {
 void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                               int64_t packet_seq,
                                               ::google::protobuf::Closure** done) {
-    std::unique_lock<std::mutex> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return;
     }
@@ -140,7 +140,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
 }
 
 void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
-    std::unique_lock<std::mutex> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return;
     }
