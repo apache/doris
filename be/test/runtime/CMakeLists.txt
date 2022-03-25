@@ -38,6 +38,7 @@ ADD_BE_TEST(fragment_mgr_test)
 #ADD_BE_TEST(dpp_sink_internal_test)
 #ADD_BE_TEST(dpp_sink_test)
 #ADD_BE_TEST(data_spliter_test)
+#ADD_BE_TEST(etl_job_mgr_test)
 
 #ADD_BE_TEST(tmp_file_mgr_test)
 #ADD_BE_TEST(disk_io_mgr_test)

@@ -198,6 +198,7 @@ public:
     UIntGauge* query_cache_partition_total_count;
 
     UIntGauge* scanner_thread_pool_queue_size;
+    UIntGauge* etl_thread_pool_queue_size;
     UIntGauge* add_batch_task_queue_size;
     UIntGauge* send_batch_thread_pool_thread_num;
     UIntGauge* send_batch_thread_pool_queue_size;
