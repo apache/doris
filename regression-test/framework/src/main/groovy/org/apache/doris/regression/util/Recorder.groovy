@@ -21,8 +21,8 @@ import groovy.transform.CompileStatic
 
 @CompileStatic
 class Recorder {
-    public final List<SuiteInfo> successList = new ArrayList<>()
-    public final List<SuiteInfo> failureList = new ArrayList<>()
+    public final List<SuiteInfo> successList = new Vector<>()
+    public final List<SuiteInfo> failureList = new Vector<>()
 
     void onSuccess(SuiteInfo suiteInfo) {
         successList.add(suiteInfo)

@@ -6,7 +6,7 @@
 -- !select2 --
 2
 
--- !union --
+-- !union_all --
 \N
 1
 15

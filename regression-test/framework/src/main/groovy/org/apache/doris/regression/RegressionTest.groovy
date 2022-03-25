@@ -38,7 +38,8 @@ class RegressionTest {
     static ClassLoader classloader
     static CompilerConfiguration compileConfig
     static GroovyShell shell
-    static ExecutorService executorService;
+    static ExecutorService executorService
+    static ExecutorService actionExecutorService
 
     static void main(String[] args) {
         CommandLine cmd = ConfigOptions.initCommands(args)
@@ -53,6 +54,7 @@ class RegressionTest {
             Recorder recorder = runSuites(config)
             printResult(config, recorder)
         }
+        actionExecutorService.shutdown()
         executorService.shutdown()
     }
 
@@ -63,7 +65,8 @@ class RegressionTest {
         compileConfig.setScriptBaseClass((Suite as Class).name)
         shell = new GroovyShell(classloader, new Binding(), compileConfig)
         log.info("starting ${config.parallel} threads")
-        executorService = Executors.newFixedThreadPool(config.parallel);
+        executorService = Executors.newFixedThreadPool(config.parallel)
+        actionExecutorService = Executors.newFixedThreadPool(config.actionParallel)
     }
 
     static List<File> findSuiteFiles(String root) {
@@ -117,23 +120,34 @@ class RegressionTest {
         return groups;
     }
 
-    static Integer runSuite(Config config, SuiteFile sf, Recorder recorder) {
+    static Integer runSuite(Config config, SuiteFile sf, ExecutorService executorService, Recorder recorder) {
         File file = sf.file
         String suiteName = sf.suiteName
         String group = sf.group
         def suiteConn = config.getConnection()
-        new SuiteContext(file, suiteConn, config, recorder).withCloseable { context ->
+        new SuiteContext(file, suiteConn, executorService, config, recorder).withCloseable { context ->
+            Suite suite = null
             try {
                 log.info("Run ${suiteName} in $file".toString())
-                Suite suite = shell.parse(file) as Suite
+                suite = shell.parse(file) as Suite
                 suite.init(suiteName, group, context)
                 suite.run()
+                suite.doLazyCheck()
+                suite.successCallbacks.each { it() }
                 recorder.onSuccess(new SuiteInfo(file, group, suiteName))
                 log.info("Run ${suiteName} in ${file.absolutePath} succeed".toString())
             } catch (Throwable t) {
+                if (suite != null) {
+                    suite.failCallbacks.each { it() }
+                }
                 recorder.onFailure(new SuiteInfo(file, group, suiteName))
                 log.error("Run ${suiteName} in ${file.absolutePath} failed".toString(), t)
+            } finally {
+                if (suite != null) {
+                    suite.finishCallbacks.each { it() }
+                }
             }
+            shell.resetLoadedClasses()
         }
 
         return 0
@@ -146,7 +160,7 @@ class RegressionTest {
             String group = parseGroup(config, file)
             return new SuiteFile(file, suiteName, group)
         }).filter({ sf ->
-            { suiteNameMatch(sf.suiteName) && canRun(config, sf.suiteName, sf.group) }
+            suiteNameMatch(sf.suiteName) && canRun(config, sf.suiteName, sf.group)
         }).collect(Collectors.toList())
 
         if (config.randomOrder) {
@@ -157,11 +171,9 @@ class RegressionTest {
         def futures = new ArrayList<Future>()
         runScripts.eachWithIndex { sf, i ->
             log.info("[${i + 1}/${totalFile}] Run ${sf.suiteName} in ${sf.file}".toString())
-            Future future = executorService.submit(
-                             ()-> {
-                                runSuite(config, sf, recorder)
-                             }
-                             )
+            Future future = executorService.submit {
+                runSuite(config, sf, actionExecutorService, recorder)
+            }
             futures.add(future)
         }
 
@@ -178,9 +190,9 @@ class RegressionTest {
     static Recorder runSuites(Config config) {
         def recorder = new Recorder()
         if (!config.withOutLoadData) {
-            runSuites(config, recorder, suiteName -> { suiteName == "load" })
+            runSuites(config, recorder, {suiteName -> suiteName == "load" })
         }
-        runSuites(config, recorder, suiteName -> { suiteName != "load" })
+        runSuites(config, recorder, {suiteName -> suiteName != "load" })
 
         return recorder
     }
@@ -189,9 +201,7 @@ class RegressionTest {
         Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet()
         if (config.suiteWildcard.size() == 0 ||
                 (suiteName != null && (config.suiteWildcard.any {
-                    suiteWildcard -> {
-                        Wildcard.match(suiteName, suiteWildcard)
-                    }
+                suiteWildcard -> Wildcard.match(suiteName, suiteWildcard)
                 }))) {
             if (config.groups == null || config.groups.isEmpty()
                     || !config.groups.intersect(suiteGroups).isEmpty()) {

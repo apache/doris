@@ -42,7 +42,7 @@ public class RandomDistributionDesc extends DistributionDesc {
     }
 
     @Override
-    public void analyze(Set<String> colSet) throws AnalysisException {
+    public void analyze(Set<String> colSet, List<ColumnDef> columnDefs) throws AnalysisException {
         if (numBucket <= 0) {
             throw new AnalysisException("Number of random distribution should be larger than zero.");
         }

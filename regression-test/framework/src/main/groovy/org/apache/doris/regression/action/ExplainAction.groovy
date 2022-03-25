@@ -17,6 +17,8 @@
 
 package org.apache.doris.regression.action
 
+import groovy.transform.stc.ClosureParams
+import groovy.transform.stc.FromString
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
 import groovy.util.logging.Slf4j
@@ -51,7 +53,7 @@ class ExplainAction implements SuiteAction {
         notContainsStrings.add(subString)
     }
 
-    void check(Closure<Boolean> checkFunction) {
+    void check(@ClosureParams(value = FromString, options = ["String", "String,Throwable,Long,Long"]) Closure<Boolean> checkFunction) {
         this.checkFunction = checkFunction
     }
 
@@ -119,7 +121,7 @@ class ExplainAction implements SuiteAction {
         long startTime = System.currentTimeMillis()
         String explainString = null
         try {
-            explainString = JdbcUtils.executeToList(context.conn, explainSql).stream()
+            explainString = JdbcUtils.executeToList(context.getConnection(), explainSql).stream()
                     .map({row -> row.get(0).toString()})
                     .collect(Collectors.joining("\n"))
             return new ActionResult(explainString, null, startTime, System.currentTimeMillis())
