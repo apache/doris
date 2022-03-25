@@ -140,28 +140,29 @@ private:
     const FilePathDesc _path_desc;
 };
 
-Status RemoteEnv::init_conf() {
+Status RemoteEnv::init_conf(const StorageParamPB& storage_param) {
     std::map<std::string, std::string> storage_prop;
-    if (doris::config::default_remote_storage_s3_ak.empty() ||
-        doris::config::default_remote_storage_s3_sk.empty() ||
-        doris::config::default_remote_storage_s3_endpoint.empty() ||
-        doris::config::default_remote_storage_s3_region.empty()) {
-        return Status::OK();
-    }
-    storage_prop[S3_AK] = doris::config::default_remote_storage_s3_ak;
-    storage_prop[S3_SK] = doris::config::default_remote_storage_s3_sk;
-    storage_prop[S3_ENDPOINT] = doris::config::default_remote_storage_s3_endpoint;
-    storage_prop[S3_REGION] = doris::config::default_remote_storage_s3_region;
-    storage_prop[S3_MAX_CONN_SIZE] =
-            std::to_string(doris::config::default_remote_storage_s3_max_conn);
-    storage_prop[S3_REQUEST_TIMEOUT_MS] =
-            std::to_string(doris::config::default_remote_storage_s3_request_timeout_ms);
-    storage_prop[S3_CONN_TIMEOUT_MS] =
-            std::to_string(doris::config::default_remote_storage_s3_conn_timeout_ms);
+    switch (storage_param.storage_medium()) {
+        case TStorageMedium::S3:
+        default:
+            S3StorageParamPB s3_storage_param = storage_param.s3_storage_param();
+            if (s3_storage_param.s3_ak().empty() || s3_storage_param.s3_sk().empty()
+                || s3_storage_param.s3_endpoint().empty() || s3_storage_param.s3_region().empty()) {
+                return Status::InternalError("s3_storage_param param is invalid");
+            }
+            storage_prop[S3_AK] = s3_storage_param.s3_ak();
+            storage_prop[S3_SK] = s3_storage_param.s3_sk();
+            storage_prop[S3_ENDPOINT] = s3_storage_param.s3_endpoint();
+            storage_prop[S3_REGION] = s3_storage_param.s3_region();
+            storage_prop[S3_MAX_CONN_SIZE] = s3_storage_param.s3_max_conn();
+            storage_prop[S3_REQUEST_TIMEOUT_MS] = s3_storage_param.s3_request_timeout_ms();
+            storage_prop[S3_CONN_TIMEOUT_MS] = s3_storage_param.s3_conn_timeout_ms();
 
-    if (ClientFactory::is_s3_conf_valid(storage_prop)) {
-        _storage_backend.reset(new S3StorageBackend(storage_prop));
+            if (!ClientFactory::is_s3_conf_valid(storage_prop)) {
+                return Status::InternalError("s3_storage_param is invalid");
+            }
     }
+    _storage_backend.reset(new S3StorageBackend(storage_prop));
     return Status::OK();
 }
 
@@ -179,7 +180,7 @@ Status RemoteEnv::new_random_access_file(const std::string& fname,
 Status RemoteEnv::new_random_access_file(const RandomAccessFileOptions& opts,
                                          const std::string& fname,
                                          std::unique_ptr<RandomAccessFile>* result) {
-    result->reset(new RemoteRandomAccessFile(fname, _storage_backend));
+    result->reset(new RemoteRandomAccessFile(fname, get_storage_backend()));
     return Status::OK();
 }
 
@@ -194,7 +195,7 @@ Status RemoteEnv::new_writable_file(const WritableFileOptions& opts, const std::
     if (opts.mode == MUST_EXIST) {
         RETURN_IF_ERROR(get_file_size(fname, &file_size));
     }
-    result->reset(new RemoteWritableFile(fname, _storage_backend, file_size));
+    result->reset(new RemoteWritableFile(fname, get_storage_backend(), file_size));
     return Status::OK();
 }
 

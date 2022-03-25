@@ -18,6 +18,7 @@
 #pragma once
 
 #include "env/env.h"
+#include "gen_cpp/AgentService_types.h"
 #include "util/storage_backend.h"
 
 namespace doris {
@@ -34,7 +35,7 @@ class RemoteEnv : public Env {
 public:
     ~RemoteEnv() override {}
 
-    Status init_conf() override;
+    Status init_conf(const StorageParamPB& storage_param);
 
     Status new_sequential_file(const std::string& fname,
                                std::unique_ptr<SequentialFile>* result) override;
@@ -94,8 +95,6 @@ public:
     Status link_file(const std::string& old_path, const std::string& new_path) override;
 
     Status get_space_info(const std::string& path, int64_t* capacity, int64_t* available) override;
-
-    bool is_remote_env() override { return true; }
 
     std::shared_ptr<StorageBackend> get_storage_backend();
 

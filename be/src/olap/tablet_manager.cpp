@@ -30,6 +30,7 @@
 #include <filesystem>
 
 #include "env/env.h"
+#include "env/env_remote_mgr.h"
 #include "env/env_util.h"
 #include "gutil/strings/strcat.h"
 #include "olap/base_compaction.h"
@@ -418,7 +419,13 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
             }
         }
 
-        TabletSharedPtr new_tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
+        StorageParamPB storage_param;
+        OLAPStatus status = _get_storage_param(data_dir, tablet_meta->remote_storage_name(), &storage_param);
+        if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "fail to _get_storage_param. storage_name: " << tablet_meta->remote_storage_name();
+            return nullptr;
+        }
+        TabletSharedPtr new_tablet = Tablet::create_tablet_from_meta(tablet_meta, storage_param, data_dir);
         DCHECK(new_tablet != nullptr);
         return new_tablet;
     }
@@ -698,7 +705,11 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         tablet_meta->set_tablet_state(TABLET_RUNNING);
     }
 
-    TabletSharedPtr tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
+    StorageParamPB storage_param;
+    RETURN_NOT_OK_LOG(_get_storage_param(data_dir, tablet_meta->remote_storage_name(), &storage_param),
+                      "fail to _get_storage_param. storage_name: " + tablet_meta->remote_storage_name());
+
+    TabletSharedPtr tablet = Tablet::create_tablet_from_meta(tablet_meta, storage_param, data_dir);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to load tablet. tablet_id=" << tablet_id
                      << ", schema_hash:" << schema_hash;
@@ -1312,6 +1323,17 @@ void TabletManager::get_tablets_distribution_on_different_disks(
         tablets_num_on_disk[partition_id] = tablets_num;
         tablets_info_on_disk[partition_id] = tablets_info;
     }
+}
+
+OLAPStatus TabletManager::_get_storage_param(
+        DataDir* data_dir, const std::string& storage_name, StorageParamPB* storage_param) {
+    if (data_dir->is_remote()) {
+        RETURN_WITH_WARN_IF_ERROR(Env::get_remote_mgr()->get_storage_param(storage_name, storage_param),
+                                  OLAP_ERR_OTHER_ERROR, "get_storage_param failed for storage_name: " + storage_name);
+    } else {
+        storage_param->set_storage_medium(fs::fs_util::get_storage_medium_pb(data_dir->storage_medium()));
+    }
+    return OLAP_SUCCESS;
 }
 
 } // end namespace doris

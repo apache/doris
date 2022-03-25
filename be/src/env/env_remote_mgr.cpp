@@ -15,339 +15,168 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "env/env_remote.h"
-
 #include "common/config.h"
-#include "common/logging.h"
 #include "common/status.h"
-#include "env/env.h"
+#include "env/env_util.h"
+#include "env/env_remote_mgr.h"
 #include "gutil/strings/substitute.h"
-#include "util/s3_storage_backend.h"
-#include "util/s3_util.h"
+#include "util/faststring.h"
+#include "util/file_utils.h"
 
 namespace doris {
 
-using std::string;
-using strings::Substitute;
-
-class RemoteRandomAccessFile : public RandomAccessFile {
-public:
-    RemoteRandomAccessFile(std::string filename, std::shared_ptr<StorageBackend> storage_backend)
-            : _filename(std::move(filename)), _storage_backend(storage_backend) {}
-    ~RemoteRandomAccessFile() {}
-
-    Status read_at(uint64_t offset, const Slice* result) const override {
-        return readv_at(offset, result, 1);
-    }
-
-    Status readv_at(uint64_t offset, const Slice* result, size_t res_cnt) const override {
-        return Status::NotSupported("No support", 1, "");
-    }
-    Status read_all(std::string* content) const override {
-        return _storage_backend->direct_download(_filename, content);
-    }
-    Status size(uint64_t* size) const override { return Status::NotSupported("No support", 1, ""); }
-
-    const std::string& file_name() const override { return _filename; }
-
-private:
-    const std::string _filename;
-    std::shared_ptr<StorageBackend> _storage_backend;
-};
-
-class RemoteWritableFile : public WritableFile {
-public:
-    RemoteWritableFile(std::string filename, std::shared_ptr<StorageBackend> storage_backend,
-                       uint64_t filesize)
-            : _filename(std::move(filename)),
-              _storage_backend(storage_backend),
-              _filesize(filesize) {}
-
-    ~RemoteWritableFile() override {
-        WARN_IF_ERROR(close(), "Failed to close file, file=" + _filename);
-    }
-
-    Status append(const Slice& data) override { return appendv(&data, 1); }
-
-    Status appendv(const Slice* data, size_t data_cnt) override {
-        size_t bytes_written = 0;
-        std::string content;
-        for (size_t i = 0; i < data_cnt; i++) {
-            content += data[i].to_string();
-            bytes_written += data[i].size;
-        }
-        Status status = _storage_backend->direct_upload(_filename, content);
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                status, strings::Substitute("direct_upload failed: $0, err=$1", _filename,
-                                            status.to_string()));
-        _filesize += bytes_written;
+Status RemoteEnvMgr::init(const std::string& storage_param_dir) {
+    if (_is_inited) {
         return Status::OK();
     }
-
-    Status pre_allocate(uint64_t size) override {
-        return Status::NotSupported("No support", 1, "");
+    Status exist_status = Env::Default()->path_exists(storage_param_dir);
+    if (!exist_status.ok() &&
+        (!exist_status.is_not_found() || !Env::Default()->create_dirs(storage_param_dir).ok())) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
+                "failed to create remote storage_param root path $0", storage_param_dir)),
+                                       "create_dirs failed");
     }
 
-    Status close() override { return Status::OK(); }
-
-    Status flush(FlushMode mode) override { return Status::OK(); }
-
-    Status sync() override { return Status::OK(); }
-
-    uint64_t size() const override { return _filesize; }
-    const string& filename() const override { return _filename; }
-
-private:
-    std::string _filename;
-    std::shared_ptr<StorageBackend> _storage_backend;
-    uint64_t _filesize = 0;
-};
-
-class RemoteRandomRWFile : public RandomRWFile {
-public:
-    RemoteRandomRWFile(const FilePathDesc& path_desc) : _path_desc(path_desc) {}
-
-    ~RemoteRandomRWFile() { WARN_IF_ERROR(close(), "Failed to close " + _path_desc.filepath); }
-    virtual Status read_at(uint64_t offset, const Slice& result) const {
-        return Status::NotSupported("No support", 1, "");
+    std::vector<std::string> file_names;
+    RETURN_IF_ERROR(FileUtils::list_files(Env::Default(), storage_param_dir, &file_names));
+    for (auto& file_name : file_names) {
+        faststring buf;
+        RETURN_NOT_OK_STATUS_WITH_WARN(env_util::read_file_to_string(
+                Env::Default(), storage_param_dir + "/" + file_name, &buf),
+                                       strings::Substitute("load storage_name failed. $0", file_name));
+        StorageParamPB storage_param_pb;
+        RETURN_IF_ERROR(_deserialize_param(buf.ToString(), &storage_param_pb));
+        RETURN_IF_ERROR(_create_remote_storage_internal(storage_param_pb));
+        LOG(INFO) << "init remote_storage_param successfully. storage_name: " << file_name;
     }
+    _storage_param_dir = storage_param_dir;
+    _is_inited = true;
+    return Status::OK();
+}
 
-    Status readv_at(uint64_t offset, const Slice* res, size_t res_cnt) const {
-        return Status::NotSupported("No support", 1, "");
+Status RemoteEnvMgr::create_remote_storage(const StorageParamPB& storage_param_pb) {
+    if (_check_exist(storage_param_pb)) {
+        return Status::OK();
     }
+    RETURN_IF_ERROR(_create_remote_storage_internal(storage_param_pb));
 
-    Status write_at(uint64_t offset, const Slice& data) {
-        return Status::NotSupported("No support", 1, "");
+    std::string storage_name = storage_param_pb.storage_name();
+
+    string storage_param_path = _storage_param_dir + "/" + storage_name;
+    RETURN_NOT_OK_STATUS_WITH_WARN(FileUtils::remove(storage_param_path),
+                                   strings::Substitute("rm storage_param_pb file failed: $0", storage_param_path));
+    std::string param_binary;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_serialize_param(storage_param_pb, &param_binary),
+                                   "_serialize_param storage_param_pb failed.");
+    RETURN_NOT_OK_STATUS_WITH_WARN(
+            env_util::write_string_to_file(Env::Default(), Slice(param_binary), storage_param_path),
+            strings::Substitute("write_string_to_file failed: $0", storage_param_path));
+    faststring buf;
+    RETURN_NOT_OK_STATUS_WITH_WARN(env_util::read_file_to_string(Env::Default(), storage_param_path, &buf),
+                                   strings::Substitute("read storage_name failed. $0", storage_param_path));
+    if (buf.ToString() != param_binary) {
+        LOG(ERROR) << "storage_param written failed. storage_name: ("
+                   << storage_param_pb.storage_name() << "<->" << storage_name << ")";
+        return Status::InternalError("storage_param written failed");
     }
+    LOG(INFO) << "create remote_storage_param successfully. storage_name: " << storage_name;
+    return Status::OK();
+}
 
-    Status writev_at(uint64_t offset, const Slice* data, size_t data_cnt) {
-        return Status::NotSupported("No support", 1, "");
+Status RemoteEnvMgr::_create_remote_storage_internal(const StorageParamPB& storage_param_pb) {
+    std::string storage_name = storage_param_pb.storage_name();
+    WriteLock wrlock(_remote_env_lock);
+    if (_remote_env_map.size() >= doris::config::max_remote_storage_count) {
+        std::map<std::string, time_t>::iterator itr = _remote_env_active_time.begin();
+        std::string timeout_key = itr->first;
+        time_t min_active_time = itr->second;
+        ++itr;
+        for (; itr != _remote_env_active_time.end(); ++itr) {
+            if (itr->second < min_active_time) {
+                timeout_key = itr->first;
+                min_active_time = itr->second;
+            }
+        }
+        _remote_env_map.erase(storage_name);
+        _storage_param_map.erase(storage_name);
+        _remote_env_active_time.erase(storage_name);
     }
+    std::shared_ptr<RemoteEnv> remote_env(new RemoteEnv());
+    RETURN_NOT_OK_STATUS_WITH_WARN(remote_env->init_conf(storage_param_pb),
+                                   strings::Substitute("create_remote_storage failed. storage_name: $0", storage_name));
+    _storage_param_map[storage_name] = storage_param_pb;
+    _remote_env_map[storage_name] = remote_env;
+    _remote_env_active_time[storage_name] = time(nullptr);
 
-    Status flush(FlushMode mode, uint64_t offset, size_t length) {
-        return Status::NotSupported("No support", 1, "");
+    return Status::OK();
+}
+
+std::shared_ptr<RemoteEnv> RemoteEnvMgr::get_remote_env(const std::string& storage_name) {
+    ReadLock rdlock(_remote_env_lock);
+    if (_remote_env_map.find(storage_name) == _remote_env_map.end()) {
+        return nullptr;
     }
+    _remote_env_active_time[storage_name] = time(nullptr);
+    return _remote_env_map[storage_name];
+}
 
-    Status sync() { return Status::NotSupported("No support", 1, ""); }
+Status RemoteEnvMgr::get_storage_param(const std::string& storage_name, StorageParamPB* storage_param) {
+    ReadLock rdlock(_remote_env_lock);
+    if (_remote_env_map.find(storage_name) == _remote_env_map.end()) {
+        return Status::InternalError("storage_name not exist: " + storage_name);
+    }
+    *storage_param = _storage_param_map[storage_name];
+    return Status::OK();
+}
 
-    Status close() { return Status::NotSupported("No support", 1, ""); }
-
-    Status size(uint64_t* size) const { return Status::NotSupported("No support", 1, ""); }
-
-    const string& filename() const { return _path_desc.filepath; }
-
-private:
-    const FilePathDesc _path_desc;
-};
-
-Status RemoteEnv::init_conf(const StorageParamPB& storage_param) {
-    std::map<std::string, std::string> storage_prop;
-    switch (storage_param.storage_medium()) {
+Status RemoteEnvMgr::get_root_path(const std::string& storage_name, std::string* root_path) {
+    ReadLock rdlock(_remote_env_lock);
+    if (_remote_env_map.find(storage_name) == _remote_env_map.end()) {
+        return Status::InternalError("storage_name not exist: " + storage_name);
+    }
+    switch (_storage_param_map[storage_name].storage_medium()) {
         case TStorageMedium::S3:
         default:
-            S3StorageParamPB s3_storage_param = storage_param.s3_storage_param();
-            if (s3_storage_param.s3_ak().empty() || s3_storage_param.s3_sk().empty()
-                || s3_storage_param.s3_endpoint().empty() || s3_storage_param.s3_region().empty()) {
-                return Status::InternalError("s3_storage_param param is invalid");
-            }
-            storage_prop[S3_AK] = s3_storage_param.s3_ak();
-            storage_prop[S3_SK] = s3_storage_param.s3_sk();
-            storage_prop[S3_ENDPOINT] = s3_storage_param.s3_endpoint();
-            storage_prop[S3_REGION] = s3_storage_param.s3_region();
-            storage_prop[S3_MAX_CONN_SIZE] = s3_storage_param.s3_max_conn();
-            storage_prop[S3_REQUEST_TIMEOUT_MS] = s3_storage_param.s3_request_timeout_ms();
-            storage_prop[S3_CONN_TIMEOUT_MS] = s3_storage_param.s3_conn_timeout_ms();
-
-            if (!ClientFactory::is_s3_conf_valid(storage_prop)) {
-                return Status::InternalError("s3_storage_param is invalid");
-            }
+        {
+            *root_path = _storage_param_map[storage_name].s3_storage_param().root_path();
+        }
     }
-    _storage_backend.reset(new S3StorageBackend(storage_prop));
     return Status::OK();
 }
 
-Status RemoteEnv::new_sequential_file(const std::string& fname,
-                                      std::unique_ptr<SequentialFile>* result) {
-    return Status::IOError(strings::Substitute("Unable to new_sequential_file $0", fname), 0, "");
-}
-
-// get a RandomAccessFile pointer without file cache
-Status RemoteEnv::new_random_access_file(const std::string& fname,
-                                         std::unique_ptr<RandomAccessFile>* result) {
-    return new_random_access_file(RandomAccessFileOptions(), fname, result);
-}
-
-Status RemoteEnv::new_random_access_file(const RandomAccessFileOptions& opts,
-                                         const std::string& fname,
-                                         std::unique_ptr<RandomAccessFile>* result) {
-    result->reset(new RemoteRandomAccessFile(fname, get_storage_backend()));
-    return Status::OK();
-}
-
-Status RemoteEnv::new_writable_file(const std::string& fname,
-                                    std::unique_ptr<WritableFile>* result) {
-    return new_writable_file(WritableFileOptions(), fname, result);
-}
-
-Status RemoteEnv::new_writable_file(const WritableFileOptions& opts, const std::string& fname,
-                                    std::unique_ptr<WritableFile>* result) {
-    uint64_t file_size = 0;
-    if (opts.mode == MUST_EXIST) {
-        RETURN_IF_ERROR(get_file_size(fname, &file_size));
+Status RemoteEnvMgr::_check_exist(const StorageParamPB& storage_param_pb) {
+    StorageParamPB old_storage_param;
+    RETURN_IF_ERROR(get_storage_param(storage_param_pb.storage_name(), &old_storage_param));
+    ReadLock rdlock(_remote_env_lock);
+    std::string old_param_binary;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_serialize_param(old_storage_param, &old_param_binary),
+                                   "_serialize_param old_storage_param_pb failed.");
+    std::string param_binary;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_serialize_param(storage_param_pb, &param_binary),
+                                   "_serialize_param storage_param_pb failed.");
+    if (old_param_binary != param_binary) {
+        LOG(ERROR) << "storage_param has been changed: " << storage_param_pb.storage_name();
+        return Status::InternalError("storage_param has been changed");
     }
-    result->reset(new RemoteWritableFile(fname, get_storage_backend(), file_size));
     return Status::OK();
 }
 
-Status RemoteEnv::new_random_rw_file(const std::string& fname,
-                                     std::unique_ptr<RandomRWFile>* result) {
-    return new_random_rw_file(RandomRWFileOptions(), fname, result);
-}
-
-Status RemoteEnv::new_random_rw_file(const RandomRWFileOptions& opts, const std::string& fname,
-                                     std::unique_ptr<RandomRWFile>* result) {
-    return Status::IOError(strings::Substitute("Unable to new_random_rw_file $0", fname), 0, "");
-}
-
-Status RemoteEnv::path_exists(const std::string& fname, bool is_dir) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = Status::OK();
-    if (is_dir) {
-        status = storage_backend->exist_dir(fname);
-    } else {
-        status = storage_backend->exist(fname);
+Status RemoteEnvMgr::_serialize_param(const StorageParamPB& storage_param_pb, std::string* param_binary) {
+    bool serialize_success = storage_param_pb.SerializeToString(param_binary);
+    if (!serialize_success) {
+        LOG(WARNING) << "failed to serialize storage_param " << storage_param_pb.storage_name();
+        return Status::InternalError("failed to serialize storage_param: " + storage_param_pb.storage_name());
     }
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("path_exists failed: $0, err=$1",
-                                                               fname, status.to_string()));
     return Status::OK();
 }
 
-Status RemoteEnv::get_children(const std::string& dir, std::vector<std::string>* result) {
-    return Status::IOError(strings::Substitute("Unable to get_children $0", dir), 0, "");
-}
-
-Status RemoteEnv::iterate_dir(const std::string& dir, const std::function<bool(const char*)>& cb) {
-    return Status::IOError(strings::Substitute("Unable to iterate_dir $0", dir), 0, "");
-}
-
-Status RemoteEnv::delete_file(const std::string& fname) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->rm(fname);
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("delete_file failed: $0, err=$1",
-                                                               fname, status.to_string()));
-    return Status::OK();
-}
-
-Status RemoteEnv::create_dir(const std::string& name) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    return storage_backend->mkdir(name);
-}
-
-Status RemoteEnv::create_dir_if_missing(const string& dirname, bool* created) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    if (storage_backend->exist_dir(dirname)) {
-        *created = true;
-        return Status::OK();
+Status RemoteEnvMgr::_deserialize_param(const std::string& param_binary, StorageParamPB* storage_param_pb) {
+    bool parsed = storage_param_pb->ParseFromString(param_binary);
+    if (!parsed) {
+        LOG(WARNING) << "parse storage_param failed";
+        return Status::InternalError("parse storage_param failed");
     }
-    return storage_backend->mkdir(dirname);
-}
-
-Status RemoteEnv::create_dirs(const string& dirname) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    return storage_backend->mkdirs(dirname);
-}
-
-// Delete the specified directory.
-Status RemoteEnv::delete_dir(const std::string& dirname) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->rmdir(dirname);
-    RETURN_NOT_OK_STATUS_WITH_WARN(status, strings::Substitute("delete_dir failed: $0, err=$1",
-                                                               dirname, status.to_string()));
     return Status::OK();
 }
 
-Status RemoteEnv::sync_dir(const string& dirname) {
-    return Status::IOError(strings::Substitute("Unable to sync_dir $0", dirname), 0, "");
-}
-
-Status RemoteEnv::is_directory(const std::string& path, bool* is_dir) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->exist(path);
-    if (status.ok()) {
-        *is_dir = false;
-        return Status::OK();
-    }
-    if (!status.is_not_found()) {
-        return status;
-    }
-
-    status = storage_backend->exist_dir(path);
-    if (status.ok()) {
-        *is_dir = true;
-        return Status::OK();
-    }
-    if (!status.is_not_found()) {
-        return status;
-    }
-
-    *is_dir = false;
-    return Status::OK();
-}
-
-Status RemoteEnv::canonicalize(const std::string& path, std::string* result) {
-    *result = path;
-    return Status::OK();
-}
-
-Status RemoteEnv::get_file_size(const std::string& fname, uint64_t* size) {
-    return Status::OK();
-    // return EnvBos::get_file_size(fname, size);
-}
-
-Status RemoteEnv::get_file_modified_time(const std::string& fname, uint64_t* file_mtime) {
-    return Status::IOError(strings::Substitute("Unable to get_file_modified_time $0", fname), 0,
-                           "");
-}
-
-Status RemoteEnv::copy_path(const std::string& src, const std::string& target) {
-    return Status::IOError(strings::Substitute("Unable to copy_path $0 to $1", src, target), 0, "");
-}
-
-Status RemoteEnv::rename_file(const std::string& src, const std::string& target) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->rename(src, target);
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            status, strings::Substitute("rename_file failed: from $0 to $1, err=$2", src, target,
-                                        status.to_string()));
-    return Status::OK();
-}
-
-Status RemoteEnv::rename_dir(const std::string& src, const std::string& target) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->rename_dir(src, target);
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            status, strings::Substitute("rename_dir failed: from $0 to $1, err=$2", src, target,
-                                        status.to_string()));
-    return Status::OK();
-}
-
-Status RemoteEnv::link_file(const std::string& old_path, const std::string& new_path) {
-    std::shared_ptr<StorageBackend> storage_backend = get_storage_backend();
-    Status status = storage_backend->copy(old_path, new_path);
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            status, strings::Substitute("link_file failed: from $0 to $1, err=$2", old_path,
-                                        new_path, status.to_string()));
-    return Status::OK();
-}
-
-Status RemoteEnv::get_space_info(const std::string& path, int64_t* capacity, int64_t* available) {
-    *capacity = -1;
-    *available = -1;
-    return Status::OK();
-}
-
-std::shared_ptr<StorageBackend> RemoteEnv::get_storage_backend() {
-    return _storage_backend;
-}
-
-} // end namespace doris
+} // namespace doris

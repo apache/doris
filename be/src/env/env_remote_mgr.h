@@ -17,89 +17,42 @@
 
 #pragma once
 
-#include "env/env.h"
-#include "gen_cpp/AgentService_types.h"
-#include "util/storage_backend.h"
+#include <string>
+#include <map>
+#include <vector>
+
+#include "env/env_remote.h"
+#include "util/mutex.h"
 
 namespace doris {
 
-class RandomAccessFile;
-class RandomRWFile;
-class WritableFile;
-class SequentialFile;
-struct WritableFileOptions;
-struct RandomAccessFileOptions;
-struct RandomRWFileOptions;
-
-class RemoteEnv : public Env {
+class RemoteEnvMgr {
 public:
-    ~RemoteEnv() override {}
+    RemoteEnvMgr() {}
+    ~RemoteEnvMgr() {}
 
-    Status init_conf(const StorageParamPB& storage_param);
+    Status init(const std::string& storage_name_dir);
 
-    Status new_sequential_file(const std::string& fname,
-                               std::unique_ptr<SequentialFile>* result) override;
+    std::shared_ptr<RemoteEnv> get_remote_env(const std::string& storage_name);
 
-    // get a RandomAccessFile pointer without file cache
-    Status new_random_access_file(const std::string& fname,
-                                  std::unique_ptr<RandomAccessFile>* result) override;
+    Status create_remote_storage(const StorageParamPB& storage_param);
 
-    Status new_random_access_file(const RandomAccessFileOptions& opts, const std::string& fname,
-                                  std::unique_ptr<RandomAccessFile>* result) override;
+    Status get_storage_param(const std::string& storage_name, StorageParamPB* storage_param);
 
-    Status new_writable_file(const std::string& fname,
-                             std::unique_ptr<WritableFile>* result) override;
-
-    Status new_writable_file(const WritableFileOptions& opts, const std::string& fname,
-                             std::unique_ptr<WritableFile>* result) override;
-
-    Status new_random_rw_file(const std::string& fname,
-                              std::unique_ptr<RandomRWFile>* result) override;
-
-    Status new_random_rw_file(const RandomRWFileOptions& opts, const std::string& fname,
-                              std::unique_ptr<RandomRWFile>* result) override;
-
-    Status path_exists(const std::string& fname, bool is_dir = false) override;
-
-    Status get_children(const std::string& dir, std::vector<std::string>* result) override;
-
-    Status iterate_dir(const std::string& dir, const std::function<bool(const char*)>& cb) override;
-
-    Status delete_file(const std::string& fname) override;
-
-    Status create_dir(const std::string& name) override;
-
-    Status create_dir_if_missing(const std::string& dirname, bool* created = nullptr) override;
-
-    Status create_dirs(const std::string& dirname) override;
-
-    // Delete the specified directory.
-    Status delete_dir(const std::string& dirname) override;
-
-    Status sync_dir(const std::string& dirname) override;
-
-    Status is_directory(const std::string& path, bool* is_dir) override;
-
-    Status canonicalize(const std::string& path, std::string* result) override;
-
-    Status get_file_size(const std::string& fname, uint64_t* size) override;
-
-    Status get_file_modified_time(const std::string& fname, uint64_t* file_mtime) override;
-
-    Status copy_path(const std::string& src, const std::string& target) override;
-
-    Status rename_file(const std::string& src, const std::string& target) override;
-
-    Status rename_dir(const std::string& src, const std::string& target) override;
-
-    Status link_file(const std::string& old_path, const std::string& new_path) override;
-
-    Status get_space_info(const std::string& path, int64_t* capacity, int64_t* available) override;
-
-    std::shared_ptr<StorageBackend> get_storage_backend();
+    Status get_root_path(const std::string& storage_name, std::string* root_path);
 
 private:
-    std::shared_ptr<StorageBackend> _storage_backend;
+    Status _create_remote_storage_internal(const StorageParamPB& storage_param);
+    Status _check_exist(const StorageParamPB& storage_param_pb);
+    Status _serialize_param(const StorageParamPB& storage_param_pb, std::string* meta_binary);
+    Status _deserialize_param(const std::string& meta_binary, StorageParamPB* storage_param_pb);
+
+    std::shared_mutex _remote_env_lock;
+    std::map<std::string, time_t> _remote_env_active_time;
+    std::map<std::string, std::shared_ptr<RemoteEnv>> _remote_env_map;
+    std::map<std::string, StorageParamPB> _storage_param_map;
+    std::string _storage_param_dir;
+    bool _is_inited = false;
 };
 
 } // namespace doris

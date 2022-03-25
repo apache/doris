@@ -53,7 +53,11 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) {       // abnormal exit, remove all files generated
         _segment_writer.reset(); // ensure all files are closed
         Status st;
-        Env* env = Env::get_env(_context.path_desc.storage_medium);
+        std::shared_ptr<Env> env = Env::get_env(_context.path_desc);
+        if (env == nullptr) {
+            LOG(WARNING) << "env is invalid: " << _context.path_desc.debug_string();
+            return;
+        }
         for (int i = 0; i < _num_segment; ++i) {
             auto path_desc = BetaRowset::segment_file_path(_context.path_desc,
                                                       _context.rowset_id, i);
@@ -211,7 +215,7 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::
                                               _num_segment++);
     // TODO(lingbin): should use a more general way to get BlockManager object
     // and tablets with the same type should share one BlockManager object;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_context.path_desc.storage_medium);
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_context.path_desc);
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions opts(path_desc);
     DCHECK(block_mgr != nullptr);

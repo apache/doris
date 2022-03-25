@@ -342,7 +342,8 @@ public:
         std::string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, ++seg_id);
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions block_opts({filename});
-        fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(block_opts, &wblock);
+        std::string storage_name;
+        fs::fs_util::block_manager(storage_name)->create_block(block_opts, &wblock);
         SegmentWriterOptions opts;
         SegmentWriter writer(wblock.get(), 0, &_tablet_schema, opts);
         writer.init(1024);

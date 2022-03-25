@@ -94,7 +94,7 @@ public:
             : _reader(reader),
               _ordinal_iter(&reader->_ordinal_index_reader),
               _value_iter(&reader->_value_index_reader) {
-        fs::BlockManager* block_manager = fs::fs_util::block_manager(_reader->_path_desc.storage_medium);
+        fs::BlockManager* block_manager = fs::fs_util::block_manager(_reader->_path_desc);
         auto st = block_manager->open_block(_reader->_path_desc, &_rblock);
         DCHECK(st.ok());
         WARN_IF_ERROR(st, "open file failed:" + _reader->_path_desc.filepath);
