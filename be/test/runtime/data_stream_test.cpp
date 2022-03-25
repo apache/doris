@@ -94,6 +94,15 @@ public:
     virtual void publish_cluster_state(TAgentResult& return_val,
                                        const TAgentPublishRequest& request) {}
 
+    virtual void submit_etl_task(TAgentResult& return_val, const TMiniLoadEtlTaskRequest& request) {
+    }
+
+    virtual void get_etl_status(TMiniLoadEtlStatusResult& return_val,
+                                const TMiniLoadEtlStatusRequest& request) {}
+
+    virtual void delete_etl_files(TAgentResult& return_val, const TDeleteEtlFilesRequest& request) {
+    }
+
     virtual void register_pull_load_task(TStatus& _return, const TUniqueId& id,
                                          const int32_t num_senders) {}
 
