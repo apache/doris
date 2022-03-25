@@ -577,7 +577,7 @@ public class TabletScheduler extends MasterDaemon {
                 throw new SchedException(Status.UNRECOVERABLE, "tablet is unhealthy when doing balance");
             }
 
-            // for disk balance more accutely, we only scheduler tablet when has lastly stat info about disk
+            // for disk balance more accutely, we only schedule tablet when has lastly stat info about disk
             if (tabletCtx.getType() == TabletSchedCtx.Type.BALANCE &&
                    tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.DISK_BALANCE) {
                 checkDiskBalanceLastSuccTime(tabletCtx.getTempSrcBackendId(), tabletCtx.getTempSrcPathHash());

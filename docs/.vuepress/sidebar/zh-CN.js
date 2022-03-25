@@ -580,10 +580,12 @@ module.exports = [
             directoryPath: "Administration/",
             initialOpenGroupIndex: -1,
             children: [
+              "ADMIN CANCEL REBALANCE DISK",
               "ADMIN CANCEL REPAIR",
               "ADMIN CLEAN TRASH",
               "ADMIN CHECK TABLET",
               "ADMIN COMPACT",
+              "ADMIN REBALANCE DISK",
               "ADMIN REPAIR",
               "ADMIN SET CONFIG",
               "ADMIN SET REPLICA STATUS",

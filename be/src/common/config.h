@@ -332,6 +332,11 @@ CONF_Int32(min_tablet_migration_threads, "1");
 CONF_Int32(max_tablet_migration_threads, "1");
 
 CONF_mInt32(finished_migration_tasks_size, "10000");
+// If size less than this, the remaining rowsets will be force to complete
+CONF_mInt32(migration_remaining_size_threshold_mb, "10");
+// If the task runs longer than this time, the task will be terminated, in seconds.
+// tablet max size / migration min speed * factor = 10GB / 1MBps * 2 = 20480 seconds
+CONF_mInt32(migration_task_timeout_secs, "20480");
 
 // Port to start debug webserver on
 CONF_Int32(webserver_port, "8040");
