@@ -160,6 +160,10 @@ struct TQueryOptions {
   // show bitmap data in result, if use this in mysql cli may make the terminal
   // output corrupted character
   43: optional bool return_object_data_as_binary = false
+
+  // the maximum size in bytes for a table that will be broadcast to all be nodes
+  // when performing a join, By setting this value to -1 broadcasting can be disabled.
+  44: optional i64 auto_broadcast_join_threshold = 1073741824
 }
     
 

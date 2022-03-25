@@ -96,12 +96,12 @@ public class DistributedPlanner {
             Preconditions.checkState(!queryStmt.hasOffset());
             isPartitioned = true;
         }
-        long perNodeMemLimit = ctx_.getQueryOptions().mem_limit;
+        long autoBroadcastJoinThreshold = ctx_.getQueryOptions().getAutoBroadcastJoinThreshold();
         if (LOG.isDebugEnabled()) {
             LOG.debug("create plan fragments");
-            LOG.debug("memlimit=" + Long.toString(perNodeMemLimit));
+            LOG.debug("auto broadcast threshold = " + autoBroadcastJoinThreshold);
         }
-        createPlanFragments(singleNodePlan, isPartitioned, perNodeMemLimit, fragments);
+        createPlanFragments(singleNodePlan, isPartitioned, autoBroadcastJoinThreshold, fragments);
         return fragments;
     }
 
@@ -182,7 +182,7 @@ public class DistributedPlanner {
      */
     private PlanFragment createPlanFragments(
             PlanNode root, boolean isPartitioned,
-            long perNodeMemLimit, ArrayList<PlanFragment> fragments) throws UserException {
+            long autoBroadcastThreshold, ArrayList<PlanFragment> fragments) throws UserException {
         ArrayList<PlanFragment> childFragments = Lists.newArrayList();
         for (PlanNode child : root.getChildren()) {
             // allow child fragments to be partitioned, unless they contain a limit clause
@@ -193,7 +193,7 @@ public class DistributedPlanner {
             // TODO()
             // if (root instanceof SubplanNode && child == root.getChild(1)) continue;
             childFragments.add(
-                    createPlanFragments(child, childIsPartitioned, perNodeMemLimit, fragments));
+                    createPlanFragments(child, childIsPartitioned, autoBroadcastThreshold, fragments));
         }
 
         PlanFragment result = null;
@@ -205,7 +205,7 @@ public class DistributedPlanner {
         } else if (root instanceof HashJoinNode) {
             Preconditions.checkState(childFragments.size() == 2);
             result = createHashJoinFragment((HashJoinNode) root, childFragments.get(1),
-                    childFragments.get(0), perNodeMemLimit, fragments);
+                    childFragments.get(0), autoBroadcastThreshold, fragments);
         } else if (root instanceof CrossJoinNode) {
             result = createCrossJoinFragment((CrossJoinNode) root, childFragments.get(1),
                     childFragments.get(0));
@@ -307,7 +307,7 @@ public class DistributedPlanner {
      * and transform it into PlanFragment.
      */
     private PlanFragment createHashJoinFragment(HashJoinNode node, PlanFragment rightChildFragment,
-                                                PlanFragment leftChildFragment, long perNodeMemLimit,
+                                                PlanFragment leftChildFragment, long autoBroadcastThreshold,
                                                 ArrayList<PlanFragment> fragments)
             throws UserException {
         List<String> reason = Lists.newArrayList();
@@ -352,7 +352,7 @@ public class DistributedPlanner {
         // - or if it's cheaper and we weren't explicitly told to do a partitioned join
         // - and we're not doing a full or right outer join (those require the left-hand
         //   side to be partitioned for correctness)
-        // - and the expected size of the hash tbl doesn't exceed perNodeMemLimit
+        // - and the expected size of the hash tbl doesn't exceed autoBroadcastThreshold
         // we set partition join as default when broadcast join cost equals partition join cost
         if (node.getJoinOp() != JoinOperator.RIGHT_OUTER_JOIN && node.getJoinOp() != JoinOperator.FULL_OUTER_JOIN) {
             if (node.getInnerRef().isBroadcastJoin()) {
@@ -360,8 +360,7 @@ public class DistributedPlanner {
                 doBroadcast = true;
             } else if (!node.getInnerRef().isPartitionJoin()
                     && joinCostEvaluation.isBroadcastCostSmaller()
-                    && (perNodeMemLimit == 0
-                    || joinCostEvaluation.constructHashTableSpace() <= perNodeMemLimit)) {
+                    && joinCostEvaluation.constructHashTableSpace() <= autoBroadcastThreshold) {
                 doBroadcast = true;
             } else {
                 doBroadcast = false;

@@ -176,6 +176,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BLOCK_ENCRYPTION_MODE = "block_encryption_mode";
 
+    public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -428,6 +430,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
     private String blockEncryptionMode = "";
+
+    // the maximum size in bytes for a table that will be broadcast to all be nodes
+    // when performing a join, By setting this value to -1 broadcasting can be disabled.
+    // Default value is 1Gto
+    @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
+    public long autoBroadcastJoinThreshold = 1073741824L;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -898,6 +906,7 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
+        tResult.setAutoBroadcastJoinThreshold(autoBroadcastJoinThreshold);
 
         // TODO chenhao, reservation will be calculated by cost
         tResult.setMinReservation(0);
