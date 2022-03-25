@@ -843,17 +843,29 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
         if (!mem_reuse) {
-            key_columns.emplace_back(column_withschema[i].type->create_column());
+            key_columns.emplace_back(_probe_expr_ctxs[i]->root()->data_type()->create_column());
         } else {
-            key_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
+            if (!_probe_expr_ctxs[i]->root()->data_type()->is_nullable() &&
+                column_withschema[i].type->is_nullable()) {
+                auto column_nullable = std::move(*block->get_by_position(i).column).mutate();
+                key_columns.emplace_back(reinterpret_cast<ColumnNullable&>(*column_nullable).get_nested_column_ptr());
+            } else {
+                key_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
+            }
         }
     }
     MutableColumns value_columns;
     for (int i = key_size; i < column_withschema.size(); ++i) {
         if (!mem_reuse) {
-            value_columns.emplace_back(column_withschema[i].type->create_column());
+            value_columns.emplace_back(_aggregate_evaluators[i - key_size]->data_type()->create_column());
         } else {
-            value_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
+            if (!_aggregate_evaluators[i - key_size]->data_type()->is_nullable() &&
+                column_withschema[i].type->is_nullable()) {
+                auto column_nullable = std::move(*block->get_by_position(i).column).mutate();
+                value_columns.emplace_back(reinterpret_cast<ColumnNullable&>(*column_nullable).get_nested_column_ptr());
+            } else {
+                value_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
+            }
         }
     }
 
@@ -906,6 +918,11 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
             }
         }
         block->set_columns(std::move(columns));
+    }
+
+    for (int i = 0; i < block->columns(); ++i) {
+        if (column_withschema[i].type->is_nullable())
+            block->get_by_position(i).column = make_nullable(block->get_by_position(i).column);
     }
 
     return Status::OK();
