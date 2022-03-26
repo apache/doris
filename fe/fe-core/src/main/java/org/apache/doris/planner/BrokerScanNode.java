@@ -468,8 +468,13 @@ public class BrokerScanNode extends LoadScanNode {
             int numberOfColumnsFromFile = context.slotDescByName.size() - columnsFromPath.size();
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text
-                if ((formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable)
-                        || formatType == TFileFormatType.FORMAT_JSON) {
+                boolean canSplit = false;
+                if (formatType == TFileFormatType.FORMAT_CSV_PLAIN 
+                   || formatType == TFileFormatType.FORMAT_CSVWITHNAMES_PLAIN
+                   || formatType == TFileFormatType.FORMAT_CSVWITHNAMESANDTYPES_PLAIN){
+                    canSplit = true;
+                }
+                if ((canSplit && fileStatus.isSplitable) || formatType == TFileFormatType.FORMAT_JSON) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
                             rangeBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc);
