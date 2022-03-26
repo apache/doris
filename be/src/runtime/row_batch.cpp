@@ -156,6 +156,10 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
 
             for (auto slot : desc->string_slots()) {
                 DCHECK(slot->type().is_string_type());
+                if (tuple->is_null(slot->null_indicator_offset())) {
+                    continue;
+                }
+
                 StringValue* string_val = tuple->get_string_slot(slot->tuple_offset());
                 int64_t offset = convert_to<int64_t>(string_val->ptr);
                 string_val->ptr = tuple_data + offset;
@@ -209,6 +213,14 @@ RowBatch::~RowBatch() {
     clear();
 }
 
+static inline size_t align_tuple_offset(size_t offset) {
+    if (config::rowbatch_align_tuple_offset) {
+        return (offset + alignof(std::max_align_t) - 1) & (~(alignof(std::max_align_t) - 1));
+    }
+
+    return offset;
+}
+
 Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
                            size_t* compressed_size, bool allow_transfer_large_data) {
     // num_rows
@@ -240,6 +252,9 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
         for (size_t j = 0; j < tuple_descs.size(); ++j) {
+            int64_t old_offset = offset;
+            offset = align_tuple_offset(offset);
+            tuple_data += offset - old_offset;
             auto desc = tuple_descs[j];
             if (row->get_tuple(j) == nullptr) {
                 // NULLs are encoded as -1
@@ -251,7 +266,7 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
             mutable_tuple_offsets->Add((int32_t)offset);
             mutable_new_tuple_offsets->Add(offset);
             row->get_tuple(j)->deep_copy(*desc, &tuple_data, &offset, /* convert_ptrs */ true);
-            CHECK_LE(offset, tuple_byte_size);
+            CHECK_GE(offset, 0);
         }
     }
     CHECK_EQ(offset, tuple_byte_size)
@@ -541,6 +556,7 @@ size_t RowBatch::total_byte_size() const {
             if (tuple == nullptr) {
                 continue;
             }
+            result = align_tuple_offset(result);
             result += desc->byte_size();
 
             for (auto slot : desc->string_slots()) {
