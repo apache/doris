@@ -76,6 +76,11 @@ private:
     jmethodID executor_evaluate_id_;
     jmethodID executor_close_id_;
 
+    struct IntermediateState {
+        size_t buffer_size;
+        size_t row_idx;
+    };
+
     struct JniContext {
         JavaFunctionCall* parent = nullptr;
 
@@ -83,20 +88,25 @@ private:
 
         int64_t input_values_buffer_ptr;
         int64_t input_nulls_buffer_ptr;
-        int64_t input_byte_offsets_ptr;
+        int64_t input_offsets_ptrs;
         int64_t output_value_buffer;
         int64_t output_null_value;
+        int64_t output_offsets_ptr;
         int64_t batch_size_ptr;
+        // intermediate_state includes two parts: reserved / used buffer size and rows
+            IntermediateState* output_intermediate_state_ptr;
 
         JniContext(int64_t num_args, JavaFunctionCall* parent):
                   parent(parent) {
             input_values_buffer_ptr = (int64_t) new int64_t[num_args];
             input_nulls_buffer_ptr = (int64_t) new int64_t[num_args];
-            input_byte_offsets_ptr = (int64_t) new int64_t[num_args];
+            input_offsets_ptrs = (int64_t) new int64_t[num_args];
 
             output_value_buffer = (int64_t) malloc(sizeof(int64_t));
             output_null_value = (int64_t) malloc(sizeof(int64_t));
             batch_size_ptr = (int64_t) malloc(sizeof(int32_t));
+            output_offsets_ptr = (int64_t) malloc(sizeof(int32_t));
+            output_intermediate_state_ptr = (IntermediateState*) malloc(sizeof(IntermediateState));
         }
 
         ~JniContext() {
@@ -111,10 +121,12 @@ private:
             env->DeleteGlobalRef(executor);
             delete[] ((int64*) input_values_buffer_ptr);
             delete[] ((int64*) input_nulls_buffer_ptr);
-            delete[] ((int64*) input_byte_offsets_ptr);
+            delete[] ((int64*) input_offsets_ptrs);
             free((int64*) output_value_buffer);
             free((int64*) output_null_value);
+            free((int32_t*) output_offsets_ptr);
             free((int32*) batch_size_ptr);
+            free(output_intermediate_state_ptr);
         }
 
         /// These functions are cross-compiled to IR and used by codegen.
@@ -122,6 +134,12 @@ private:
                 JniContext* jni_ctx, int index, uint8_t value);
         static uint8_t* GetInputValuesBufferAtOffset(JniContext* jni_ctx, int offset);
     };
+
+    static const int32_t INITIAL_RESERVED_BUFFER_SIZE = 1024;
+    // TODO: we need a heuristic strategy to increase buffer size for variable-size output.
+    static inline int32_t IncreaseReservedBufferSize(int n) {
+        return INITIAL_RESERVED_BUFFER_SIZE << n;
+    }
 };
 
 } // namespace vectorized
