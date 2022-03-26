@@ -140,7 +140,7 @@ public:
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
 
-    // Implement TxnKey hash function to support TxnKey as a key for 'unordered_map'.
+    // Implement TxnKey hash function to support TxnKey as a key for `unordered_map`.
     struct TxnKeyHash {
         template <typename T, typename U>
         size_t operator()(const std::pair<T, U>& e) const {
@@ -148,7 +148,7 @@ private:
         }
     };
 
-    // Implement TxnKey equal function to support TxnKey as a key for 'unordered_map'.
+    // Implement TxnKey equal function to support TxnKey as a key for `unordered_map`.
     struct TxnKeyEqual {
         template <class T, typename U>
         bool operator()(const std::pair<T, U>& l, const std::pair<T, U>& r) const {

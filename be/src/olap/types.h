@@ -56,7 +56,7 @@ public:
 
     virtual void deep_copy(void* dest, const void* src, MemPool* mem_pool) const = 0;
 
-    // See 'copy_row_in_memtable()' in 'olap/row.h', will be removed in future.
+    // See `copy_row_in_memtable()` in `olap/row.h`, will be removed in the future.
     // It is same with deep_copy() for all type except for HLL and OBJECT type.
     virtual void copy_object(void* dest, const void* src, MemPool* mem_pool) const = 0;
 
@@ -98,8 +98,8 @@ public:
         _deep_copy(dest, src, mem_pool);
     }
 
-    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
-    // It is same with deep_copy() for all type except for HLL and OBJECT type
+    // See `copy_row_in_memtable()` in olap/row.h, will be removed in the future.
+    // It is same with `deep_copy()` for all type except for HLL and OBJECT type.
     inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
         _copy_object(dest, src, mem_pool);
     }
@@ -1228,7 +1228,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_OBJECT> : public FieldTypeTraits<OLAP_FIE
      * in this struct has no significance
      */
 
-    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
+    // See `copy_row_in_memtable()` in olap/row.h, will be removed in the future.
     static void copy_object(void* dest, const void* src, MemPool* mem_pool) {
         auto dst_slice = reinterpret_cast<Slice*>(dest);
         auto src_slice = reinterpret_cast<const Slice*>(src);
