@@ -71,67 +71,49 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_current_processing, MetricUnit
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
+const std::map<std::string, TFileFormatType::type> format_map = {
+    //csv
+    {"CSV", TFileFormatType::FORMAT_CSV_PLAIN},
+    {"CSV_GZ", TFileFormatType::FORMAT_CSV_GZ},
+    {"CSV_LZO", TFileFormatType::FORMAT_CSV_LZO},
+    {"CSV_BZ2", TFileFormatType::FORMAT_CSV_BZ2},
+    {"CSV_LZ4FRAME", TFileFormatType::FORMAT_CSV_LZ4FRAME},
+    {"CSV_LZOP", TFileFormatType::FORMAT_CSV_LZOP},
+    {"CSV_DEFLATE", TFileFormatType::FORMAT_CSV_DEFLATE},
+    {"JSON", TFileFormatType::FORMAT_JSON},
+    //csv_with_names
+    {"CSV_WITH_NAMES", TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN},
+    {"CSV_WITH_NAMES_GZ", TFileFormatType::FORMAT_CSVWITHNAMES_GZ},
+    {"CSV_WITH_NAMES_LZO", TFileFormatType::FORMAT_CSVWITHNAMES_LZO},
+    {"CSV_WITH_NAMES_BZ2", TFileFormatType::FORMAT_CSVWITHNAMES_BZ2},
+    {"CSV_WITH_NAMES_LZ4FRAME", TFileFormatType::FORMAT_CSVWITHNAMES_LZ4FRAME},
+    {"CSV_WITH_NAMES_LZOP", TFileFormatType::FORMAT_CSVWITHNAMES_LZOP},
+    {"CSV_WITH_NAMES_DEFLATE", TFileFormatType::FORMAT_CSVWITHNAMES_DEFLATE},
+    //csv_with_names_and_types
+    {"CSV_WITH_NAMES_AND_TYPES", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN},
+    {"CSV_WITH_NAMES_AND_TYPES_GZ", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_GZ},
+    {"CSV_WITH_NAMES_AND_TYPES_LZO", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZO},
+    {"CSV_WITH_NAMES_AND_TYPES_BZ2", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_BZ2},
+    {"CSV_WITH_NAMES_AND_TYPES_LZ4FRAME", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZ4FRAME},
+    {"CSV_WITH_NAMES_AND_TYPES_LZOP", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZOP},
+    {"CSV_WITH_NAMES_AND_TYPES_DEFLATE", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_DEFLATE}
+};
+
+
 static TFileFormatType::type parse_format(const std::string& format_str,
                                           const std::string& compress_type) {
-    if (format_str.empty()) {
-        return parse_format("CSV", compress_type);
+    std::string format_key = format_str;
+    if (format_key.empty()){
+        format_key = "CSV";
+    }
+    if (!compress_type.empty()) {
+        format_key = format_str + "_" + compress_type;
     }
     TFileFormatType::type format_type = TFileFormatType::FORMAT_UNKNOWN;
-    if (boost::iequals(format_str, "CSV")) {
-        if (compress_type.empty()) {
-            format_type = TFileFormatType::FORMAT_CSV_PLAIN;
-        }
-        if (boost::iequals(compress_type, "GZ")) {
-            format_type = TFileFormatType::FORMAT_CSV_GZ;
-        } else if (boost::iequals(compress_type, "LZO")) {
-            format_type = TFileFormatType::FORMAT_CSV_LZO;
-        } else if (boost::iequals(compress_type, "BZ2")) {
-            format_type = TFileFormatType::FORMAT_CSV_BZ2;
-        } else if (boost::iequals(compress_type, "LZ4FRAME")) {
-            format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
-        } else if (boost::iequals(compress_type, "LZOP")) {
-            format_type = TFileFormatType::FORMAT_CSV_LZOP;
-        } else if (boost::iequals(compress_type, "DEFLATE")) {
-            format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
-        }
-    } else if (boost::iequals(format_str, "JSON")) {
-        if (compress_type.empty()) {
-            format_type = TFileFormatType::FORMAT_JSON;
-        }
-    } else if (boost::iequals(format_str, "CSV_WITH_NAMES")) {
-        if (compress_type.empty()) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN;
-        }
-        if (boost::iequals(compress_type, "GZ")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_GZ;
-        } else if (boost::iequals(compress_type, "LZO")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_LZO;
-        } else if (boost::iequals(compress_type, "BZ2")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_BZ2;
-        } else if (boost::iequals(compress_type, "LZ4FRAME")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_LZ4FRAME;
-        } else if (boost::iequals(compress_type, "LZOP")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_LZOP;
-        } else if (boost::iequals(compress_type, "DEFLATE")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMES_DEFLATE;
-        }
-    }else if (boost::iequals(format_str, "CSV_WITH_NAMES_AND_TYPES")) {
-        if (compress_type.empty()) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN;
-        }
-        if (boost::iequals(compress_type, "GZ")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_GZ;
-        } else if (boost::iequals(compress_type, "LZO")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZO;
-        } else if (boost::iequals(compress_type, "BZ2")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_BZ2;
-        } else if (boost::iequals(compress_type, "LZ4FRAME")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZ4FRAME;
-        } else if (boost::iequals(compress_type, "LZOP")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZOP;
-        } else if (boost::iequals(compress_type, "DEFLATE")) {
-            format_type = TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_DEFLATE;
-        }
+    format_key = to_upper(format_key);
+    auto it = format_map.find(format_key);
+    if (it != format_map.end()){
+        format_type = it->second;
     }
     return format_type;
 }

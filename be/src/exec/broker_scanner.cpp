@@ -58,7 +58,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
           _cur_decompressor(nullptr),
           _next_range(0),
           _cur_line_reader_eof(false),
-          _skip_next_line(false) {
+          _skip_next_line(0) {
     if (params.__isset.column_separator_length && params.column_separator_length > 1) {
         _value_separator = params.column_separator_str;
         _value_separator_length = params.column_separator_length;
@@ -103,12 +103,8 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, boo
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         RETURN_IF_ERROR(_cur_line_reader->read_line(&ptr, &size, &_cur_line_reader_eof));
-        if (_skip_rows > 0){
-            _skip_rows--;
-            continue;
-        }
-        if (_skip_next_line) {
-            _skip_next_line = false;
+        if (_skip_next_line > 0){
+            _skip_next_line--;
             continue;
         }
         if (size == 0) {
@@ -195,9 +191,9 @@ Status BrokerScanner::open_file_reader() {
     }
     //means first range 
     if (start_offset == 0){
-        _skip_rows = skip_line(range);
+        _skip_next_line = skip_line(range);
     }
-    VLOG_NOTICE << "start_offset:" << start_offset <<",_skip_rows";
+    VLOG_NOTICE << "start_offset:" << start_offset <<"_skip_next_line:"<<_skip_next_line;
     switch (range.file_type) {
     case TFileType::FILE_LOCAL: {
         LocalFileReader* file_reader = new LocalFileReader(range.path, start_offset);
@@ -312,18 +308,16 @@ Status BrokerScanner::open_line_reader() {
     const TBrokerRangeDesc& range = _ranges[_next_range];
     int64_t size = range.size;
     if (range.start_offset != 0) {
-        if (range.format_type != TFileFormatType::FORMAT_CSV_PLAIN || 
-            range.format_type != TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN ||
-            range.format_type != TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN
+        if (!(range.format_type == TFileFormatType::FORMAT_CSV_PLAIN || 
+            range.format_type == TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN ||
+            range.format_type == TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN)
         ) {
             std::stringstream ss;
             ss << "For now we do not support split compressed file";
             return Status::InternalError(ss.str());
         }
         size += 1;
-        _skip_next_line = true;
-    } else {
-        _skip_next_line = false;
+        _skip_next_line = 1;
     }
 
     // create decompressor.
