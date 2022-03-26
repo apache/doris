@@ -286,7 +286,7 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable) {
     _aggregation = agg;
     _type = filed_type;
-    _length = get_type_info(filed_type)->size();
+    _length = get_scalar_type_info(filed_type)->size();
     _is_nullable = is_nullable;
 }
 

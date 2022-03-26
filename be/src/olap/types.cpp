@@ -23,54 +23,6 @@ namespace doris {
 
 void (*FieldTypeTraits<OLAP_FIELD_TYPE_CHAR>::set_to_max)(void*) = nullptr;
 
-class ScalarTypeInfoResolver {
-    DECLARE_SINGLETON(ScalarTypeInfoResolver);
-
-public:
-    std::shared_ptr<const TypeInfo> get_type_info(const FieldType t) {
-        auto pair = _scalar_type_mapping.find(t);
-        DCHECK(pair != _scalar_type_mapping.end()) << "Bad field type: " << t;
-        return pair->second;
-    }
-
-private:
-    template <FieldType field_type>
-    void add_mapping() {
-        TypeTraits<field_type> traits;
-        _scalar_type_mapping.emplace(field_type,
-                                     std::shared_ptr<const TypeInfo>(new ScalarTypeInfo(traits)));
-    }
-
-    std::unordered_map<FieldType, std::shared_ptr<const TypeInfo>, std::hash<size_t>>
-            _scalar_type_mapping;
-
-    DISALLOW_COPY_AND_ASSIGN(ScalarTypeInfoResolver);
-};
-
-ScalarTypeInfoResolver::ScalarTypeInfoResolver() {
-    add_mapping<OLAP_FIELD_TYPE_TINYINT>();
-    add_mapping<OLAP_FIELD_TYPE_SMALLINT>();
-    add_mapping<OLAP_FIELD_TYPE_INT>();
-    add_mapping<OLAP_FIELD_TYPE_UNSIGNED_INT>();
-    add_mapping<OLAP_FIELD_TYPE_BOOL>();
-    add_mapping<OLAP_FIELD_TYPE_BIGINT>();
-    add_mapping<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>();
-    add_mapping<OLAP_FIELD_TYPE_LARGEINT>();
-    add_mapping<OLAP_FIELD_TYPE_FLOAT>();
-    add_mapping<OLAP_FIELD_TYPE_DOUBLE>();
-    add_mapping<OLAP_FIELD_TYPE_DECIMAL>();
-    add_mapping<OLAP_FIELD_TYPE_DATE>();
-    add_mapping<OLAP_FIELD_TYPE_DATETIME>();
-    add_mapping<OLAP_FIELD_TYPE_CHAR>();
-    add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
-    add_mapping<OLAP_FIELD_TYPE_STRING>();
-    add_mapping<OLAP_FIELD_TYPE_HLL>();
-    add_mapping<OLAP_FIELD_TYPE_OBJECT>();
-    add_mapping<OLAP_FIELD_TYPE_QUANTILE_STATE>();
-}
-
-ScalarTypeInfoResolver::~ScalarTypeInfoResolver() {}
-
 bool is_scalar_type(FieldType field_type) {
     switch (field_type) {
     case OLAP_FIELD_TYPE_STRUCT:
@@ -95,110 +47,162 @@ bool is_olap_string_type(FieldType field_type) {
     }
 }
 
-std::shared_ptr<const TypeInfo> get_scalar_type_info(FieldType field_type) {
-    return ScalarTypeInfoResolver::instance()->get_type_info(field_type);
+const TypeInfo* get_scalar_type_info(FieldType field_type) {
+    switch (field_type) {
+    case OLAP_FIELD_TYPE_TINYINT:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>();
+    case OLAP_FIELD_TYPE_SMALLINT:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_SMALLINT>();
+    case OLAP_FIELD_TYPE_INT:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_INT>();
+    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_INT>();
+    case OLAP_FIELD_TYPE_BIGINT:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_BIGINT>();
+    case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>();
+    case OLAP_FIELD_TYPE_LARGEINT:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_LARGEINT>();
+    case OLAP_FIELD_TYPE_FLOAT:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_FLOAT>();
+    case OLAP_FIELD_TYPE_DOUBLE:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_DOUBLE>();
+    case OLAP_FIELD_TYPE_DATE:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_DATE>();
+    case OLAP_FIELD_TYPE_DATETIME:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_DATETIME>();
+    case OLAP_FIELD_TYPE_DECIMAL:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_DECIMAL>();
+    case OLAP_FIELD_TYPE_CHAR:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_CHAR>();
+    case OLAP_FIELD_TYPE_VARCHAR:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
+    case OLAP_FIELD_TYPE_STRING:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_STRING>();
+    case OLAP_FIELD_TYPE_BOOL:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_BOOL>();
+    case OLAP_FIELD_TYPE_HLL:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    case OLAP_FIELD_TYPE_OBJECT:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_OBJECT>();
+    case OLAP_FIELD_TYPE_QUANTILE_STATE:
+        return get_scalar_type_info<OLAP_FIELD_TYPE_QUANTILE_STATE>();
+    default:
+        DCHECK(false) << "Bad field type: " << field_type;
+        break;
+    }
+    return nullptr;
 }
 
-class ArrayTypeInfoResolver {
-    DECLARE_SINGLETON(ArrayTypeInfoResolver);
-
-public:
-    std::shared_ptr<const TypeInfo> get_type_info(const FieldType t) {
-        auto pair = _type_mapping.find(t);
-        DCHECK(pair != _type_mapping.end()) << "Bad field type: list<" << t << ">";
-        return pair->second;
+#define INIT_ARRAY_TYPE_INFO_LIST(type)                       \
+    {                                                         \
+        get_init_array_type_info(type, 0),                    \
+        get_init_array_type_info(type, 1),                    \
+        get_init_array_type_info(type, 2),                    \
+        get_init_array_type_info(type, 3),                    \
+        get_init_array_type_info(type, 4),                    \
+        get_init_array_type_info(type, 5),                    \
+        get_init_array_type_info(type, 6),                    \
+        get_init_array_type_info(type, 7),                    \
+        get_init_array_type_info(type, 8)                     \
     }
 
-    std::shared_ptr<const TypeInfo> get_type_info(const TabletColumn& column) {
-        DCHECK(column.get_subtype_count() == 1) << "more than 1 child type.";
-        const auto& sub_column = column.get_sub_column(0);
-        if (is_scalar_type(sub_column.type())) {
-            return get_type_info(sub_column.type());
-        } else {
-            return std::make_shared<const ArrayTypeInfo>(get_type_info(sub_column));
+const ArrayTypeInfo get_init_array_type_info(FieldType leaf_type, int32_t iterations) {
+    if (iterations == 0) {
+        return ArrayTypeInfo(*get_scalar_type_info(leaf_type));
+    } else {
+        return ArrayTypeInfo(get_init_array_type_info(leaf_type, iterations - 1));
+    }
+}
+
+const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {
+    DCHECK(iterations <= 8) << "the depth of nested array type should not be larger than 9";
+    static constexpr int32_t depth = 9;
+    static ArrayTypeInfo tinyint_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_TINYINT);
+    static ArrayTypeInfo smallint_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_SMALLINT);
+    static ArrayTypeInfo int_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_INT);
+    static ArrayTypeInfo unsigned_int_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_UNSIGNED_INT);
+    static ArrayTypeInfo bool_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_BOOL);
+    static ArrayTypeInfo bigint_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_BIGINT);;
+    static ArrayTypeInfo largeint_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_LARGEINT);
+    static ArrayTypeInfo float_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_FLOAT);
+    static ArrayTypeInfo double_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_DOUBLE);
+    static ArrayTypeInfo decimal_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_DECIMAL);
+    static ArrayTypeInfo date_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_DATE);
+    static ArrayTypeInfo datetime_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_DATETIME);;
+    static ArrayTypeInfo char_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_CHAR);
+    static ArrayTypeInfo varchar_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_VARCHAR);
+    static ArrayTypeInfo string_type_info[depth] = INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_STRING);
+    switch (leaf_type) {
+    case OLAP_FIELD_TYPE_TINYINT:
+        return &tinyint_type_info[iterations];
+    case OLAP_FIELD_TYPE_SMALLINT:
+        return &smallint_type_info[iterations];
+    case OLAP_FIELD_TYPE_INT:
+        return &int_type_info[iterations];
+    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+        return &unsigned_int_type_info[iterations];
+    case OLAP_FIELD_TYPE_BOOL:
+        return &bool_type_info[iterations];
+    case OLAP_FIELD_TYPE_BIGINT:
+        return &bigint_type_info[iterations];
+    case OLAP_FIELD_TYPE_LARGEINT:
+        return &largeint_type_info[iterations];
+    case OLAP_FIELD_TYPE_FLOAT:
+        return &float_type_info[iterations];
+    case OLAP_FIELD_TYPE_DOUBLE:
+        return &double_type_info[iterations];
+    case OLAP_FIELD_TYPE_DECIMAL:
+        return &decimal_type_info[iterations];
+    case OLAP_FIELD_TYPE_DATE:
+        return &date_type_info[iterations];
+    case OLAP_FIELD_TYPE_DATETIME:
+        return &datetime_type_info[iterations];
+    case OLAP_FIELD_TYPE_CHAR:
+        return &char_type_info[iterations];
+    case OLAP_FIELD_TYPE_VARCHAR:
+        return &varchar_type_info[iterations];
+    case OLAP_FIELD_TYPE_STRING:
+        return &string_type_info[iterations];
+    default:
+        DCHECK(false) << "Bad field type: " << leaf_type;
+    }
+    return nullptr;
+}
+
+const TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
+    FieldType type = (FieldType) column_meta_pb->type();
+    switch (type) {
+    case OLAP_FIELD_TYPE_ARRAY: {
+        int32_t iterations = 0;
+        const auto* child_column = &column_meta_pb->children_columns(0);
+        while (type == OLAP_FIELD_TYPE_ARRAY) {
+            iterations++;
+            child_column = &child_column->children_columns(0);
+            type = (FieldType) child_column->type();
         }
+        return get_array_type_info(type, iterations);
     }
-
-    std::shared_ptr<const TypeInfo> get_type_info(const segment_v2::ColumnMetaPB& column_meta_pb) {
-        DCHECK(column_meta_pb.children_columns_size() >= 1 &&
-               column_meta_pb.children_columns_size() <= 3)
-                << "more than 3 children or no children.";
-        const auto& child_type = column_meta_pb.children_columns(0);
-        if (is_scalar_type((FieldType)child_type.type())) {
-            return get_type_info((FieldType)child_type.type());
-        } else {
-            return std::make_shared<const ArrayTypeInfo>(get_type_info(child_type));
-        }
-    }
-
-private:
-    template <FieldType field_type>
-    void add_mapping() {
-        _type_mapping.emplace(field_type, std::shared_ptr<const TypeInfo>(new ArrayTypeInfo(
-                                                  get_scalar_type_info(field_type))));
-    }
-
-    // item_type_info -> list_type_info
-    std::unordered_map<FieldType, std::shared_ptr<const TypeInfo>, std::hash<size_t>> _type_mapping;
-};
-
-ArrayTypeInfoResolver::~ArrayTypeInfoResolver() = default;
-
-ArrayTypeInfoResolver::ArrayTypeInfoResolver() {
-    add_mapping<OLAP_FIELD_TYPE_TINYINT>();
-    add_mapping<OLAP_FIELD_TYPE_SMALLINT>();
-    add_mapping<OLAP_FIELD_TYPE_INT>();
-    add_mapping<OLAP_FIELD_TYPE_UNSIGNED_INT>();
-    add_mapping<OLAP_FIELD_TYPE_BOOL>();
-    add_mapping<OLAP_FIELD_TYPE_BIGINT>();
-    add_mapping<OLAP_FIELD_TYPE_LARGEINT>();
-    add_mapping<OLAP_FIELD_TYPE_FLOAT>();
-    add_mapping<OLAP_FIELD_TYPE_DOUBLE>();
-    add_mapping<OLAP_FIELD_TYPE_DECIMAL>();
-    add_mapping<OLAP_FIELD_TYPE_DATE>();
-    add_mapping<OLAP_FIELD_TYPE_DATETIME>();
-    add_mapping<OLAP_FIELD_TYPE_CHAR>();
-    add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
-    add_mapping<OLAP_FIELD_TYPE_STRING>();
-}
-
-// equal to get_scalar_type_info
-std::shared_ptr<const TypeInfo> get_type_info(FieldType field_type) {
-    return get_scalar_type_info(field_type);
-}
-
-// get array array type info
-std::shared_ptr<const TypeInfo> get_collection_type_info(FieldType sub_type) {
-    return ArrayTypeInfoResolver::instance()->get_type_info(sub_type);
-}
-
-std::shared_ptr<const TypeInfo> get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
-    FieldType type = (FieldType)column_meta_pb->type();
-    if (is_scalar_type(type)) {
+    [[likely]] default:
         return get_scalar_type_info(type);
-    } else {
-        switch (type) {
-        case OLAP_FIELD_TYPE_ARRAY: {
-            return ArrayTypeInfoResolver::instance()->get_type_info(*column_meta_pb);
-        }
-        default:
-            DCHECK(false) << "Bad field type: " << type;
-            return nullptr;
-        }
     }
 }
 
-std::shared_ptr<const TypeInfo> get_type_info(const TabletColumn* col) {
-    if (is_scalar_type(col->type())) {
-        return get_scalar_type_info(col->type());
-    } else {
-        switch (col->type()) {
-        case OLAP_FIELD_TYPE_ARRAY:
-            return ArrayTypeInfoResolver::instance()->get_type_info(*col);
-        default:
-            DCHECK(false) << "Bad field type: " << col->type();
-            return nullptr;
+const TypeInfo* get_type_info(const TabletColumn* col) {
+    auto type = col->type();
+    switch (type) {
+    case OLAP_FIELD_TYPE_ARRAY: {
+        int32_t iterations = 0;
+        const auto* child_column = &col->get_sub_column(0);
+        while (type == OLAP_FIELD_TYPE_ARRAY) {
+            iterations++;
+            child_column = &child_column->get_sub_column(0);
+            type = (FieldType) child_column->type();
         }
+        return get_array_type_info(type, iterations);
+    }
+    [[likely]] default:
+        return get_scalar_type_info(type);
     }
 }
 

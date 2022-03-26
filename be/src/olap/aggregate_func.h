@@ -99,11 +99,11 @@ struct BaseAggregateFuncs {
             return;
         }
         if constexpr (field_type == OLAP_FIELD_TYPE_ARRAY) {
-            auto _type_info = get_collection_type_info(sub_type);
+            const auto* _type_info = get_scalar_type_info(sub_type);
             _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
         } else {
             // get type at compile time for performance
-            auto _type_info = get_scalar_type_info<field_type>();
+            const auto* _type_info = get_scalar_type_info<field_type>();
             _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
         }
     }

@@ -178,8 +178,8 @@ private:
 
 class ArrayTypeInfo : public TypeInfo {
 public:
-    explicit ArrayTypeInfo(std::shared_ptr<const TypeInfo> item_type_info)
-            : _item_type_info(item_type_info), _item_size(item_type_info->size()) {}
+    explicit ArrayTypeInfo(const TypeInfo& item_type_info)
+            : _item_type_info(item_type_info), _item_size(item_type_info.size()) {}
     ~ArrayTypeInfo() = default;
     inline bool equal(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const CollectionValue*>(left);
@@ -191,7 +191,7 @@ public:
 
         if (!l_value->has_null() && !r_value->has_null()) {
             for (size_t i = 0; i < len; ++i) {
-                if (!_item_type_info->equal((uint8_t*)(l_value->data()) + i * _item_size,
+                if (!_item_type_info.equal((uint8_t*)(l_value->data()) + i * _item_size,
                                             (uint8_t*)(r_value->data()) + i * _item_size)) {
                     return false;
                 }
@@ -207,7 +207,7 @@ public:
                 } else if (r_value->is_null_at(i)) { // left is not null & right is null
                     return false;
                 }
-                if (!_item_type_info->equal((uint8_t*)(l_value->data()) + i * _item_size,
+                if (!_item_type_info.equal((uint8_t*)(l_value->data()) + i * _item_size,
                                             (uint8_t*)(r_value->data()) + i * _item_size)) {
                     return false;
                 }
@@ -225,7 +225,7 @@ public:
 
         if (!l_value->has_null() && !r_value->has_null()) {
             while (cur < l_length && cur < r_length) {
-                int result = _item_type_info->cmp((uint8_t*)(l_value->data()) + cur * _item_size,
+                int result = _item_type_info.cmp((uint8_t*)(l_value->data()) + cur * _item_size,
                                                   (uint8_t*)(r_value->data()) + cur * _item_size);
                 if (result != 0) {
                     return result;
@@ -242,7 +242,7 @@ public:
                     return 1;
                 } else { // both are not null
                     int result =
-                            _item_type_info->cmp((uint8_t*)(l_value->data()) + cur * _item_size,
+                            _item_type_info.cmp((uint8_t*)(l_value->data()) + cur * _item_size,
                                                  (uint8_t*)(r_value->data()) + cur * _item_size);
                     if (result != 0) {
                         return result;
@@ -295,7 +295,7 @@ public:
         // copy item
         for (uint32_t i = 0; i < src_value->length(); ++i) {
             if (dest_value->is_null_at(i)) continue;
-            _item_type_info->deep_copy((uint8_t*)(dest_value->mutable_data()) + i * _item_size,
+            _item_type_info.deep_copy((uint8_t*)(dest_value->mutable_data()) + i * _item_size,
                                        (uint8_t*)(src_value->data()) + i * _item_size, mem_pool);
         }
     }
@@ -326,13 +326,19 @@ public:
                         src_value->length());
         }
 
+<<<<<<< HEAD
         *base += nulls_size + src_value->length() * _item_type_info->size();
         // Direct copy item.
         if (_item_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
+=======
+        *base += nulls_size + src_value->length() * _item_type_info.size();
+        // direct copy item
+        if (_item_type_info.type() == OLAP_FIELD_TYPE_ARRAY) {
+>>>>>>> 9da11bbc7 ([Refactor](type_info) use template and single instance to refactor get type info logic)
             for (uint32_t i = 0; i < src_value->length(); ++i) {
                 if (dest_value->is_null_at(i)) continue;
-                dynamic_cast<const ArrayTypeInfo*>(_item_type_info.get())
-                        ->direct_copy(base, (uint8_t*)(dest_value->mutable_data()) + i * _item_size,
+                dynamic_cast<const ArrayTypeInfo&>(_item_type_info)
+                        .direct_copy(base, (uint8_t*)(dest_value->mutable_data()) + i * _item_size,
                                       (uint8_t*)(src_value->data()) + i * _item_size);
             }
         } else {
@@ -340,14 +346,14 @@ public:
                 if (dest_value->is_null_at(i)) continue;
                 auto dest_address = (uint8_t*)(dest_value->mutable_data()) + i * _item_size;
                 auto src_address = (uint8_t*)(src_value->data()) + i * _item_size;
-                if (is_olap_string_type(_item_type_info->type())) {
+                if (is_olap_string_type(_item_type_info.type())) {
                     auto dest_slice = reinterpret_cast<Slice*>(dest_address);
                     auto src_slice = reinterpret_cast<const Slice*>(src_address);
                     dest_slice->data = reinterpret_cast<char*>(*base);
                     dest_slice->size = src_slice->size;
                     *base += src_slice->size;
                 }
-                _item_type_info->direct_copy(dest_address, src_address);
+                _item_type_info.direct_copy(dest_address, src_address);
             }
         }
     }
@@ -371,7 +377,7 @@ public:
 
         for (size_t i = 0; i < src_value->length(); ++i) {
             std::string item =
-                    _item_type_info->to_string((uint8_t*)(src_value->data()) + i * _item_size);
+                    _item_type_info.to_string((uint8_t*)(src_value->data()) + i * _item_size);
             result += item;
             if (i != src_value->length() - 1) {
                 result += ", ";
@@ -397,7 +403,7 @@ public:
             if (value->is_null_at(i)) {
                 result = seed * result;
             } else {
-                result = seed * result + _item_type_info->hash_code(
+                result = seed * result + _item_type_info.hash_code(
                                                  (uint8_t*)(value->data()) + i * _item_size, seed);
             }
         }
@@ -408,24 +414,20 @@ public:
 
     inline FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 
-    inline std::shared_ptr<const TypeInfo> item_type_info() const { return _item_type_info; }
+    inline const TypeInfo* item_type_info() const { return &_item_type_info; }
 
 private:
-    std::shared_ptr<const TypeInfo> _item_type_info;
+    const TypeInfo& _item_type_info;
     const size_t _item_size;
 };
 
 extern bool is_scalar_type(FieldType field_type);
 
-extern std::shared_ptr<const TypeInfo> get_scalar_type_info(FieldType field_type);
+extern const TypeInfo* get_scalar_type_info(FieldType field_type);
 
-extern std::shared_ptr<const TypeInfo> get_collection_type_info(FieldType sub_type);
+extern const TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
 
-extern std::shared_ptr<const TypeInfo> get_type_info(FieldType field_type);
-
-extern std::shared_ptr<const TypeInfo> get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
-
-extern std::shared_ptr<const TypeInfo> get_type_info(const TabletColumn* col);
+extern const TypeInfo* get_type_info(const TabletColumn* col);
 
 // support following formats when convert varchar to date
 static const std::vector<std::string> DATE_FORMATS {
@@ -1266,12 +1268,11 @@ struct TypeTraits : public FieldTypeTraits<field_type> {
     static const int32_t size = sizeof(CppType);
 };
 
-// Get ScalarTypeInfo at compile time for performance.
 template <FieldType field_type>
 inline TypeInfo* get_scalar_type_info() {
     static constexpr TypeTraits<field_type> traits;
-    static auto _scala_type_info = ScalarTypeInfo(traits);
-    return dynamic_cast<TypeInfo*>(&_scala_type_info);
+    static ScalarTypeInfo scalar_type_info(traits);
+    return &scalar_type_info;
 }
 
 } // namespace doris

@@ -68,7 +68,7 @@ public:
     using ValueDict = typename BloomFilterTraits<CppType>::ValueDict;
 
     explicit BloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options,
-                                        std::shared_ptr<const TypeInfo> typeinfo)
+                                        const TypeInfo* typeinfo)
             : _bf_options(bf_options),
               _typeinfo(typeinfo),
               _pool("BloomFilterIndexWriterImpl"),
@@ -160,7 +160,7 @@ private:
 
 private:
     BloomFilterOptions _bf_options;
-    std::shared_ptr<const TypeInfo> _typeinfo;
+    const TypeInfo* _typeinfo;
     MemPool _pool;
     bool _has_null;
     uint64_t _bf_buffer_size;
@@ -173,7 +173,7 @@ private:
 
 // TODO currently we don't support bloom filter index for tinyint/hll/float/double
 Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
-                                      std::shared_ptr<const TypeInfo> typeinfo,
+                                      const TypeInfo* typeinfo,
                                       std::unique_ptr<BloomFilterIndexWriter>* res) {
     FieldType type = typeinfo->type();
     switch (type) {

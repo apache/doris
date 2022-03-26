@@ -226,7 +226,7 @@ Status ScalarColumnWriter::init() {
     PageBuilder* page_builder = nullptr;
 
     RETURN_IF_ERROR(
-            EncodingInfo::get(get_field()->type_info().get(), _opts.meta->encoding(), &_encoding_info));
+            EncodingInfo::get(get_field()->type_info(), _opts.meta->encoding(), &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;
