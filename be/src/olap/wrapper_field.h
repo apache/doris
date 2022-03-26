@@ -34,8 +34,8 @@ public:
 
     WrapperField(Field* rep, size_t variable_len, bool is_string_type);
 
-    // only used to wrapped content of row cursor cell to find element in wrapped field set
-    // do not delete rep, should call release_field before deconstructed
+    // Only used to wrapped content of row cursor cell to find element in wrapped field set
+    // do not delete rep, should call release_field before deconstructed.
     WrapperField(Field* rep, const RowCursorCell& row_cursor_cell);
 
     virtual ~WrapperField() {
@@ -46,14 +46,14 @@ public:
         }
     }
 
-    // 将内部的value转成string输出
-    // 没有考虑实现的性能，仅供DEBUG使用
-    // do not include the null flag
+    // Convert the internal value to string output.
+    //
+    // NOTE: it only for DEBUG use. Do not include the null flag.
     std::string to_string() const { return _rep->to_string(_field_buf + 1); }
 
-    // 从传入的字符串反序列化field的值
-    // 参数必须是一个\0结尾的字符串
-    // do not include the null flag
+    // Deserialize field value from incoming string.
+    //
+    // NOTE: the parameter must be a '\0' terminated string. It do not include the null flag.
     OLAPStatus from_string(const std::string& value_string) {
         if (_is_string_type) {
             if (value_string.size() > _var_length) {
@@ -67,11 +67,11 @@ public:
         return _rep->from_string(_field_buf + 1, value_string);
     }
 
-    // attach到一段buf
+    // Attach to a buf.
     void attach_buf(char* buf) {
         _field_buf = _owned_buf;
 
-        // set null byte
+        // Set null byte.
         *_field_buf = 0;
         memcpy(_field_buf + 1, buf, size());
     }
@@ -94,7 +94,7 @@ public:
     void* mutable_cell_ptr() const { return _field_buf + 1; }
     const Field* field() const { return _rep; }
 
-    // should be only called by WrapperField which constructed by RowCursorCell
+    // Should be only called by 'WrapperField' which constructed by 'RowCursorCell'.
     void release_field() { _rep = nullptr; }
 
     int cmp(const WrapperField* field) const { return _rep->compare_cell(*this, *field); }
@@ -108,10 +108,10 @@ private:
     char* _owned_buf = nullptr;
     char* _long_text_buf = nullptr;
 
-    //include fixed and variable length and null bytes
+    // Include fixed and variable length and null bytes.
     size_t _length;
     size_t _var_length;
-    // memory for string type field
+    // Memory for string type field.
     std::unique_ptr<char[]> _string_content;
 };
 
