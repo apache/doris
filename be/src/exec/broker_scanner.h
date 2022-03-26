@@ -93,7 +93,6 @@ private:
     uint32_t skip_line(const TBrokerRangeDesc& range);
 
 private:
-    int _skip_rows;
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
 
