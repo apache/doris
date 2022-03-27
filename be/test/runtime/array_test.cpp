@@ -64,7 +64,7 @@ ColumnPB create_column_pb(const std::string& type, const Ts&... sub_column_types
     return column;
 }
 
-std::shared_ptr<const TypeInfo> get_type_info(const ColumnPB& column_pb) {
+const TypeInfo* get_type_info(const ColumnPB& column_pb) {
     TabletColumn tablet_column;
     tablet_column.init_from_pb(column_pb);
     return get_type_info(&tablet_column);
@@ -93,10 +93,10 @@ TupleDescriptor* get_tuple_descriptor(ObjectPool& object_pool, const TypeInfo* t
     if (type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
         TypeDescriptor type_desc(TYPE_ARRAY);
         type_desc.len = OLAP_ARRAY_MAX_BYTES;
-        auto ptype = dynamic_cast<const ArrayTypeInfo*>(type_info)->item_type_info().get();
+        const auto* ptype = dynamic_cast<const ArrayTypeInfo*>(type_info)->item_type_info();
         while (ptype->type() == OLAP_FIELD_TYPE_ARRAY) {
             type_desc.children.push_back(TypeDescriptor(TYPE_ARRAY));
-            ptype = dynamic_cast<const ArrayTypeInfo*>(ptype)->item_type_info().get();
+            ptype = dynamic_cast<const ArrayTypeInfo*>(ptype)->item_type_info();
         }
         type_desc.children.push_back(get_scalar_type_desc(ptype));
         tuple_desc_builder << type_desc;
@@ -251,7 +251,7 @@ private:
                 ASSERT_TRUE(st.ok());
             } while (rows_read >= 1024);
 
-            auto tuple_desc = get_tuple_descriptor(_object_pool, get_type_info(column_pb).get());
+            auto tuple_desc = get_tuple_descriptor(_object_pool, get_type_info(column_pb));
             block.set_selected_size(rows_read);
             test_convert_to_vec_block(block, tuple_desc, field, arrays);
         }
@@ -380,9 +380,9 @@ const std::string ArrayTest::TEST_DIR = "./ut_dir/array_test";
 
 TEST_F(ArrayTest, TestSimpleIntArrays) {
     auto column_pb = create_column_pb("ARRAY", "INT");
-    auto type_info = get_type_info(column_pb);
+    const auto* type_info = get_type_info(column_pb);
     auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info);
     ASSERT_EQ(tuple_desc->slots().size(), 1);
     FunctionContext context;
     ArrayUtils::prepare_context(context, *_mem_pool, column_pb);
@@ -408,9 +408,9 @@ TEST_F(ArrayTest, TestSimpleIntArrays) {
 TEST_F(ArrayTest, TestNestedIntArrays) {
     // depth 2
     auto column_pb = create_column_pb("ARRAY", "ARRAY", "INT");
-    auto type_info = get_type_info(column_pb);
+    const auto* type_info = get_type_info(column_pb);
     auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info);
     ASSERT_EQ(tuple_desc->slots().size(), 1);
     auto context = std::make_unique<FunctionContext>();
     ArrayUtils::prepare_context(*context, *_mem_pool, column_pb);
@@ -435,7 +435,7 @@ TEST_F(ArrayTest, TestNestedIntArrays) {
     column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", "INT");
     type_info = get_type_info(column_pb);
     field = create_field(column_pb);
-    tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+    tuple_desc = get_tuple_descriptor(_object_pool, type_info);
     ASSERT_EQ(tuple_desc->slots().size(), 1);
     arrays.clear();
     ASSERT_EQ(arrays.size(), 0);
@@ -462,7 +462,7 @@ TEST_F(ArrayTest, TestSimpleStringArrays) {
     auto column_pb = create_column_pb("ARRAY", "VARCHAR");
     auto type_info = get_type_info(column_pb);
     auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info);
     ASSERT_EQ(tuple_desc->slots().size(), 1);
     FunctionContext context;
     ArrayUtils::prepare_context(context, *_mem_pool, column_pb);
@@ -488,9 +488,9 @@ TEST_F(ArrayTest, TestSimpleStringArrays) {
 
 TEST_F(ArrayTest, TestNestedStringArrays) {
     auto column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", "VARCHAR");
-    auto type_info = get_type_info(column_pb);
+    const auto* type_info = get_type_info(column_pb);
     auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info);
     ASSERT_EQ(tuple_desc->slots().size(), 1);
     FunctionContext context;
     ArrayUtils::prepare_context(context, *_mem_pool, column_pb);

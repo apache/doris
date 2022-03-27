@@ -1269,10 +1269,21 @@ struct TypeTraits : public FieldTypeTraits<field_type> {
 };
 
 template <FieldType field_type>
-inline TypeInfo* get_scalar_type_info() {
+inline const TypeInfo* get_scalar_type_info() {
     static constexpr TypeTraits<field_type> traits;
     static ScalarTypeInfo scalar_type_info(traits);
     return &scalar_type_info;
+}
+
+template <FieldType field_type>
+inline const TypeInfo* get_collection_type_info() {
+    static ArrayTypeInfo collection_type_info(*get_scalar_type_info<field_type>());
+    return &collection_type_info;
+}
+
+template <>
+inline const TypeInfo* get_collection_type_info<OLAP_FIELD_TYPE_ARRAY>() {
+    return nullptr;
 }
 
 } // namespace doris

@@ -96,22 +96,23 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
 
 #define INIT_ARRAY_TYPE_INFO_LIST(type)                       \
     {                                                         \
-        get_init_array_type_info(type, 0),                    \
-        get_init_array_type_info(type, 1),                    \
-        get_init_array_type_info(type, 2),                    \
-        get_init_array_type_info(type, 3),                    \
-        get_init_array_type_info(type, 4),                    \
-        get_init_array_type_info(type, 5),                    \
-        get_init_array_type_info(type, 6),                    \
-        get_init_array_type_info(type, 7),                    \
-        get_init_array_type_info(type, 8)                     \
+        get_init_array_type_info<type>(0),                    \
+        get_init_array_type_info<type>(1),                    \
+        get_init_array_type_info<type>(2),                    \
+        get_init_array_type_info<type>(3),                    \
+        get_init_array_type_info<type>(4),                    \
+        get_init_array_type_info<type>(5),                    \
+        get_init_array_type_info<type>(6),                    \
+        get_init_array_type_info<type>(7),                    \
+        get_init_array_type_info<type>(8)                     \
     }
 
-const ArrayTypeInfo get_init_array_type_info(FieldType leaf_type, int32_t iterations) {
+template <FieldType field_type>
+inline const ArrayTypeInfo get_init_array_type_info(int32_t iterations) {
     if (iterations == 0) {
-        return ArrayTypeInfo(*get_scalar_type_info(leaf_type));
+        return ArrayTypeInfo(*get_scalar_type_info<field_type>());
     } else {
-        return ArrayTypeInfo(get_init_array_type_info(leaf_type, iterations - 1));
+        return ArrayTypeInfo(get_init_array_type_info<field_type>(iterations - 1));
     }
 }
 
@@ -176,12 +177,11 @@ const TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
     case OLAP_FIELD_TYPE_ARRAY: {
         int32_t iterations = 0;
         const auto* child_column = &column_meta_pb->children_columns(0);
-        while (type == OLAP_FIELD_TYPE_ARRAY) {
+        while (child_column->type() == OLAP_FIELD_TYPE_ARRAY) {
             iterations++;
             child_column = &child_column->children_columns(0);
-            type = (FieldType) child_column->type();
         }
-        return get_array_type_info(type, iterations);
+        return get_array_type_info((FieldType) child_column->type(), iterations);
     }
     [[likely]] default:
         return get_scalar_type_info(type);
@@ -194,12 +194,11 @@ const TypeInfo* get_type_info(const TabletColumn* col) {
     case OLAP_FIELD_TYPE_ARRAY: {
         int32_t iterations = 0;
         const auto* child_column = &col->get_sub_column(0);
-        while (type == OLAP_FIELD_TYPE_ARRAY) {
+        while (child_column->type() == OLAP_FIELD_TYPE_ARRAY) {
             iterations++;
             child_column = &child_column->get_sub_column(0);
-            type = (FieldType) child_column->type();
         }
-        return get_array_type_info(type, iterations);
+        return get_array_type_info(child_column->type(), iterations);
     }
     [[likely]] default:
         return get_scalar_type_info(type);

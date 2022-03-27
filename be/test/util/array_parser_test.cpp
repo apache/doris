@@ -43,7 +43,7 @@ ColumnPB create_column_pb(const std::string& type, const Ts&... sub_column_types
     return column;
 }
 
-std::shared_ptr<const TypeInfo> get_type_info(const ColumnPB& column_pb) {
+const TypeInfo* get_type_info(const ColumnPB& column_pb) {
     TabletColumn tablet_column;
     tablet_column.init_from_pb(column_pb);
     return get_type_info(&tablet_column);

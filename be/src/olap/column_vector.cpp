@@ -138,13 +138,13 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable,
             }
 
             std::unique_ptr<ColumnVectorBatch> elements;
-            auto array_type_info = dynamic_cast<const ArrayTypeInfo*>(type_info);
+            const auto* array_type_info = dynamic_cast<const ArrayTypeInfo*>(type_info);
             RETURN_IF_ERROR(ColumnVectorBatch::create(
                     init_capacity * 2, field->get_sub_field(0)->is_nullable(),
                     array_type_info->item_type_info(), field->get_sub_field(0), &elements));
 
             std::unique_ptr<ColumnVectorBatch> offsets;
-            auto offsets_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
+            const auto* offsets_type_info = get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_INT>();
             RETURN_IF_ERROR(ColumnVectorBatch::create(init_capacity + 1, false, offsets_type_info,
                                                       nullptr, &offsets));
 
