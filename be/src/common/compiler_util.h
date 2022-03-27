@@ -38,10 +38,10 @@
 
 #define PREFETCH(addr) __builtin_prefetch(addr)
 
-/// Force inlining. The 'inline' keyword is treated by most compilers as a hint,
-/// not a command. This should be used sparingly for cases when either the function
-/// needs to be inlined for a specific reason or the compiler's heuristics make a bad
-/// decision, e.g. not inlining a small function on a hot path.
+// Force inlining. The 'inline' keyword is treated by most compilers as a hint,
+// not a command. This should be used sparingly for cases when either the function
+// needs to be inlined for a specific reason or the compiler's heuristics make a bad
+// decision, e.g. not inlining a small function on a hot path.
 #ifdef ALWAYS_INLINE
 #undef ALWAYS_INLINE
 #endif

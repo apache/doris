@@ -58,7 +58,7 @@ int ResourceTls::set_resource_tls(TResourceInfo* info) {
 
     int ret = pthread_setspecific(s_resource_key, info);
     if (ret == 0) {
-        // OK, now we delete old one
+        // OK, now we delete old one.
         delete old_info;
     }
     return ret;

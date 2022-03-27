@@ -126,7 +126,6 @@ std::string Status::code_as_string() const {
         return tmp;
     }
     }
-    return std::string();
 }
 
 std::string Status::to_string() const {

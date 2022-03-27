@@ -91,7 +91,7 @@ void Daemon::memory_maintenance_thread() {
     while (!_stop_background_threads_latch.wait_for(
             MonoDelta::FromSeconds(config::memory_maintenance_sleep_time_s))) {
         ExecEnv* env = ExecEnv::GetInstance();
-        // ExecEnv may not have been created yet or this may be the catalogd or statestored,
+        // ExecEnv may not have been created yet or this may be the cataloged or statestored,
         // which don't have ExecEnvs.
         if (env != nullptr) {
             BufferPool* buffer_pool = env->buffer_pool();
@@ -101,7 +101,7 @@ void Daemon::memory_maintenance_thread() {
 }
 
 /*
- * this thread will calculate some metrics at a fix interval(15 sec)
+ * This thread will calculate some metrics at a fix interval(15 sec)
  * 1. push bytes per second
  * 2. scan bytes per second
  * 3. max io util of all disks
@@ -132,7 +132,7 @@ void Daemon::calculate_metrics_thread() {
             long interval = (current_ts - last_ts) / 1000;
             last_ts = current_ts;
 
-            // 1. push bytes per second
+            // 1. push bytes per second.
             int64_t current_push_bytes =
                     DorisMetrics::instance()->push_request_write_bytes->value();
             int64_t pps = (current_push_bytes - lst_push_bytes) / (interval + 1);
@@ -140,20 +140,20 @@ void Daemon::calculate_metrics_thread() {
                                                                                              : pps);
             lst_push_bytes = current_push_bytes;
 
-            // 2. query bytes per second
+            // 2. query bytes per second.
             int64_t current_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
             int64_t qps = (current_query_bytes - lst_query_bytes) / (interval + 1);
             DorisMetrics::instance()->query_scan_bytes_per_second->set_value(qps < 0 ? 0 : qps);
             lst_query_bytes = current_query_bytes;
 
-            // 3. max disk io util
+            // 3. max disk io util.
             DorisMetrics::instance()->max_disk_io_util_percent->set_value(
                     DorisMetrics::instance()->system_metrics()->get_max_io_util(lst_disks_io_time,
                                                                                 15));
-            // update lst map
+            // Update lst map.
             DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
 
-            // 4. max network traffic
+            // 4. max network traffic.
             int64_t max_send = 0;
             int64_t max_receive = 0;
             DorisMetrics::instance()->system_metrics()->get_max_net_traffic(

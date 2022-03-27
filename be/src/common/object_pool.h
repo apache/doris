@@ -64,10 +64,10 @@ private:
     ObjectPool(const ObjectPool&) = delete;
     void operator=(const ObjectPool&) = delete;
 
-    /// A generic deletion function pointer. Deletes its first argument.
+    // A generic deletion function pointer. Deletes its first argument.
     using DeleteFn = void (*)(void*);
 
-    /// For each object, a pointer to the object and a function that deletes it.
+    // For each object, a pointer to the object and a function that deletes it.
     struct Element {
         void* obj;
         DeleteFn delete_fn;
