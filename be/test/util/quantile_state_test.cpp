@@ -47,7 +47,7 @@ TEST(QuantileStateTest, merge) {
 
     another.merge(empty);
     ASSERT_EQ(1, another.get_value_by_percentile(0));
-    ASSERT_EQ(5.5, another.get_value_by_percentile(0.5));
+    ASSERT_EQ(5, another.get_value_by_percentile(0.5));
     ASSERT_EQ(10, another.get_value_by_percentile(1));
 }
 
