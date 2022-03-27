@@ -51,6 +51,7 @@ namespace doris {
 template <typename... Ts>
 ColumnPB create_column_pb(const std::string& type, const Ts&... sub_column_types) {
     ColumnPB column;
+    std::cout << " type cch1333 " << type << std::endl;
     column.set_type(type);
     column.set_aggregation("NONE");
     column.set_is_nullable(true);

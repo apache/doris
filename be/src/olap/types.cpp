@@ -94,26 +94,53 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
     return nullptr;
 }
 
-#define INIT_ARRAY_TYPE_INFO_LIST(type)                       \
-    {                                                         \
-        get_init_array_type_info<type>(0),                    \
-        get_init_array_type_info<type>(1),                    \
-        get_init_array_type_info<type>(2),                    \
-        get_init_array_type_info<type>(3),                    \
-        get_init_array_type_info<type>(4),                    \
-        get_init_array_type_info<type>(5),                    \
-        get_init_array_type_info<type>(6),                    \
-        get_init_array_type_info<type>(7),                    \
-        get_init_array_type_info<type>(8)                     \
+#define INIT_ARRAY_TYPE_INFO_LIST(type)                        \
+    {                                                          \
+        *get_init_array_type_info<type>(0),                    \
+        *get_init_array_type_info<type>(1),                    \
+        *get_init_array_type_info<type>(2),                    \
+        *get_init_array_type_info<type>(3),                    \
+        *get_init_array_type_info<type>(4),                    \
+        *get_init_array_type_info<type>(5),                    \
+        *get_init_array_type_info<type>(6),                    \
+        *get_init_array_type_info<type>(7),                    \
+        *get_init_array_type_info<type>(8)                     \
     }
 
 template <FieldType field_type>
-inline const ArrayTypeInfo get_init_array_type_info(int32_t iterations) {
-    if (iterations == 0) {
-        return ArrayTypeInfo(*get_scalar_type_info<field_type>());
-    } else {
-        return ArrayTypeInfo(get_init_array_type_info<field_type>(iterations - 1));
+inline const ArrayTypeInfo* get_init_array_type_info(int32_t iterations) {
+    static ArrayTypeInfo info0(get_scalar_type_info<field_type>());
+    static ArrayTypeInfo info1(&info0);
+    static ArrayTypeInfo info2(&info1);
+    static ArrayTypeInfo info3(&info2);
+    static ArrayTypeInfo info4(&info3);
+    static ArrayTypeInfo info5(&info4);
+    static ArrayTypeInfo info6(&info5);
+    static ArrayTypeInfo info7(&info6);
+    static ArrayTypeInfo info8(&info7);
+    switch (iterations) {
+        case 0:
+            return &info0;
+        case 1:
+            return &info1;
+        case 2:
+            return &info2;
+        case 3:
+            return &info3;
+        case 4:
+            return &info4;
+        case 5:
+            return &info5;
+        case 6:
+            return &info6;
+        case 7:
+            return &info7;
+        case 8:
+            return &info8;
+        default:
+            DCHECK(false) << "the depth of nested array type should not be less than 0 and larger than 9";
     }
+    return nullptr;
 }
 
 const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {

@@ -378,6 +378,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
     column->set_visible(_visible);
 
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+
         DCHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
         ColumnPB* child = column->add_children_columns();
         _sub_columns[0].to_schema_pb(child);
