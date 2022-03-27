@@ -66,7 +66,7 @@ CREATE TABLE `partsupp` (
   `ps_availqty` integer NOT NULL,
   `ps_supplycost` decimal(12, 2) NOT NULL,
   `ps_comment` varchar(199) NOT NULL
-) DISTRIBUTED BY HASH(`ps_partkey`, `ps_suppkey`) BUCKETS 32 PROPERTIES ("replication_num" = "1");
+) DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 32 PROPERTIES ("replication_num" = "1");
 
 CREATE TABLE `orders` (
   `o_orderkey` integer NOT NULL,
@@ -97,4 +97,4 @@ CREATE TABLE `lineitem` (
   `l_shipinstruct` char(25) NOT NULL,
   `l_shipmode` char(10) NOT NULL,
   `l_comment` varchar(44) NOT NULL
-) DISTRIBUTED BY HASH(`l_orderkey`, `l_linenumber`) BUCKETS 48 PROPERTIES ("replication_num" = "1");
+) DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 32 PROPERTIES ("replication_num" = "1");
