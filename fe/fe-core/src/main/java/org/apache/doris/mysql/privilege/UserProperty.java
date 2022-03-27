@@ -275,9 +275,9 @@ public class UserProperty implements Writable {
                     throw new DdlException(PROP_SQL_BLOCK_RULES + " format error");
                 }
                 // check if sql_block_rule has already exist
-                for (String rule_name : value.replaceAll(" ","").split(",")){
-                    if (!rule_name.equals("") && !Catalog.getCurrentCatalog().getSqlBlockRuleMgr().existRule(rule_name)){
-                        throw new DdlException("the sql block rule " + rule_name + " not exist");
+                for (String ruleName : value.replaceAll(" ","").split(",")){
+                    if (!ruleName.equals("") && !Catalog.getCurrentCatalog().getSqlBlockRuleMgr().existRule(ruleName)){
+                        throw new DdlException("the sql block rule " + ruleName + " not exist");
                     }
                 }
                 sqlBlockRules = value;
