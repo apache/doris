@@ -72,38 +72,37 @@ TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
 const std::map<std::string, TFileFormatType::type> format_map = {
-    //csv
-    {"CSV", TFileFormatType::FORMAT_CSV_PLAIN},
-    {"CSV_GZ", TFileFormatType::FORMAT_CSV_GZ},
-    {"CSV_LZO", TFileFormatType::FORMAT_CSV_LZO},
-    {"CSV_BZ2", TFileFormatType::FORMAT_CSV_BZ2},
-    {"CSV_LZ4FRAME", TFileFormatType::FORMAT_CSV_LZ4FRAME},
-    {"CSV_LZOP", TFileFormatType::FORMAT_CSV_LZOP},
-    {"CSV_DEFLATE", TFileFormatType::FORMAT_CSV_DEFLATE},
-    {"JSON", TFileFormatType::FORMAT_JSON},
-    //csv_with_names
-    {"CSV_WITH_NAMES", TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN},
-    {"CSV_WITH_NAMES_GZ", TFileFormatType::FORMAT_CSVWITHNAMES_GZ},
-    {"CSV_WITH_NAMES_LZO", TFileFormatType::FORMAT_CSVWITHNAMES_LZO},
-    {"CSV_WITH_NAMES_BZ2", TFileFormatType::FORMAT_CSVWITHNAMES_BZ2},
-    {"CSV_WITH_NAMES_LZ4FRAME", TFileFormatType::FORMAT_CSVWITHNAMES_LZ4FRAME},
-    {"CSV_WITH_NAMES_LZOP", TFileFormatType::FORMAT_CSVWITHNAMES_LZOP},
-    {"CSV_WITH_NAMES_DEFLATE", TFileFormatType::FORMAT_CSVWITHNAMES_DEFLATE},
-    //csv_with_names_and_types
-    {"CSV_WITH_NAMES_AND_TYPES", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN},
-    {"CSV_WITH_NAMES_AND_TYPES_GZ", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_GZ},
-    {"CSV_WITH_NAMES_AND_TYPES_LZO", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZO},
-    {"CSV_WITH_NAMES_AND_TYPES_BZ2", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_BZ2},
-    {"CSV_WITH_NAMES_AND_TYPES_LZ4FRAME", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZ4FRAME},
-    {"CSV_WITH_NAMES_AND_TYPES_LZOP", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZOP},
-    {"CSV_WITH_NAMES_AND_TYPES_DEFLATE", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_DEFLATE}
-};
-
+        //csv
+        {"CSV", TFileFormatType::FORMAT_CSV_PLAIN},
+        {"CSV_GZ", TFileFormatType::FORMAT_CSV_GZ},
+        {"CSV_LZO", TFileFormatType::FORMAT_CSV_LZO},
+        {"CSV_BZ2", TFileFormatType::FORMAT_CSV_BZ2},
+        {"CSV_LZ4FRAME", TFileFormatType::FORMAT_CSV_LZ4FRAME},
+        {"CSV_LZOP", TFileFormatType::FORMAT_CSV_LZOP},
+        {"CSV_DEFLATE", TFileFormatType::FORMAT_CSV_DEFLATE},
+        {"JSON", TFileFormatType::FORMAT_JSON},
+        //csv_with_names
+        {"CSV_WITH_NAMES", TFileFormatType::FORMAT_CSVWITHNAMES_PLAIN},
+        {"CSV_WITH_NAMES_GZ", TFileFormatType::FORMAT_CSVWITHNAMES_GZ},
+        {"CSV_WITH_NAMES_LZO", TFileFormatType::FORMAT_CSVWITHNAMES_LZO},
+        {"CSV_WITH_NAMES_BZ2", TFileFormatType::FORMAT_CSVWITHNAMES_BZ2},
+        {"CSV_WITH_NAMES_LZ4FRAME", TFileFormatType::FORMAT_CSVWITHNAMES_LZ4FRAME},
+        {"CSV_WITH_NAMES_LZOP", TFileFormatType::FORMAT_CSVWITHNAMES_LZOP},
+        {"CSV_WITH_NAMES_DEFLATE", TFileFormatType::FORMAT_CSVWITHNAMES_DEFLATE},
+        //csv_with_names_and_types
+        {"CSV_WITH_NAMES_AND_TYPES", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_PLAIN},
+        {"CSV_WITH_NAMES_AND_TYPES_GZ", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_GZ},
+        {"CSV_WITH_NAMES_AND_TYPES_LZO", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZO},
+        {"CSV_WITH_NAMES_AND_TYPES_BZ2", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_BZ2},
+        {"CSV_WITH_NAMES_AND_TYPES_LZ4FRAME",
+         TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZ4FRAME},
+        {"CSV_WITH_NAMES_AND_TYPES_LZOP", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_LZOP},
+        {"CSV_WITH_NAMES_AND_TYPES_DEFLATE", TFileFormatType::FORMAT_CSVWITHNAMESANDTYPES_DEFLATE}};
 
 static TFileFormatType::type parse_format(const std::string& format_str,
                                           const std::string& compress_type) {
     std::string format_key = format_str;
-    if (format_key.empty()){
+    if (format_key.empty()) {
         format_key = "CSV";
     }
     if (!compress_type.empty()) {
@@ -112,7 +111,7 @@ static TFileFormatType::type parse_format(const std::string& format_str,
     TFileFormatType::type format_type = TFileFormatType::FORMAT_UNKNOWN;
     format_key = to_upper(format_key);
     auto it = format_map.find(format_key);
-    if (it != format_map.end()){
+    if (it != format_map.end()) {
         format_type = it->second;
     }
     return format_type;
@@ -292,7 +291,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     }
 
     // get format of this put
-    if (!http_req->header(HTTP_COMPRESS_TYPE).empty() && boost::iequals(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
+    if (!http_req->header(HTTP_COMPRESS_TYPE).empty() &&
+        boost::iequals(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
         return Status::InternalError("compress data of JSON format is not supported.");
     }
     ctx->format =
@@ -376,8 +376,8 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         bb->flip();
         auto st = ctx->body_sink->append(bb);
         if (!st.ok()) {
-            LOG(WARNING) << "append body content failed. errmsg=" << st.get_error_msg()
-                         << ", " << ctx->brief();
+            LOG(WARNING) << "append body content failed. errmsg=" << st.get_error_msg() << ", "
+                         << ctx->brief();
             ctx->status = st;
             return;
         }
@@ -530,7 +530,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
 
     if (!http_req->header(HTTP_SEND_BATCH_PARALLELISM).empty()) {
         try {
-            request.__set_send_batch_parallelism(std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
+            request.__set_send_batch_parallelism(
+                    std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid send_batch_parallelism format");
         }
@@ -625,10 +626,12 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
 void StreamLoadAction::_sava_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
     auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
-        std::string key = std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;
+        std::string key =
+                std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;
         auto st = stream_load_recorder->put(key, str);
         if (st.ok()) {
-            LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label << ", key: " << key;
+            LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label
+                      << ", key: " << key;
         }
     } else {
         LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";
