@@ -150,7 +150,7 @@ private:
 class ArrayNullColumnVectorBatch : public ColumnVectorBatch {
 public:
     explicit ArrayNullColumnVectorBatch(ColumnVectorBatch* array)
-            : ColumnVectorBatch(get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_TINYINT>(), false),
+            : ColumnVectorBatch(get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>(), false),
               _array(array) {}
 
     ~ArrayNullColumnVectorBatch() override = default;
