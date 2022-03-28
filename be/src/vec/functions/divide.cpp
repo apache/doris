@@ -24,10 +24,18 @@
 
 namespace doris::vectorized {
 
+static const DecimalV2Value one(1, 0);
+
 template <typename A, typename B>
 struct DivideFloatingImpl {
     using ResultType = typename NumberTraits::ResultOfFloatingPointDivision<A, B>::Type;
     static const constexpr bool allow_decimal = true;
+
+    template <typename Result = DecimalV2Value>
+    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, NullMap& null_map, size_t index) {
+        null_map[index] = b.is_zero();
+        return a / (b.is_zero() ? one : b);
+    }
 
     template <typename Result = ResultType>
     static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
