@@ -427,6 +427,12 @@ build_lz4() {
     check_if_source_exist $LZ4_SOURCE
     cd $TP_SOURCE_DIR/$LZ4_SOURCE
 
+    # clean old symbolic links
+    local old_symbolic_links=('lz4c' 'lz4cat' 'unlz4')
+    for link in ${old_symbolic_links[@]}; do
+        rm -f "${TP_INSTALL_DIR}/bin/${link}"
+    done
+
     make -j $PARALLEL install PREFIX=$TP_INSTALL_DIR BUILD_SHARED=no\
     INCLUDEDIR=$TP_INCLUDE_DIR/lz4/
 }
