@@ -21,6 +21,8 @@ import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
+import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
+import org.apache.doris.analysis.AdminRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
@@ -281,6 +283,10 @@ public class DdlExecutor {
             catalog.getSyncJobManager().stopSyncJob((StopSyncJobStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCleanTrashStmt) {
             catalog.cleanTrash((AdminCleanTrashStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminRebalanceDiskStmt) {
+            catalog.getTabletScheduler().rebalanceDisk((AdminRebalanceDiskStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminCancelRebalanceDiskStmt) {
+            catalog.getTabletScheduler().cancelRebalanceDisk((AdminCancelRebalanceDiskStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
             catalog.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {

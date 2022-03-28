@@ -208,7 +208,7 @@ private:
     Status _move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
                           const std::string& src, int64_t job_id, bool overwrite);
 
-    OLAPStatus _check_migrate_requset(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
+    OLAPStatus _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
                                       DataDir** dest_store);
 
     // random sleep 1~second seconds

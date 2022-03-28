@@ -36,6 +36,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -183,6 +184,31 @@ public class RebalanceTest {
     }
 
     @Test
+    public void testPrioBackends() {
+        Rebalancer rebalancer = new DiskRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
+        // add
+        {
+            List<Backend> backends = Lists.newArrayList();
+            for (int i = 0; i < 3; i++) {
+                backends.add(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
+            }
+            rebalancer.addPrioBackends(backends, 1000);
+            Assert.assertTrue(rebalancer.hasPrioBackends());
+        }
+
+        // remove
+        for (int i = 0; i < 3; i++) {
+            List<Backend> backends = Lists.newArrayList(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
+            rebalancer.removePrioBackends(backends);
+            if (i == 2) {
+                Assert.assertFalse(rebalancer.hasPrioBackends());
+            } else {
+                Assert.assertTrue(rebalancer.hasPrioBackends());
+            }
+        }
+    }
+
+    @Test
     public void testPartitionRebalancer() {
         Configurator.setLevel("org.apache.doris.clone.PartitionRebalancer", Level.DEBUG);
 
@@ -218,7 +244,8 @@ public class RebalanceTest {
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
 
                 // createCloneReplicaAndTask, create replica will change invertedIndex too.
-                rebalancer.createBalanceTask(tabletCtx, tabletScheduler.getBackendsWorkingSlots(), batchTask);
+                AgentTask task = rebalancer.createBalanceTask(tabletCtx, tabletScheduler.getBackendsWorkingSlots());
+                batchTask.addTask(task);
             } catch (SchedException e) {
                 LOG.warn("schedule tablet {} failed: {}", tabletCtx.getTabletId(), e.getMessage());
             }
