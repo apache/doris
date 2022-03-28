@@ -283,7 +283,7 @@ private:
     char small_data[MAX_SMALL_STRING_SIZE]; /// Including the terminating zero.
 
 public:
-    ~SingleValueDataString() { delete large_data; }
+    ~SingleValueDataString() { delete[] large_data; }
 
     bool has() const { return size >= 0; }
 
@@ -300,7 +300,7 @@ public:
         if (size != -1) {
             size = -1;
             capacity = 0;
-            delete large_data;
+            delete[] large_data;
             large_data = nullptr;
         }
     }
@@ -324,7 +324,7 @@ public:
             } else {
                 if (capacity < rhs_size) {
                     capacity = static_cast<UInt32>(round_up_to_power_of_two_or_zero(rhs_size));
-                    delete large_data;
+                    delete[] large_data;
                     large_data = new char[capacity];
                 }
 
@@ -354,7 +354,7 @@ public:
             if (capacity < value_size) {
                 /// Don't free large_data here.
                 capacity = round_up_to_power_of_two_or_zero(value_size);
-                delete large_data;
+                delete[] large_data;
                 large_data = new char[capacity];
             }
 
