@@ -102,7 +102,7 @@ Status NodeChannel::init(RuntimeState* state) {
     }
 
     if (!_is_vectorized) {
-        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker.get()));
+        _cur_batch.reset(new RowBatch(*_row_desc, _batch_size));
 
         // Initialize _cur_add_batch_request
         _cur_add_batch_request.set_allocated_id(&_parent->_load_id);
@@ -197,8 +197,15 @@ Status NodeChannel::open_wait() {
         // add batch closure
         _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
         _add_batch_closure->addFailedHandler([this](bool is_last_rpc) {
+            std::lock_guard<std::mutex> l(this->_closed_lock);
+            if (this->_is_closed) {
+                // if the node channel is closed, no need to call `mark_as_failed`,
+                // and notice that _index_channel may already be destroyed.
+                return;
+            }
             // If rpc failed, mark all tablets on this node channel as failed
-            _index_channel->mark_as_failed(this->node_id(), this->host(), _add_batch_closure->cntl.ErrorText(), -1);
+            _index_channel->mark_as_failed(this->node_id(), this->host(),
+                                           _add_batch_closure->cntl.ErrorText(), -1);
             Status st = _index_channel->check_intolerable_failure();
             if (!st.ok()) {
                 _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
@@ -211,11 +218,18 @@ Status NodeChannel::open_wait() {
 
         _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
                                                      bool is_last_rpc) {
+            std::lock_guard<std::mutex> l(this->_closed_lock);
+            if (this->_is_closed) {
+                // if the node channel is closed, no need to call the following logic,
+                // and notice that _index_channel may already be destroyed.
+                return;
+            }
             Status status(result.status());
             if (status.ok()) {
                 // if has error tablet, handle them first
                 for (auto& error : result.tablet_errors()) {
-                    _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(), error.tablet_id());
+                    _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(),
+                                                   error.tablet_id());
                 }
 
                 Status st = _index_channel->check_intolerable_failure();
@@ -722,7 +736,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
             }
         }
 
-        _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size(), _mem_tracker.get()));
+        _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size()));
     }
 
     _max_decimalv2_val.resize(_output_tuple_desc->slots().size());
@@ -791,9 +805,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         } else {
             index_channel = new IndexChannel(this, index->index_id);
         }
-        auto channel = _pool->add(index_channel);
-        RETURN_IF_ERROR(channel->init(state, tablets));
-        _channels.emplace_back(channel);
+        RETURN_IF_ERROR(index_channel->init(state, tablets));
+        _channels.emplace_back(index_channel);
     }
 
     return Status::OK();

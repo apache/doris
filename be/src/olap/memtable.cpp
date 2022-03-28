@@ -110,7 +110,7 @@ MemTable::~MemTable() {
             delete row;
         }
     }
-    _mem_tracker->Release(_mem_usage);
+    _mem_tracker->release(_mem_usage);
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -145,7 +145,7 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
     _input_mutable_block.add_rows(block, row_pos, num_rows);
     size_t newsize = _input_mutable_block.allocated_bytes();
     _mem_usage += newsize - oldsize;
-    _mem_tracker->Consume(newsize - oldsize);
+    _mem_tracker->consume(newsize - oldsize);
 
     for(int i = 0; i < num_rows; i++){       
         RowInBlock* row_in_block_ptr = new RowInBlock(cursor_in_mutableblock + i);

@@ -186,7 +186,7 @@ public:
     // only allow 1 rpc in flight
     // plz make sure, this func should be called after open_wait().
     virtual int try_send_and_fetch_status(RuntimeState* state,
-                                  std::unique_ptr<ThreadPoolToken>& thread_pool_token);
+                                          std::unique_ptr<ThreadPoolToken>& thread_pool_token);
 
     void try_send_batch(RuntimeState* state);
 
@@ -245,6 +245,9 @@ protected:
     int64_t _next_packet_seq = 0;
     MonotonicStopWatch _timeout_watch;
 
+    // the timestamp when this node channel be marked closed and finished closed
+    uint64_t _close_time_ms = 0;
+
     // user cancel or get some errors
     std::atomic<bool> _cancelled {false};
     SpinLock _cancel_msg_lock;
@@ -281,19 +284,6 @@ protected:
     std::atomic<int64_t> _queue_push_lock_ns {0};
     std::atomic<int64_t> _actual_consume_ns {0};
 
-private:
-    // buffer for saving serialized row batch data.
-    // In the non-attachment approach, we need to use two PRowBatch structures alternately
-    // so that when one PRowBatch is sent, the other PRowBatch can be used for the serialization of the next RowBatch.
-    // This is not necessary with the attachment approach, because the memory structures
-    // are already copied into attachment memory before sending, and will wait for
-    // the previous RPC to be fully completed before the next copy.
-    std::string _tuple_data_buffer;
-    std::string* _tuple_data_buffer_ptr = nullptr;
-
-    // the timestamp when this node channel be marked closed and finished closed
-    uint64_t _close_time_ms = 0;
-
     // lock to protect _is_closed.
     // The methods in the IndexChannel are called back in the RpcClosure in the NodeChannel.
     // However, this rpc callback may occur after the whole task is finished (e.g. due to network latency),
@@ -304,6 +294,17 @@ private:
     // The IndexChannel is definitely accessible until the NodeChannel is closed.
     std::mutex _closed_lock;
     bool _is_closed = false;
+
+private:
+    // buffer for saving serialized row batch data.
+    // In the non-attachment approach, we need to use two PRowBatch structures alternately
+    // so that when one PRowBatch is sent, the other PRowBatch can be used for the serialization of the next RowBatch.
+    // This is not necessary with the attachment approach, because the memory structures
+    // are already copied into attachment memory before sending, and will wait for
+    // the previous RPC to be fully completed before the next copy.
+    std::string _tuple_data_buffer;
+    std::string* _tuple_data_buffer_ptr = nullptr;
+
     std::unique_ptr<RowBatch> _cur_batch;
     PTabletWriterAddBatchRequest _cur_add_batch_request;
     using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;

@@ -23,9 +23,8 @@ namespace doris {
 namespace vectorized {
 
 VLoadChannel::VLoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                           const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority,
-                           const std::string& sender_ip)
-        : LoadChannel(load_id, mem_limit, timeout_s, mem_tracker, is_high_priority, sender_ip) {
+                           bool is_high_priority, const std::string& sender_ip)
+        : LoadChannel(load_id, mem_limit, timeout_s, is_high_priority, sender_ip) {
 }
 
 Status VLoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -39,7 +38,7 @@ Status VLoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new VTabletsChannel(key, _mem_tracker, _is_high_priority));
+            channel.reset(new VTabletsChannel(key, _is_high_priority));
             _tablets_channels.insert({index_id, channel});
         }
     }

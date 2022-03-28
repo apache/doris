@@ -92,12 +92,13 @@ public:
 
     int64_t tablet_id() { return _tablet->tablet_id(); }
 
-private:
+protected:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
 
     // push a full memtable to flush executor
     OLAPStatus _flush_memtable_async();
 
+private:
     void _garbage_collection();
 
     virtual void _reset_mem_table();

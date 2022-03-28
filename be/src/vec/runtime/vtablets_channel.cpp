@@ -29,9 +29,8 @@ namespace doris {
 namespace vectorized {
 
 VTabletsChannel::VTabletsChannel(const TabletsChannelKey& key,
-                                 const std::shared_ptr<MemTracker>& mem_tracker,
                                  bool is_high_priority)
-        : TabletsChannel(key, mem_tracker, is_high_priority) {}
+        : TabletsChannel(key, is_high_priority) {}
 
 Status VTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
@@ -56,12 +55,11 @@ Status VTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& reques
         wrequest.txn_id = _txn_id;
         wrequest.partition_id = tablet.partition_id();
         wrequest.load_id = request.id();
-        wrequest.need_gen_rollup = request.need_gen_rollup();
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
 
         VDeltaWriter* writer = nullptr;
-        auto st = VDeltaWriter::open(&wrequest, _mem_tracker, &writer);
+        auto st = VDeltaWriter::open(&wrequest, &writer);
         if (st != OLAP_SUCCESS) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()

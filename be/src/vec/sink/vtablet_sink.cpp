@@ -17,6 +17,7 @@
 
 #include "vec/sink/vtablet_sink.h"
 
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
@@ -73,8 +74,15 @@ Status VNodeChannel::open_wait() {
     // add block closure
     _add_block_closure = ReusableClosure<PTabletWriterAddBlockResult>::create();
     _add_block_closure->addFailedHandler([this](bool is_last_rpc) {
+        std::lock_guard<std::mutex> l(this->_closed_lock);
+        if (this->_is_closed) {
+            // if the node channel is closed, no need to call `mark_as_failed`,
+            // and notice that _index_channel may already be destroyed.
+            return;
+        }
         // If rpc failed, mark all tablets on this node channel as failed
-        _index_channel->mark_as_failed(this->node_id(), this->host(), _add_block_closure->cntl.ErrorText(), -1);
+        _index_channel->mark_as_failed(this->node_id(), this->host(),
+                                       _add_block_closure->cntl.ErrorText(), -1);
         Status st = _index_channel->check_intolerable_failure();
         if (!st.ok()) {
             _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
@@ -87,6 +95,12 @@ Status VNodeChannel::open_wait() {
 
     _add_block_closure->addSuccessHandler([this](const PTabletWriterAddBlockResult& result,
                                                  bool is_last_rpc) {
+        std::lock_guard<std::mutex> l(this->_closed_lock);
+        if (this->_is_closed) {
+            // if the node channel is closed, no need to call the following logic,
+            // and notice that _index_channel may already be destroyed.
+            return;
+        }
         Status status(result.status());
         if (status.ok()) {
             // if has error tablet, handle them first
@@ -137,7 +151,7 @@ Status VNodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
-    while (!_cancelled && _parent->_mem_tracker->AnyLimitExceeded(MemLimit::HARD) &&
+    while (!_cancelled && _parent->_mem_tracker->any_limit_exceeded() &&
            _pending_batches_num > 0) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         SleepFor(MonoDelta::FromMilliseconds(10));
@@ -162,7 +176,8 @@ Status VNodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
     return Status::OK();
 }
 
-int VNodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
+int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
+                                            std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
     auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
         return 0;
@@ -170,14 +185,16 @@ int VNodeChannel::try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& th
     bool is_finished = true;
     if (!_add_block_closure->is_packet_in_flight() && _pending_batches_num > 0 &&
         _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
-        auto s = thread_pool_token->submit_func(std::bind(&VNodeChannel::try_send_block, this));
+        auto s = thread_pool_token->submit_func(
+            std::bind(&VNodeChannel::try_send_block, this, state));
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
         }
     }
     return _send_finished ? 0 : 1;
 }
-void VNodeChannel::try_send_block() {
+void VNodeChannel::try_send_block(RuntimeState* state) {
+    SCOPED_ATTACH_TASK_THREAD(state, _node_channel_tracker);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
     AddBlockReq send_block;
     {
@@ -256,15 +273,10 @@ void VNodeChannel::_close_check() {
     CHECK(_cur_mutable_block == nullptr) << name();
 }
 
-Status VNodeChannel::mark_close() {
+void VNodeChannel::mark_close() {
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
-        if (_cancelled) {
-            std::lock_guard<SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("mark close failed. " + _cancel_msg);
-        } else {
-            return st.clone_and_prepend("already stopped, can't mark as closed. cancelled/eos: ");
-        }
+        return;
     }
 
     _cur_add_block_request.set_eos(true);
@@ -280,7 +292,6 @@ Status VNodeChannel::mark_close() {
     }
 
     _eos_is_produced = true;
-    return Status::OK();
 }
 
 VIndexChannel::VIndexChannel(OlapTableSink* parent, int64_t index_id)

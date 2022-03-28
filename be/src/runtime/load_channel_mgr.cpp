@@ -94,9 +94,8 @@ Status LoadChannelMgr::init(int64_t process_mem_limit) {
 
 LoadChannel* 
 LoadChannelMgr::_create_load_channel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                                     const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority,
-                                     const std::string& sender_ip) {
-    return new LoadChannel(load_id, mem_limit, timeout_s, mem_tracker, is_high_priority, sender_ip);
+                                     bool is_high_priority, const std::string& sender_ip) {
+    return new LoadChannel(load_id, mem_limit, timeout_s, is_high_priority, sender_ip);
 }
 
 Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
@@ -118,7 +117,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
 
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
-            channel.reset(new LoadChannel(load_id, job_max_memory, job_timeout_s, is_high_priority,
+            channel.reset(_create_load_channel(load_id, job_max_memory, job_timeout_s, is_high_priority,
                                           params.sender_ip()));
             _load_channels.insert({load_id, channel});
         }

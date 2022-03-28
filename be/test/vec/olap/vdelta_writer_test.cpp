@@ -369,7 +369,7 @@ TEST_F(VTestDeltaWriter, open) {
     WriteRequest write_req = {10003, 270068375, WriteType::LOAD, 20001,
                               30001, load_id,   false,           tuple_desc};
     vectorized::VDeltaWriter* delta_writer = nullptr;
-    vectorized::VDeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
+    vectorized::VDeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -403,7 +403,7 @@ TEST_F(VTestDeltaWriter, write) {
     WriteRequest write_req = {10004, 270068376,  WriteType::LOAD,       20002, 30002, load_id,
                               false, tuple_desc, &(tuple_desc->slots())};
     vectorized::VDeltaWriter* delta_writer = nullptr;
-    vectorized::VDeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
+    vectorized::VDeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
     auto tracker = std::make_shared<MemTracker>();
@@ -543,7 +543,7 @@ TEST_F(VTestDeltaWriter, sequence_col) {
     WriteRequest write_req = {10005, 270068377,  WriteType::LOAD,       20003, 30003, load_id,
                               false, tuple_desc, &(tuple_desc->slots())};
     vectorized::VDeltaWriter* delta_writer = nullptr;
-    vectorized::VDeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
+    vectorized::VDeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
     MemTracker tracker;

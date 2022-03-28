@@ -26,7 +26,7 @@ namespace vectorized {
 class VTabletsChannel : public TabletsChannel {
 
 public:
-    VTabletsChannel(const TabletsChannelKey& key, const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority);
+    VTabletsChannel(const TabletsChannelKey& key, bool is_high_priority);
 
     virtual Status add_block(const PTabletWriterAddBlockRequest& request,
                              PTabletWriterAddBlockResult* response) override;

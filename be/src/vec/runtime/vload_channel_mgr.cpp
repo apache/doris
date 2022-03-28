@@ -28,9 +28,8 @@ VLoadChannelMgr::~VLoadChannelMgr() {}
 
 LoadChannel*
 VLoadChannelMgr::_create_load_channel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                                      const std::shared_ptr<MemTracker>& mem_tracker, bool is_high_priority,
-                                      const std::string& sender_ip) {
-    return new VLoadChannel(load_id, mem_limit, timeout_s, mem_tracker, is_high_priority, sender_ip);
+                                      bool is_high_priority, const std::string& sender_ip) {
+    return new VLoadChannel(load_id, mem_limit, timeout_s, is_high_priority, sender_ip);
 }
 
 Status VLoadChannelMgr::add_block(const PTabletWriterAddBlockRequest& request,

@@ -41,16 +41,17 @@ public:
 
     Status add_row(BlockRow& block_row, int64_t tablet_id) override;
 
-    int try_send_and_fetch_status(std::unique_ptr<ThreadPoolToken>& thread_pool_token) override;
+    int try_send_and_fetch_status(RuntimeState* state,
+                                  std::unique_ptr<ThreadPoolToken>& thread_pool_token) override;
 
-    void try_send_block();
+    void try_send_block(RuntimeState* state);
 
     void clear_all_blocks() override;
 
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
-    Status mark_close() override;
+    void mark_close() override;
 
 protected:
     void _close_check() override;

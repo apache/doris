@@ -27,8 +27,7 @@ class VDeltaWriter : public DeltaWriter {
 public:
     virtual ~VDeltaWriter() override;
 
-    static OLAPStatus open(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
-                            VDeltaWriter** writer);
+    static OLAPStatus open(WriteRequest* req, VDeltaWriter** writer);
 
     virtual OLAPStatus write_block(const vectorized::Block* block, const std::vector<int>& row_idxs) override;
 
@@ -36,8 +35,7 @@ protected:
     virtual void _reset_mem_table() override;
 
 private:
-    VDeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
-                 StorageEngine* storage_engine);
+    VDeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
 };
 
 } // namespace vectorized

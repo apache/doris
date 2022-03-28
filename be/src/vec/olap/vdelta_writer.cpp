@@ -23,17 +23,15 @@ namespace doris {
 
 namespace vectorized {
 
-VDeltaWriter::VDeltaWriter(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
-                           StorageEngine* storage_engine)
-        : DeltaWriter(req, parent, storage_engine) {}
+VDeltaWriter::VDeltaWriter(WriteRequest* req, StorageEngine* storage_engine)
+        : DeltaWriter(req, storage_engine) {}
 
 VDeltaWriter::~VDeltaWriter() {
 
 }
 
-OLAPStatus VDeltaWriter::open(WriteRequest* req, const std::shared_ptr<MemTracker>& parent,
-                              VDeltaWriter** writer) {
-    *writer = new VDeltaWriter(req, parent, StorageEngine::instance());
+OLAPStatus VDeltaWriter::open(WriteRequest* req, VDeltaWriter** writer) {
+    *writer = new VDeltaWriter(req, StorageEngine::instance());
     return OLAP_SUCCESS;
 }
 
@@ -75,7 +73,7 @@ OLAPStatus VDeltaWriter::write_block(const vectorized::Block* block, const std::
 void VDeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema, _req.slots,
                                   _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(),
-                                  _mem_tracker, true));
+                                  true));
 }
 
 } // namespace vectorized
