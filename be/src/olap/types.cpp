@@ -109,34 +109,34 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
 
 template <FieldType field_type>
 inline const ArrayTypeInfo* get_init_array_type_info(int32_t iterations) {
-    static ArrayTypeInfo info0(get_scalar_type_info<field_type>());
-    static ArrayTypeInfo info1(&info0);
-    static ArrayTypeInfo info2(&info1);
-    static ArrayTypeInfo info3(&info2);
-    static ArrayTypeInfo info4(&info3);
-    static ArrayTypeInfo info5(&info4);
-    static ArrayTypeInfo info6(&info5);
-    static ArrayTypeInfo info7(&info6);
-    static ArrayTypeInfo info8(&info7);
+    static ArrayTypeInfo nested_type_info_0(get_scalar_type_info<field_type>());
+    static ArrayTypeInfo nested_type_info_1(&nested_type_info_0);
+    static ArrayTypeInfo nested_type_info_2(&nested_type_info_1);
+    static ArrayTypeInfo nested_type_info_3(&nested_type_info_2);
+    static ArrayTypeInfo nested_type_info_4(&nested_type_info_3);
+    static ArrayTypeInfo nested_type_info_5(&nested_type_info_4);
+    static ArrayTypeInfo nested_type_info_6(&nested_type_info_5);
+    static ArrayTypeInfo nested_type_info_7(&nested_type_info_6);
+    static ArrayTypeInfo nested_type_info_8(&nested_type_info_7);
     switch (iterations) {
         case 0:
-            return &info0;
+            return &nested_type_info_0;
         case 1:
-            return &info1;
+            return &nested_type_info_1;
         case 2:
-            return &info2;
+            return &nested_type_info_2;
         case 3:
-            return &info3;
+            return &nested_type_info_3;
         case 4:
-            return &info4;
+            return &nested_type_info_4;
         case 5:
-            return &info5;
+            return &nested_type_info_5;
         case 6:
-            return &info6;
+            return &nested_type_info_6;
         case 7:
-            return &info7;
+            return &nested_type_info_7;
         case 8:
-            return &info8;
+            return &nested_type_info_8;
         default:
             DCHECK(false) << "the depth of nested array type should not be less than 0 and larger than 9";
     }
