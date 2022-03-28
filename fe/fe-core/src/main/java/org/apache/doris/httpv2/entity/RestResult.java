@@ -23,6 +23,7 @@ import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 
 public class RestResult extends RestBaseResult {
+
   private Map<String, Object> resultMap;
 
   public RestResult() {

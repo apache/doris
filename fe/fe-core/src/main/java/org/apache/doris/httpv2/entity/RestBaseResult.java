@@ -21,6 +21,7 @@ import com.google.gson.GsonBuilder;
 
 // Base restful result
 public class RestBaseResult {
+
   private static final RestBaseResult OK = new RestBaseResult();
   public ActionStatus status;
   public String msg;
