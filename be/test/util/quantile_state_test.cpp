@@ -32,7 +32,7 @@ TEST(QuantileStateTest, merge) {
     empty.add_value(4);
     empty.add_value(5);
     ASSERT_EQ(1, empty.get_value_by_percentile(0));
-    ASSERT_EQ(2.5, empty.get_value_by_percentile(0.5));
+    ASSERT_EQ(3, empty.get_value_by_percentile(0.5));
     ASSERT_EQ(5, empty.get_value_by_percentile(1));
 
     DoubleQuantileState another;
@@ -41,9 +41,9 @@ TEST(QuantileStateTest, merge) {
     another.add_value(8);
     another.add_value(9);
     another.add_value(10);
-    ASSERT_EQ(6, empty.get_value_by_percentile(0));
-    ASSERT_EQ(7.5, empty.get_value_by_percentile(0.5));
-    ASSERT_EQ(10, empty.get_value_by_percentile(1));
+    ASSERT_EQ(6, another.get_value_by_percentile(0));
+    ASSERT_EQ(8, another.get_value_by_percentile(0.5));
+    ASSERT_EQ(10, another.get_value_by_percentile(1));
 
     another.merge(empty);
     ASSERT_EQ(1, another.get_value_by_percentile(0));
