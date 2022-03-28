@@ -65,9 +65,7 @@ public:
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() { return _visible; }
-    /**
-     * Add a sub column.
-     */
+    // Add a sub column.
     void add_sub_column(TabletColumn& sub_column);
 
     uint32_t get_subtype_count() const { return _sub_column_count; }
@@ -121,7 +119,7 @@ class TabletSchema {
 public:
     // TODO(yingchun): better to make constructor as private to avoid
     // manually init members incorrectly, and define a new function like
-    // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema)
+    // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
@@ -153,7 +151,7 @@ public:
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
 
 private:
-    // Only for unit test
+    // Only for unit test.
     void init_field_index_for_test();
 
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);

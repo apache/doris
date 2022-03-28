@@ -123,11 +123,11 @@ public:
 
     void get_all_related_tablets(std::set<TabletInfo>* tablet_infos);
 
-    // just check if the txn exists
+    // Just check if the txn exists.
     bool has_txn(TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
                  SchemaHash schema_hash, TabletUid tablet_uid);
 
-    // get all expired txns and save them in expire_txn_map.
+    // Get all expired txns and save them in expire_txn_map.
     // This is currently called before reporting all tablet info, to avoid iterating txn map for every tablets.
     void build_expire_txn_map(std::map<TabletInfo, std::vector<int64_t>>* expire_txn_map);
 
@@ -140,7 +140,7 @@ public:
 private:
     using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
 
-    // implement TxnKey hash function to support TxnKey as a key for unordered_map
+    // Implement TxnKey hash function to support TxnKey as a key for `unordered_map`.
     struct TxnKeyHash {
         template <typename T, typename U>
         size_t operator()(const std::pair<T, U>& e) const {
@@ -148,7 +148,7 @@ private:
         }
     };
 
-    // implement TxnKey equal function to support TxnKey as a key for unordered_map
+    // Implement TxnKey equal function to support TxnKey as a key for `unordered_map`.
     struct TxnKeyEqual {
         template <class T, typename U>
         bool operator()(const std::pair<T, U>& l, const std::pair<T, U>& r) const {
@@ -168,8 +168,8 @@ private:
 
     inline Mutex& _get_txn_lock(TTransactionId transactionId);
 
-    // insert or remove (transaction_id, partition_id) from _txn_partition_map
-    // get _txn_map_lock before calling
+    // Insert or remove (transaction_id, partition_id) from _txn_partition_map
+    // get _txn_map_lock before calling.
     void _insert_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
 
