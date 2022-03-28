@@ -33,7 +33,7 @@ public class DataPropertyTest {
         dataProperty = new DataProperty(TStorageMedium.SSD, TStorageMedium.SSD);
         Assert.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
 
-        dataProperty = new DataProperty(TStorageMedium.SSD, System.currentTimeMillis() + 24 * 3600 * 1000L, "", TStorageMedium.S3);
+        dataProperty = new DataProperty(TStorageMedium.SSD, System.currentTimeMillis() + 24 * 3600 * 1000L, "", TStorageMedium.HDD);
         Assert.assertEquals(System.currentTimeMillis() + 24 * 3600 * 1000L, dataProperty.getCooldownTimeMs());
 
         dataProperty = new DataProperty(TStorageMedium.HDD, TStorageMedium.HDD);

@@ -98,11 +98,7 @@ public class ModifyPartitionClause extends AlterTableClause {
     // 3. in_memory
     // 4. tablet type
     private void checkProperties(Map<String, String> properties) throws AnalysisException {
-        // 1. data property
-        DataProperty newDataProperty = null;
-        newDataProperty = PropertyAnalyzer.analyzeDataProperty(properties, DataProperty.DEFAULT_DATA_PROPERTY);
-        Preconditions.checkNotNull(newDataProperty);
-
+        // 1. no need analyzing data property here, analyze it before modify meta.
         // 2. replica allocation
         PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
 

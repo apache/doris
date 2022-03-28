@@ -802,6 +802,13 @@ public class Config extends ConfigBase {
      * If not set, this specifies the default medium when created.
      */
     @ConfField public static String default_storage_medium = "HDD";
+
+    /**
+     * When create a table(or partition), you can specify its storage cold medium(HDD or S3).
+     * If not set, this specifies the default medium when created.
+     */
+    @ConfField public static String default_storage_cold_medium = "HDD";
+
     /**
      * When create a table(or partition), you can specify its storage medium(HDD or SSD).
      * If set to SSD, this specifies the default duration that tablets will stay on SSD.

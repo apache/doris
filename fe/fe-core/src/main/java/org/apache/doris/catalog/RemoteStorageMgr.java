@@ -73,7 +73,7 @@ public class RemoteStorageMgr {
     public void addRemoteStorage(AddRemoteStorageClause clause) throws DdlException {
         lock.lock();
         try {
-            String storageName = clause.getStorageName();
+            String storageName = clause.getStorageName().trim();
             if (storageInfoMap.containsKey(storageName)) {
                 throw new DdlException("Remote storage[" + storageName + "] has already in remote storages.");
             }
@@ -112,7 +112,7 @@ public class RemoteStorageMgr {
     public void dropRemoteStorage(DropRemoteStorageClause clause) throws DdlException {
         lock.lock();
         try {
-            String storageName = clause.getStorageName();
+            String storageName = clause.getStorageName().trim();
             RemoteStorageInfo storageInfo = storageInfoMap.get(storageName);
             if (storageInfo == null) {
                 throw new DdlException("Unknown remote storage name: " + storageName);
@@ -163,7 +163,7 @@ public class RemoteStorageMgr {
     public void modifyRemoteStorage(ModifyRemoteStorageClause clause) throws DdlException {
         lock.lock();
         try {
-            String storageName = clause.getStorageName();
+            String storageName = clause.getStorageName().trim();
             RemoteStorageInfo storageInfo = storageInfoMap.get(storageName);
             if (storageInfo == null) {
                 throw new DdlException("Unknown remote storage name: " + storageName);
