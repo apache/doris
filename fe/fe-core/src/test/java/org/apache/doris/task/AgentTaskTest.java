@@ -89,6 +89,7 @@ public class AgentTaskTest {
     private AgentTask rollupTask;
     private AgentTask schemaChangeTask;
     private AgentTask cancelDeleteTask;
+    private AgentTask storageMediaMigrationTask;
 
     @Before
     public void setUp() throws AnalysisException {
@@ -140,6 +141,11 @@ public class AgentTaskTest {
                 new SchemaChangeTask(null, backendId1, dbId, tableId, partitionId, indexId1, 
                                      tabletId1, replicaId1, columns, schemaHash2, schemaHash1, 
                                      shortKeyNum, storageType, null, 0, TKeysType.AGG_KEYS);
+
+        // storageMediaMigrationTask
+        storageMediaMigrationTask =
+                new StorageMediaMigrationTask(backendId1, tabletId1, schemaHash1, TStorageMedium.HDD);
+        ((StorageMediaMigrationTask) storageMediaMigrationTask).setDataDir("/home/a");
     }
 
     @Test
@@ -211,6 +217,15 @@ public class AgentTaskTest {
         Assert.assertEquals(TTaskType.SCHEMA_CHANGE, request6.getTaskType());
         Assert.assertEquals(schemaChangeTask.getSignature(), request6.getSignature());
         Assert.assertNotNull(request6.getAlterTabletReq());
+
+        // storageMediaMigrationTask
+        TAgentTaskRequest request7 =
+            (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, storageMediaMigrationTask);
+        Assert.assertEquals(TTaskType.STORAGE_MEDIUM_MIGRATE, request7.getTaskType());
+        Assert.assertEquals(storageMediaMigrationTask.getSignature(), request7.getSignature());
+        Assert.assertNotNull(request7.getStorageMediumMigrateReq());
+        Assert.assertTrue(request7.getStorageMediumMigrateReq().isSetDataDir());
+        Assert.assertEquals(request7.getStorageMediumMigrateReq().getDataDir(), "/home/a");
     }
 
     @Test

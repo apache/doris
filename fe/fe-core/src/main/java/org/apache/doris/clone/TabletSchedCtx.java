@@ -40,6 +40,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CloneTask;
+import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatusCode;
@@ -108,6 +109,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         BALANCE, REPAIR
     }
 
+    public enum BalanceType {
+        BE_BALANCE, DISK_BALANCE 
+    }
+
     public enum Priority {
         LOW,
         NORMAL,
@@ -141,6 +146,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
     
     private Type type;
+    private BalanceType balanceType;
 
     /*
      * origPriority is the origin priority being set when this tablet being added to scheduler.
@@ -193,11 +199,16 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     
     private Replica srcReplica = null;
     private long srcPathHash = -1;
+    // for disk balance to keep src path, and avoid take slot on selectAlternativeTabletsForCluster
+    private Replica tempSrcReplica = null;
     private long destBackendId = -1;
     private long destPathHash = -1;
+    // for disk balance to set migration task's datadir
+    private String destPath = null;
     private String errMsg = null;
     
     private CloneTask cloneTask = null;
+    private StorageMediaMigrationTask storageMediaMigrationTask = null;
     
     // statistics gathered from clone task report
     // the total size of clone files and the total cost time in ms.
@@ -227,6 +238,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.infoService = Catalog.getCurrentSystemInfo();
         this.state = State.PENDING;
         this.replicaAlloc = replicaAlloc;
+        this.balanceType = BalanceType.BE_BALANCE;
     }
 
     public ReplicaAllocation getReplicaAlloc() {
@@ -247,6 +259,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public Type getType() {
         return type;
+    }
+
+    public void setBalanceType(BalanceType type) {
+        this.balanceType = type;
+    }
+
+    public BalanceType getBalanceType() {
+        return balanceType;
     }
 
     public Priority getOrigPriority() {
@@ -380,6 +400,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.destBackendId = destBeId;
         this.destPathHash = destPathHash;
     }
+
+    public void setDest(Long destBeId, long destPathHash, String destPath) {
+        setDest(destBeId, destPathHash);
+        this.destPath = destPath;
+    }
     
     public void setErrMsg(String errMsg) {
         this.errMsg = errMsg;
@@ -414,12 +439,34 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.srcPathHash = srcReplica.getPathHash();
     }
 
+    public void setTempSrc(Replica srcReplica) {
+        this.tempSrcReplica = srcReplica;
+    }
+
+    public long getTempSrcBackendId() {
+        if (tempSrcReplica != null) {
+            return tempSrcReplica.getBackendId();
+        }
+        return -1;
+    }
+
+    public long getTempSrcPathHash() {
+        if (tempSrcReplica != null) {
+            return tempSrcReplica.getPathHash();
+        }
+        return -1;
+    }
+
     public long getDestBackendId() {
         return destBackendId;
     }
 
     public long getDestPathHash() {
         return destPathHash;
+    }
+
+    public String getDestPath() {
+        return destPath;
     }
 
     // database lock should be held.
@@ -687,6 +734,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
         }
         
+        if (storageMediaMigrationTask != null) {
+            AgentTaskQueue.removeTask(storageMediaMigrationTask.getBackendId(), TTaskType.STORAGE_MEDIUM_MIGRATE, storageMediaMigrationTask.getSignature());
+        }
         if (cloneTask != null) {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
 
@@ -729,12 +779,27 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             this.srcPathHash = -1;
             this.destBackendId = -1;
             this.destPathHash = -1;
+            this.destPath = null;
             this.cloneTask = null;
+            this.storageMediaMigrationTask = null;
         }
     }
     
     public void deleteReplica(Replica replica) {
         tablet.deleteReplicaByBackendId(replica.getBackendId());
+    }
+
+    public StorageMediaMigrationTask createStorageMediaMigrationTask() throws SchedException {
+        storageMediaMigrationTask = new StorageMediaMigrationTask(getSrcBackendId(), getTabletId(),
+                getSchemaHash(), getStorageMedium());
+        if (destPath == null || destPath.isEmpty()) {
+            throw new SchedException(Status.UNRECOVERABLE,
+                "backend " + srcReplica.getBackendId() + ", dest path is empty");
+        }
+        storageMediaMigrationTask.setDataDir(destPath);
+        this.taskTimeoutMs = getApproximateTimeoutMs();
+        this.state = State.RUNNING;
+        return storageMediaMigrationTask;
     }
     
     // database lock should be held.

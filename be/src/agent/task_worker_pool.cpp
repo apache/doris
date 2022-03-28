@@ -941,8 +941,8 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
         TStatusCode::type status_code = TStatusCode::OK;
         // check request and get info
         TabletSharedPtr tablet;
-        DataDir* dest_store;
-        if (_check_migrate_requset(storage_medium_migrate_req, tablet, &dest_store) !=
+        DataDir* dest_store = nullptr;
+        if (_check_migrate_request(storage_medium_migrate_req, tablet, &dest_store) !=
             OLAP_SUCCESS) {
             status_code = TStatusCode::RUNTIME_ERROR;
         } else {
@@ -953,7 +953,7 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
                              << ", signature: " << agent_task_req.signature;
                 status_code = TStatusCode::RUNTIME_ERROR;
             } else {
-                LOG(INFO) << "storage media migrate success. status:" << res << ","
+                LOG(INFO) << "storage media migrate success. status:" << res
                           << ", signature:" << agent_task_req.signature;
             }
         }
@@ -974,7 +974,7 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
     }
 }
 
-OLAPStatus TaskWorkerPool::_check_migrate_requset(const TStorageMediumMigrateReq& req,
+OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& req,
                                                   TabletSharedPtr& tablet, DataDir** dest_store) {
     int64_t tablet_id = req.tablet_id;
     int32_t schema_hash = req.schema_hash;
@@ -1019,6 +1019,11 @@ OLAPStatus TaskWorkerPool::_check_migrate_requset(const TStorageMediumMigrateReq
         }
 
         *dest_store = stores[0];
+    }
+    if (tablet->data_dir()->path() == (*dest_store)->path()) {
+            LOG(INFO) << "tablet is already on specified path. "
+                      << "path=" << tablet->data_dir()->path();
+            return OLAP_REQUEST_FAILED;
     }
 
     // check disk capacity

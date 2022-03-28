@@ -360,10 +360,12 @@ public class ReportHandler extends Daemon {
             // 1. CREATE
             // 2. SYNC DELETE
             // 3. CHECK_CONSISTENCY
+            // 4. STORAGE_MDEIUM_MIGRATE
             if (task.getTaskType() == TTaskType.CREATE
                     || (task.getTaskType() == TTaskType.PUSH && ((PushTask) task).getPushType() == TPushType.DELETE
                     && ((PushTask) task).isSyncDelete())
-                    || task.getTaskType() == TTaskType.CHECK_CONSISTENCY) {
+                    || task.getTaskType() == TTaskType.CHECK_CONSISTENCY
+                    || task.getTaskType() == TTaskType.STORAGE_MEDIUM_MIGRATE) {
                 continue;
             }
 
