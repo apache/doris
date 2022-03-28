@@ -43,6 +43,8 @@ public:
     // For Memtable::flush()
     OLAPStatus add_row(const ContiguousRow& row) override { return _add_row(row); }
 
+    OLAPStatus add_block(const vectorized::Block* block) override;
+    
     // add rowset by create hard link
     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
 

@@ -112,6 +112,37 @@ void PInternalServiceImpl<T>::exec_plan_fragment(google::protobuf::RpcController
 }
 
 template <typename T>
+void PInternalServiceImpl<T>::tablet_writer_add_block(google::protobuf::RpcController* cntl_base,
+                                                      const PTabletWriterAddBlockRequest* request,
+                                                      PTabletWriterAddBlockResult* response,
+                                                      google::protobuf::Closure* done) {
+    VLOG_RPC << "tablet writer add block, id=" << request->id()
+             << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id()
+             << ", current_queued_size=" << _tablet_worker_pool.get_queue_size();
+    int64_t submit_task_time_ns = MonotonicNanos();
+    _tablet_worker_pool.offer([cntl_base, request, response, done, submit_task_time_ns, this]() {
+        int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
+        brpc::ClosureGuard closure_guard(done);
+        int64_t execution_time_ns = 0;
+        {
+            SCOPED_RAW_TIMER(&execution_time_ns);
+            brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+            attachment_transfer_request_block<PTabletWriterAddBlockRequest>(request, cntl);
+            auto st = _exec_env->load_channel_mgr()->add_block(*request, response);
+            if (!st.ok()) {
+                LOG(WARNING) << "tablet writer add block failed, message=" << st.get_error_msg()
+                             << ", id=" << request->id() << ", index_id=" << request->index_id()
+                             << ", sender_id=" << request->sender_id()
+                             << ", backend id=" << request->backend_id();
+            }
+            st.to_protobuf(response->mutable_status());
+        }
+        response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
+        response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
+    });
+}
+
+template <typename T>
 void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcController* cntl_base,
                                                       const PTabletWriterAddBatchRequest* request,
                                                       PTabletWriterAddBatchResult* response,

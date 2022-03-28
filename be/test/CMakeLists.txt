@@ -336,6 +336,9 @@ set(VEC_TEST_FILES
     vec/core/column_complex_test.cpp
     vec/core/column_nullable_test.cpp
     vec/exec/vgeneric_iterators_test.cpp
+    vec/exec/vbroker_scan_node_test.cpp
+    vec/exec/vbroker_scanner_test.cpp
+    vec/exec/vtablet_sink_test.cpp
     vec/exprs/vexpr_test.cpp
     vec/function/function_array_element_test.cpp
     vec/function/function_array_index_test.cpp
@@ -353,7 +356,9 @@ set(VEC_TEST_FILES
     vec/function/function_geo_test.cpp
     vec/function/function_test_util.cpp
     vec/function/table_function_test.cpp
+    vec/olap/vdelta_writer_test.cpp
     vec/runtime/vdata_stream_test.cpp
+    vec/runtime/vload_channel_mgr_test.cpp
 )
 
 add_executable(doris_be_test

@@ -212,7 +212,13 @@ OLAPStatus VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
 }
 
 OLAPStatus VCollectIterator::Level0Iterator::next(Block* block) {
-    return _rs_reader->next_block(block);
+    if (UNLIKELY(_ref.block->rows() > 0 && _ref.row_pos == 0)) {
+        block->swap(*_ref.block);
+        _ref.row_pos = -1;
+        return OLAP_SUCCESS;
+    } else {
+        return _rs_reader->next_block(block);
+    }
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(
@@ -224,6 +230,7 @@ VCollectIterator::Level1Iterator::Level1Iterator(
           _merge(merge),
           _skip_same(skip_same) {
     _ref.row_pos = -1; // represent eof
+    _batch_size = reader->_batch_size;
 }
 
 VCollectIterator::Level1Iterator::~Level1Iterator() {
@@ -261,7 +268,11 @@ OLAPStatus VCollectIterator::Level1Iterator::next(Block* block) {
     if (UNLIKELY(_cur_child == nullptr)) {
         return OLAP_ERR_DATA_EOF;
     }
-    return _normal_next(block);
+    if (_merge) {
+        return _merge_next(block);
+    } else {
+        return _normal_next(block);
+    }
 }
 
 int64_t VCollectIterator::Level1Iterator::version() const {
@@ -360,6 +371,37 @@ OLAPStatus VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
+}
+
+OLAPStatus VCollectIterator::Level1Iterator::_merge_next(Block* block) {
+    int target_block_row = 0;
+    auto target_columns = block->mutate_columns();
+    size_t column_count = block->columns();
+    IteratorRowRef cur_row = _ref;
+    do {
+        const auto& src_block = cur_row.block;
+        assert(src_block->columns() == column_count);
+        for (size_t i = 0; i < column_count; ++i) {
+            target_columns[i]->insert_from(*(src_block->get_by_position(i).column),
+                                           cur_row.row_pos);
+        }
+        ++target_block_row;
+        auto res = _merge_next(&cur_row);
+        if (UNLIKELY(res == OLAP_ERR_DATA_EOF)) {
+            if (target_block_row > 0) {
+                return OLAP_SUCCESS;
+            } else {
+                return OLAP_ERR_DATA_EOF;
+            }
+        }
+
+        if (UNLIKELY(res != OLAP_SUCCESS)) {
+            LOG(WARNING) << "next failed: " << res;
+            return res;
+        }
+    } while (target_block_row < _batch_size);
+
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus VCollectIterator::Level1Iterator::_normal_next(Block* block) {

@@ -18,7 +18,6 @@
 #include "runtime/tablets_channel.h"
 
 #include "exec/tablet_info.h"
-#include "gutil/strings/substitute.h"
 #include "olap/delta_writer.h"
 #include "olap/memtable.h"
 #include "runtime/row_batch.h"
@@ -80,26 +79,17 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         PTabletWriterAddBatchResult* response) {
     DCHECK(request.tablet_ids_size() == request.row_batch().num_rows());
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    int64_t cur_seq;
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        if (_state != kOpened) {
-            return _state == kFinished
-                ? _close_status
-                : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
-                            _key.to_string(), _state));
-        }
-        cur_seq = _next_seqs[request.sender_id()];
-        // check packet
-        if (request.packet_seq() < cur_seq) {
-            LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
-                << ", recept_seq=" << request.packet_seq();
-            return Status::OK();
-        } else if (request.packet_seq() > cur_seq) {
-            LOG(WARNING) << "lost data packet, expect_seq=" << cur_seq
-                << ", recept_seq=" << request.packet_seq();
-            return Status::InternalError("lost data packet");
-        }
+    int64_t cur_seq = 0;
+    
+    auto status = _get_current_seq(cur_seq, request);
+    if (UNLIKELY(!status.ok())) {
+        return status;
+    }
+
+    if (request.packet_seq() < cur_seq) {
+        LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
+            << ", recept_seq=" << request.packet_seq();
+        return Status::OK();
     }
 
     RowBatch row_batch(*_row_desc, request.row_batch());

@@ -56,12 +56,16 @@ class DeltaWriter {
 public:
     static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
 
-    ~DeltaWriter();
+    virtual ~DeltaWriter();
 
     OLAPStatus init();
 
     OLAPStatus write(Tuple* tuple);
     OLAPStatus write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
+    virtual OLAPStatus write_block(const vectorized::Block* block, const std::vector<int>& row_idxs) {
+        return OLAP_ERR_READER_INITIALIZE_ERROR;
+    }
+
     // flush the last memtable to flush queue, must call it before close_wait()
     OLAPStatus close();
     // wait for all memtables to be flushed.
@@ -88,17 +92,18 @@ public:
 
     int64_t tablet_id() { return _tablet->tablet_id(); }
 
-private:
+protected:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
 
     // push a full memtable to flush executor
     OLAPStatus _flush_memtable_async();
 
+private:
     void _garbage_collection();
 
-    void _reset_mem_table();
+    virtual void _reset_mem_table();
 
-private:
+protected:
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;

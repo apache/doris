@@ -731,6 +731,8 @@ CONF_mInt32(string_type_length_soft_limit_bytes, "1048576");
 CONF_Validator(string_type_length_soft_limit_bytes,
                [](const int config) -> bool { return config > 0 && config <= 2147483643; });
 
+CONF_mBool(enable_vectorized_load, "false");
+
 } // namespace config
 
 } // namespace doris

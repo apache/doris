@@ -354,8 +354,6 @@ Status RowBlockV2::_copy_data_to_column(int cid,
 Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t start,
                                           uint32_t len,
                                           doris::vectorized::MutableColumnPtr& origin_column) {
-    constexpr auto MAX_SIZE_OF_VEC_STRING = 1024l * 1024;
-
     auto* column = origin_column.get();
     uint32_t selected_size = len;
     bool nullable_mark_array[selected_size];

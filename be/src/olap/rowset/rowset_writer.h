@@ -24,6 +24,7 @@
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -43,6 +44,10 @@ public:
     virtual OLAPStatus add_row(const RowCursor& row) = 0;
     virtual OLAPStatus add_row(const ContiguousRow& row) = 0;
 
+    virtual OLAPStatus add_block(const vectorized::Block* block) {
+        return OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+    }
+
     // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual OLAPStatus add_rowset(RowsetSharedPtr rowset) = 0;
 
@@ -57,7 +62,7 @@ public:
     virtual OLAPStatus flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
         return OLAP_ERR_FUNC_NOT_IMPLEMENTED;
     }
-
+    
     // finish building and return pointer to the built rowset (guaranteed to be inited).
     // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;

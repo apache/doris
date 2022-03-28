@@ -25,7 +25,9 @@
 #include "olap/skiplist.h"
 #include "runtime/mem_tracker.h"
 #include "util/tuple_row_zorder_compare.h"
-
+#include "vec/core/block.h"
+#include "vec/common/string_ref.h"
+#include "vec/aggregate_functions/aggregate_function.h"
 namespace doris {
 
 struct ContiguousRow;
@@ -35,19 +37,26 @@ class SlotDescriptor;
 class TabletSchema;
 class Tuple;
 class TupleDescriptor;
-
+class RowInBlock;
+class RowInBlockComparator;
 class MemTable {
 public:
+   
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              KeysType keys_type, RowsetWriter* rowset_writer,
-             const std::shared_ptr<MemTracker>& parent_tracker);
+             const std::shared_ptr<MemTracker>& parent_tracker,
+             bool support_vec=false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
+    
     void insert(const Tuple* tuple);
+    //insert tuple from (row_pos) to (row_pos+num_rows)
+    void insert(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    
     /// Flush
     OLAPStatus flush();
     OLAPStatus close();
@@ -55,6 +64,9 @@ public:
     int64_t flush_size() const { return _flush_size; }
 
 private:
+    //flush for vectorized
+    OLAPStatus _vflush();
+
     class RowCursorComparator : public RowComparator {
     public:
         RowCursorComparator(const Schema* schema);
@@ -64,9 +76,56 @@ private:
         const Schema* _schema;
     };
 
+    //row pos in _input_mutable_block
+    struct RowInBlock{
+        size_t _row_pos;
+        std::vector<vectorized::AggregateDataPtr> _agg_places;
+        RowInBlock(size_t i):_row_pos(i) {}
+        void init_agg_places(std::vector<vectorized::AggregateFunctionPtr>& agg_functions,
+                            int key_column_count){
+            _agg_places.resize(agg_functions.size());
+            for(int cid = 0; cid < agg_functions.size(); cid++)
+            {
+                if (cid < key_column_count) {
+                    _agg_places[cid] = nullptr;
+                }else{
+                    auto function = agg_functions[cid];
+                    size_t place_size = function->size_of_data();
+                    _agg_places[cid] = new char[place_size];
+                    function->create(_agg_places[cid]);
+                }
+            }
+        }
+
+        RowCursorCell cell(vectorized::MutableBlock* block, int cid){
+            StringRef ref = block->mutable_columns()[cid]->get_data_at(_row_pos);
+            bool is_null = block->mutable_columns()[cid]->is_null_at(_row_pos);
+            NullState null_state = is_null ? NullState::IS_NULL : NullState::NOT_NULL;
+            return RowCursorCell(ref.data, null_state);
+        }
+        ~ RowInBlock(){
+            for( auto place: _agg_places){
+                delete place;
+            }
+        }
+    };
+    class RowInBlockComparator {
+    public:
+        RowInBlockComparator(const Schema* schema):_schema(schema){};
+        //call set_block before operator().
+        //在第一次insert block时创建的 _input_mutable_block, 所以无法在Comparator的构造函数中获得pblock
+        void set_block(vectorized::MutableBlock* pblock){_pblock = pblock;}
+        int operator()(const RowInBlock* left, const RowInBlock* right) const;
+    private:
+        const Schema* _schema;
+        vectorized::MutableBlock* _pblock;// 对应Memtable::_input_mutable_block
+    };
+
 private:
     typedef SkipList<char*, RowComparator> Table;
     typedef Table::key_type TableKey;
+
+    typedef SkipList<RowInBlock*, RowInBlockComparator> VecTable;
 
 public:
     /// The iterator of memtable, so that the data in this memtable
@@ -86,9 +145,13 @@ public:
         Table::Iterator _it;
     };
 
+    
 private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    //for vectorized
+    void insert_one_row_from_block(RowInBlock* row_in_block);
+    void _aggregate_two_rowInBlock(RowInBlock* new_row, RowInBlock* row_in_skiplist);
 
     int64_t _tablet_id;
     Schema* _schema;
@@ -98,6 +161,9 @@ private:
     KeysType _keys_type;
 
     std::shared_ptr<RowComparator> _row_comparator;
+    
+    std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
+
     std::shared_ptr<MemTracker> _mem_tracker;
     // This is a buffer, to hold the memory referenced by the rows that have not
     // been inserted into the SkipList
@@ -116,6 +182,9 @@ private:
     Table* _skip_list;
     Table::Hint _hint;
 
+    VecTable* _vec_skip_list;
+    VecTable::Hint _vec_hint;
+
     RowsetWriter* _rowset_writer;
 
     // the data size flushed on disk of this memtable
@@ -125,7 +194,18 @@ private:
     // in unique or aggragate key model.
     int64_t _rows = 0;
 
+    //for vectorized 
+    vectorized::MutableBlock _input_mutable_block;
+    vectorized::MutableBlock _output_mutable_block;
+    vectorized::Block collect_skiplist_results();
+    bool _is_first_insertion;
+
+    void _init_agg_functions(const vectorized::Block* block);
+    std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
+    std::vector<RowInBlock*> rowInBlocks;
+    size_t _mem_usage;
 }; // class MemTable
+
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
     os << "MemTable(addr=" << &table << ", tablet=" << table.tablet_id()
