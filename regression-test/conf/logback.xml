@@ -26,18 +26,26 @@ under the License.
         </encoder>
     </appender>
 
-    <appender name="fileAppender" class="ch.qos.logback.core.FileAppender">
+    <appender name="rollingFileAppender" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <!-- you can specify LOG_PATH by 'java -DLOG_PATH=xxx ...',
              default LOG_PATH is './log'
         -->
         <file>${LOG_PATH:-./log}/doris-regression-test.${LOG_TIME}.log</file>
-        <encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.FixedWindowRollingPolicy">
+            <fileNamePattern>${LOG_PATH:-./log}/doris-regression-test.%i.log.zip</fileNamePattern>
+            <minIndex>1</minIndex>
+            <maxIndex>3</maxIndex>
+        </rollingPolicy>
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>500MB</maxFileSize>
+        </triggeringPolicy>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
             <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %level [%thread] \(%F:%L\) - %msg%n</pattern>
         </encoder>
     </appender>
 
     <root level="INFO">
         <appender-ref ref="stdoutAppender" />
-        <appender-ref ref="fileAppender" />
+        <appender-ref ref="rollingFileAppender" />
     </root>
 </configuration>
