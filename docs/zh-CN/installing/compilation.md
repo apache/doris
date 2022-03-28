@@ -207,6 +207,12 @@ under the License.
 
         REPOSITORY_URL 中包含所有第三方库源码包和他们的历史版本。
 
+3. `fatal error: Killed signal terminated program ...`
+
+    使用 Docker 镜像编译时如遇到上述报错，可能是分配给镜像的内存不足（Docker 默认分配的内存大小为 2GB，编译过程中内存占用的峰值大于 2GB）。
+
+    尝试适当调大镜像的分配内存，推荐 4GB ~ 8GB。
+
 ## 特别声明
 
 自 0.13 版本开始，默认的编译产出中将取消对 [1] 和 [2] 两个第三方库的依赖。这两个第三方库为 [GNU General Public License V3](https://www.gnu.org/licenses/gpl-3.0.en.html) 协议。该协议与 [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0) 协议不兼容，因此默认不出现在 Apache 发布版本中。
