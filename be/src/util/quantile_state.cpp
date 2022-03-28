@@ -33,7 +33,6 @@ QuantileState<T>::QuantileState(float compression) : _type(EMPTY), _compression(
 
 template <typename T>
 QuantileState<T>::QuantileState(const Slice& slice) {
-    DCHECK(deserialize(slice));
     if (!deserialize(slice)) {
         _type = EMPTY;
     }
