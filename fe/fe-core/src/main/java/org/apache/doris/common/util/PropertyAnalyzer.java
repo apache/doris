@@ -169,49 +169,60 @@ public class PropertyAnalyzer {
         properties.remove(PROPERTIES_REMOTE_STORAGE);
 
         // 2. check remote_storage and storage_cold_medium
-        // 2.1 when using remote_storage, must have cold storage medium
-        if (hasRemoteStorage && !hasColdMedium) {
-            throw new AnalysisException("Invalid data property, " +
-                    "`remote_storage` must be used with `storage_cold_medium`.");
-        }
-
-        // 2.2 check cold storage medium and remote storage type
-        if (hasColdMedium && hasRemoteStorage) {
-            remotestorageProperty = Catalog.getCurrentCatalog()
-                    .getRemoteStorageMgr().getRemoteStorageByName(remoteStorageName);
-
-            if (!coldStorageMedium.name().equalsIgnoreCase(remotestorageProperty.getStorageType().name())) {
+        if (hasRemoteStorage) {
+            // 2.1 when using remote_storage, must have cold storage medium
+            if (!hasColdMedium) {
                 throw new AnalysisException("Invalid data property, " +
-                        "`storage_cold_medium` is inconsistent with `remote_storage`.");
+                        "`remote_storage` must be used with `storage_cold_medium`.");
+            } else {
+                // 2.2 check cold storage medium and remote storage type
+                remotestorageProperty = Catalog.getCurrentCatalog()
+                        .getRemoteStorageMgr().getRemoteStorageByName(remoteStorageName);
+
+                if (!coldStorageMedium.name().equalsIgnoreCase(remotestorageProperty.getStorageType().name())) {
+                    throw new AnalysisException("Invalid data property, " +
+                            "`storage_cold_medium` is inconsistent with `remote_storage`.");
+                }
             }
         }
 
-        // 3. Check cooldown_time
-        // 3.1 cooldown_time must use with storage medium
-        if (hasCooldown && !hasMedium) {
-            throw new AnalysisException("Invalid data property. storage medium property is not found");
+        // 3. check cooldown time
+
+        // storage medium: [HDD|SSD]
+        // cold storage medium: [HDD|S3]
+        // Effective data cool down flow:
+        //  1) SSD -> HDD
+        //  2) SSD -> S3
+        //  3) HDD -> S3
+        boolean effectiveDataCoolDownFlow = storageMedium == TStorageMedium.SSD && coldStorageMedium == TStorageMedium.HDD ||
+                                    storageMedium == TStorageMedium.SSD && coldStorageMedium == TStorageMedium.S3 ||
+                                    storageMedium == TStorageMedium.HDD && coldStorageMedium == TStorageMedium.S3;
+
+        long currentTimeMs = System.currentTimeMillis();
+        // 3.1 set default cooldown time
+        // 3.1.1 set default cooldown time to 30 days
+        //  1) SSD -> HDD, SSD -> remote_storage
+        //  2) HDD -> remote_storage
+        if (!hasCooldown && effectiveDataCoolDownFlow) {
+            coolDownTimeStamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
+        } else if (storageMedium == coldStorageMedium) {
+            // 3.1.2 set default to MAX, ignore user's setting
+            coolDownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+            hasCooldown = false;
         }
 
-        // 3.2 cooldown time must be later than now
-        // Both HDD and SSD can have cooldown time
-        long currentTimeMs = System.currentTimeMillis();
         if (hasCooldown) {
+            // 3.2 cooldown time must be later than now
+            // Both HDD and SSD can have cooldown time
             if (coolDownTimeStamp <= currentTimeMs) {
                 throw new AnalysisException("Cooldown time should be later than now");
             }
-        }
 
-        // 3.3 set default cooldown time
-        // storage medium: [HDD|SSD]
-        // cold storage medium: [HDD|S3]
-        // 3.3.1 set default cooldown time to 30 days
-        //  1) SSD -> HDD, SSD -> remote_storage
-        //  2) HDD -> remote_storage
-        if (storageMedium != coldStorageMedium && !hasCooldown) {
-            coolDownTimeStamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
-        } else if (storageMedium == coldStorageMedium) {
-            // 3.3.2 set default to MAX, ignore user's setting
-            coolDownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+            // 3.3 check data cool down flow
+            if (!effectiveDataCoolDownFlow) {
+                throw new AnalysisException("Can not move data from storage_medium[" + storageMedium + "] to " +
+                        "storage_cold_medium[" + coldStorageMedium + "]");
+            }
         }
 
         Preconditions.checkNotNull(storageMedium);
