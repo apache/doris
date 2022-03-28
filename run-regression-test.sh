@@ -174,6 +174,7 @@ echo "===== Run Regression Test ====="
 $JAVA -DDORIS_HOME=$DORIS_HOME \
       -DLOG_PATH=$LOG_OUTPUT_FILE \
       -Dlogback.configurationFile=${LOG_CONFIG_FILE} \
+      -Xmx2048m \
       -jar ${RUN_JAR} \
       -cf ${CONFIG_FILE} \
       ${REGRESSION_OPTIONS_PREFIX} "$@"
