@@ -90,8 +90,3 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

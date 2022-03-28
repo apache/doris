@@ -173,8 +173,3 @@ TEST_F(HttpClientTest, post_failed) {
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
