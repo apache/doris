@@ -32,12 +32,12 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 
 代码库地址：https://github.com/apache/incubator-doris-flink-connector
 
-* 可以将`Doris`表映射为`DataStream`或者`Table`。
+* 可以将 `Doris` 表映射为 `DataStream` 或者 `Table`。
 
 >**注意：**
 >
->1. 修改和删除只支持在Unique Key模型上
->2. 目前的删除是支持Flink CDC的方式接入数据实现自动删除，如果是其他数据接入的方式删除需要自己实现。Flink CDC的数据删除使用方式参照本文档最后一节
+>1. 修改和删除只支持在 Unique Key 模型上
+>2. 目前的删除是支持 Flink CDC 的方式接入数据实现自动删除，如果是其他数据接入的方式删除需要自己实现。Flink CDC 的数据删除使用方式参照本文档最后一节
 
 ## 版本兼容
 
@@ -71,8 +71,8 @@ sh build.sh --flink 1.14.3 --scala 2.12
 
 **备注**
 
-1. doris FE 要在配置中配置启用http v2
-2. Scala版本目前只支持2.12.x版本
+1. Doris FE 要在配置中配置启用 http v2
+2. Scala 版本目前只支持 2.12.x 版本
 
 conf/fe.conf
 
@@ -80,28 +80,100 @@ conf/fe.conf
 enable_http_server_v2 = true
 ```
 
-## 使用Maven 管理
+## 使用 Maven 管理
 
-添加 maven 依赖
+添加 flink-doris-connector 和必要的 Flink Maven 依赖
 
+Flink 1.13.* 及以前的版本
 ```
 <dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-java</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-streaming-java_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-clients_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<!-- flink table -->
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-common</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-api-java-bridge_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-planner-blink_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<!-- flink-doris-connector -->
+<dependency>
   <groupId>org.apache.doris</groupId>
-  <artifactId>flink-doris-connector-1.14_2.12</artifactId>
-  <!--artifactId>flink-doris-connector-1.13_2.12</artifactId-->
+  <artifactId>flink-doris-connector-1.13_2.12</artifactId>
   <!--artifactId>flink-doris-connector-1.12_2.12</artifactId-->
   <!--artifactId>flink-doris-connector-1.11_2.12</artifactId-->
   <version>1.0.3</version>
-</dependency>
+</dependency>    
+``` 
+Flink 1.13.* 以后的版本
 ```
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-java</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-streaming-java_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-clients_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<!-- flink table -->
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-planner_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<!-- flink-doris-connector -->
+<dependency>
+  <groupId>org.apache.doris</groupId>
+  <artifactId>flink-doris-connector-1.14_2.12</artifactId>
+  <version>1.0.3</version>
+</dependency>  
+``` 
 
 **备注**
 
-请根据不同的 Flink 和 Scala 版本替换相应的 Connector 版本。
+请根据不同的 Flink 和 Scala 版本替换对应的 Connector 和 Flink 依赖版本。
 
 ## 使用方法
 
-Flink读写Doris数据主要有三种方式
+Flink 读写 Doris 数据主要有三种方式
 
 * SQL
 * DataStream
@@ -109,10 +181,10 @@ Flink读写Doris数据主要有三种方式
 
 ### 参数配置
 
-Flink Doris Connector Sink的内部实现是通过 `Stream load` 服务向Doris写入数据, 同时也支持 `Stream load` 请求参数的配置设定
+Flink Doris Connector Sink 的内部实现是通过 `Stream Load` 服务向 Doris 写入数据, 同时也支持 `Stream Load` 请求参数的配置设定
 
 参数配置方法
-* SQL  使用`WITH`参数`sink.properties.`配置
+* SQL 使用 `WITH` 参数 `sink.properties.` 配置
 * DataStream 使用方法`DorisExecutionOptions.builder().setStreamLoadProp(Properties)`配置
 
 ### SQL
@@ -178,7 +250,7 @@ INSERT INTO flink_doris_sink select name,age,price,sale from flink_doris_source
 
 * Sink
 
-Json数据流
+Json 数据流
 
 ```java
 Properties pro = new Properties();
@@ -204,7 +276,7 @@ env.fromElements(
 
 ```
 
-Json数据流
+Json 数据流
 
 ```java
 env.fromElements(
@@ -220,7 +292,7 @@ env.fromElements(
     	));
 ```
 
-RowData数据流
+RowData 数据流
 
 ```java
 DataStream<RowData> source = env.fromElements("")
@@ -301,25 +373,25 @@ outputFormat.close();
 | -------------------------------- | ----------------- | ------------------------------------------------------------ |
 | fenodes                    | --                | Doris FE http 地址             |
 | table.identifier    | --                | Doris 表名，如：db1.tbl1                                 |
-| username                            | --            | 访问Doris的用户名                                            |
-| password                        | --            | 访问Doris的密码                                              |
-| doris.request.retries            | 3                 | 向Doris发送请求的重试次数                                    |
-| doris.request.connect.timeout.ms | 30000             | 向Doris发送请求的连接超时时间                                |
-| doris.request.read.timeout.ms    | 30000             | 向Doris发送请求的读取超时时间                                |
-| doris.request.query.timeout.s    | 3600              | 查询doris的超时时间，默认值为1小时，-1表示无超时限制             |
-| doris.request.tablet.size        | Integer. MAX_VALUE | 一个Partition对应的Doris Tablet个数。<br />此数值设置越小，则会生成越多的Partition。从而提升Flink侧的并行度，但同时会对Doris造成更大的压力。 |
-| doris.batch.size                 | 1024              | 一次从BE读取数据的最大行数。增大此数值可减少flink与Doris之间建立连接的次数。<br />从而减轻网络延迟所带来的的额外时间开销。 |
+| username                            | --            | 访问 Doris 的用户名                                            |
+| password                        | --            | 访问 Doris 的密码                                              |
+| doris.request.retries            | 3                 | 向 Doris 发送请求的重试次数                                    |
+| doris.request.connect.timeout.ms | 30000             | 向 Doris 发送请求的连接超时时间                                |
+| doris.request.read.timeout.ms    | 30000             | 向 Doris 发送请求的读取超时时间                                |
+| doris.request.query.timeout.s    | 3600              | 查询 Doris 的超时时间，默认值为1小时，-1表示无超时限制             |
+| doris.request.tablet.size        | Integer. MAX_VALUE | 一个 Partition 对应的 Doris Tablet 个数。<br />此数值设置越小，则会生成越多的 Partition。从而提升 Flink 侧的并行度，但同时会对 Doris 造成更大的压力。 |
+| doris.batch.size                 | 1024              | 一次从 BE 读取数据的最大行数。增大此数值可减少 Flink 与 Doris 之间建立连接的次数。<br />从而减轻网络延迟所带来的的额外时间开销。 |
 | doris.exec.mem.limit             | 2147483648        | 单个查询的内存限制。默认为 2GB，单位为字节                      |
-| doris.deserialize.arrow.async    | false             | 是否支持异步转换Arrow格式到flink-doris-connector迭代所需的RowBatch            |
-| doris.deserialize.queue.size     | 64                | 异步转换Arrow格式的内部处理队列，当doris.deserialize.arrow.async为true时生效        |
-| doris.read.field            | --            | 读取Doris表的列名列表，多列之间使用逗号分隔                  |
-| doris.filter.query          | --            | 过滤读取数据的表达式，此表达式透传给Doris。Doris使用此表达式完成源端数据过滤。 |
-| sink.batch.size     | 10000              | 单次写BE的最大行数        |
-| sink.max-retries     | 1              | 写BE失败之后的重试次数       |
-| sink.batch.interval     | 10s               | flush 间隔时间，超过该时间后异步线程将 缓存中数据写入BE。 默认值为10秒，支持时间单位ms、s、min、h和d。设置为0表示关闭定期写入。 |
-| sink.properties.*     | --               | Stream load 的导入参数<br /><br />例如:<br />'sink.properties.column_separator' = ', '<br />定义列分隔符<br /><br />'sink.properties.escape_delimiters' = 'true'<br />特殊字符作为分隔符,'\\x01'会被转换为二进制的0x01<br /><br /> 'sink.properties.format' = 'json'<br />'sink.properties.strip_outer_array' = 'true' <br />JSON格式导入|
-| sink.enable-delete     | true               | 是否启用删除。此选项需要Doris表开启批量删除功能(0.15+版本默认开启)，只支持Uniq模型。|
-| sink.batch.bytes  | 10485760              | 单次写BE的最大数据量，当每个 batch 中记录的数据量超过该阈值时，会将缓存数据写入 BE。默认值为 10MB        |
+| doris.deserialize.arrow.async    | false             | 是否支持异步转换 Arrow 格式到 flink-doris-connector 迭代所需的 RowBatch            |
+| doris.deserialize.queue.size     | 64                | 异步转换 Arrow 格式的内部处理队列，当 doris.deserialize.arrow.async 为 true 时生效        |
+| doris.read.field            | --            | 读取 Doris 表的列名列表，多列之间使用逗号分隔                  |
+| doris.filter.query          | --            | 过滤读取数据的表达式，此表达式透传给 Doris。Doris 使用此表达式完成源端数据过滤。 |
+| sink.batch.size     | 10000              | 单次写 BE 的最大行数        |
+| sink.max-retries     | 1              | 写 BE 失败之后的重试次数       |
+| sink.batch.interval     | 10s               | flush 间隔时间，超过该时间后异步线程将 缓存中数据写入 BE。 默认值为10秒，支持时间单位 ms、 s、 min、 h 和 d。设置为 0 表示关闭定期写入。 |
+| sink.properties.*     | --               | Stream Load 的导入参数<br /><br />例如:<br />'sink.properties.column_separator' = ', '<br />定义列分隔符<br /><br />'sink.properties.escape_delimiters' = 'true'<br />特殊字符作为分隔符,'\\x01'会被转换为二进制的0x01<br /><br /> 'sink.properties.format' = 'json'<br />'sink.properties.strip_outer_array' = 'true' <br /> JSON格式导入|
+| sink.enable-delete     | true               | 是否启用删除。此选项需要 Doris 表开启批量删除功能(0.15+版本默认开启)，只支持 Unique 模型。|
+| sink.batch.bytes  | 10485760              | 单次写 BE 的最大数据量，当每个 batch 中记录的数据量超过该阈值时，会将缓存数据写入 BE。默认值为 10MB        |
 ## Doris 和 Flink 列类型映射关系
 
 | Doris Type | Flink Type                       |
@@ -342,7 +414,7 @@ outputFormat.close();
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
 
-## 使用Flink CDC接入Doris示例（支持insert/update/delete事件）
+## 使用 Flink CDC 接入 Doris 示例（支持 Insert / Update / Delete 事件）
 ```sql
 CREATE TABLE cdc_mysql_source (
   id int
@@ -358,7 +430,7 @@ CREATE TABLE cdc_mysql_source (
  'table-name' = 'table'
 );
 
--- 支持删除事件同步(sink.enable-delete='true'),需要Doris表开启批量删除功能
+-- 支持删除事件同步(sink.enable-delete='true'),需要 Doris 表开启批量删除功能
 CREATE TABLE doris_sink (
 id INT,
 name STRING
