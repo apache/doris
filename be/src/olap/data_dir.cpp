@@ -757,19 +757,12 @@ void DataDir::disks_compaction_num_increment(int64_t delta) {
     disks_compaction_num->increment(delta);
 }
 
-<<<<<<< HEAD
 // this is moved from src/olap/utils.h, the old move_to_trash() can only support local files,
 // and it is more suitable in DataDir because one trash path is in one DataDir
 OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     OLAPStatus res = OLAP_SUCCESS;
     FilePathDesc storage_root_desc = _path_desc;
     if (is_remote() && !StorageBackendMgr::instance()->get_root_path(
-=======
-OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
-    OLAPStatus res = OLAP_SUCCESS;
-    FilePathDesc storage_root_desc = _path_desc;
-    if (is_remote() && !Env::get_remote_mgr()->get_root_path(
->>>>>>> 297da5df9... Support remote storage, step2, only for be, add env_remote_mgr
             segment_path_desc.storage_name, &(storage_root_desc.remote_path)).ok()) {
         LOG(WARNING) << "get_root_path failed for storage_name: " << segment_path_desc.storage_name;
         return OLAP_ERR_OTHER_ERROR;
@@ -786,13 +779,7 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     }
 
     // 2. generate new file path desc
-<<<<<<< HEAD
     static std::atomic<uint64_t> delete_counter(0); // a global counter to avoid file name duplication.
-=======
-    static uint64_t delete_counter = 0; // a global counter to avoid file name duplication.
-    static Mutex lock;                  // lock for delete_counter
-    lock.lock();
->>>>>>> 297da5df9... Support remote storage, step2, only for be, add env_remote_mgr
     // when file_path points to a schema_path, we need to save tablet info in trash_path,
     // so we add file_path.parent_path().filename() in new_file_path.
     // other conditions are not considered, for they are nothing serious.
@@ -815,11 +802,6 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
         trash_path_desc.remote_path = trash_remote_file_stream.str();
         trash_path_desc.storage_name = segment_path_desc.storage_name;
     }
-<<<<<<< HEAD
-=======
-    lock.unlock();
-
->>>>>>> 297da5df9... Support remote storage, step2, only for be, add env_remote_mgr
 
     // 3. create target dir, or the rename() function will fail.
     string trash_local_file = trash_local_file_stream.str();
@@ -841,7 +823,6 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
                          << ", error:" << st.to_string();
             return OLAP_ERR_OS_ERROR;
         }
-<<<<<<< HEAD
         std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
                 get_storage_backend(segment_path_desc.storage_name);
         if (storage_backend == nullptr) {
@@ -855,25 +836,6 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
             Status rename_status = storage_backend->rename_dir(segment_path_desc.remote_path, trash_path_desc.remote_path);
             if (!rename_status.ok()) {
                 OLAP_LOG_WARNING("Move remote file to trash failed. [file=%s target='%s']",
-=======
-        std::shared_ptr<Env> env = Env::get_env(segment_path_desc);
-        if (env == nullptr) {
-            LOG(WARNING) << "env is invalid: " << segment_path_desc.storage_name;
-            return OLAP_ERR_OS_ERROR;
-        }
-        Status status = env->path_exists(segment_path_desc.remote_path, true);
-        if (status.ok()) {
-            VLOG_NOTICE << "Move remote file to trash. " << segment_path_desc.remote_path
-                        << " -> " << trash_path_desc.remote_path;
-            std::shared_ptr<Env> env = Env::get_env(segment_path_desc);
-            if (env == nullptr) {
-                LOG(WARNING) << "env is invalid: " << segment_path_desc.storage_name;
-                return OLAP_ERR_OS_ERROR;
-            }
-            Status rename_status = env->rename_dir(segment_path_desc.remote_path, trash_path_desc.remote_path);
-            if (!rename_status.ok()) {
-                OLAP_LOG_WARNING("Move remote file to trash failed. [file=%s target='%s' err='%m']",
->>>>>>> 297da5df9... Support remote storage, step2, only for be, add env_remote_mgr
                                  segment_path_desc.remote_path.c_str(), trash_path_desc.remote_path.c_str());
                 return OLAP_ERR_OS_ERROR;
             }
