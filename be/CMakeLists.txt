@@ -649,7 +649,7 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     set(UBSAN_LIBS -static-libubsan tcmalloc)
     set(TSAN_LIBS -static-libtsan)
 else ()
-    set(UBSAN_LIBS tcmalloc)
+    set(UBSAN_LIBS -rtlib=compiler-rt tcmalloc)
 endif ()
 
 # Add sanitize static link flags or tcmalloc
