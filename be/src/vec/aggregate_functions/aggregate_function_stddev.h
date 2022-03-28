@@ -212,44 +212,6 @@ struct StddevSampName : Data {
     static const char* name() { return "stddev_samp"; }
 };
 
-template <typename Data, bool is_nullable = false>
-class AggregateFunctionPop final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionPop<Data, is_nullable>> {
-public:
-    AggregateFunctionPop(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionPop<Data, is_nullable>>(
-                      argument_types_, {}) {}
-
-    String get_name() const override { return Data::name(); }
-
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeFloat64>(); }
-
-    void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
-             Arena*) const override {
-        this->data(place).add(columns[0], row_num);
-    }
-
-    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
-
-    void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-               Arena*) const override {
-        this->data(place).merge(this->data(rhs));
-    }
-
-    void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
-    }
-
-    void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                     Arena*) const override {
-        this->data(place).read(buf);
-    }
-
-    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        this->data(place).insert_result_into(to);
-    }
-};
-
 template <typename T, typename Data>
 struct SampData : Data {
     using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>,
@@ -270,29 +232,37 @@ struct SampData : Data {
     }
 };
 
-template <typename Data, bool is_nullable>
-class AggregateFunctionSamp final
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSamp<Data, is_nullable>> {
+template <bool is_pop, typename Data, bool is_nullable>
+class AggregateFunctionSampVariance
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<is_pop, Data, is_nullable>> {
 public:
-    AggregateFunctionSamp(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionSamp<Data, is_nullable>>(
+    AggregateFunctionSampVariance(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<is_pop, Data, is_nullable>>(
                       argument_types_, {}) {}
 
     String get_name() const override { return Data::name(); }
 
     DataTypePtr get_return_type() const override {
-        return make_nullable(std::make_shared<DataTypeFloat64>());
+        if constexpr (is_pop) {
+            return std::make_shared<DataTypeFloat64>();
+        } else {
+            return make_nullable(std::make_shared<DataTypeFloat64>());
+        }
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        if constexpr (is_nullable) {
-            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
-            if (!nullable_column->is_null_at(row_num)) {
-                this->data(place).add(&nullable_column->get_nested_column(), row_num);
-            }
-        } else {
+        if constexpr (is_pop) {
             this->data(place).add(columns[0], row_num);
+        } else {
+            if constexpr (is_nullable) {
+                const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
+                if (!nullable_column->is_null_at(row_num)) {
+                    this->data(place).add(&nullable_column->get_nested_column(), row_num);
+                }
+            } else {
+                this->data(place).add(columns[0], row_num);
+            }
         }
     }
 
@@ -315,6 +285,23 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
+};
+
+//samp function it's always nullables, it's need to handle nullable column
+//so return type and add function should processing null values
+template <typename Data, bool is_nullable>
+class AggregateFunctionSamp : public AggregateFunctionSampVariance<false, Data, is_nullable> {
+public:
+    AggregateFunctionSamp(const DataTypes& argument_types_)
+            : AggregateFunctionSampVariance<false, Data, is_nullable>(argument_types_) {}
+};
+
+//pop function have use AggregateFunctionNullBase function, so needn't processing null values
+template <typename Data, bool is_nullable>
+class AggregateFunctionPop : public AggregateFunctionSampVariance<true, Data, is_nullable> {
+public:
+    AggregateFunctionPop(const DataTypes& argument_types_)
+            : AggregateFunctionSampVariance<true, Data, is_nullable>(argument_types_) {}
 };
 
 } // namespace doris::vectorized
