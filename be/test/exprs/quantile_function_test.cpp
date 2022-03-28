@@ -123,7 +123,7 @@ TEST_F(QuantileStateFunctionsTest, quantile_percent) {
     state.add_value(5);
     StringVal input = convert_quantile_state_to_string(ctx, state);
     DoubleVal result = QuantileStateFunctions::quantile_percent(ctx, input);
-    DoubleVal expected(2.5);
+    DoubleVal expected(3);
     ASSERT_EQ(result, expected);
 }
 
