@@ -1291,8 +1291,7 @@ void TabletManager::get_tablets_distribution_on_different_disks(
         std::set<TabletInfo>::iterator tablet_info_iter = (partition_iter->second).begin();
         for (; tablet_info_iter != (partition_iter->second).end(); ++tablet_info_iter) {
             // get_tablet() will hold 'tablet_shard_lock'
-            TabletSharedPtr tablet =
-                    get_tablet(tablet_info_iter->tablet_id, tablet_info_iter->schema_hash);
+            TabletSharedPtr tablet = get_tablet(tablet_info_iter->tablet_id);
             if (tablet == nullptr) {
                 continue;
             }
