@@ -212,13 +212,18 @@ public class PropertyAnalyzer {
         }
 
         if (hasCooldown) {
-            // 3.2 cooldown time must be later than now
+            // 3.2 check cooldown with storage medium
+            if (!hasMedium) {
+                throw new AnalysisException("Invalid data property, " +
+                        "`cooldown_time` must be used with `storage_medium`.");
+            }
+            // 3.3 cooldown time must be later than now
             // Both HDD and SSD can have cooldown time
             if (coolDownTimeStamp <= currentTimeMs) {
                 throw new AnalysisException("Cooldown time should be later than now");
             }
 
-            // 3.3 check data cool down flow
+            // 3.4 check data cool down flow
             if (!effectiveDataCoolDownFlow) {
                 throw new AnalysisException("Can not move data from storage_medium[" + storageMedium + "] to " +
                         "storage_cold_medium[" + coldStorageMedium + "]");
