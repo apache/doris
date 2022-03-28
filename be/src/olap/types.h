@@ -56,16 +56,16 @@ public:
 
     virtual void deep_copy(void* dest, const void* src, MemPool* mem_pool) const = 0;
 
-    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
-    // It is same with deep_copy() for all type except for HLL and OBJECT type
+    // See `copy_row_in_memtable()` in `olap/row.h`, will be removed in the future.
+    // It is same with deep_copy() for all type except for HLL and OBJECT type.
     virtual void copy_object(void* dest, const void* src, MemPool* mem_pool) const = 0;
 
     virtual void direct_copy(void* dest, const void* src) const = 0;
 
-    // use only in zone map to cut data
+    // Use only in zone map to cut data.
     virtual void direct_copy_may_cut(void* dest, const void* src) const = 0;
 
-    //convert and deep copy value from other type's source
+    // Convert and deep copy value from other type's source.
     virtual OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                     MemPool* mem_pool, size_t variable_len = 0) const = 0;
 
@@ -98,8 +98,8 @@ public:
         _deep_copy(dest, src, mem_pool);
     }
 
-    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
-    // It is same with deep_copy() for all type except for HLL and OBJECT type
+    // See `copy_row_in_memtable()` in olap/row.h, will be removed in the future.
+    // It is same with `deep_copy()` for all type except for HLL and OBJECT type.
     inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
         _copy_object(dest, src, mem_pool);
     }
@@ -110,7 +110,7 @@ public:
         _direct_copy_may_cut(dest, src);
     }
 
-    //convert and deep copy value from other type's source
+    // Convert and deep copy value from other type's source.
     OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
                             MemPool* mem_pool, size_t variable_len = 0) const override {
         return _convert_from(dest, src, src_type, mem_pool, variable_len);
@@ -327,7 +327,7 @@ public:
         }
 
         *base += nulls_size + src_value->length() * _item_type_info->size();
-        // direct copy item
+        // Direct copy item.
         if (_item_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
             for (uint32_t i = 0; i < src_value->length(); ++i) {
                 if (dest_value->is_null_at(i)) continue;
@@ -1044,7 +1044,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
             /*
              * CHAR type is of fixed length. Size in slice can be modified
              * only if value_len is greater than the fixed length. ScanKey
-             * inputed by user may be greater than fixed length.
+             * inputted by user may be greater than fixed length.
              */
             slice->size = value_len;
         } else {
@@ -1077,7 +1077,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         l_slice->size = r_slice->size;
     }
 
-    // using field.set_to_max to set varchar/char,not here
+    // Using field.set_to_max to set varchar/char,not here.
     static void (*set_to_max)(void*);
 
     static void set_to_min(void* buf) {
@@ -1228,7 +1228,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_OBJECT> : public FieldTypeTraits<OLAP_FIE
      * in this struct has no significance
      */
 
-    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
+    // See `copy_row_in_memtable()` in olap/row.h, will be removed in the future.
     static void copy_object(void* dest, const void* src, MemPool* mem_pool) {
         auto dst_slice = reinterpret_cast<Slice*>(dest);
         auto src_slice = reinterpret_cast<const Slice*>(src);
@@ -1266,7 +1266,7 @@ struct TypeTraits : public FieldTypeTraits<field_type> {
     static const int32_t size = sizeof(CppType);
 };
 
-// get ScalarTypeInfo at compile time for performance
+// Get ScalarTypeInfo at compile time for performance.
 template <FieldType field_type>
 inline TypeInfo* get_scalar_type_info() {
     static constexpr TypeTraits<field_type> traits;
