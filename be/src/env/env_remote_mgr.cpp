@@ -134,14 +134,18 @@ Status RemoteEnvMgr::get_root_path(const std::string& storage_name, std::string*
     if (_remote_env_map.find(storage_name) == _remote_env_map.end()) {
         return Status::InternalError("storage_name not exist: " + storage_name);
     }
-    switch (_storage_param_map[storage_name].storage_medium()) {
+    *root_path = get_root_path_from_param(_storage_param_map[storage_name]);
+    return Status::OK();
+}
+
+std::string RemoteEnvMgr::get_root_path_from_param(const StorageParamPB& storage_param) {
+    switch (storage_param.storage_medium()) {
         case TStorageMedium::S3:
         default:
         {
-            *root_path = _storage_param_map[storage_name].s3_storage_param().root_path();
+            return storage_param.s3_storage_param().root_path();
         }
     }
-    return Status::OK();
 }
 
 Status RemoteEnvMgr::_check_exist(const StorageParamPB& storage_param_pb) {

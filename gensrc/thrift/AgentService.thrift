@@ -68,8 +68,8 @@ enum TTabletType {
 }
 
 struct TS3StorageParam {
-    1: required string s3_endpoint
-    2: required string s3_region
+    1: optional string s3_endpoint
+    2: optional string s3_region
     3: optional string s3_ak
     4: optional string s3_sk
     5: optional i32 s3_max_conn = 50

@@ -931,7 +931,7 @@ OLAPStatus TabletManager::start_trash_sweep() {
                             tablet_path_desc.filepath, std::to_string((*it)->tablet_id()) + ".hdr");
                     (*it)->tablet_meta()->save(meta_file_path);
                     LOG(INFO) << "start to move tablet to trash. " << tablet_path_desc.debug_string();
-                    OLAPStatus rm_st = move_to_trash(tablet_path_desc.filepath, tablet_path_desc.filepath);
+                    OLAPStatus rm_st = (*it)->data_dir()->move_to_trash(tablet_path_desc);
                     if (rm_st != OLAP_SUCCESS) {
                         LOG(WARNING) << "fail to move dir to trash. " << tablet_path_desc.debug_string();
                         ++it;
@@ -1012,7 +1012,8 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     // TODO(ygl): may do other checks in the future
     if (Env::Default()->path_exists(schema_hash_path).ok()) {
         LOG(INFO) << "start to move tablet to trash. tablet_path = " << schema_hash_path;
-        OLAPStatus rm_st = move_to_trash(schema_hash_path, schema_hash_path);
+        FilePathDesc segment_desc(schema_hash_path);
+        OLAPStatus rm_st = data_dir->move_to_trash(segment_desc);
         if (rm_st != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to move dir to trash. dir=" << schema_hash_path;
         } else {

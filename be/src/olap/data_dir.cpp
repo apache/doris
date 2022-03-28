@@ -23,6 +23,7 @@
 #include <sys/file.h>
 #include <sys/statfs.h>
 #include <utime.h>
+#include <atomic>
 
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -689,6 +690,9 @@ void DataDir::perform_path_scan() {
     _check_path_cv.notify_one();
 }
 
+// This function is called for rowset_id path, only local rowset_id_path can be garbage.
+// remote path is uploaded, moved or deleted by tablet_id,
+// if local path has no remote path params, remote path doesn't exist.
 void DataDir::_process_garbage_path(const std::string& path) {
     if (Env::Default()->path_exists(path).ok()) {
         LOG(INFO) << "collect garbage dir path: " << path;
@@ -751,6 +755,8 @@ void DataDir::disks_compaction_num_increment(int64_t delta) {
     disks_compaction_num->increment(delta);
 }
 
+// this is moved from src/olap/utils.h, the old move_to_trash() can only support local files,
+// and it is more suitable in DataDir because one trash path is in one DataDir
 OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     OLAPStatus res = OLAP_SUCCESS;
     FilePathDesc storage_root_desc = _path_desc;
@@ -771,9 +777,7 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     }
 
     // 2. generate new file path desc
-    static uint64_t delete_counter = 0; // a global counter to avoid file name duplication.
-    static Mutex lock;                  // lock for delete_counter
-    lock.lock();
+    static std::atomic<uint64_t> delete_counter(0); // a global counter to avoid file name duplication.
     // when file_path points to a schema_path, we need to save tablet info in trash_path,
     // so we add file_path.parent_path().filename() in new_file_path.
     // other conditions are not considered, for they are nothing serious.
@@ -796,8 +800,6 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
         trash_path_desc.remote_path = trash_remote_file_stream.str();
         trash_path_desc.storage_name = segment_path_desc.storage_name;
     }
-    lock.unlock();
-
 
     // 3. create target dir, or the rename() function will fail.
     string trash_local_file = trash_local_file_stream.str();

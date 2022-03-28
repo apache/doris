@@ -79,6 +79,8 @@ public:
                              TabletMetaSharedPtr* tablet_meta);
 
     TabletMeta();
+    // Only remote_storage_name is needed in meta, it is a key used to get remote params from fe.
+    // The config of storage is saved in fe.
     TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id, int32_t schema_hash,
                uint64_t shard_id, const TTabletSchema& tablet_schema, uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,

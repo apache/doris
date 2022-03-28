@@ -218,8 +218,8 @@ enum StorageMediumPB {
 }
 
 message S3StorageParamPB {
-    required string s3_endpoint = 1;
-    required string s3_region = 2;
+    optional string s3_endpoint = 1;
+    optional string s3_region = 2;
     optional string s3_ak = 3;
     optional string s3_sk = 4;
     optional int32 s3_max_conn = 5 [default = 50];
@@ -229,8 +229,8 @@ message S3StorageParamPB {
 }
 
 message StorageParamPB {
-    required StorageMediumPB storage_medium = 1 [default = HDD];
-    required string storage_name = 2 [default = "local"];
+    optional StorageMediumPB storage_medium = 1 [default = HDD];
+    optional string storage_name = 2 [default = "local"];
     optional S3StorageParamPB s3_storage_param = 3;
 }
 

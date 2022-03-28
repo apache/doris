@@ -26,21 +26,29 @@
 
 namespace doris {
 
+// RemoteEnvMgr is used to manage RemoteEnv, it has (key -> RemoteEnv) map used to connect remote storage
 class RemoteEnvMgr {
 public:
     RemoteEnvMgr() {}
     ~RemoteEnvMgr() {}
 
+    // init() is called when be is started, storage_name_dir is the file path for remote parameter in local cache_path.
     Status init(const std::string& storage_name_dir);
 
+    // get_remote_env by storage_name, one storage_name matches a remote storage_backend.
     std::shared_ptr<RemoteEnv> get_remote_env(const std::string& storage_name);
 
+    // create a new remote storage_backend when it doesn't exist.
     Status create_remote_storage(const StorageParamPB& storage_param);
 
+    // get storage_param by storage_name.
     Status get_storage_param(const std::string& storage_name, StorageParamPB* storage_param);
 
+    // get root_path of remote storage by storage_name
     Status get_root_path(const std::string& storage_name, std::string* root_path);
 
+    // get root_path of remote storage from storage_param
+    static std::string get_root_path_from_param(const StorageParamPB& storage_param);
 private:
     Status _create_remote_storage_internal(const StorageParamPB& storage_param);
     Status _check_exist(const StorageParamPB& storage_param_pb);
@@ -49,6 +57,7 @@ private:
 
     std::shared_mutex _remote_env_lock;
     std::map<std::string, time_t> _remote_env_active_time;
+    // key is storage_name, value is RemoteEnv with one storage_backend.
     std::map<std::string, std::shared_ptr<RemoteEnv>> _remote_env_map;
     std::map<std::string, StorageParamPB> _storage_param_map;
     std::string _storage_param_dir;

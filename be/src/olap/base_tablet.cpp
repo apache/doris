@@ -68,11 +68,10 @@ void BaseTablet::_gen_tablet_path() {
     if (_data_dir != nullptr && _tablet_meta != nullptr) {
         FilePathDesc root_path_desc;
         root_path_desc.filepath = _data_dir->path_desc().filepath;
-        root_path_desc.storage_name = _storage_param.storage_name();
         root_path_desc.storage_medium = fs::fs_util::get_t_storage_medium(_storage_param.storage_medium());
-        if (_data_dir->is_remote() && !Env::get_remote_mgr()->get_root_path(
-                _storage_param.storage_name(), &(root_path_desc.remote_path)).ok()) {
-            LOG(WARNING) << "get_root_path failed for storage_name: " << _storage_param.storage_name();
+        if (_data_dir->is_remote()) {
+            root_path_desc.storage_name = _storage_param.storage_name();
+            root_path_desc.remote_path = RemoteEnvMgr::get_root_path_from_param(_storage_param);
         }
         FilePathDescStream desc_s;
         desc_s << root_path_desc << DATA_PREFIX;
