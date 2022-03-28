@@ -246,8 +246,8 @@ public class BackendLoadStatistic {
             }
         }
 
-        LOG.debug("classify path by load. storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
-                avgUsedPercent, medium, lowCounter, midCounter, highCounter);
+        LOG.debug("classify path by load. be id: {} storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
+                beId, medium, avgUsedPercent, lowCounter, midCounter, highCounter);
     }
 
     public void calcScore(Map<TStorageMedium, Double> avgClusterUsedCapacityPercentMap,
@@ -313,6 +313,60 @@ public class BackendLoadStatistic {
             return BalanceStatus.OK;
         }
         return status;
+    }
+
+     /*
+     * Check whether the backend can be more balance if we migrate a tablet with size 'tabletSize' from
+     * `srcPath` to 'destPath'
+     * 1. recalculate the load score of src and dest path after migrate the tablet.
+     * 2. if the summary of the diff between the new score and average score becomes smaller, we consider it
+     *    as more balance.
+     */
+    public boolean isMoreBalanced(long srcPath, long destPath, long tabletId, long tabletSize,
+                                  TStorageMedium medium) {
+        long totalCapacity = 0;
+        long totalUsedCapacity = 0;
+        RootPathLoadStatistic srcPathStat = null;
+        RootPathLoadStatistic destPathStat = null;
+        for (RootPathLoadStatistic pathStat : pathStatistics) {
+            if (pathStat.getStorageMedium() == medium) {
+                totalCapacity += pathStat.getCapacityB();
+                totalUsedCapacity += pathStat.getUsedCapacityB();
+                if (pathStat.getPathHash() == srcPath) {
+                    srcPathStat = pathStat;
+                } else if (pathStat.getPathHash() == destPath) {
+                    destPathStat = pathStat;
+                }
+            }
+        }
+        if (srcPathStat == null || destPathStat == null) {
+            LOG.info("migrate {}(size: {}) from {} to {} failed, medium: {}, src or dest path stat does not exist.",
+                    tabletId, tabletSize, srcPath, destPath, medium);
+            return false;
+        }
+        double avgUsedPercent = totalCapacity == 0 ? 0.0 : totalUsedCapacity / (double) totalCapacity;
+        double currentSrcPathScore = srcPathStat.getCapacityB() == 0
+            ? 0.0 : srcPathStat.getUsedCapacityB() / (double) srcPathStat.getCapacityB();
+        double currentDestPathScore = destPathStat.getCapacityB() == 0
+            ? 0.0 : destPathStat.getUsedCapacityB() / (double) destPathStat.getCapacityB();
+
+        double newSrcPathScore = srcPathStat.getCapacityB() == 0
+            ? 0.0 : (srcPathStat.getUsedCapacityB() - tabletSize) / (double) srcPathStat.getCapacityB();
+        double newDestPathScore = destPathStat.getCapacityB() == 0
+            ? 0.0 : (destPathStat.getUsedCapacityB() + tabletSize) / (double) destPathStat.getCapacityB();
+
+        double currentDiff = Math.abs(currentSrcPathScore - avgUsedPercent)
+            + Math.abs(currentDestPathScore - avgUsedPercent);
+        double newDiff = Math.abs(newSrcPathScore - avgUsedPercent) + Math.abs(newDestPathScore - avgUsedPercent);
+
+        LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
+                        + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
+                        + " more balanced: {}",
+                tabletId, tabletSize, srcPath, destPath, medium, currentSrcPathScore, newSrcPathScore,
+                currentDestPathScore, newDestPathScore, avgUsedPercent, currentDiff, newDiff,
+                (newDiff < currentDiff));
+
+        return newDiff < currentDiff;
     }
 
     public boolean hasAvailDisk() {

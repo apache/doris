@@ -19,6 +19,7 @@ package org.apache.doris.clone;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -40,14 +41,20 @@ public class RebalancerTestUtil {
 
     // Add only one path, PathHash:id
     public static Backend createBackend(long id, long totalCap, long usedCap) {
+        return createBackend(id, totalCap, Lists.newArrayList(usedCap), 1);
+    }
+    // size of usedCaps should equal to diskNum
+    public static Backend createBackend(long id, long totalCap, List<Long> usedCaps, int diskNum) {
         // ip:port won't be checked
         Backend be = new Backend(id, "192.168.0." + id, 9051);
         Map<String, DiskInfo> disks = Maps.newHashMap();
-        DiskInfo diskInfo = new DiskInfo("/path1");
-        diskInfo.setPathHash(id);
-        diskInfo.setTotalCapacityB(totalCap);
-        diskInfo.setDataUsedCapacityB(usedCap);
-        disks.put(diskInfo.getRootPath(), diskInfo);
+        for (int i = 0; i < diskNum; i++) {
+            DiskInfo diskInfo = new DiskInfo("/path" + (i + 1));
+            diskInfo.setPathHash(id + i);
+            diskInfo.setTotalCapacityB(totalCap);
+            diskInfo.setDataUsedCapacityB(usedCaps.get(i));
+            disks.put(diskInfo.getRootPath(), diskInfo);
+        }
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
         be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
@@ -59,28 +66,37 @@ public class RebalancerTestUtil {
     // Only use the partition's baseIndex for simplicity
     public static void createTablet(TabletInvertedIndex invertedIndex, Database db, OlapTable olapTable, String partitionName, TStorageMedium medium,
                                     int tabletId, List<Long> beIds) {
+        createTablet(invertedIndex, db, olapTable, partitionName, medium, tabletId, beIds, null);
+    }
+    public static void createTablet(TabletInvertedIndex invertedIndex, Database db, OlapTable olapTable, String partitionName, TStorageMedium medium,
+                                    int tabletId, List<Long> beIds, List<Long> replicaSizes) {
         Partition partition = olapTable.getPartition(partitionName);
         MaterializedIndex baseIndex = partition.getBaseIndex();
         int schemaHash = olapTable.getSchemaHashByIndexId(baseIndex.getId());
 
         TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(), partition.getId(), baseIndex.getId(),
-                schemaHash, medium);
+        schemaHash, medium);
         Tablet tablet = new Tablet(tabletId);
 
         // add tablet to olapTable
         olapTable.getPartition("p0").getBaseIndex().addTablet(tablet, tabletMeta);
-        createReplicasAndAddToIndex(invertedIndex, tabletMeta, tablet, beIds);
+        createReplicasAndAddToIndex(invertedIndex, tabletMeta, tablet, beIds, replicaSizes);
     }
 
     // Create replicas on backends which are numbered in beIds.
     // The tablet & replicas will be added to invertedIndex.
-    public static void createReplicasAndAddToIndex(TabletInvertedIndex invertedIndex, TabletMeta tabletMeta, Tablet tablet, List<Long> beIds) {
+    public static void createReplicasAndAddToIndex(TabletInvertedIndex invertedIndex, TabletMeta tabletMeta,
+                                                Tablet tablet, List<Long> beIds, List<Long> replicaSizes) {
         invertedIndex.addTablet(tablet.getId(), tabletMeta);
 
         IntStream.range(0, beIds.size()).forEach(i -> {
             Replica replica = new Replica(tablet.getId() + i, beIds.get(i), Replica.ReplicaState.NORMAL, 1, tabletMeta.getOldSchemaHash());
             // We've set pathHash to beId for simplicity
             replica.setPathHash(beIds.get(i));
+            if (replicaSizes != null) {
+                // for disk rebalancer, every beId corresponding to a replicaSize
+                replica.updateStat(replicaSizes.get(i), 0);
+            }
             // isRestore set true, to avoid modifying Catalog.getCurrentInvertedIndex
             tablet.addReplica(replica, true);
             invertedIndex.addReplica(tablet.getId(), replica);

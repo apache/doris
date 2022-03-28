@@ -36,6 +36,24 @@ public:
 
 private:
     OLAPStatus _migrate();
+    // check if task is timeout
+    bool _is_timeout();
+    OLAPStatus _get_versions(int32_t start_version,
+                                 int32_t* end_version,
+                                 std::vector<RowsetSharedPtr> *consistent_rowsets);
+    OLAPStatus _check_running_txns();
+    // caller should not hold migration lock, and 'migration_wlock' should not be nullptr
+    // ownership of the migration lock is transferred to the caller if check succ
+    OLAPStatus _check_running_txns_until_timeout(UniqueWriteLock* migration_wlock);
+
+    // if the size less than threshold, return true
+    bool _is_rowsets_size_less_than_threshold(const std::vector<RowsetSharedPtr>& consistent_rowsets);
+
+    OLAPStatus _gen_and_write_header_to_hdr_file(
+                            uint64_t shard,
+                            const std::string& full_path,
+                            const std::vector<RowsetSharedPtr>& consistent_rowsets);
+    OLAPStatus _reload_tablet(const std::string& full_path);
 
     void _generate_new_header(uint64_t new_shard,
                               const std::vector<RowsetSharedPtr>& consistent_rowsets,
@@ -52,7 +70,7 @@ private:
     TabletSharedPtr _tablet;
     // destination data dir
     DataDir* _dest_store;
-
+    int64_t _task_start_time;
 }; // EngineTask
 
 } // namespace doris
