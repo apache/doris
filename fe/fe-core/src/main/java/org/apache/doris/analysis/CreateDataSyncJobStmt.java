@@ -87,8 +87,8 @@ public class CreateDataSyncJobStmt extends DdlStmt {
         if (binlogDesc != null) {
             binlogDesc.analyze();
             dataSyncJobType = binlogDesc.getDataSyncJobType();
-            if (dataSyncJobType != DataSyncJobType.CANAL) {
-                throw new AnalysisException("Data sync job now only support CANAL type");
+            if (dataSyncJobType != DataSyncJobType.CANAL && dataSyncJobType != DataSyncJobType.DEBEZIUM) {
+                throw new AnalysisException("Data sync job now only support CANAL or DEBEZIUM type");
             }
         }
 

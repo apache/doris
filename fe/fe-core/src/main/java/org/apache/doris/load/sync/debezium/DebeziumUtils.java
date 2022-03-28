@@ -15,19 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.sync;
+package org.apache.doris.load.sync.debezium;
 
-public enum DataSyncJobType {
-    CANAL,
-    DEBEZIUM,
-    UNKNOWN;
+import org.apache.kafka.connect.data.Struct;
+import org.apache.kafka.connect.source.SourceRecord;
 
-    public static DataSyncJobType fromString(String dataSyncJobType) {
-        for (DataSyncJobType type : DataSyncJobType.values()) {
-            if (type.name().equalsIgnoreCase(dataSyncJobType)) {
-                return type;
-            }
+public class DebeziumUtils {
+
+    public static String getFullName(String schemaName, String tableName) {
+        StringBuilder sb = new StringBuilder();
+        if (schemaName != null) {
+            sb.append(schemaName).append(".");
         }
-        return UNKNOWN;
+        sb.append(tableName);
+        return sb.toString().intern();
+    }
+
+    public static String getFullName(SourceRecord sourceRecord) {
+        Struct changeData = ((Struct) sourceRecord.value());
+        String db = changeData.getStruct("source").getString("db");
+        String table = changeData.getStruct("source").getString("table");
+        return getFullName(db, table);
     }
 }

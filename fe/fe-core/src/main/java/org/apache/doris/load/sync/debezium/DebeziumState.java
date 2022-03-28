@@ -15,19 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.sync;
+package org.apache.doris.load.sync.debezium;
 
-public enum DataSyncJobType {
-    CANAL,
-    DEBEZIUM,
-    UNKNOWN;
+import java.util.Map;
 
-    public static DataSyncJobType fromString(String dataSyncJobType) {
-        for (DataSyncJobType type : DataSyncJobType.values()) {
-            if (type.name().equalsIgnoreCase(dataSyncJobType)) {
-                return type;
-            }
-        }
-        return UNKNOWN;
+public class DebeziumState {
+    public Map<String, ?> sourcePartition;
+    public Map<String, ?> sourceOffset;
+
+    public void setSourcePartition(Map<String, ?> sourcePartition) {
+        this.sourcePartition = sourcePartition;
+    }
+
+    public void setSourceOffset(Map<String, ?> sourceOffset) {
+        this.sourceOffset = sourceOffset;
+    }
+
+    @Override
+    public String toString() {
+        return "DebeziumConsumerState{" +
+                "sourcePartition=" + sourcePartition +
+                ", sourceOffset=" + sourceOffset +
+                '}';
     }
 }

@@ -63,6 +63,7 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
 import org.apache.commons.lang3.reflect.TypeUtils;
+import org.apache.doris.load.sync.debezium.DebeziumSyncJob;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -120,7 +121,8 @@ public class GsonUtils {
     // runtime adapter for class "SyncJob"
     private static RuntimeTypeAdapterFactory<SyncJob> syncJobTypeAdapterFactory = RuntimeTypeAdapterFactory
             .of(SyncJob.class, "clazz")
-            .registerSubtype(CanalSyncJob.class, CanalSyncJob.class.getSimpleName());
+            .registerSubtype(CanalSyncJob.class, CanalSyncJob.class.getSimpleName())
+            .registerSubtype(DebeziumSyncJob.class, DebeziumSyncJob.class.getSimpleName());
 
     // runtime adapter for class "LoadJobStateUpdateInfo"
     private static RuntimeTypeAdapterFactory<LoadJobStateUpdateInfo> loadJobStateUpdateInfoTypeAdapterFactory

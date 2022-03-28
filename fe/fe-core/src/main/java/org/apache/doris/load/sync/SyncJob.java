@@ -34,6 +34,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
+import org.apache.doris.load.sync.debezium.DebeziumSyncJob;
 import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -123,6 +124,9 @@ public abstract class SyncJob implements Writable {
             switch (stmt.getDataSyncJobType()) {
                 case CANAL:
                     syncJob = new CanalSyncJob(jobId, stmt.getJobName(), db.getId());
+                    break;
+                case DEBEZIUM:
+                    syncJob = new DebeziumSyncJob(jobId, stmt.getJobName(), db.getId());
                     break;
                 default:
                     throw new DdlException("Unknown load job type.");

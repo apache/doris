@@ -15,19 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.load.sync;
+package org.apache.doris.load.sync.debezium;
 
-public enum DataSyncJobType {
-    CANAL,
-    DEBEZIUM,
-    UNKNOWN;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-    public static DataSyncJobType fromString(String dataSyncJobType) {
-        for (DataSyncJobType type : DataSyncJobType.values()) {
-            if (type.name().equalsIgnoreCase(dataSyncJobType)) {
-                return type;
-            }
-        }
-        return UNKNOWN;
+import java.io.IOException;
+
+public class DebeziumStateSerializer {
+    public byte[] serialize(DebeziumState debeziumState) throws IOException {
+        // we currently use JSON serialization for simplification, as the state is very small.
+        // we can improve this in the future if needed
+        ObjectMapper objectMapper = new ObjectMapper();
+        return objectMapper.writeValueAsBytes(debeziumState);
+    }
+
+    public DebeziumState deserialize(byte[] bytes) throws IOException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        return objectMapper.readValue(bytes, DebeziumState.class);
     }
 }
+

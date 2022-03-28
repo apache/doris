@@ -168,8 +168,8 @@ under the License.
         <snakeyaml.version>1.15</snakeyaml.version>
         <validation-api.version>1.1.0.Final</validation-api.version>
         <zjsonpatch.version>0.2.3</zjsonpatch.version>
-        <slf4j.version>1.7.5</slf4j.version>
-        <kafka-clients.version>0.10.1.1</kafka-clients.version>
+        <slf4j.version>1.7.30</slf4j.version>
+        <kafka-clients.version>3.0.0</kafka-clients.version>
         <oshi-core.version>4.0.0</oshi-core.version>
         <xnio-nio.version>3.6.5.Final</xnio-nio.version>
         <javax.annotation-api.version>1.3.2</javax.annotation-api.version>
@@ -199,6 +199,7 @@ under the License.
 
         <revision>1.0-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
+        <version.debezium>1.8.1.Final</version.debezium>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -854,10 +855,31 @@ under the License.
                 <artifactId>aws-java-sdk-s3</artifactId>
                 <version>${aws-java-sdk-s3.version}</version>
             </dependency>
-            <dependency> 
+            <dependency>
                 <groupId>org.mariadb.jdbc</groupId>
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.debezium</groupId>
+                <artifactId>debezium-api</artifactId>
+                <version>${version.debezium}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.debezium</groupId>
+                <artifactId>debezium-embedded</artifactId>
+                <version>${version.debezium}</version>
+                <exclusions>
+                    <exclusion>
+                        <artifactId>kafka-log4j-appender</artifactId>
+                        <groupId>org.apache.kafka</groupId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>io.debezium</groupId>
+                <artifactId>debezium-connector-mysql</artifactId>
+                <version>${version.debezium}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
