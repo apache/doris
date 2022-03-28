@@ -34,17 +34,17 @@ class Schema;
 class RowBlockV2;
 
 enum class PredicateType {
-    Unknown = 0,
+    UNKNOWN = 0,
     EQ = 1,
     NE = 2,
     LT = 3,
     LE = 4,
     GT = 5,
     GE = 6,
-    InList = 7,
-    NotInList = 8,
-    IsNull = 9,
-    NotIsNull = 10,
+    IN_LIST = 7,
+    NO_IN_LIST = 8,
+    IS_NULL = 9,
+    NOT_IS_NULL = 10,
     BF = 11, // BloomFilter
 };
 
