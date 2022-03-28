@@ -139,36 +139,36 @@ private:
         return true;
     }
 
-#define INTEGRAL_TPL_PACK Int8, Int16, Int32, Int64, Float32, Float64
-    template <typename... Integral>
-    static bool _execute_integral(Block& block, const ColumnNumbers& arguments, size_t result,
-                                  size_t input_rows_count) {
-        return (_execute_integral_expanded<Integral, Integral...>(block, arguments, result,
-                                                                  input_rows_count) ||
+#define NUMBER_TPL_PACK Int8, Int16, Int32, Int64, Float32, Float64
+    template <typename... Number>
+    static bool _execute_number(Block& block, const ColumnNumbers& arguments, size_t result,
+                                size_t input_rows_count) {
+        return (_execute_number_expanded<Number, Number...>(block, arguments, result,
+                                                            input_rows_count) ||
                 ...);
     }
     template <typename A, typename... Other>
-    static bool _execute_integral_expanded(Block& block, const ColumnNumbers& arguments,
-                                           size_t result, size_t input_rows_count) {
-        return (_execute_integral_impl<A, Other>(block, arguments, result, input_rows_count) ||
-                ...);
+    static bool _execute_number_expanded(Block& block, const ColumnNumbers& arguments,
+                                         size_t result, size_t input_rows_count) {
+        return (_execute_number_impl<A, Other>(block, arguments, result, input_rows_count) || ...);
     }
-    template <typename Initial, typename Resulting>
-    static bool _execute_integral_impl(Block& block, const ColumnNumbers& arguments, size_t result,
-                                       size_t input_rows_count) {
+    template <typename LeftElementType, typename RightType>
+    static bool _execute_number_impl(Block& block, const ColumnNumbers& arguments, size_t result,
+                                     size_t input_rows_count) {
         // check array nested column type and get data
         auto array_column =
                 check_and_get_column<ColumnArray>(*block.get_by_position(arguments[0]).column);
         DCHECK(array_column != nullptr);
-        const ColumnVector<Initial>* nested_column = nullptr;
+        const ColumnVector<LeftElementType>* nested_column = nullptr;
         const UInt8* nested_null_map = nullptr;
         auto nested_null_column = check_and_get_column<ColumnNullable>(array_column->get_data());
         if (nested_null_column) {
             nested_null_map = nested_null_column->get_null_map_column().get_data().data();
-            nested_column = check_and_get_column<ColumnVector<Initial>>(
+            nested_column = check_and_get_column<ColumnVector<LeftElementType>>(
                     nested_null_column->get_nested_column());
         } else {
-            nested_column = check_and_get_column<ColumnVector<Initial>>(array_column->get_data());
+            nested_column =
+                    check_and_get_column<ColumnVector<LeftElementType>>(array_column->get_data());
         }
         if (!nested_column) {
             return false;
@@ -181,7 +181,7 @@ private:
         if (is_column_const(*ptr)) {
             ptr = check_and_get_column<ColumnConst>(ptr)->get_data_column_ptr();
         }
-        if (!check_and_get_column<ColumnVector<Resulting>>(*ptr)) {
+        if (!check_and_get_column<ColumnVector<RightType>>(*ptr)) {
             return false;
         }
 
@@ -189,7 +189,7 @@ private:
         auto right_column =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         const auto& right_data =
-                check_and_get_column<ColumnVector<Resulting>>(*right_column)->get_data();
+                check_and_get_column<ColumnVector<RightType>>(*right_column)->get_data();
 
         // prepare return data
         auto dst = ColumnVector<ResultType>::create();
@@ -222,7 +222,7 @@ private:
         WhichDataType right_type(block.get_by_position(arguments[1]).type);
         if ((right_type.is_string() &&
              _execute_string(block, arguments, result, input_rows_count)) ||
-            _execute_integral<INTEGRAL_TPL_PACK>(block, arguments, result, input_rows_count)) {
+            _execute_number<NUMBER_TPL_PACK>(block, arguments, result, input_rows_count)) {
             return Status::OK();
         }
         return Status::RuntimeError(
@@ -230,7 +230,7 @@ private:
                             block.get_by_position(arguments[0]).type->get_name(),
                             block.get_by_position(arguments[1]).type->get_name()));
     }
-#undef INTEGRAL_TPL_PACK
+#undef NUMBER_TPL_PACK
 };
 
 } // namespace doris::vectorized
