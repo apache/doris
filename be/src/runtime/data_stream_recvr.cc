@@ -200,7 +200,7 @@ Status DataStreamRecvr::SenderQueue::get_batch(RowBatch** next_batch) {
 void DataStreamRecvr::SenderQueue::add_batch(const PRowBatch& pb_batch, int be_number,
                                              int64_t packet_seq,
                                              ::google::protobuf::Closure** done) {
-    unique_lock<mutex> l(_lock);
+    lock_guard<mutex> l(_lock);
     if (_is_cancelled) {
         return;
     }
@@ -269,7 +269,7 @@ void DataStreamRecvr::SenderQueue::add_batch(const PRowBatch& pb_batch, int be_n
 }
 
 void DataStreamRecvr::SenderQueue::add_batch(RowBatch* batch, bool use_move) {
-    unique_lock<mutex> l(_lock);
+    lock_guard<mutex> l(_lock);
     if (_is_cancelled) {
         return;
     }

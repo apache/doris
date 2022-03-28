@@ -380,8 +380,8 @@ public:
     // 3. Repeated releases of MemTacker. When the consume is called on the child MemTracker,
     //    after the release is called on the parent MemTracker,
     //    the child ~MemTracker will cause repeated releases.
-    static void memory_leak_check(MemTracker* tracker) {
-        tracker->flush_untracked_mem();
+    static void memory_leak_check(MemTracker* tracker, bool flush = true) {
+        if (flush) tracker->flush_untracked_mem();
         DCHECK_EQ(tracker->_consumption->current_value(), 0) << std::endl << tracker->log_usage();
     }
 

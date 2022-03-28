@@ -90,7 +90,7 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block** next_block) {
 void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                               int64_t packet_seq,
                                               ::google::protobuf::Closure** done) {
-    std::unique_lock<std::mutex> l(_lock);
+    std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return;
     }
@@ -140,6 +140,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
 }
 
 void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
+    std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return;
     }
@@ -158,8 +159,6 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     }
     materialize_block_inplace(*nblock);
 
-
-    std::unique_lock<std::mutex> l(_lock);
     size_t block_size = nblock->bytes();
     _block_queue.emplace_back(block_size, nblock);
     _recvr->_block_mem_tracker->consume(nblock->bytes());
@@ -286,6 +285,7 @@ VDataStreamRecvr::VDataStreamRecvr(
 
 VDataStreamRecvr::~VDataStreamRecvr() {
     DCHECK(_mgr == nullptr) << "Must call close()";
+    MemTracker::memory_leak_check(_block_mem_tracker.get(), false);
 }
 
 Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& ordering_expr,
