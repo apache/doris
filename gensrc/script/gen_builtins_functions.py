@@ -109,12 +109,11 @@ for example:
     in[ARRAY_INT]   --> out[new ArrayType(Type.INT)]
 """
 def generate_fe_datatype(str_type):
-    vec_type = str_type.split('_', 1);
-    if len(vec_type) <= 1:
-        return "Type." + str_type
-    if vec_type[0] == "ARRAY":
-        return "new ArrayType(" + generate_fe_datatype(vec_type[1]) + ")"
-    return ""
+    if str_type.startswith("ARRAY_"):
+        vec_type = str_type.split('_', 1);
+        if len(vec_type) > 1 and vec_type[0] == "ARRAY":
+            return "new ArrayType(" + generate_fe_datatype(vec_type[1]) + ")"
+    return "Type." + str_type
 
 """
 Order of params:
