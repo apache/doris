@@ -61,6 +61,7 @@ sh build.sh
   e.g.:
     build.sh --flink 1.14.3 --scala 2.12
     build.sh --tag
+
 然后按照你需要版本执行命令编译即可,例如：
 sh build.sh --flink 1.14.3 --scala 2.12
 ```
@@ -132,7 +133,7 @@ Flink 1.13.* 及以前的版本
   <version>1.0.3</version>
 </dependency>    
 ``` 
-Flink 1.13.* 以后的版本
+Flink 1.14.* 版本
 ```
 <dependency>
     <groupId>org.apache.flink</groupId>
