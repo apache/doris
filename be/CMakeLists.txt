@@ -152,6 +152,9 @@ set_target_properties(protoc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/
 add_library(gtest STATIC IMPORTED)
 set_target_properties(gtest PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest.a)
 
+add_library(gtest_main STATIC IMPORTED)
+set_target_properties(gtest_main PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgtest_main.a)
+
 add_library(benchmark STATIC IMPORTED)
 set_target_properties(benchmark PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libbenchmark.a)
 
@@ -681,6 +684,7 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     Test_util
     gmock
     gtest
+    gtest_main
     ${WL_END_GROUP}
 )
 
