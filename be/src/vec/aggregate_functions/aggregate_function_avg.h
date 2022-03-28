@@ -40,8 +40,10 @@ struct AggregateFunctionAvgData {
             if constexpr (std::numeric_limits<ResultT>::is_iec559)
                 return static_cast<ResultT>(sum) / count; /// allow division by zero
 
-        if (!count)
-            throw Exception("AggregateFunctionAvg with zero values", TStatusCode::VEC_LOGIC_ERROR);
+        if (!count) {
+            // null is handled in AggregationNode::_get_without_key_result
+            return static_cast<ResultT>(sum);
+        }
         return static_cast<ResultT>(sum) / count;
     }
 
