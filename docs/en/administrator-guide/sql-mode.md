@@ -45,10 +45,10 @@ The set global sql mode will be persisted, so the operation on the global sql mo
 1、set sql mode
 
 ```
-set global sql_mode = "DEFAULT"
-set session sql_mode = "DEFAULT"
+set global sql_mode = ""
+set session sql_mode = ""
 ```
->At present, Doris's default sql mode is DEFAULT (but it will be changed in the future modification).
+>At present, Doris's default sql mode is empty.
 >Setting global sql mode requires admin permission and affects all clients that connect later.
 >Setting session sql mode will only affect the current conversation client. The default setting way is session.
 
