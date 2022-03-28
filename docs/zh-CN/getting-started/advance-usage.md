@@ -207,11 +207,17 @@ mysql> SHOW VARIABLES LIKE "%query_timeout%";
 
 ### 2.3 Broadcast/Shuffle Join
 
-系统默认实现 Join 的方式，是将小表进行条件过滤后，将其广播到大表所在的各个节点上，形成一个内存 Hash 表，然后流式读出大表的数据进行Hash Join。但是如果当小表过滤后的数据量无法放入内存的话，此时 Join 将无法完成，通常的报错应该是首先造成内存超限。
+系统提供了两种Join的实现方式，broadcast join和shuffle join（partitioned Join）。
 
-如果遇到上述情况，建议显式指定 Shuffle Join，也被称作 Partitioned Join。即将小表和大表都按照 Join 的 key 进行 Hash，然后进行分布式的 Join。这个对内存的消耗就会分摊到集群的所有计算节点上。
+broadcast join是指将小表进行条件过滤后，将其广播到大表所在的各个节点上，形成一个内存 Hash 表，然后流式读出大表的数据进行Hash Join。
 
-Doris会自动尝试进行 Broadcast Join，如果预估小表过大则会自动切换至 Shuffle Join。注意，如果此时显式指定了 Broadcast Join 也会自动切换至 Shuffle Join。
+shuffle join是指将小表和大表都按照 Join 的 key 进行 Hash，然后进行分布式的 Join。
+
+当小表的数据量较小时，broadcast join拥有更好的性能。反之，则shuffle join拥有更好的性能。
+
+系统会自动尝试进行 Broadcast Join，也可以显式指定每个join算子的实现方式。系统提供了可配置的参数`auto_broadcast_join_threshold`，指定使用broadcast join时，额外消耗的内存上限，单位字节。默认值为1073741824，即1GB内存。当系统计算使用的内存会超过此限制时，会自动转换为使用shuffle join。注意，此时即使显式指定了 Broadcast Join 也会自动切换至 Shuffle Join。
+
+当`auto_broadcast_join_threshold`被设置为`-1`时，所有的join都将使用shuffle join。
 
 使用 Broadcast Join（默认）:
 
