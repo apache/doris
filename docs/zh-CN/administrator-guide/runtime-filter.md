@@ -81,7 +81,7 @@ Runtime Filter在查询规划时生成，在HashJoinNode中构建，在ScanNode�
 ```
 可见，和谓词下推、分区裁剪不同，Runtime Filter是在运行时动态生成的过滤条件，即在查询运行时解析join on clause确定过滤表达式，并将表达式广播给正在读取左表的ScanNode，从而减少扫描的数据量，进而减少probe hash table的次数，避免不必要的I/O和网络传输。
 
-Runtime Filter主要用于优化针对大表的join，如果左表的数据量太小，或者右表的数据量太大，则Runtime Filter可能不会取得预期效果。
+Runtime Filter主要用于大表join小表的优化，如果左表的数据量太小，或者右表的数据量太大，则Runtime Filter可能不会取得预期效果。
 
 ## 使用方式
 
