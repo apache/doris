@@ -115,9 +115,6 @@ set batch_size = 4096;
 #### b类
 1. 不支持`地理位置函数` ，包含了函数中所有以`ST_`开头的函数。具体请参考官方文档SQL函数的部分。
 2. 不支持原有行存执行引擎的`UDF`与`UDAF`。
-3. 不支持将between语句改写为复合判断语句，会导致以下报错：`BetweenPredicate needs to be rewritten into a CompoundPredicate`。
-4. 不支持`TupleIsNull`函数，可能会导致部分外连接并带有非Nullable函数计算的表达式无法得到所需的NULL值。
-5. `string/text`类型最大长度支持为1MB，而不是默认的2GB。即当开启向量化引擎后，将无法查询或导入大于1MB的字符串。但如果关闭向量化引擎，则依然可以正常查询和导入。
-6. 不支持 `select ... into outfile` 的导出方式。
-7. 不支持lateral view。
-8. 不支持extrenal broker外表。
+3. `string/text`类型最大长度支持为1MB，而不是默认的2GB。即当开启向量化引擎后，将无法查询或导入大于1MB的字符串。但如果关闭向量化引擎，则依然可以正常查询和导入。
+4. 不支持 `select ... into outfile` 的导出方式。 
+5. 不支持extrenal broker外表。
