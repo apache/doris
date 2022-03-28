@@ -269,7 +269,7 @@ void DataStreamRecvr::SenderQueue::add_batch(const PRowBatch& pb_batch, int be_n
 }
 
 void DataStreamRecvr::SenderQueue::add_batch(RowBatch* batch, bool use_move) {
-    lock_guard<mutex> l(_lock);
+    unique_lock<mutex> l(_lock);
     if (_is_cancelled) {
         return;
     }
