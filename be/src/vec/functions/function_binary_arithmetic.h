@@ -205,12 +205,6 @@ struct DecimalBinaryOperation {
                                         ResultType scale_a [[maybe_unused]],
                                         ResultType scale_b [[maybe_unused]], NullMap& null_map) {
         size_t size = a.size();
-        if constexpr (is_division && IsDecimalNumber<B>) {
-            for (size_t i = 0; i < size; ++i) {
-                c[i] = apply_scaled_div(a[i], b[i], scale_a, null_map, i);
-            }
-            return;
-        }
 
         /// default: use it if no return before
         for (size_t i = 0; i < size; ++i) {
