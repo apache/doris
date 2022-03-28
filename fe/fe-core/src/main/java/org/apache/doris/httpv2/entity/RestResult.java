@@ -15,20 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.http;
+package org.apache.doris.httpv2.entity;
 
-public class IllegalArgException extends Exception {
-    private static final long serialVersionUID = 3344697787301861667L;
+import java.util.Map;
 
-    public IllegalArgException() {
-        super("");
+import com.google.common.collect.Maps;
+import com.google.gson.Gson;
+
+public class RestResult extends RestBaseResult {
+  private Map<String, Object> resultMap;
+
+  public RestResult() {
+    super();
+    resultMap = Maps.newHashMap();
+  }
+
+  public void addResultEntry(String key, Object value) {
+    resultMap.put(key, value);
+  }
+
+  public String toJson() {
+    Gson gson = new Gson();
+    addResultEntry("status", status);
+    if (status != ActionStatus.OK) {
+      addResultEntry("msg", msg);
     }
-
-    public IllegalArgException(String msg) {
-        super(msg);
-    }
-
-    public IllegalArgException(String msg, Throwable cause) {
-        super(msg, cause);
-    }
+    return gson.toJson(resultMap);
+  }
 }

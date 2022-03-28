@@ -1699,29 +1699,11 @@ thrift 服务器的连接超时和套接字超时配置 thrift_client_timeout_ms
 
 mysql nio server 的 backlog_num 当你放大这个 backlog_num 时，你应该同时放大 linux `/proc/sys/net/core/somaxconn`文件中的值
 
-### `http_backlog_num`
+### `disable_mini_load`
 
-默认值：1024
+是否禁用mini load数据导入方式，默认是禁用
 
-netty http server 的 backlog_num 当你放大这个 backlog_num 时，你应该同时放大 linux `/proc/sys/net/core/somaxconn`文件中的值
-
-### `http_max_line_length`
-
-默认值：4096
-
-HTTP 服务允许接收请求的 URL 的最大长度，单位为比特
-
-### `http_max_header_size`
-
-默认值：8192
-
-HTTP 服务允许接收请求的 Header 的最大长度，单位为比特
-
-### `http_max_chunk_size`
-
-默认值：8192
-
-http 上下文 chunk 块的最大尺寸
+默认值：true
 
 ### `http_port`
 

@@ -1691,27 +1691,11 @@ Default：1024
 
 The backlog_num for mysql nio server, When you enlarge this backlog_num, you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
 
-### http_backlog_num
+### `disable_mini_load`
 
-Default：1024
+Whether to disable the mini load data import method, the default is disabled
 
-The backlog_num for netty http server, When you enlarge this backlog_num, you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
-
-### http_max_line_length
-
-Default：4096
-
-The max length of an HTTP URL. The unit of this configuration is BYTE. Defaults to 4096.
-
-###  http_max_header_size
-
-Default：8192
-
-The max size of allowed HTTP headers. The unit of this configuration is BYTE. Defaults to 8192.
-
-###  http_max_chunk_size
-
-Default：8192
+Default: true
 
 ### http_port
 

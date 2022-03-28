@@ -15,33 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.http.rest;
+package org.apache.doris.httpv2.entity;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-
-// Base restful result
-public class RestBaseResult {
-    private static final RestBaseResult OK = new RestBaseResult();
-    public ActionStatus status;
-    public String msg;
-
-    public RestBaseResult() {
-        status = ActionStatus.OK;
-        msg = "Success";
-    }
-
-    public RestBaseResult(String msg) {
-        status = ActionStatus.FAILED;
-        this.msg = msg;
-    }
-
-    public static RestBaseResult getOk() {
-        return OK;
-    }
-
-    public String toJson() {
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(this);
-    }
+// Status of RESTful action
+public enum ActionStatus {
+  OK,
+  FAILED
 }
