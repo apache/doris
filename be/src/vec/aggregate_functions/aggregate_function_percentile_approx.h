@@ -174,19 +174,18 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         if constexpr (is_nullable) {
-            double column_data[2] = {0};
+            double column_data[2] = {0, 0};
 
             for (int i = 0; i < 2; ++i) {
                 const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
                 if (nullable_column == nullptr) { //Not Nullable column
                     const auto& column = static_cast<const ColumnVector<Float64>&>(*columns[i]);
                     column_data[i] = column.get_float64(row_num);
-
-                } else if (!nullable_column->is_null_at(row_num)) { // Nullable column && Not null data
+                } else if (!nullable_column->is_null_at(
+                                   row_num)) { // Nullable column && Not null data
                     const auto& column = static_cast<const ColumnVector<Float64>&>(
                             nullable_column->get_nested_column());
                     column_data[i] = column.get_float64(row_num);
-                    
                 } else { // Nullable column && null data
                     if (i == 0) {
                         return;
@@ -215,19 +214,18 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         if constexpr (is_nullable) {
-            double column_data[3] = {0};
+            double column_data[3] = {0, 0, 0};
 
             for (int i = 0; i < 3; ++i) {
                 const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
                 if (nullable_column == nullptr) { //Not Nullable column
                     const auto& column = static_cast<const ColumnVector<Float64>&>(*columns[i]);
                     column_data[i] = column.get_float64(row_num);
-
-                } else if (!nullable_column->is_null_at(row_num)) { // Nullable column && Not null data
+                } else if (!nullable_column->is_null_at(
+                                   row_num)) { // Nullable column && Not null data
                     const auto& column = static_cast<const ColumnVector<Float64>&>(
                             nullable_column->get_nested_column());
                     column_data[i] = column.get_float64(row_num);
-
                 } else { // Nullable column && null data
                     if (i == 0) {
                         return;
