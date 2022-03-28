@@ -140,7 +140,6 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             st = reader->new_iterator(&iter);
             ASSERT_TRUE(st.ok());
             std::unique_ptr<fs::ReadableBlock> rblock;
-            FilePathDesc path_desc;
             fs::BlockManager* block_manager = fs::fs_util::block_manager(path_desc);
             block_manager->open_block(path_desc, &rblock);
 
@@ -201,7 +200,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows,
             st = reader->new_iterator(&iter);
             ASSERT_TRUE(st.ok());
             std::unique_ptr<fs::ReadableBlock> rblock;
-            fs::BlockManager* block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
+            fs::BlockManager* block_manager = fs::fs_util::block_manager(path_desc);
             block_manager->open_block(path_desc, &rblock);
 
             ASSERT_TRUE(st.ok());
@@ -328,7 +327,6 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
         st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
         std::unique_ptr<fs::ReadableBlock> rblock;
-        FilePathDesc path_desc;
         fs::BlockManager* block_manager = fs::fs_util::block_manager(path_desc);
         st = block_manager->open_block(path_desc, &rblock);
         ASSERT_TRUE(st.ok());

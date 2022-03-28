@@ -37,7 +37,7 @@ public:
     virtual void SetUp() {
         _tablet_meta = static_cast<TabletMetaSharedPtr>(
                 new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD));
+                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, ""));
         _json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
@@ -177,7 +177,9 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
+    StorageParamPB storage_param;
+    storage_param.set_storage_medium(StorageMediumPB::HDD);
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, storage_param, nullptr));
     _tablet->init();
 
     for (auto ptr : expired_rs_metas) {
