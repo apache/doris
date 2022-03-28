@@ -202,14 +202,14 @@ public class PropertyAnalyzer {
         }
 
         // 3.3 set default cooldown time
+        // storage medium: [HDD|SSD]
+        // cold storage medium: [HDD|S3]
         // 3.3.1 set default cooldown time to 30 days
         //  1) SSD -> HDD, SSD -> remote_storage
         //  2) HDD -> remote_storage
-        if ((storageMedium == TStorageMedium.SSD ||
-                (storageMedium == TStorageMedium.HDD && coldStorageMedium == TStorageMedium.S3)) &&
-                !hasCooldown) {
+        if (storageMedium != coldStorageMedium && !hasCooldown) {
             coolDownTimeStamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
-        } else if (storageMedium == TStorageMedium.HDD && coldStorageMedium == TStorageMedium.HDD) {
+        } else if (storageMedium == coldStorageMedium) {
             // 3.3.2 set default to MAX, ignore user's setting
             coolDownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
         }
