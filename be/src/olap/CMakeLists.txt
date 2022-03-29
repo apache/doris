@@ -23,7 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 
 add_subdirectory(rowset)
 add_subdirectory(fs)
-add_subdirectory(memory)
 
 add_library(Olap STATIC
     aggregate_func.cpp
