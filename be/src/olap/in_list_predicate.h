@@ -78,11 +78,12 @@ class VectorizedRowBatch;
 
 // todo(wb) support evaluate_and,evaluate_or
 
-#define IN_LIST_PRED_CLASS_DEFINE(CLASS)                                                          \
-    template <class type>                                                                         \
+#define IN_LIST_PRED_CLASS_DEFINE(CLASS, PT)                                                      \
+    template <class T>                                                                            \
     class CLASS : public ColumnPredicate {                                                        \
     public:                                                                                       \
-        CLASS(uint32_t column_id, phmap::flat_hash_set<type>&& values, bool is_opposite = false); \
+        CLASS(uint32_t column_id, phmap::flat_hash_set<T>&& values, bool is_opposite = false);    \
+        PredicateType type() const override { return PredicateType::PT; }                         \
         virtual void evaluate(VectorizedRowBatch* batch) const override;                          \
         void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;          \
         void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,                        \
@@ -95,13 +96,15 @@ class VectorizedRowBatch;
         void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override; \
         void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
         void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
-        bool is_in_predicate() override { return true; }                                                                                          \
+        void set_dict_code_if_necessary(vectorized::IColumn& column) override;                    \
     private:                                                                                      \
-        phmap::flat_hash_set<type> _values;                                                       \
+        phmap::flat_hash_set<T> _values;                                                          \
+        bool _dict_code_inited = false;                                                           \
+        phmap::flat_hash_set<int32_t> _dict_codes;                                                \
     };
 
-IN_LIST_PRED_CLASS_DEFINE(InListPredicate)
-IN_LIST_PRED_CLASS_DEFINE(NotInListPredicate)
+IN_LIST_PRED_CLASS_DEFINE(InListPredicate, IN_LIST)
+IN_LIST_PRED_CLASS_DEFINE(NotInListPredicate, NO_IN_LIST)
 
 } //namespace doris
 
