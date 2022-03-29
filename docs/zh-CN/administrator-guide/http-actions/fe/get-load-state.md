@@ -61,16 +61,21 @@ under the License.
 }
 ```
 
-如label不存在，则返回：
+返回值：
 
-```
-{
-	"msg": "success",
-	"code": 0,
-	"data": "UNKNOWN",
-	"count": 0
-}
-```
+- `msg`: 错误信息。成功则返回"success"
+
+- `code`: Doris内部错误码。成功则返回0
+
+- `data` 执行成功的场景下取值：
+    - UNKNOWN: 没有找到对应的label
+    - PREPARE: 对应的事务已经prepare，但尚未提交
+    - PRECOMMITTED: 事务预提交
+    - COMMITTED: 事务已经提交，不能被cancel
+    - VISIBLE: 事务提交，并且数据可见，不能被cancel
+    - ABORTED: 事务已经被ROLLBACK，导入已经失败。
+
+- `count`: 该字段当前不使用，默认为0
     
 ## Examples
 
@@ -85,4 +90,10 @@ under the License.
     	"data": "VISIBLE",
     	"count": 0
     }
+    ```
+
+2. 使用curl命令获取事务的状态。
+
+    ```
+    curl -u <user[:password]> http://host:port/api/<db>/get_load_state?label=<label>
     ```

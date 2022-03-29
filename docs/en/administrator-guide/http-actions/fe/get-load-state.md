@@ -61,17 +61,22 @@ None
 }
 ```
 
-If label does not exist, return:
+RETURN VALUES:
 
-```
-{
-	"msg": "success",
-	"code": 0,
-	"data": "UNKNOWN",
-	"count": 0
-}
-```
-    
+- `msg`: Error message. If there are no errors, it displays "success"
+
+- `code`: Doris's internal error code. If there is no error, 0 is displayed.
+
+- `data` for successful execution:
+  - UNKNOWN: No corresponding Label was found
+  - PREPARE: The corresponding transaction has been prepared, but not yet committed
+  - PRECOMMITTED: The transaction has been prepared and can be rollback if failed to commit 
+  - COMMITTED: The transaction has been committed and cannot be canceled
+  - VISIBLE: Transaction submission, and data visible, cannot be canceled
+  - ABORTED: The transaction has been ROLLBACK and the import has failed
+
+- `count`: currently not used and always be 0
+
 ## Examples
 
 1. Get the status of the load transaction of the specified label.
@@ -85,4 +90,10 @@ If label does not exist, return:
     	"data": "VISIBLE",
     	"count": 0
     }
+    ```
+
+2. Obtain the state with curl.
+
+    ```
+    curl -u <user[:password]> http://host:port/api/<db>/get_load_state?label=<label>
     ```
