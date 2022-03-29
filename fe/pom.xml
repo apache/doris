@@ -196,7 +196,7 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
 
-        <revision>0.15-SNAPSHOT</revision>
+        <revision>1.0-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
     </properties>
     <profiles>
