@@ -458,8 +458,37 @@ int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
         return 0;
     }
     bool is_finished = true;
-    if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0 &&
-        _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
+
+    // Synchronization here is complicated actually, every one should pay much attention.
+    // Both packet_in_flight and _last_patch_processed_finished are of std::atomic and
+    // are used to guarantee only one task is submitted to thread_pool_token.
+    // Direct accessing on std::atomic uses the memory order of std::memory_order_seq_cst.
+    // https://en.cppreference.com/w/cpp/atomic/atomic/operator_T
+    // https://en.cppreference.com/w/cpp/atomic/atomic/load
+    // https://en.cppreference.com/w/cpp/atomic/atomic/operator%3D
+    // https://en.cppreference.com/w/cpp/atomic/atomic/store
+    // https://en.cppreference.com/w/cpp/atomic/memory_order
+    // Here we should cmp_exchange _last_patch_processed_finished before reading
+    // packet_in_flight because try_send_patch sets packet_in_flight before
+    // _last_patch_processed_finished.
+    // If we read _add_batch_closure before cmp_exchange _last_patch_processed_finished,
+    // then somting bad would happend. e.g.
+    // |----------------------------------------------------------------------------
+    // | Thread try_send_and_fetch_status  | Thread try_send_batch                  |
+    // |-----------------------------------------------------------------------------
+    // | read packet_in_flight false       | before seting packet_in_flight         |
+    // |-----------------------------------------------------------------------------
+    // |                                   | set _last_patch_processed_finished true|
+    // |----------------------------------------------------------------------------|
+    // |chxg _last_patch_processed_finished|                                        |
+    // |----------------------------------------------------------------------------|
+    // | submit a task                     | last task is doing rpc                 |
+    // |----------------------------------------------------------------------------|
+    //
+    // In the above example, it is possible for be to core dump in try_send_batch due
+    // to operating empty _pending_batches.
+    if (_last_patch_processed_finished.compare_exchange_strong(is_finished, false) &&
+        !_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0) {
         auto s = thread_pool_token->submit_func(
                 std::bind(&NodeChannel::try_send_batch, this, state));
         if (!s.ok()) {
