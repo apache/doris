@@ -34,7 +34,7 @@ class JdbcUtils {
         }
     }
 
-    static List<List<Object>> executorToStringList(Connection conn, String sql) {
+    static List<List<Object>> executeToStringList(Connection conn, String sql) {
         conn.prepareStatement(sql).withCloseable { stmt ->
             boolean hasResultSet = stmt.execute()
             if (!hasResultSet) {

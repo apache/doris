@@ -257,7 +257,7 @@ abstract class Suite extends Script implements GroovyInterceptable {
         logger.info("Execute tag: ${tag}, sql: ${sql}".toString())
 
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
-            def result = JdbcUtils.executorToStringList(context.getConnection(), sql)
+            def result = JdbcUtils.executeToStringList(context.getConnection(), sql)
             if (order) {
                 result = sortByToString(result)
             }
@@ -281,13 +281,10 @@ abstract class Suite extends Script implements GroovyInterceptable {
             }
 
             OutputUtils.TagBlockIterator expectCsvResults = context.getOutputIterator().next()
-            List<List<Object>> realResults = JdbcUtils.executorToStringList(context.getConnection(), sql)
-            if (order) {
-                realResults = sortByToString(realResults)
-            }
+
             String errorMsg = null
             try {
-                errorMsg = OutputUtils.checkOutput(expectCsvResults, realResults.iterator(), "Check tag '${tag}' failed")
+                errorMsg = OutputUtils.checkOutput(expectCsvResults, context.getConnection(), sql, order, "Check tag '${tag}' failed")
             } catch (Throwable t) {
                 List excelContentList = [context.file.getName(), tag, sql.trim(), t]
                 context.recorder.reportDiffResult(excelContentList)

@@ -24,8 +24,20 @@ import org.apache.commons.csv.CSVPrinter
 import org.apache.commons.csv.CSVRecord
 import org.apache.commons.io.LineIterator
 
+import java.sql.Connection
+import java.sql.ResultSet
+
+import static org.apache.doris.regression.util.DataUtils.sortByToString
+
 @CompileStatic
 class OutputUtils {
+    static String toCsvString(Object cell) {
+        StringWriter writer = new StringWriter()
+        def printer = new CSVPrinter(new PrintWriter(writer), CSVFormat.MYSQL)
+        printer.print(cell)
+        return writer.toString()
+    }
+
     static String toCsvString(List<Object> row) {
         StringWriter writer = new StringWriter()
         def printer = new CSVPrinter(new PrintWriter(writer), CSVFormat.MYSQL)
@@ -35,22 +47,65 @@ class OutputUtils {
         return writer.toString()
     }
 
-    static String checkOutput(Iterator<List<String>> expect, Iterator<List<Object>> real, String info) {
-        while (true) {
-            if (expect.hasNext() && !real.hasNext()) {
-                return "${info}, result mismatch, real line is empty, but expect is ${expect.next()}"
-            }
-            if (!expect.hasNext() && real.hasNext()) {
-                return "${info}, result mismatch, expect line is empty, but real is ${toCsvString(real.next())}"
-            }
-            if (!expect.hasNext() && !real.hasNext()) {
-                break
-            }
+    static String checkOutput(Iterator<List<String>> expectIterator, Connection conn, String sql, boolean order, String info) {
+        conn.prepareStatement(sql).withCloseable { stmt ->
+            boolean hasResultSet = stmt.execute()
+            if (!hasResultSet) {
+                if(expectIterator.hasNext()) {
+                    return "${info}, result mismatch, real row number is 0, but expect more than it"
+                }
+            } else {
+                def columnCount = stmt.resultSet.metaData.columnCount
 
-            def expectCsvString = toCsvString(expect.next() as List<Object>)
-            def realCsvString = toCsvString(real.next())
-            if (!expectCsvString.equals(realCsvString)) {
-                return "${info}, result mismatch.\nExpect line is: ${expectCsvString}\nBut real is   : ${realCsvString}"
+                List<List<Object>> rows = new ArrayList<>()
+                while(stmt.resultSet.next()) {
+                    def row = new ArrayList<>()
+                    for (int i = 1; i <= columnCount; ++i) {
+                        row.add(stmt.resultSet.getObject(i))
+                    }
+                    rows.add(row)
+                }
+                if (order) {
+                    rows = sortByToString(rows)
+                }
+
+                for(int i = 1; i <= rows.size(); i++) {
+                    if(expectIterator.hasNext()) {
+                        List<String> expect_row = expectIterator.next()
+                        for(int j = 1; j <= columnCount; j++) {
+                            String expect_cell = toCsvString(expect_row[j-1])
+                            String real_cell = toCsvString(rows[i-1][j-1])
+                            String tp = stmt.resultSet.metaData.getColumnTypeName(j)
+                            if(tp == "FLOAT" || tp == "DOUBLE") {
+                                double expect_double = Double.parseDouble(expect_cell)
+                                double real_double = Double.parseDouble(real_cell)
+                                
+                                double real_relative_error = Math.abs(expect_double - real_double) / real_double
+                                double expect_relative_error = 1e-10
+
+                                if(expect_relative_error < real_relative_error) {
+                                    return "${info}, ${tp} result mismatch.\nExpect cell is: ${expect_cell}\nBut real is: ${real_cell}\nrelative error is: ${real_relative_error}, bigger than ${expect_relative_error}"
+                                }
+                            } else if(tp == "DATE" || tp =="DATETIME") {
+                                expect_cell = expect_cell.replace("T", " ")
+                                real_cell = real_cell.replace("T", " ")
+
+                                if(!expect_cell.equals(real_cell)) {
+                                    return "${info}, ${tp} result mismatch.\nExpect cell is: ${expect_cell}\nBut real is: ${real_cell}"
+                                }
+                            } else {
+                                if(!expect_cell.equals(real_cell)) {
+                                    return "${info}, ${tp} result mismatch.\nExpect cell is: ${expect_cell}\nBut real is: ${real_cell}"
+                                }
+                            }
+                        }
+                    } else {
+                        return "${info}, result mismatch, real row number is ${rows.size()}, but expect less than it"
+                    }
+                }
+                if(expectIterator.hasNext()) {
+                    return "${info}, result mismatch, real row number is ${rows.size()}, but expect less than it"
+                }
             }
         }
     }

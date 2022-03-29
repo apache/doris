@@ -133,6 +133,7 @@ RUN_JAR=${OUTPUT_DIR}/lib/regression-test-*.jar
 if [ ${CLEAN} -eq 1 ]; then
     rm -rf ${REGRESSION_TEST_BUILD_DIR}
     rm -rf ${OUTPUT_DIR}
+    find ${DORIS_HOME}/regression-test/suites/ -name "*.generated.groovy"| xargs -r rm
 fi
 
 if [ ${RUN} -ne 1 ]; then
