@@ -1500,6 +1500,10 @@ Sun Binary Code License Agreement -- licenses/LICENSE-jta.txt
     * Java Transaction API:
         - javax.transaction:jta:1.1 (http://java.sun.com/products/jta)
 
+LGPL -- licenes/LICENSE-LGPL.txt
+    * MariaDB Java Client
+        - org.mariadb.jdbc:mariadb-java-client:3.0.4 (https://mariadb.com/kb/en/mariadb/about-mariadb-connector-j/)
+
 ====================================================================================
 This projects includes binary packages with the following licenses (BE part):
 ====================================================================================
