@@ -12,6 +12,7 @@ header:
     - 'DISCLAIMER'
     - '.clang-format'
     - '.clang-format-ignore'
+    - '.clang-tidy'
     - '.gitattributes'
     - '.gitignore'
     - '.gitmodules'

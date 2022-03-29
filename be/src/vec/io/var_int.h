@@ -115,7 +115,7 @@ inline void read_var_uint(UInt64& x, BufferReadable& buf) {
     buf.read((char*)&len, 1);
     auto ref = buf.read(len);
 
-    char* bytes = const_cast<char *>(ref.data);
+    char* bytes = const_cast<char*>(ref.data);
     for (size_t i = 0; i < 9; ++i) {
         UInt64 byte = bytes[i];
         x |= (byte & 0x7F) << (7 * i);
