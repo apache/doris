@@ -24,17 +24,20 @@
 
 namespace doris::vectorized {
 
+template <bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::string& name,
                                                                  const DataTypes& argument_types,
                                                                  const Array& parameters,
                                                                  const bool result_is_nullable) {
-
     if (argument_types.size() == 1) {
-        return std::make_shared<AggregateFunctionPercentileApproxMerge>(argument_types);
+        return std::make_shared<AggregateFunctionPercentileApproxMerge<is_nullable>>(
+                argument_types);
     } else if (argument_types.size() == 2) {
-        return std::make_shared<AggregateFunctionPercentileApproxTwoParams>(argument_types);
+        return std::make_shared<AggregateFunctionPercentileApproxTwoParams<is_nullable>>(
+                argument_types);
     } else if (argument_types.size() == 3) {
-        return std::make_shared<AggregateFunctionPercentileApproxThreeParams>(argument_types);
+        return std::make_shared<AggregateFunctionPercentileApproxThreeParams<is_nullable>>(
+                argument_types);
     }
     LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
                                 argument_types.size(), name);
@@ -50,8 +53,14 @@ AggregateFunctionPtr create_aggregate_function_percentile(const std::string& nam
     return std::make_shared<AggregateFunctionPercentile>(argument_types);
 }
 
-void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory) {
+void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("percentile", create_aggregate_function_percentile);
-    factory.register_function("percentile_approx", create_aggregate_function_percentile_approx);
+}
+
+void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function("percentile_approx",
+                              create_aggregate_function_percentile_approx<false>, false);
+    factory.register_function("percentile_approx",
+                              create_aggregate_function_percentile_approx<true>, true);
 }
 } // namespace doris::vectorized
