@@ -35,7 +35,7 @@
 
 namespace doris::vectorized {
 
-// Define in the namespace and avoid defining global macros, 
+// Define in the namespace and avoid defining global macros,
 // because it maybe conflict with other libs
 static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
 static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
