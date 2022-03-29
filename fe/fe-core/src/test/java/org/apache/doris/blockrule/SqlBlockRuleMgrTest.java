@@ -109,7 +109,7 @@ public class SqlBlockRuleMgrTest {
         String sql = "select * from table1 limit 10";
         String sqlHash = DigestUtils.md5Hex(sql);
         SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", null, sqlHash, 0L, 0L, 0L, false, true);
-        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        SqlBlockRuleMgr mgr = Catalog.getCurrentCatalog().getSqlBlockRuleMgr();
         mgr.replayCreate(sqlRule);
         // sql block rules
         String setPropertyStr = "set property for \"root\" \"sql_block_rules\" = \"test_rule1\"";
@@ -317,10 +317,11 @@ public class SqlBlockRuleMgrTest {
     @Test
     public void testUserPropertyInvalid() throws Exception {
         // sql block rules
-        String setPropertyStr = "set property for \"root\" \"sql_block_rules\" = \"test_rule\"";
+        String ruleName = "test_rule_name";
+        String setPropertyStr = String.format("set property for \"root\" \"sql_block_rules\" = \"%s\"", ruleName);
         SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(setPropertyStr, connectContext);
 
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the sql block rule test_rule not exist",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, String.format("the sql block rule %s not exist", ruleName),
                 () -> Catalog.getCurrentCatalog().getAuth().updateUserProperty(setUserPropertyStmt));
 
     }
