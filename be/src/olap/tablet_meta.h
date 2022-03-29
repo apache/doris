@@ -31,7 +31,6 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
-#include "util/mutex.h"
 #include "util/uid_util.h"
 
 namespace doris {

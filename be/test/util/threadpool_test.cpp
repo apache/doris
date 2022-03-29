@@ -45,7 +45,6 @@
 #include "util/barrier.h"
 #include "util/countdown_latch.h"
 #include "util/metrics.h"
-#include "util/monotime.h"
 #include "util/random.h"
 #include "util/scoped_cleanup.h"
 #include "util/spinlock.h"
@@ -155,7 +154,7 @@ TEST_F(ThreadPoolTest, TestThreadPoolWithNoMinimum) {
     EXPECT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
                                                   .set_min_threads(0)
                                                   .set_max_threads(3)
-                                                  .set_idle_timeout(MonoDelta::FromMilliseconds(1)))
+                                                  .set_idle_timeout(std::chrono::milliseconds(1)))
                         .ok());
 
     // There are no threads to start with.
@@ -228,7 +227,7 @@ TEST_F(ThreadPoolTest, TestRace) {
     EXPECT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
                                                   .set_min_threads(0)
                                                   .set_max_threads(1)
-                                                  .set_idle_timeout(MonoDelta::FromMicroseconds(1)))
+                                                  .set_idle_timeout(std::chrono::microseconds(1)))
                         .ok());
 
     for (int i = 0; i < 500; i++) {
@@ -242,7 +241,7 @@ TEST_F(ThreadPoolTest, TestRace) {
         l.wait();
         // Sleeping a different amount in each iteration makes it more likely to hit
         // the bug.
-        SleepFor(MonoDelta::FromMicroseconds(i));
+        std::this_thread::sleep_for(std::chrono::microseconds(i));
     }
 }
 
@@ -250,7 +249,7 @@ TEST_F(ThreadPoolTest, TestVariableSizeThreadPool) {
     EXPECT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
                                                   .set_min_threads(1)
                                                   .set_max_threads(4)
-                                                  .set_idle_timeout(MonoDelta::FromMilliseconds(1)))
+                                                  .set_idle_timeout(std::chrono::milliseconds(1)))
                         .ok());
 
     // There is 1 thread to start with.
@@ -354,20 +353,25 @@ class SlowDestructorRunnable : public Runnable {
 public:
     void run() override {}
 
-    virtual ~SlowDestructorRunnable() { SleepFor(MonoDelta::FromMilliseconds(100)); }
+    virtual ~SlowDestructorRunnable() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
 };
 
 // Test that if a tasks's destructor is slow, it doesn't cause serialization of the tasks
 // in the queue.
 TEST_F(ThreadPoolTest, TestSlowDestructor) {
     EXPECT_TRUE(rebuild_pool_with_min_max(1, 20).ok());
-    MonoTime start = MonoTime::Now();
+    auto start = std::chrono::system_clock::now();
     for (int i = 0; i < 100; i++) {
         shared_ptr<Runnable> task(new SlowDestructorRunnable());
         EXPECT_TRUE(_pool->submit(std::move(task)).ok());
     }
     _pool->wait();
-    EXPECT_LT((MonoTime::Now() - start).ToSeconds(), 5);
+    EXPECT_LT(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() -
+                                                               start)
+                      .count(),
+              5);
 }
 
 // For test cases that should run with both kinds of tokens.
@@ -382,7 +386,7 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenSubmitAndWait) {
     std::unique_ptr<ThreadPoolToken> t = _pool->new_token(GetParam());
     int i = 0;
     Status status = t->submit_func([&]() {
-        SleepFor(MonoDelta::FromMilliseconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
         i++;
     });
     EXPECT_TRUE(status.ok());
@@ -401,7 +405,7 @@ TEST_F(ThreadPoolTest, TestTokenSubmitsProcessedSerially) {
         // appends if the submissions did execute in parallel.
         int sleep_ms = r.Next() % 5;
         Status status = t->submit_func([&result, c, sleep_ms]() {
-            SleepFor(MonoDelta::FromMilliseconds(sleep_ms));
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
             result += c;
         });
         EXPECT_TRUE(status.ok());
@@ -511,7 +515,7 @@ TEST_P(ThreadPoolTestTokenTypes, TestTokenWaitForAll) {
         int sleep_ms = r.Next() % 5;
 
         auto task = [&v, sleep_ms]() {
-            SleepFor(MonoDelta::FromMilliseconds(sleep_ms));
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
             v++;
         };
 
@@ -550,7 +554,7 @@ TEST_F(ThreadPoolTest, TestFuzz) {
             int sleep_ms = r.Next() % 5;
             EXPECT_TRUE(_pool->submit_func([sleep_ms]() {
                                  // Sleep a little first to increase task overlap.
-                                 SleepFor(MonoDelta::FromMilliseconds(sleep_ms));
+                                 std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
                              }).ok());
         } else if (op < 75) {
             // submit with a randomly selected token.
@@ -561,7 +565,7 @@ TEST_F(ThreadPoolTest, TestFuzz) {
             int token_idx = r.Next() % tokens.size();
             Status s = tokens[token_idx]->submit_func([sleep_ms]() {
                 // Sleep a little first to increase task overlap.
-                SleepFor(MonoDelta::FromMilliseconds(sleep_ms));
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
             });
             EXPECT_TRUE(s.ok() || s.is_service_unavailable());
         } else if (op < 85) {
@@ -687,7 +691,7 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
 
                 // Sleep a bit, otherwise this thread outpaces the other threads and
                 // nothing interesting happens to most tokens.
-                SleepFor(MonoDelta::FromMicroseconds(10));
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
             }
             total_num_tokens_cycled += num_tokens_cycled;
         });
@@ -729,7 +733,7 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
                 int sleep_ms = rng.Next() % 5;
                 Status s = GetRandomToken()->submit_func([sleep_ms]() {
                     // Sleep a little first so that tasks are running during other events.
-                    SleepFor(MonoDelta::FromMilliseconds(sleep_ms));
+                    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
                 });
                 CHECK(s.ok() || s.is_service_unavailable());
                 num_tokens_submitted++;
@@ -738,7 +742,7 @@ TEST_F(ThreadPoolTest, TestTokenConcurrency) {
         });
     }
 
-    SleepFor(MonoDelta::FromSeconds(kTestRuntimeSecs));
+    std::this_thread::sleep_for(std::chrono::seconds(kTestRuntimeSecs));
     latch.count_down();
     for (auto& t : threads) {
         t.join();
@@ -766,7 +770,7 @@ TEST_F(ThreadPoolTest, TestNormal) {
             .set_min_threads(0)
             .set_max_threads(5)
             .set_max_queue_size(10)
-            .set_idle_timeout(MonoDelta::FromMilliseconds(2000))
+            .set_idle_timeout(std::chrono::milliseconds(2000))
             .build(&thread_pool);
 
     std::unique_ptr<ThreadPoolToken> token1 =
@@ -814,7 +818,7 @@ TEST_F(ThreadPoolTest, TestThreadPoolDynamicAdjustMaximumMinimum) {
     EXPECT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
                                                   .set_min_threads(3)
                                                   .set_max_threads(3)
-                                                  .set_idle_timeout(MonoDelta::FromMilliseconds(1)))
+                                                  .set_idle_timeout(std::chrono::milliseconds(1)))
                         .ok());
 
     EXPECT_EQ(3, _pool->min_threads());
@@ -865,7 +869,7 @@ TEST_F(ThreadPoolTest, TestThreadPoolDynamicAdjustMaximumMinimum) {
     latch_1.count_down();
     latch_2.count_down();
     latch_3.count_down();
-    SleepFor(MonoDelta::FromMilliseconds(500));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
     EXPECT_EQ(4, _pool->num_threads());
 
     EXPECT_TRUE(_pool->submit(SlowTask::new_slow_task(&latch_8)).ok());
@@ -881,7 +885,7 @@ TEST_F(ThreadPoolTest, TestThreadPoolDynamicAdjustMaximumMinimum) {
     latch_7.count_down();
     latch_8.count_down();
     latch_9.count_down();
-    SleepFor(MonoDelta::FromMilliseconds(500));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
     EXPECT_EQ(2, _pool->num_threads());
 
     _pool->wait();

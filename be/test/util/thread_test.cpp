@@ -31,9 +31,9 @@
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/runtime_profile.h"
+#include "util/time.h"
 
 using std::string;
-
 namespace doris {
 
 class ThreadTest : public ::testing::Test {
@@ -46,8 +46,7 @@ public:
 // This has to be manually verified.
 TEST_F(ThreadTest, TestJoinAndWarn) {
     scoped_refptr<Thread> holder;
-    Status status =
-            Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(1), &holder);
+    Status status = Thread::create("test", "sleeper thread", SleepForMs, 1000, &holder);
     EXPECT_TRUE(status.ok());
     status = ThreadJoiner(holder.get()).warn_after_ms(10).warn_every_ms(100).join();
     EXPECT_TRUE(status.ok());
@@ -55,8 +54,7 @@ TEST_F(ThreadTest, TestJoinAndWarn) {
 
 TEST_F(ThreadTest, TestFailedJoin) {
     scoped_refptr<Thread> holder;
-    Status status =
-            Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(1), &holder);
+    Status status = Thread::create("test", "sleeper thread", SleepForMs, 1000, &holder);
     EXPECT_TRUE(status.ok());
     status = ThreadJoiner(holder.get()).give_up_after_ms(50).join();
     EXPECT_TRUE(status.is_aborted());
@@ -78,8 +76,7 @@ TEST_F(ThreadTest, TestJoinOnSelf) {
 
 TEST_F(ThreadTest, TestDoubleJoinIsNoOp) {
     scoped_refptr<Thread> holder;
-    Status status =
-            Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(0), &holder);
+    Status status = Thread::create("test", "sleeper thread", SleepForMs, 0, &holder);
     EXPECT_TRUE(status.ok());
     ThreadJoiner joiner(holder.get());
     status = joiner.join();
@@ -95,8 +92,7 @@ TEST_F(ThreadTest, ThreadStartBenchmark) {
         {
             SCOPED_RAW_TIMER(&thread_creation_ns);
             for (auto& t : threads) {
-                Status status = Thread::create("test", "TestCallOnExit", SleepFor,
-                                               MonoDelta::FromSeconds(0), &t);
+                Status status = Thread::create("test", "TestCallOnExit", SleepForMs, 0, &t);
                 EXPECT_TRUE(status.ok());
             }
         }

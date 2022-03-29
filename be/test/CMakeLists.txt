@@ -310,7 +310,6 @@ set(UTIL_TEST_FILES
     util/file_cache_test.cpp
     util/parse_util_test.cpp
     util/countdown_latch_test.cpp
-    util/monotime_test.cpp
     util/scoped_cleanup_test.cpp
     util/thread_test.cpp
     util/threadpool_test.cpp

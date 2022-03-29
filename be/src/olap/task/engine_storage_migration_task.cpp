@@ -31,20 +31,20 @@ const int CHECK_TXNS_MAX_WAIT_TIME_SECS = 60;
 EngineStorageMigrationTask::EngineStorageMigrationTask(const TabletSharedPtr& tablet,
                                                        DataDir* dest_store)
         : _tablet(tablet), _dest_store(dest_store) {
-        _task_start_time = time(nullptr);
-    }
+    _task_start_time = time(nullptr);
+}
 
 OLAPStatus EngineStorageMigrationTask::execute() {
     return _migrate();
 }
 
-OLAPStatus EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t* end_version,
-                                        std::vector<RowsetSharedPtr> *consistent_rowsets) {
-    ReadLock rdlock(_tablet->get_header_lock());
+OLAPStatus EngineStorageMigrationTask::_get_versions(
+        int32_t start_version, int32_t* end_version,
+        std::vector<RowsetSharedPtr>* consistent_rowsets) {
+    std::shared_lock rdlock(_tablet->get_header_lock());
     const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
     if (last_version == nullptr) {
-        LOG(WARNING) << "failed to get rowset with max version, tablet="
-                        << _tablet->full_name();
+        LOG(WARNING) << "failed to get rowset with max version, tablet=" << _tablet->full_name();
         return OLAP_ERR_VERSION_NOT_EXIST;
     }
 
@@ -52,13 +52,13 @@ OLAPStatus EngineStorageMigrationTask::_get_versions(int32_t start_version, int3
     if (*end_version < start_version) {
         // rowsets are empty
         VLOG_DEBUG << "consistent rowsets empty. tablet=" << _tablet->full_name()
-                        << ", start_version=" << start_version << ", end_version=" << *end_version;
+                   << ", start_version=" << start_version << ", end_version=" << *end_version;
         return OLAP_SUCCESS;
     }
     _tablet->capture_consistent_rowsets(Version(start_version, *end_version), consistent_rowsets);
     if (consistent_rowsets->empty()) {
         LOG(WARNING) << "fail to capture consistent rowsets. tablet=" << _tablet->full_name()
-                        << ", version=" << *end_version;
+                     << ", version=" << *end_version;
         return OLAP_ERR_VERSION_NOT_EXIST;
     }
     return OLAP_SUCCESS;
@@ -68,7 +68,7 @@ bool EngineStorageMigrationTask::_is_timeout() {
     int64_t time_elapsed = time(nullptr) - _task_start_time;
     if (time_elapsed > config::migration_task_timeout_secs) {
         LOG(WARNING) << "migration failed due to timeout, time_eplapsed=" << time_elapsed
-            << ", tablet=" << _tablet->full_name();
+                     << ", tablet=" << _tablet->full_name();
         return true;
     }
     return false;
@@ -80,14 +80,16 @@ OLAPStatus EngineStorageMigrationTask::_check_running_txns() {
     std::set<int64_t> transaction_ids;
     // check if this tablet has related running txns. if yes, can not do migration.
     StorageEngine::instance()->txn_manager()->get_tablet_related_txns(
-            _tablet->tablet_id(), _tablet->schema_hash(), _tablet->tablet_uid(), &partition_id, &transaction_ids);
+            _tablet->tablet_id(), _tablet->schema_hash(), _tablet->tablet_uid(), &partition_id,
+            &transaction_ids);
     if (transaction_ids.size() > 0) {
         return OLAP_ERR_HEADER_HAS_PENDING_DATA;
     }
     return OLAP_SUCCESS;
 }
 
-OLAPStatus EngineStorageMigrationTask::_check_running_txns_until_timeout(UniqueWriteLock* migration_wlock) {
+OLAPStatus EngineStorageMigrationTask::_check_running_txns_until_timeout(
+        std::unique_lock<std::shared_mutex>* migration_wlock) {
     // caller should not hold migration lock, and 'migration_wlock' should not be nullptr
     // ownership of the migration_wlock is transferred to the caller if check succ
     DCHECK_NE(migration_wlock, nullptr);
@@ -95,7 +97,7 @@ OLAPStatus EngineStorageMigrationTask::_check_running_txns_until_timeout(UniqueW
     int try_times = 1;
     do {
         // to avoid invalid loops, the lock is guaranteed to be acquired here
-        UniqueWriteLock wlock(_tablet->get_migration_lock());
+        std::unique_lock<std::shared_mutex> wlock(_tablet->get_migration_lock());
         res = _check_running_txns();
         if (res == OLAP_SUCCESS) {
             // transfer the lock to the caller
@@ -103,9 +105,8 @@ OLAPStatus EngineStorageMigrationTask::_check_running_txns_until_timeout(UniqueW
             return res;
         }
         LOG(INFO) << "check running txns fail, try again until timeout."
-             << " tablet=" << _tablet->full_name()
-             << ", try times=" << try_times
-             << ", res=" << res;
+                  << " tablet=" << _tablet->full_name() << ", try times=" << try_times
+                  << ", res=" << res;
         // unlock and sleep for a while, try again
         wlock.unlock();
         sleep(std::min(config::sleep_one_second * try_times, CHECK_TXNS_MAX_WAIT_TIME_SECS));
@@ -115,16 +116,15 @@ OLAPStatus EngineStorageMigrationTask::_check_running_txns_until_timeout(UniqueW
 }
 
 OLAPStatus EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
-                                        uint64_t shard,
-                                        const std::string& full_path,
-                                        const std::vector<RowsetSharedPtr>& consistent_rowsets) {
+        uint64_t shard, const std::string& full_path,
+        const std::vector<RowsetSharedPtr>& consistent_rowsets) {
     // need hold migration lock and push lock outside
     OLAPStatus res = OLAP_SUCCESS;
     int64_t tablet_id = _tablet->tablet_id();
     int32_t schema_hash = _tablet->schema_hash();
     TabletMetaSharedPtr new_tablet_meta(new (std::nothrow) TabletMeta());
     {
-        ReadLock rdlock(_tablet->get_header_lock());
+        std::shared_lock rdlock(_tablet->get_header_lock());
         _generate_new_header(shard, consistent_rowsets, new_tablet_meta);
     }
     std::string new_meta_file = full_path + "/" + std::to_string(tablet_id) + ".hdr";
@@ -145,14 +145,13 @@ OLAPStatus EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
     res = SnapshotManager::instance()->convert_rowset_ids(full_path, tablet_id, schema_hash);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to convert rowset id when do storage migration"
-                        << " path = " << full_path;
+                     << " path = " << full_path;
         return res;
     }
     return res;
 }
 
-OLAPStatus EngineStorageMigrationTask::_reload_tablet(
-                                        const std::string& full_path) {
+OLAPStatus EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) {
     // need hold migration lock and push lock outside
     OLAPStatus res = OLAP_SUCCESS;
     int64_t tablet_id = _tablet->tablet_id();
@@ -161,7 +160,7 @@ OLAPStatus EngineStorageMigrationTask::_reload_tablet(
             _dest_store, tablet_id, schema_hash, full_path, false);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to load tablet from new path. tablet_id=" << tablet_id
-                        << " schema_hash=" << schema_hash << " path = " << full_path;
+                     << " schema_hash=" << schema_hash << " path = " << full_path;
         return res;
     }
 
@@ -204,7 +203,8 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
     uint64_t shard = 0;
     string full_path;
     {
-        UniqueWriteLock migration_wlock(_tablet->get_migration_lock(), std::try_to_lock);
+        std::unique_lock<std::shared_mutex> migration_wlock(_tablet->get_migration_lock(),
+                                                            std::try_to_lock);
         if (!migration_wlock.owns_lock()) {
             return OLAP_ERR_RWLOCK_ERROR;
         }
@@ -213,7 +213,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
         res = _check_running_txns();
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "could not migration because has unfinished txns, "
-                        << " tablet=" << _tablet->full_name();
+                         << " tablet=" << _tablet->full_name();
             return res;
         }
 
@@ -239,7 +239,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
         // should not remove the dir directly, for safety reason.
         if (FileUtils::check_exist(full_path)) {
             LOG(INFO) << "schema hash path already exist, skip this path. "
-                        << "full_path=" << full_path;
+                      << "full_path=" << full_path;
             return OLAP_ERR_FILE_ALREADY_EXIST;
         }
 
@@ -247,7 +247,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
         if (!st.ok()) {
             res = OLAP_ERR_CANNOT_CREATE_DIR;
             LOG(WARNING) << "fail to create path. path=" << full_path
-                            << ", error:" << st.to_string();
+                         << ", error:" << st.to_string();
             return res;
         }
     }
@@ -260,7 +260,7 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
             LOG(WARNING) << "fail to copy index and data files when migrate. res=" << res;
             break;
         }
-        UniqueWriteLock migration_wlock;
+        std::unique_lock<std::shared_mutex> migration_wlock;
         res = _check_running_txns_until_timeout(&migration_wlock);
         if (res != OLAP_SUCCESS) {
             break;
@@ -276,17 +276,19 @@ OLAPStatus EngineStorageMigrationTask::_migrate() {
         }
         if (start_version < end_version) {
             // we have remaining versions to be migrated
-            consistent_rowsets.insert(consistent_rowsets.end(),
-                        temp_consistent_rowsets.begin(), temp_consistent_rowsets.end());
+            consistent_rowsets.insert(consistent_rowsets.end(), temp_consistent_rowsets.begin(),
+                                      temp_consistent_rowsets.end());
             LOG(INFO) << "we have remaining versions to be migrated. start_version="
-                << start_version << " end_version=" << end_version;
+                      << start_version << " end_version=" << end_version;
             // if the remaining size is less than config::migration_remaining_size_threshold_mb(default 10MB),
             // we take the lock to complete it to avoid long-term competition with other tasks
             if (_is_rowsets_size_less_than_threshold(temp_consistent_rowsets)) {
                 // force to copy the remaining data and index
                 res = _copy_index_and_data_files(full_path, temp_consistent_rowsets);
                 if (res != OLAP_SUCCESS) {
-                    LOG(WARNING) << "fail to copy the remaining index and data files when migrate. res=" << res;
+                    LOG(WARNING)
+                            << "fail to copy the remaining index and data files when migrate. res="
+                            << res;
                     break;
                 }
             } else {

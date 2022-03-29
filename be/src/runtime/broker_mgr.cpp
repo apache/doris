@@ -108,7 +108,7 @@ void BrokerMgr::ping_worker() {
         for (auto& addr : addresses) {
             ping(addr);
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(5)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(5)));
 }
 
 } // namespace doris
