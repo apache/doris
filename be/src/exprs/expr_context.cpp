@@ -116,7 +116,8 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx) {
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         (*new_ctx)->_fn_contexts.push_back(_fn_contexts[i]->impl()->clone((*new_ctx)->_pool.get()));
     }
-    (*new_ctx)->_fn_contexts_ptr = &((*new_ctx)->_fn_contexts[0]);
+    (*new_ctx)->_fn_contexts_ptr = (*new_ctx)->_fn_contexts.size() == 0 ?
+	                           nullptr : &((*new_ctx)->_fn_contexts[0]);
 
     (*new_ctx)->_is_clone = true;
     (*new_ctx)->_prepared = true;
