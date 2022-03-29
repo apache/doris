@@ -81,7 +81,7 @@ enum TPrimitiveType {
   STRUCT,
   STRING,
   ALL,
-  QUANTILE_STATE
+  QUANTILE_STATE,
 }
 
 enum TTypeNodeType {
