@@ -144,14 +144,9 @@ public:
         if constexpr (result_is_nullable) {
             ColumnNullable& to_concrete = assert_cast<ColumnNullable&>(to);
             if (get_flag(place)) {
-                if (nested_function->insert_to_null_default()) {
-                    nested_function->insert_result_into(nested_place(place),
-                                                        to_concrete.get_nested_column());
-                    to_concrete.get_null_map_data().push_back(0);
-                } else {
-                    nested_function->insert_result_into(
-                            nested_place(place), to); //want to insert into null value by self
-                }
+                nested_function->insert_result_into(nested_place(place),
+                                                    to_concrete.get_nested_column());
+                to_concrete.get_null_map_data().push_back(0);
             } else {
                 to_concrete.insert_default();
             }
