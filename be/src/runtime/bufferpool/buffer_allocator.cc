@@ -615,7 +615,7 @@ std::pair<int64_t, int64_t> BufferPool::FreeBufferArena::FreeSystemMemory(
         }
         lists->num_free_buffers.fetch_add(num_pages_evicted, std::memory_order_release);
         lists->num_clean_pages.fetch_sub(num_pages_evicted, std::memory_order_release);
-        parent_->clean_page_bytes_remaining_.fetch_add(num_pages_evicted,
+        parent_->clean_page_bytes_remaining_.fetch_add(page_bytes_evicted,
                                                        std::memory_order_release);
 
         if (buffers_to_free > 0) {
