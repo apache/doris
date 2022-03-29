@@ -18,13 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -98,10 +96,7 @@ public class ModifyPartitionClause extends AlterTableClause {
     // 3. in_memory
     // 4. tablet type
     private void checkProperties(Map<String, String> properties) throws AnalysisException {
-        // 1. data property
-        DataProperty newDataProperty = null;
-        newDataProperty = PropertyAnalyzer.analyzeDataProperty(properties, DataProperty.DEFAULT_DATA_PROPERTY);
-        Preconditions.checkNotNull(newDataProperty);
+        // 1. no need analyzing data property here, analyze it before modify meta.
 
         // 2. replica allocation
         PropertyAnalyzer.analyzeReplicaAllocation(properties, "");

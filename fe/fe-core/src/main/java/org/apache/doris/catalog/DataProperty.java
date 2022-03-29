@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -30,19 +31,24 @@ import java.io.IOException;
 
 public class DataProperty implements Writable {
     public static final DataProperty DEFAULT_DATA_PROPERTY = new DataProperty(
-            "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD);
+            "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD,
+            "S3".equalsIgnoreCase(Config.default_storage_cold_medium) ? TStorageMedium.S3 : TStorageMedium.HDD);
     public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
 
     @SerializedName(value =  "storageMedium")
     private TStorageMedium storageMedium;
     @SerializedName(value =  "cooldownTimeMs")
     private long cooldownTimeMs;
+    @SerializedName(value = "storageColdMedium")
+    private TStorageMedium storageColdMedium;
+    @SerializedName(value = "remoteStorageResourceName")
+    private String remoteStorageResourceName;
 
     private DataProperty() {
         // for persist
     }
 
-    public DataProperty(TStorageMedium medium) {
+    public DataProperty(TStorageMedium medium, TStorageMedium storageColdMedium) {
         this.storageMedium = medium;
         if (medium == TStorageMedium.SSD) {
             long currentTimeMs = System.currentTimeMillis();
@@ -50,11 +56,16 @@ public class DataProperty implements Writable {
         } else {
             this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         }
+        this.storageColdMedium = storageColdMedium;
+        this.remoteStorageResourceName = "";
     }
 
-    public DataProperty(TStorageMedium medium, long cooldown) {
+    public DataProperty(TStorageMedium medium, long cooldown, TStorageMedium storageColdMedium,
+                        String remoteStorageResourceName) {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
+        this.storageColdMedium = storageColdMedium;
+        this.remoteStorageResourceName = remoteStorageResourceName;
     }
 
     public TStorageMedium getStorageMedium() {
@@ -63,6 +74,14 @@ public class DataProperty implements Writable {
 
     public long getCooldownTimeMs() {
         return cooldownTimeMs;
+    }
+
+    public TStorageMedium getStorageColdMedium() {
+        return storageColdMedium;
+    }
+
+    public String getRemoteStorageResourceName() {
+        return remoteStorageResourceName;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
@@ -75,11 +94,20 @@ public class DataProperty implements Writable {
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, storageMedium.name());
         out.writeLong(cooldownTimeMs);
+        Text.writeString(out, storageColdMedium.name());
+        Text.writeString(out, remoteStorageResourceName);
     }
 
     public void readFields(DataInput in) throws IOException {
         storageMedium = TStorageMedium.valueOf(Text.readString(in));
         cooldownTimeMs = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_108) {
+            storageColdMedium = TStorageMedium.valueOf(Text.readString(in));
+            remoteStorageResourceName = Text.readString(in);
+        } else {
+            storageColdMedium = TStorageMedium.HDD;
+            remoteStorageResourceName = "";
+        }
     }
 
     @Override
@@ -95,14 +123,18 @@ public class DataProperty implements Writable {
         DataProperty other = (DataProperty) obj;
 
         return this.storageMedium == other.storageMedium
-                && this.cooldownTimeMs == other.cooldownTimeMs;
+                && this.cooldownTimeMs == other.cooldownTimeMs
+                && this.storageColdMedium == other.storageColdMedium
+                && this.remoteStorageResourceName.equals(other.remoteStorageResourceName);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
-        sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("].");
+        sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
+        sb.append("storage cold medium[").append(this.storageColdMedium).append("]. ");
+        sb.append("remote storage resource name[").append(this.remoteStorageResourceName).append("].");
         return sb.toString();
     }
 }

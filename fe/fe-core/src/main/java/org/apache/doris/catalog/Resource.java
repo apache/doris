@@ -42,7 +42,8 @@ public abstract class Resource implements Writable {
     public enum ResourceType {
         UNKNOWN,
         SPARK,
-        ODBC_CATALOG;
+        ODBC_CATALOG,
+        S3;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -77,8 +78,11 @@ public abstract class Resource implements Writable {
             case ODBC_CATALOG:
                 resource = new OdbcCatalogResource(stmt.getResourceName());
                 break;
+            case S3:
+                resource = new S3Resource(stmt.getResourceName());
+                break;
             default:
-                throw new DdlException("Only support Spark resource.");
+                throw new DdlException("Unknown resource type: " + type);
         }
 
         resource.setProperties(stmt.getProperties());

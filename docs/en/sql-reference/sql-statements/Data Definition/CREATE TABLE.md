@@ -296,9 +296,11 @@ Syntax:
         ```
         PROPERTIES (
             "storage_medium" = "[SSD|HDD]",
+            ["storage_cold_medium" = "[HDD|S3]"],
+            ["remote_storage_resource" = "xxx"],
             ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
             ["replication_num" = "3"],
-			["replication_allocation" = "xxx"]
+            ["replication_allocation" = "xxx"]
             )
         ```
     
@@ -307,6 +309,8 @@ Syntax:
         storage_cooldown_time:  If storage_medium is SSD, data will be automatically moved to HDD   when timeout.
                                 Default is 30 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
+        storage_cold_medium:    Used to specify the cold data storage medium for this partition, currently supports HDD and S3. Default is HDD.
+        remote_storage_resource:The remote storage resource name, which needs to be used in conjunction with the storage_cold_medium parameter.
         replication_num:        Replication number of a partition. Default is 3.
         replication_allocation:     Specify the distribution of replicas according to the resource tag.
 
@@ -353,7 +357,7 @@ Syntax:
        dynamic_partition.reserved_history_periods: Used to specify the range of reserved history periods
        
        ```
-    5)  You can create multiple Rollups in bulk when building a table
+    5) You can create multiple Rollups in bulk when building a table
     grammar:
     ```
       ROLLUP (rollup_name (column_name1, column_name2, ...)
@@ -405,68 +409,89 @@ Syntax:
     "storage_cooldown_time" = "2015-06-04 00:00:00"
     );
     ```
-
-3. Create an olap table, with range partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
-
-1) LESS THAN
-
+   
+3. Create an olap table, distributed by hash, with aggregation type. Also set storage medium and cooldown time.
+   Setting up remote storage resource and cold data storage media.
     ```
-    CREATE TABLE example_db.table_range
+    CREATE TABLE example_db.table_hash
     (
-    k1 DATE,
-    k2 INT,
-    k3 SMALLINT,
-    v1 VARCHAR(2048),
-    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    k1 BIGINT,
+    k2 LARGEINT,
+    v1 VARCHAR(2048) REPLACE,
+    v2 SMALLINT SUM DEFAULT "10"
     )
     ENGINE=olap
-    DUPLICATE KEY(k1, k2, k3)
-    PARTITION BY RANGE (k1)
-    (
-    PARTITION p1 VALUES LESS THAN ("2014-01-01"),
-    PARTITION p2 VALUES LESS THAN ("2014-06-01"),
-    PARTITION p3 VALUES LESS THAN ("2014-12-01")
-    )
-    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    AGGREGATE KEY(k1, k2)
+    DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
     PROPERTIES(
-    "storage_medium" = "SSD", "storage_cooldown_time" = "2015-06-04 00:00:00"
+    "storage_medium" = "SSD",
+    "storage_cold_medium" = "S3",
+    "remote_storage_resource" = "remote_s3",
+    "storage_cooldown_time" = "2015-06-04 00:00:00"
     );
-    ```
-    
-    Explain:
-    This statement will create 3 partitions:
-    
-    ```
-    ( {    MIN     },   {"2014-01-01"} )
-    [ {"2014-01-01"},   {"2014-06-01"} )
-    [ {"2014-06-01"},   {"2014-12-01"} )
-    ```
-    
-    Data outside these ranges will not be loaded.
+   ```
 
-2) Fixed Range
-    ```
-    CREATE TABLE table_range
-    (
-    k1 DATE,
-    k2 INT,
-    k3 SMALLINT,
-    v1 VARCHAR(2048),
-    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
-    )
-    ENGINE=olap
-    DUPLICATE KEY(k1, k2, k3)
-    PARTITION BY RANGE (k1, k2, k3)
-    (
-    PARTITION p1 VALUES [("2014-01-01", "10", "200"), ("2014-01-01", "20", "300")),
-    PARTITION p2 VALUES [("2014-06-01", "100", "200"), ("2014-07-01", "100", "300"))
-    )
-    DISTRIBUTED BY HASH(k2) BUCKETS 32
-    PROPERTIES(
-    "storage_medium" = "SSD"
-    );
-    ```
-4. Create an olap table, with list partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
+4. Create an olap table, with range partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
+
+   1) LESS THAN
+
+       ```
+       CREATE TABLE example_db.table_range
+       (
+       k1 DATE,
+       k2 INT,
+       k3 SMALLINT,
+       v1 VARCHAR(2048),
+       v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+       )
+       ENGINE=olap
+       DUPLICATE KEY(k1, k2, k3)
+       PARTITION BY RANGE (k1)
+       (
+       PARTITION p1 VALUES LESS THAN ("2014-01-01"),
+       PARTITION p2 VALUES LESS THAN ("2014-06-01"),
+       PARTITION p3 VALUES LESS THAN ("2014-12-01")
+       )
+       DISTRIBUTED BY HASH(k2) BUCKETS 32
+       PROPERTIES(
+       "storage_medium" = "SSD", "storage_cooldown_time" = "2015-06-04 00:00:00"
+       );
+       ```
+    
+       Explain:
+       This statement will create 3 partitions:
+    
+       ```
+       ( {    MIN     },   {"2014-01-01"} )
+       [ {"2014-01-01"},   {"2014-06-01"} )
+       [ {"2014-06-01"},   {"2014-12-01"} )
+       ```
+    
+       Data outside these ranges will not be loaded.
+
+   2) Fixed Range
+       ```
+       CREATE TABLE table_range
+       (
+       k1 DATE,
+       k2 INT,
+       k3 SMALLINT,
+       v1 VARCHAR(2048),
+       v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+       )
+       ENGINE=olap
+       DUPLICATE KEY(k1, k2, k3)
+       PARTITION BY RANGE (k1, k2, k3)
+       (
+       PARTITION p1 VALUES [("2014-01-01", "10", "200"), ("2014-01-01", "20", "300")),
+       PARTITION p2 VALUES [("2014-06-01", "100", "200"), ("2014-07-01", "100", "300"))
+       )
+       DISTRIBUTED BY HASH(k2) BUCKETS 32
+       PROPERTIES(
+       "storage_medium" = "SSD"
+       );
+       ```
+5. Create an olap table, with list partitioned, distributed by hash. Records with the same key exist at the same time, set the initial storage medium and cooling time, use default column storage.
 
     1) Single column partition
 
@@ -540,9 +565,9 @@ Syntax:
 
     Data that is not within these partition enumeration values will be filtered as illegal data
 
-5. Create a mysql table
-   5.1 Create MySQL table directly from external table information
-```
+6. Create a mysql table
+    6.1 Create MySQL table directly from external table information
+    ```
     CREATE EXTERNAL TABLE example_db.table_mysql
     (
     k1 DATE,
@@ -561,21 +586,20 @@ Syntax:
     "database" = "mysql_db_test",
     "table" = "mysql_table_test"
     )
-```
+    ```
 
-   5.2 Create MySQL table with external ODBC catalog resource
-```
-   CREATE EXTERNAL RESOURCE "mysql_resource" 
-   PROPERTIES
-   (
-     "type" = "odbc_catalog",
-     "user" = "mysql_user",
-     "password" = "mysql_passwd",
-     "host" = "127.0.0.1",
-     "port" = "8239"			
-   );
-```
-```
+    6.2 Create MySQL table with external ODBC catalog resource
+    ```
+    CREATE EXTERNAL RESOURCE "mysql_resource" 
+    PROPERTIES
+    (
+      "type" = "odbc_catalog",
+      "user" = "mysql_user",
+      "password" = "mysql_passwd",
+      "host" = "127.0.0.1",
+      "port" = "8239"			
+    );
+   
     CREATE EXTERNAL TABLE example_db.table_mysql
     (
     k1 DATE,
@@ -590,10 +614,10 @@ Syntax:
     "odbc_catalog_resource" = "mysql_resource",
     "database" = "mysql_db_test",
     "table" = "mysql_table_test"
-    )
-```
+    );
+    ```
 
-6. Create a broker table, with file on HDFS, line delimit by "|", column separated by "\n"
+7. Create a broker table, with file on HDFS, line delimit by "|", column separated by "\n"
 
     ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -616,7 +640,7 @@ Syntax:
     );
     ```
 
-7. Create table will HLL column
+8. Create table will HLL column
 
     ```
     CREATE TABLE example_db.example_table
@@ -631,7 +655,7 @@ Syntax:
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
 
-8. Create a table will BITMAP_UNION column
+9. Create a table will BITMAP_UNION column
 
     ```
     CREATE TABLE example_db.example_table
@@ -645,21 +669,21 @@ Syntax:
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
-9. Create a table with QUANTILE_UNION column (the origin value of **v1** and **v2** columns must be **numeric** types）
+10. Create a table with QUANTILE_UNION column (the origin value of **v1** and **v2** columns must be **numeric** types）
     
-    ```
-    CREATE TABLE example_db.example_table
-    (
-    k1 TINYINT,
-    k2 DECIMAL(10, 2) DEFAULT "10.5",
-    v1 QUANTILE_STATE QUANTILE_UNION,
-    v2 QUANTILE_STATE QUANTILE_UNION
-    )
-    ENGINE=olap
-    AGGREGATE KEY(k1, k2)
-    DISTRIBUTED BY HASH(k1) BUCKETS 32;
-    ```
-10. Create 2 colocate join table.
+     ```
+     CREATE TABLE example_db.example_table
+     (
+     k1 TINYINT,
+     k2 DECIMAL(10, 2) DEFAULT "10.5",
+     v1 QUANTILE_STATE QUANTILE_UNION,
+     v2 QUANTILE_STATE QUANTILE_UNION
+     )
+     ENGINE=olap
+     AGGREGATE KEY(k1, k2)
+     DISTRIBUTED BY HASH(k1) BUCKETS 32;
+     ```
+11. Create 2 colocate join table.
 
     ```
     CREATE TABLE `t1` (
@@ -682,7 +706,7 @@ Syntax:
     );
     ```
 
-11. Create a broker table, with file on BOS.
+12. Create a broker table, with file on BOS.
 
     ```
     CREATE EXTERNAL TABLE example_db.table_broker (
@@ -700,7 +724,7 @@ Syntax:
     );
     ```
 
-12. Create a table with a bitmap index 
+13. Create a table with a bitmap index 
 
     ```
     CREATE TABLE example_db.table_hash
@@ -717,7 +741,7 @@ Syntax:
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
     ```
     
-13. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
+14. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
 
     ```
     [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
@@ -726,29 +750,29 @@ Syntax:
     [types: [DATE]; keys: [2020-01-11]; ‥types: [DATE]; keys: [2020-01-12]; )
     ```
     
-     ```
-        CREATE TABLE example_db.dynamic_partition
-        (
-        k1 DATE,
-        k2 INT,
-        k3 SMALLINT,
-        v1 VARCHAR(2048),
-        v2 DATETIME DEFAULT "2014-02-04 15:36:00"
-        )
-        ENGINE=olap
-        DUPLICATE KEY(k1, k2, k3)
-        PARTITION BY RANGE (k1) ()
-        DISTRIBUTED BY HASH(k2) BUCKETS 32
-        PROPERTIES(
-        "storage_medium" = "SSD",
-        "dynamic_partition.time_unit" = "DAY",
-        "dynamic_partition.end" = "3",
-        "dynamic_partition.prefix" = "p",
-        "dynamic_partition.buckets" = "32"
-         );
-     ```
-14. Create a table with rollup index
-```
+    ```
+    CREATE TABLE example_db.dynamic_partition
+    (
+    k1 DATE,
+    k2 INT,
+    k3 SMALLINT,
+    v1 VARCHAR(2048),
+    v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    ENGINE=olap
+    DUPLICATE KEY(k1, k2, k3)
+    PARTITION BY RANGE (k1) ()
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+    "storage_medium" = "SSD",
+    "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.end" = "3",
+    "dynamic_partition.prefix" = "p",
+    "dynamic_partition.buckets" = "32"
+    );
+    ```
+15. Create a table with rollup index
+    ```
     CREATE TABLE example_db.rolup_index_table
     (
         event_day DATE,
@@ -765,11 +789,11 @@ Syntax:
     r3(event_day)
     )
     PROPERTIES("replication_num" = "3");
-```
+    ```
 
-15. Create a inmemory table:
+16. Create a inmemory table:
 
-```
+    ```
     CREATE TABLE example_db.table_hash
     (
     k1 TINYINT,
@@ -783,10 +807,10 @@ Syntax:
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES ("in_memory"="true");
-```
+    ```
 
-16. Create a hive external table
-```
+17. Create a hive external table
+    ```
     CREATE TABLE example_db.table_hive
     (
       k1 TINYINT,
@@ -800,11 +824,11 @@ Syntax:
       "table" = "hive_table_name",
       "hive.metastore.uris" = "thrift://127.0.0.1:9083"
     );
-```
+    ```
 
-17. Specify the replica distribution of the table through replication_allocation
+18. Specify the replica distribution of the table through replication_allocation
 
-```	
+    ```	
     CREATE TABLE example_db.table_hash
     (
     k1 TINYINT,
@@ -812,9 +836,9 @@ Syntax:
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-		"replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
-	);
-
+        "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+    );
+    
     CREATE TABLE example_db.dynamic_partition
     (
     k1 DATE,
@@ -833,11 +857,11 @@ Syntax:
     "dynamic_partition.buckets" = "32",
     "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
-```
+    ```
 
-17. Create an Iceberg external table
+19. Create an Iceberg external table
 
-```
+    ```
     CREATE TABLE example_db.t_iceberg 
     ENGINE=ICEBERG
     PROPERTIES (
@@ -846,7 +870,7 @@ Syntax:
     "iceberg.hive.metastore.uris"  =  "thrift://127.0.0.1:9083",
     "iceberg.catalog.type"  =  "HIVE_CATALOG"
     );
-```
+    ```
 
 ## keyword
 

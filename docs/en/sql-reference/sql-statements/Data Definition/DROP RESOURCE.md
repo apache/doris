@@ -1,7 +1,7 @@
 ---
 {
     "title": "DROP RESOURCE",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -27,15 +27,17 @@ under the License.
 # DROP RESOURCE
 
 ## Description
+
+    This statement is used to delete an existing resource. Only the root or admin user can delete resources.
     
-    该语句用于删除一个已有的资源。仅 root 或 admin 用户可以删除资源。
-    语法：
+    Syntax:
         DROP RESOURCE 'resource_name'
 
 ## Example
-    
-    1. 删除名为 spark0 的 Spark 资源：
+
+    1. Delete the Spark resource named spark0:
         DROP RESOURCE 'spark0';
+
 
 ## keyword
 

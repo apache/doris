@@ -71,6 +71,8 @@ under the License.
             1) 当前支持修改分区的下列属性：
                 - storage_medium
                 - storage_cooldown_time
+                - storage_cold_medium
+                - remote_storage_resource
                 - replication_num 
                 — in_memory
             2) 对于单分区表，partition_name 同表名。

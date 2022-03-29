@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Catalog;
@@ -132,7 +133,7 @@ public class AlterTest {
                 "    'replication_num' = '1',\n" +
                 "    'in_memory' = 'false',\n" +
                 "    'storage_medium' = 'SSD',\n" +
-                "    'storage_cooldown_time' = '9999-12-31 00:00:00'\n" +
+                "    'storage_cooldown_time' = '2999-12-31 00:00:00'\n" +
                 ");");
 
         createTable("CREATE TABLE test.tbl5\n" +
@@ -167,6 +168,59 @@ public class AlterTest {
                 "\"driver\" = \"Oracle Driver\",\n" +
                 "\"odbc_type\" = \"oracle\"\n" +
                 ");");
+
+        // s3 resource
+        createRemoteStorageResource("create resource \"remote_s3\"\n" +
+                "properties\n" +
+                "(\n" +
+                "   \"type\" = \"s3\", \n" +
+                "   \"s3_endpoint\" = \"bj\",\n" +
+                "   \"s3_region\" = \"bj\",\n" +
+                "   \"s3_root_path\" = \"/path/to/root\",\n" +
+                "   \"s3_access_key\" = \"bbb\",\n" +
+                "   \"s3_secret_key\" = \"aaaa\",\n" +
+                "   \"s3_max_connections\" = \"50\",\n" +
+                "   \"s3_request_timeout_ms\" = \"3000\",\n" +
+                "   \"s3_connection_timeout_ms\" = \"1000\"\n" +
+                ");");
+
+        createRemoteStorageResource("create resource \"remote_s3_1\"\n" +
+                "properties\n" +
+                "(\n" +
+                "   \"type\" = \"s3\", \n" +
+                "   \"s3_endpoint\" = \"bj\",\n" +
+                "   \"s3_region\" = \"bj\",\n" +
+                "   \"s3_root_path\" = \"/path/to/root\",\n" +
+                "   \"s3_access_key\" = \"bbb\",\n" +
+                "   \"s3_secret_key\" = \"aaaa\",\n" +
+                "   \"s3_max_connections\" = \"50\",\n" +
+                "   \"s3_request_timeout_ms\" = \"3000\",\n" +
+                "   \"s3_connection_timeout_ms\" = \"1000\"\n" +
+                ");");
+
+        createTable("CREATE TABLE test.tbl_remote\n" +
+                "(\n" +
+                "    k1 date,\n" +
+                "    k2 int,\n" +
+                "    v1 int sum\n" +
+                ")\n" +
+                "PARTITION BY RANGE(k1)\n" +
+                "(\n" +
+                "    PARTITION p1 values less than('2020-02-01'),\n" +
+                "    PARTITION p2 values less than('2020-03-01'),\n" +
+                "    PARTITION p3 values less than('2020-04-01'),\n" +
+                "    PARTITION p4 values less than('2020-05-01')\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
+                "PROPERTIES" +
+                "(" +
+                "    'replication_num' = '1',\n" +
+                "    'in_memory' = 'false',\n" +
+                "    'storage_medium' = 'SSD',\n" +
+                "    'storage_cold_medium' = 'S3',\n" +
+                "    'remote_storage_resource' = 'remote_s3',\n" +
+                "    'storage_cooldown_time' = '2122-04-01 20:24:00'" +
+                ");");
     }
 
     @AfterClass
@@ -178,6 +232,11 @@ public class AlterTest {
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+
+    private static void createRemoteStorageResource(String sql) throws Exception {
+        CreateResourceStmt stmt = (CreateResourceStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().getResourceMgr().createResource(stmt);
     }
 
     private static void alterTable(String sql, boolean expectedException) throws Exception {
@@ -384,20 +443,36 @@ public class AlterTest {
         Assert.assertEquals(false, tbl4.getPartitionInfo().getIsInMemory(p4.getId()));
 
         // batch update storage_medium and storage_cool_down properties
-        stmt = "alter table test.tbl4 modify partition (p2, p3, p4) set ('storage_medium' = 'HDD')";
-        DateLiteral dateLiteral = new DateLiteral("9999-12-31 00:00:00", Type.DATETIME);
+        // alter storage_medium
+        stmt = "alter table test.tbl4 modify partition (p3, p4) set ('storage_medium' = 'HDD')";
+        DateLiteral dateLiteral = new DateLiteral("2999-12-31 00:00:00", Type.DATETIME);
         long coolDownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, coolDownTimeMs);
-        partitionList = Lists.newArrayList(p2, p3, p4);
+        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, coolDownTimeMs, TStorageMedium.HDD, "");
+        partitionList = Lists.newArrayList(p3, p4);
         for (Partition partition : partitionList) {
             Assert.assertEquals(oldDataProperty, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
         }
         alterTable(stmt, false);
-        DataProperty newDataProperty = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS);
+        DataProperty newDataProperty = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, TStorageMedium.HDD, "");
         for (Partition partition : partitionList) {
             Assert.assertEquals(newDataProperty, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
         }
         Assert.assertEquals(oldDataProperty, tbl4.getPartitionInfo().getDataProperty(p1.getId()));
+        Assert.assertEquals(oldDataProperty, tbl4.getPartitionInfo().getDataProperty(p2.getId()));
+
+        // alter cooldown_time
+        stmt = "alter table test.tbl4 modify partition (p1, p2) set ('storage_cooldown_time' = '2100-12-31 00:00:00')";
+        alterTable(stmt, false);
+
+        dateLiteral = new DateLiteral("2100-12-31 00:00:00", Type.DATETIME);
+        coolDownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+        DataProperty newDataProperty1 = new DataProperty(TStorageMedium.SSD, coolDownTimeMs, TStorageMedium.HDD, "");
+        partitionList = Lists.newArrayList(p1, p2);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(newDataProperty1, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
+        }
+        Assert.assertEquals(newDataProperty, tbl4.getPartitionInfo().getDataProperty(p3.getId()));
+        Assert.assertEquals(newDataProperty, tbl4.getPartitionInfo().getDataProperty(p4.getId()));
 
         // batch update range partitions' properties with *
         stmt = "alter table test.tbl4 modify partition (*) set ('replication_num' = '1')";
@@ -406,6 +481,74 @@ public class AlterTest {
         for (Partition partition : partitionList) {
             Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl4.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum()));
         }
+    }
+
+    @Test
+    public void testAlterRemoteStorageTableDataProperties() throws Exception {
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
+        OlapTable tblRemote = (OlapTable) db.getTableOrMetaException("tbl_remote");
+        Partition p1 = tblRemote.getPartition("p1");
+        Partition p2 = tblRemote.getPartition("p2");
+        Partition p3 = tblRemote.getPartition("p3");
+        Partition p4 = tblRemote.getPartition("p4");
+
+        // alter storage_medium
+        String stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_medium' = 'HDD')";
+        DateLiteral dateLiteral = new DateLiteral("2122-04-01 20:24:00", Type.DATETIME);
+        long coolDownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, coolDownTimeMs, TStorageMedium.S3, "remote_s3");
+        List<Partition> partitionList = Lists.newArrayList(p2, p3, p4);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
+        }
+        alterTable(stmt, false);
+        DataProperty dataProperty1 = new DataProperty(TStorageMedium.HDD, coolDownTimeMs, TStorageMedium.S3, "remote_s3");
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(dataProperty1, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
+        }
+        Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
+
+        // alter cooldown_time
+        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_cooldown_time' = '2100-04-01 22:22:22')";
+        alterTable(stmt, false);
+        DateLiteral newDateLiteral = new DateLiteral("2100-04-01 22:22:22", Type.DATETIME);
+        long newCoolDownTimeMs = newDateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+        DataProperty dataProperty2 = new DataProperty(TStorageMedium.HDD, newCoolDownTimeMs, TStorageMedium.S3, "remote_s3");
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(dataProperty2, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
+        }
+        Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
+
+        // alter remote_storage
+        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('remote_storage_resource' = 'remote_s3_1')";
+        alterTable(stmt, false);
+        DataProperty dataProperty3 = new DataProperty(TStorageMedium.HDD, newCoolDownTimeMs, TStorageMedium.S3, "remote_s3_1");
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(dataProperty3, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
+        }
+        Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
+
+        // alter storage_cold_medium
+        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_cold_medium' = 'HDD', 'remote_storage_resource' = '')";
+        alterTable(stmt, false);
+        DataProperty dataProperty4 = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, TStorageMedium.HDD, "");
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(dataProperty4, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
+        }
+        Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
+
+        // alter recover to old state
+        stmt = "alter table test.tbl_remote modify partition (p2, p3, p4) set ('storage_cold_medium' = 'S3', " +
+                "'remote_storage_resource' = 'remote_s3', " +
+                "'storage_medium' = 'SSD', " +
+                "'storage_cooldown_time' = '2122-04-01 20:24:00'" +
+                ")";
+        alterTable(stmt, false);
+        for (Partition partition : partitionList) {
+            Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(partition.getId()));
+        }
+        Assert.assertEquals(oldDataProperty, tblRemote.getPartitionInfo().getDataProperty(p1.getId()));
+
     }
 
     @Test
