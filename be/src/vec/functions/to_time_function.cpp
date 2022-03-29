@@ -36,7 +36,7 @@ using FunctionToDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, ToDat
 using FunctionDate = FunctionDateOrDateTimeToSomething<DataTypeDateTime, DateImpl>;
 using FunctionTimeStamp = FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl>;
 
-void register_function_to_time_fuction(SimpleFunctionFactory& factory) {
+void register_function_to_time_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSecond>();
     factory.register_function<FunctionMinute>();
     factory.register_function<FunctionHour>();
