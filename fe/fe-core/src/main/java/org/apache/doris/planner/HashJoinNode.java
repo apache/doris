@@ -169,8 +169,21 @@ public class HashJoinNode extends PlanNode {
         isColocate = colocate;
         colocateReason = reason;
     }
-
-    // output slots + conjunct slots + other conjunct slots = hash output slots
+    
+    /**
+     * Calculate the slots output after going through the hash table in the hash join node.
+     * The most essential difference between 'hashOutputSlots' and 'outputSlots' is that
+     *   it's output needs to contain other conjunct and conjunct columns.
+     * hash output slots = output slots + conjunct slots + other conjunct slots
+     * For example:
+     * select b.k1 from test.t1 a right join test.t1 b on a.k1=b.k1 and b.k2>1 where a.k2>1;
+     * output slots: b.k1
+     * other conjuncts: a.k2>1
+     * conjuncts: b.k2>1
+     * hash output slots: a.k2, b.k2, b.k1
+     * eq conjuncts: a.k1=b.k1
+     * @param slotIdList
+     */
     private void initHashOutputSlotIds(List<SlotId> slotIdList) {
         hashOutputSlotIds = new ArrayList<>(slotIdList);
         List<SlotId> otherAndConjunctSlotIds = Lists.newArrayList();
