@@ -89,8 +89,10 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_STRING:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
-    case TYPE_HLL:
         nested = std::make_shared<vectorized::DataTypeString>();
+        break;
+    case TYPE_HLL:
+        nested = std::make_shared<vectorized::DataTypeHLL>();
         break;
     case TYPE_OBJECT:
         nested = std::make_shared<vectorized::DataTypeBitMap>();
@@ -154,10 +156,12 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type) 
         break;
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
-    case OLAP_FIELD_TYPE_HLL:
     case OLAP_FIELD_TYPE_STRING:
         result = std::make_shared<vectorized::DataTypeString>();
         break;
+    case OLAP_FIELD_TYPE_HLL:
+        result = std::make_shared<vectorized::DataTypeHLL>();
+        break;        
     case OLAP_FIELD_TYPE_OBJECT:
         result = std::make_shared<vectorized::DataTypeBitMap>();
         break;
