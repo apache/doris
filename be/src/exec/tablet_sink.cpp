@@ -472,13 +472,13 @@ int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
     // packet_in_flight because try_send_patch sets packet_in_flight before
     // _last_patch_processed_finished.
     // If we read _add_batch_closure before cmp_exchange _last_patch_processed_finished,
-    // then somting bad would happend. e.g.
-    // |----------------------------------------------------------------------------
+    // then something bad would happend. e.g.
+    // |----------------------------------------------------------------------------|
     // | Thread try_send_and_fetch_status  | Thread try_send_batch                  |
-    // |-----------------------------------------------------------------------------
+    // |----------------------------------------------------------------------------|
     // | read packet_in_flight false       | before seting packet_in_flight         |
     // |-----------------------------------------------------------------------------
-    // |                                   | set _last_patch_processed_finished true|
+    // |                                   | setting _last_patch_processed_finished true|
     // |----------------------------------------------------------------------------|
     // |chxg _last_patch_processed_finished|                                        |
     // |----------------------------------------------------------------------------|
