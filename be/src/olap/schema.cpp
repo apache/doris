@@ -168,8 +168,7 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type)
         return doris::vectorized::PredicateColumnType<decimal12_t>::create();
 
     default:
-        DCHECK(false);
-        return nullptr;
+        LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << type;
     }
 }
 
