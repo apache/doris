@@ -1,0 +1,17 @@
+---
+Checks: |
+  clang-diagnostic-*,
+  clang-analyzer-*,
+  -*,
+  modernize-use-override,
+  modernize-use-equals-default,
+  modernize-use-equals-delete,
+  modernize-use-nullptr,
+  modernize-use-bool-literals,
+  modernize-use-using,
+  readability-make-member-function-const,
+  readability-non-const-parameter,
+  readability-static-accessed-through-instance,
+  readability-redundant-smartptr-get,
+  readability-redundant-string-init
+WarningsAsErrors: '*'

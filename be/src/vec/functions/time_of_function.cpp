@@ -28,7 +28,7 @@ using FunctionDayOfWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOf
 using FunctionDayOfMonth = FunctionDateOrDateTimeToSomething<DataTypeInt32, DayOfMonthImpl>;
 using FunctionYearWeek = FunctionDateOrDateTimeToSomething<DataTypeInt32, ToYearWeekOneArgImpl>;
 
-void register_function_time_of_fuction(SimpleFunctionFactory& factory) {
+void register_function_time_of_function(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDayOfWeek>();
     factory.register_function<FunctionDayOfMonth>();
     factory.register_function<FunctionDayOfYear>();
