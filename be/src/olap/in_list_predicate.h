@@ -103,8 +103,8 @@ class VectorizedRowBatch;
         phmap::flat_hash_set<int32_t> _dict_codes;                                                \
     };
 
-IN_LIST_PRED_CLASS_DEFINE(InListPredicate, InList)
-IN_LIST_PRED_CLASS_DEFINE(NotInListPredicate, NotInList)
+IN_LIST_PRED_CLASS_DEFINE(InListPredicate, IN_LIST)
+IN_LIST_PRED_CLASS_DEFINE(NotInListPredicate, NO_IN_LIST)
 
 } //namespace doris
 
