@@ -335,7 +335,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
     }
 
     RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(schema_full_path_desc.filepath), OLAP_ERR_CANNOT_CREATE_DIR,
-                              "create path " + schema_full_path_desc.filepath + "failed");
+                              "create path " + schema_full_path_desc.filepath + " failed");
 
     string snapshot_id;
     RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(snapshot_id_path, &snapshot_id),
