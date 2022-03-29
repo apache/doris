@@ -27,7 +27,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include "common/atomic.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "util/condition_variable.h"
@@ -222,7 +221,7 @@ public:
         MutexLock l(&_lock);
         return _active_threads;
     }
-    
+
     int get_queue_size() const {
         MutexLock l(&_lock);
         return _total_queued_tasks;
@@ -436,7 +435,8 @@ private:
     // Constructs a new token.
     //
     // The token may not outlive its thread pool ('pool').
-    ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode, int max_concurrency = INT_MAX);
+    ThreadPoolToken(ThreadPool* pool, ThreadPool::ExecutionMode mode,
+                    int max_concurrency = INT_MAX);
 
     // Changes this token's state to 'new_state' taking actions as needed.
     void transition(State new_state);
