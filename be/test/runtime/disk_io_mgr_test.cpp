@@ -157,7 +157,7 @@ protected:
     static void scan_range_thread(DiskIoMgr* io_mgr, DiskIoMgr::RequestContext* reader,
                                   const char* expected_result, int expected_len,
                                   const Status& expected_status, int max_ranges,
-                                  AtomicInt<int>* num_ranges_processed) {
+                                  std::atomic<int>* num_ranges_processed) {
         int num_ranges = 0;
         while (max_ranges == 0 || num_ranges < max_ranges) {
             DiskIoMgr::ScanRange* range;
@@ -414,7 +414,7 @@ TEST_F(DiskIoMgrTest, SingleReader) {
                     status = io_mgr.add_scan_ranges(reader, ranges);
                     ASSERT_TRUE(status.ok());
 
-                    AtomicInt<int> num_ranges_processed;
+                    std::atomic<int> num_ranges_processed;
                     ThreadGroup threads;
                     for (int i = 0; i < num_read_threads; ++i) {
                         threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data, len,
@@ -474,7 +474,7 @@ TEST_F(DiskIoMgrTest, AddScanRangeTest) {
                                                                stat_val.st_mtime));
                     }
                 }
-                AtomicInt<int> num_ranges_processed;
+                std::atomic<int> num_ranges_processed;
 
                 // Issue first half the scan ranges.
                 status = io_mgr.add_scan_ranges(reader, ranges_first_half);
@@ -557,7 +557,7 @@ TEST_F(DiskIoMgrTest, SyncReadTest) {
                 status = io_mgr.add_scan_ranges(reader, ranges);
                 ASSERT_TRUE(status.ok());
 
-                AtomicInt<int> num_ranges_processed;
+                std::atomic<int> num_ranges_processed;
                 ThreadGroup threads;
                 for (int i = 0; i < 5; ++i) {
                     threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
@@ -624,7 +624,7 @@ TEST_F(DiskIoMgrTest, SingleReaderCancel) {
                 status = io_mgr.add_scan_ranges(reader, ranges);
                 ASSERT_TRUE(status.ok());
 
-                AtomicInt<int> num_ranges_processed;
+                std::atomic<int> num_ranges_processed;
                 int num_succesful_ranges = ranges.size() / 2;
                 // Read half the ranges
                 for (int i = 0; i < num_succesful_ranges; ++i) {
@@ -697,7 +697,7 @@ TEST_F(DiskIoMgrTest, MemTrackers) {
         // Don't return buffers to force memory pressure
         std::vector<DiskIoMgr::BufferDescriptor*> buffers;
 
-        AtomicInt<int> num_ranges_processed;
+        std::atomic<int> num_ranges_processed;
         scan_range_thread(&io_mgr, reader, data, strlen(data), Status::MemoryLimitExceeded("Mem"),
                           1, &num_ranges_processed);
 
@@ -780,7 +780,7 @@ TEST_F(DiskIoMgrTest, CachedReads) {
         status = io_mgr.add_scan_ranges(reader, ranges);
         ASSERT_TRUE(status.ok());
 
-        AtomicInt<int> num_ranges_processed;
+        std::atomic<int> num_ranges_processed;
         ThreadGroup threads;
         for (int i = 0; i < 5; ++i) {
             threads.add_thread(new thread(scan_range_thread, &io_mgr, reader, data,
@@ -846,7 +846,7 @@ TEST_F(DiskIoMgrTest, MultipleReaderWriter) {
                         if (++iters % 5000 == 0) {
                             LOG(ERROR) << "Starting iteration " << iters;
                         }
-                        AtomicInt<int> num_ranges_processed;
+                        std::atomic<int> num_ranges_processed;
                         ThreadGroup threads;
                         std::vector<DiskIoMgr::ScanRange*> ranges;
                         int num_scan_ranges =
@@ -970,7 +970,7 @@ TEST_F(DiskIoMgrTest, MultipleReader) {
                         ASSERT_TRUE(status.ok());
                     }
 
-                    AtomicInt<int> num_ranges_processed;
+                    std::atomic<int> num_ranges_processed;
                     ThreadGroup threads;
                     for (int i = 0; i < NUM_READERS; ++i) {
                         for (int j = 0; j < NUM_THREADS_PER_READER; ++j) {
