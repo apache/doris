@@ -62,7 +62,7 @@ public:
 private:
     Status _init(bool is_vec = false);
 
-    Status _init_return_column_iterators();
+    Status _init_return_column_iterators(bool is_vec = false);
     Status _init_bitmap_index_iterators();
 
     // calculate row ranges that fall into requested key ranges using short key index
@@ -159,6 +159,11 @@ private:
     // so we need a field to stand for columns first time to read
     std::vector<ColumnId> _first_read_column_ids;
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block
+
+    std::vector<bool> _is_all_page_dict_encoded_column;
+    // Use local dictionary optimization only if all data_pages are dict encoding
+    // and the column has comparison or in predicates
+    std::vector<bool> _use_local_dict_column;
 
     // the actual init process is delayed to the first call to next_batch()
     bool _inited;

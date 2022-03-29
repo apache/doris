@@ -257,6 +257,8 @@ public:
 
     size_t current_index() const override { return _cur_index; }
 
+    EncodingTypePB encoding_type() const override { return RLE; }
+
 private:
     typedef typename TypeTraits<Type>::CppType CppType;
     enum { SIZE_OF_TYPE = TypeTraits<Type>::size };

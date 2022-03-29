@@ -223,6 +223,8 @@ public:
         return _cur_idx;
     }
 
+    EncodingTypePB encoding_type() const override { return PLAIN_ENCODING; }
+
 private:
     Slice _data;
     PageDecoderOptions _options;

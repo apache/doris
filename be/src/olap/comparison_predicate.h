@@ -47,6 +47,7 @@ class VectorizedRowBatch;
         void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,                \
                          bool* flags) const override;                                              \
         void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override; \
+        bool is_comparison_predicate() const override { return true; }                             \
         void set_dict_code_if_necessary(vectorized::IColumn& column) override;                     \
     private:                                                                                       \
         T _value;                                                                                  \

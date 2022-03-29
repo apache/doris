@@ -125,7 +125,7 @@ Status SegmentIterator::_init(bool is_vec) {
     fs::BlockManager* block_mgr = fs::fs_util::block_manager(_segment->_path_desc.storage_medium);
     RETURN_IF_ERROR(block_mgr->open_block(_segment->_path_desc, &_rblock));
     _row_bitmap.addRange(0, _segment->num_rows());
-    RETURN_IF_ERROR(_init_return_column_iterators());
+    RETURN_IF_ERROR(_init_return_column_iterators(is_vec));
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
     // z-order can not use prefix index
     if (_segment->_tablet_schema->sort_type() != SortType::ZORDER) {
@@ -323,10 +323,12 @@ Status SegmentIterator::_apply_bitmap_index() {
     return Status::OK();
 }
 
-Status SegmentIterator::_init_return_column_iterators() {
+Status SegmentIterator::_init_return_column_iterators(bool is_vec) {
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
+    _is_all_page_dict_encoded_column.resize(_schema.num_columns(), false);
+
     for (auto cid : _schema.column_ids()) {
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
@@ -334,7 +336,11 @@ Status SegmentIterator::_init_return_column_iterators() {
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.rblock = _rblock.get();
+            iter_opts.use_local_dict_optimize = is_vec && config::enable_storage_vectorization &&
+                                                config::enable_low_cardinality_optimize;
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+            _is_all_page_dict_encoded_column[cid] =
+                    _column_iterators[cid]->is_all_page_dict_encode();
         }
     }
     return Status::OK();
@@ -582,7 +588,9 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
 
 // todo(wb) need a UT here
 void SegmentIterator::_vec_init_lazy_materialization() {
-    _is_pred_column.resize(_schema.columns().size(), false);
+    const size_t num_columns = _schema.num_columns();
+    _is_pred_column.resize(num_columns, false);
+    _use_local_dict_column.resize(num_columns, false);
 
     // including short_cir_pred_col_id_set and vec_pred_col_id_set
     std::set<ColumnId> pred_column_ids;
@@ -605,10 +613,14 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             _is_pred_column[cid] = true;
             pred_column_ids.insert(cid);
 
+            if (_is_all_page_dict_encoded_column[cid] &&
+                (predicate->is_comparison_predicate() || predicate->is_in_predicate())) {
+                _use_local_dict_column[cid] = true;
+            }
+
             if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
                 type == OLAP_FIELD_TYPE_STRING || predicate->type() == PredicateType::BF ||
-                predicate->type() == PredicateType::IN_LIST ||
-                predicate->type() == PredicateType::NO_IN_LIST) {
+                predicate->is_in_predicate()) {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
                 _is_all_column_basic_type = false;
@@ -696,7 +708,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     }
 
     // make _schema_block_id_map
-    _schema_block_id_map.resize(_schema.columns().size());
+    _schema_block_id_map.resize(num_columns);
     for (int i = 0; i < _schema.num_column_ids(); i++) {
         auto cid = _schema.column_id(i);
         _schema_block_id_map[cid] = i;
@@ -738,6 +750,7 @@ void SegmentIterator::_init_current_block(
             _char_type_idx.emplace_back(i);
         }
 
+        //  _use_local_dict_column must be pred column, so there is no need to judge here
         if (_is_pred_column[cid]) { //todo(wb) maybe we can relase it after output block
             current_columns[cid]->clear();
         } else { // non-predicate column
@@ -884,11 +897,17 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         if (!_vec_pred_column_ids.empty() || !_short_cir_pred_column_ids.empty()) {
             _block_rowids.resize(_opts.block_row_max);
         }
-        _current_return_columns.resize(_schema.columns().size());
+        _current_return_columns.resize(_schema.num_columns());
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
-            if (_is_pred_column[cid]) {
-                auto column_desc = _schema.column(cid);
+            auto column_desc = _schema.column(cid);
+            // _use_local_dict_column must be pred column, so judge first
+            if (_use_local_dict_column[cid]) {
+                _current_return_columns[cid] =
+                        Schema::get_column_dictionary_nullable_ptr(column_desc->type(),
+                                                                   column_desc->is_nullable());
+                _current_return_columns[cid]->reserve(_opts.block_row_max);
+            } else if (_is_pred_column[cid]) {
                 _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
                         column_desc->type(), column_desc->is_nullable());
                 _current_return_columns[cid]->reserve(_opts.block_row_max);

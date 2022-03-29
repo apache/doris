@@ -240,7 +240,6 @@ void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRe
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
     if (_encoding_type == PLAIN_ENCODING) {
-        dst = (*(std::move(dst->convert_to_predicate_column_if_dictionary()))).assume_mutable();
         return _data_page_decoder->next_batch(n, dst);
     }
     // dictionary encoding

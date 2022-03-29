@@ -286,6 +286,8 @@ public:
         dict_word_info[_num_elems-1].size = (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems-1].data;
     }
 
+    EncodingTypePB encoding_type() const override { return PLAIN_ENCODING; }
+
 private:
     // Return the offset within '_data' where the string value with index 'idx' can be found.
     uint32_t offset(size_t idx) const {

@@ -102,6 +102,8 @@ struct ParsedPage {
     bool has_remaining() const { return offset_in_page < num_rows; }
 
     size_t remaining() const { return num_rows - offset_in_page; }
+
+    EncodingTypePB encoding_type() { return data_decoder->encoding_type(); }
 };
 
 } // namespace segment_v2

@@ -113,6 +113,8 @@ public:
 
     bool is_dict_encoding() const;
 
+    EncodingTypePB encoding_type() const override { return _encoding_type; }
+
     void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
 
     ~BinaryDictPageDecoder();

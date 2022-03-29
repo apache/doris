@@ -71,6 +71,7 @@ struct ColumnIteratorOptions {
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
+    bool use_local_dict_optimize = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(rblock);
@@ -130,6 +131,8 @@ public:
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
     inline bool is_empty() const { return _num_rows == 0; }
+
+    inline uint64_t num_rows() { return _num_rows; }
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
@@ -241,6 +244,8 @@ public:
         return Status::OK();
     }
 
+    virtual bool is_all_page_dict_encode() const { return false; }
+
 protected:
     ColumnIteratorOptions _opts;
 };
@@ -251,6 +256,8 @@ class FileColumnIterator final : public ColumnIterator {
 public:
     explicit FileColumnIterator(ColumnReader* reader);
     ~FileColumnIterator() override;
+
+    Status init(const ColumnIteratorOptions& opts) override;
 
     Status seek_to_first() override;
 
@@ -275,6 +282,8 @@ public:
     ParsedPage* get_current_page() { return &_page; }
 
     bool is_nullable() { return _reader->is_nullable(); }
+
+    bool is_all_page_dict_encode() const { return _is_all_page_dict_encoded; }
 
 private:
     void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page);
@@ -303,6 +312,8 @@ private:
     ordinal_t _current_ordinal = 0;
 
     std::unique_ptr<StringRef[]> _dict_word_info;
+
+    bool _is_all_page_dict_encoded = false;
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {

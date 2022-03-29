@@ -102,6 +102,10 @@ public:
 
     bool has_remaining() const { return current_index() < count(); }
 
+    // Usually encoding_type is fixed, but DictPageDecoder is special,
+    // it may be Dict or Plain encoding
+    virtual EncodingTypePB encoding_type() const = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(PageDecoder);
 };

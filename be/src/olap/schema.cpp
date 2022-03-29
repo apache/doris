@@ -159,9 +159,6 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type)
     case OLAP_FIELD_TYPE_CHAR:
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_STRING:
-        if (config::enable_low_cardinality_optimize) {
-            return doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create();
-        }
         return doris::vectorized::PredicateColumnType<StringValue>::create();
 
     case OLAP_FIELD_TYPE_DECIMAL:
@@ -170,6 +167,21 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type)
     default:
         LOG(FATAL) << "Unexpected type when choosing predicate column, type=" << type;
     }
+}
+
+vectorized::IColumn::MutablePtr Schema::get_column_dictionary_nullable_ptr(FieldType type,
+                                                                           bool is_null) {
+    if (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR ||
+        type == OLAP_FIELD_TYPE_STRING) {
+        vectorized::IColumn::MutablePtr ptr =
+                doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create();
+        if (is_null) {
+            return doris::vectorized::ColumnNullable::create(
+                    std::move(ptr),doris::vectorized::ColumnUInt8::create());
+        }
+        return ptr;
+    }
+    LOG(FATAL) << "Unexpected type when choosing column dictionary, type=" << type;
 }
 
 } // namespace doris

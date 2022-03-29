@@ -86,6 +86,9 @@ public:
     virtual void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {};
     uint32_t column_id() const { return _column_id; }
 
+    virtual bool is_in_predicate() const { return false; }
+    virtual bool is_comparison_predicate() const { return false; }
+
     virtual void set_dict_code_if_necessary(vectorized::IColumn& column) { }
 
 protected:

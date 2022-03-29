@@ -106,6 +106,9 @@ public:
 
     static vectorized::IColumn::MutablePtr get_predicate_column_nullable_ptr(FieldType type, bool is_null = false);
 
+    static vectorized::IColumn::MutablePtr get_column_dictionary_nullable_ptr(FieldType type,
+                                                                              bool is_null = false);
+
     const std::vector<Field*>& columns() const { return _cols; }
 
     const Field* column(ColumnId cid) const { return _cols[cid]; }

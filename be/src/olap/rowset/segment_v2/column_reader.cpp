@@ -464,6 +464,18 @@ FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {
 
 FileColumnIterator::~FileColumnIterator() {}
 
+Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
+    _opts = opts;
+
+    // If the last page is dict encoding, it means that all data pages are dict encoding
+    if (opts.use_local_dict_optimize && !_reader->is_empty()) {
+        uint64_t last_row = _reader->num_rows() - 1;
+        RETURN_IF_ERROR(seek_to_ordinal(last_row));
+        _is_all_page_dict_encoded = _page.encoding_type() == DICT_ENCODING;
+    }
+    return Status::OK();
+}
+
 Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter));
     RETURN_IF_ERROR(_read_data_page(_page_iter));

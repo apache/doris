@@ -96,6 +96,7 @@ class VectorizedRowBatch;
         void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override; \
         void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
         void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
+        bool is_in_predicate() const override { return true; }                                    \
         void set_dict_code_if_necessary(vectorized::IColumn& column) override;                    \
     private:                                                                                      \
         phmap::flat_hash_set<T> _values;                                                          \

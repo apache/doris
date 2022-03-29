@@ -373,6 +373,8 @@ public:
 
     size_t current_index() const override { return _cur_index; }
 
+    EncodingTypePB encoding_type() const override { return BIT_SHUFFLE; }
+
 private:
     void _copy_next_values(size_t n, void* data) {
         memcpy(data, &_chunk.data[_cur_index * SIZE_OF_TYPE], n * SIZE_OF_TYPE);

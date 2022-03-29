@@ -127,6 +127,8 @@ public:
         return _cur_pos;
     }
 
+    EncodingTypePB encoding_type() const override { return PREFIX_ENCODING; }
+
 private:
     // decode shared and non-shared entry length from `ptr`.
     // return ptr past the parsed value when success.

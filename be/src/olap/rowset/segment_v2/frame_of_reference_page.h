@@ -173,6 +173,8 @@ public:
 
     size_t current_index() const override { return _cur_index; }
 
+    EncodingTypePB encoding_type() const override { return FOR_ENCODING; }
+
 private:
     typedef typename TypeTraits<Type>::CppType CppType;
 
