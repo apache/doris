@@ -148,7 +148,7 @@ else
             --broker) BUILD_BROKER=1 ; shift ;;
             --meta-tool) BUILD_META_TOOL="ON" ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
-            --java-udf) BUILD_JAVA_UDF=1 ; shift ;;
+            --java-udf) BUILD_JAVA_UDF=1 BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
             --hive-udf) BUILD_HIVE_UDF=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
@@ -256,7 +256,6 @@ if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
     modules+=("spark-dpp")
 fi
 if [ ${BUILD_JAVA_UDF} -eq 1 ]; then
-    modules+=("fe-common")
     modules+=("java-udf")
 fi
 if [ ${BUILD_HIVE_UDF} -eq 1 ]; then
@@ -265,27 +264,6 @@ if [ ${BUILD_HIVE_UDF} -eq 1 ]; then
 fi
 FE_MODULES=$(IFS=, ; echo "${modules[*]}")
     
-
-#if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 -o ${BUILD_JAVA_UDF} -eq 1 ]; then
-#    modules=("fe-common")
-#    if [ ${BUILD_FE} -eq 1 ]; then
-#        modules+=("fe-core")
-#        modules+=("spark-dpp")
-#        BUILD_DOCS="ON"
-#    fi
-#    if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
-#        modules+=("spark-dpp")
-#    fi
-#    if [ ${BUILD_JAVA_UDF} -eq 1 ]; then
-#        modules+=("java-udf")
-#        if [ ${BUILD_FE} -eq 0 ]; then
-#            modules+=("fe-core")
-#            BUILD_DOCS="ON"
-#        fi
-#    fi
-#    FE_MODULES=$(IFS=, ; echo "${modules[*]}")
-#fi
-
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
