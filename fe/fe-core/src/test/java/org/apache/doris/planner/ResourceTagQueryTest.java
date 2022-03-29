@@ -271,6 +271,20 @@ public class ResourceTagQueryTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("tabletRatio=30/30"));
+
+        // set user exec mem limit
+        String setExecMemLimitStr = "set property for 'root' 'exec_mem_limit' = '1000000';";
+        ExceptionChecker.expectThrowsNoException(() -> setProperty(setExecMemLimitStr));
+        long execMemLimit = Catalog.getCurrentCatalog().getAuth().getExecMemLimit(PaloAuth.ROOT_USER);
+        Assert.assertEquals(1000000, execMemLimit);
+
+        String setLoadMemLimitStr = "set property for 'root' 'load_mem_limit' = '2000000';";
+        ExceptionChecker.expectThrowsNoException(() -> setProperty(setLoadMemLimitStr));
+        long loadMemLimit = Catalog.getCurrentCatalog().getAuth().getLoadMemLimit(PaloAuth.ROOT_USER);
+        Assert.assertEquals(2000000, loadMemLimit);
+
+        List<List<String>> userProps = Catalog.getCurrentCatalog().getAuth().getUserProperties(PaloAuth.ROOT_USER);
+        Assert.assertEquals(17, userProps.size());
     }
 
     private void checkTableReplicaAllocation(OlapTable tbl) throws InterruptedException {

@@ -329,7 +329,7 @@ public class UserProperty implements Writable {
         this.commonProperties.setCpuResourceLimit(cpuResourceLimit);
         this.commonProperties.setResourceTags(resourceTags);
         this.commonProperties.setExecMemLimit(execMemLimit);
-        this.commonProperties.setExecMemLimit(loadMemLimit);
+        this.commonProperties.setLoadMemLimit(loadMemLimit);
         resource = newResource;
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -451,6 +451,12 @@ public class UserProperty implements Writable {
 
         // cpu resource limit
         result.add(Lists.newArrayList(PROP_CPU_RESOURCE_LIMIT, String.valueOf(commonProperties.getCpuResourceLimit())));
+
+        // exec mem limit
+        result.add(Lists.newArrayList(PROP_EXEC_MEM_LIMIT, String.valueOf(commonProperties.getExecMemLimit())));
+
+        // load mem limit
+        result.add(Lists.newArrayList(PROP_LOAD_MEM_LIMIT, String.valueOf(commonProperties.getLoadMemLimit())));
 
         // resource tag
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));
