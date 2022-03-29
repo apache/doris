@@ -96,8 +96,7 @@ Status OdbcTableSink::close(RuntimeState* state, Status exec_status) {
     if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());
     }
-    DataSink::close(state, exec_status);
-    return Status::OK();
+    return DataSink::close(state, exec_status);
 }
 
 } // namespace doris
