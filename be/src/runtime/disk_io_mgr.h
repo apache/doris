@@ -25,7 +25,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "common/atomic.h"
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -752,10 +751,10 @@ private:
     std::list<BufferDescriptor*> _free_buffer_descs;
 
     // Total number of allocated buffers, used for debugging.
-    AtomicInt<int> _num_allocated_buffers;
+    std::atomic<int> _num_allocated_buffers {0};
 
     // Total number of buffers in readers
-    AtomicInt<int> _num_buffers_in_readers;
+    std::atomic<int> _num_buffers_in_readers {0};
 
     // Per disk queues. This is static and created once at init() time.  One queue is
     // allocated for each local disk on the system and for each remote filesystem type.

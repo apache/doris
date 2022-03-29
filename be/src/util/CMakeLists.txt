@@ -64,7 +64,6 @@ set(UTIL_FILES
   mysql_row_buffer.cpp
   tuple_row_compare.cpp
   error_util.cc
-  spinlock.cc
   filesystem_util.cc
   load_error_hub.cpp
   broker_load_error_hub.cpp
