@@ -487,13 +487,22 @@ int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
     //
     // In the above example, it is possible for be to core dump in try_send_batch due
     // to operating empty _pending_batches.
-    if (_last_patch_processed_finished.compare_exchange_strong(is_finished, false) &&
-        !_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0) {
+    if (!_last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
+        return _send_finished ? 0 : 1;
+    }
+
+    // We are sure that try_send_batch is not running
+    if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0) {
         auto s = thread_pool_token->submit_func(
                 std::bind(&NodeChannel::try_send_batch, this, state));
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
+            // canceled, no need to restore _last_patch_processed_finished
         }
+    } else {
+        // Restore _last_patch_processed_finished to be true
+        DCHECK(!_last_patch_processed_finished);
+        _last_patch_processed_finished = true;
     }
     return _send_finished ? 0 : 1;
 }
