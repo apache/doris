@@ -134,13 +134,13 @@ public class PaloFe {
 
             feServer.start();
 
-            HttpServer httpServer2 = new HttpServer();
-            httpServer2.setPort(Config.http_port);
-            httpServer2.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
-            httpServer2.setAcceptors(Config.jetty_server_acceptors);
-            httpServer2.setSelectors(Config.jetty_server_selectors);
-            httpServer2.setWorkers(Config.jetty_server_workers);
-            httpServer2.start(dorisHomeDir);
+            HttpServer httpServer = new HttpServer();
+            httpServer.setPort(Config.http_port);
+            httpServer.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
+            httpServer.setAcceptors(Config.jetty_server_acceptors);
+            httpServer.setSelectors(Config.jetty_server_selectors);
+            httpServer.setWorkers(Config.jetty_server_workers);
+            httpServer.start(dorisHomeDir);
 
             qeService.start();
 

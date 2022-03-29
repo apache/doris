@@ -62,13 +62,13 @@ public class LoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        if(!Config.disable_mini_load) {
+        if(Config.disable_mini_load) {
+            ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been disabled by default, if you need to add disable_mini_load=false in fe.conf.");
+            return entity;
+        } else {
             this.isStreamLoad = false;
             executeCheckPassword(request, response);
             return executeWithoutPassword(request, response, db, table);
-        } else {
-            ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been disabled by default, if you need to add disable_mini_load=false in fe.conf.");
-            return entity;
         }
     }
 

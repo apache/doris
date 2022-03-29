@@ -1638,6 +1638,7 @@ public class Config extends ConfigBase {
     /**
      * Mini load operation is disabled by default
      */
+    @ConfField
     public static boolean disable_mini_load = true;
 
 }
