@@ -29,6 +29,10 @@ namespace doris {
 NullPredicate::NullPredicate(uint32_t column_id, bool is_null, bool opposite)
         : ColumnPredicate(column_id), _is_null(opposite != is_null) {}
 
+PredicateType NullPredicate::type() const {
+    return _is_null ? PredicateType::IS_NULL : PredicateType::NOT_IS_NULL;
+}
+
 void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
     uint16_t n = batch->size();
     if (n == 0) {
