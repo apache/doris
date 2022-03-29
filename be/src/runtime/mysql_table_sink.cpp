@@ -80,7 +80,11 @@ Status MysqlTableSink::send(RuntimeState* state, RowBatch* batch) {
 }
 
 Status MysqlTableSink::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
     Expr::close(_output_expr_ctxs, state);
+    DataSink::close(state, exec_status);
     return Status::OK();
 }
 

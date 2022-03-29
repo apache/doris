@@ -135,7 +135,7 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
 
     Expr::close(_output_expr_ctxs, state);
 
-    _closed = true;
+    DataSink::close(state, exec_status);
     return Status::OK();
 }
 

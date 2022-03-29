@@ -973,7 +973,7 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
 }
 
 Status OlapTableSink::close(RuntimeState* state, Status close_status) {
-    if (_is_closed) {
+    if (_closed) {
         /// The close method may be called twice.
         /// In the open_internal() method of plan_fragment_executor, close is called once.
         /// If an error occurs in this call, it will be called again in fragment_mgr.
@@ -1086,7 +1086,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     _output_batch.reset();
 
     _close_status = status;
-    _is_closed = true;
+    DataSink::close(state, close_status);
     return status;
 }
 
