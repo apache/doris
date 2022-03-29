@@ -96,8 +96,7 @@ Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {
         _queue->blocking_put(nullptr);
     }
     Expr::close(_output_expr_ctxs, state);
-    DataSink::close(state, exec_status);
-    return Status::OK();
+    return DataSink::close(state, exec_status);
 }
 
 } // namespace doris

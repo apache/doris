@@ -125,8 +125,7 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
             state->fragment_instance_id());
 
     VExpr::close(_output_vexpr_ctxs, state);
-    DataSink::close(state, exec_status);
-    return Status::OK();
+    return DataSink::close(state, exec_status);
 }
 
 void VResultSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {

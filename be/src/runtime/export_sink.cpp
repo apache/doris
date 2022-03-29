@@ -224,8 +224,7 @@ Status ExportSink::close(RuntimeState* state, Status exec_status) {
         _file_writer->close();
         _file_writer = nullptr;
     }
-    DataSink::close(state, exec_status);
-    return Status::OK();
+    return DataSink::close(state, exec_status);
 }
 
 Status ExportSink::open_file_writer() {
