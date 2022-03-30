@@ -96,7 +96,14 @@ public class DistributedPlanner {
             Preconditions.checkState(!queryStmt.hasOffset());
             isPartitioned = true;
         }
-        long autoBroadcastJoinThreshold = ctx_.getQueryOptions().getAutoBroadcastJoinThreshold();
+        long perNodeMemLimit = ctx_.getQueryOptions().mem_limit;
+        double autoBroadcastJoinThresholdPercentage = ctx_.getQueryOptions().getAutoBroadcastJoinThreshold();
+        if (autoBroadcastJoinThresholdPercentage > 1) {
+            autoBroadcastJoinThresholdPercentage = 1.0;
+        } else if (autoBroadcastJoinThresholdPercentage < 0) {
+            autoBroadcastJoinThresholdPercentage = 0.0;
+        }
+        long autoBroadcastJoinThreshold = (long)(perNodeMemLimit * autoBroadcastJoinThresholdPercentage);
         if (LOG.isDebugEnabled()) {
             LOG.debug("create plan fragments");
             LOG.debug("auto broadcast threshold = " + autoBroadcastJoinThreshold);

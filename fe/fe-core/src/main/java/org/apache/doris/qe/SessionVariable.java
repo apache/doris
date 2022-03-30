@@ -435,7 +435,7 @@ public class SessionVariable implements Serializable, Writable {
     // when performing a join, By setting this value to -1 broadcasting can be disabled.
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
-    public long autoBroadcastJoinThreshold = 1073741824L;
+    public double autoBroadcastJoinThreshold = 0.8;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;

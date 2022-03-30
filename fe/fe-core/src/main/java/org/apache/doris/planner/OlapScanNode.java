@@ -89,6 +89,9 @@ import java.util.stream.Collectors;
 public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
 
+    // average compression ratio in doris storage engine
+    private final static int COMPRESSION_RATIO = 5;
+
     private List<TScanRangeLocations> result = new ArrayList<>();
     /*
      * When the field value is ON, the storage engine can return the data directly without pre-aggregation.
@@ -376,7 +379,7 @@ public class OlapScanNode extends ScanNode {
     public void computeStats(Analyzer analyzer) {
         super.computeStats(analyzer);
         if (cardinality > 0) {
-            avgRowSize = totalBytes / (float) cardinality;
+            avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
             capCardinalityAtLimit();
         }
         // when node scan has no data, cardinality should be 0 instead of a invalid value after computeStats()

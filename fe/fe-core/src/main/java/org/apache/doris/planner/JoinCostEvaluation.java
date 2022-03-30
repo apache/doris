@@ -38,8 +38,6 @@ import org.apache.logging.log4j.Logger;
 public class JoinCostEvaluation {
     private final static Logger LOG = LogManager.getLogger(JoinCostEvaluation.class);
 
-    private final static int COMPRESSION_RATIO = 5;
-
     private final long rhsTreeCardinality;
     private final float rhsTreeAvgRowSize;
     private final int rhsTreeTupleIdNum;
@@ -149,7 +147,7 @@ public class JoinCostEvaluation {
                 Math.pow(1.5, (int) ((Math.log((double) rhsTreeCardinality/4096) / Math.log(1.5)) + 1)) * 4096;
         double nodeOverheadSpace = nodeArrayLen * 16;
         double nodeTuplePointerSpace = nodeArrayLen * rhsTreeTupleIdNum * 8;
-        return Math.round((bucketPointerSpace + (double) rhsTreeCardinality * rhsTreeAvgRowSize * COMPRESSION_RATIO
+        return Math.round((bucketPointerSpace + (double) rhsTreeCardinality * rhsTreeAvgRowSize
                 + nodeOverheadSpace + nodeTuplePointerSpace) * PlannerContext.HASH_TBL_SPACE_OVERHEAD);
     }
 }
