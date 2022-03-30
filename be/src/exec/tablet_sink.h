@@ -113,9 +113,13 @@ public:
         cid = cntl.call_id();
     }
 
-    void set_in_flight() {
-        DCHECK(_packet_in_flight == false);
-        _packet_in_flight = true;
+    bool try_set_in_flight() {
+        bool value = false;
+        return _packet_in_flight.compare_exchange_strong(value, true);
+    }
+
+    void clear_in_flight() {
+        _packet_in_flight = false;
     }
 
     bool is_packet_in_flight() { return _packet_in_flight; }
@@ -134,7 +138,7 @@ public:
         } else {
             success_handler(result, _is_last_rpc);
         }
-        _packet_in_flight = false;
+        clear_in_flight();
     }
 
     brpc::Controller cntl;
@@ -244,8 +248,6 @@ private:
 
     // add batches finished means the last rpc has be response, used to check whether this channel can be closed
     std::atomic<bool> _add_batches_finished {false};
-
-    std::atomic<bool> _last_patch_processed_finished {true};
 
     bool _eos_is_produced {false}; // only for restricting producer behaviors
 
