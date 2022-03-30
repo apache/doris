@@ -35,8 +35,7 @@
 namespace doris {
 
 ExprContext::ExprContext(Expr* root)
-        : _fn_contexts_ptr(nullptr),
-          _root(root),
+        : _root(root),
           _is_clone(false),
           _prepared(false),
           _opened(false),
@@ -102,7 +101,6 @@ int ExprContext::register_func(RuntimeState* state,
                                int varargs_buffer_size) {
     _fn_contexts.push_back(FunctionContextImpl::create_context(
             state, _pool.get(), return_type, arg_types, varargs_buffer_size, false));
-    _fn_contexts_ptr = &_fn_contexts[0];
     return _fn_contexts.size() - 1;
 }
 
@@ -135,7 +133,6 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx, Expr* root
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         (*new_ctx)->_fn_contexts.push_back(_fn_contexts[i]->impl()->clone((*new_ctx)->_pool.get()));
     }
-    (*new_ctx)->_fn_contexts_ptr = &((*new_ctx)->_fn_contexts[0]);
 
     (*new_ctx)->_is_clone = true;
     (*new_ctx)->_prepared = true;
