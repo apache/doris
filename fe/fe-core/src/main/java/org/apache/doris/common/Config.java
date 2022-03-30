@@ -328,22 +328,26 @@ public class Config extends ConfigBase {
     @ConfField public static int http_port = 8030;
 
     /**
-     * Jetty container default configuration
-     * Jetty's thread architecture model is very simple, divided into three thread pools:
-     * acceptors,selectors and workers. Acceptors are responsible for accepting new connections,
-     * and then hand over to selectors to process the unpacking of the HTTP message protocol,
-     * and finally workers process the request. The first two thread pools adopt a non-blocking model,
-     * and one thread can handle the read and write of many sockets, so the number of thread pools is small.
-     *
-     * For most projects, only 1-2 acceptors threads are needed, and 2 to 4 selectors threads are sufficient.
-     * Workers are obstructive business logic, often have more database operations, and require a large number of threads. T
-     * he specific number depends on the proportion of QPS and IO events of the application. The higher the QPS,
-     * the more threads are required, the higher the proportion of IO,
-     * the more threads waiting, and the more total threads required.
+     * The number of threads used by the HTTP linker to receive requests. The default is -1.
+     * Jetty selects a value based on the number of processor cores.
+     * The specific rule is 1 if it is lower than 16 cores, 2 if it is lower than 24 cores,
+     * 3 if it is lower than 32 cores, and 32 if it is lower than 32 cores. 4 above the core.
      */
-    @ConfField public static int jetty_server_acceptors = 2;
+    @ConfField public static int jetty_server_acceptors = 4;
+    /**
+     * The number of Socket selectors, the default is -1. Jetty selects a value based on the number of processor cores.
+     * The specific rule is 1 for less than 4 cores, 3 for less than 8 cores, and 4 for more than 8 cores.
+     */
     @ConfField public static int jetty_server_selectors = 4;
     @ConfField public static int jetty_server_workers = 0;
+    /**
+     * Configure the default minimum and maximum number of threads for jetty.
+     * The default minimum and maximum number of threads for jetty is 10 and the maximum is 200.
+     * If this is relatively small in a high-concurrency import scenario,
+     * users can adjust it according to their own conditions.
+     */
+    @ConfField public static int jetty_threadPool_minThreads = 20;
+    @ConfField public static int jetty_threadPool_maxThreads = 400;
     /**
      * jetty Maximum number of bytes in put or post method,default:100MB
      */
