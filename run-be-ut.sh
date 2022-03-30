@@ -187,6 +187,11 @@ fi
 cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
 cp -r ${DORIS_HOME}/be/test/plugin/plugin_test ${DORIS_TEST_BINARY_DIR}/plugin/
 
+# prepare ut temp dir
+UT_TMP_DIR=${DORIS_HOME}/ut_dir
+rm -rf ${UT_TMP_DIR} && mkdir ${UT_TMP_DIR}
+touch ${UT_TMP_DIR}/tmp_file
+
 # find all executable test files
 
 if [ ${VECTORIZED_ONLY} -eq 1 ]; then
