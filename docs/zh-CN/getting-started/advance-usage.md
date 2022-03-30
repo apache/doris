@@ -215,9 +215,9 @@ shuffle join是指将小表和大表都按照 Join 的 key 进行 Hash，然后�
 
 当小表的数据量较小时，broadcast join拥有更好的性能。反之，则shuffle join拥有更好的性能。
 
-系统会自动尝试进行 Broadcast Join，也可以显式指定每个join算子的实现方式。系统提供了可配置的参数`auto_broadcast_join_threshold`，指定使用broadcast join时，额外消耗的内存上限，单位字节。默认值为1073741824，即1GB内存。当系统计算使用的内存会超过此限制时，会自动转换为使用shuffle join。注意，此时即使显式指定了 Broadcast Join 也会自动切换至 Shuffle Join。
+系统会自动尝试进行 Broadcast Join，也可以显式指定每个join算子的实现方式。系统提供了可配置的参数`auto_broadcast_join_threshold`，指定使用broadcast join时，hash table使用的内存占整体执行内存比例的上限，取值范围为0到1，默认值为0.8。当系统计算hash table使用的内存会超过此限制时，会自动转换为使用shuffle join。注意，此时即使显式指定了 Broadcast Join 也会自动切换至 Shuffle Join。
 
-当`auto_broadcast_join_threshold`被设置为`-1`时，所有的join都将使用shuffle join。
+当`auto_broadcast_join_threshold`被设置为小于等于0时，所有的join都将使用shuffle join。
 
 使用 Broadcast Join（默认）:
 
