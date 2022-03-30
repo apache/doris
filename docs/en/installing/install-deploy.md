@@ -244,7 +244,7 @@ See the section on `lower_case_table_names` variables in [Variables](../administ
 
 * View BE status
 
-	Connect to FE using mysql-client and execute `SHOW PROC '/backends'; `View BE operation. If everything is normal, the `isAlive`column should be `true`.
+	Connect to FE using mysql-client and execute `SHOW PROC '/backends'; `View BE operation. If everything is normal, the `Alive`column should be `true`.
 
 #### (Optional) FS_Broker deployment
 
