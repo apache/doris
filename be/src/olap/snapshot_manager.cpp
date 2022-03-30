@@ -64,7 +64,7 @@ SnapshotManager* SnapshotManager::instance() {
 
 OLAPStatus SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* snapshot_path,
                                           bool* allow_incremental_clone) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     OLAPStatus res = OLAP_SUCCESS;
     if (snapshot_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be null";
@@ -92,7 +92,7 @@ OLAPStatus SnapshotManager::make_snapshot(const TSnapshotRequest& request, strin
 }
 
 OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     // 如果请求的snapshot_path位于root/snapshot文件夹下，则认为是合法的，可以删除
     // 否则认为是非法请求，返回错误结果
     auto stores = StorageEngine::instance()->get_stores();
@@ -123,7 +123,7 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
 // AlphaRowsetMeta here.
 OLAPStatus SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, int64_t tablet_id,
                                                const int32_t& schema_hash) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     OLAPStatus res = OLAP_SUCCESS;
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir_desc.filepath)) {

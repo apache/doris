@@ -614,6 +614,10 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 CONF_Bool(track_new_delete, "true");
 
+// If true, switch TLS MemTracker to count more detailed memory,
+// including caches such as ExecNode operators and TabletManager.
+CONF_Bool(memory_verbose_track, "true");
+
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:
 //      OVERVIEW: 0

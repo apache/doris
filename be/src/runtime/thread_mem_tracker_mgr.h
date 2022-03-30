@@ -18,6 +18,7 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <parallel_hashmap/phmap.h>
 
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -61,9 +62,9 @@ inline thread_local bool start_thread_mem_tracker = false;
 class ThreadMemTrackerMgr {
 public:
     ThreadMemTrackerMgr() {
-        _mem_trackers["process"] = MemTracker::get_process_tracker();
-        _untracked_mems["process"] = 0;
-        _tracker_id = "process";
+        _mem_trackers[0] = MemTracker::get_process_tracker();
+        _untracked_mems[0] = 0;
+        _tracker_id = 0;
         start_thread_mem_tracker = true;
     }
     ~ThreadMemTrackerMgr() {
@@ -91,14 +92,13 @@ public:
 
     // Must be fast enough!
     // Thread update_tracker may be called very frequently, adding a memory copy will be slow.
-    std::string update_tracker(const std::shared_ptr<MemTracker>& mem_tracker);
+    template <bool Existed>
+    int64_t update_tracker(const std::shared_ptr<MemTracker>& mem_tracker);
+    void update_tracker_id(int64_t tracker_id);
 
-    void update_tracker_id(const std::string& tracker_id) {
-        if (tracker_id != _tracker_id) {
-            _untracked_mems[_tracker_id] += _untracked_mem;
-            _untracked_mem = 0;
-            _tracker_id = tracker_id;
-        }
+    void add_tracker(const std::shared_ptr<MemTracker>& mem_tracker) {
+        _mem_trackers[mem_tracker->id()] = mem_tracker;
+        _untracked_mems[mem_tracker->id()] = 0;
     }
 
     inline ConsumeErrCallBackInfo update_consume_err_cb(const std::string& cancel_msg,
@@ -146,12 +146,14 @@ private:
     //  2. The cost of calling consume for the current untracked mem is huge;
     // In order to reduce the cost, during an attach task, the untracked mem of all switched trackers is cached,
     // and the untracked mem is consumed only after the upper limit is reached or when the task is detached.
-    std::unordered_map<std::string, std::shared_ptr<MemTracker>> _mem_trackers;
-    std::string _tracker_id;
-    std::unordered_map<std::string, int64_t> _untracked_mems;
+    // NOTE: flat_hash_map, int replaces string as key, all to improve the speed of map find,
+    //  the expected speed is increased by more than 10 times.
+    phmap::flat_hash_map<int64_t, std::shared_ptr<MemTracker>> _mem_trackers;
+    int64_t _tracker_id;
+    phmap::flat_hash_map<int64_t, int64_t> _untracked_mems;
 
     // Avoid memory allocation in functions and fall into an infinite loop
-    std::string _temp_tracker_id;
+    int64_t _temp_tracker_id;
     ConsumeErrCallBackInfo _temp_consume_err_cb;
     std::shared_ptr<MemTracker> _temp_task_mem_tracker;
 
@@ -160,21 +162,34 @@ private:
     ConsumeErrCallBackInfo _consume_err_cb;
 };
 
-inline std::string ThreadMemTrackerMgr::update_tracker(
-        const std::shared_ptr<MemTracker>& mem_tracker) {
+template <bool Existed>
+inline int64_t ThreadMemTrackerMgr::update_tracker(const std::shared_ptr<MemTracker>& mem_tracker) {
     DCHECK(mem_tracker);
     _temp_tracker_id = mem_tracker->id();
     if (_temp_tracker_id == _tracker_id) {
         return _tracker_id;
     }
-    if (_mem_trackers.find(_temp_tracker_id) == _mem_trackers.end()) {
-        _mem_trackers[_temp_tracker_id] = mem_tracker;
-        _untracked_mems[_temp_tracker_id] = 0;
+    if (Existed) {
+        DCHECK(_mem_trackers.find(_temp_tracker_id) != _mem_trackers.end());
+    } else {
+        if (_mem_trackers.find(_temp_tracker_id) == _mem_trackers.end()) {
+            _mem_trackers[_temp_tracker_id] = mem_tracker;
+            _untracked_mems[_temp_tracker_id] = 0;
+        }
     }
+
     _untracked_mems[_tracker_id] += _untracked_mem;
     _untracked_mem = 0;
     std::swap(_tracker_id, _temp_tracker_id);
     return _temp_tracker_id; // old tracker_id
+}
+
+inline void ThreadMemTrackerMgr::update_tracker_id(int64_t tracker_id) {
+    if (tracker_id != _tracker_id) {
+        _untracked_mems[_tracker_id] += _untracked_mem;
+        _untracked_mem = 0;
+        _tracker_id = tracker_id;
+    }
 }
 
 inline void ThreadMemTrackerMgr::cache_consume(int64_t size) {

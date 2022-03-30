@@ -80,7 +80,7 @@ Status TableFunctionNode::_prepare_output_slot_ids(const TPlanNode& tnode) {
 
 Status TableFunctionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
 
     _num_rows_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsFiltered", TUnit::UNIT);
 
@@ -93,7 +93,7 @@ Status TableFunctionNode::prepare(RuntimeState* state) {
 
 Status TableFunctionNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
 
@@ -188,7 +188,7 @@ bool TableFunctionNode::_roll_table_functions(int last_eos_idx) {
 Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
     const RowDescriptor& parent_rowdesc = row_batch->row_desc();
     const RowDescriptor& child_rowdesc = _children[0]->row_desc();

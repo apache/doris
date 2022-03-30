@@ -474,20 +474,20 @@ DataStreamRecvr::DataStreamRecvr(
 
 Status DataStreamRecvr::get_next(RowBatch* output_batch, bool* eos) {
     DCHECK(_merger.get() != nullptr);
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
     return _merger->get_next(output_batch, eos);
 }
 
 void DataStreamRecvr::add_batch(const PRowBatch& batch, int sender_id, int be_number,
                                 int64_t packet_seq, ::google::protobuf::Closure** done) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int use_sender_id = _is_merging ? sender_id : 0;
     // Add all batches to the same queue if _is_merging is false.
     _sender_queues[use_sender_id]->add_batch(batch, be_number, packet_seq, done);
 }
 
 void DataStreamRecvr::add_batch(RowBatch* batch, int sender_id, bool use_move) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_batch(batch, use_move);
 }

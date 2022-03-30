@@ -146,6 +146,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
+    ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
@@ -445,7 +446,7 @@ Status VOlapScanNode::close(RuntimeState* state) {
 Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
     // check if Canceled.
     if (state->is_cancelled()) {

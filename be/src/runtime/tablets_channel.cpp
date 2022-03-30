@@ -79,7 +79,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         PTabletWriterAddBatchResult* response) {
     DCHECK(request.tablet_ids_size() == request.row_batch().num_rows());
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t cur_seq;
     {
         std::lock_guard<std::mutex> l(_lock);

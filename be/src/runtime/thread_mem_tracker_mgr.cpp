@@ -37,9 +37,9 @@ void ThreadMemTrackerMgr::attach_task(const std::string& cancel_msg, const std::
         _temp_task_mem_tracker =
                 ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_task_mem_tracker(
                         task_id);
-        update_tracker(_temp_task_mem_tracker);
+        update_tracker<false>(_temp_task_mem_tracker);
     } else {
-        update_tracker(mem_tracker);
+        update_tracker<false>(mem_tracker);
     }
 }
 
@@ -48,13 +48,13 @@ void ThreadMemTrackerMgr::detach_task() {
     _fragment_instance_id = TUniqueId();
     _consume_err_cb.init();
     clear_untracked_mems();
-    _tracker_id = "process";
+    _tracker_id = 0;
     // The following memory changes for the two map operations of _untracked_mems and _mem_trackers
     // will be re-recorded in _untracked_mem.
     _untracked_mems.clear();
-    _untracked_mems["process"] = 0;
+    _untracked_mems[0] = 0;
     _mem_trackers.clear();
-    _mem_trackers["process"] = MemTracker::get_process_tracker();
+    _mem_trackers[0] = MemTracker::get_process_tracker();
 }
 
 void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {
@@ -72,7 +72,8 @@ void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details
 
 void ThreadMemTrackerMgr::exceeded(int64_t mem_usage, Status st) {
     auto rst = _mem_trackers[_tracker_id]->mem_limit_exceeded(
-            nullptr, fmt::format("In TCMalloc Hook, {}", _consume_err_cb.cancel_msg), mem_usage, st);
+            nullptr, fmt::format("In TCMalloc Hook, {}", _consume_err_cb.cancel_msg), mem_usage,
+            st);
     if (_consume_err_cb.cb_func != nullptr) {
         _consume_err_cb.cb_func();
     }

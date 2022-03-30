@@ -42,9 +42,11 @@
 // tracker again in the short term, can consider manually clear_untracked_mems.
 // The query thread will automatically clear_untracked_mems when detach_task.
 #define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
-    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker, false)
+    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker<false>(mem_tracker, false)
 #define SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
-    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker, true);
+    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker<false>(mem_tracker, true);
+#define SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker) \
+    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker<true>(mem_tracker, true)
 // After the non-query thread switches the mem tracker, if the thread will not switch the mem
 // tracker again in the short term, can consider manually clear_untracked_mems.
 // The query thread will automatically clear_untracked_mems when detach_task.
@@ -53,6 +55,8 @@
 #define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(action_type, ...) \
     auto VARNAME_LINENUM(witch_tracker_cb) =                            \
             SwitchThreadMemTrackerErrCallBack(action_type, ##__VA_ARGS__)
+#define ADD_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
+    thread_local_ctx.get()->_thread_mem_tracker_mgr->add_tracker(mem_tracker)
 
 namespace doris {
 
@@ -250,36 +254,48 @@ private:
     bool _scope;
 };
 
+template <bool Existed>
 class SwitchThreadMemTracker {
 public:
     explicit SwitchThreadMemTracker(const std::shared_ptr<MemTracker>& mem_tracker,
                                     bool in_task = true) {
+        if (config::memory_verbose_track) {
 #ifndef BE_TEST
-        DCHECK(mem_tracker);
-        // The thread tracker must be switched after the attach task, otherwise switching
-        // in the main thread will cause the cached tracker not be cleaned up in time.
-        DCHECK(in_task == false ||
-               thread_local_ctx.get()->_thread_mem_tracker_mgr->is_attach_task());
-        _old_tracker_id =
-                thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker(mem_tracker);
+            DCHECK(mem_tracker);
+            // The thread tracker must be switched after the attach task, otherwise switching
+            // in the main thread will cause the cached tracker not be cleaned up in time.
+            DCHECK(in_task == false ||
+                   thread_local_ctx.get()->_thread_mem_tracker_mgr->is_attach_task());
+            if (Existed) {
+                _old_tracker_id =
+                        thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker<true>(
+                                mem_tracker);
+            } else {
+                _old_tracker_id =
+                        thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker<false>(
+                                mem_tracker);
+            }
 #endif
+        }
     }
 
     ~SwitchThreadMemTracker() {
+        if (config::memory_verbose_track) {
 #ifndef BE_TEST
-        thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker_id(_old_tracker_id);
-        DorisMetrics::instance()->switch_thread_mem_tracker_count->increment(1);
+            thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker_id(_old_tracker_id);
+            DorisMetrics::instance()->switch_thread_mem_tracker_count->increment(1);
 #endif
+        }
     }
 
 protected:
-    std::string _old_tracker_id;
+    int64_t _old_tracker_id;
 };
 
-class SwitchThreadMemTrackerEndClear : public SwitchThreadMemTracker {
+class SwitchThreadMemTrackerEndClear : public SwitchThreadMemTracker<false> {
 public:
     explicit SwitchThreadMemTrackerEndClear(const std::shared_ptr<MemTracker>& mem_tracker)
-            : SwitchThreadMemTracker(mem_tracker, false) {}
+            : SwitchThreadMemTracker<false>(mem_tracker, false) {}
 
     ~SwitchThreadMemTrackerEndClear() {
         thread_local_ctx.get()->_thread_mem_tracker_mgr->clear_untracked_mems();

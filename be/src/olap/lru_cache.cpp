@@ -344,7 +344,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     return reinterpret_cast<Cache::Handle*>(e);
 }
 
-void LRUCache::erase(const CacheKey& key, uint32_t hash, MemTracker* tracker) {
+void LRUCache::erase(const CacheKey& key, uint32_t hash) {
     LRUHandle* e = nullptr;
     bool last_ref = false;
     {
@@ -496,7 +496,7 @@ void ShardedLRUCache::release(Handle* handle) {
 void ShardedLRUCache::erase(const CacheKey& key) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     const uint32_t hash = _hash_slice(key);
-    _shards[_shard(hash)]->erase(key, hash, _mem_tracker.get());
+    _shards[_shard(hash)]->erase(key, hash);
 }
 
 void* ShardedLRUCache::value(Handle* handle) {

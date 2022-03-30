@@ -118,7 +118,7 @@ MemTracker::MemTracker(int64_t byte_limit, const std::string& label,
                        RuntimeProfile* profile)
         : _limit(byte_limit),
           _label(label),
-          _id(_label + std::to_string(GetCurrentTimeMicros()) + std::to_string(rand())),
+          _id((GetCurrentTimeMicros() % 1000000) * 100 + _label.length()),
           _parent(parent),
           _level(level) {
     if (profile == nullptr) {
