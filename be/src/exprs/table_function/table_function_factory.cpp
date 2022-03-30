@@ -86,7 +86,8 @@ const std::unordered_map<std::pair<std::string, bool>, std::function<TableFuncti
                 {{"explode_json_array_string", true}, VExplodeJsonArrayStringCreator},
                 {{"explode_bitmap", true},
                  TableFunctionCreator<vectorized::VExplodeBitmapTableFunction>()},
-                {{"explode", true}, TableFunctionCreator<vectorized::VExplodeTableFunction>()}};
+                {{"explode", true}, TableFunctionCreator<vectorized::VExplodeTableFunction>()},
+                {{"explode_outer", true}, TableFunctionCreator<vectorized::VExplodeTableFunction>()}};
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name, bool is_vectorized,
                                     ObjectPool* pool, TableFunction** fn) {

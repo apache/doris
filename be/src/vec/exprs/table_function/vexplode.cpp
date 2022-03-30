@@ -22,7 +22,7 @@
 namespace doris::vectorized {
 
 VExplodeTableFunction::VExplodeTableFunction() {
-    _fn_name = "vexplode";
+    _fn_name = "vexplode_outer";
 }
 
 Status VExplodeTableFunction::process_init(vectorized::Block* block) {

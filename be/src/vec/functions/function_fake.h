@@ -78,7 +78,7 @@ struct FunctionExplodeBitmapImpl {
 };
 
 struct FunctionExplodeImpl {
-    static constexpr auto name = "explode";
+    static constexpr auto name = "explode_outer";
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
         return make_nullable(
