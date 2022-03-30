@@ -46,10 +46,11 @@ static std::string to_upper(const std::string& str) {
     return out;
 }
 
-// Currently, both of two following formats are supported(see be.conf)
+// Currently, both of three following formats are supported(see be.conf), remote cache is the
+// local cache path for remote storage.
 //   format 1:   /home/disk1/palo.HDD,50
 //   format 2:   /home/disk1/palo,medium:ssd,capacity:50
-//   s3 format:  /home/disk/palo/cache,medium:s3,capacity:50,remote:s3://bucket_name/palo/storage
+//   remote cache format:  /home/disk/palo/cache,medium:remote_cache,capacity:50
 OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
     std::vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
 

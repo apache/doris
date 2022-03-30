@@ -208,6 +208,8 @@ struct FilePathDesc {
         }
         return ss.str();
     }
+    // REMOTE_CACHE is the local cache path for remote path, if a data_dir is REMOTE_CACHE,
+    // it means the tablet in it will be set as a remote path.
     static bool is_remote(TStorageMedium::type checked_storage_medium) {
         return checked_storage_medium == TStorageMedium::S3 || checked_storage_medium == TStorageMedium::REMOTE_CACHE;
     }
