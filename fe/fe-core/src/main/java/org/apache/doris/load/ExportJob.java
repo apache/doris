@@ -252,8 +252,38 @@ public class ExportJob implements Writable {
         } catch (URISyntaxException e) {
             throw new DdlException("Invalid export path: " + getExportPath());
         }
-        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc);
+        String headerStr = genHeader(this.properties);
+        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc, headerStr);
         plan();
+    }
+
+    private String genHeader(Map<String, String> properties) {
+        String header = "";
+        if (properties.containsKey("format")){
+            String headerType = properties.get("format");
+            if (headerType.equals("csv_with_names")){
+                //names
+                for (SlotDescriptor slot : exportTupleDesc.getSlots()){
+                    header = header + slot.getColumn().getName() + getColumnSeparator();
+                }
+                header = header.substring(0, header.length() - getColumnSeparator().length());
+                header = header + getLineDelimiter();
+            }else if (headerType.equals("csv_with_names_and_types")) {
+                //names
+                for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
+                    header = header + slot.getColumn().getName() + getColumnSeparator();
+                }
+                header = header.substring(0, header.length() - getColumnSeparator().length());
+                header = header + getLineDelimiter();
+                //types 
+                for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
+                    header = header + slot.getColumn().getType().toString() + getColumnSeparator();
+                }
+                header = header.substring(0,header.length() - getColumnSeparator().length());
+                header = header + getLineDelimiter();
+            }
+        }
+        return header;
     }
 
     private void registerToDesc() throws UserException {

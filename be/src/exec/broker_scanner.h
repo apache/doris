@@ -111,7 +111,7 @@ private:
 
     // When we fetch range doesn't start from 0,
     // we will read to one ahead, and skip the first line
-    bool _skip_next_line;
+    int _skip_next_line;
 
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;

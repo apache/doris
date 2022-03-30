@@ -409,7 +409,10 @@ public class BrokerScanNode extends LoadScanNode {
                 return TFileFormatType.FORMAT_ORC;
             } else if (fileFormat.toLowerCase().equals("json")) {
                 return TFileFormatType.FORMAT_JSON;
-            } else if (fileFormat.toLowerCase().equals("csv")) {
+            // csv/csv_with_name/csv_with_names_and_types treat as csv format
+            } else if (fileFormat.toLowerCase().equals("csv") 
+                || fileFormat.toLowerCase().equals("csv_with_names")
+                || fileFormat.toLowerCase().equals("csv_with_names_and_types")) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;
             } else {
                 throw new UserException("Not supported file format: " + fileFormat);
@@ -437,6 +440,16 @@ public class BrokerScanNode extends LoadScanNode {
     public String getHostUri() throws UserException {
         return "";
     }
+    
+    private String getHeaderType(String format_type){
+        if(format_type!=null){
+            if(format_type.toLowerCase().equals("csv_with_names")
+               || format_type.toLowerCase().equals("csv_with_names_and_types")){
+                return format_type;
+            }
+        }
+        return "";        
+    }
 
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void processFileGroup(
@@ -458,6 +471,8 @@ public class BrokerScanNode extends LoadScanNode {
             TBrokerFileStatus fileStatus = fileStatuses.get(i);
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
+            //header_type 
+            String header_type = getHeaderType(context.fileGroup.getFileFormat());
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
                     context.fileGroup.getColumnsFromPath());
@@ -468,7 +483,7 @@ public class BrokerScanNode extends LoadScanNode {
                         || formatType == TFileFormatType.FORMAT_JSON) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
-                            rangeBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc);
+                            rangeBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
                     if (formatType == TFileFormatType.FORMAT_JSON) {
                         rangeDesc.setStripOuterArray(context.fileGroup.isStripOuterArray());
                         rangeDesc.setJsonpaths(context.fileGroup.getJsonPaths());
@@ -482,7 +497,7 @@ public class BrokerScanNode extends LoadScanNode {
 
                 } else {
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
-                            leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc);
+                            leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
                     rangeDesc.setHdfsParams(tHdfsParams);
                     rangeDesc.setReadByColumnDef(true);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
@@ -497,7 +512,7 @@ public class BrokerScanNode extends LoadScanNode {
 
             } else {
                 TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
-                        leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc);
+                        leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
                 if (formatType == TFileFormatType.FORMAT_JSON) {
                     rangeDesc.setStripOuterArray(context.fileGroup.isStripOuterArray());
                     rangeDesc.setJsonpaths(context.fileGroup.getJsonPaths());
@@ -524,7 +539,7 @@ public class BrokerScanNode extends LoadScanNode {
     private TBrokerRangeDesc createBrokerRangeDesc(long curFileOffset, TBrokerFileStatus fileStatus,
                                                    TFileFormatType formatType, long rangeBytes,
                                                    List<String> columnsFromPath, int numberOfColumnsFromFile,
-                                                   BrokerDesc brokerDesc) {
+                                                   BrokerDesc brokerDesc, String headerType) {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.setFileType(brokerDesc.getFileType());
         rangeDesc.setFormatType(formatType);
@@ -535,6 +550,7 @@ public class BrokerScanNode extends LoadScanNode {
         rangeDesc.setFileSize(fileStatus.size);
         rangeDesc.setNumOfColumnsFromFile(numberOfColumnsFromFile);
         rangeDesc.setColumnsFromPath(columnsFromPath);
+        rangeDesc.setHeaderType(headerType);
         // set hdfs params for hdfs file type.
         switch (brokerDesc.getFileType()) {
             case FILE_HDFS:

@@ -108,6 +108,7 @@ struct TExportSink {
     // properties need to access broker.
     5: optional list<Types.TNetworkAddress> broker_addresses
     6: optional map<string, string> properties
+    7: optional string header
 }
 
 struct TOlapTableSink {

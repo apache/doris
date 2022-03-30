@@ -96,6 +96,13 @@ Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
     int num_rows = batch->num_rows();
     // we send at most 1024 rows at a time
     int batch_send_rows = num_rows > 1024 ? 1024 : num_rows;
+    if (_t_export_sink.header.size() > 0) {
+        size_t written_len = 0;
+        RETURN_IF_ERROR(
+                _file_writer->write(reinterpret_cast<const uint8_t*>(_t_export_sink.header.c_str()),
+                                    _t_export_sink.header.size(), &written_len));
+        _t_export_sink.header = "";
+    }
     std::stringstream ss;
     for (int i = 0; i < num_rows;) {
         ss.str("");
