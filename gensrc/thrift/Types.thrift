@@ -80,7 +80,7 @@ enum TPrimitiveType {
   MAP,
   STRUCT,
   STRING,
-  ALL
+  ALL,
 }
 
 enum TTypeNodeType {
