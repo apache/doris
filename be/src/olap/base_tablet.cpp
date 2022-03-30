@@ -17,7 +17,6 @@
 
 #include "olap/base_tablet.h"
 
-#include "env/env_remote_mgr.h"
 #include "gutil/strings/substitute.h"
 #include "olap/data_dir.h"
 #include "util/doris_metrics.h"

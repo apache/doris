@@ -33,7 +33,6 @@
 #include <sstream>
 
 #include "env/env_util.h"
-#include "env/env_remote_mgr.h"
 #include "gutil/strings/substitute.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"

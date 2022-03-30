@@ -30,7 +30,6 @@
 #include <filesystem>
 
 #include "env/env.h"
-#include "env/env_remote_mgr.h"
 #include "env/env_util.h"
 #include "gutil/strings/strcat.h"
 #include "olap/base_compaction.h"
