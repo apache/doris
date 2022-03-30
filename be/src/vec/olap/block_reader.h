@@ -53,7 +53,7 @@ private:
     friend class VCollectIterator;
     friend class DeleteHandler;
 
-    // Direcly read row from rowset and pass to upper caller. No need to do aggregation.
+    // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     OLAPStatus _direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
     // Just same as _direct_next_block, but this is only for AGGREGATE KEY tables.
