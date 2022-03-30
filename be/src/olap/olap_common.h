@@ -263,6 +263,9 @@ struct OlapReaderStatistics {
     int64_t rows_vec_cond_filtered = 0;
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
+    int64_t short_cond_ns = 0;
+    int64_t pred_col_read_ns = 0;
+    int64_t lazy_read_ns = 0;
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;

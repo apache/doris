@@ -236,6 +236,9 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms, % non-child: 0.00%)
       - TotalPagesNum: 30               # 仅 V2 中，读取的总 Page 数量。
       - UncompressedBytesRead: 0.00     # V1 中为读取的数据文件解压后的大小（如果文件无需解压，则直接统计文件大小）。V2 中，仅统计未命中 PageCache 的 Page 解压后的大小（如果Page无需解压，直接统计Page大小）
       - VectorPredEvalTime: 0ns         # 向量化条件过滤操作的耗时。
+      - ShortPredEvalTime: 0ns          # 短路谓词过滤操作的耗时。
+      - PredColumnReadTime: 0ns         # 谓词列读取的耗时。
+      - LazyReadTime: 0ns               # 非谓词列读取的耗时。
 ```
 
 通过 Profile 中数据行数相关指标可以推断谓词条件下推和索引使用情况。以下仅针对 Segment V2 格式数据读取流程中的 Profile 进行说明。Segment V1 格式中，这些指标的含义略有不同。

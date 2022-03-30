@@ -499,29 +499,32 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
 
     // phase 1: read rows selected by various index (indicated by _row_bitmap) into block
     // when using lazy-materialization-read, only columns with predicates are read
-    do {
-        uint32_t range_from;
-        uint32_t range_to;
-        bool has_next_range =
-                _range_iter->next_range(nrows_read_limit - nrows_read, &range_from, &range_to);
-        if (!has_next_range) {
-            break;
-        }
-        if (_cur_rowid == 0 || _cur_rowid != range_from) {
-            _cur_rowid = range_from;
-            RETURN_IF_ERROR(_seek_columns(read_columns, _cur_rowid));
-        }
-        size_t rows_to_read = range_to - range_from;
-        RETURN_IF_ERROR(_read_columns(read_columns, block, nrows_read, rows_to_read));
-        _cur_rowid += rows_to_read;
-        if (_lazy_materialization_read) {
-            for (uint32_t rid = range_from; rid < range_to; rid++) {
-                _block_rowids[nrows_read++] = rid;
+    {
+        SCOPED_RAW_TIMER(&_opts.stats->pred_col_read_ns);
+        do {
+            uint32_t range_from;
+            uint32_t range_to;
+            bool has_next_range =
+                    _range_iter->next_range(nrows_read_limit - nrows_read, &range_from, &range_to);
+            if (!has_next_range) {
+                break;
             }
-        } else {
-            nrows_read += rows_to_read;
-        }
-    } while (nrows_read < nrows_read_limit);
+            if (_cur_rowid == 0 || _cur_rowid != range_from) {
+                _cur_rowid = range_from;
+                RETURN_IF_ERROR(_seek_columns(read_columns, _cur_rowid));
+            }
+            size_t rows_to_read = range_to - range_from;
+            RETURN_IF_ERROR(_read_columns(read_columns, block, nrows_read, rows_to_read));
+            _cur_rowid += rows_to_read;
+            if (_lazy_materialization_read) {
+                for (uint32_t rid = range_from; rid < range_to; rid++) {
+                    _block_rowids[nrows_read++] = rid;
+                }
+            } else {
+                nrows_read += rows_to_read;
+            }
+        } while (nrows_read < nrows_read_limit);
+    }
 
     block->set_num_rows(nrows_read);
     block->set_selected_size(nrows_read);
@@ -559,6 +562,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
 
     // phase 3: read non-predicate columns of rows that have passed predicates
     if (_lazy_materialization_read) {
+        SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
         uint16_t i = 0;
         const uint16_t* sv = block->selection_vector();
         const uint16_t sv_size = block->selected_size();
@@ -766,6 +770,7 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block, bool is
 
 Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32_t& nrows_read,
                                                bool set_block_rowid) {
+    SCOPED_RAW_TIMER(&_opts.stats->pred_col_read_ns);
     do {
         uint32_t range_from;
         uint32_t range_to;
@@ -795,6 +800,7 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 
 void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                         uint16_t& selected_size) {
+    SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
     if (_vec_pred_column_ids.empty()) {
         for (uint32_t i = 0; i < selected_size; ++i) {
             sel_rowid_idx[i] = i;
@@ -835,6 +841,7 @@ void SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
 
 void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_idx,
                                                         uint16_t* selected_size_ptr) {
+    SCOPED_RAW_TIMER(&_opts.stats->short_cond_ns);
     if (_short_cir_pred_column_ids.empty()) {
         return;
     }
@@ -861,6 +868,7 @@ void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column
                                               std::vector<rowid_t>& rowid_vector,
                                               uint16_t* sel_rowid_idx, size_t select_size,
                                               vectorized::MutableColumns* mutable_columns) {
+    SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     size_t start_idx = 0;
     while (start_idx < select_size) {
         size_t end_idx = start_idx + 1;
