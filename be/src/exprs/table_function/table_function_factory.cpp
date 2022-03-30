@@ -22,8 +22,12 @@
 #include "exprs/table_function/explode_json_array.h"
 #include "exprs/table_function/explode_split.h"
 #include "exprs/table_function/table_function.h"
+<<<<<<< HEAD
 #include "vec/exprs/table_function/vexplode_bitmap.h"
 #include "vec/exprs/table_function/vexplode_json_array.h"
+=======
+#include "vec/exprs/table_function/vexplode.h"
+>>>>>>> add codes for explode table function
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
 
@@ -81,7 +85,8 @@ const std::unordered_map<std::pair<std::string, bool>, std::function<TableFuncti
                 {{"explode_json_array_double", true}, VExplodeJsonArrayDoubleCreator},
                 {{"explode_json_array_string", true}, VExplodeJsonArrayStringCreator},
                 {{"explode_bitmap", true},
-                 TableFunctionCreator<vectorized::VExplodeBitmapTableFunction>()}};
+                 TableFunctionCreator<vectorized::VExplodeBitmapTableFunction>()},
+                {{"explode", true}, TableFunctionCreator<vectorized::VExplodeTableFunction>()}};
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name, bool is_vectorized,
                                     ObjectPool* pool, TableFunction** fn) {

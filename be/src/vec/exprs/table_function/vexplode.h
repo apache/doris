@@ -15,19 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/function_fake.h"
+#pragma once
+
+#include "exprs/table_function/table_function.h"
+#include "vec/common/string_ref.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris::vectorized {
 
-void register_function_fake(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionFake<FunctionEsqueryImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeSplitImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeNumbersImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayDoubleImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayIntImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayStringImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeBitmapImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeImpl>>();
-}
+class VExplodeTableFunction : public TableFunction {
+public:
+    VExplodeTableFunction();
+    virtual ~VExplodeTableFunction() = default;
+
+    virtual Status process_init(vectorized::Block* block) override;
+    virtual Status process_row(size_t row_idx) override;
+    virtual Status process_close() override;
+    virtual Status reset() override;
+    virtual Status get_value(void** output) override;
+    virtual Status get_value_length(int64_t* length) override;
+
+private:
+    const UInt8* _array_null_map;
+    const ColumnArray* _array_column;
+    size_t _pos;
+};
 
 } // namespace doris::vectorized
