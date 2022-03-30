@@ -100,8 +100,8 @@ public class DistributedPlanner {
         double autoBroadcastJoinThresholdPercentage = ctx_.getQueryOptions().getAutoBroadcastJoinThreshold();
         if (autoBroadcastJoinThresholdPercentage > 1) {
             autoBroadcastJoinThresholdPercentage = 1.0;
-        } else if (autoBroadcastJoinThresholdPercentage < 0) {
-            autoBroadcastJoinThresholdPercentage = 0.0;
+        } else if (autoBroadcastJoinThresholdPercentage <= 0) {
+            autoBroadcastJoinThresholdPercentage = -1.0;
         }
         long autoBroadcastJoinThreshold = (long)(perNodeMemLimit * autoBroadcastJoinThresholdPercentage);
         if (LOG.isDebugEnabled()) {

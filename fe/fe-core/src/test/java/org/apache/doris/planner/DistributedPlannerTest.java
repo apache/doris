@@ -160,7 +160,7 @@ public class DistributedPlannerTest {
 
         double originThreshold = ctx.getSessionVariable().autoBroadcastJoinThreshold;
         try {
-            ctx.getSessionVariable().autoBroadcastJoinThreshold = -1L;
+            ctx.getSessionVariable().autoBroadcastJoinThreshold = -1.0;
             stmtExecutor = new StmtExecutor(ctx, sql);
             stmtExecutor.execute();
             planner = stmtExecutor.planner();
