@@ -203,7 +203,7 @@ public class InsertStmt extends DdlStmt {
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tblName.getTbl());
+                                                ConnectContext.get().getRemoteIP(), dbName + ": " + tableName);
         }
 
         tableMap.put(table.getId(), table);
@@ -271,7 +271,7 @@ public class InsertStmt extends DdlStmt {
                                                                 tblName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tblName.getTbl());
+                                                ConnectContext.get().getRemoteIP(), tblName.getDb() + ": " + tblName.getTbl());
         }
 
         // check partition
@@ -301,7 +301,6 @@ public class InsertStmt extends DdlStmt {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
         }
         if (!isExplain() && !isTransactionBegin) {
-
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 MetricRepo.COUNTER_LOAD_ADD.increase(1L);
@@ -318,7 +317,7 @@ public class InsertStmt extends DdlStmt {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism);
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false);
         }
     }
 
@@ -420,11 +419,8 @@ public class InsertStmt extends DdlStmt {
             }
             // hll column mush in mentionedColumns
             for (Column col : targetTable.getBaseSchema()) {
-                if (col.getType().isHllType() && !mentionedColumns.contains(col.getName())) {
-                    throw new AnalysisException (" hll column " + col.getName() + " mush in insert into columns");
-                }
-                if (col.getType().isBitmapType() && !mentionedColumns.contains(col.getName())) {
-                    throw new AnalysisException (" object column " + col.getName() + " mush in insert into columns");
+                if (col.getType().isObjectStored() && !mentionedColumns.contains(col.getName())) {
+                    throw new AnalysisException (" object-stored column " + col.getName() + " mush in insert into columns");
                 }
             }
         }
@@ -511,7 +507,9 @@ public class InsertStmt extends DdlStmt {
             } else {
                 // INSERT INTO SELECT 1,2,3 ...
                 List<ArrayList<Expr>> rows = Lists.newArrayList();
-                rows.add(selectStmt.getResultExprs());
+                // ATTN: must copy the `selectStmt.getResultExprs()`, otherwise the following
+                // `selectStmt.getResultExprs().clear();` will clear the `rows` too, causing error.
+                rows.add(Lists.newArrayList(selectStmt.getResultExprs()));
                 analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
@@ -595,7 +593,7 @@ public class InsertStmt extends DdlStmt {
         ArrayList<Expr> row = rows.get(rowIdx);
         if (!origColIdxsForExtendCols.isEmpty()) {
             /**
-             * we should extends the row for shadow columns.
+             * we should extend the row for shadow columns.
              * eg:
              *      the origin row has exprs: (expr1, expr2, expr3), and targetColumns is (A, B, C, __doris_shadow_b)
              *      after processing, extentedRow is (expr1, expr2, expr3, expr2)
@@ -604,9 +602,7 @@ public class InsertStmt extends DdlStmt {
             extentedRow.addAll(row);
             
             for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
-                if (entry == null) {
-                    extentedRow.add(extentedRow.get(entry.first));
-                } else {
+                if (entry != null) {
                     if (entry.second == null) {
                         extentedRow.add(extentedRow.get(entry.first));
                     } else {
@@ -669,7 +665,7 @@ public class InsertStmt extends DdlStmt {
     }
 
     public void prepareExpressions() throws UserException {
-        List<Expr> selectList = Expr.cloneList(queryStmt.getBaseTblResultExprs());
+        List<Expr> selectList = Expr.cloneList(queryStmt.getResultExprs());
         // check type compatibility
         int numCols = targetColumns.size();
         for (int i = 0; i < numCols; ++i) {

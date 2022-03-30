@@ -25,17 +25,18 @@ namespace doris {
 class Status;
 class RowBatch;
 class RuntimeState;
-class TypeDescriptor;
+struct TypeDescriptor;
 
 namespace vectorized {
-    class Block;
+class Block;
 }
 
 // abstract class of the result writer
 class ResultWriter {
 public:
     ResultWriter() {};
-    ~ResultWriter(){};
+    ResultWriter(bool output_object_data) : _output_object_data(output_object_data) {};
+    ~ResultWriter() {};
 
     virtual Status init(RuntimeState* state) = 0;
     // convert and write one row batch
@@ -49,10 +50,13 @@ public:
 
     virtual int64_t get_written_rows() const { return _written_rows; }
 
+    virtual bool output_object_data() const { return _output_object_data; }
+
     static const std::string NULL_IN_CSV;
 
 protected:
     int64_t _written_rows = 0; // number of rows written
+    bool _output_object_data = false;
 };
 
 } // namespace doris

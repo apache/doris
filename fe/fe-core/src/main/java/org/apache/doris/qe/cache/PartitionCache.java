@@ -62,8 +62,8 @@ public class PartitionCache extends Cache {
         return nokeyStmt;
     }
 
-    private String getSqlWithViewStmt() {
-        return nokeyStmt.toSql() + allViewExpandStmtListStr;
+    public String getSqlWithViewStmt() {
+        return nokeyStmt.toSql() + "|" + allViewExpandStmtListStr;
     }
 
     public PartitionCache(TUniqueId queryId, SelectStmt selectStmt) {

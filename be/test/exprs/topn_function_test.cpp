@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/anyval_util.h"
-#include "exprs/expr_context.h"
 #include "exprs/topn_function.h"
-#include "util/topn_counter.h"
-#include "testutil/function_utils.h"
-#include "zipf_distribution.h"
-#include "test_util/test_util.h"
 
 #include <gtest/gtest.h>
+
 #include <unordered_map>
 
+#include "exprs/anyval_util.h"
+#include "exprs/expr_context.h"
+#include "test_util/test_util.h"
+#include "testutil/function_utils.h"
+#include "util/topn_counter.h"
+#include "zipf_distribution.h"
 
 namespace doris {
 
@@ -34,13 +35,14 @@ static const uint32_t TOTAL_RECORDS = LOOP_LESS_OR_MORE(1000, 1000000);
 static const uint32_t PARALLEL = 10;
 
 std::string gen_random(const int len) {
-    std::string possible_characters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    std::string possible_characters =
+            "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     std::random_device rd;
     std::mt19937 generator(rd());
-    std::uniform_int_distribution<> dist(0, possible_characters.size()-1);
+    std::uniform_int_distribution<> dist(0, possible_characters.size() - 1);
 
     std::string rand_str(len, '\0');
-    for(auto& dis: rand_str) {
+    for (auto& dis : rand_str) {
         dis = possible_characters[dist(generator)];
     }
     return rand_str;
@@ -55,16 +57,15 @@ public:
         ctx = utils->get_fn_ctx();
     }
 
-    void TearDown() {
-        delete utils;
-    }
+    void TearDown() { delete utils; }
 
 private:
-    FunctionUtils *utils;
-    FunctionContext *ctx;
+    FunctionUtils* utils;
+    FunctionContext* ctx;
 };
 
-void update_accuracy_map(const std::string& item, std::unordered_map<std::string, uint32_t>& accuracy_map) {
+void update_accuracy_map(const std::string& item,
+                         std::unordered_map<std::string, uint32_t>& accuracy_map) {
     if (accuracy_map.find(item) != accuracy_map.end()) {
         ++accuracy_map[item];
     } else {
@@ -72,14 +73,18 @@ void update_accuracy_map(const std::string& item, std::unordered_map<std::string
     }
 }
 
-void topn_single(FunctionContext* ctx, std::string& random_str, StringVal& dst, std::unordered_map<std::string, uint32_t>& accuracy_map){
-    TopNFunctions::topn_update(ctx, StringVal(((uint8_t*) random_str.data()), random_str.length()), TOPN_NUM, &dst);
+void topn_single(FunctionContext* ctx, std::string& random_str, StringVal& dst,
+                 std::unordered_map<std::string, uint32_t>& accuracy_map) {
+    TopNFunctions::topn_update(ctx, StringVal(((uint8_t*)random_str.data()), random_str.length()),
+                               TOPN_NUM, &dst);
     update_accuracy_map(random_str, accuracy_map);
 }
 
-void test_topn_accuracy(FunctionContext* ctx, int key_space, int space_expand_rate, double zipf_distribution_exponent) {
-    LOG(INFO) << "topn accuracy : " << "key space : "  << key_space << " , space_expand_rate : " << space_expand_rate <<
-        " , zf exponent : " << zipf_distribution_exponent;
+void test_topn_accuracy(FunctionContext* ctx, int key_space, int space_expand_rate,
+                        double zipf_distribution_exponent) {
+    LOG(INFO) << "topn accuracy : "
+              << "key space : " << key_space << " , space_expand_rate : " << space_expand_rate
+              << " , zf exponent : " << zipf_distribution_exponent;
     std::unordered_map<std::string, uint32_t> accuracy_map;
     // prepare random data
     std::vector<std::string> random_strs(key_space);
@@ -110,7 +115,7 @@ void test_topn_accuracy(FunctionContext* ctx, int key_space, int space_expand_ra
 
     std::random_device random_rd;
     std::mt19937 random_gen(random_rd());
-    std::uniform_int_distribution<> dist(0, PARALLEL-1);
+    std::uniform_int_distribution<> dist(0, PARALLEL - 1);
     for (uint32_t i = 0; i < TOTAL_RECORDS; ++i) {
         // generate zipf_distribution
         uint32_t index = zf(gen);
@@ -119,13 +124,14 @@ void test_topn_accuracy(FunctionContext* ctx, int key_space, int space_expand_ra
     }
 
     for (uint32_t i = 0; i < PARALLEL; ++i) {
-        StringVal serialized_str  = TopNFunctions::topn_serialize(ctx, single_dst_str[i]);
+        StringVal serialized_str = TopNFunctions::topn_serialize(ctx, single_dst_str[i]);
         TopNFunctions::topn_merge(ctx, serialized_str, &dst);
     }
 
     // get accuracy result
     std::vector<Counter> accuracy_sort_vec;
-    for(std::unordered_map<std::string, uint32_t >::const_iterator it = accuracy_map.begin(); it != accuracy_map.end(); ++it) {
+    for (std::unordered_map<std::string, uint32_t>::const_iterator it = accuracy_map.begin();
+         it != accuracy_map.end(); ++it) {
         accuracy_sort_vec.emplace_back(it->first, it->second);
     }
     std::sort(accuracy_sort_vec.begin(), accuracy_sort_vec.end(), TopNComparator());
@@ -143,8 +149,10 @@ void test_topn_accuracy(FunctionContext* ctx, int key_space, int space_expand_ra
         if (accuracy_counter.get_count() != topn_counter.get_count()) {
             ++error;
             LOG(INFO) << "Failed";
-            LOG(INFO) << "accuracy counter : (" << accuracy_counter.get_item() << ", " << accuracy_counter.get_count() << ")";
-            LOG(INFO) << "topn counter : (" << topn_counter.get_item() << ", " << topn_counter.get_count() << ")";
+            LOG(INFO) << "accuracy counter : (" << accuracy_counter.get_item() << ", "
+                      << accuracy_counter.get_count() << ")";
+            LOG(INFO) << "topn counter : (" << topn_counter.get_item() << ", "
+                      << topn_counter.get_count() << ")";
         }
     }
     error += std::abs((int32_t)(accuracy_sort_vec.size() - topn_sort_vec.size()));
@@ -165,7 +173,6 @@ TEST_F(TopNFunctionsTest, topn_accuracy) {
             }
         }
     }
-
 }
 
 TEST_F(TopNFunctionsTest, topn_update) {
@@ -220,44 +227,7 @@ TEST_F(TopNFunctionsTest, topn_merge) {
     ASSERT_EQ(expected, result);
 }
 
-TEST_F(TopNFunctionsTest, test_null_value) {
-    StringVal dst1;
-    TopNFunctions::topn_init(ctx, &dst1);
-
-    for (uint32_t i = 0; i < 10; ++i) {
-        TopNFunctions::topn_update(ctx, IntVal::null(), 2, &dst1);
-    }
-    StringVal serialized = TopNFunctions::topn_serialize(ctx, dst1);
-
-    StringVal dst2;
-    TopNFunctions::topn_init(ctx, &dst2);
-    TopNFunctions::topn_merge(ctx, serialized, &dst2);
-    StringVal result = TopNFunctions::topn_finalize(ctx, dst2);
-    StringVal expected("{}");
-    ASSERT_EQ(expected, result);
-}
-
-TEST_F(TopNFunctionsTest, test_date_type) {
-    StringVal dst1;
-    TopNFunctions::topn_init(ctx, &dst1);
-
-    DateTimeValue dt(20201001000000);
-    doris_udf::DateTimeVal dt_val;
-    dt.to_datetime_val(&dt_val);
-    for (uint32_t i = 0; i < 10; ++i) {
-        TopNFunctions::topn_update(ctx, dt_val, 1, &dst1);
-    }
-    StringVal serialized = TopNFunctions::topn_serialize(ctx, dst1);
-
-    StringVal dst2;
-    TopNFunctions::topn_init(ctx, &dst2);
-    TopNFunctions::topn_merge(ctx, serialized, &dst2);
-    StringVal result = TopNFunctions::topn_finalize(ctx, dst2);
-    StringVal expected("{\"2020-10-01 00:00:00\":10}");
-    ASSERT_EQ(expected, result);
-}
-
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

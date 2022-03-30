@@ -51,11 +51,11 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
-import com.google.common.base.Joiner;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -199,7 +199,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
                         isStrictMode(), transactionId, this, getTimeZone(), getTimeout(),
-                        getLoadParallelism(), getSendBatchParallelism(), enableProfile ? jobProfile : null);
+                        getLoadParallelism(), getSendBatchParallelism(),
+                        getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink());
+
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(aggKey),
@@ -218,7 +220,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 txnState.addTableIndexes(table);
             }
         } finally {
-           MetaLockUtils.readUnlockTables(tableList);
+            MetaLockUtils.readUnlockTables(tableList);
         }
         // Submit task outside the database lock, cause it may take a while if task queue is full.
         for (LoadTask loadTask : newLoadingTasks) {
@@ -275,6 +277,7 @@ public class BrokerLoadJob extends BulkLoadJob {
         try {
             db = getDb();
             tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
+            MetaLockUtils.writeLockTablesOrMetaException(tableList);
         } catch (MetaNotFoundException e) {
             LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("database_id", dbId)
@@ -283,7 +286,6 @@ public class BrokerLoadJob extends BulkLoadJob {
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
             return;
         }
-        MetaLockUtils.writeLockTables(tableList);
         try {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("txn_id", transactionId)
@@ -340,6 +342,8 @@ public class BrokerLoadJob extends BulkLoadJob {
             loadingStatus.setTrackingUrl(attachment.getTrackingUrl());
         }
         commitInfos.addAll(attachment.getCommitInfoList());
+        errorTabletInfos.addAll(attachment.getErrorTabletInfos());
+
         progress = (int) ((double) finishedTaskIds.size() / idToTasks.size() * 100);
         if (progress == 100) {
             progress = 99;

@@ -10,36 +10,44 @@
 #include "common/compiler_util.h"
 #include "common/logging.h"
 #include "gen_cpp/Status_types.h" // for TStatus
-#include "gen_cpp/status.pb.h"    // for PStatus
+#include "gen_cpp/types.pb.h"     // for PStatus
 #include "util/slice.h"           // for Slice
 
 namespace doris {
 
 class Status {
+    enum { 
+        // If the error and log returned by the query are truncated, the status to string may be too long.
+        STATE_CAPACITY = 2048,
+        HEADER_LEN = 7,
+        MESSAGE_LEN = STATE_CAPACITY - HEADER_LEN
+    };
 public:
-    Status() : _state(nullptr) {}
-    ~Status() noexcept { delete[] _state; }
+    Status() : _length(0) {}
 
     // copy c'tor makes copy of error detail so Status can be returned by value
-    Status(const Status& s) : _state(s._state == nullptr ? nullptr : copy_state(s._state)) {}
+    Status(const Status& rhs) {
+        *this = rhs;
+    }
+
+    // move c'tor
+    Status(Status&& rhs) {
+        *this = rhs;
+    }
 
     // same as copy c'tor
-    Status& operator=(const Status& s) {
-        // The following condition catches both aliasing (when this == &s),
-        // and the common case where both s and *this are OK.
-        if (_state != s._state) {
-            delete[] _state;
-            _state = (s._state == nullptr) ? nullptr : copy_state(s._state);
+    Status& operator=(const Status& rhs) {
+        if (rhs._length) {
+            memcpy(_state, rhs._state, rhs._length + Status::HEADER_LEN);
+        } else {
+            _length = 0;
         }
         return *this;
     }
 
-    // move c'tor
-    Status(Status&& s) noexcept : _state(s._state) { s._state = nullptr; }
-
     // move assign
-    Status& operator=(Status&& s) noexcept {
-        std::swap(_state, s._state);
+    Status& operator=(Status&& rhs) {
+        this->operator=(rhs);
         return *this;
     }
 
@@ -143,7 +151,8 @@ public:
         return Status(TStatusCode::DATA_QUALITY_ERROR, msg, precise_code, msg2);
     }
 
-    bool ok() const { return _state == nullptr; }
+    bool ok() const { return _length == 0; }
+    void set_ok() { _length = 0; }
 
     bool is_cancelled() const { return code() == TStatusCode::CANCELLED; }
     bool is_mem_limit_exceeded() const { return code() == TStatusCode::MEM_LIMIT_EXCEEDED; }
@@ -177,6 +186,7 @@ public:
 
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;
+    TStatus to_thrift() const;
     void to_protobuf(PStatus* status) const;
 
     std::string get_error_msg() const {
@@ -203,16 +213,11 @@ public:
     Slice message() const;
 
     TStatusCode::type code() const {
-        return _state == nullptr ? TStatusCode::OK : static_cast<TStatusCode::type>(_state[4]);
+        return ok() ? TStatusCode::OK : static_cast<TStatusCode::type>(_code);
     }
 
     int16_t precise_code() const {
-        if (_state == nullptr) {
-            return 0;
-        }
-        int16_t precise_code;
-        memcpy(&precise_code, _state + 5, sizeof(precise_code));
-        return precise_code;
+        return ok() ? 0 : _precise_code;
     }
 
     /// Clone this status and add the specified prefix to the message.
@@ -235,21 +240,66 @@ public:
     ///   trailing message.
     Status clone_and_append(const Slice& msg) const;
 
-    operator bool() { return this->ok(); }
+    operator bool() const { return this->ok(); }
 
 private:
-    const char* copy_state(const char* state);
+    void assemble_state(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2) {
+        DCHECK(code != TStatusCode::OK);
+        uint32_t len1 = msg.size;
+        uint32_t len2 = msg2.size;
+        uint32_t size = len1 + ((len2 > 0) ? (2 + len2) : 0);
 
-    Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2);
+        // limited to MESSAGE_LEN
+        if (UNLIKELY(size > MESSAGE_LEN)) {
+            std::string str = code_as_string();
+            str.append(": ");
+            str.append(msg.data, msg.size);
+            char buf[64] = {};
+            int n = snprintf(buf, sizeof(buf), " precise_code:%d ", precise_code);
+            str.append(buf, n);
+            str.append(msg2.data, msg2.size);
+            LOG(WARNING) << "warning: Status msg truncated, " << str;
+            size = MESSAGE_LEN;
+        }
+
+        _length = size;
+        _code = (char)code;
+        _precise_code = precise_code;
+
+        // copy msg
+        char* result =  _state + HEADER_LEN;
+        uint32_t len = std::min<uint32_t>(len1, MESSAGE_LEN);
+        memcpy(result, msg.data, len);
+
+        // copy msg2
+        if (len2 > 0 && len < MESSAGE_LEN - 2) {
+            result[len++] = ':'; 
+            result[len++] = ' ';
+            memcpy(&result[len], msg2.data, std::min<uint32_t>(len2, MESSAGE_LEN - len));
+        }
+    }
+
+    Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2) {
+        assemble_state(code, msg, precise_code, msg2);
+    }
 
 private:
-    // OK status has a nullptr _state.  Otherwise, _state is a new[] array
+    // OK status has a zero _length.  Otherwise, _state is a static array
     // of the following form:
     //    _state[0..3] == length of message
     //    _state[4]    == code
     //    _state[5..6] == precise_code
     //    _state[7..]  == message
-    const char* _state;
+    union {
+        char _state[STATE_CAPACITY];
+
+        struct {
+            int64_t _length : 32;       // message length
+            int64_t _code : 8;          
+            int64_t _precise_code : 16;
+            int64_t _message : 8;       // save message since here
+        };
+    };
 };
 
 // some generally useful macros
@@ -306,5 +356,8 @@ private:
         }                                                                      \
     } while (false);
 } // namespace doris
+#ifdef WARN_UNUSED_RESULT
+#undef WARN_UNUSED_RESULT
+#endif
 
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))

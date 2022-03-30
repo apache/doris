@@ -25,7 +25,6 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 
@@ -39,8 +38,8 @@ class IndexedColumnIterator;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(const std::string& file_name, const BitmapIndexPB* bitmap_index_meta)
-            : _file_name(file_name), _bitmap_index_meta(bitmap_index_meta) {
+    explicit BitmapIndexReader(const FilePathDesc& path_desc, const BitmapIndexPB* bitmap_index_meta)
+            : _path_desc(path_desc), _bitmap_index_meta(bitmap_index_meta) {
         _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
 
@@ -51,13 +50,13 @@ public:
 
     int64_t bitmap_nums() { return _bitmap_column_reader->num_values(); }
 
-    const TypeInfo* type_info() { return _typeinfo; }
+    std::shared_ptr<const TypeInfo> type_info() { return _typeinfo; }
 
 private:
     friend class BitmapIndexIterator;
 
-    std::string _file_name;
-    const TypeInfo* _typeinfo;
+    FilePathDesc _path_desc;
+    std::shared_ptr<const TypeInfo> _typeinfo;
     const BitmapIndexPB* _bitmap_index_meta;
     bool _has_null = false;
     std::unique_ptr<IndexedColumnReader> _dict_column_reader;
@@ -71,8 +70,7 @@ public:
               _dict_column_iter(reader->_dict_column_reader.get()),
               _bitmap_column_iter(reader->_bitmap_column_reader.get()),
               _current_rowid(0),
-              _tracker(new MemTracker()),
-              _pool(new MemPool(_tracker.get())) {}
+              _pool(new MemPool("BitmapIndexIterator")) {}
 
     bool has_null_bitmap() const { return _reader->_has_null; }
 
@@ -109,7 +107,6 @@ private:
     IndexedColumnIterator _dict_column_iter;
     IndexedColumnIterator _bitmap_column_iter;
     rowid_t _current_rowid;
-    std::shared_ptr<MemTracker> _tracker;
     std::unique_ptr<MemPool> _pool;
 };
 

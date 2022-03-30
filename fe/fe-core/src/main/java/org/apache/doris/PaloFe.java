@@ -38,9 +38,9 @@ import org.apache.doris.service.FrontendOptions;
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
 
-import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.logging.log4j.LogManager;
@@ -133,7 +133,7 @@ public class PaloFe {
             FeServer feServer = new FeServer(Config.rpc_port);
 
             feServer.start();
-            
+
             if (!Config.enable_http_server_v2) {
                 HttpServer httpServer = new HttpServer(
                         Config.http_port,
@@ -208,12 +208,12 @@ public class PaloFe {
      *
      */
     private static CommandLineOptions parseArgs(String[] args) {
-        CommandLineParser commandLineParser = new BasicParser();
+        CommandLineParser commandLineParser = new DefaultParser();
         Options options = new Options();
         options.addOption("v", "version", false, "Print the version of Palo Frontend");
         options.addOption("h", "helper", true, "Specify the helper node when joining a bdb je replication group");
         options.addOption("b", "bdb", false, "Run bdbje debug tools");
-        options.addOption("l", "listdb", false, "Run bdbje debug tools");
+        options.addOption("l", "listdb", false, "List databases in bdbje");
         options.addOption("d", "db", true, "Specify a database in bdbje");
         options.addOption("s", "stat", false, "Print statistic of a database, including count, first key, last key");
         options.addOption("f", "from", true, "Specify the start scan key");
@@ -232,63 +232,67 @@ public class PaloFe {
         // version
         if (cmd.hasOption('v') || cmd.hasOption("version")) {
             return new CommandLineOptions(true, "", null);
-        } else if (cmd.hasOption('b') || cmd.hasOption("bdb")) {
-            if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
-                // list bdb je databases
-                BDBToolOptions bdbOpts = new BDBToolOptions(true, "", false, "", "", 0);
-                return new CommandLineOptions(false, "", bdbOpts);
-            } else if (cmd.hasOption('d') || cmd.hasOption("db")) {
-                // specify a database
-                String dbName = cmd.getOptionValue("db");
-                if (Strings.isNullOrEmpty(dbName)) {
-                    System.err.println("BDBJE database name is missing");
-                    System.exit(-1);
-                }
-
-                if (cmd.hasOption('s') || cmd.hasOption("stat")) {
-                    BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
-                    return new CommandLineOptions(false, "", bdbOpts);
-                } else {
-                    String fromKey = "";
-                    String endKey = "";
-                    int metaVersion = 0;
-                    if (cmd.hasOption('f') || cmd.hasOption("from")) {
-                        fromKey = cmd.getOptionValue("from");
-                        if (Strings.isNullOrEmpty(fromKey)) {
-                            System.err.println("from key is missing");
-                            System.exit(-1);
-                        }
-                    }
-                    if (cmd.hasOption('t') || cmd.hasOption("to")) {
-                        endKey = cmd.getOptionValue("to");
-                        if (Strings.isNullOrEmpty(endKey)) {
-                            System.err.println("end key is missing");
-                            System.exit(-1);
-                        }
-                    }
-                    if (cmd.hasOption('m') || cmd.hasOption("metaversion")) {
-                        try {
-                            metaVersion = Integer.valueOf(cmd.getOptionValue("metaversion"));
-                        } catch (NumberFormatException e) {
-                            System.err.println("Invalid meta version format");
-                            System.exit(-1);
-                        }
-                    }
-
-                    BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
-                    return new CommandLineOptions(false, "", bdbOpts);
-                }
-            } else {
-                System.err.println("Invalid options when running bdb je tools");
-                System.exit(-1);
-            }
-        } else if (cmd.hasOption('h') || cmd.hasOption("helper")) {
+        }
+        // helper
+        if (cmd.hasOption('h') || cmd.hasOption("helper")) {
             String helperNode = cmd.getOptionValue("helper");
             if (Strings.isNullOrEmpty(helperNode)) {
                 System.err.println("Missing helper node");
                 System.exit(-1);
             }
             return new CommandLineOptions(false, helperNode, null);
+        }
+
+        if (cmd.hasOption('b') || cmd.hasOption("bdb")) {
+            if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
+                // list bdb je databases
+                BDBToolOptions bdbOpts = new BDBToolOptions(true, "", false, "", "", 0);
+                return new CommandLineOptions(false, "", bdbOpts);
+            }
+            if (cmd.hasOption('d') || cmd.hasOption("db")) {
+                // specify a database
+                String dbName = cmd.getOptionValue("db");
+                if (Strings.isNullOrEmpty(dbName)) {
+                    System.err.println("BDBJE database name is missing");
+                    System.exit(-1);
+                }
+                if (cmd.hasOption('s') || cmd.hasOption("stat")) {
+                    BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
+                    return new CommandLineOptions(false, "", bdbOpts);
+                }
+                String fromKey = "";
+                String endKey = "";
+                int metaVersion = 0;
+                if (cmd.hasOption('f') || cmd.hasOption("from")) {
+                    fromKey = cmd.getOptionValue("from");
+                    if (Strings.isNullOrEmpty(fromKey)) {
+                        System.err.println("from key is missing");
+                        System.exit(-1);
+                    }
+                }
+                if (cmd.hasOption('t') || cmd.hasOption("to")) {
+                    endKey = cmd.getOptionValue("to");
+                    if (Strings.isNullOrEmpty(endKey)) {
+                        System.err.println("end key is missing");
+                        System.exit(-1);
+                    }
+                }
+                if (cmd.hasOption('m') || cmd.hasOption("metaversion")) {
+                    try {
+                        metaVersion = Integer.parseInt(cmd.getOptionValue("metaversion"));
+                    } catch (NumberFormatException e) {
+                        System.err.println("Invalid meta version format");
+                        System.exit(-1);
+                    }
+                }
+
+                BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
+                return new CommandLineOptions(false, "", bdbOpts);
+
+            } else {
+                System.err.println("Invalid options when running bdb je tools");
+                System.exit(-1);
+            }
         }
 
         // helper node is null, means no helper node is specified

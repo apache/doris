@@ -36,9 +36,20 @@ public:
     void TearDown() override {}
 };
 
+TEST_F(EnvPosixTest, file_path_desc) {
+    FilePathDesc path_desc("/local");
+    path_desc.storage_medium = TStorageMedium::S3;
+    path_desc.remote_path = "/remote";
+    FilePathDescStream path_desc_stream;
+    path_desc_stream << path_desc << "/test"
+                     << "/" << 1;
+    FilePathDesc dest_path_desc = path_desc_stream.path_desc();
+    ASSERT_EQ("/local/test/1", dest_path_desc.filepath);
+    ASSERT_EQ("/remote/test/1", dest_path_desc.remote_path);
+}
+
 TEST_F(EnvPosixTest, random_access) {
     std::string fname = "./ut_dir/env_posix/random_access";
-    WritableFileOptions ops;
     std::unique_ptr<WritableFile> wfile;
     auto env = Env::Default();
     auto st = env->new_writable_file(fname, &wfile);
@@ -57,7 +68,7 @@ TEST_F(EnvPosixTest, random_access) {
     ASSERT_TRUE(st.ok());
     Slice abc("abc");
     Slice bcd("bcd");
-    Slice slices[2]{abc, bcd};
+    Slice slices[2] {abc, bcd};
     st = wfile->appendv(slices, 2);
     ASSERT_TRUE(st.ok());
     st = wfile->flush(WritableFile::FLUSH_ASYNC);
@@ -83,19 +94,19 @@ TEST_F(EnvPosixTest, random_access) {
         Slice slice2(mem + 9, 100);
         Slice slice3(mem + 9 + 100, 3);
 
-        Slice read_slices[3]{slice1, slice2, slice3};
+        Slice read_slices[3] {slice1, slice2, slice3};
         st = rfile->readv_at(0, read_slices, 3);
         ASSERT_TRUE(st.ok());
         ASSERT_STREQ("123456789", std::string(slice1.data, slice1.size).c_str());
         ASSERT_STREQ("abc", std::string(slice3.data, slice3.size).c_str());
 
         Slice slice4(mem, 3);
-        st = rfile->read_at(112, slice4);
+        st = rfile->read_at(112, &slice4);
         ASSERT_TRUE(st.ok());
         ASSERT_STREQ("bcd", std::string(slice4.data, slice4.size).c_str());
 
         // end of file
-        st = rfile->read_at(114, slice4);
+        st = rfile->read_at(114, &slice4);
         ASSERT_EQ(TStatusCode::END_OF_FILE, st.code());
         LOG(INFO) << "st=" << st.to_string();
     }
@@ -103,7 +114,6 @@ TEST_F(EnvPosixTest, random_access) {
 
 TEST_F(EnvPosixTest, random_rw) {
     std::string fname = "./ut_dir/env_posix/random_rw";
-    WritableFileOptions ops;
     std::unique_ptr<RandomRWFile> wfile;
     auto env = Env::Default();
     auto st = env->new_random_rw_file(fname, &wfile);
@@ -120,7 +130,7 @@ TEST_F(EnvPosixTest, random_rw) {
     ASSERT_TRUE(st.ok());
     Slice abc("abc");
     Slice bcd("bcd");
-    Slice slices[2]{abc, bcd};
+    Slice slices[2] {abc, bcd};
     st = wfile->writev_at(0, slices, 2);
     ASSERT_TRUE(st.ok());
 
@@ -151,7 +161,7 @@ TEST_F(EnvPosixTest, random_rw) {
         Slice slice2(mem + 3, 3);
         Slice slice3(mem + 6, 3);
 
-        Slice read_slices[3]{slice1, slice2, slice3};
+        Slice read_slices[3] {slice1, slice2, slice3};
         st = rfile->readv_at(0, read_slices, 3);
         LOG(INFO) << st.to_string();
         ASSERT_TRUE(st.ok());

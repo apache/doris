@@ -33,6 +33,8 @@
 #include "util/runtime_profile.h"
 #include "util/uid_util.h" // for print_id
 
+#include "vec/exprs/vexpr_context.h"
+
 namespace doris {
 class Expr;
 class ExprContext;
@@ -100,7 +102,7 @@ public:
     // row_batch's tuple_data_pool.
     // Caller must not be holding any io buffers. This will cause deadlock.
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) = 0;
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
 
     // Resets the stream of row batches to be retrieved by subsequent GetNext() calls.
@@ -184,17 +186,15 @@ public:
     const RowDescriptor& row_desc() const { return _row_descriptor; }
     int64_t rows_returned() const { return _num_rows_returned; }
     int64_t limit() const { return _limit; }
-    bool reached_limit() { return _limit != -1 && _num_rows_returned >= _limit; }
+    bool reached_limit() const { return _limit != -1 && _num_rows_returned >= _limit; }
     const std::vector<TupleId>& get_tuple_ids() const { return _tuple_ids; }
 
-    RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
+    RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
     std::shared_ptr<MemTracker> mem_tracker() const { return _mem_tracker; }
 
     std::shared_ptr<MemTracker> expr_mem_tracker() const { return _expr_mem_tracker; }
-
-    MemPool* expr_mem_pool() { return _expr_mem_pool.get(); }
 
     // Extract node id from p->name().
     static int get_node_id_from_profile(RuntimeProfile* p);
@@ -218,6 +218,15 @@ protected:
     /// an error if releasing the reservation requires flushing pages to disk, and that
     /// fails.
     Status release_unused_reservation();
+
+    /// Release all memory of block which got from child. The block
+    // 1. clear mem of valid column get from child, make sure child can reuse the mem
+    // 2. delete and release the column which create by function all and other reason
+    void release_block_memory(vectorized::Block& block, uint16_t child_idx = 0);
+
+    /// Only use in vectorized exec engine to check whether reach limit and cut num row for block
+    // and add block rows for profile
+    void reached_limit(vectorized::Block* block, bool* eos);
 
     /// Enable the increase reservation denial probability on 'buffer_pool_client_' based on
     /// the 'debug_action_' set on this node. Returns an error if 'debug_action_param_' is
@@ -275,6 +284,8 @@ protected:
     std::vector<ExprContext*> _conjunct_ctxs;
     std::vector<TupleId> _tuple_ids;
 
+    std::unique_ptr<doris::vectorized::VExprContext*> _vconjunct_ctx_ptr;
+
     std::vector<ExecNode*> _children;
     RowDescriptor _row_descriptor;
 
@@ -293,13 +304,8 @@ protected:
 
     /// Account for peak memory used by this node
     std::shared_ptr<MemTracker> _mem_tracker;
-
-    /// MemTracker used by 'expr_mem_pool_'.
+    // MemTracker used by all Expr.
     std::shared_ptr<MemTracker> _expr_mem_tracker;
-
-    /// MemPool for allocating data structures used by expression evaluators in this node.
-    /// Created in Prepare().
-    std::unique_ptr<MemPool> _expr_mem_pool;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
@@ -364,25 +370,6 @@ private:
     bool _is_closed;
 };
 
-#define LIMIT_EXCEEDED(tracker, state, msg)                                                   \
-    do {                                                                                      \
-        stringstream str;                                                                     \
-        str << "Memory exceed limit. " << msg << " ";                                         \
-        str << "Backend: " << BackendOptions::get_localhost() << ", ";                        \
-        str << "fragment: " << print_id(state->fragment_instance_id()) << " ";                \
-        str << "Used: " << tracker->consumption() << ", Limit: " << tracker->limit() << ". "; \
-        str << "You can change the limit by session variable exec_mem_limit.";                \
-        return Status::MemoryLimitExceeded(str.str());                                        \
-    } while (false)
-
-#define RETURN_IF_LIMIT_EXCEEDED(state, msg)                                                \
-    do {                                                                                    \
-        /* if (UNLIKELY(MemTracker::limit_exceeded(*(state)->mem_trackers()))) { */         \
-        MemTracker* tracker = state->instance_mem_tracker()->find_limit_exceeded_tracker(); \
-        if (tracker != nullptr) {                                                           \
-            LIMIT_EXCEEDED(tracker, state, msg);                                            \
-        }                                                                                   \
-    } while (false)
 } // namespace doris
 
 #endif

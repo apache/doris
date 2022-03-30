@@ -86,17 +86,19 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
     if (tablet == nullptr) {
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
-    ReadLock base_migration_rlock(tablet->get_migration_lock_ptr(), TRY_LOCK);
-    if (!base_migration_rlock.own_lock()) {
+
+    ReadLock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
+    if (!base_migration_rlock.owns_lock()) {
         return OLAP_ERR_RWLOCK_ERROR;
     }
-    tablet->obtain_push_lock();
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
-            request.partition_id, tablet, request.transaction_id, load_id));
-    tablet->release_push_lock();
+    {
+        std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
+        RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
+                request.partition_id, tablet, request.transaction_id, load_id));
+    }
 
     if (tablet_vars->size() == 1) {
         tablet_vars->resize(2);
@@ -116,11 +118,12 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
 
             DeletePredicatePB del_pred;
             DeleteConditionHandler del_cond_handler;
-            tablet_var.tablet->obtain_header_rdlock();
-            res = del_cond_handler.generate_delete_predicate(tablet_var.tablet->tablet_schema(),
-                                                             request.delete_conditions, &del_pred);
-            del_preds.push(del_pred);
-            tablet_var.tablet->release_header_lock();
+            {
+                ReadLock rdlock(tablet_var.tablet->get_header_lock());
+                res = del_cond_handler.generate_delete_predicate(tablet_var.tablet->tablet_schema(),
+                                                                 request.delete_conditions, &del_pred);
+                del_preds.push(del_pred);
+            }
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "fail to generate delete condition. res=" << res
                              << ", tablet=" << tablet_var.tablet->full_name();
@@ -228,7 +231,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
         if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
             context.rowset_type = BETA_ROWSET;
         }
-        context.rowset_path_prefix = cur_tablet->tablet_path();
+        context.path_desc = cur_tablet->tablet_path_desc();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
         context.txn_id = _request.transaction_id;
@@ -292,6 +295,10 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
                     break;
                 } else {
                     if (reader->eof()) {
+                        break;
+                    }
+                    //if read row but fill tuple fails, 
+                    if (!reader->is_fill_tuple()) {
                         break;
                     }
                     if (OLAP_SUCCESS != (res = rowset_writer->add_row(row))) {
@@ -410,7 +417,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
             context.rowset_type = BETA_ROWSET;
         }
-        context.rowset_path_prefix = cur_tablet->tablet_path();
+        context.path_desc = cur_tablet->tablet_path_desc();
         context.tablet_schema = &(cur_tablet->tablet_schema());
         context.rowset_state = PREPARED;
         context.txn_id = _request.transaction_id;
@@ -899,9 +906,7 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     }
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
-    _mem_tracker = MemTracker::CreateTracker(-1, "PushBrokerReader",
-                                             _runtime_state->instance_mem_tracker());
-    _mem_pool.reset(new MemPool(_mem_tracker.get()));
+    _mem_pool.reset(new MemPool("PushBrokerReader"));
     _counter.reset(new ScannerCounter());
 
     // init scanner
@@ -998,7 +1003,7 @@ OLAPStatus PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src,
         if (src_null) {
             break;
         }
-        const TypeInfo* type_info = get_type_info(type);
+        auto type_info = get_type_info(type);
         type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
         break;
     }
@@ -1016,12 +1021,12 @@ OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
 
     memset(_tuple, 0, _tuple_desc->num_null_bytes());
     // Get from scanner
-    Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof);
+    Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof, &_fill_tuple);
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Scanner get next tuple failed";
         return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
     }
-    if (_eof) {
+    if (_eof || !_fill_tuple) {
         return OLAP_SUCCESS;
     }
 

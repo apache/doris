@@ -150,7 +150,7 @@ Status HDFSWriter::_connect() {
     // set other conf
     if (!_properties.empty()) {
         std::map<std::string, std::string>::iterator iter;
-        for (iter = _properties.begin(); iter != _properties.end(); iter++) {
+        for (iter = _properties.begin(); iter != _properties.end(); ++iter) {
             hdfsBuilderConfSetStr(hdfs_builder, iter->first.c_str(), iter->second.c_str());
         }
     }
@@ -165,34 +165,38 @@ Status HDFSWriter::_connect() {
 
 Status HDFSWriter::_parse_properties(std::map<std::string, std::string>& prop) {
     std::map<std::string, std::string>::iterator iter;
-    for (iter = prop.begin(); iter != prop.end(); iter++) {
+    for (iter = prop.begin(); iter != prop.end();) {
         if (iter->first.compare(FS_KEY) == 0) {
             _namenode = iter->second;
-            prop.erase(iter);
-        }
-        if (iter->first.compare(USER) == 0) {
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(USER) == 0) {
             _user = iter->second;
-            prop.erase(iter);
-        }
-        if (iter->first.compare(KERBEROS_PRINCIPAL) == 0) {
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(KERBEROS_PRINCIPAL) == 0) {
             _kerb_principal = iter->second;
-            prop.erase(iter);
-        }
-        if (iter->first.compare(KERB_TICKET_CACHE_PATH) == 0) {
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(KERB_TICKET_CACHE_PATH) == 0) {
             _kerb_ticket_cache_path = iter->second;
-            prop.erase(iter);
-        }
-        if (iter->first.compare(TOKEN) == 0) {
+            iter = prop.erase(iter);
+        } else if (iter->first.compare(TOKEN) == 0) {
             _token = iter->second;
-            prop.erase(iter);
+            iter = prop.erase(iter);
+        } else {
+            ++iter;
         }
     }
 
     if (_namenode.empty()) {
-        DCHECK(false) << "hdfs properties is incorrect.";
-        LOG(ERROR) << "hdfs properties is incorrect.";
+        LOG(WARNING) << "hdfs properties is incorrect.";
         return Status::InternalError("hdfs properties is incorrect");
     }
+
+    // if the format of _path is hdfs://ip:port/path, replace it to /path.
+    // path like hdfs://ip:port/path can't be used by libhdfs3.
+    if (_path.find(_namenode) != _path.npos) {
+        _path = _path.substr(_namenode.size());
+    }
+
     return Status::OK();
 }
 

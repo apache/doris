@@ -21,7 +21,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
-import org.apache.doris.proto.Status;
+import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.HeartbeatService;
@@ -326,7 +326,7 @@ public class MockedBackendFactory {
        @Override
         public void transmitData(InternalService.PTransmitDataParams request, StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
            responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
-                   .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+                   .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
            responseObserver.onCompleted();
         }
 
@@ -334,7 +334,7 @@ public class MockedBackendFactory {
         public void execPlanFragment(InternalService.PExecPlanFragmentRequest request, StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
             System.out.println("get exec_plan_fragment request");
             responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
-                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
         }
 
@@ -342,7 +342,7 @@ public class MockedBackendFactory {
         public void cancelPlanFragment(InternalService.PCancelPlanFragmentRequest request, StreamObserver<InternalService.PCancelPlanFragmentResult> responseObserver) {
             System.out.println("get cancel_plan_fragment request");
             responseObserver.onNext(InternalService.PCancelPlanFragmentResult.newBuilder()
-                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
         }
 
@@ -350,7 +350,7 @@ public class MockedBackendFactory {
         public void fetchData(InternalService.PFetchDataRequest request, StreamObserver<InternalService.PFetchDataResult> responseObserver) {
             System.out.println("get fetch_data request");
             responseObserver.onNext(InternalService.PFetchDataResult.newBuilder()
-                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0))
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0))
                     .setQueryStatistics(Data.PQueryStatistics.newBuilder()
                             .setScanRows(0L)
                             .setScanBytes(0L))
@@ -382,7 +382,7 @@ public class MockedBackendFactory {
         public void getInfo(InternalService.PProxyRequest request, StreamObserver<InternalService.PProxyResult> responseObserver) {
             System.out.println("get get_info request");
             responseObserver.onNext(InternalService.PProxyResult.newBuilder()
-                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
         }
 

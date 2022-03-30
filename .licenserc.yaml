@@ -12,6 +12,7 @@ header:
     - 'DISCLAIMER'
     - '.clang-format'
     - '.clang-format-ignore'
+    - '.clang-tidy'
     - '.gitattributes'
     - '.gitignore'
     - '.gitmodules'
@@ -34,6 +35,7 @@ header:
     - 'tsan_suppressions'
     - 'docs/.markdownlintignore'
     - 'fe/fe-core/src/test/resources/data/net_snmp_normal'
+    - 'be/src/common/signal_handler.h'
     - 'be/src/olap/lru_cache.cpp'
     - 'be/src/olap/lru_cache.h'
     - 'be/src/olap/skiplist.h'
@@ -50,5 +52,7 @@ header:
     - 'be/src/util/sse2neon.h'
     - 'be/src/util/utf8_check.cpp'
     - 'build-support/run_clang_format.py'
+    - 'regression-test/suites'
+    - 'regression-test/data'
 
   comment: on-failure

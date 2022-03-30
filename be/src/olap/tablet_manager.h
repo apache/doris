@@ -18,16 +18,17 @@
 #ifndef DORIS_BE_SRC_OLAP_TABLET_MANAGER_H
 #define DORIS_BE_SRC_OLAP_TABLET_MANAGER_H
 
+#include <atomic>
 #include <list>
 #include <map>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-#include "agent/status.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/BackendService_types.h"
@@ -110,8 +111,6 @@ public:
                                     const std::string& schema_hash_path, bool force = false,
                                     bool restore = false);
 
-    void release_schema_change_lock(TTabletId tablet_id);
-
     // 获取所有tables的名字
     //
     // Return OLAP_SUCCESS, if run ok
@@ -121,8 +120,6 @@ public:
     OLAPStatus build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
 
     OLAPStatus start_trash_sweep();
-    // Prevent schema change executed concurrently.
-    bool try_schema_change_lock(TTabletId tablet_id);
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
                                        SchemaHash schema_hash, const std::string& schema_hash_path);
@@ -150,24 +147,21 @@ private:
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus _add_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
-                                    const TabletSharedPtr& tablet, bool update_meta, bool force);
+    OLAPStatus _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet, bool update_meta, bool force);
 
-    OLAPStatus _add_tablet_to_map_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
+    OLAPStatus _add_tablet_to_map_unlocked(TTabletId tablet_id, 
                                            const TabletSharedPtr& tablet, bool update_meta,
                                            bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
     OLAPStatus _create_initial_rowset_unlocked(const TCreateTabletReq& request, Tablet* tablet);
 
-    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, TSchemaHash schema_hash,
-                                              bool keep_files = false);
+    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, bool keep_files = false);
 
-    OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash, bool keep_files);
+    OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, bool keep_files);
 
-    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash);
-    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash,
-                                         bool include_deleted, std::string* err);
+    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
+    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted, std::string* err);
 
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
@@ -181,36 +175,28 @@ private:
                                             const bool is_schema_change_tablet,
                                             const Tablet* base_tablet,
                                             TabletMetaSharedPtr* tablet_meta);
+    
+    void _add_tablet_to_partition(const TabletSharedPtr& tablet);
 
-    void _build_tablet_stat();
+    void _remove_tablet_from_partition(const TabletSharedPtr& tablet);
 
-    void _add_tablet_to_partition(const Tablet& tablet);
-
-    void _remove_tablet_from_partition(const Tablet& tablet);
-
-    RWMutex* _get_tablets_shard_lock(TTabletId tabletId);
+    std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 
-    // TODO(lingbin): should be TabletInstances?
-    // should be removed after schema_hash be removed
-    struct TableInstances {
-        Mutex schema_change_lock;
-        // The first element(i.e. tablet_arr[0]) is the base tablet. When we add new tablet
-        // to tablet_arr, we will sort all the elements in create-time ascending order,
-        // which will ensure the first one is base-tablet
-        std::list<TabletSharedPtr> table_arr;
-    };
-    // tablet_id -> TabletInstances
-    typedef std::unordered_map<int64_t, TableInstances> tablet_map_t;
+    using tablet_map_t = std::unordered_map<int64_t, TabletSharedPtr>;
 
     struct tablets_shard {
+        tablets_shard() = default;
+        tablets_shard(tablets_shard&& shard) {
+            tablet_map = std::move(shard.tablet_map);
+            tablets_under_clone = std::move(shard.tablets_under_clone);
+        }
         // protect tablet_map, tablets_under_clone and tablets_under_restore
-        std::unique_ptr<RWMutex> lock;
+        mutable std::shared_mutex lock;
         tablet_map_t tablet_map;
         std::set<int64_t> tablets_under_clone;
-        std::set<int64_t> tablets_under_restore;
     };
 
     // trace the memory use by meta of tablet
@@ -221,19 +207,15 @@ private:
     std::vector<tablets_shard> _tablets_shards;
 
     // Protect _partition_tablet_map, should not be obtained before _tablet_map_lock to avoid dead lock
-    RWMutex _partition_tablet_map_lock;
+    std::shared_mutex _partition_tablet_map_lock;
     // Protect _shutdown_tablets, should not be obtained before _tablet_map_lock to avoid dead lock
-    RWMutex _shutdown_tablets_lock;
+    std::shared_mutex _shutdown_tablets_lock;
     // partition_id => tablet_info
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
     std::vector<TabletSharedPtr> _shutdown_tablets;
 
-    std::mutex _tablet_stat_mutex;
-    // cache to save tablets' statistics, such as data-size and row-count
-    // TODO(cmy): for now, this is a naive implementation
-    std::map<int64_t, TTabletStat> _tablet_stat_cache;
-    // last update time of tablet stat cache
-    int64_t _last_update_stat_ms;
+    std::mutex _tablet_stat_cache_mutex;
+    std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache = std::make_shared<std::vector<TTabletStat>>();
 
     tablet_map_t& _get_tablet_map(TTabletId tablet_id);
 

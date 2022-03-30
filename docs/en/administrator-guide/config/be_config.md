@@ -123,12 +123,6 @@ Default：5
 
 One of the triggering conditions of BaseCompaction: The limit of the number of Cumulative files to be reached. After reaching this limit, BaseCompaction will be triggered
 
-### `base_compaction_num_threads_per_disk`
-
-Defalut：1
-
-The number of threads that execute BaseCompaction tasks per disk
-
 ### base_compaction_trace_threshold
 
 * Type: int32
@@ -220,7 +214,7 @@ Clean up pages that may be saved by the buffer pool
 
 * Type: string
 * Description: The largest allocatable memory of the buffer pool
-* Default value: 80G
+* Default value: 20%
 
 The maximum amount of memory available in the BE buffer pool. The buffer pool is a new memory management structure of BE, which manages the memory by the buffer page and enables spill data to disk. The memory for all concurrent queries will be allocated from the buffer pool. The current buffer pool only works on **AggregationNode** and **ExchangeNode**.
 
@@ -294,8 +288,14 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 ### `compaction_task_num_per_disk`
 
 * Type: int32
-* Description: The number of compaction tasks which execute in parallel for a disk.
+* Description: The number of compaction tasks which execute in parallel for a disk(HDD).
 * Default value: 2
+
+### `compaction_task_num_per_fast_disk`
+
+* Type: int32
+* Description: The number of compaction tasks which execute in parallel for a fast disk(SSD).
+* Default value: 4
 
 ### `compress_rowbatches`
 
@@ -334,12 +334,6 @@ One of the trigger conditions of BaseCompaction: Singleton file size limit, 100M
 Default：10 (s)
 
 CumulativeCompaction thread polling interval
-
-### `cumulative_compaction_num_threads_per_disk`
-
-Default：1
-
-The number of CumulativeCompaction threads per disk
 
 ### `cumulative_compaction_skip_window_seconds`
 
@@ -677,6 +671,12 @@ Import activated data, storage engine retention time, used for incremental cloni
 Default：10737418240
 
 BloomFilter/Min/Max and other statistical information cache capacity
+
+### `kafka_broker_version_fallback`
+
+Default：0.10.0
+
+If the dependent Kafka version is lower than the Kafka client version that routine load depends on, the value set by the fallback version kafka_broker_version_fallback will be used, and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
 
 ### `load_data_reserve_hours`
 
@@ -1149,9 +1149,9 @@ Cache for storage page size
 
     eg.1: `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,1;/home/disk2/doris`
 
-    * 1./home/disk1/doris.HDD, capacity limit is 50GB, HDD;
-    * 2./home/disk2/doris.SSD, capacity limit is 1GB, SSD;
-    * 3./home/disk2/doris, capacity limit is disk capacity, HDD(default)
+    * 1./home/disk1/doris.HDD,50, indicates capacity limit is 50GB, HDD;
+    * 2./home/disk2/doris.SSD,1, indicates capacity limit is 1GB, SSD;
+    * 3./home/disk2/doris, indicates capacity limit is disk capacity, HDD(default)
     
     eg.2: `storage_root_path=/home/disk1/doris,medium:hdd,capacity:50;/home/disk2/doris,medium:ssd,capacity:50`
       
@@ -1425,15 +1425,35 @@ The size of the buffer before flashing
   
 * Default: 3
 
+### `track_new_delete`
+
+* Type: bool
+* Description: Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
+* Default: true
+
 ### `mem_tracker_level`
 
 * Type: int16
 * Description: The level at which MemTracker is displayed on the Web page equal or lower than this level will be displayed on the Web page
   ```
-    RELEASE = 0
-    DEBUG = 1
+    OVERVIEW = 0
+    TASK = 1
+    INSTANCE = 2
+    VERBOSE = 3
   ```
 * Default: 0
+
+### `mem_tracker_consume_min_size_bytes`
+
+* Type: int32
+* Description: The minimum length of TCMalloc Hook when consume/release MemTracker. Consume size smaller than this value will continue to accumulate to avoid frequent calls to consume/release of MemTracker. Decreasing this value will increase the frequency of consume/release. Increasing this value will cause MemTracker statistics to be inaccurate. Theoretically, the statistical value of a MemTracker differs from the true value = ( mem_tracker_consume_min_size_bytes * the number of BE threads where the MemTracker is located).
+* Default: 1048576
+
+### `memory_leak_detection`
+
+* Type: bool
+* Description: Whether to start memory leak detection, when MemTracker is a negative value, it is considered that a memory leak has occurred, but the actual MemTracker records inaccurately will also cause a negative value, so this feature is in the experimental stage.
+* Default: false
 
 ### `max_segment_num_per_rowset`
 
@@ -1468,3 +1488,39 @@ The default value is currently only an empirical value, and may need to be modif
 * Type: bool
 * Description: When obtaining a brpc connection, judge the availability of the connection through hand_shake rpc, and re-establish the connection if it is not available 。
 * Default value: false
+
+### `high_priority_flush_thread_num_per_store`
+
+* Type: int32
+* Description: The number of flush threads per store path allocated for the high priority import task.
+* Default value: 1
+
+### `routine_load_consumer_pool_size`
+
+* Type: int32
+* Description: The number of caches for the data consumer used by the routine load.
+* Default: 10
+
+### `load_task_high_priority_threshold_second`
+
+* Type: int32
+* Description: When the timeout of an import task is less than this threshold, Doris will consider it to be a high priority task. High priority tasks use a separate pool of flush threads.
+* Default: 120
+
+### `min_load_rpc_timeout_ms`
+
+* Type: int32
+* Description: The minimum timeout for each rpc in the load job.
+* Default: 20
+
+Translated with www.DeepL.com/Translator (free version)
+
+### `doris_scan_range_max_mb`
+* Type: int32
+* Description: The maximum amount of data read by each OlapScanner.
+* Default: 1024
+
+### `string_type_length_soft_limit_bytes`
+* Type: int32
+* Description: A soft limit of string type length.
+* Description: 1048576

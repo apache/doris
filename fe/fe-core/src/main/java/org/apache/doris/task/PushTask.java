@@ -41,12 +41,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class PushTask extends AgentTask {
-    private static final Logger LOG = LogManager.getLogger(CreateReplicaTask.class);
+    private static final Logger LOG = LogManager.getLogger(PushTask.class);
 
     private long replicaId;
     private int schemaHash;
     private long version;
-    private long versionHash;
     private String filePath;
     private long fileSize;
     private int timeoutSecond;
@@ -71,7 +70,7 @@ public class PushTask extends AgentTask {
     private TDescriptorTable tDescriptorTable;
     
     public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
-                    long indexId, long tabletId, long replicaId, int schemaHash, long version, long versionHash, 
+                    long indexId, long tabletId, long replicaId, int schemaHash, long version,
                     String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
                     List<Predicate> conditions, boolean needDecompress, TPriority priority, TTaskType taskType, 
                     long transactionId, long signature) {
@@ -79,7 +78,6 @@ public class PushTask extends AgentTask {
         this.replicaId = replicaId;
         this.schemaHash = schemaHash;
         this.version = version;
-        this.versionHash = versionHash;
         this.filePath = filePath;
         this.fileSize = fileSize;
         this.timeoutSecond = timeoutSecond;
@@ -97,11 +95,11 @@ public class PushTask extends AgentTask {
     }
 
     public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
-            long indexId, long tabletId, long replicaId, int schemaHash, long version, long versionHash, 
+            long indexId, long tabletId, long replicaId, int schemaHash, long version, 
             String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
             List<Predicate> conditions, boolean needDecompress, TPriority priority) {
         this(resourceInfo, backendId, dbId, tableId, partitionId, indexId, 
-             tabletId, replicaId, schemaHash, version, versionHash, filePath, 
+             tabletId, replicaId, schemaHash, version, filePath, 
              fileSize, timeoutSecond, loadJobId, pushType, conditions, needDecompress, 
              priority, TTaskType.PUSH, -1, tableId);
     }
@@ -112,7 +110,7 @@ public class PushTask extends AgentTask {
                     TPriority priority, long transactionId, long signature,
                     TBrokerScanRange tBrokerScanRange, TDescriptorTable tDescriptorTable) {
         this(null, backendId, dbId, tableId, partitionId, indexId,
-             tabletId, replicaId, schemaHash, -1, 0, null,
+             tabletId, replicaId, schemaHash, -1, null,
              0, timeoutSecond, loadJobId, pushType, null, false,
              priority, TTaskType.REALTIME_PUSH, transactionId, signature);
         this.tBrokerScanRange = tBrokerScanRange;
@@ -120,7 +118,7 @@ public class PushTask extends AgentTask {
     }
 
     public TPushReq toThrift() {
-        TPushReq request = new TPushReq(tabletId, schemaHash, version, versionHash, timeoutSecond, pushType);
+        TPushReq request = new TPushReq(tabletId, schemaHash, version, 0 /*versionHash*/, timeoutSecond, pushType);
         if (taskType == TTaskType.REALTIME_PUSH) {
             request.setPartitionId(partitionId);
             request.setTransactionId(transactionId);
@@ -211,10 +209,6 @@ public class PushTask extends AgentTask {
     
     public long getVersion() {
         return version;
-    }
-    
-    public long getVersionHash() {
-        return versionHash;
     }
 
     public long getLoadJobId() {

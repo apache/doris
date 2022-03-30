@@ -422,20 +422,6 @@ RuntimeProfile::DerivedCounter* RuntimeProfile::add_derived_counter(
     return counter;
 }
 
-RuntimeProfile::ThreadCounters* RuntimeProfile::add_thread_counters(const std::string& prefix) {
-    ThreadCounters* counter = _pool->add(new ThreadCounters());
-    counter->_total_time = add_counter(prefix + THREAD_TOTAL_TIME, TUnit::TIME_NS);
-    counter->_user_time =
-            add_counter(prefix + THREAD_USER_TIME, TUnit::TIME_NS, prefix + THREAD_TOTAL_TIME);
-    counter->_sys_time =
-            add_counter(prefix + THREAD_SYS_TIME, TUnit::TIME_NS, prefix + THREAD_TOTAL_TIME);
-    counter->_voluntary_context_switches =
-            add_counter(prefix + THREAD_VOLUNTARY_CONTEXT_SWITCHES, TUnit::UNIT);
-    counter->_involuntary_context_switches =
-            add_counter(prefix + THREAD_INVOLUNTARY_CONTEXT_SWITCHES, TUnit::UNIT);
-    return counter;
-}
-
 RuntimeProfile::Counter* RuntimeProfile::get_counter(const std::string& name) {
     std::lock_guard<std::mutex> l(_counter_map_lock);
 
@@ -469,7 +455,7 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
     std::ostream& stream = *s;
 
     // create copy of _counter_map and _child_counter_map so we don't need to hold lock
-    // while we call value() on the counters (some of those might be DerivedCounters)
+    // while we call value() on the counters
     CounterMap counter_map;
     ChildCounterMap child_counter_map;
     {

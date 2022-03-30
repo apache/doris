@@ -17,15 +17,12 @@
 
 #ifndef DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
 #define DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
+#include <mysql/mysql.h>
 
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-
-#ifndef __DorisMysql
-#define __DorisMysql void
-#endif
 
 namespace doris {
 
@@ -64,7 +61,7 @@ private:
 
     const std::vector<ExprContext*>& _output_expr_ctxs;
     std::string _mysql_tbl;
-    __DorisMysql* _mysql_conn;
+    MYSQL* _mysql_conn;
 };
 
 } // namespace doris

@@ -119,12 +119,6 @@ BaseCompaction触发条件之一：上一次BaseCompaction距今的间隔
 
 BaseCompaction触发条件之一：Cumulative文件数目要达到的限制，达到这个限制之后会触发BaseCompaction
 
-### `base_compaction_num_threads_per_disk`
-
-默认值：1
-
-每个磁盘执行BaseCompaction任务的线程数目
-
 ### `base_compaction_write_mbytes_per_sec`
 
 默认值：5（MB）
@@ -179,7 +173,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 有时查询失败，在 BE 日志中会出现 `body_size is too large` 的错误信息。这可能发生在 SQL 模式为 multi distinct + 无 group by + 超过1T 数据量的情况下。这个错误表示 brpc 的包大小超过了配置值。此时可以通过调大该配置避免这个错误。
 
-
 ### `brpc_socket_max_unwritten_bytes`
 
 这个配置主要用来修改 brpc  的参数 `socket_max_unwritten_bytes`。
@@ -214,7 +207,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * 类型：string
 * 描述：buffer pool之中最大的可分配内存
-* 默认值：80G
+* 默认值：20%
 
 BE缓存池最大的内存可用量，buffer pool是BE新的内存管理结构，通过buffer page来进行内存管理，并能够实现数据的落盘。并发的所有查询的内存申请都会通过buffer pool来申请。当前buffer pool仅作用在**AggregationNode**与**ExchangeNode**。
 
@@ -290,8 +283,14 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 ### `compaction_task_num_per_disk`
 
 * 类型：int32
-* 描述：每个磁盘可以并发执行的compaction任务数量。
+* 描述：每个磁盘（HDD）可以并发执行的compaction任务数量。
 * 默认值：2
+
+### `compaction_task_num_per_fast_disk`
+
+* 类型：int32
+* 描述：每个高速磁盘（SSD）可以并发执行的compaction任务数量。
+* 默认值：4
 
 ### `compress_rowbatches`
 * 类型：bool
@@ -331,12 +330,6 @@ BaseCompaction触发条件之一：Singleton文件大小限制，100MB
 默认值：10 （s）
 
 CumulativeCompaction线程轮询的间隔
-
-### `cumulative_compaction_num_threads_per_disk`
-
-默认值：1
-
-每个磁盘执行CumulativeCompaction线程数
 
 ### `cumulative_compaction_skip_window_seconds`
 
@@ -679,6 +672,12 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 默认值：10737418240
 
 BloomFilter/Min/Max等统计信息缓存的容量
+
+### `kafka_broker_version_fallback`
+
+默认值：0.10.0
+
+如果依赖的 kafka 版本低于routine load依赖的 kafka 客户端版本, 将使用回退版本 kafka_broker_version_fallback 设置的值，有效值为：0.9.0、0.8.2、0.8.1、0.8.0。
 
 ### `load_data_reserve_hours`
 
@@ -1161,8 +1160,8 @@ storage_flood_stage_usage_percent和storage_flood_stage_left_capacity_bytes两�
 
   `storage_root_path=/home/disk1/doris.HDD,50;/home/disk2/doris.SSD,10;/home/disk2/doris`
 
-  * /home/disk1/doris.HDD, 50，表示存储限制为50GB, HDD;
-  * /home/disk2/doris.SSD 10， 存储限制为10GB，SSD；
+  * /home/disk1/doris.HDD,50，表示存储限制为50GB，HDD;
+  * /home/disk2/doris.SSD,10，存储限制为10GB，SSD；
   * /home/disk2/doris，存储限制为磁盘最大容量，默认为HDD
   
   示例2如下：
@@ -1445,15 +1444,35 @@ webserver默认工作线程数
   ```
 * 默认值: 3
 
+### `track_new_delete`
+
+* 类型：bool
+* 描述：是否Hook TCmalloc new/delete，目前在Hook中统计thread local MemTracker。
+* 默认值：true
+
 ### `mem_tracker_level`
 
 * 类型: int16
 * 描述: MemTracker在Web页面上展示的级别，等于或低于这个级别的MemTracker会在Web页面上展示
   ```
-    RELEASE = 0
-    DEBUG = 1
+    OVERVIEW = 0
+    TASK = 1
+    INSTANCE = 2
+    VERBOSE = 3
   ```
 * 默认值: 0
+
+### `mem_tracker_consume_min_size_bytes`
+
+* 类型: int32
+* 描述: TCMalloc Hook consume/release MemTracker时的最小长度，小于该值的consume size会持续累加，避免频繁调用MemTracker的consume/release，减小该值会增加consume/release的频率，增大该值会导致MemTracker统计不准，理论上一个MemTracker的统计值与真实值相差 = (mem_tracker_consume_min_size_bytes * 这个MemTracker所在的BE线程数)。
+* 默认值: 1048576
+
+### `memory_leak_detection`
+
+* 类型: bool
+* 描述: 是否启动内存泄漏检测，当 MemTracker 为负值时认为发生了内存泄漏，但实际 MemTracker 记录不准确时也会导致负值，所以这个功能处于实验阶段。
+* 默认值: false
 
 ### `max_segment_num_per_rowset`
 
@@ -1488,3 +1507,37 @@ webserver默认工作线程数
 * 类型: bool
 * 描述: 获取brpc连接时，通过hand_shake rpc 判断连接的可用性，如果不可用则重新建立连接 
 * 默认值: false
+
+### `high_priority_flush_thread_num_per_store`
+
+* 类型：int32
+* 描述：每个存储路径所分配的用于高优导入任务的 flush 线程数量。
+* 默认值：1
+
+### `routine_load_consumer_pool_size`
+
+* 类型：int32
+* 描述：routine load 所使用的 data consumer 的缓存数量。
+* 默认值：10
+
+### `load_task_high_priority_threshold_second`
+
+* 类型：int32
+* 描述：当一个导入任务的超时时间小于这个阈值是，Doris 将认为他是一个高优任务。高优任务会使用独立的 flush 线程池。
+* 默认：120
+
+### `min_load_rpc_timeout_ms`
+
+* 类型：int32
+* 描述：load 作业中各个rpc 的最小超时时间。
+* 默认：20
+
+### `doris_scan_range_max_mb`
+* 类型: int32
+* 描述: 每个OlapScanner 读取的最大数据量
+* 默认值: 1024
+
+### `string_type_length_soft_limit_bytes`
+* 类型: int32
+* 描述: String 类型最大长度的软限，单位是字节
+* 默认值: 1048576

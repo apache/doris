@@ -17,9 +17,11 @@
 
 #pragma once
 
+#include "primitive_type.h"
 #include "runtime/result_writer.h"
 #include "runtime/runtime_state.h"
-#include "primitive_type.h"
+
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
@@ -31,14 +33,14 @@ class BufferControlBlock;
 class RuntimeProfile;
 
 namespace vectorized {
-    class VExprContext;
+class VExprContext;
 }
 
 // convert the row batch to mysql protocol row
 class MysqlResultWriter final : public ResultWriter {
 public:
     MysqlResultWriter(BufferControlBlock* sinker, const std::vector<ExprContext*>& output_expr_ctxs,
-            RuntimeProfile* parent_profile);
+                      RuntimeProfile* parent_profile, bool output_object_data);
 
     virtual ~MysqlResultWriter();
 

@@ -34,8 +34,10 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "util/priority_thread_pool.hpp"
+#include "util/priority_work_stealing_thread_pool.hpp"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -59,11 +61,9 @@ OlapScanNode::OlapScanNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
           _eval_conjuncts_fn(nullptr),
           _runtime_filter_descs(tnode.runtime_filters) {}
 
-OlapScanNode::~OlapScanNode() {}
-
 Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
-    _direct_conjunct_size = state->enable_vectorized_exec() ? 1 : _conjunct_ctxs.size();
+    _direct_conjunct_size = _conjunct_ctxs.size();
 
     const TQueryOptions& query_options = state->query_options();
     if (query_options.__isset.max_scan_key_num) {
@@ -78,14 +78,16 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
     }
 
+    _max_scanner_queue_size_bytes = query_options.mem_limit / 20; //TODO: session variable percent
+
     /// TODO: could one filter used in the different scan_node ?
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.resize(filter_size);
     for (int i = 0; i < filter_size; ++i) {
         IRuntimeFilter* runtime_filter = nullptr;
         const auto& filter_desc = _runtime_filter_descs[i];
-        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(RuntimeFilterRole::CONSUMER,
-                                                                   filter_desc, id()));
+        RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(
+                RuntimeFilterRole::CONSUMER, filter_desc, state->query_options(), id()));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(filter_desc.filter_id,
                                                                         &runtime_filter));
 
@@ -159,6 +161,13 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     // time of node to wait for batch/block queue
     _olap_wait_batch_queue_timer = ADD_TIMER(_runtime_profile, "BatchQueueWaitTime");
+
+    // for the purpose of debugging or profiling
+    for (int i = 0; i < GENERAL_DEBUG_COUNT; ++i) {
+        char name[64];
+        snprintf(name, sizeof(name), "GeneralDebugTimer%d", i);
+        _general_debug_timer[i] = ADD_TIMER(_segment_profile, name);
+    }
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
@@ -171,6 +180,9 @@ Status OlapScanNode::prepare(RuntimeState* state) {
             ADD_COUNTER(_scanner_profile, "RowsPushedCondFiltered", TUnit::UNIT);
     _init_counter(state);
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
+
+    _scanner_mem_tracker = MemTracker::create_tracker(state->instance_mem_tracker()->limit(),
+                                                      "Scanners", mem_tracker());
 
     if (_tuple_desc == nullptr) {
         // TODO: make sure we print all available diagnostic output to our error log
@@ -300,6 +312,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             materialized_batch = _materialized_row_batches.front();
             DCHECK(materialized_batch != nullptr);
             _materialized_row_batches.pop_front();
+            _materialized_row_batches_bytes -= materialized_batch->tuple_data_pool()->total_reserved_bytes();
         }
     }
 
@@ -339,8 +352,6 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
                          << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
             }
         }
-        __sync_fetch_and_sub(&_buffered_bytes,
-                             row_batch->tuple_data_pool()->total_reserved_bytes());
 
         delete materialized_batch;
         return Status::OK();
@@ -388,12 +399,14 @@ Status OlapScanNode::close(RuntimeState* state) {
     }
 
     _materialized_row_batches.clear();
+    _materialized_row_batches_bytes = 0;
 
     for (auto row_batch : _scan_row_batches) {
         delete row_batch;
     }
 
     _scan_row_batches.clear();
+    _scan_row_batches_bytes = 0;
 
     // OlapScanNode terminate by exception
     // so that initiative close the Scanner
@@ -418,7 +431,6 @@ Status OlapScanNode::close(RuntimeState* state) {
 //  1: required list<Types.TNetworkAddress> hosts
 //  2: required string schema_hash
 //  3: required string version
-//  4: required string version_hash
 //  5: required Types.TTabletId tablet_id
 //  6: required string db_name
 //  7: optional list<TKeyRange> partition_column_ranges
@@ -464,7 +476,6 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
     VLOG_CRITICAL << "Filter idle conjuncts";
     // 5. Filter idle conjunct which already trans to olap filters
     // this must be after build_scan_key, it will free the StringValue memory
-    // TODO: filter idle conjunct in vexpr_contexts
     remove_pushed_conjuncts(state);
 
     VLOG_CRITICAL << "StartScanThread";
@@ -516,15 +527,26 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
     _conjunct_ctxs = std::move(new_conjunct_ctxs);
     _direct_conjunct_size = new_direct_conjunct_size;
 
+    // TODO: support vbloom_filter_predicate/vbinary_predicate and merge unpushed predicate to _vconjunct_ctx
     for (auto push_down_ctx : _pushed_conjuncts_index) {
         auto iter = _conjunctid_to_runtime_filter_ctxs.find(push_down_ctx);
         if (iter != _conjunctid_to_runtime_filter_ctxs.end()) {
             iter->second->runtimefilter->set_push_down_profile();
         }
     }
+
     // set vconjunct_ctx is empty, if all conjunct
     if (_direct_conjunct_size == 0) {
+        if (_vconjunct_ctx_ptr.get() != nullptr) {
+            (*_vconjunct_ctx_ptr.get())->close(state);
+            _vconjunct_ctx_ptr = nullptr;
+        }
     }
+
+    // filter idle conjunct in vexpr_contexts
+    auto checker = [&](int index) { return _pushed_conjuncts_index.count(index); };
+    std::string vconjunct_information = _peel_pushed_vconjunct(checker);
+    _scanner_profile->add_info_string("VconjunctExprTree", vconjunct_information);
 }
 
 void OlapScanNode::eval_const_conjuncts() {
@@ -660,24 +682,11 @@ Status OlapScanNode::build_scan_key() {
     return Status::OK();
 }
 
-Status OlapScanNode::get_hints(const TPaloScanRange& scan_range, int block_row_count,
-                               bool is_begin_include, bool is_end_include,
-                               const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
-                               std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
-                               RuntimeProfile* profile) {
-    auto tablet_id = scan_range.tablet_id;
-    int32_t schema_hash = strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
-    std::string err;
-    TabletSharedPtr table = StorageEngine::instance()->tablet_manager()->get_tablet(
-            tablet_id, schema_hash, true, &err);
-    if (table == nullptr) {
-        std::stringstream ss;
-        ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
-           << ", reason: " << err;
-        LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
-    }
-
+static Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
+                        int block_row_count, bool is_begin_include, bool is_end_include,
+                        const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                        std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                        RuntimeProfile* profile) {
     RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime_V1");
     std::vector<std::vector<OlapTuple>> ranges;
     bool have_valid_range = false;
@@ -757,21 +766,42 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     }
 
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
-
     std::unordered_set<std::string> disk_set;
     for (auto& scan_range : _scan_ranges) {
+        auto tablet_id = scan_range->tablet_id;
+        int32_t schema_hash = strtoul(scan_range->schema_hash.c_str(), nullptr, 10);
+        std::string err;
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                tablet_id, schema_hash, true, &err);
+        if (tablet == nullptr) {
+            std::stringstream ss;
+            ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
+               << ", reason: " << err;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
         std::vector<std::unique_ptr<OlapScanRange>>* ranges = &cond_ranges;
         std::vector<std::unique_ptr<OlapScanRange>> split_ranges;
-        if (need_split) {
-            auto st = get_hints(*scan_range, config::doris_scan_range_row_count,
+        if (need_split && !tablet->all_beta()) {
+            auto st = get_hints(tablet, *scan_range, config::doris_scan_range_row_count,
                                 _scan_keys.begin_include(), _scan_keys.end_include(), cond_ranges,
                                 &split_ranges, _runtime_profile.get());
             if (st.ok()) {
                 ranges = &split_ranges;
             }
         }
-
-        int ranges_per_scanner = std::max(1, (int)ranges->size() / scanners_per_tablet);
+        // In order to avoid the problem of too many scanners caused by small tablets,
+        // in addition to scanRange, we also need to consider the size of the tablet when
+        // creating the scanner. One scanner is used for every 1Gb, and the final scanner_per_tablet
+        // takes the minimum value calculated by scanrange and size.
+        int size_based_scanners_per_tablet = 1;
+        if (config::doris_scan_range_max_mb > 0) {
+            size_based_scanners_per_tablet = std::max(
+                    1, (int)tablet->tablet_footprint() / config::doris_scan_range_max_mb << 20);
+        }
+        int ranges_per_scanner =
+                std::max(1, (int)ranges->size() /
+                                    std::min(scanners_per_tablet, size_based_scanners_per_tablet));
         int num_ranges = ranges->size();
         for (int i = 0; i < num_ranges;) {
             std::vector<OlapScanRange*> scanner_ranges;
@@ -782,8 +812,9 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
                  ++j, ++i) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
-            OlapScanner* scanner = new OlapScanner(state, this, _olap_scan_node.is_preaggregation,
-                                                   _need_agg_finalize, *scan_range);
+            OlapScanner* scanner =
+                    new OlapScanner(state, this, _olap_scan_node.is_preaggregation,
+                                    _need_agg_finalize, *scan_range, _scanner_mem_tracker);
             // add scanner to pool before doing prepare.
             // so that scanner can be automatically deconstructed if prepare failed.
             _scanner_pool.add(scanner);
@@ -843,11 +874,6 @@ static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
 
 bool OlapScanNode::should_push_down_in_predicate(doris::SlotDescriptor* slot,
                                                  doris::InPredicate* pred) {
-    if (pred->is_not_in()) {
-        // can not push down NOT IN predicate to storage engine
-        return false;
-    }
-
     if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
         // not a slot ref(column)
         return false;
@@ -1324,6 +1350,7 @@ Status OlapScanNode::normalize_bloom_filter_predicate(SlotDescriptor* slot) {
 
 void OlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     Status status = Status::OK();
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
@@ -1351,16 +1378,12 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
     _nice = 18 + std::max(0, 2 - (int)_olap_scanners.size() / 5);
     std::list<OlapScanner*> olap_scanners;
 
-    int64_t mem_limit = 512 * 1024 * 1024;
-    // TODO(zc): use memory limit
-    int64_t mem_consume = __sync_fetch_and_add(&_buffered_bytes, 0);
-    if (state->fragment_mem_tracker() != nullptr) {
-        mem_limit = state->fragment_mem_tracker()->limit();
-        mem_consume = state->fragment_mem_tracker()->consumption();
-    }
+    int64_t mem_limit = _scanner_mem_tracker->limit();
+    int64_t mem_consume = _scanner_mem_tracker->consumption();
     int max_thread = _max_materialized_row_batches;
     if (config::doris_scanner_row_num > state->batch_size()) {
         max_thread /= config::doris_scanner_row_num / state->batch_size();
+        if (max_thread <= 0) max_thread = 1;
     }
     // read from scanner
     while (LIKELY(status.ok())) {
@@ -1376,14 +1399,12 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         {
             std::unique_lock<std::mutex> l(_scan_batches_lock);
             assigned_thread_num = _running_thread;
-            // int64_t buf_bytes = __sync_fetch_and_add(&_buffered_bytes, 0);
             // How many thread can apply to this query
             size_t thread_slot_num = 0;
-            mem_consume = __sync_fetch_and_add(&_buffered_bytes, 0);
-            if (state->fragment_mem_tracker() != nullptr) {
-                mem_consume = state->fragment_mem_tracker()->consumption();
-            }
-            if (mem_consume < (mem_limit * 6) / 10) {
+            mem_consume = _scanner_mem_tracker->consumption();
+            // check limit for total memory and _scan_row_batches memory
+            if (mem_consume < (mem_limit * 6) / 10 &&
+                _scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                 thread_slot_num = max_thread - assigned_thread_num;
             } else {
                 // Memory already exceed
@@ -1429,6 +1450,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 PriorityThreadPool::Task task;
                 task.work_function = std::bind(&OlapScanNode::scanner_thread, this, *iter);
                 task.priority = _nice;
+                task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
                 (*iter)->start_wait_worker_timer();
                 if (thread_pool->offer(task)) {
                     olap_scanners.erase(iter++);
@@ -1462,6 +1484,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
             if (LIKELY(!_scan_row_batches.empty())) {
                 scan_batch = _scan_row_batches.front();
                 _scan_row_batches.pop_front();
+                _scan_row_batches_bytes -= scan_batch->tuple_data_pool()->total_reserved_bytes();
 
                 // delete scan_batch if transfer thread should be stopped
                 // because scan_batch wouldn't be useful anymore
@@ -1494,6 +1517,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 }
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
+    SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;
         std::unique_lock<std::mutex> l(_scan_batches_lock);
@@ -1562,10 +1586,12 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // need yield this thread when we do enough work. However, OlapStorage read
     // data in pre-aggregate mode, then we can't use storage returned data to
     // judge if we need to yield. So we record all raw data read in this round
-    // scan, if this exceed threshold, we yield this thread.
+    // scan, if this exceed row number or bytes threshold, we yield this thread.
     int64_t raw_rows_read = scanner->raw_rows_read();
     int64_t raw_rows_threshold = raw_rows_read + config::doris_scanner_row_num;
-    while (!eos && raw_rows_read < raw_rows_threshold) {
+    int64_t raw_bytes_read = 0;
+    int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
+    while (!eos && raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
@@ -1573,8 +1599,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
                        << ", fragment id=" << print_id(_runtime_state->fragment_instance_id());
             break;
         }
-        RowBatch* row_batch = new RowBatch(this->row_desc(), state->batch_size(),
-                                           _runtime_state->fragment_mem_tracker().get());
+        RowBatch* row_batch = new RowBatch(this->row_desc(), state->batch_size());
         row_batch->set_scanner_id(scanner->id());
         status = scanner->get_batch(_runtime_state, row_batch, &eos);
         if (!status.ok()) {
@@ -1589,8 +1614,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             row_batch = nullptr;
         } else {
             row_batchs.push_back(row_batch);
-            __sync_fetch_and_add(&_buffered_bytes,
-                                 row_batch->tuple_data_pool()->total_reserved_bytes());
+            raw_bytes_read += row_batch->tuple_data_pool()->total_reserved_bytes();
         }
         raw_rows_read = scanner->raw_rows_read();
     }
@@ -1619,6 +1643,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         } else {
             for (auto rb : row_batchs) {
                 _scan_row_batches.push_back(rb);
+                _scan_row_batches_bytes += rb->tuple_data_pool()->total_reserved_bytes();
             }
         }
         // If eos is true, we will process out of this lock block.
@@ -1658,19 +1683,19 @@ Status OlapScanNode::add_one_batch(RowBatch* row_batch) {
     {
         std::unique_lock<std::mutex> l(_row_batches_lock);
 
-        while (UNLIKELY(_materialized_row_batches.size() >= _max_materialized_row_batches &&
+        // check queue limit for both both batch size and bytes
+        while (UNLIKELY((_materialized_row_batches.size() >= _max_materialized_row_batches ||
+                         _materialized_row_batches_bytes >= _max_scanner_queue_size_bytes / 2) &&
                         !_transfer_done)) {
             _row_batch_consumed_cv.wait(l);
         }
 
         VLOG_CRITICAL << "Push row_batch to materialized_row_batches";
         _materialized_row_batches.push_back(row_batch);
+        _materialized_row_batches_bytes += row_batch->tuple_data_pool()->total_reserved_bytes();
     }
     // remove one batch, notify main thread
     _row_batch_added_cv.notify_one();
     return Status::OK();
 }
-
-void OlapScanNode::debug_string(int /* indentation_level */, std::stringstream* /* out */) const {}
-
 } // namespace doris

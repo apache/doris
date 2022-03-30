@@ -42,7 +42,8 @@ OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& 
             request.table_id, request.partition_id, request.tablet_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,
             col_ordinal_to_unique_id, tablet_uid,
-            request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK));
+            request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
+            request.storage_medium));
     return OLAP_SUCCESS;
 }
 
@@ -52,7 +53,8 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        int32_t schema_hash, uint64_t shard_id, const TTabletSchema& tablet_schema,
                        uint32_t next_unique_id,
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                       TabletUid tablet_uid, TTabletType::type tabletType)
+                       TabletUid tablet_uid, TTabletType::type tabletType,
+                       TStorageMedium::type t_storage_medium)
         : _tablet_uid(0, 0), _schema(new TabletSchema) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
@@ -67,6 +69,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     tablet_meta_pb.set_tablet_type(tabletType == TTabletType::TABLET_TYPE_DISK
                                            ? TabletTypePB::TABLET_TYPE_DISK
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
+    tablet_meta_pb.set_storage_medium(fs::fs_util::get_storage_medium_pb(t_storage_medium));
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -124,11 +127,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                     }
                 }
             }
-        }
-
-        if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
-            ColumnPB* children_column = column->add_children_columns();
-            _init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
         }
     }
 
@@ -206,6 +204,10 @@ void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tc
     }
     if (tcolumn.__isset.is_bloom_filter_column) {
         column->set_is_bf_column(tcolumn.is_bloom_filter_column);
+    }
+    if (tcolumn.column_type.type == TPrimitiveType::ARRAY) {
+        ColumnPB* children_column = column->add_children_columns();
+        _init_column_from_tcolumn(0, tcolumn.children_column[0], children_column);
     }
 }
 
@@ -298,7 +300,7 @@ OLAPStatus TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_
 }
 
 OLAPStatus TabletMeta::save_meta(DataDir* data_dir) {
-    WriteLock wrlock(&_meta_lock);
+    WriteLock wrlock(_meta_lock);
     return _save_meta(data_dir);
 }
 
@@ -541,7 +543,7 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
 // an existing tablet before. Add after revise, only the passing "rs_metas"
 // is needed.
 void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
-    WriteLock wrlock(&_meta_lock);
+    WriteLock wrlock(_meta_lock);
     _rs_metas = std::move(rs_metas);
     _stale_rs_metas.clear();
 }
@@ -598,8 +600,8 @@ void TabletMeta::remove_delete_predicate_by_version(const Version& version) {
             for (const auto& it : temp.sub_predicates()) {
                 del_cond_str += it + ";";
             }
-            LOG(INFO) << "remove one del_pred. version=" << temp.version()
-                      << ", condition=" << del_cond_str;
+            VLOG_NOTICE << "remove one del_pred. version=" << temp.version()
+                        << ", condition=" << del_cond_str;
 
             // remove delete condition from PB
             _del_pred_array.SwapElements(ordinal, _del_pred_array.size() - 1);

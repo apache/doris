@@ -22,22 +22,67 @@
 
 #include "udf/udf.h"
 #include "udf/udf_internal.h"
+#include "util/encryption_util.h"
+#include "util/string_util.h"
 
 namespace doris {
 
 class Expr;
 struct ExprValue;
 class TupleRow;
-
+static StringCaseUnorderedMap<EncryptionMode> aes_mode_map {
+        {"AES_128_ECB", AES_128_ECB},       {"AES_192_ECB", AES_192_ECB},
+        {"AES_256_ECB", AES_256_ECB},       {"AES_128_CBC", AES_128_CBC},
+        {"AES_192_CBC", AES_192_CBC},       {"AES_256_CBC", AES_256_CBC},
+        {"AES_128_CFB", AES_128_CFB},       {"AES_192_CFB", AES_192_CFB},
+        {"AES_256_CFB", AES_256_CFB},       {"AES_128_CFB1", AES_128_CFB1},
+        {"AES_192_CFB1", AES_192_CFB1},     {"AES_256_CFB1", AES_256_CFB1},
+        {"AES_128_CFB8", AES_128_CFB8},     {"AES_192_CFB8", AES_192_CFB8},
+        {"AES_256_CFB8", AES_256_CFB8},     {"AES_128_CFB128", AES_128_CFB128},
+        {"AES_192_CFB128", AES_192_CFB128}, {"AES_256_CFB128", AES_256_CFB128},
+        {"AES_128_CTR", AES_128_CTR},       {"AES_192_CTR", AES_192_CTR},
+        {"AES_256_CTR", AES_256_CTR},       {"AES_128_OFB", AES_128_OFB},
+        {"AES_192_OFB", AES_192_OFB},       {"AES_256_OFB", AES_256_OFB}};
+static StringCaseUnorderedMap<EncryptionMode> sm4_mode_map {{"SM4_128_ECB", SM4_128_ECB},
+                                                     {"SM4_128_CBC", SM4_128_CBC},
+                                                     {"SM4_128_CFB128", SM4_128_CFB128},
+                                                     {"SM4_128_OFB", SM4_128_OFB},
+                                                     {"SM4_128_CTR", SM4_128_CTR}};
 class EncryptionFunctions {
 public:
     static void init();
-    static doris_udf::StringVal aes_encrypt(doris_udf::FunctionContext* context,
-                                            const doris_udf::StringVal& val1,
-                                            const doris_udf::StringVal& val2);
-    static doris_udf::StringVal aes_decrypt(doris_udf::FunctionContext* context,
-                                            const doris_udf::StringVal& val1,
-                                            const doris_udf::StringVal& val2);
+    static doris_udf::StringVal aes_encrypt(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::StringVal& src,
+                                            const doris_udf::StringVal& key);
+    static doris_udf::StringVal aes_decrypt(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::StringVal& src,
+                                            const doris_udf::StringVal& key);
+    static doris_udf::StringVal aes_encrypt(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::StringVal& src,
+                                            const doris_udf::StringVal& key,
+                                            const doris_udf::StringVal& iv,
+                                            const doris_udf::StringVal& mode);
+    static doris_udf::StringVal aes_decrypt(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::StringVal& src,
+                                            const doris_udf::StringVal& key,
+                                            const doris_udf::StringVal& iv,
+                                            const doris_udf::StringVal& mode);
+    static doris_udf::StringVal sm4_encrypt(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::StringVal& src,
+                                            const doris_udf::StringVal& key);
+    static doris_udf::StringVal sm4_decrypt(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::StringVal& src,
+                                            const doris_udf::StringVal& key);
+    static doris_udf::StringVal sm4_encrypt(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::StringVal& src,
+                                            const doris_udf::StringVal& key,
+                                            const doris_udf::StringVal& iv,
+                                            const doris_udf::StringVal& mode);
+    static doris_udf::StringVal sm4_decrypt(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::StringVal& src,
+                                            const doris_udf::StringVal& key,
+                                            const doris_udf::StringVal& iv,
+                                            const doris_udf::StringVal& mode);
     static doris_udf::StringVal from_base64(doris_udf::FunctionContext* context,
                                             const doris_udf::StringVal& val1);
     static doris_udf::StringVal to_base64(doris_udf::FunctionContext* context,
@@ -45,6 +90,10 @@ public:
     static doris_udf::StringVal md5sum(doris_udf::FunctionContext* ctx, int num_args,
                                        const doris_udf::StringVal* args);
     static doris_udf::StringVal md5(doris_udf::FunctionContext* ctx,
+                                    const doris_udf::StringVal& src);
+    static doris_udf::StringVal sm3sum(doris_udf::FunctionContext* ctx, int num_args,
+                                       const doris_udf::StringVal* args);
+    static doris_udf::StringVal sm3(doris_udf::FunctionContext* ctx,
                                     const doris_udf::StringVal& src);
 };
 

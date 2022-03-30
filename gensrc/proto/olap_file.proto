@@ -30,46 +30,19 @@ message ZoneMap {
     optional bool null_flag = 3;
 }
 
-message DeltaPruning {
-    repeated ZoneMap zone_maps = 1;
-}
-
-// define OLAP FileVersion Message, Base, delta and cumulative delta 
-// are both instance of Version 
-// Base Version: (start_version == 0 && end_version > start_version) || [0, 0]
-// Cumulative Version: (start_version >= 1 && end_version > start_version)
-// Delta Version: start_version == end_version
-message FileVersionMessage { // Deprecated, Use PDelta instead
-    required uint32 num_segments = 1 [default = 0];
-    required int32 start_version = 2;
-    required int32 end_version = 3;
-    required int64 version_hash = 4 [default = 0];
-    required int64 max_timestamp = 5 [default = 0];
-    required int64 index_size = 6 [default = 0];
-    required int64 data_size = 7 [default = 0];
-    optional int64 num_rows = 8 [default = 0];
-    required int64 creation_time = 9 [default = 0];
-    optional DeltaPruning delta_pruning = 10;
-}
-
-message PDelta {
-    required int64 start_version = 1;   // RowsetMetaPB.start_version
-    required int64 end_version = 2;     // RowsetMetaPB.end_version
-    required int64 version_hash = 3;    // RowsetMetaPB.version_hash
-    required int64 creation_time = 4;   // RowsetMetaPB.creation_time
-    repeated SegmentGroupPB segment_group = 5;  // RowsetMetaPB.extra_properties
-    optional DeletePredicatePB delete_condition = 6;    // RowsetMetaPB.delete_predicate
-}
-
 enum RowsetTypePB {
-    ALPHA_ROWSET = 0; // doris原有的列存格式
-    BETA_ROWSET  = 1; // 新列存
+    ALPHA_ROWSET = 0; // doris original column storage format
+    BETA_ROWSET  = 1; // new column storage format
 }
 
 enum RowsetStatePB {
-    PREPARED = 0; // 表示正在写入Rowset
-    COMMITTED = 1; // 表示rowset 写入完成，但是用户还不可见；这个状态下的rowset，BE不能自行判断是否删除，必须由FE的指令
-    VISIBLE = 2; // 表示rowset 已经对用户可见
+    // Rowset is being written
+    PREPARED = 0;
+    // Rowset writting is completed, but the user is not yet visible
+    // For rowset in this state, BE cannot determine whether to delete it by itself, it must be instructed by FE
+    COMMITTED = 1;
+    // Rowset is already visible to the user
+    VISIBLE = 2;
 }
 
 // indicate whether date between segments of a rowset is overlappinng
@@ -140,33 +113,6 @@ message SegmentGroupPB {
     optional PUniqueId load_id = 8;
 }
 
-message PPendingDelta {
-    required int64 partition_id = 1;    // RowsetMetaPB.partition_id
-    required int64 transaction_id = 2;  // RowsetMetaPB.txn_id
-    required int64 creation_time = 3;   // RowsetMetaPB.creation_time
-    repeated PendingSegmentGroupPB pending_segment_group = 4;   // RowsetMetaPB.extra_properties
-    optional DeletePredicatePB delete_condition = 5;    // RowsetMetaPB.delete_predicate
-}
-
-message PendingSegmentGroupPB {
-    required int32 pending_segment_group_id = 1;
-    required int32 num_segments = 2;
-    required PUniqueId load_id = 3;
-    repeated ZoneMap zone_maps = 4;
-    optional bool empty = 5;
-}
-
-message SchemaChangeStatusMessage {
-    required int64 related_tablet_id = 1;
-    required int32 related_schema_hash = 2;
-
-    repeated FileVersionMessage versions_to_be_changed = 3; // Deprecated. Use PDelta instead 
-
-    required int32 schema_change_type = 4;
-
-    repeated PDelta versions_to_changed = 5;
-}
-
 enum DataFileType {
     OLAP_DATA_FILE = 0; //Deprecated. Only columnar-wise format is supported.
     COLUMN_ORIENTED_FILE = 1;
@@ -188,38 +134,6 @@ message InPredicatePB {
    optional string column_name = 1;
    optional bool is_not_in = 2;
    repeated string values = 3;
-}
-
-message OLAPHeaderMessage {
-    required uint32 num_rows_per_data_block = 1;    // TabletSchemaPB.num_rows_per_row_block
-
-    repeated FileVersionMessage file_version = 2; // Deprecated. Use PDelta instead after stream load
-
-    required int32 cumulative_layer_point = 3;  // TabletMetaPB.cumulative_layer_point
-    required uint32 num_short_key_fields = 4;   // TabletSchemaPB.num_short_key_columns
-    repeated ColumnMessage column = 5;  // TabletSchemaPB.column
-    required int64 creation_time = 6;   // TabletMetaPB.creation_time
-    repeated int32 selectivity = 7; // Deprecated.
-    optional SchemaChangeStatusMessage schema_change_status = 8;    // TabletMetaPB.alter_task
-    optional DataFileType data_file_type = 9 [default = OLAP_DATA_FILE];    // ? only column oriented
-    optional uint32 next_column_unique_id = 10 [default = 0];   // TabletSchemaPB.next_column_unique_id
-    optional CompressKind compress_kind = 11 [default = COMPRESS_LZO];  // TabletSchemaPB.compress_kind
-    optional uint32 segment_size = 12 [default = 4292870144];   // ? not used
-    repeated DeletePredicatePB delete_data_conditions = 13; // not serialized any more, just read from PDelta
-    // bloom filter false positive probability
-    optional double bf_fpp = 14;    // TabletSchemaPB.bf_fpp
-    optional KeysType keys_type = 15;   // TabletSchemaPB.keys_type
-    repeated PDelta delta = 16; // TabletMetaPB.rs_metas
-    repeated PPendingDelta pending_delta = 17;  // need write to olap meta store
-    // @Deprecated
-    repeated PDelta incremental_delta = 18; // TabletMetaPB.inc_rs_metas
-
-    // if true, this tablet will not do compaction,
-    // and does not create init version
-    optional bool in_restore_mode = 19 [default = false];   // TabletMetaPB.is_restore_mode
-    optional int64 tablet_id = 20;  // TabletMetaPB.tablet_id
-    optional int32 schema_hash = 21;    // TabletMetaPB.schema_hash? int32 vs int64
-    optional uint64 shard_id = 22; // TabletMetaPB.shard_id? int64 vs int32
 }
 
 enum AlterTabletState {
@@ -295,6 +209,12 @@ enum TabletTypePB {
     TABLET_TYPE_MEMORY = 1;
 }
 
+enum StorageMediumPB {
+    HDD = 0;
+    SSD = 1;
+    S3 = 2;
+}
+
 message TabletMetaPB {
     optional int64 table_id = 1;    // ?
     optional int64 partition_id = 2;    // ?
@@ -319,6 +239,7 @@ message TabletMetaPB {
     optional RowsetTypePB preferred_rowset_type = 16;
     optional TabletTypePB tablet_type = 17;
     repeated RowsetMetaPB stale_rs_metas = 18;
+    optional StorageMediumPB storage_medium = 19 [default = HDD];
 }
 
 message OLAPIndexHeaderMessage {

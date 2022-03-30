@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_WRITER_H
 
+#include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/types.pb.h"
 #include "gutil/macros.h"
 #include "olap/column_mapping.h"
@@ -26,7 +27,7 @@
 
 namespace doris {
 
-class ContiguousRow;
+struct ContiguousRow;
 class MemTable;
 class RowCursor;
 
@@ -66,6 +67,8 @@ public:
     virtual int64_t num_rows() = 0;
 
     virtual RowsetId rowset_id() = 0;
+
+    virtual RowsetTypePB type() const = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

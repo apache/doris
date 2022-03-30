@@ -156,6 +156,10 @@ struct TQueryOptions {
 
   // the resource limitation of this query
   42: optional TResourceLimit resource_limit
+
+  // show bitmap data in result, if use this in mysql cli may make the terminal
+  // output corrupted character
+  43: optional bool return_object_data_as_binary = false
 }
     
 
@@ -245,6 +249,9 @@ struct TQueryGlobals {
   // time_zone is the timezone this query used.
   // If this value is set, BE will ignore now_string
   3: optional string time_zone
+
+  // Set to true if in a load plan, the max_filter_ratio is 0.0
+  4: optional bool load_zero_tolerance = false;
 }
 
 
@@ -351,6 +358,7 @@ struct TExprMap {
 struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
+  3: optional bool vec_exec
 }
 
 // TransmitData

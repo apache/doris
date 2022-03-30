@@ -1,4 +1,4 @@
----
+﻿---
 {
     "title": "EXPORT",
     "language": "en"
@@ -74,6 +74,15 @@ under the License.
         For brokers corresponding to different storage systems, the input parameters are different. Specific parameters can be referred to: `help broker load', broker required properties.
         When exporting to local, you do not need to fill in this part.
 
+    7. hdfs
+      Specify to use libhdfs export to hdfs
+          Grammar：
+          WITH HDFS ("key"="value"[,...])
+
+          The following parameters can be specified:
+            fs.defaultFS: Set the fs such as：hdfs://ip:port
+            hdfs_user：Specify hdfs user name
+
 ## example
 
     1. Export all data from the testTbl table to HDFS
@@ -86,7 +95,7 @@ under the License.
        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("label" = "mylabel", "column_separator"=",") WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
     4. Export the row meet condition k1 = 1 in the testTbl table to hdfs.
-       EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WHERE k1=1 WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
+       EXPORT TABLE testTbl WHERE k1=1 TO "hdfs://hdfs_host:port/a/b/c" WITH BROKER "broker_name" ("username"="xxx", "password"="yyy");
 
     5. Export all data in the testTbl table to the local.
        EXPORT TABLE testTbl TO "file:///home/data/a";
@@ -96,6 +105,9 @@ under the License.
 
     7. Export column k1, v1 from the testTbl to the local.
        EXPORT TABLE testTbl TO "file:///home/data/a" PROPERTIES ("columns" = "k1,v1");
+
+    8. Export all data in the testTbl table to hdfs, using the invisible character "\x07" as the column and row separator. 
+        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"="\\x07", "line_delimiter" = "\\x07") WITH HDFS ("fs.defaultFS"="hdfs://hdfs_host:port", "hdfs_user"="yyy")
 
 ## keyword
     EXPORT

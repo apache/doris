@@ -30,10 +30,10 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/thread_resource_mgr.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 
-class mg_connection;
+struct mg_connection;
 
 namespace doris {
 
@@ -74,14 +74,17 @@ public:
         _env._thread_mgr = new ThreadResourceMgr();
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();
-        _env._brpc_stub_cache = new BrpcStubCache();
+        _env._internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
+        _env._function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         _env._stream_load_executor = new StreamLoadExecutor(&_env);
 
         _evhttp_req = evhttp_request_new(nullptr, nullptr);
     }
     void TearDown() override {
-        delete _env._brpc_stub_cache;
-        _env._brpc_stub_cache = nullptr;
+        delete _env._internal_client_cache;
+        _env._internal_client_cache = nullptr;
+        delete _env._function_client_cache;
+        _env._function_client_cache = nullptr;
         delete _env._load_stream_mgr;
         _env._load_stream_mgr = nullptr;
         delete _env._master_info;

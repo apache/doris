@@ -283,9 +283,9 @@ public:
     // same query id has already been created, that block mgr is returned.
     // - mem_limit: maximum memory that will be used by the block mgr.
     // - buffer_size: maximum size of each buffer.
-    static Status create(RuntimeState* state, const std::shared_ptr<MemTracker>& parent,
-                         RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr, int64_t mem_limit,
-                         int64_t buffer_size, std::shared_ptr<BufferedBlockMgr2>* block_mgr);
+    static Status create(RuntimeState* state, RuntimeProfile* profile, TmpFileMgr* tmp_file_mgr,
+                         int64_t mem_limit, int64_t buffer_size,
+                         std::shared_ptr<BufferedBlockMgr2>* block_mgr);
 
     ~BufferedBlockMgr2();
 
@@ -384,7 +384,7 @@ public:
     }
 
 private:
-    friend struct Client;
+    friend class Client;
 
     // Descriptor for a single memory buffer in the pool.
     struct BufferDescriptor : public InternalQueue<BufferDescriptor>::Node {
@@ -406,8 +406,7 @@ private:
     BufferedBlockMgr2(RuntimeState* state, TmpFileMgr* tmp_file_mgr, int64_t block_size);
 
     // Initializes the block mgr. Idempotent and thread-safe.
-    void init(DiskIoMgr* io_mgr, RuntimeProfile* profile,
-              const std::shared_ptr<MemTracker>& parent_tracker, int64_t mem_limit);
+    void init(DiskIoMgr* io_mgr, RuntimeProfile* profile, int64_t mem_limit);
 
     // Initializes _tmp_files. This is initialized the first time we need to write to disk.
     // Must be called with _lock taken.
@@ -578,8 +577,6 @@ private:
     // Counters and timers to track behavior.
     std::unique_ptr<RuntimeProfile> _profile;
 
-    // These have a fixed value for the lifetime of the manager and show memory usage.
-    RuntimeProfile::Counter* _mem_tracker_counter;
     RuntimeProfile::Counter* _block_size_counter;
 
     // Total number of blocks created.

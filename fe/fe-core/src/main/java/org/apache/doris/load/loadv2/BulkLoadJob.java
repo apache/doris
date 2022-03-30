@@ -28,7 +28,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
@@ -46,6 +45,10 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
+
+import org.apache.commons.lang.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -303,41 +306,19 @@ public abstract class BulkLoadJob extends LoadJob {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_61) {
-            fileGroupAggInfo.readFields(in);
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_76) {
-                String stmt = Text.readString(in);
-                originStmt = new OriginStatement(stmt, 0);
-            } else {
-                originStmt = OriginStatement.read(in);
-            }
-        } else {
-            originStmt = new OriginStatement("", 0);
-        }
+        originStmt = OriginStatement.read(in);
         // The origin stmt does not be analyzed in here.
         // The reason is that it will thrown MetaNotFoundException when the tableId could not be found by tableName.
         // The origin stmt will be analyzed after the replay is completed.
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_93) {
-            userInfo = UserIdentity.read(in);
-            // must set is as analyzed, because when write the user info to meta image, it will be checked.
-            userInfo.setIsAnalyzed();
-        } else {
-            userInfo = UserIdentity.UNKNOWN;
-        }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_66) {
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                String key = Text.readString(in);
-                String value = Text.readString(in);
-                sessionVariables.put(key, value);
-            }
-        } else {
-            // old version of load does not have sqlmode, set it to default
-            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
+        userInfo = UserIdentity.read(in);
+        // must set is as analyzed, because when write the user info to meta image, it will be checked.
+        userInfo.setIsAnalyzed();
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String key = Text.readString(in);
+            String value = Text.readString(in);
+            sessionVariables.put(key, value);
         }
     }
 

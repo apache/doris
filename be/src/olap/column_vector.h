@@ -51,25 +51,10 @@ public:
     void resize(size_t _size);
 };
 
-template class DataBuffer<bool>;
-template class DataBuffer<int8_t>;
-template class DataBuffer<int16_t>;
-template class DataBuffer<int32_t>;
-template class DataBuffer<uint32_t>;
-template class DataBuffer<int64_t>;
-template class DataBuffer<uint64_t>;
-template class DataBuffer<int128_t>;
-template class DataBuffer<float>;
-template class DataBuffer<double>;
-template class DataBuffer<decimal12_t>;
-template class DataBuffer<uint24_t>;
-template class DataBuffer<Slice>;
-template class DataBuffer<CollectionValue>;
-
 // struct that contains column data(null bitmap), data array in sub class.
 class ColumnVectorBatch {
 public:
-    explicit ColumnVectorBatch(const TypeInfo* type_info, bool is_nullable)
+    explicit ColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info, bool is_nullable)
             : _type_info(type_info),
               _capacity(0),
               _delete_state(DEL_NOT_SATISFIED),
@@ -78,13 +63,13 @@ public:
 
     virtual ~ColumnVectorBatch();
 
-    const TypeInfo* type_info() const { return _type_info; }
+    std::shared_ptr<const TypeInfo> type_info() const { return _type_info; }
 
     size_t capacity() const { return _capacity; }
 
     bool is_nullable() const { return _nullable; }
 
-    bool is_null_at(size_t row_idx) { return _nullable && _null_signs[row_idx]; }
+    bool is_null_at(size_t row_idx) const { return _nullable && _null_signs[row_idx]; }
 
     void set_is_null(size_t idx, bool is_null) {
         if (_nullable) {
@@ -120,11 +105,11 @@ public:
     // Get thr idx's cell_ptr for write
     virtual uint8_t* mutable_cell_ptr(size_t idx) = 0;
 
-    static Status create(size_t init_capacity, bool is_nullable, const TypeInfo* type_info,
+    static Status create(size_t init_capacity, bool is_nullable, std::shared_ptr<const TypeInfo> type_info,
                          Field* field, std::unique_ptr<ColumnVectorBatch>* column_vector_batch);
 
 private:
-    const TypeInfo* _type_info;
+    std::shared_ptr<const TypeInfo> _type_info;
     size_t _capacity;
     DelCondSatisfied _delete_state;
     const bool _nullable;
@@ -134,7 +119,7 @@ private:
 template <class ScalarCppType>
 class ScalarColumnVectorBatch : public ColumnVectorBatch {
 public:
-    explicit ScalarColumnVectorBatch(const TypeInfo* type_info, bool is_nullable);
+    explicit ScalarColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info, bool is_nullable);
 
     ~ScalarColumnVectorBatch() override;
 
@@ -192,7 +177,7 @@ private:
 
 class ArrayColumnVectorBatch : public ColumnVectorBatch {
 public:
-    explicit ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable,
+    explicit ArrayColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info, bool is_nullable,
                                     ScalarColumnVectorBatch<uint32_t>* offsets,
                                     ColumnVectorBatch* elements);
     ~ArrayColumnVectorBatch() override;
@@ -266,19 +251,5 @@ private:
     // Stores each array's start offsets in _elements.
     std::unique_ptr<ScalarColumnVectorBatch<uint32_t>> _offsets;
 };
-
-template class ScalarColumnVectorBatch<bool>;
-template class ScalarColumnVectorBatch<int8_t>;
-template class ScalarColumnVectorBatch<int16_t>;
-template class ScalarColumnVectorBatch<int32_t>;
-template class ScalarColumnVectorBatch<uint32_t>;
-template class ScalarColumnVectorBatch<int64_t>;
-template class ScalarColumnVectorBatch<uint64_t>;
-template class ScalarColumnVectorBatch<int128_t>;
-template class ScalarColumnVectorBatch<float>;
-template class ScalarColumnVectorBatch<double>;
-template class ScalarColumnVectorBatch<decimal12_t>;
-template class ScalarColumnVectorBatch<uint24_t>;
-template class ScalarColumnVectorBatch<Slice>;
 
 } // namespace doris

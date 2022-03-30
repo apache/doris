@@ -43,6 +43,7 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_pipe.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -82,8 +83,6 @@ public:
     FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
                       ExecEnv* exec_env, const TNetworkAddress& coord_addr);
 
-    ~FragmentExecState();
-
     Status prepare(const TExecPlanFragmentParams& params);
 
     // just no use now
@@ -95,8 +94,7 @@ public:
 
     Status cancel_before_execute();
 
-    Status cancel(const PPlanFragmentCancelReason& reason);
-
+    Status cancel(const PPlanFragmentCancelReason& reason, const std::string& msg = "");
     TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
     TUniqueId query_id() const { return _query_id; }
@@ -160,13 +158,12 @@ private:
     std::mutex _status_lock;
     Status _exec_status;
 
-    bool _set_rsc_info;
+    bool _set_rsc_info = false;
     std::string _user;
     std::string _group;
 
     int _timeout_second;
-
-    std::unique_ptr<std::thread> _exec_thread;
+    bool _cancelled = false;
 
     // This context is shared by all fragments of this host in a query
     std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
@@ -209,8 +206,6 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
     _start_time = DateTimeValue::local_time();
 }
 
-FragmentExecState::~FragmentExecState() {}
-
 Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
     if (params.__isset.query_options) {
         _timeout_second = params.query_options.query_timeout;
@@ -245,6 +240,10 @@ Status FragmentExecState::execute() {
 
 Status FragmentExecState::cancel_before_execute() {
     // set status as 'abort', cuz cancel() won't effect the status arg of DataSink::close().
+#ifndef BE_TEST
+    SCOPED_ATTACH_TASK_THREAD(executor()->runtime_state()->query_type(),
+                              executor()->runtime_state()->instance_mem_tracker());
+#endif
     _executor.set_abort();
     _executor.cancel();
     if (_pipe != nullptr) {
@@ -253,15 +252,18 @@ Status FragmentExecState::cancel_before_execute() {
     return Status::OK();
 }
 
-Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason) {
-    std::lock_guard<std::mutex> l(_status_lock);
-    RETURN_IF_ERROR(_exec_status);
-    if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
-        _executor.set_is_report_on_cancel(false);
-    }
-    _executor.cancel();
-    if (_pipe != nullptr) {
-        _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
+    if (!_cancelled) {
+        _cancelled = true;
+        std::lock_guard<std::mutex> l(_status_lock);
+        RETURN_IF_ERROR(_exec_status);
+        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+            _executor.set_is_report_on_cancel(false);
+        }
+        _executor.cancel(reason, msg);
+        if (_pipe != nullptr) {
+            _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+        }
     }
     return Status::OK();
 }
@@ -304,12 +306,12 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
 
     RuntimeState* runtime_state = _executor.runtime_state();
     DCHECK(runtime_state != nullptr);
-    if (runtime_state->query_options().query_type == TQueryType::LOAD && !done && status.ok()) {
+    if (runtime_state->query_type() == TQueryType::LOAD && !done && status.ok()) {
         // this is a load plan, and load is not finished, just make a brief report
         params.__set_loaded_rows(runtime_state->num_rows_load_total());
         params.__set_loaded_bytes(runtime_state->num_bytes_load_total());
     } else {
-        if (runtime_state->query_options().query_type == TQueryType::LOAD) {
+        if (runtime_state->query_type() == TQueryType::LOAD) {
             params.__set_loaded_rows(runtime_state->num_rows_load_total());
             params.__set_loaded_bytes(runtime_state->num_bytes_load_total());
         }
@@ -329,7 +331,7 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
         if (runtime_state->num_rows_load_total() > 0 ||
             runtime_state->num_rows_load_filtered() > 0) {
             params.__isset.load_counters = true;
-            // TODO(zc)
+
             static std::string s_dpp_normal_all = "dpp.norm.ALL";
             static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
             static std::string s_unselected_rows = "unselected.rows";
@@ -354,6 +356,13 @@ void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfil
             params.commitInfos.reserve(runtime_state->tablet_commit_infos().size());
             for (auto& info : runtime_state->tablet_commit_infos()) {
                 params.commitInfos.push_back(info);
+            }
+        }
+        if (!runtime_state->error_tablet_infos().empty()) {
+            params.__isset.errorTabletInfos = true;
+            params.errorTabletInfos.reserve(runtime_state->error_tablet_infos().size());
+            for (auto& info : runtime_state->error_tablet_infos()) {
+                params.errorTabletInfos.push_back(info);
             }
         }
 
@@ -457,6 +466,11 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
             .query_id(exec_state->query_id())
             .instance_id(exec_state->fragment_instance_id())
             .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
+#ifndef BE_TEST
+    SCOPED_ATTACH_TASK_THREAD(exec_state->executor()->runtime_state()->query_type(),
+                              print_id(exec_state->query_id()), exec_state->fragment_instance_id(),
+                              exec_state->executor()->runtime_state()->instance_mem_tracker());
+#endif
     exec_state->execute();
 
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();
@@ -506,8 +520,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
 
         RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(stream_load_cxt->id, pipe));
 
-        RETURN_IF_ERROR(
-                _exec_env->stream_load_executor()->execute_plan_fragment(stream_load_cxt, pipe));
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_cxt));
         set_pipe(params.params.fragment_instance_id, pipe);
         return Status::OK();
     } else {
@@ -521,7 +534,7 @@ void FragmentMgr::set_pipe(const TUniqueId& fragment_instance_id,
         std::lock_guard<std::mutex> lock(_lock);
         auto iter = _fragment_map.find(fragment_instance_id);
         if (iter != _fragment_map.end()) {
-            _fragment_map[fragment_instance_id]->set_pipe(pipe);
+            _fragment_map[fragment_instance_id]->set_pipe(std::move(pipe));
         }
     }
 }
@@ -631,14 +644,16 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             _fragment_map.erase(params.params.fragment_instance_id);
         }
         exec_state->cancel_before_execute();
-        return Status::InternalError(strings::Substitute(
-                "Put planfragment to thread pool failed. err = $0", st.get_error_msg()));
+        return Status::InternalError(
+                strings::Substitute("Put planfragment to thread pool failed. err = $0, BE: $1",
+                                    st.get_error_msg(), BackendOptions::get_localhost()));
     }
 
     return Status::OK();
 }
 
-Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason) {
+Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
+                           const std::string& msg) {
     std::shared_ptr<FragmentExecState> exec_state;
     {
         std::lock_guard<std::mutex> lock(_lock);
@@ -649,7 +664,7 @@ Status FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCanc
         }
         exec_state = iter->second;
     }
-    exec_state->cancel(reason);
+    exec_state->cancel(reason, msg);
 
     return Status::OK();
 }
@@ -785,7 +800,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
             TTabletVersionInfo info = iter->second;
             scan_range.tablet_id = tablet_id;
             scan_range.version = std::to_string(info.version);
-            scan_range.version_hash = std::to_string(info.version_hash);
+            // Useless but it is required field in TPaloScanRange
+            scan_range.version_hash = "0";
             scan_range.schema_hash = std::to_string(info.schema_hash);
             scan_range.hosts.push_back(address);
         } else {

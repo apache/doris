@@ -18,11 +18,8 @@
 #include <gutil/strings/substitute.h>
 
 #include "runtime/buffered_tuple_stream3.inline.h"
-#include "runtime/bufferpool/reservation_tracker.h"
-//#include "runtime/collection_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
@@ -375,9 +372,8 @@ Status BufferedTupleStream3::NewWritePage(int64_t page_len) noexcept {
     return Status::OK();
 }
 
-Status BufferedTupleStream3::CalcPageLenForRow(int64_t row_size, int64_t* page_len) {
+void BufferedTupleStream3::CalcPageLenForRow(int64_t row_size, int64_t* page_len) {
     *page_len = std::max(default_page_len_, BitUtil::RoundUpToPowerOfTwo(row_size));
-    return Status::OK();
 }
 
 Status BufferedTupleStream3::AdvanceWritePage(int64_t row_size, bool* got_reservation) noexcept {
@@ -386,10 +382,7 @@ Status BufferedTupleStream3::AdvanceWritePage(int64_t row_size, bool* got_reserv
 
     int64_t page_len;
 
-    Status status = CalcPageLenForRow(row_size, &page_len);
-    if (!status.ok()) {
-        return status;
-    }
+    CalcPageLenForRow(row_size, &page_len);
 
     // Reservation may have been saved for the next write page, e.g. by PrepareForWrite()
     // if the stream is empty.
@@ -431,7 +424,7 @@ Status BufferedTupleStream3::AdvanceWritePage(int64_t row_size, bool* got_reserv
     }
     ResetWritePage();
     //RETURN_IF_ERROR(NewWritePage(page_len));
-    status = NewWritePage(page_len);
+    Status status = NewWritePage(page_len);
     if (UNLIKELY(!status.ok())) {
         return status;
     }
@@ -670,8 +663,7 @@ void BufferedTupleStream3::UnpinStream(UnpinMode mode) {
   CHECK_CONSISTENCY_FULL();
 }
 */
-Status BufferedTupleStream3::GetRows(const std::shared_ptr<MemTracker>& tracker,
-                                     std::unique_ptr<RowBatch>* batch, bool* got_rows) {
+Status BufferedTupleStream3::GetRows(std::unique_ptr<RowBatch>* batch, bool* got_rows) {
     if (num_rows() > numeric_limits<int>::max()) {
         // RowBatch::num_rows_ is a 32-bit int, avoid an overflow.
         return Status::InternalError(
@@ -688,7 +680,7 @@ Status BufferedTupleStream3::GetRows(const std::shared_ptr<MemTracker>& tracker,
     // TODO chenhao
     // capacity in RowBatch use int, but _num_rows is int64_t
     // it may be precision loss
-    batch->reset(new RowBatch(*desc_, num_rows(), tracker.get()));
+    batch->reset(new RowBatch(*desc_, num_rows()));
     bool eos = false;
     // Loop until GetNext fills the entire batch. Each call can stop at page
     // boundaries. We generally want it to stop, so that pages can be freed
@@ -893,7 +885,7 @@ bool BufferedTupleStream3::AddRowSlow(TupleRow* row, Status* status) noexcept {
 }
 
 uint8_t* BufferedTupleStream3::AddRowCustomBeginSlow(int64_t size, Status* status) noexcept {
-    bool got_reservation;
+    bool got_reservation = false;
     *status = AdvanceWritePage(size, &got_reservation);
     if (!status->ok() || !got_reservation) {
         return nullptr;

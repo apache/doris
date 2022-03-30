@@ -24,12 +24,10 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exec/aggregation_node.h"
 #include "exec/analytic_eval_node.h"
 #include "exec/assert_num_rows_node.h"
 #include "exec/broker_scan_node.h"
 #include "exec/cross_join_node.h"
-#include "exec/csv_scan_node.h"
 #include "exec/empty_set_node.h"
 #include "exec/es_http_scan_node.h"
 #include "exec/es_scan_node.h"
@@ -41,13 +39,13 @@
 #include "exec/merge_node.h"
 #include "exec/mysql_scan_node.h"
 #include "exec/odbc_scan_node.h"
-#include "exec/olap_rewrite_node.h"
 #include "exec/olap_scan_node.h"
 #include "exec/partitioned_aggregation_node.h"
 #include "exec/repeat_node.h"
 #include "exec/schema_scan_node.h"
 #include "exec/select_node.h"
 #include "exec/spill_sort_node.h"
+#include "exec/table_function_node.h"
 #include "exec/topn_node.h"
 #include "exec/union_node.h"
 #include "exprs/expr_context.h"
@@ -59,8 +57,30 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
+#include "vec/core/block.h"
+#include "vec/exec/join/vhash_join_node.h"
+#include "vec/exec/vaggregation_node.h"
+#include "vec/exec/vanalytic_eval_node.h"
+#include "vec/exec/vassert_num_rows_node.h"
+#include "vec/exec/vcross_join_node.h"
+#include "vec/exec/vempty_set_node.h"
+#include "vec/exec/ves_http_scan_node.h"
+#include "vec/exec/vexcept_node.h"
+#include "vec/exec/vexchange_node.h"
+#include "vec/exec/vintersect_node.h"
+#include "vec/exec/vmysql_scan_node.h"
+#include "vec/exec/vodbc_scan_node.h"
+#include "vec/exec/volap_scan_node.h"
+#include "vec/exec/vrepeat_node.h"
+#include "vec/exec/vschema_scan_node.h"
+#include "vec/exec/vselect_node.h"
+#include "vec/exec/vsort_node.h"
+#include "vec/exec/vtable_function_node.h"
+#include "vec/exec/vunion_node.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -90,7 +110,9 @@ bool ExecNode::RowBatchQueue::AddBatchWithTimeout(RowBatch* batch, int64_t timeo
 
 RowBatch* ExecNode::RowBatchQueue::GetBatch() {
     RowBatch* result = nullptr;
-    if (blocking_get(&result)) return result;
+    if (blocking_get(&result)) {
+        return result;
+    }
     return nullptr;
 }
 
@@ -166,6 +188,9 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(profile);
 
     if (tnode.__isset.vconjunct) {
+        _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
+        RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
+                                                                   _vconjunct_ctx_ptr.get()));
     }
     RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
 
@@ -181,13 +206,16 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker = MemTracker::CreateTracker(_runtime_profile.get(), -1,
-                                             "ExecNode:" + _runtime_profile->name(),
-                                             state->instance_mem_tracker());
-    _expr_mem_tracker = MemTracker::CreateTracker(-1, "ExecNode:Exprs:" + _runtime_profile->name(),
-                                                  _mem_tracker);
-    _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
+    _mem_tracker = MemTracker::create_tracker(-1, "ExecNode:" + _runtime_profile->name(),
+                                              state->instance_mem_tracker(),
+                                              MemTrackerLevel::VERBOSE, _runtime_profile.get());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    _expr_mem_tracker = MemTracker::create_tracker(-1, "ExecNode:Exprs:" + _runtime_profile->name(),
+                                                   _mem_tracker);
 
+    if (_vconjunct_ctx_ptr) {
+        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, row_desc(), expr_mem_tracker()));
+    }
     RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, row_desc(), expr_mem_tracker()));
 
     // TODO(zc):
@@ -200,7 +228,11 @@ Status ExecNode::prepare(RuntimeState* state) {
 }
 
 Status ExecNode::open(RuntimeState* state) {
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::OPEN));
+    if (_vconjunct_ctx_ptr) {
+        RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
+    }
     return Expr::open(_conjunct_ctxs, state);
 }
 
@@ -239,11 +271,8 @@ Status ExecNode::close(RuntimeState* state) {
         }
     }
 
+    if (_vconjunct_ctx_ptr) (*_vconjunct_ctx_ptr)->close(state);
     Expr::close(_conjunct_ctxs, state);
-
-    if (expr_mem_pool() != nullptr) {
-        _expr_mem_pool->free_all();
-    }
 
     if (_buffer_pool_client.is_registered()) {
         VLOG_FILE << _id << " returning reservation " << _resource_profile.min_reservation;
@@ -338,28 +367,61 @@ Status ExecNode::create_tree_helper(RuntimeState* state, ObjectPool* pool,
 
 Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                              const DescriptorTbl& descs, ExecNode** node) {
-    if (state->enable_vectorized_exec()) {
-        return Status::InternalError("unsupport enable_vectorized_engine");
-    }
-
     std::stringstream error_msg;
+
+    if (state->enable_vectorized_exec()) {
+        switch (tnode.node_type) {
+        case TPlanNodeType::OLAP_SCAN_NODE:
+        case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
+        case TPlanNodeType::HASH_JOIN_NODE:
+        case TPlanNodeType::AGGREGATION_NODE:
+        case TPlanNodeType::UNION_NODE:
+        case TPlanNodeType::CROSS_JOIN_NODE:
+        case TPlanNodeType::SORT_NODE:
+        case TPlanNodeType::EXCHANGE_NODE:
+        case TPlanNodeType::ODBC_SCAN_NODE:
+        case TPlanNodeType::MYSQL_SCAN_NODE:
+        case TPlanNodeType::INTERSECT_NODE:
+        case TPlanNodeType::EXCEPT_NODE:
+        case TPlanNodeType::ES_HTTP_SCAN_NODE:
+        case TPlanNodeType::EMPTY_SET_NODE:
+        case TPlanNodeType::SCHEMA_SCAN_NODE:
+        case TPlanNodeType::ANALYTIC_EVAL_NODE:
+        case TPlanNodeType::SELECT_NODE:
+        case TPlanNodeType::REPEAT_NODE:
+        case TPlanNodeType::TABLE_FUNCTION_NODE:
+            break;
+        default: {
+            const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
+            const char* str = "unknown node type";
+
+            if (i != _TPlanNodeType_VALUES_TO_NAMES.end()) {
+                str = i->second;
+            }
+            error_msg << "V" << str << " not implemented";
+            return Status::InternalError(error_msg.str());
+        }
+        }
+    }
 
     VLOG_CRITICAL << "tnode:\n" << apache::thrift::ThriftDebugString(tnode);
     switch (tnode.node_type) {
-    case TPlanNodeType::CSV_SCAN_NODE:
-        *node = pool->add(new CsvScanNode(pool, tnode, descs));
-        return Status::OK();
-
     case TPlanNodeType::MYSQL_SCAN_NODE:
 #ifdef DORIS_WITH_MYSQL
-        *node = pool->add(new MysqlScanNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VMysqlScanNode(pool, tnode, descs));
+        } else
+            *node = pool->add(new MysqlScanNode(pool, tnode, descs));
         return Status::OK();
 #else
         return Status::InternalError(
                 "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
 #endif
     case TPlanNodeType::ODBC_SCAN_NODE:
-        *node = pool->add(new OdbcScanNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VOdbcScanNode(pool, tnode, descs));
+        } else
+            *node = pool->add(new OdbcScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::ES_SCAN_NODE:
@@ -367,15 +429,24 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
-        *node = pool->add(new EsHttpScanNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VEsHttpScanNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new EsHttpScanNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::SCHEMA_SCAN_NODE:
-        *node = pool->add(new SchemaScanNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VSchemaScanNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new SchemaScanNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::OLAP_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VOlapScanNode(pool, tnode, descs));
         } else {
             *node = pool->add(new OlapScanNode(pool, tnode, descs));
         }
@@ -383,21 +454,23 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::AGGREGATION_NODE:
         if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::AggregationNode(pool, tnode, descs));
         } else {
-            if (config::enable_partitioned_aggregation) {
-                *node = pool->add(new PartitionedAggregationNode(pool, tnode, descs));
-            } else {
-                *node = pool->add(new AggregationNode(pool, tnode, descs));
-            }
+            *node = pool->add(new PartitionedAggregationNode(pool, tnode, descs));
         }
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
-        *node = pool->add(new HashJoinNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new HashJoinNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::CROSS_JOIN_NODE:
         if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VCrossJoinNode(pool, tnode, descs));
         } else {
             *node = pool->add(new CrossJoinNode(pool, tnode, descs));
         }
@@ -408,26 +481,32 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::EMPTY_SET_NODE:
-        *node = pool->add(new EmptySetNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VEmptySetNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new EmptySetNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::EXCHANGE_NODE:
         if (state->enable_vectorized_exec()) {
+            *node = pool->add(new doris::vectorized::VExchangeNode(pool, tnode, descs));
         } else {
             *node = pool->add(new ExchangeNode(pool, tnode, descs));
         }
         return Status::OK();
 
     case TPlanNodeType::SELECT_NODE:
-        *node = pool->add(new SelectNode(pool, tnode, descs));
-        return Status::OK();
-
-    case TPlanNodeType::OLAP_REWRITE_NODE:
-        *node = pool->add(new OlapRewriteNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new doris::vectorized::VSelectNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new SelectNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::SORT_NODE:
         if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VSortNode(pool, tnode, descs));
         } else {
             if (tnode.sort_node.use_top_n) {
                 *node = pool->add(new TopNNode(pool, tnode, descs));
@@ -438,8 +517,12 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
         return Status::OK();
     case TPlanNodeType::ANALYTIC_EVAL_NODE:
-        *node = pool->add(new AnalyticEvalNode(pool, tnode, descs));
-        break;
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VAnalyticEvalNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new AnalyticEvalNode(pool, tnode, descs));
+        }
+        return Status::OK();
 
     case TPlanNodeType::MERGE_NODE:
         *node = pool->add(new MergeNode(pool, tnode, descs));
@@ -447,17 +530,26 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::UNION_NODE:
         if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VUnionNode(pool, tnode, descs));
         } else {
             *node = pool->add(new UnionNode(pool, tnode, descs));
         }
         return Status::OK();
 
     case TPlanNodeType::INTERSECT_NODE:
-        *node = pool->add(new IntersectNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VIntersectNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new IntersectNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::EXCEPT_NODE:
-        *node = pool->add(new ExceptNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VExceptNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new ExceptNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::BROKER_SCAN_NODE:
@@ -465,11 +557,27 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::REPEAT_NODE:
-        *node = pool->add(new RepeatNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VRepeatNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new RepeatNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::ASSERT_NUM_ROWS_NODE:
-        *node = pool->add(new AssertNumRowsNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VAssertNumRowsNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new AssertNumRowsNode(pool, tnode, descs));
+        }
+        return Status::OK();
+
+    case TPlanNodeType::TABLE_FUNCTION_NODE:
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VTableFunctionNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new TableFunctionNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     default:
@@ -632,6 +740,22 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
 Status ExecNode::release_unused_reservation() {
     return _buffer_pool_client.DecreaseReservationTo(_resource_profile.min_reservation);
 }
+
+void ExecNode::release_block_memory(vectorized::Block& block, uint16_t child_idx) {
+    DCHECK(child_idx < _children.size());
+    block.clear_column_data(child(child_idx)->row_desc().num_materialized_slots());
+}
+
+void ExecNode::reached_limit(vectorized::Block* block, bool* eos) {
+    if (_limit != -1 and _num_rows_returned + block->rows() >= _limit) {
+        block->set_num_rows(_limit - _num_rows_returned);
+        *eos = true;
+    }
+
+    _num_rows_returned += block->rows();
+    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+}
+
 /*
 Status ExecNode::enable_deny_reservation_debug_action() {
   DCHECK_EQ(debug_action_, TDebugAction::SET_DENY_RESERVATION_PROBABILITY);
@@ -654,6 +778,10 @@ Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
     // TODO chenhao , when introduce latest AnalyticEvalNode open it
     // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
     return state->check_query_state(msg);
+}
+
+Status ExecNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    return Status::NotSupported("Not Implemented get batch");
 }
 
 Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {

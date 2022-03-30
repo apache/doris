@@ -22,11 +22,9 @@
 
 namespace doris {
 
-AlphaRowsetReader::AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset,
-                                     const std::shared_ptr<MemTracker>& parent_tracker)
+AlphaRowsetReader::AlphaRowsetReader(int num_rows_per_row_block, AlphaRowsetSharedPtr rowset)
         : _num_rows_per_row_block(num_rows_per_row_block),
           _rowset(std::move(rowset)),
-          _parent_tracker(parent_tracker),
           _alpha_rowset_meta(
                   std::static_pointer_cast<AlphaRowsetMeta>(_rowset->rowset_meta()).get()),
           _segment_groups(_rowset->_segment_groups),
@@ -68,8 +66,7 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
     if (_current_read_context->need_ordered_result && _is_segments_overlapping &&
         _sequential_ctxs.size() > 1) {
         _next_block = &AlphaRowsetReader::_merge_block;
-        _read_block.reset(new (std::nothrow)
-                                  RowBlock(_current_read_context->tablet_schema, _parent_tracker));
+        _read_block.reset(new (std::nothrow) RowBlock(_current_read_context->tablet_schema));
         if (_read_block == nullptr) {
             LOG(WARNING) << "new row block failed in reader";
             return OLAP_ERR_MALLOC_ERROR;
@@ -118,10 +115,6 @@ bool AlphaRowsetReader::delete_flag() {
 
 Version AlphaRowsetReader::version() {
     return _alpha_rowset_meta->version();
-}
-
-VersionHash AlphaRowsetReader::version_hash() {
-    return _alpha_rowset_meta->version_hash();
 }
 
 int64_t AlphaRowsetReader::filtered_rows() {
@@ -286,9 +279,9 @@ OLAPStatus AlphaRowsetReader::_pull_first_block(AlphaMergeContext* merge_ctx) {
     merge_ctx->key_range_index++;
     while (merge_ctx->key_range_index < _key_range_size) {
         status = merge_ctx->column_data->prepare_block_read(
-                _current_read_context->lower_bound_keys->at(merge_ctx->key_range_index),
+                &_current_read_context->lower_bound_keys->at(merge_ctx->key_range_index),
                 _current_read_context->is_lower_keys_included->at(merge_ctx->key_range_index),
-                _current_read_context->upper_bound_keys->at(merge_ctx->key_range_index),
+                &_current_read_context->upper_bound_keys->at(merge_ctx->key_range_index),
                 _current_read_context->is_upper_keys_included->at(merge_ctx->key_range_index),
                 &(merge_ctx->row_block));
         if (status == OLAP_ERR_DATA_EOF) {
@@ -326,8 +319,7 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
     const bool use_index_stream_cache = read_context->reader_type == READER_QUERY;
 
     for (auto& segment_group : _segment_groups) {
-        std::unique_ptr<ColumnData> new_column_data(
-                ColumnData::create(segment_group.get(), _parent_tracker));
+        std::unique_ptr<ColumnData> new_column_data(ColumnData::create(segment_group.get()));
         OLAPStatus status = new_column_data->init();
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "init column data failed";

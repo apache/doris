@@ -92,8 +92,8 @@ public class AdminShowReplicaTest {
         Assert.assertEquals(1, resultSet.getResultRows().size());
         Assert.assertEquals(7, resultSet.getResultRows().get(0).size());
 
-        stmtStr = "admin show data skew from test.tbl1 partition(p1)";
-        AdminShowDataSkewStmt skewStmt = (AdminShowDataSkewStmt) UtFrameUtils.parseAndAnalyzeStmt(
+        stmtStr = "show data skew from test.tbl1 partition(p1)";
+        ShowDataSkewStmt skewStmt = (ShowDataSkewStmt) UtFrameUtils.parseAndAnalyzeStmt(
                 stmtStr, connectContext);
         executor = new ShowExecutor(connectContext, skewStmt);
         resultSet = executor.execute();

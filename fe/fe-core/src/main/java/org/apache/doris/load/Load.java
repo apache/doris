@@ -1028,6 +1028,9 @@ public class Load {
             for (Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
                 String mappingColumnName = entry.getKey();
                 Column mappingColumn = tbl.getColumn(mappingColumnName);
+                if (mappingColumn == null) {
+                    throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
+                }
                 Pair<String, List<String>> function = entry.getValue();
                 try {
                     DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
@@ -1710,7 +1713,7 @@ public class Load {
                         PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
                             ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), tblName);
+                            ConnectContext.get().getRemoteIP(), dbName + ": " + tblName);
                 }
             }
         }
@@ -1774,7 +1777,7 @@ public class Load {
                         PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
                             ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), tblName);
+                            ConnectContext.get().getRemoteIP(), dbName + ": " + tblName);
                 }
             }
         }
@@ -2064,6 +2067,10 @@ public class Load {
                 jobInfo.add(status.getTrackingUrl());
                 // job detail(not used for hadoop load, just return an empty string)
                 jobInfo.add("");
+                // transaction id
+                jobInfo.add(loadJob.getTransactionId());
+                // error tablets(not used for hadoop load, just return an empty string)
+                jobInfo.add("");
 
                 loadJobInfos.add(jobInfo);
             } // end for loadJobs
@@ -2163,10 +2170,9 @@ public class Load {
 
                     PartitionLoadInfo partitionLoadInfo = loadJob.getPartitionLoadInfo(tableId, partitionId);
                     long version = partitionLoadInfo.getVersion();
-                    long versionHash = partitionLoadInfo.getVersionHash();
 
                     for (Replica replica : tablet.getReplicas()) {
-                        if (replica.checkVersionCatchUp(version, versionHash, false)) {
+                        if (replica.checkVersionCatchUp(version, false)) {
                             continue;
                         }
 
@@ -2175,10 +2181,8 @@ public class Load {
                         info.add(tabletId);
                         info.add(replica.getId());
                         info.add(replica.getVersion());
-                        info.add(replica.getVersionHash());
                         info.add(partitionId);
                         info.add(version);
-                        info.add(versionHash);
 
                         infos.add(info);
                     }
@@ -2361,8 +2365,7 @@ public class Load {
                         LOG.warn("the replica[{}] is missing", info.getReplicaId());
                         continue;
                     }
-                    replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                            info.getDataSize(), info.getRowCount());
+                    replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRowCount());
                 }
             }
 
@@ -2383,8 +2386,7 @@ public class Load {
                         if (!partitionLoadInfo.isNeedLoad()) {
                             continue;
                         }
-                        updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
-                                partitionLoadInfo.getVersionHash(), jobId);
+                        updatePartitionVersion(partition, partitionLoadInfo.getVersion(), jobId);
 
                         // update table row count
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -2474,8 +2476,7 @@ public class Load {
                         LOG.warn("the replica[{}] is missing", info.getReplicaId());
                         continue;
                     }
-                    replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                            info.getDataSize(), info.getRowCount());
+                    replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRowCount());
                 }
             }
         } else {
@@ -2804,7 +2805,7 @@ public class Load {
                             // clear push tasks
                             for (PushTask pushTask : job.getPushTasks()) {
                                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                                        pushTask.getVersion(), pushTask.getVersionHash(),
+                                        pushTask.getVersion(),
                                         pushTask.getPushType(), pushTask.getTaskType());
                             }
                             // Clear the Map and Set in this job, reduce the memory cost for finished load job.
@@ -2885,8 +2886,7 @@ public class Load {
                     continue;
                 }
 
-                updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
-                        partitionLoadInfo.getVersionHash(), jobId);
+                updatePartitionVersion(partition, partitionLoadInfo.getVersion(), jobId);
 
                 for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long tableRowCount = 0L;
@@ -2916,11 +2916,11 @@ public class Load {
         return true;
     }
 
-    private void updatePartitionVersion(Partition partition, long version, long versionHash, long jobId) {
+    private void updatePartitionVersion(Partition partition, long version, long jobId) {
         long partitionId = partition.getId();
-        partition.updateVisibleVersionAndVersionHash(version, versionHash);
-        LOG.info("update partition version success. version: {}, version hash: {}, job id: {}, partition id: {}",
-                version, versionHash, jobId, partitionId);
+        partition.updateVisibleVersion(version);
+        LOG.info("update partition version success. version: {}, job id: {}, partition id: {}",
+                version, jobId, partitionId);
     }
 
     private boolean processCancelled(LoadJob job, CancelType cancelType, String msg, List<String> failedMsg) {
@@ -2992,7 +2992,7 @@ public class Load {
         if (srcState == JobState.LOADING || srcState == JobState.QUORUM_FINISHED) {
             for (PushTask pushTask : job.getPushTasks()) {
                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                        pushTask.getVersion(), pushTask.getVersionHash(),
+                        pushTask.getVersion(),
                         pushTask.getPushType(), pushTask.getTaskType());
             }
         }

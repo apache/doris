@@ -22,10 +22,12 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_define.h"
-#include "olap/tablet_schema.h"
 #include "olap/types.h"
 
 namespace doris {
+namespace vectorized {
+class Block;
+}
 
 class TabletColumn {
 public:
@@ -46,6 +48,11 @@ public:
     inline bool is_nullable() const { return _is_nullable; }
     inline bool is_bf_column() const { return _is_bf_column; }
     inline bool has_bitmap_index() const { return _has_bitmap_index; }
+    inline bool is_length_variable_type() const {
+        return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
+               _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
+               _type == OLAP_FIELD_TYPE_OBJECT || _type == OLAP_FIELD_TYPE_QUANTILE_STATE;
+    }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     bool has_reference_column() const { return _has_referenced_column; }
@@ -58,9 +65,7 @@ public:
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() { return _visible; }
-    /**
-     * Add a sub column.
-     */
+    // Add a sub column.
     void add_sub_column(TabletColumn& sub_column);
 
     uint32_t get_subtype_count() const { return _sub_column_count; }
@@ -114,7 +119,7 @@ class TabletSchema {
 public:
     // TODO(yingchun): better to make constructor as private to avoid
     // manually init members incorrectly, and define a new function like
-    // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema)
+    // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema() = default;
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
@@ -141,9 +146,12 @@ public:
     inline void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     inline bool has_sequence_col() const { return _sequence_col_idx != -1; }
     inline int32_t sequence_col_idx() const { return _sequence_col_idx; }
+    vectorized::Block create_block(
+            const std::vector<uint32_t>& return_columns,
+            const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
 
 private:
-    // Only for unit test
+    // Only for unit test.
     void init_field_index_for_test();
 
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);

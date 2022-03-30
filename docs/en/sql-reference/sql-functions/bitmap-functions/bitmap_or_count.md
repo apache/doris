@@ -30,7 +30,7 @@ under the License.
 
 `BigIntVal bitmap_or_count(BITMAP lhs, BITMAP rhs)`
 
-Calculates the union of two input bitmaps and returns the number of union sets.
+Calculates the union of two or more input bitmaps and returns the number of union sets.
 
 ## example
 
@@ -56,6 +56,20 @@ MySQL> select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,
 +---------------------------------------------------------------------------+
 |                                                                         5 |
 +---------------------------------------------------------------------------+
+
+MySQL> select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), bitmap_empty());
++-----------------------------------------------------------------------------------------------------------+
+| bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), bitmap_empty()) |
++-----------------------------------------------------------------------------------------------------------+
+|                                                                                                         6 |
++-----------------------------------------------------------------------------------------------------------+
+
+MySQL> select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), NULL);
++-------------------------------------------------------------------------------------------------+
+| bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3,4,5'), to_bitmap(100), NULL) |
++-------------------------------------------------------------------------------------------------+
+|                                                                                            NULL |
++-------------------------------------------------------------------------------------------------+
 ```
 
 ## keyword

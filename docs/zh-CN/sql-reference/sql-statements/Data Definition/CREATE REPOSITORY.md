@@ -84,5 +84,5 @@ under the License.
         );
         
 ## keyword
-    CREATE REPOSITORY
+    CREATE, REPOSITORY
 

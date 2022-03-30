@@ -24,9 +24,9 @@ import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -113,7 +113,7 @@ public class SystemInfoService {
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDishInfoRef;
 
     // sort host backends list by num of backends, descending
-    private static final Comparator<List<Backend>> hostBackendsListComparator = new Comparator<List<Backend>> (){
+    private static final Comparator<List<Backend>> hostBackendsListComparator = new Comparator<List<Backend>>() {
         @Override
         public int compare(List<Backend> list1, List<Backend> list2) {
             if (list1.size() > list2.size()) {
@@ -125,8 +125,8 @@ public class SystemInfoService {
     };
 
     public SystemInfoService() {
-        idToBackendRef = ImmutableMap.<Long, Backend> of();
-        idToReportVersionRef = ImmutableMap.<Long, AtomicLong> of();
+        idToBackendRef = ImmutableMap.<Long, Backend>of();
+        idToReportVersionRef = ImmutableMap.<Long, AtomicLong>of();
 
         lastBackendIdForCreationMap = new ConcurrentHashMap<String, Long>();
         lastBackendIdForOtherMap = new ConcurrentHashMap<String, Long>();
@@ -272,9 +272,9 @@ public class SystemInfoService {
     // only for test
     public void dropAllBackend() {
         // update idToBackend
-        idToBackendRef = ImmutableMap.<Long, Backend> of();
+        idToBackendRef = ImmutableMap.<Long, Backend>of();
         // update idToReportVersion
-        idToReportVersionRef = ImmutableMap.<Long, AtomicLong> of();
+        idToReportVersionRef = ImmutableMap.<Long, AtomicLong>of();
     }
 
     public Backend getBackend(long backendId) {
@@ -384,8 +384,8 @@ public class SystemInfoService {
     public List<Long> createCluster(String clusterName, int instanceNum) {
         final List<Long> chosenBackendIds = Lists.newArrayList();
         final Map<String, List<Backend>> hostBackendsMap = getHostBackendsMap(true /* need alive*/,
-                                                                              true /* need free */,
-                                                                              false /* can not be in decommission*/);
+                true /* need free */,
+                false /* can not be in decommission*/);
 
         LOG.info("begin to create cluster {} with instance num: {}", clusterName, instanceNum);
         int availableBackendsCount = 0;
@@ -541,8 +541,8 @@ public class SystemInfoService {
         ImmutableMap<Long, Backend> idToBackends = idToBackendRef;
         // host -> backends
         final Map<String, List<Backend>> hostBackendsMap = getHostBackendsMap(true /* need alive*/,
-                                                                              true /* need free */,
-                                                                              false /* can not be in decommission */);
+                true /* need free */,
+                false /* can not be in decommission */);
         final List<Long> clusterBackends = getClusterBackendIds(clusterName);
 
         // hosts not in cluster
@@ -585,7 +585,7 @@ public class SystemInfoService {
                 hostIsEmpty[i] = false;
             }
             int numOfHost = hostsNotInCluster.size();
-            for (int i = 0;; i = ++i % hostsNotInCluster.size()) {
+            for (int i = 0; ; i = ++i % hostsNotInCluster.size()) {
                 if (hostsNotInCluster.get(i).size() > 0) {
                     chosenBackendIds.add(hostsNotInCluster.get(i).remove(0).getId());
                 } else {
@@ -608,7 +608,7 @@ public class SystemInfoService {
                 hostIsEmpty[i] = false;
             }
             int numOfHost = hostsInCluster.size();
-            for (int i = 0;; i = ++i % hostsInCluster.size()) {
+            for (int i = 0; ; i = ++i % hostsInCluster.size()) {
                 if (hostsInCluster.get(i).size() > 0) {
                     chosenBackendIds.add(hostsInCluster.get(i).remove(0).getId());
                 } else {
@@ -680,7 +680,7 @@ public class SystemInfoService {
         if (needAlive) {
             for (Backend backend : copiedBackends.values()) {
                 if (backend != null && name.equals(backend.getOwnerClusterName())
-                    && backend.isAlive()) {
+                        && backend.isAlive()) {
                     ret.add(backend);
                 }
             }
@@ -734,7 +734,7 @@ public class SystemInfoService {
         if (needAlive) {
             for (Backend backend : copiedBackends.values()) {
                 if (backend != null && clusterName.equals(backend.getOwnerClusterName())
-                    && backend.isAlive()) {
+                        && backend.isAlive()) {
                     ret.add(backend.getId());
                 }
             }
@@ -869,9 +869,13 @@ public class SystemInfoService {
         // if more than one backend exists in same host, select a backend at random
         List<Backend> backends = Lists.newArrayList();
         for (List<Backend> list : backendMaps.values()) {
-            if (FeConstants.runningUnitTest) {
+            if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
                 backends.addAll(list);
             } else {
+                list = list.stream().filter(beAvailablePredicate::isMatch).collect(Collectors.toList());
+                if (list.isEmpty()) {
+                    continue;
+                }
                 Collections.shuffle(list);
                 backends.add(list.get(0));
             }
@@ -1067,10 +1071,6 @@ public class SystemInfoService {
 
     public void replayAddBackend(Backend newBackend) {
         // update idToBackend
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_30) {
-            newBackend.setOwnerClusterName(DEFAULT_CLUSTER);
-            newBackend.setBackendState(BackendState.using);
-        }
         Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         copiedBackends.put(newBackend.getId(), newBackend);
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
@@ -1201,7 +1201,7 @@ public class SystemInfoService {
      * Check if the specified disks' capacity has reached the limit.
      * bePathsMap is (BE id -> list of path hash)
      * If floodStage is true, it will check with the floodStage threshold.
-     * 
+     *
      * return Status.OK if not reach the limit
      */
     public Status checkExceedDiskCapacityLimit(Multimap<Long, Long> bePathsMap, boolean floodStage) {
@@ -1310,4 +1310,5 @@ public class SystemInfoService {
         return bes.stream().filter(b -> b.getTag().equals(tag)).collect(Collectors.toList());
     }
 }
+
 

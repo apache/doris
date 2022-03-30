@@ -87,6 +87,9 @@ public:
     // TODO: fix get_hash_value
     static uint32_t zlib_crc32(const void* value, const TypeDescriptor& type, uint32_t seed);
 
+    // Same as the up function, only use in vec exec engine.
+    static uint32_t zlib_crc32(const void* value, size_t len, const TypeDescriptor& type, uint32_t seed);
+
     // Compares both values.
     // Return value is < 0  if v1 < v2, 0 if v1 == v2, > 0 if v1 > v2.
     static int compare(const void* v1, const void* v2, const TypeDescriptor& type);
@@ -381,6 +384,59 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     case TYPE_DATE:
     case TYPE_DATETIME: {
         const DateTimeValue* date_val = (const DateTimeValue*)v;
+        char buf[64];
+        int len = date_val->to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, len, seed);
+    }
+
+    case TYPE_DECIMALV2: {
+        const DecimalV2Value* dec_val = (const DecimalV2Value*)v;
+        int64_t int_val = dec_val->int_value();
+        int32_t frac_val = dec_val->frac_value();
+        seed = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), seed);
+        return HashUtil::zlib_crc_hash(&frac_val, sizeof(frac_val), seed);
+    }
+    default:
+        DCHECK(false) << "invalid type: " << type;
+        return 0;
+    }
+}
+
+// NOTE: this is just for split data, decimal use old doris hash function
+// Because crc32 hardware is not equal with zlib crc32
+inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const TypeDescriptor& type, uint32_t seed) {
+    // Hash_combine with v = 0
+    if (v == nullptr) {
+        uint32_t value = 0x9e3779b9;
+        return seed ^ (value + (seed << 6) + (seed >> 2));
+    }
+
+    switch (type.type) {
+    case TYPE_VARCHAR:
+    case TYPE_HLL:
+    case TYPE_STRING:
+    case TYPE_CHAR: {
+        return HashUtil::zlib_crc_hash(v, len, seed);
+    }
+
+    case TYPE_BOOLEAN:
+    case TYPE_TINYINT:
+        return HashUtil::zlib_crc_hash(v, 1, seed);
+    case TYPE_SMALLINT:
+        return HashUtil::zlib_crc_hash(v, 2, seed);
+    case TYPE_INT:
+        return HashUtil::zlib_crc_hash(v, 4, seed);
+    case TYPE_BIGINT:
+        return HashUtil::zlib_crc_hash(v, 8, seed);
+    case TYPE_LARGEINT:
+        return HashUtil::zlib_crc_hash(v, 16, seed);
+    case TYPE_FLOAT:
+        return HashUtil::zlib_crc_hash(v, 4, seed);
+    case TYPE_DOUBLE:
+        return HashUtil::zlib_crc_hash(v, 8, seed);
+    case TYPE_DATE:
+    case TYPE_DATETIME: {
+        auto* date_val = (const vectorized::VecDateTimeValue*)v;
         char buf[64];
         int len = date_val->to_buffer(buf);
         return HashUtil::zlib_crc_hash(buf, len, seed);

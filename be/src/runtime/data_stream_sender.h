@@ -95,13 +95,10 @@ public:
     /// Serializes the src batch into the dest thrift batch. Maintains metrics.
     /// num_receivers is the number of receivers this batch will be sent to. Only
     /// used to maintain metrics.
-    template <class T>
-    Status serialize_batch(RowBatch* src, T* dest, int num_receivers = 1);
+    Status serialize_batch(RowBatch* src, PRowBatch* dest, int num_receivers = 1);
 
-    // Return total number of bytes sent in TRowBatch.data. If batches are
+    // Return total number of bytes sent in RowBatch.data. If batches are
     // broadcast to multiple receivers, they are counted once per receiver.
-    int64_t get_num_data_bytes_sent() const;
-
     virtual RuntimeProfile* profile() { return _profile; }
 
     RuntimeState* state() { return _state; }
@@ -112,7 +109,7 @@ protected:
     // to a single destination ipaddress/node.
     // It has a fixed-capacity buffer and allows the caller either to add rows to
     // that buffer individually (AddRow()), or circumvent the buffer altogether and send
-    // TRowBatches directly (SendBatch()). Either way, there can only be one in-flight RPC
+    // PRowBatches directly (SendBatch()). Either way, there can only be one in-flight RPC
     // at any one time (ie, sending will block if the most recent rpc hasn't finished,
     // which allows the receiver node to throttle the sender by withholding acks).
     // *Not* thread-safe.
@@ -151,9 +148,7 @@ protected:
         // Get close wait's response, to finish channel close operation.
         Status close_wait(RuntimeState* state);
 
-        int64_t num_data_bytes_sent() const { return _num_data_bytes_sent; }
-
-        PRowBatch* pb_batch() { return &_pb_batch; }
+        PRowBatch* ch_cur_pb_batch() { return _ch_cur_pb_batch; }
 
         std::string get_fragment_instance_id_str() {
             UniqueId uid(_fragment_instance_id);
@@ -182,6 +177,8 @@ protected:
         // Returns send_batch() status.
         Status send_current_batch(bool eos = false);
         Status close_internal();
+        // this must be called after calling `send_batch()`
+        void ch_roll_pb_batch();
 
         DataStreamSender* _parent;
         int _buffer_size;
@@ -190,8 +187,6 @@ protected:
         TUniqueId _fragment_instance_id;
         PlanNodeId _dest_node_id;
 
-        // the number of TRowBatch.data bytes sent successfully
-        int64_t _num_data_bytes_sent;
         int64_t _packet_seq;
 
         // we're accumulating rows into this batch
@@ -204,7 +199,15 @@ protected:
 
         // TODO(zc): initused for brpc
         PUniqueId _finst_id;
-        PRowBatch _pb_batch;
+
+        // serialized batches for broadcasting; we need two so we can write
+        // one while the other one is still being sent.
+        // Which is for same reason as `_cur_pb_batch`, `_pb_batch1` and `_pb_batch2`
+        // in DataStreamSender.
+        PRowBatch* _ch_cur_pb_batch;
+        PRowBatch _ch_pb_batch1;
+        PRowBatch _ch_pb_batch2;
+
         PTransmitDataParams _brpc_request;
         std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
         RefCountClosure<PTransmitDataResult>* _closure = nullptr;
@@ -216,7 +219,7 @@ protected:
     };
 
     RuntimeProfile* _profile; // Allocated from _pool
-    PRowBatch* _current_pb_batch;
+    PRowBatch* _cur_pb_batch;
     std::shared_ptr<MemTracker> _mem_tracker;
     ObjectPool* _pool;
     // Sender instance id, unique within a fragment.
@@ -242,6 +245,8 @@ private:
     Status process_distribute(RuntimeState* state, TupleRow* row, const PartitionInfo* part,
                               size_t* hash_val);
 
+    void _roll_pb_batch();
+
     int _current_channel_idx; // index of current channel to send to if _random == true
 
     TPartitionType::type _part_type;
@@ -251,6 +256,14 @@ private:
     // one while the other one is still being sent
     PRowBatch _pb_batch1;
     PRowBatch _pb_batch2;
+
+    // This buffer is used to store the serialized rowbatch data.
+    // Only works when `config::transfer_data_by_brpc_attachment` is true.
+    // The data in the buffer is copied to the attachment of the brpc when it is sent,
+    // to avoid an extra pb serialization in the brpc.
+    // _tuple_data_buffer_ptr will point to _tuple_data_buffer if `config::transfer_data_by_brpc_attachment` is true.
+    std::string _tuple_data_buffer;
+    std::string* _tuple_data_buffer_ptr = nullptr;
 
     std::vector<ExprContext*> _partition_expr_ctxs; // compute per-row partition values
 
@@ -265,6 +278,8 @@ private:
 
     // Identifier of the destination plan node.
     PlanNodeId _dest_node_id;
+
+    bool _transfer_data_by_brpc_attachment = false;
 };
 
 } // namespace doris

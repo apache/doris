@@ -20,6 +20,9 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
+import org.apache.doris.analysis.AdminCompactTableStmt;
+import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
+import org.apache.doris.analysis.AdminRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
@@ -80,6 +83,8 @@ import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.RefreshDbStmt;
+import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
@@ -241,6 +246,8 @@ public class DdlExecutor {
             catalog.getTabletChecker().repairTable((AdminRepairTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCancelRepairTableStmt) {
             catalog.getTabletChecker().cancelRepairTable((AdminCancelRepairTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminCompactTableStmt) {
+            catalog.compactTable((AdminCompactTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetConfigStmt) {
             catalog.setConfig((AdminSetConfigStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateFileStmt) {
@@ -276,6 +283,10 @@ public class DdlExecutor {
             catalog.getSyncJobManager().stopSyncJob((StopSyncJobStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminCleanTrashStmt) {
             catalog.cleanTrash((AdminCleanTrashStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminRebalanceDiskStmt) {
+            catalog.getTabletScheduler().rebalanceDisk((AdminRebalanceDiskStmt) ddlStmt);
+        } else if (ddlStmt instanceof AdminCancelRebalanceDiskStmt) {
+            catalog.getTabletScheduler().cancelRebalanceDisk((AdminCancelRebalanceDiskStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateSqlBlockRuleStmt) {
             catalog.getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterSqlBlockRuleStmt) {
@@ -284,6 +295,10 @@ public class DdlExecutor {
             catalog.getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterDatabasePropertyStmt) {
             throw new DdlException("Not implemented yet");
+        } else if (ddlStmt instanceof RefreshTableStmt) {
+            catalog.getRefreshManager().handleRefreshTable((RefreshTableStmt) ddlStmt);
+        } else if (ddlStmt instanceof RefreshDbStmt) {
+            catalog.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

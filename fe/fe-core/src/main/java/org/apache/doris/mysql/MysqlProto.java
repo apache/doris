@@ -56,7 +56,7 @@ public class MysqlProto {
         List<UserIdentity> currentUserIdentity = Lists.newArrayList();
         if (!Catalog.getCurrentCatalog().getAuth().checkPassword(qualifiedUser, remoteIp,
                 scramble, randomString, currentUserIdentity)) {
-            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, usePasswd);
+            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, context.getRemoteIP(), usePasswd);
             return false;
         }
 
@@ -70,7 +70,7 @@ public class MysqlProto {
 
         String tmpUser = user;
         if (tmpUser == null || tmpUser.isEmpty()) {
-            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, "", usePasswd);
+            ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, "anonym@" + context.getRemoteIP(), usePasswd);
             return null;
         }
 

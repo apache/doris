@@ -30,11 +30,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Set;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -55,7 +57,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView", createMaterializedViewStmt,
-                                   db, olapTable);
+                    db, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -80,7 +82,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView", createMaterializedViewStmt,
-                                   db, olapTable);
+                    db, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -107,7 +109,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView",
-                                   createMaterializedViewStmt, db, olapTable);
+                    createMaterializedViewStmt, db, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -135,7 +137,7 @@ public class MaterializedViewHandlerTest {
                 olapTable.getPartitions();
                 result = Lists.newArrayList(partition);
                 partition.getIndex(baseIndexId);
-                result =  materializedIndex;
+                result = materializedIndex;
                 materializedIndex.getState();
                 result = MaterializedIndex.IndexState.SHADOW;
             }
@@ -143,7 +145,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView",
-                                   createMaterializedViewStmt, db, olapTable);
+                    createMaterializedViewStmt, db, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -165,7 +167,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                                   createMaterializedViewStmt, olapTable);
+                    createMaterializedViewStmt, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -200,7 +202,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                                   createMaterializedViewStmt, olapTable);
+                    createMaterializedViewStmt, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -223,7 +225,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                                   createMaterializedViewStmt, olapTable);
+                    createMaterializedViewStmt, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -256,8 +258,8 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             List<Column> mvColumns = Deencapsulation.invoke(materializedViewHandler,
-                                                            "checkAndPrepareMaterializedView",
-                                                            createMaterializedViewStmt, olapTable);
+                    "checkAndPrepareMaterializedView",
+                    createMaterializedViewStmt, olapTable);
             Assert.assertEquals(1, mvColumns.size());
             Column newMVColumn = mvColumns.get(0);
             Assert.assertEquals(columnName1, newMVColumn.getName());
@@ -280,7 +282,7 @@ public class MaterializedViewHandlerTest {
         MVColumnItem mvColumnItem = new MVColumnItem(columnName1, Type.VARCHAR);
         mvColumnItem.setIsKey(false);
         mvColumnItem.setAggregationType(AggregateType.SUM, false);
-        List<String> partitionColumnNames = Lists.newArrayList();
+        Set<String> partitionColumnNames = Sets.newHashSet();
         partitionColumnNames.add(columnName1);
         new Expectations() {
             {
@@ -299,7 +301,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                                                            createMaterializedViewStmt, olapTable);
+                    createMaterializedViewStmt, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -309,7 +311,7 @@ public class MaterializedViewHandlerTest {
 
     @Test
     public void testCheckDropMaterializedView(@Injectable OlapTable olapTable, @Injectable Partition partition,
-            @Injectable MaterializedIndex materializedIndex) {
+                                              @Injectable MaterializedIndex materializedIndex) {
         String mvName = "mv_1";
         new Expectations() {
             {

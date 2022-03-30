@@ -31,26 +31,25 @@ namespace doris {
 
 MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   KeysType keys_type, RowsetWriter* rowset_writer,
-                   const std::shared_ptr<MemTracker>& parent_tracker)
+                   KeysType keys_type, RowsetWriter* rowset_writer)
         : _tablet_id(tablet_id),
           _schema(schema),
           _tablet_schema(tablet_schema),
-          _tuple_desc(tuple_desc),
           _slot_descs(slot_descs),
           _keys_type(keys_type),
-          _mem_tracker(MemTracker::CreateTracker(-1, "MemTable", parent_tracker)),
+          _mem_tracker(MemTracker::create_tracker(-1, "MemTable")),
           _buffer_mem_pool(new MemPool(_mem_tracker.get())),
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),
           _rowset_writer(rowset_writer) {
     if (tablet_schema->sort_type() == SortType::ZORDER) {
-        _row_comparator = std::make_shared<TupleRowZOrderComparator>(_schema, tablet_schema->sort_col_num());
+        _row_comparator =
+                std::make_shared<TupleRowZOrderComparator>(_schema, tablet_schema->sort_col_num());
     } else {
         _row_comparator = std::make_shared<RowCursorComparator>(_schema);
     }
-    _skip_list = new Table(_row_comparator.get(), _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
-
+    _skip_list = new Table(_row_comparator.get(), _table_mem_pool.get(),
+                           _keys_type == KeysType::DUP_KEYS);
 }
 
 MemTable::~MemTable() {
@@ -109,9 +108,8 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
         const SlotDescriptor* slot = (*_slot_descs)[i];
 
         bool is_null = tuple->is_null(slot->null_indicator_offset());
-        const void* value = tuple->get_slot(slot->tuple_offset());
-        _schema->column(i)->consume(&cell, (const char*)value, is_null, mem_pool,
-                                    &_agg_buffer_pool);
+        const auto* value = (const char*)tuple->get_slot(slot->tuple_offset());
+        _schema->column(i)->consume(&cell, value, is_null, mem_pool, &_agg_buffer_pool);
     }
 }
 
@@ -158,10 +156,8 @@ OLAPStatus MemTable::close() {
     return flush();
 }
 
-MemTable::Iterator::Iterator(MemTable* memtable):
-    _mem_table(memtable),
-    _it(memtable->_skip_list) {
-}
+MemTable::Iterator::Iterator(MemTable* memtable)
+        : _mem_table(memtable), _it(memtable->_skip_list) {}
 
 void MemTable::Iterator::seek_to_first() {
     _it.SeekToFirst();
@@ -176,7 +172,7 @@ void MemTable::Iterator::next() {
 }
 
 ContiguousRow MemTable::Iterator::get_current_row() {
-    char* row = (char*) _it.key();
+    char* row = (char*)_it.key();
     ContiguousRow dst_row(_mem_table->_schema, row);
     agg_finalize_row(&dst_row, _mem_table->_table_mem_pool.get());
     return dst_row;

@@ -25,7 +25,6 @@
 #include <sys/time.h>
 
 #include <boost/algorithm/string.hpp>
-#include <boost/tokenizer.hpp>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -41,6 +40,7 @@
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"
+#include "util/string_util.h"
 
 namespace doris {
 
@@ -180,7 +180,9 @@ rapidjson::Value JsonFunctions::parse_str_with_flag(const StringVal& arg, const 
         val.SetDouble(number);
     } else if (*(flag.ptr + num) == '4' || *(flag.ptr + num) == '5') {
         StringPiece str((char*)arg.ptr, arg.len);
-        if (*(flag.ptr + num) == '4') str = str.substr(1, str.length() - 2);
+        if (*(flag.ptr + num) == '4') {
+            str = str.substr(1, str.length() - 2);
+        }
         val.SetString(str.data(), str.length(), allocator);
     } else {
         DCHECK(false) << "parse json type error with unknown type";
@@ -310,24 +312,24 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
     //    '$.text#abc.xyz'  ->  [$, text#abc, xyz]
     //    '$."text.abc".xyz'  ->  [$, text.abc, xyz]
     //    '$."text.abc"[1].xyz'  ->  [$, text.abc[1], xyz]
-    JsonState* json_state;
+    JsonState* json_state = nullptr;
     JsonState tmp_json_state;
+
 #ifndef BE_TEST
-    json_state = reinterpret_cast<JsonState*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    json_state = reinterpret_cast<JsonState*>(
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (json_state == nullptr) {
         json_state = &tmp_json_state;
     }
 
     if (json_state->json_paths.size() == 0) {
-        boost::tokenizer<boost::escaped_list_separator<char>> tok(
-                path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+        auto tok = get_json_token(path_string);
         std::vector<std::string> paths(tok.begin(), tok.end());
         get_parsed_paths(paths, &json_state->json_paths);
     }
 #else
     json_state = &tmp_json_state;
-    boost::tokenizer<boost::escaped_list_separator<char>> tok(
-            path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+    auto tok = get_json_token(path_string);
     std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, &json_state->json_paths);
 #endif
@@ -353,7 +355,7 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
         //rapidjson::Document document;
         if (UNLIKELY(document->HasParseError())) {
             VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
-                    << GetParseError_En(document->GetParseError());
+                          << GetParseError_En(document->GetParseError());
             document->SetNull();
             return document;
         }
@@ -364,15 +366,16 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
 
 rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         const std::string& json_path, rapidjson::Value* document,
-        rapidjson::Document::AllocatorType& mem_allocator) {
+        rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
     std::vector<JsonPath> vec;
     parse_json_paths(json_path, &vec);
-    return get_json_array_from_parsed_json(vec, document, mem_allocator);
+    return get_json_array_from_parsed_json(vec, document, mem_allocator, wrap_explicitly);
 }
 
 rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
-        rapidjson::Document::AllocatorType& mem_allocator) {
+        rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
+    *wrap_explicitly = false;
     if (!parsed_paths[0].is_valid) {
         return nullptr;
     }
@@ -395,6 +398,8 @@ rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         array_obj = static_cast<rapidjson::Value*>(mem_allocator.Malloc(sizeof(rapidjson::Value)));
         array_obj->SetArray();
         array_obj->PushBack(*root, mem_allocator);
+        // set `wrap_explicitly` to true, so that the caller knows that this Array is wrapped actively.
+        *wrap_explicitly = true;
         return array_obj;
     }
     return root;

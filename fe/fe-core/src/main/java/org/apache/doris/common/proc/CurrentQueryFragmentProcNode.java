@@ -19,11 +19,8 @@ package org.apache.doris.common.proc;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.QueryStatisticsItem;
-import org.apache.doris.system.Backend;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.common.util.QueryStatisticsFormatter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,23 +47,6 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         return requestFragmentExecInfos();
-    }
-
-    private TNetworkAddress toBrpcHost(TNetworkAddress host) throws AnalysisException {
-        final Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(
-                host.getHostname(), host.getPort());
-        if (backend == null) {
-            throw new AnalysisException(new StringBuilder("Backend ")
-                    .append(host.getHostname())
-                    .append(":")
-                    .append(host.getPort())
-                    .append(" does not exist")
-                    .toString());
-        }
-        if (backend.getBrpcPort() < 0) {
-            throw new AnalysisException("BRPC port isn't exist.");
-        }
-        return new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
     }
 
     private ProcResult requestFragmentExecInfos() throws AnalysisException {

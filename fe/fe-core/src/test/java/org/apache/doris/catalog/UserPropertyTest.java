@@ -24,10 +24,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.privilege.UserProperty;
 
+import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -132,5 +132,25 @@ public class UserPropertyTest {
         properties.add(Pair.create("sql_block_rules", "test1, test2,test3"));
         userProperty.update(properties);
         Assert.assertEquals(3, userProperty.getSqlBlockRules().length);
+    }
+
+    @Test
+    public void testValidation() throws UserException {
+        List<Pair<String, String>> properties = Lists.newArrayList();
+        properties.add(Pair.create("cpu_resource_limit", "-1"));
+        UserProperty userProperty = new UserProperty();
+        userProperty.update(properties);
+        Assert.assertEquals(-1, userProperty.getCpuResourceLimit());
+
+        properties = Lists.newArrayList();
+        properties.add(Pair.create("cpu_resource_limit", "-2"));
+        userProperty = new UserProperty();
+        try {
+            userProperty.update(properties);
+            Assert.fail();
+        } catch (Exception e) {
+            Assert.assertTrue(e.getMessage().contains("is not valid"));
+        }
+        Assert.assertEquals(-1, userProperty.getCpuResourceLimit());
     }
 }

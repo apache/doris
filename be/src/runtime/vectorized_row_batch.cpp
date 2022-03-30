@@ -23,14 +23,12 @@
 namespace doris {
 
 VectorizedRowBatch::VectorizedRowBatch(const TabletSchema* schema,
-                                       const std::vector<uint32_t>& cols, int capacity,
-                                       const std::shared_ptr<MemTracker>& parent_tracker)
+                                       const std::vector<uint32_t>& cols, int capacity)
         : _schema(schema), _cols(cols), _capacity(capacity), _limit(capacity) {
     _selected_in_use = false;
     _size = 0;
 
-    _tracker = MemTracker::CreateTracker(-1, "VectorizedRowBatch", parent_tracker);
-    _mem_pool.reset(new MemPool(_tracker.get()));
+    _mem_pool.reset(new MemPool());
 
     _selected = reinterpret_cast<uint16_t*>(new char[sizeof(uint16_t) * _capacity]);
 
@@ -53,8 +51,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
                     row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
             const TabletColumn& column = _schema->column(column_id);
             size_t field_size = 0;
-            if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_STRING ||
-                column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_OBJECT) {
+            if (column.is_length_variable_type()) {
                 field_size = sizeof(Slice);
             } else {
                 field_size = column.length();
@@ -96,8 +93,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
 
             const TabletColumn& column = _schema->column(column_id);
             size_t field_size = 0;
-            if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_STRING||
-                column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_OBJECT) {
+            if (column.is_length_variable_type()) {
                 field_size = sizeof(Slice);
             } else {
                 field_size = column.length();

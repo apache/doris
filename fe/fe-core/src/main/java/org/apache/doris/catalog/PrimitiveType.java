@@ -49,11 +49,12 @@ public enum PrimitiveType {
     VARCHAR("VARCHAR", 16, TPrimitiveType.VARCHAR),
 
     DECIMALV2("DECIMALV2", 16, TPrimitiveType.DECIMALV2),
-    
-    HLL("HLL", 16, TPrimitiveType.HLL),
     TIME("TIME", 8, TPrimitiveType.TIME),
-    // we use OBJECT type represent BITMAP type in Backend
+    // these following types are stored as object binary in BE.
+    HLL("HLL", 16, TPrimitiveType.HLL),
     BITMAP("BITMAP", 16, TPrimitiveType.OBJECT),
+    QUANTILE_STATE("QUANTILE_STATE", 16, TPrimitiveType.QUANTILE_STATE),
+
     ARRAY("ARRAY", 24, TPrimitiveType.ARRAY),
     MAP("MAP", 24, TPrimitiveType.MAP),
     STRUCT("MAP", 24, TPrimitiveType.STRUCT),
@@ -87,7 +88,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, CHAR);
         builder.put(NULL_TYPE, VARCHAR);
         builder.put(NULL_TYPE, STRING);
-        builder.put(NULL_TYPE, BITMAP);
+        builder.put(NULL_TYPE, BITMAP); //TODO(weixiang):why null type can cast to bitmap?
         builder.put(NULL_TYPE, TIME);
         // Boolean
         builder.put(BOOLEAN, BOOLEAN);
@@ -249,6 +250,7 @@ public enum PrimitiveType {
         builder.put(VARCHAR, STRING);
         builder.put(VARCHAR, HLL);
         builder.put(VARCHAR, BITMAP);
+        builder.put(VARCHAR, QUANTILE_STATE);
 
         // Varchar
         builder.put(STRING, BOOLEAN);
@@ -266,6 +268,7 @@ public enum PrimitiveType {
         builder.put(STRING, STRING);
         builder.put(STRING, HLL);
         builder.put(STRING, BITMAP);
+        builder.put(STRING, QUANTILE_STATE);
 
         // DecimalV2
         builder.put(DECIMALV2, BOOLEAN);
@@ -289,6 +292,11 @@ public enum PrimitiveType {
         builder.put(BITMAP, BITMAP);
         builder.put(BITMAP, VARCHAR);
         builder.put(BITMAP, STRING);
+        
+        // QUANTILE_STATE
+        builder.put(QUANTILE_STATE, QUANTILE_STATE);
+        builder.put(QUANTILE_STATE, VARCHAR);
+        builder.put(QUANTILE_STATE, STRING);
 
         //TIME
         builder.put(TIME, TIME);
@@ -340,6 +348,7 @@ public enum PrimitiveType {
         supportedTypes.add(BITMAP);
         supportedTypes.add(ARRAY);
         supportedTypes.add(MAP);
+        supportedTypes.add(QUANTILE_STATE);
     }
 
     public static ArrayList<PrimitiveType> getIntegerTypes() {
@@ -392,7 +401,8 @@ public enum PrimitiveType {
         compatibilityMatrix[NULL_TYPE.ordinal()][STRING.ordinal()] = STRING;
         compatibilityMatrix[NULL_TYPE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[NULL_TYPE.ordinal()][TIME.ordinal()] = TIME;
-        compatibilityMatrix[NULL_TYPE.ordinal()][BITMAP.ordinal()] = BITMAP;
+        compatibilityMatrix[NULL_TYPE.ordinal()][BITMAP.ordinal()] = BITMAP;    //TODO(weixiang): bitmap can be null?
+        compatibilityMatrix[NULL_TYPE.ordinal()][QUANTILE_STATE.ordinal()] = QUANTILE_STATE;   //TODO(weixiang): QUANTILE_STATE can be null?
 
         compatibilityMatrix[BOOLEAN.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
         compatibilityMatrix[BOOLEAN.ordinal()][TINYINT.ordinal()] = TINYINT;
@@ -533,6 +543,8 @@ public enum PrimitiveType {
         compatibilityMatrix[BITMAP.ordinal()][BITMAP.ordinal()] = BITMAP;
 
         compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = TIME;
+
+        compatibilityMatrix[QUANTILE_STATE.ordinal()][QUANTILE_STATE.ordinal()] = QUANTILE_STATE;
     }
 
     static {
@@ -606,6 +618,8 @@ public enum PrimitiveType {
                 return HLL;
             case OBJECT:
                 return BITMAP;
+            case QUANTILE_STATE:
+                return QUANTILE_STATE;
             case ARRAY:
                 return ARRAY;
             case MAP:

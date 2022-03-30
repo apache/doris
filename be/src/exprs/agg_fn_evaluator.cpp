@@ -14,16 +14,21 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warray-bounds"
+#elif defined(__GNUC__) || defined(__GNUG__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Warray-bounds"
 #pragma GCC diagnostic ignored "-Wstringop-overflow="
+#endif
 
 #include "exprs/agg_fn_evaluator.h"
 
 #include <sstream>
 
 #include "common/logging.h"
-#include "exec/aggregation_node.h"
 #include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
 #include "runtime/datetime_value.h"
@@ -149,9 +154,9 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
     _intermediate_slot_desc = intermediate_slot_desc;
 
     _string_buffer_len = 0;
-    _mem_tracker = mem_tracker;
+    _mem_tracker = MemTracker::create_virtual_tracker(-1, "AggFnEvaluator", mem_tracker);
 
-    Status status = Expr::prepare(_input_exprs_ctxs, state, desc, _mem_tracker);
+    Status status = Expr::prepare(_input_exprs_ctxs, state, desc, mem_tracker);
     RETURN_IF_ERROR(status);
 
     ObjectPool* obj_pool = state->obj_pool();
@@ -264,7 +269,7 @@ Status AggFnEvaluator::open(RuntimeState* state, FunctionContext* agg_fn_ctx) {
 void AggFnEvaluator::close(RuntimeState* state) {
     Expr::close(_input_exprs_ctxs, state);
     if (UNLIKELY(_total_mem_consumption > 0)) {
-        _mem_tracker->Release(_total_mem_consumption);
+        _mem_tracker->release(_total_mem_consumption);
     }
 }
 
@@ -314,6 +319,7 @@ inline void AggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& 
     case TYPE_HLL:
     case TYPE_OBJECT:
     case TYPE_STRING:
+    case TYPE_QUANTILE_STATE:
         reinterpret_cast<const StringValue*>(slot)->to_string_val(
                 reinterpret_cast<StringVal*>(dst));
         return;
@@ -384,6 +390,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src, const SlotDescrip
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
         *reinterpret_cast<StringValue*>(slot) =
                 StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
@@ -435,7 +442,7 @@ void AggFnEvaluator::update_mem_limlits(int len) {
     _accumulated_mem_consumption += len;
     // per 16M , update mem_tracker one time
     if (UNLIKELY(_accumulated_mem_consumption > 16777216)) {
-        _mem_tracker->Consume(_accumulated_mem_consumption);
+        _mem_tracker->consume(_accumulated_mem_consumption);
         _total_mem_consumption += _accumulated_mem_consumption;
         _accumulated_mem_consumption = 0;
     }
@@ -566,6 +573,7 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_STRING: {
             StringVal* value = reinterpret_cast<StringVal*>(_staging_input_vals[i]);
             memcpy(begin, value->ptr, value->len);
@@ -894,6 +902,7 @@ void AggFnEvaluator::serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* s
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING: {
         typedef StringVal (*Fn)(FunctionContext*, AnyVal*);
         StringVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx, _staging_intermediate_val);
@@ -944,11 +953,6 @@ std::string AggFnEvaluator::debug_string(const std::vector<AggFnEvaluator*>& exp
 std::string AggFnEvaluator::debug_string() const {
     std::stringstream out;
     out << "AggFnEvaluator(op=" << _agg_op;
-#if 0
-    for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
-        out << " " << _input_exprs[i]->debug_string() << ")";
-    }
-#endif
 
     out << ")";
     return out.str();
@@ -956,4 +960,8 @@ std::string AggFnEvaluator::debug_string() const {
 
 } // namespace doris
 
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__) || defined(__GNUG__)
 #pragma GCC diagnostic pop
+#endif

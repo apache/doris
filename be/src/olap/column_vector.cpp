@@ -31,8 +31,8 @@ Status ColumnVectorBatch::resize(size_t new_cap) {
     return Status::OK();
 }
 
-Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const TypeInfo* type_info,
-                                 Field* field,
+Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable,
+                                 std::shared_ptr<const TypeInfo> type_info, Field* field,
                                  std::unique_ptr<ColumnVectorBatch>* column_vector_batch) {
     if (is_scalar_type(type_info->type())) {
         std::unique_ptr<ColumnVectorBatch> local;
@@ -117,6 +117,11 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
             local.reset(new ScalarColumnVectorBatch<CppTypeTraits<OLAP_FIELD_TYPE_OBJECT>::CppType>(
                     type_info, is_nullable));
             break;
+        case OLAP_FIELD_TYPE_QUANTILE_STATE:
+            local.reset(new ScalarColumnVectorBatch<
+                        CppTypeTraits<OLAP_FIELD_TYPE_QUANTILE_STATE>::CppType>(type_info,
+                                                                                is_nullable));
+            break;
         default:
             return Status::NotSupported("unsupported type for ColumnVectorBatch: " +
                                         std::to_string(type_info->type()));
@@ -133,14 +138,13 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
             }
 
             std::unique_ptr<ColumnVectorBatch> elements;
-            auto array_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
+            auto array_type_info = dynamic_cast<const ArrayTypeInfo*>(type_info.get());
             RETURN_IF_ERROR(ColumnVectorBatch::create(
                     init_capacity * 2, field->get_sub_field(0)->is_nullable(),
                     array_type_info->item_type_info(), field->get_sub_field(0), &elements));
 
             std::unique_ptr<ColumnVectorBatch> offsets;
-            TypeInfo* offsets_type_info =
-                    get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
+            auto offsets_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT);
             RETURN_IF_ERROR(ColumnVectorBatch::create(init_capacity + 1, false, offsets_type_info,
                                                       nullptr, &offsets));
 
@@ -160,8 +164,8 @@ Status ColumnVectorBatch::create(size_t init_capacity, bool is_nullable, const T
 }
 
 template <class ScalarType>
-ScalarColumnVectorBatch<ScalarType>::ScalarColumnVectorBatch(const TypeInfo* type_info,
-                                                             bool is_nullable)
+ScalarColumnVectorBatch<ScalarType>::ScalarColumnVectorBatch(
+        std::shared_ptr<const TypeInfo> type_info, bool is_nullable)
         : ColumnVectorBatch(type_info, is_nullable), _data(0) {}
 
 template <class ScalarType>
@@ -176,7 +180,8 @@ Status ScalarColumnVectorBatch<ScalarType>::resize(size_t new_cap) {
     return Status::OK();
 }
 
-ArrayColumnVectorBatch::ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable,
+ArrayColumnVectorBatch::ArrayColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info,
+                                               bool is_nullable,
                                                ScalarColumnVectorBatch<uint32_t>* offsets,
                                                ColumnVectorBatch* elements)
         : ColumnVectorBatch(type_info, is_nullable), _data(0) {
@@ -210,14 +215,19 @@ void ArrayColumnVectorBatch::prepare_for_read(size_t start_idx, size_t size, boo
     DCHECK(start_idx + size <= capacity());
     for (size_t i = 0; i < size; ++i) {
         if (!is_null_at(start_idx + i)) {
-            _data[start_idx + i] = CollectionValue(
-                    _elements->mutable_cell_ptr(*(_offsets->scalar_cell_ptr(start_idx + i))),
-                    *(_offsets->scalar_cell_ptr(start_idx + i + 1)) -
-                            *(_offsets->scalar_cell_ptr(start_idx + i)),
-                    item_has_null,
-                    _elements->is_nullable() ? const_cast<bool*>(&_elements->null_signs()[*(
-                                                       _offsets->scalar_cell_ptr(start_idx + i))])
-                                             : nullptr);
+            auto next_offset = *(_offsets->scalar_cell_ptr(start_idx + i + 1));
+            auto offset = *(_offsets->scalar_cell_ptr(start_idx + i));
+            uint32_t length = next_offset - offset;
+            if (length == 0) {
+                _data[start_idx + i] = CollectionValue(length);
+            } else {
+                _data[start_idx + i] = CollectionValue(
+                        _elements->mutable_cell_ptr(offset),
+                        length,
+                        item_has_null,
+                        _elements->is_nullable() ? const_cast<bool*>(&_elements->null_signs()[offset])
+                                                 : nullptr);
+            }
         }
     }
 }
@@ -252,5 +262,34 @@ void DataBuffer<T>::resize(size_t new_size) {
     }
     current_size = new_size;
 }
+
+template class DataBuffer<bool>;
+template class DataBuffer<int8_t>;
+template class DataBuffer<int16_t>;
+template class DataBuffer<int32_t>;
+template class DataBuffer<uint32_t>;
+template class DataBuffer<int64_t>;
+template class DataBuffer<uint64_t>;
+template class DataBuffer<int128_t>;
+template class DataBuffer<float>;
+template class DataBuffer<double>;
+template class DataBuffer<decimal12_t>;
+template class DataBuffer<uint24_t>;
+template class DataBuffer<Slice>;
+template class DataBuffer<CollectionValue>;
+
+template class ScalarColumnVectorBatch<bool>;
+template class ScalarColumnVectorBatch<int8_t>;
+template class ScalarColumnVectorBatch<int16_t>;
+template class ScalarColumnVectorBatch<int32_t>;
+template class ScalarColumnVectorBatch<uint32_t>;
+template class ScalarColumnVectorBatch<int64_t>;
+template class ScalarColumnVectorBatch<uint64_t>;
+template class ScalarColumnVectorBatch<int128_t>;
+template class ScalarColumnVectorBatch<float>;
+template class ScalarColumnVectorBatch<double>;
+template class ScalarColumnVectorBatch<decimal12_t>;
+template class ScalarColumnVectorBatch<uint24_t>;
+template class ScalarColumnVectorBatch<Slice>;
 
 } // namespace doris

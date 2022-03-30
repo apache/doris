@@ -57,7 +57,7 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
         return OLAP_ERR_DELETE_INVALID_PARAMETERS;
     }
 
-    // 检查删除条件是否符合要求
+    // Check whether the delete condition meets the requirements
     for (const TCondition& condition : conditions) {
         if (check_condition_valid(schema, condition) != OLAP_SUCCESS) {
             LOG(WARNING) << "invalid condition. condition=" << ThriftDebugString(condition);
@@ -65,7 +65,7 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
         }
     }
 
-    // 存储删除条件
+    // Store delete condition
     for (const TCondition& condition : conditions) {
         if (condition.condition_values.size() > 1) {
             InPredicatePB* in_pred = del_pred->add_in_predicates();
@@ -143,7 +143,7 @@ bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column
     case OLAP_FIELD_TYPE_VARCHAR:
         return value_str.size() <= column.length();
     case OLAP_FIELD_TYPE_STRING:
-        return value_str.size() <= OLAP_STRING_MAX_LENGTH;
+        return value_str.size() <= config::string_type_length_soft_limit_bytes;
     case OLAP_FIELD_TYPE_DATE:
     case OLAP_FIELD_TYPE_DATETIME:
         return valid_datetime(value_str);
@@ -231,12 +231,12 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
 
 OLAPStatus DeleteHandler::init(const TabletSchema& schema,
                                const DelPredicateArray& delete_conditions, int64_t version,
-                               const Reader* reader) {
+                               const TabletReader* reader) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
     DCHECK(version >= 0) << "invalid parameters. version=" << version;
 
     for (const auto& delete_condition : delete_conditions) {
-        // 跳过版本号大于version的过滤条件
+        // Skip the delete condition with large version
         if (delete_condition.version() > version) {
             continue;
         }
@@ -303,8 +303,8 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
 }
 
 bool DeleteHandler::is_filter_data(const int64_t data_version, const RowCursor& row) const {
-    // 根据语义，存储在_del_conds的删除条件应该是OR关系
-    // 因此，只要数据符合其中一条过滤条件，则返回true
+    // According to semantics, the delete condition stored in _del_conds should be an OR relationship,
+    // so as long as the data matches one of the _del_conds, it will return true.
     for (const auto& del_cond : _del_conds) {
         if (data_version <= del_cond.filter_version &&
             del_cond.del_cond->delete_conditions_eval(row)) {

@@ -25,5 +25,9 @@ public enum JobState {
     LOADING, // job is running
     COMMITTED, // transaction is committed but not visible
     FINISHED, // transaction is visible and job is finished
-    CANCELLED // transaction is aborted and job is cancelled
+    CANCELLED; // transaction is aborted and job is cancelled
+
+    public boolean isFinalState() {
+        return this == FINISHED || this == CANCELLED;
+    }
 }

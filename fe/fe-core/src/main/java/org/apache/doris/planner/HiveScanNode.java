@@ -70,7 +70,7 @@ public class HiveScanNode extends BrokerScanNode {
     private List<String> partitionKeys = new ArrayList<>();
     /* hive table properties */
 
-    public String getHdfsUri() {
+    public String getHostUri() {
         return hdfsUri;
     }
 
@@ -183,7 +183,7 @@ public class HiveScanNode extends BrokerScanNode {
         fileStatusesList.add(fileStatuses);
         filesAdded += fileStatuses.size();
         for (TBrokerFileStatus fstatus : fileStatuses) {
-            LOG.info("Add file status is {}", fstatus);
+            LOG.debug("Add file status is {}", fstatus);
         }
     }
 

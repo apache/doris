@@ -39,6 +39,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
@@ -70,10 +71,10 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -174,6 +175,14 @@ public class OlapScanNode extends ScanNode {
 
     public void setForceOpenPreAgg(boolean forceOpenPreAgg) {
         this.forceOpenPreAgg = forceOpenPreAgg;
+    }
+
+    public Integer getSelectedPartitionNum() {
+        return selectedPartitionNum;
+    }
+
+    public Long getSelectedTabletsNum() {
+        return selectedTabletsNum;
     }
 
     public Collection<Long> getSelectedPartitionIds() {
@@ -424,12 +433,23 @@ public class OlapScanNode extends ScanNode {
         } else {
             keyItemMap = partitionInfo.getIdToItem(false);
         }
+
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            partitionPruner = new RangePartitionPruner(keyItemMap,
-                    partitionInfo.getPartitionColumns(), columnFilters);
+            if (analyzer.partitionPruneV2Enabled()) {
+                partitionPruner = new RangePartitionPrunerV2(keyItemMap,
+                        partitionInfo.getPartitionColumns(), columnNameToRange);
+            } else {
+                partitionPruner = new RangePartitionPruner(keyItemMap,
+                        partitionInfo.getPartitionColumns(), columnFilters);
+            }
         } else if (partitionInfo.getType() == PartitionType.LIST) {
-            partitionPruner = new ListPartitionPruner(keyItemMap,
+            if (analyzer.partitionPruneV2Enabled()) {
+                partitionPruner = new ListPartitionPrunerV2(keyItemMap, partitionInfo.getPartitionColumns(),
+                    columnNameToRange);
+            } else {
+                partitionPruner = new ListPartitionPruner(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnFilters);
+            }
         }
         return partitionPruner.prune();
     }
@@ -459,13 +479,10 @@ public class OlapScanNode extends ScanNode {
     private void addScanRangeLocations(Partition partition,
                                        MaterializedIndex index,
                                        List<Tablet> tablets) throws UserException {
-        int logNum = 0;
         int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
         String schemaHashStr = String.valueOf(schemaHash);
         long visibleVersion = partition.getVisibleVersion();
-        long visibleVersionHash = partition.getVisibleVersionHash();
         String visibleVersionStr = String.valueOf(visibleVersion);
-        String visibleVersionHashStr = String.valueOf(partition.getVisibleVersionHash());
 
         Set<Tag> allowedTags = Sets.newHashSet();
         boolean needCheckTags = false;
@@ -475,22 +492,19 @@ public class OlapScanNode extends ScanNode {
         }
         for (Tablet tablet : tablets) {
             long tabletId = tablet.getId();
-            LOG.debug("{} tabletId={}", (logNum++), tabletId);
             TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
-
             TPaloScanRange paloRange = new TPaloScanRange();
             paloRange.setDbName("");
             paloRange.setSchemaHash(schemaHashStr);
             paloRange.setVersion(visibleVersionStr);
-            paloRange.setVersionHash(visibleVersionHashStr);
+            paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
 
             // random shuffle List && only collect one copy
-            List<Replica> replicas = Lists.newArrayList();
-            tablet.getQueryableReplicas(replicas, visibleVersion, visibleVersionHash, schemaHash);
+            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, schemaHash);
             if (replicas.isEmpty()) {
-                LOG.error("no queryable replica found in tablet {}. visible version {}-{}",
-                        tabletId, visibleVersion, visibleVersionHash);
+                LOG.error("no queryable replica found in tablet {}. visible version {}",
+                        tabletId, visibleVersion);
                 if (LOG.isDebugEnabled()) {
                     for (Replica replica : tablet.getReplicas()) {
                         LOG.debug("tablet {}, replica: {}", tabletId, replica.toString());
@@ -576,10 +590,17 @@ public class OlapScanNode extends ScanNode {
             }
         } else {
             selectedPartitionIds = selectedPartitionIds.stream()
-                    .filter(id -> olapTable.getPartition(id).hasData())
-                    .collect(Collectors.toList());
+                  .filter(id -> olapTable.getPartition(id).hasData())
+                  .collect(Collectors.toList());
         }
         selectedPartitionNum = selectedPartitionIds.size();
+
+        for(long id : selectedPartitionIds){
+            Partition partition = olapTable.getPartition(id);
+            if(partition.getState() == PartitionState.RESTORE){
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), "RESTORING");
+            }
+        }
         LOG.debug("partition prune cost: {} ms, partitions: {}",
                 (System.currentTimeMillis() - start), selectedPartitionIds);
     }
@@ -748,7 +769,6 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
-        msg.olap_scan_node.setTableName(olapTable.getName());
     }
 
     // export some tablets
@@ -889,9 +909,9 @@ public class OlapScanNode extends ScanNode {
 
     /*
     Although sometimes the scan range only involves one instance,
-        the data distribution cannot be set to UNPARTITION here.
-    The reason is that @coordicator will not set the scan range for the fragment,
-        when data partition of fragment is UNPARTITION.
+        the data distribution cannot be set to UNPARTITIONED here.
+    The reason is that @coordinator will not set the scan range for the fragment,
+        when data partition of fragment is UNPARTITIONED.
      */
     public DataPartition constructInputPartitionByDistributionInfo() throws UserException {
         ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
@@ -901,9 +921,7 @@ public class OlapScanNode extends ScanNode {
                 || olapTable.getPartitions().size() == 1) {
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
             if (!(distributionInfo instanceof HashDistributionInfo)) {
-                // There may be some random distribution table left, throw exception here.
-                // And these table should be modified to hash distribution by ALTER TABLE operation.
-                throw new UserException("Table with non hash distribution is not supported: " + olapTable.getName());
+                return DataPartition.RANDOM;
             }
             List<Column> distributeColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
             List<Expr> dataDistributeExprs = Lists.newArrayList();

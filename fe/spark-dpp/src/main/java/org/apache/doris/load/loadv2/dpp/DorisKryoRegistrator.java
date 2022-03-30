@@ -17,6 +17,9 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
+import org.apache.doris.common.io.BitmapValue;
+import org.apache.doris.common.io.Roaring64Map;
+
 import com.esotericsoftware.kryo.Kryo;
 import org.apache.spark.serializer.KryoRegistrator;
 

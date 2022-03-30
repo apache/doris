@@ -79,6 +79,7 @@ enum OLAPDataVersion {
 static const std::string MINI_PREFIX = "/mini_download";
 static const std::string CLUSTER_ID_PREFIX = "/cluster_id";
 static const std::string DATA_PREFIX = "/data";
+static const std::string TABLET_UID = "/tablet_uid";
 static const std::string DPP_PREFIX = "/dpp_download";
 static const std::string SNAPSHOT_PREFIX = "/snapshot";
 static const std::string TRASH_PREFIX = "/trash";
@@ -236,7 +237,6 @@ enum OLAPStatus {
     OLAP_ERR_BE_VERSION_NOT_MATCH = -800,
     OLAP_ERR_BE_REPLACE_VERSIONS_ERROR = -801,
     OLAP_ERR_BE_MERGE_ERROR = -802,
-    OLAP_ERR_BE_COMPUTE_VERSION_HASH_ERROR = -803,
     OLAP_ERR_CAPTURE_ROWSET_ERROR = -804,
     OLAP_ERR_BE_SAVE_HEADER_ERROR = -805,
     OLAP_ERR_BE_INIT_OLAP_DATA = -806,
@@ -349,7 +349,7 @@ enum OLAPStatus {
 
     // Cumulative Handler
     // [-2000, -3000)
-    OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS = -2000,
+    OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION = -2000,
     OLAP_ERR_CUMULATIVE_REPEAT_INIT = -2001,
     OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS = -2002,
     OLAP_ERR_CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE = -2003,
@@ -383,7 +383,8 @@ enum OLAPStatus {
     OLAP_ERR_ROWSET_LOAD_FAILED = -3109,
     OLAP_ERR_ROWSET_READER_INIT = -3110,
     OLAP_ERR_ROWSET_READ_FAILED = -3111,
-    OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION = -3112
+    OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION = -3112,
+    OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE = -3113
 };
 
 enum ColumnFamilyIndex {

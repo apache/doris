@@ -24,19 +24,19 @@
 namespace doris {
 
 OLAPStatus RowsetConverter::convert_beta_to_alpha(const RowsetMetaSharedPtr& src_rowset_meta,
-                                                  const std::string& rowset_path,
+                                                  const FilePathDesc& rowset_path_desc,
                                                   RowsetMetaPB* dst_rs_meta_pb) {
-    return _convert_rowset(src_rowset_meta, rowset_path, ALPHA_ROWSET, dst_rs_meta_pb);
+    return _convert_rowset(src_rowset_meta, rowset_path_desc, ALPHA_ROWSET, dst_rs_meta_pb);
 }
 
 OLAPStatus RowsetConverter::convert_alpha_to_beta(const RowsetMetaSharedPtr& src_rowset_meta,
-                                                  const std::string& rowset_path,
+                                                  const FilePathDesc& rowset_path_desc,
                                                   RowsetMetaPB* dst_rs_meta_pb) {
-    return _convert_rowset(src_rowset_meta, rowset_path, BETA_ROWSET, dst_rs_meta_pb);
+    return _convert_rowset(src_rowset_meta, rowset_path_desc, BETA_ROWSET, dst_rs_meta_pb);
 }
 
 OLAPStatus RowsetConverter::_convert_rowset(const RowsetMetaSharedPtr& src_rowset_meta,
-                                            const std::string& rowset_path, RowsetTypePB dst_type,
+                                            const FilePathDesc& rowset_path_desc, RowsetTypePB dst_type,
                                             RowsetMetaPB* dst_rs_meta_pb) {
     const TabletSchema& tablet_schema = _tablet_meta->tablet_schema();
     RowsetWriterContext context;
@@ -46,13 +46,12 @@ OLAPStatus RowsetConverter::_convert_rowset(const RowsetMetaSharedPtr& src_rowse
     context.partition_id = _tablet_meta->partition_id();
     context.tablet_schema_hash = _tablet_meta->schema_hash();
     context.rowset_type = dst_type;
-    context.rowset_path_prefix = rowset_path;
+    context.path_desc = rowset_path_desc;
     context.tablet_schema = &tablet_schema;
     context.rowset_state = src_rowset_meta->rowset_state();
     context.segments_overlap = src_rowset_meta->segments_overlap();
     if (context.rowset_state == VISIBLE) {
         context.version = src_rowset_meta->version();
-        context.version_hash = src_rowset_meta->version_hash();
     } else {
         context.txn_id = src_rowset_meta->txn_id();
         context.load_id = src_rowset_meta->load_id();
@@ -61,7 +60,7 @@ OLAPStatus RowsetConverter::_convert_rowset(const RowsetMetaSharedPtr& src_rowse
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &rowset_writer));
     if (!src_rowset_meta->empty()) {
         RowsetSharedPtr rowset;
-        RETURN_NOT_OK(RowsetFactory::create_rowset(&tablet_schema, rowset_path, src_rowset_meta,
+        RETURN_NOT_OK(RowsetFactory::create_rowset(&tablet_schema, rowset_path_desc, src_rowset_meta,
                                                    &rowset));
         RowsetReaderSharedPtr rowset_reader;
         RETURN_NOT_OK(rowset->create_reader(&rowset_reader));

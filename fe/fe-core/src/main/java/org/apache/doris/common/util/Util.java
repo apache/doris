@@ -73,6 +73,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
+        TYPE_STRING_MAP.put(PrimitiveType.QUANTILE_STATE,"quantile_state");
         TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "Array<%s>");
         TYPE_STRING_MAP.put(PrimitiveType.NULL_TYPE, "null");
     }
@@ -223,10 +224,6 @@ public class Util {
             sb.append(column.getSignatureString(TYPE_STRING_MAP));
         }
         return sb.toString();
-    }
-    
-    public static long generateVersionHash() {
-        return Math.abs(new Random().nextLong());
     }
     
     public static int generateSchemaHash() {

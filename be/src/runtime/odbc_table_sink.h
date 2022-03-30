@@ -32,7 +32,6 @@ class TOdbcTableSink;
 class RuntimeState;
 class RuntimeProfile;
 class ExprContext;
-class MemTracker;
 
 //This class is a sinker, which put input data to odbc table
 class OdbcTableSink : public DataSink {
@@ -73,9 +72,8 @@ private:
     bool _use_transaction;
 
     RuntimeProfile* _profile;
-    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
-}
+} // namespace doris
 
 #endif

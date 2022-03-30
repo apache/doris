@@ -47,15 +47,15 @@ static bool iequals(const std::string& a, const std::string& b) {
     return true;
 }
 
-bool init_glog(const char* basename, bool install_signal_handler) {
+bool init_glog(const char* basename) {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
 
     if (logging_initialized) {
         return true;
     }
 
-    if (install_signal_handler) {
-        google::InstallFailureSignalHandler();
+    if (getenv("DORIS_LOG_TO_STDERR") != nullptr) {
+        FLAGS_alsologtostderr = true;
     }
 
     // don't log to stderr

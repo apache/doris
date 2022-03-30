@@ -32,13 +32,13 @@ if (GLIBC_COMPATIBILITY)
     add_headers_and_sources(glibc_compatibility .)
     add_headers_and_sources(glibc_compatibility musl)
     if (ARCH_ARM)
-        # FastMemcpy not support arm, remove it from glibc_compatibility_sources
-        list (REMOVE_ITEM glibc_compatibility_sources FastMemcpy.c memcpy_wrapper.c)
         list (APPEND glibc_compatibility_sources musl/aarch64/syscall.s musl/aarch64/longjmp.s)
         set (musl_arch_include_dir musl/aarch64)
+        set (MEMCPY_SOURCE memcpy/memcpy_aarch64.cpp)
     elseif (ARCH_AMD64)
         list (APPEND glibc_compatibility_sources musl/x86_64/syscall.s musl/x86_64/longjmp.s)
         set (musl_arch_include_dir musl/x86_64)
+        set (MEMCPY_SOURCE memcpy/memcpy_x86_64.cpp)
     else ()
         message (FATAL_ERROR "glibc_compatibility can only be used on x86_64 or aarch64.")
     endif ()
@@ -51,6 +51,15 @@ if (GLIBC_COMPATIBILITY)
     # Need to omit frame pointers to match the performance of glibc
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fomit-frame-pointer")
 
+    # NOTE(amos): getrandom is hard to interpose since we build thirdparty deps
+    # without glibc-compatibility. Also sanitizers might generate getrandom
+    # libcalls. Workaround: Use object file so that linker will always take a
+    # look at its symbol table.
+    list(REMOVE_ITEM glibc_compatibility_sources musl/getrandom.c)
+    # NOTE(amos): sanitizers might generate memcpy references that are too late to
+    # refer. Let's also extract memcpy definitions explicitly to avoid UNDEF GLIBC 2.14.
+    add_library(glibc-compatibility-explicit OBJECT musl/getrandom.c ${MEMCPY_SOURCE})
+    target_compile_options(glibc-compatibility-explicit PRIVATE -fPIC)
     add_library(glibc-compatibility STATIC ${glibc_compatibility_sources})
 
     if (COMPILER_CLANG)
@@ -60,6 +69,7 @@ if (GLIBC_COMPATIBILITY)
     endif ()
 
     target_include_directories(glibc-compatibility PRIVATE ${musl_arch_include_dir})
+    target_include_directories(glibc-compatibility-explicit PRIVATE ${musl_arch_include_dir})
 
     message (STATUS "Some symbols from glibc will be replaced for compatibility")
 else()

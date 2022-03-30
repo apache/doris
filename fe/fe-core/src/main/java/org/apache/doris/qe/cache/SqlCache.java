@@ -40,8 +40,8 @@ public class SqlCache extends Cache {
         this.allViewExpandStmtListStr = allViewExpandStmtListStr;
     }
 
-    private String getSqlWithViewStmt() {
-        return selectStmt.toSql() + allViewExpandStmtListStr;
+    public String getSqlWithViewStmt() {
+        return selectStmt.toSql() + "|" + allViewExpandStmtListStr;
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {

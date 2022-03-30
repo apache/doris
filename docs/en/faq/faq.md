@@ -30,28 +30,11 @@ This document is mainly used to record common problems in the use of Doris. Will
 
 ### Q1. Use Stream Load to access the public network address of FE to import data, and it is redirected to the internal network IP?
 
-
 When the connection target of stream load is the http port of FE, FE will only randomly select a BE node for http 307 redirect operation, so the user's request is actually sent to a BE designated by FE. The redirect returns the ip of BE, which is the intranet IP. So if you send the request through the public IP of FE, it is very likely that you will not be able to connect because you are redirected to the intranet address.
 
 The usual approach is to ensure that you can access the intranet IP address, or assume a load balance for all BE upper layers, and then directly send the stream load request to the load balancer, and the load balancer transparently transmits the request to the BE node .
 
-### Q2. Query error: Failed to get scan range, no queryable replica found in tablet: xxxx
-
-This situation is because the corresponding tablet does not find a copy that can be queried, usually because the BE is down, the copy is missing, and so on. You can use the `show tablet tablet_id` statement first, and then execute the following `show proc` statement to view the copy information corresponding to this tablet, and check whether the copy is complete. At the same time, you can use the `show proc "/cluster_balance"` information to query the progress of replica scheduling and repair in the cluster.
-
-For commands related to data copy management, please refer to [Data Copy Management](../administrator-guide/operation/tablet-repair-and-balance.md).
-
-### Q3. FE failed to start, fe.log keeps scrolling "wait catalog to be ready. FE type UNKNOWN"
-
-There are usually two reasons for this problem:
-
-1. The local IP obtained when the FE is started this time is inconsistent with the last time, usually because the `priority_network` is not set correctly, the wrong IP address is matched when the FE is started. Need to modify `priority_network` and restart FE.
-
-2. Most Follower FE nodes in the cluster are not started. For example, there are 3 Followers and only one is started. At this time, at least one other FE needs to be also activated, and the FE electable group can elect the Master to provide services.
-
-If none of the above conditions can be resolved, you can follow the [Metadata Operation and Maintenance Document] (../administrator-guide/operation/metadata-operation.md) in the Doris official website to restore.
-
-### Q4. When the BE node is offline through DECOMMISSION, why is there always some tablet remaining?
+### Q2. When the BE node is offline through DECOMMISSION, why is there always some tablet remaining?
 
 During the offline process, check the tabletNum of the offline node through show backends, and you will observe that the number of tabletNum is decreasing, indicating that the data fragments are migrating from this node. When the number is reduced to 0, the system will automatically delete this node. But in some cases, tabletNum does not change after it drops to a certain value. This can usually have the following two reasons:
 
@@ -62,7 +45,7 @@ During the offline process, check the tabletNum of the offline node through show
 For the above situation, you can first check whether the cluster still has unhealthy shards through show proc "/statistic". If it is 0, you can delete the BE directly through the drop backend statement. Otherwise, you need to check the copy status of unhealthy shards.
 
 
-### Q5. How should priorty_network be set?
+### Q3. How should priorty_network be set?
 
 Priorty_network is a configuration parameter for both FE and BE. This parameter is mainly used to help the system choose the correct network card IP as its own IP. It is recommended to set this parameter explicitly under any circumstances to prevent the problem of incorrect IP selection caused by the addition of a new network card to the subsequent machine.
 
@@ -70,7 +53,7 @@ The value of priorty_network is expressed in CIDR format. It is divided into two
 
 The reason for using the CIDR format instead of directly specifying a specific IP is to ensure that all nodes can use uniform configuration values. For example, there are two nodes: 10.168.10.1 and 10.168.10.2, then we can use 10.168.10.0/24 as the value of priorty_network.
 
-### Q6. What are FE's Master, Follower and Observer?
+### Q4. What are FE's Master, Follower and Observer?
 
 First of all, make it clear that FE has only two roles: Follower and Observer. The Master is just an FE selected from a group of Follower nodes. Master can be regarded as a special kind of Follower. So when we were asked how many FEs in a cluster and what roles are they, the correct answer should be the number of all FE nodes, the number of Follower roles, and the number of Observer roles.
 
@@ -82,39 +65,7 @@ The role of Observer is the same as the meaning of this word. It only acts as an
 
 Normally, you can deploy 1 Follower + 2 Observer or 3 Follower + N Observer. The former is simple to operate and maintain, and there will be almost no consensus agreement between Followers to cause this complicated error situation (most of Baidu's internal clusters use this method). The latter can ensure the high availability of metadata writing. If it is a high-concurrency query scenario, you can appropriately increase the Observer.
 
-### Q7. tablet writer write failed, tablet_id=27306172, txn_id=28573520, err=-235 or -215 or -238
-
-This error usually occurs during data import operations. The error code of the new version is -235, and the error code of the old version may be -215. The meaning of this error is that the data version of the corresponding tablet exceeds the maximum limit (default 500, controlled by the BE parameter `max_tablet_version_num`), and subsequent writes will be rejected. For example, the error in the question means that the data version of the tablet 27306172 exceeds the limit.
-
-This error is usually because the import frequency is too high, which is greater than the compaction speed of the background data, which causes the version to accumulate and eventually exceeds the limit. At this point, we can first use the show tablet 27306172 statement, and then execute the show proc statement in the result to view the status of each copy of the tablet. The versionCount in the result represents the number of versions. If you find that there are too many versions of a copy, you need to reduce the import frequency or stop importing, and observe whether the number of versions drops. If the version number still does not decrease after the import is stopped, you need to go to the corresponding BE node to check the be.INFO log, search for the tablet id and compaction keywords, and check whether the compaction is running normally. For compaction tuning related, you can refer to the ApacheDoris public account article: Doris Best Practice-Compaction Tuning (3)
-
-The -238 error usually occurs when the amount of imported data in the same batch is too large, which leads to too many Segment files for a certain tablet (the default is 200, which is controlled by the BE parameter `max_segment_num_per_rowset`). At this time, it is recommended to reduce the amount of data imported in one batch, or to appropriately increase the value of the BE configuration parameter to solve the problem.
-
-### Q8. tablet 110309738 has few replicas: 1, alive backends: [10003]
-
-This error may occur during query or import operation. It usually means that the copy of the tablet is abnormal.
-
-At this point, you can first check whether the BE node is down by using the show backends command, such as the isAlive field is false, or LastStartTime is the most recent time (indicating that it has been restarted recently). If the BE is down, you need to go to the node corresponding to the BE and check the be.out log. If the BE is down due to an exception, usually the exception stack will be printed in be.out to help troubleshoot the problem. If there is no error stack in be.out. You can use the linux command dmesg -T to check whether the process is killed by the system because of OOM.
-
-If no BE node is down, you need to use the show tablet 110309738 statement, and then execute the show proc statement in the result to check the status of each copy of the tablet for further investigation.
-
-### Q9. disk xxxxx on backend xxx exceed limit usage
-
-It usually appears in operations such as import and Alter. This error means that the usage of the corresponding disk corresponding to the BE exceeds the threshold (95% by default). At this time, you can use the show backends command first, where MaxDiskUsedPct shows the usage of the disk with the highest usage on the corresponding BE. If If it exceeds 95%, this error will be reported.
-
-At this time, you need to go to the corresponding BE node to check the usage in the data directory. The trash directory and snapshot directory can be manually cleaned up to free up space. If the data directory occupies a lot, you need to consider deleting some data to free up space. For details, please refer to [Disk Space Management](../administrator-guide/operation/disk-capacity.md).
-
-### Q10. invalid cluster id: xxxx
-
-This error may appear in the results of the show backends or show frontends commands. It usually appears in the error message column of a certain FE or BE node. The meaning of this error is that after Master FE sends heartbeat information to this node, the node finds that the cluster id carried in the heartbeat information is different from the cluster id stored locally, so it refuses to respond to the heartbeat.
-
-Doris' Master FE node will actively send a heartbeat to each FE or BE node, and will carry a cluster_id in the heartbeat information. The cluster_id is the unique cluster ID generated by the Master FE when a cluster is initialized. When the FE or BE receives the heartbeat information for the first time, it will save the cluster_id locally in the form of a file. The FE file is in the image/ directory of the metadata directory, and BE has a cluster_id file in all data directories. After that, every time a node receives a heartbeat, it will compare the content of the local cluster_id with the content in the heartbeat. If it is inconsistent, it will refuse to respond to the heartbeat.
-
-This mechanism is a node authentication mechanism to prevent receiving wrong heartbeat information from nodes outside the cluster.
-
-If you need to recover from this error. First, confirm whether all nodes are the correct nodes in the cluster. After that, for the FE node, you can try to modify the cluster_id value in the image/VERSION file in the metadata directory and restart the FE. For BE nodes, you can delete cluster_id files in all data directories and restart BE.
-
-### Q11. Does Doris support modifying column names?
+### Q5. Does Doris support modifying column names?
 
 Does not support modifying column names.
 
@@ -124,7 +75,7 @@ For some historical reasons, the column names are currently written directly int
 
 We do not rule out the subsequent use of some compatible means to support lightweight column name modification operations.
 
-### Q12. Does the table of the Unique Key model support the creation of materialized views?
+### Q6. Does the table of the Unique Key model support the creation of materialized views?
 
 not support.
 
@@ -132,7 +83,7 @@ The table of the Unique Key model is a business-friendly table. Because of its u
 
 Unfortunately, the table of the Unique Key model cannot create a materialized view. The reason is that the nature of the materialized view is to "pre-calculate" the data through pre-calculation, so that the calculated data is directly returned during the query to speed up the query. In the materialized view, the "pre-calculated" data is usually some aggregated indicators, such as summation and count. At this time, if the data changes, such as udpate or delete, because the pre-calculated data has lost the detailed information, it cannot be updated synchronously. For example, a sum of 5 may be 1+4 or 2+3. Because of the loss of detailed information, we cannot distinguish how the sum is calculated, and therefore cannot meet the update requirements.
 
-### Q13. show backends/frontends Viewed information is incomplete
+### Q7. show backends/frontends Viewed information is incomplete
 
 After executing certain statements such as `show backends/frontends`, some columns may be incomplete in the results. For example, the disk capacity information cannot be seen in the show backends results.
 
@@ -140,23 +91,7 @@ This problem usually occurs when there are multiple FEs in the cluster. If users
 
 Of course, the user can also execute `set forward_to_master=true;` before executing these statements. After the session variable is set to true, some information viewing statements executed later will be automatically forwarded to the Master FE to obtain the results. In this way, no matter which FE the user is connected to, the complete result can be obtained.
 
-### Q14. Import data by calling stream load through a Java program. When a batch of data is large, a Broken Pipe error may be reported
-
-In addition to Broken Pipe, there may be other strange errors.
-
-This situation usually occurs after opening httpv2. Because httpv2 is an http service implemented using spring boot, and uses tomcat as the default built-in container. But jetty's handling of 307 forwarding seems to have some problems, so the built-in container will be modified to jetty later. In addition, the version of apache http client in the java program needs to use a version later than 4.5.13. In the previous version, there were also some problems with the processing of forwarding.
-
-So this problem can be solved in two ways:
-
-1. Turn off httpv2
-
-    Add enable_http_server_v2=false in fe.conf and restart FE. However, the new UI interface can no longer be used in this way, and some new interfaces based on httpv2 cannot be used later. (Normal import queries are not affected).
-
-2. Upgrade
-
-    You can upgrade to Doris 0.15 and later versions, this problem has been fixed.
-
-### Q15. A new disk is added to the node. Why is the data not balanced on the new disk?
+### Q8. A new disk is added to the node. Why is the data not balanced on the new disk?
 
 The current balance strategy of Doris is based on nodes. In other words, the cluster load is judged according to the overall load index of the node (the number of shards and the total disk utilization). And migrate data fragments from high-load nodes to low-load nodes. If each node adds a disk, from the perspective of the node as a whole, the load has not changed, so the balancing logic cannot be triggered.
 
@@ -182,7 +117,7 @@ Here we provide 3 ways to solve this problem:
 
     Doris provides [HTTP API](../administrator-guide/http-actions/tablet-migration-action.md), which allows you to manually specify data fragments on one disk to migrate to another disk.
     
-### Q16. How to read FE/BE log correctly?
+### Q9. How to read FE/BE log correctly?
 
 In many cases, we need to troubleshoot problems through logs. Here is an explanation of the format and viewing method of the FE/BE log.
 
@@ -230,7 +165,7 @@ In many cases, we need to troubleshoot problems through logs. Here is an explana
 
     Normally, we mainly check the be.INFO log. Under special circumstances, such as BE downtime, you need to check be.out.
 
-### Q17. How to troubleshoot the cause of FE/BE node down?
+### Q10. How to troubleshoot the cause of FE/BE node down?
 
 1. BE
 
@@ -260,7 +195,7 @@ In many cases, we need to troubleshoot problems through logs. Here is an explana
 
     FE is a java process, and its robustness depends on the C/C++ program. Usually, the cause of FE hanging may be OOM (Out-of-Memory) or metadata writing failure. These errors usually have an error stack in fe.log or fe.out. You need to investigate further based on the error stack information.
 
-### Q18. About the configuration of the data directory SSD and HDD.
+### Q11. About the configuration of the data directory SSD and HDD.
 
 Doris supports a BE node to configure multiple storage paths. Normally, it is sufficient to configure one storage path for each disk. At the same time, Doris supports storage media attributes of specified paths, such as SSD or HDD. SSD stands for high-speed storage devices, and HDD stands for low-speed storage devices.
 
@@ -270,50 +205,93 @@ It should be noted that Doris does not automatically perceive the actual storage
 
 In other words, ".HDD" and ".SSD" are only used to identify the "relative" "low speed" and "high speed" of the storage directory, not the actual storage medium type. Therefore, if the storage path on the BE node has no difference in media, there is no need to fill in the suffix.
 
-### Q19. `Lost connection to MySQL server at'reading initial communication packet', system error: 0`
+### Q12.  The query results of unique key model are inconsistent
 
-If the following problems occur when using the MySQL client to connect to Doris, this is usually caused by the difference between the jdk version used when compiling FE and the jdk version used when running FE.
-Note that when using docker image to compile, the default JDK version is openjdk 11, you can switch to openjdk 8 by command (see the compilation document for details).
+In some cases, when users use the same SQL to query a table of a unique key model, inconsistent query results may occur. And the query results always change between 2-3 kinds.
 
-### Q20. -214 error
+This may be because there are data with the same key but different values in the same batch of imported data, which will lead to inconsistent results between different replicas due to uncertain data replace order.
 
-When performing operations such as load and query, you may encounter the following errors:
+For example, tables are defined as k1 and v1. A batch of imported data is as follows:
 
 ```
-failed to initialize storage reader. tablet=63416.1050661139.aa4d304e7a7aff9c-f0fa7579928c85a0, res=-214, backend=192.168.100.10
+1, "abc"
+1, "def"
 ```
 
-A -214 error means that the data version of the corresponding tablet is missing. For example, the above error indicates that the data version of the replica of tablet 63416 on the BE of 192.168.100.10 is missing. (There may be other similar error codes, which can be checked and repaired in the following ways).
+Then the result of replica 1 may be '1, "ABC', while the result of replica 2 may be '1," def'. This leads to inconsistent query results.
 
-Normally, if your data has multiple replicas, the system will automatically repair these problematic replicas. You can troubleshoot through the following steps:
+To ensure the unique data order between different replicas, refer to the  [Sequence Column](../administrator-guide/load-data/sequence-column-manual.md) function.
 
-First, use the `show tablet 63416` statement and execute the `show proc xxx` statement in the result to view the status of each replica of the corresponding tablet. Usually we need to care about the data in the `Version` column.
+### Q13. Multiple FEs cannot log in when using Nginx to implement web UI load balancing
 
-Under normal circumstances, the Version of multiple replicas of a tablet should be the same. And it is the same as the VisibleVersion of the corresponding partition.
+Doris can deploy multiple FEs. When accessing the Web UI, if you use Nginx for load balancing, you will be prompted to log in again because of Session problems. This problem is actually a session sharing problem. Nginx provides centralized session sharing. The solution, here we use the ip_hash technology in nginx, ip_hash can direct the request of a certain ip to the same backend, so that a certain client and a certain backend under this ip can establish a stable The session, ip_hash is defined in the upstream configuration:
 
-You can use `show partitions from tblx` to view the corresponding partition version (the partition corresponding to the tablet can be obtained in the `show tablet` statement.)
+```
+upstream  doris.com {
+   server    172.22.197.238:8030 weight=3;
+   server    172.22.197.239:8030 weight=4;
+   server    172.22.197.240:8030 weight=4;
+   ip_hash;
+}
+```
+The complete Nginx example configuration is as follows:
 
-At the same time, you can also visit the URL in the CompactionStatus column of the `show proc` statement (just open it in the browser) to view more specific version information, to check which version is missing.
+```
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
 
-If there is no automatic repair for a long time, you need to use the `show proc "/cluster_balance"` statement to view the tablet repair and scheduling tasks currently being performed by the system. It may be because there are a large number of tablets waiting to be scheduled, which leads to a long repair time. You can follow the records in `pending_tablets` and `running_tablets`.
+# Load dynamic modules. See /usr/share/doc/nginx/README.dynamic.
+include /usr/share/nginx/modules/*.conf;
 
-Furthermore, you can use the `admin repair` statement to specify the priority to repair a table or partition. For details, please refer to `help admin repair`;
+events {
+    worker_connections 1024;
+}
 
-If it still cannot be repaired, then in the case of multiple replicas, we use the `admin set replica status` command to force the replica to go offline. For details, please refer to the example of `help admin set replica status` to set the status of the replica to bad. (After set to bad, the replica will not be accessed again. And will be automatically repaired later. But before the operation, you should make sure that the other replicas are normal)
+http {
+    log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                      '$status $body_bytes_sent "$http_referer" '
+                      '"$http_user_agent" "$http_x_forwarded_for"';
 
-### Q21. Not connected to 192.168.100.1:8060 yet, server_id=384
+    access_log  /var/log/nginx/access.log  main;
 
-We may encounter this error when loading or querying. If you go to the corresponding BE log to check, you may also find similar errors.
+    sendfile            on;
+    tcp_nopush          on;
+    tcp_nodelay         on;
+    keepalive_timeout   65;
+    types_hash_max_size 2048;
 
-This is an RPC error, and there are usually two possibilities: 1. The corresponding BE node is down. 2. rpc congestion or other errors.
+    include             /etc/nginx/mime.types;
+    default_type        application/octet-stream;
 
-If the BE node is down, you need to check the specific reason for the downtime. Only the problem of rpc congestion is discussed here.
+    # Load modular configuration files from the /etc/nginx/conf.d directory.
+    # See http://nginx.org/en/docs/ngx_core_module.html#include
+    # for more information.
+    include /etc/nginx/conf.d/*.conf;
+    #include /etc/nginx/custom/*.conf;
+    upstream  doris.com {
+      server    172.22.197.238:8030 weight=3;
+      server    172.22.197.239:8030 weight=4;
+      server    172.22.197.240:8030 weight=4;
+      ip_hash;
+    }
 
-One situation is OVERCROWDED, which means that a large amount of unsent data at the rpc client exceeds the threshold. BE has two parameters related to it:
+    server {
+        listen       80;
+        server_name  gaia-pro-bigdata-fe02;
+        if ($request_uri ~ _load) {
+           return 307 http://$host$request_uri ;
+        }
 
-1. `brpc_socket_max_unwritten_bytes`: The default is 64MB. If the unwritten data exceeds this value, an error will be reported. You can modify this value appropriately to avoid OVERCROWDED errors. (But this cures the symptoms rather than the root cause, essentially congestion still occurs).
-2. `tablet_writer_ignore_eovercrowded`: The default is false. If set to true, Doris will ignore OVERCROWDED errors during the load process. This parameter is mainly used to avoid load failure and improve the stability of load.
-
-The second is that the packet size of rpc exceeds `max_body_size`. This problem may occur if the query contains a very large String type or a Bitmap type. It can be circumvented by modifying the following BE parameters:
-
-1. `brpc_max_body_size`: The default is 200MB, if necessary, it can be modified to 3GB (in bytes).
+        location / {
+            proxy_pass http://doris.com;
+            proxy_redirect default;
+        }
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+ }
+```

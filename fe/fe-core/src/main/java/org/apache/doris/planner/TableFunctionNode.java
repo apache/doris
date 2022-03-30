@@ -21,9 +21,12 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LateralViewRef;
 import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -81,7 +84,15 @@ public class TableFunctionNode extends PlanNode {
      * Query: select k1 from table a lateral view explode_split(v1, ",") t1 as c1;
      * The outputSlots: [k1, c1]
      */
-    public void projectSlots(Analyzer analyzer, SelectStmt selectStmt) {
+    public void projectSlots(Analyzer analyzer, SelectStmt selectStmt) throws AnalysisException {
+        // TODO(ml): Support project calculations that include aggregation and sorting in select stmt
+        if ((selectStmt.hasAggInfo() || selectStmt.getSortInfo() != null || selectStmt.hasAnalyticInfo())
+                && selectStmt.hasInlineView()) {
+            // The query must be rewritten like TableFunctionPlanTest.aggColumnInOuterQuery()
+            throw new AnalysisException("Please treat the query containing the lateral view as a inline view"
+                    + "and extract your aggregation/sort/window functions to the outer query."
+                    + "For example select sum(a) from (select a from table lateral view xxx) tmp1");
+        }
         Set<SlotRef> outputSlotRef = Sets.newHashSet();
         // case1
         List<Expr> baseTblResultExprs = selectStmt.getBaseTblResultExprs();
@@ -97,6 +108,20 @@ public class TableFunctionNode extends PlanNode {
         // set output slot ids
         for (SlotRef slotRef : outputSlotRef) {
             outputSlotIds.add(slotRef.getSlotId());
+        }
+
+        // For all other slots from input node which are not in outputSlotIds,
+        // set them as nullable, so that we can set them to null in TableFunctionNode
+        // TODO(cmy): This should be done with a ProjectionNode
+        PlanNode inputNode = getChild(0);
+        List<TupleId> inputTupleIds = inputNode.getTupleIds();
+        for (TupleId tupleId : inputTupleIds) {
+            TupleDescriptor td = analyzer.getTupleDesc(tupleId);
+            for (SlotDescriptor sd : td.getSlots()) {
+                if (!outputSlotIds.contains(sd.getId())) {
+                    sd.setIsNullable(true);
+                }
+            }
         }
     }
 
@@ -170,3 +195,4 @@ public class TableFunctionNode extends PlanNode {
         }
     }
 }
+

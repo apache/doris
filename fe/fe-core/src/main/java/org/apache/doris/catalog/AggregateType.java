@@ -33,7 +33,9 @@ public enum AggregateType {
     REPLACE_IF_NOT_NULL("REPLACE_IF_NOT_NULL"),
     HLL_UNION("HLL_UNION"),
     NONE("NONE"),
-    BITMAP_UNION("BITMAP_UNION");
+    BITMAP_UNION("BITMAP_UNION"),
+    QUANTILE_UNION("QUANTILE_UNION");
+
 
     private static EnumMap<AggregateType, EnumSet<PrimitiveType>> compatibilityMap;
 
@@ -84,13 +86,14 @@ public enum AggregateType {
         compatibilityMap.put(MAX, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
-        // all types except bitmap and hll.
-        EnumSet<PrimitiveType> exc_bitmap_hll = EnumSet.allOf(PrimitiveType.class);
-        exc_bitmap_hll.remove(PrimitiveType.BITMAP);
-        exc_bitmap_hll.remove(PrimitiveType.HLL);
-        compatibilityMap.put(REPLACE, EnumSet.copyOf(exc_bitmap_hll));
+        // all types except object stored column type, such as bitmap hll quantile_state.
+        EnumSet<PrimitiveType> exc_object_stored = EnumSet.allOf(PrimitiveType.class);
+        exc_object_stored.remove(PrimitiveType.BITMAP);
+        exc_object_stored.remove(PrimitiveType.HLL);
+        exc_object_stored.remove(PrimitiveType.QUANTILE_STATE);
+        compatibilityMap.put(REPLACE, EnumSet.copyOf(exc_object_stored));
 
-        compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.copyOf(exc_bitmap_hll));
+        compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.copyOf(exc_object_stored));
 
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.HLL);
@@ -100,7 +103,11 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.BITMAP);
         compatibilityMap.put(BITMAP_UNION, EnumSet.copyOf(primitiveTypeList));
 
-        compatibilityMap.put(NONE, EnumSet.copyOf(exc_bitmap_hll));
+        primitiveTypeList.clear();
+        primitiveTypeList.add(PrimitiveType.QUANTILE_STATE);
+        compatibilityMap.put(QUANTILE_UNION, EnumSet.copyOf(primitiveTypeList));
+
+        compatibilityMap.put(NONE, EnumSet.copyOf(exc_object_stored));
     }
     private final String sqlName;
 
@@ -153,6 +160,8 @@ public enum AggregateType {
                 return TAggregationType.HLL_UNION;
             case BITMAP_UNION:
                 return TAggregationType.BITMAP_UNION;
+            case QUANTILE_UNION:
+                return TAggregationType.QUANTILE_UNION;
             default:
                 return null;
         }

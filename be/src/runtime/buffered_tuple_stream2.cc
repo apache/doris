@@ -484,7 +484,7 @@ Status BufferedTupleStream2::get_rows(unique_ptr<RowBatch>* batch, bool* got_row
         return Status::OK();
     }
     RETURN_IF_ERROR(prepare_for_read(false));
-    batch->reset(new RowBatch(_desc, num_rows(), _block_mgr->get_tracker(_block_mgr_client).get()));
+    batch->reset(new RowBatch(_desc, num_rows()));
     bool eos = false;
     // Loop until get_next fills the entire batch. Each call can stop at block
     // boundaries. We generally want it to stop, so that blocks can be freed
@@ -662,34 +662,6 @@ void BufferedTupleStream2::read_strings(const vector<SlotDescriptor*>& string_sl
     }
 }
 
-#if 0
-void BufferedTupleStream2::ReadCollections(const vector<SlotDescriptor*>& collection_slots,
-        int data_len, Tuple* tuple) {
-    DCHECK(tuple != nullptr);
-    for (int i = 0; i < collection_slots.size(); ++i) {
-        const SlotDescriptor* slot_desc = collection_slots[i];
-        if (tuple->IsNull(slot_desc->null_indicator_offset())) continue;
-
-        CollectionValue* cv = tuple->get_collectionslot(slot_desc->tuple_offset());
-        const TupleDescriptor& item_desc = *slot_desc->collection_item_descriptor();
-        int coll_byte_size = cv->num_tuples * item_desc.byte_size();
-        DCHECK_LE(coll_byte_size, data_len - _read_bytes);
-        cv->ptr = reinterpret_cast<uint8_t*>(_read_ptr);
-        _read_ptr += coll_byte_size;
-        _read_bytes += coll_byte_size;
-
-        if (!item_desc.HasVarlenSlots()) continue;
-        uint8_t* coll_data = cv->ptr;
-        for (int j = 0; j < cv->num_tuples; ++j) {
-            Tuple* item = reinterpret_cast<Tuple*>(coll_data);
-            read_strings(item_desc.string_slots(), data_len, item);
-            ReadCollections(item_desc.collection_slots(), data_len, item);
-            coll_data += item_desc.byte_size();
-        }
-    }
-}
-#endif
-
 int64_t BufferedTupleStream2::compute_row_size(TupleRow* row) const {
     int64_t size = 0;
     for (int i = 0; i < _desc.tuple_descriptors().size(); ++i) {
@@ -704,4 +676,127 @@ int64_t BufferedTupleStream2::compute_row_size(TupleRow* row) const {
     return size;
 }
 
+bool BufferedTupleStream2::deep_copy(TupleRow* row) {
+    if (_nullable_tuple) {
+        return deep_copy_internal<true>(row);
+    } else {
+        return deep_copy_internal<false>(row);
+    }
+}
+
+// TODO: this really needs codegen
+// TODO: in case of duplicate tuples, this can redundantly serialize data.
+template <bool HasNullableTuple>
+bool BufferedTupleStream2::deep_copy_internal(TupleRow* row) {
+    if (UNLIKELY(_write_block == nullptr)) {
+        return false;
+    }
+    DCHECK_GE(_null_indicators_write_block, 0);
+    DCHECK(_write_block->is_pinned()) << debug_string() << std::endl
+                                      << _write_block->debug_string();
+
+    const uint64_t tuples_per_row = _desc.tuple_descriptors().size();
+    if (UNLIKELY((_write_block->bytes_remaining() < _fixed_tuple_row_size) ||
+                 (HasNullableTuple &&
+                  (_write_tuple_idx + tuples_per_row > _null_indicators_write_block * 8)))) {
+        return false;
+    }
+    // Allocate the maximum possible buffer for the fixed portion of the tuple.
+    uint8_t* tuple_buf = _write_block->allocate<uint8_t>(_fixed_tuple_row_size);
+    // Total bytes allocated in _write_block for this row. Saved so we can roll back
+    // if this row doesn't fit.
+    int bytes_allocated = _fixed_tuple_row_size;
+
+    // Copy the not nullptr fixed len tuples. For the nullptr tuples just update the nullptr tuple
+    // indicator.
+    if (HasNullableTuple) {
+        DCHECK_GT(_null_indicators_write_block, 0);
+        uint8_t* null_word = nullptr;
+        uint32_t null_pos = 0;
+        // Calculate how much space it should return.
+        int to_return = 0;
+        for (int i = 0; i < tuples_per_row; ++i) {
+            null_word = _write_block->buffer() + (_write_tuple_idx >> 3); // / 8
+            null_pos = _write_tuple_idx & 7;
+            ++_write_tuple_idx;
+            const int tuple_size = _desc.tuple_descriptors()[i]->byte_size();
+            Tuple* t = row->get_tuple(i);
+            const uint8_t mask = 1 << (7 - null_pos);
+            if (t != nullptr) {
+                *null_word &= ~mask;
+                memcpy(tuple_buf, t, tuple_size);
+                tuple_buf += tuple_size;
+            } else {
+                *null_word |= mask;
+                to_return += tuple_size;
+            }
+        }
+        DCHECK_LE(_write_tuple_idx - 1, _null_indicators_write_block * 8);
+        _write_block->return_allocation(to_return);
+        bytes_allocated -= to_return;
+    } else {
+        // If we know that there are no nullable tuples no need to set the nullability flags.
+        DCHECK_EQ(_null_indicators_write_block, 0);
+        for (int i = 0; i < tuples_per_row; ++i) {
+            const int tuple_size = _desc.tuple_descriptors()[i]->byte_size();
+            Tuple* t = row->get_tuple(i);
+            // TODO: Once IMPALA-1306 (Avoid passing empty tuples of non-materialized slots)
+            // is delivered, the check below should become DCHECK(t != nullptr).
+            DCHECK(t != nullptr || tuple_size == 0);
+            memcpy(tuple_buf, t, tuple_size);
+            tuple_buf += tuple_size;
+        }
+    }
+
+    // Copy string slots. Note: we do not need to convert the string ptrs to offsets
+    // on the write path, only on the read. The tuple data is immediately followed
+    // by the string data so only the len information is necessary.
+    for (int i = 0; i < _string_slots.size(); ++i) {
+        Tuple* tuple = row->get_tuple(_string_slots[i].first);
+        if (HasNullableTuple && tuple == nullptr) {
+            continue;
+        }
+        if (UNLIKELY(!copy_strings(tuple, _string_slots[i].second, &bytes_allocated))) {
+            _write_block->return_allocation(bytes_allocated);
+            return false;
+        }
+    }
+
+    // Copy collection slots. We copy collection data in a well-defined order so we do not
+    // need to convert pointers to offsets on the write path.
+    // for (int i = 0; i < _collection_slots.size(); ++i) {
+    //     Tuple* tuple = row->get_tuple(_collection_slots[i].first);
+    //     if (HasNullableTuple && tuple == nullptr) continue;
+    //     if (UNLIKELY(!copy_collections(tuple, _collection_slots[i].second,
+    //                     &bytes_allocated))) {
+    //         _write_block->return_allocation(bytes_allocated);
+    //         return false;
+    //     }
+    // }
+
+    _write_block->add_row();
+    ++_num_rows;
+    return true;
+}
+
+bool BufferedTupleStream2::copy_strings(const Tuple* tuple,
+                                        const vector<SlotDescriptor*>& string_slots,
+                                        int* bytes_allocated) {
+    for (int i = 0; i < string_slots.size(); ++i) {
+        const SlotDescriptor* slot_desc = string_slots[i];
+        if (tuple->is_null(slot_desc->null_indicator_offset())) {
+            continue;
+        }
+        const StringValue* sv = tuple->get_string_slot(slot_desc->tuple_offset());
+        if (LIKELY(sv->len > 0)) {
+            if (UNLIKELY(_write_block->bytes_remaining() < sv->len)) {
+                return false;
+            }
+            uint8_t* buf = _write_block->allocate<uint8_t>(sv->len);
+            (*bytes_allocated) += sv->len;
+            memcpy(buf, sv->ptr, sv->len);
+        }
+    }
+    return true;
+}
 } // end namespace doris

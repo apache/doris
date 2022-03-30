@@ -29,8 +29,7 @@ namespace doris {
 
 class DataDir;
 
-// Base class for all tablet classes, currently only olap/Tablet and
-// olap/memory/MemTablet.
+// Base class for all tablet classes, currently only olap/Tablet
 // The fields and methods in this class is not final, it will change as memory
 // storage engine evolves.
 class BaseTablet : public std::enable_shared_from_this<BaseTablet> {
@@ -39,7 +38,7 @@ public:
     virtual ~BaseTablet();
 
     inline DataDir* data_dir() const;
-    std::string tablet_path() const;
+    FilePathDesc tablet_path_desc() const;
 
     TabletState tablet_state() const { return _state; }
     OLAPStatus set_tablet_state(TabletState state);
@@ -73,7 +72,7 @@ protected:
     const TabletSchema& _schema;
 
     DataDir* _data_dir;
-    std::string _tablet_path;
+    FilePathDesc _tablet_path_desc;
 
     // metrics of this tablet
     std::shared_ptr<MetricEntity> _metric_entity = nullptr;
@@ -93,8 +92,8 @@ inline DataDir* BaseTablet::data_dir() const {
     return _data_dir;
 }
 
-inline std::string BaseTablet::tablet_path() const {
-    return _tablet_path;
+inline FilePathDesc BaseTablet::tablet_path_desc() const {
+    return _tablet_path_desc;
 }
 
 inline const TabletMetaSharedPtr BaseTablet::tablet_meta() {

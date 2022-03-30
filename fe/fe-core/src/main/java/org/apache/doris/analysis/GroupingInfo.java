@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
 
 public class GroupingInfo {
     public static final String COL_GROUPING_ID = "GROUPING_ID";
-
+    public static final String GROUPING_PREFIX = "GROUPING_PREFIX_";
     private VirtualSlotRef groupingIDSlot;
     private TupleDescriptor virtualTuple;
     private Set<VirtualSlotRef> groupingSlots;
@@ -41,8 +41,8 @@ public class GroupingInfo {
     private GroupByClause.GroupingType groupingType;
     private BitSet bitSetAll;
 
-    public GroupingInfo(Analyzer analyzer, GroupByClause.GroupingType groupingType) throws AnalysisException {
-        this.groupingType = groupingType;
+    public GroupingInfo(Analyzer analyzer, GroupByClause groupByClause) throws AnalysisException {
+        this.groupingType = groupByClause.getGroupingType();
         groupingSlots = new LinkedHashSet<>();
         virtualTuple = analyzer.getDescTbl().createTupleDescriptor("VIRTUAL_TUPLE");
         groupingIDSlot = new VirtualSlotRef(COL_GROUPING_ID, Type.BIGINT, virtualTuple, new ArrayList<>());
@@ -58,10 +58,6 @@ public class GroupingInfo {
         return virtualTuple;
     }
 
-    public VirtualSlotRef getGroupingIDSlot() {
-        return groupingIDSlot;
-    }
-
     public List<BitSet> getGroupingIdList() {
         return groupingIdList;
     }
@@ -70,7 +66,7 @@ public class GroupingInfo {
     public VirtualSlotRef addGroupingSlots(List<Expr> realSlots, Analyzer analyzer) throws AnalysisException {
         String colName = realSlots.stream().map(expr -> expr.toSql()).collect(Collectors.joining(
                 "_"));
-        colName = "GROUPING_PREFIX_" + colName;
+        colName = GROUPING_PREFIX + colName;
         VirtualSlotRef virtualSlot = new VirtualSlotRef(colName, Type.BIGINT, virtualTuple, realSlots);
         virtualSlot.analyze(analyzer);
         if (groupingSlots.contains(virtualSlot)) {
@@ -132,7 +128,7 @@ public class GroupingInfo {
     }
 
     // generate grouping function's value
-    public List<List<Long>> genGroupingList(ArrayList<Expr> groupingExprs) {
+    public List<List<Long>> genGroupingList(ArrayList<Expr> groupingExprs) throws AnalysisException {
         List<List<Long>> groupingList = new ArrayList<>();
         for (SlotRef slot : groupingSlots) {
             List<Long> glist = new ArrayList<>();
@@ -154,6 +150,10 @@ public class GroupingInfo {
                     int slotSize = ((VirtualSlotRef) slot).getRealSlots().size();
                     for (int i = 0; i < slotSize; ++i) {
                         int j = groupingExprs.indexOf(((VirtualSlotRef) slot).getRealSlots().get(i));
+                        if (j < 0  || j >= bitSet.size()) {
+                            throw new AnalysisException("Column " + ((VirtualSlotRef) slot).getRealColumnName()
+                                    + " in GROUP_ID() does not exist in GROUP BY clause.");
+                        }
                         l += bitSet.get(j) ? 0L : (1L << (slotSize - i - 1));
                     }
                 }

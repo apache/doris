@@ -29,7 +29,6 @@ namespace doris {
 // in the future
 // TODO: support do predicate on Bitmap and ZoneMap, So we can use index of column to do predicate on
 // page and segment
-
 class BlockColumnPredicate {
 public:
     BlockColumnPredicate() = default;
@@ -44,6 +43,12 @@ public:
     virtual void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const = 0;
 
     virtual void get_all_column_ids(std::set<ColumnId>& column_id_set) const = 0;
+
+    virtual void evaluate(vectorized::MutableColumns& block, uint16_t* sel, uint16_t* selected_size) const {};
+    virtual void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const {};
+    virtual void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const {};
+ 
+    virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const {};
 };
 
 class SingleColumnBlockPredicate : public BlockColumnPredicate {
@@ -57,6 +62,13 @@ public:
     void get_all_column_ids(std::set<ColumnId>& column_id_set) const override {
         column_id_set.insert(_predicate->column_id());
     };
+
+    void evaluate(vectorized::MutableColumns& block, uint16_t* sel, uint16_t* selected_size) const override;
+    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
+    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
+ 
+    void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
+
 private:
     const ColumnPredicate* _predicate;
 };
@@ -98,6 +110,12 @@ public:
     // 2.Do AND SEMANTICS in flags use 1 result to get proper select flags
     void evaluate_and(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
     void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
+
+    void evaluate(vectorized::MutableColumns& block, uint16_t* sel, uint16_t* selected_size) const override;
+    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
+    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
+
+    // note(wb) we didnt't impelment evaluate_vec method here, because storage layer only support AND predicate now;
 };
 
 class AndBlockColumnPredicate : public MutilColumnBlockPredicate {
@@ -109,6 +127,13 @@ public:
     // 1.AndBlockColumnPredicate need evaluate all child BlockColumnPredicate AND SEMANTICS inside first
     // 2.Evaluate OR SEMANTICS in flags use 1 result to get proper select flags
     void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
+
+    void evaluate(vectorized::MutableColumns& block, uint16_t* sel, uint16_t* selected_size) const override;
+    void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
+    void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size, bool* flags) const override;
+
+    void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const override;
+
 };
 
 } //namespace doris

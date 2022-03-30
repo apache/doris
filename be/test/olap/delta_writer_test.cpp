@@ -44,15 +44,13 @@ namespace doris {
 // This is DeltaWriter unit test which used by streaming load.
 // And also it should take schema change into account after streaming load.
 
-static const uint32_t MAX_RETRY_TIMES = 10;
 static const uint32_t MAX_PATH_LEN = 1024;
 
 StorageEngine* k_engine = nullptr;
-std::shared_ptr<MemTracker> k_mem_tracker = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
-    getcwd(buffer, MAX_PATH_LEN);
+    ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = std::string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
     FileUtils::create_dir(config::storage_root_path);
@@ -67,7 +65,6 @@ void set_up() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
     k_engine->start_bg_threads();
-    k_mem_tracker.reset(new MemTracker(-1, "delta writer test"));
 }
 
 void tear_down() {
@@ -76,14 +73,13 @@ void tear_down() {
         delete k_engine;
         k_engine = nullptr;
     }
-    system("rm -rf ./data_test");
+    ASSERT_EQ(system("rm -rf ./data_test"), 0);
     FileUtils::remove_all(std::string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
 void create_tablet_request(int64_t tablet_id, int32_t schema_hash, TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
-    request->__set_version_hash(0);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 6;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
@@ -232,7 +228,6 @@ void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_h
                                              TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
-    request->__set_version_hash(0);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::UNIQUE_KEYS;
@@ -369,14 +364,13 @@ TEST_F(TestDeltaWriter, open) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10003, 270068375, WriteType::LOAD, 20001,
-                              30001, load_id,   false,           tuple_desc};
+    WriteRequest write_req = {10003, 270068375, WriteType::LOAD, 20001, 30001, load_id, tuple_desc};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
+    DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
     SAFE_DELETE(delta_writer);
 
@@ -403,10 +397,10 @@ TEST_F(TestDeltaWriter, write) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10004, 270068376,  WriteType::LOAD,       20002, 30002, load_id,
-                              false, tuple_desc, &(tuple_desc->slots())};
+    WriteRequest write_req = {10004, 270068376, WriteType::LOAD, 20002,
+                              30002, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
+    DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
     auto tracker = std::make_shared<MemTracker>();
@@ -438,7 +432,8 @@ TEST_F(TestDeltaWriter, write) {
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
 
-        DecimalV2Value decimal_value(1.1);
+        DecimalV2Value decimal_value;
+        decimal_value.assign_from_double(1.1);
         *(DecimalV2Value*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
 
         *(int8_t*)(tuple->get_slot(slots[10]->tuple_offset())) = -127;
@@ -463,7 +458,9 @@ TEST_F(TestDeltaWriter, write) {
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
 
-        DecimalV2Value val_decimal(1.1);
+        DecimalV2Value val_decimal;
+        val_decimal.assign_from_double(1.1);
+
         *(DecimalV2Value*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
 
         res = delta_writer->write(tuple);
@@ -472,7 +469,7 @@ TEST_F(TestDeltaWriter, write) {
 
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success
@@ -485,21 +482,19 @@ TEST_F(TestDeltaWriter, write) {
     version.second = tablet->rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
-    VersionHash version_hash = 2;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
-        res = k_engine->txn_manager()->publish_txn(
-                meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-                write_req.schema_hash, tablet_rs.first.tablet_uid, version, version_hash);
+        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                   write_req.tablet_id, write_req.schema_hash,
+                                                   tablet_rs.first.tablet_uid, version);
         ASSERT_EQ(OLAP_SUCCESS, res);
         std::cout << "start to add inc rowset:" << rowset->rowset_id()
                   << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
-                  << "-" << rowset->version().second << ", version_hash:" << rowset->version_hash()
-                  << std::endl;
+                  << "-" << rowset->version().second << std::endl;
         res = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(OLAP_SUCCESS, res);
     }
@@ -528,10 +523,10 @@ TEST_F(TestDeltaWriter, sequence_col) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377,  WriteType::LOAD,       20003, 30003, load_id,
-                              false, tuple_desc, &(tuple_desc->slots())};
+    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
+                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
+    DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
     MemTracker tracker;
@@ -552,7 +547,7 @@ TEST_F(TestDeltaWriter, sequence_col) {
 
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = delta_writer->close_wait(nullptr);
+    res = delta_writer->close_wait(nullptr, false);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     // publish version success
@@ -565,21 +560,19 @@ TEST_F(TestDeltaWriter, sequence_col) {
     version.second = tablet->rowset_with_max_version()->end_version() + 1;
     std::cout << "start to add rowset version:" << version.first << "-" << version.second
               << std::endl;
-    VersionHash version_hash = 2;
     std::map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
     StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
             write_req.txn_id, write_req.partition_id, &tablet_related_rs);
     for (auto& tablet_rs : tablet_related_rs) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
-        res = k_engine->txn_manager()->publish_txn(
-                meta, write_req.partition_id, write_req.txn_id, write_req.tablet_id,
-                write_req.schema_hash, tablet_rs.first.tablet_uid, version, version_hash);
+        res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
+                                                   write_req.tablet_id, write_req.schema_hash,
+                                                   tablet_rs.first.tablet_uid, version);
         ASSERT_EQ(OLAP_SUCCESS, res);
         std::cout << "start to add inc rowset:" << rowset->rowset_id()
                   << ", num rows:" << rowset->num_rows() << ", version:" << rowset->version().first
-                  << "-" << rowset->version().second << ", version_hash:" << rowset->version_hash()
-                  << std::endl;
+                  << "-" << rowset->version().second << std::endl;
         res = tablet->add_inc_rowset(rowset);
         ASSERT_EQ(OLAP_SUCCESS, res);
     }

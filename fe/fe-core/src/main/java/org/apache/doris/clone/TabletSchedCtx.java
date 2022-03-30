@@ -40,6 +40,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CloneTask;
+import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TStatusCode;
@@ -89,10 +90,12 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private static final long MAX_NOT_BEING_SCHEDULED_INTERVAL_MS = 30 * 60 * 1000L; // 30 min
 
     /*
-     *  A clone task timeout is between Config.min_clone_task_timeout_sec and Config.max_clone_task_timeout_sec,
-     *  estimated by tablet size / MIN_CLONE_SPEED_MB_PER_SECOND.
+     * A clone task timeout is between Config.min_clone_task_timeout_sec and Config.max_clone_task_timeout_sec,
+     * estimated by tablet size / MIN_CLONE_SPEED_MB_PER_SECOND.
+     * We set a relatively small default value, so that the calculated timeout will be larger
+     * to ensure that the clone task can be completed even in the case of poor network environment.
      */
-    private static final long MIN_CLONE_SPEED_MB_PER_SECOND = 5; // 5MB/sec
+    private static final long MIN_CLONE_SPEED_MB_PER_SECOND = 1; // 1MB/sec
 
     /*
      * If a clone task is failed to run more than RUNNING_FAILED_COUNTER_THRESHOLD, it will be removed
@@ -104,6 +107,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public enum Type {
         BALANCE, REPAIR
+    }
+
+    public enum BalanceType {
+        BE_BALANCE, DISK_BALANCE 
     }
 
     public enum Priority {
@@ -139,6 +146,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
     
     private Type type;
+    private BalanceType balanceType;
 
     /*
      * origPriority is the origin priority being set when this tablet being added to scheduler.
@@ -187,17 +195,20 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     
     private Tablet tablet = null;
     private long visibleVersion = -1;
-    private long visibleVersionHash = -1;
     private long committedVersion = -1;
-    private long committedVersionHash = -1;
     
     private Replica srcReplica = null;
     private long srcPathHash = -1;
+    // for disk balance to keep src path, and avoid take slot on selectAlternativeTabletsForCluster
+    private Replica tempSrcReplica = null;
     private long destBackendId = -1;
     private long destPathHash = -1;
+    // for disk balance to set migration task's datadir
+    private String destPath = null;
     private String errMsg = null;
     
     private CloneTask cloneTask = null;
+    private StorageMediaMigrationTask storageMediaMigrationTask = null;
     
     // statistics gathered from clone task report
     // the total size of clone files and the total cost time in ms.
@@ -227,6 +238,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.infoService = Catalog.getCurrentSystemInfo();
         this.state = State.PENDING;
         this.replicaAlloc = replicaAlloc;
+        this.balanceType = BalanceType.BE_BALANCE;
     }
 
     public ReplicaAllocation getReplicaAlloc() {
@@ -247,6 +259,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public Type getType() {
         return type;
+    }
+
+    public void setBalanceType(BalanceType type) {
+        this.balanceType = type;
+    }
+
+    public BalanceType getBalanceType() {
+        return balanceType;
     }
 
     public Priority getOrigPriority() {
@@ -358,10 +378,6 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return visibleVersion;
     }
     
-    public long getCommittedVersionHash() {
-        return visibleVersionHash;
-    }
-    
     public void setTablet(Tablet tablet) {
         this.tablet = tablet;
     }
@@ -375,17 +391,19 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return tablet.getReplicas();
     }
     
-    public void setVersionInfo(long visibleVersion, long visibleVersionHash,
-            long committedVersion, long committedVersionHash) {
+    public void setVersionInfo(long visibleVersion, long committedVersion) {
         this.visibleVersion = visibleVersion;
-        this.visibleVersionHash = visibleVersionHash;
         this.committedVersion = committedVersion;
-        this.committedVersionHash = committedVersionHash;
     }
     
     public void setDest(Long destBeId, long destPathHash) {
         this.destBackendId = destBeId;
         this.destPathHash = destPathHash;
+    }
+
+    public void setDest(Long destBeId, long destPathHash, String destPath) {
+        setDest(destBeId, destPathHash);
+        this.destPath = destPath;
     }
     
     public void setErrMsg(String errMsg) {
@@ -421,12 +439,34 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         this.srcPathHash = srcReplica.getPathHash();
     }
 
+    public void setTempSrc(Replica srcReplica) {
+        this.tempSrcReplica = srcReplica;
+    }
+
+    public long getTempSrcBackendId() {
+        if (tempSrcReplica != null) {
+            return tempSrcReplica.getBackendId();
+        }
+        return -1;
+    }
+
+    public long getTempSrcPathHash() {
+        if (tempSrcReplica != null) {
+            return tempSrcReplica.getPathHash();
+        }
+        return -1;
+    }
+
     public long getDestBackendId() {
         return destBackendId;
     }
 
     public long getDestPathHash() {
         return destPathHash;
+    }
+
+    public String getDestPath() {
+        return destPath;
     }
 
     // database lock should be held.
@@ -486,6 +526,29 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return tabletOrderIdx;
     }
 
+    public boolean compactionRecovered() {
+        Replica chosenReplica = null;
+        long maxVersionCount = -1;
+        long minVersionCount = Integer.MAX_VALUE;
+        for (Replica replica : tablet.getReplicas()) {
+            if (replica.getVersionCount() > maxVersionCount) {
+                maxVersionCount = replica.getVersionCount();
+                chosenReplica = replica;
+            }
+            if (replica.getVersionCount() < minVersionCount) {
+                minVersionCount = replica.getVersionCount();
+            }
+        }
+        boolean recovered = false;
+        for (Replica replica : tablet.getReplicas()) {
+            if (replica.isAlive() && replica.tooSlow() && !chosenReplica.equals(replica)) {
+                chosenReplica.setState(ReplicaState.NORMAL);
+                recovered = true;
+            }
+        }
+        return recovered;
+    }
+
     // database lock should be held.
     // If exceptBeId != -1, should not choose src replica with same BE id as exceptBeId
     public void chooseSrcReplica(Map<Long, PathSlot> backendsWorkingSlots, long exceptBeId) throws SchedException {
@@ -500,7 +563,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
-            if (replica.isBad()) {
+            if (replica.isBad() || replica.tooSlow()) {
                 continue;
             }
 
@@ -514,7 +577,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
 
-            if (!replica.checkVersionCatchUp(visibleVersion, visibleVersionHash, false)) {
+            if (!replica.checkVersionCatchUp(visibleVersion, false)) {
                 continue;
             }
 
@@ -581,7 +644,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // if the replica's state is DECOMMISSION, it may be chose as dest replica,
             // and its state will be set to NORMAL later.
             if (replica.getLastFailedVersion() <= 0
-                    && ((replica.getVersion() == visibleVersion && replica.getVersionHash() == visibleVersionHash)
+                    && ((replica.getVersion() == visibleVersion)
                     || replica.getVersion() > visibleVersion) && replica.getState() != ReplicaState.DECOMMISSION) {
                 // skip healthy replica
                 continue;
@@ -671,6 +734,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
         }
         
+        if (storageMediaMigrationTask != null) {
+            AgentTaskQueue.removeTask(storageMediaMigrationTask.getBackendId(), TTaskType.STORAGE_MEDIUM_MIGRATE, storageMediaMigrationTask.getSignature());
+        }
         if (cloneTask != null) {
             AgentTaskQueue.removeTask(cloneTask.getBackendId(), TTaskType.CLONE, cloneTask.getSignature());
 
@@ -678,8 +744,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db != null) {
                 Table table = db.getTableNullable(tblId);
-                if (table != null) {
-                    table.writeLock();
+                if (table != null && table.writeLockIfExist()) {
                     try {
                         List<Replica> cloneReplicas = Lists.newArrayList();
                         tablet.getReplicas().stream().filter(r -> r.getState() == ReplicaState.CLONE).forEach(r -> {
@@ -714,12 +779,27 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             this.srcPathHash = -1;
             this.destBackendId = -1;
             this.destPathHash = -1;
+            this.destPath = null;
             this.cloneTask = null;
+            this.storageMediaMigrationTask = null;
         }
     }
     
     public void deleteReplica(Replica replica) {
         tablet.deleteReplicaByBackendId(replica.getBackendId());
+    }
+
+    public StorageMediaMigrationTask createStorageMediaMigrationTask() throws SchedException {
+        storageMediaMigrationTask = new StorageMediaMigrationTask(getSrcBackendId(), getTabletId(),
+                getSchemaHash(), getStorageMedium());
+        if (destPath == null || destPath.isEmpty()) {
+            throw new SchedException(Status.UNRECOVERABLE,
+                "backend " + srcReplica.getBackendId() + ", dest path is empty");
+        }
+        storageMediaMigrationTask.setDataDir(destPath);
+        this.taskTimeoutMs = getApproximateTimeoutMs();
+        this.state = State.RUNNING;
+        return storageMediaMigrationTask;
     }
     
     // database lock should be held.
@@ -751,7 +831,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         TBackend tSrcBe = new TBackend(srcBe.getHost(), srcBe.getBePort(), srcBe.getHttpPort());
         cloneTask = new CloneTask(destBackendId, dbId, tblId, partitionId, indexId,
                 tabletId, schemaHash, Lists.newArrayList(tSrcBe), storageMedium,
-                visibleVersion, visibleVersionHash, (int) (taskTimeoutMs / 1000));
+                visibleVersion, (int) (taskTimeoutMs / 1000));
         cloneTask.setPathHash(srcPathHash, destPathHash);
         
         // if this is a balance task, or this is a repair task with REPLICA_MISSING/REPLICA_RELOCATING or REPLICA_MISSING_IN_CLUSTER,
@@ -761,11 +841,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 || tabletStatus == TabletStatus.COLOCATE_MISMATCH || tabletStatus == TabletStatus.REPLICA_MISSING_FOR_TAG) {
             Replica cloneReplica = new Replica(
                     Catalog.getCurrentCatalog().getNextId(), destBackendId,
-                    -1 /* version */, 0 /* version hash */, schemaHash,
+                    -1 /* version */, schemaHash,
                     -1 /* data size */, -1 /* row count */,
                     ReplicaState.CLONE,
-                    committedVersion, committedVersionHash, /* use committed version as last failed version */
-                    -1 /* last success version */, 0 /* last success version hash */);
+                    committedVersion, /* use committed version as last failed version */
+                    -1 /* last success version */);
 
             // addReplica() method will add this replica to tablet inverted index too.
             tablet.addReplica(cloneReplica);
@@ -833,10 +913,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
 
         // 1. check the tablet status first
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new SchedException(Status.UNRECOVERABLE, "db does not exist"));
-        OlapTable olapTable = (OlapTable) db.getTableOrException(tblId, s -> new SchedException(Status.UNRECOVERABLE, "tbl does not exist"));
-
-        olapTable.writeLock();
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new SchedException(Status.UNRECOVERABLE, "db " + dbId + " does not exist"));
+        OlapTable olapTable = (OlapTable) db.getTableOrException(tblId, s -> new SchedException(Status.UNRECOVERABLE, "tbl " + tabletId + " does not exist"));
+        olapTable.writeLockOrException(new SchedException(Status.UNRECOVERABLE, "table " + olapTable.getName() + " does not exist"));
         try {
             Partition partition = olapTable.getPartition(partitionId);
             if (partition == null) {
@@ -862,7 +941,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
             Pair<TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
-                    infoService, db.getClusterName(), visibleVersion, visibleVersionHash, replicaAlloc,
+                    infoService, db.getClusterName(), visibleVersion, replicaAlloc,
                     aliveBeIdsInCluster);
             if (pair.first == TabletStatus.HEALTHY) {
                 throw new SchedException(Status.FINISHED, "tablet is healthy");
@@ -877,9 +956,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             // We should discard the clone replica with stale version.
             TTabletInfo reportedTablet = request.getFinishTabletInfos().get(0);
             if (reportedTablet.getVersion() < visibleVersion) {
-                String msg = String.format("the clone replica's version is stale. %d-%d, task visible version: %d-%d",
-                        reportedTablet.getVersion(), reportedTablet.getVersionHash(),
-                        visibleVersion, visibleVersionHash);
+                String msg = String.format("the clone replica's version is stale. %d, task visible version: %d",
+                        reportedTablet.getVersion(), visibleVersion);
                 throw new SchedException(Status.RUNNING_FAILED, msg);
             }
 
@@ -890,7 +968,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                         "replica does not exist. backend id: " + destBackendId);
             }
 
-            replica.updateVersionInfo(reportedTablet.getVersion(), reportedTablet.getVersionHash(),
+            replica.updateVersionInfo(reportedTablet.getVersion(),
                     reportedTablet.getDataSize(), reportedTablet.getRowCount());
             if (reportedTablet.isSetPathHash()) {
                 replica.setPathHash(reportedTablet.getPathHash());
@@ -910,14 +988,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(dbId, tblId, partitionId, indexId,
                     tabletId, destBackendId, replica.getId(),
                     reportedTablet.getVersion(),
-                    reportedTablet.getVersionHash(),
                     reportedTablet.getSchemaHash(),
                     reportedTablet.getDataSize(),
                     reportedTablet.getRowCount(),
                     replica.getLastFailedVersion(),
-                    replica.getLastFailedVersionHash(),
-                    replica.getLastSuccessVersion(),
-                    replica.getLastSuccessVersionHash());
+                    replica.getLastSuccessVersion());
 
             if (replica.getState() == ReplicaState.CLONE) {
                 replica.setState(ReplicaState.NORMAL);
@@ -1049,9 +1124,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         result.add(String.valueOf(failedRunningCounter));
         result.add(TimeUtils.longToTimeString(lastAdjustPrioTime));
         result.add(String.valueOf(visibleVersion));
-        result.add(String.valueOf(visibleVersionHash));
         result.add(String.valueOf(committedVersion));
-        result.add(String.valueOf(committedVersionHash));
         result.add(Strings.nullToEmpty(errMsg));
         return result;
     }

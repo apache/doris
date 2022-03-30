@@ -85,7 +85,7 @@ public:
 
     inline void agg_update(RowCursorCell* dest, const RowCursorCell& src,
                            MemPool* mem_pool = nullptr) const {
-        if (type() == OLAP_FIELD_TYPE_STRING && mem_pool == nullptr) {
+        if (type() == OLAP_FIELD_TYPE_STRING && mem_pool == nullptr && !src.is_null()) {
             auto dst_slice = reinterpret_cast<Slice*>(dest->mutable_cell_ptr());
             auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
             if (dst_slice->size < src_slice->size) {
@@ -237,7 +237,7 @@ public:
     //convert and copy field from src to desc
     inline OLAPStatus convert_from(char* dest, const char* src, const TypeInfo* src_type,
                                    MemPool* mem_pool) const {
-        return _type_info->convert_from(dest, src, src_type, mem_pool);
+        return _type_info->convert_from(dest, src, src_type, mem_pool, get_variable_len());
     }
 
     // Copy source content to destination in index format.
@@ -247,7 +247,7 @@ public:
     // used by init scan key stored in string format
     // value_string should end with '\0'
     inline OLAPStatus from_string(char* buf, const std::string& value_string) const {
-        if (type() == OLAP_FIELD_TYPE_STRING) {
+        if (type() == OLAP_FIELD_TYPE_STRING && !value_string.empty()) {
             auto slice = reinterpret_cast<Slice*>(buf);
             if (slice->size < value_string.size()) {
                 *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, value_string.size()));
@@ -258,8 +258,8 @@ public:
         return _type_info->from_string(buf, value_string);
     }
 
-    // 将内部的value转成string输出
-    // 没有考虑实现的性能，仅供DEBUG使用
+    //  convert inner value to string
+    //  performance is not considered, only for debug use
     inline std::string to_string(const char* src) const { return _type_info->to_string(src); }
 
     template <typename CellType>
@@ -278,7 +278,7 @@ public:
 
     FieldType type() const { return _type_info->type(); }
     FieldAggregationMethod aggregation() const { return _agg_info->agg_method(); }
-    const TypeInfo* type_info() const { return _type_info; }
+    std::shared_ptr<const TypeInfo> type_info() const { return _type_info; }
     bool is_nullable() const { return _is_nullable; }
 
     // similar to `full_encode_ascending`, but only encode part (the first `index_size` bytes) of the value.
@@ -298,13 +298,14 @@ public:
     void add_sub_field(std::unique_ptr<Field> sub_field) {
         _sub_fields.emplace_back(std::move(sub_field));
     }
-    Field* get_sub_field(int i) { return _sub_fields[i].get(); }
+    Field* get_sub_field(int i) const { return _sub_fields[i].get(); }
+    size_t get_sub_field_count() const { return _sub_fields.size(); }
 
 protected:
-    const TypeInfo* _type_info;
+    std::shared_ptr<const TypeInfo> _type_info;
     const AggregateInfo* _agg_info;
-    // 长度，单位为字节
-    // 除字符串外，其它类型都是确定的
+    // unit : byte
+    // except for strings, other types have fixed lengths
     uint32_t _length;
     // Since the length of the STRING type cannot be determined,
     // only dynamic memory can be used. Mempool cannot realize realloc.
@@ -335,7 +336,8 @@ protected:
     }
 
 private:
-    // Field的最大长度，单位为字节，通常等于length， 变长字符串不同
+    // maximum length of Field, unit : bytes
+    // usually equal to length, except for variable-length strings
     const KeyCoder* _key_coder;
     std::string _name;
     uint16_t _index_size;
@@ -360,8 +362,9 @@ int Field::index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const {
         uint32_t max_bytes =
                 type() == OLAP_FIELD_TYPE_VARCHAR ? OLAP_VARCHAR_MAX_BYTES : OLAP_STRING_MAX_BYTES;
         if (r_slice->size + max_bytes > _index_size || l_slice->size + max_bytes > _index_size) {
-            // 如果field的实际长度比short key长，则仅比较前缀，确保相同short key的所有block都被扫描，
-            // 否则，可以直接比较short key和field
+            // if the actual length of the field is longer than the short key, only the prefix is compared,
+            // make sure all blocks with the same short key are scanned
+            // Otherwise, the short key and field can be compared directly
             int compare_size = _index_size - max_bytes;
             // l_slice size and r_slice size may be less than compare_size
             // so calculate the min of the three size as new compare_size
@@ -399,7 +402,7 @@ void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
     }
 
     if (type() == OLAP_FIELD_TYPE_VARCHAR) {
-        // 先清零，再拷贝
+        // clear before copy
         memset(dst->mutable_cell_ptr(), 0, _index_size);
         const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         size_t copy_size = slice->size < _index_size - OLAP_VARCHAR_MAX_BYTES
@@ -409,7 +412,7 @@ void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
         memory_copy((char*)dst->mutable_cell_ptr() + OLAP_VARCHAR_MAX_BYTES, slice->data,
                     copy_size);
     } else if (type() == OLAP_FIELD_TYPE_STRING) {
-        // 先清零，再拷贝
+        // clear before copy
         memset(dst->mutable_cell_ptr(), 0, _index_size);
         const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         size_t copy_size = slice->size < _index_size - OLAP_STRING_MAX_BYTES
@@ -418,7 +421,7 @@ void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
         *reinterpret_cast<StringLengthType*>(dst->mutable_cell_ptr()) = copy_size;
         memory_copy((char*)dst->mutable_cell_ptr() + OLAP_STRING_MAX_BYTES, slice->data, copy_size);
     } else if (type() == OLAP_FIELD_TYPE_CHAR) {
-        // 先清零，再拷贝
+        // clear before copy
         memset(dst->mutable_cell_ptr(), 0, _index_size);
         const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
         memory_copy(dst->mutable_cell_ptr(), slice->data, _index_size);
@@ -451,9 +454,7 @@ public:
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto array_v = (CollectionValue*)cell_ptr;
-        array_v->set_null_signs(reinterpret_cast<bool*>(variable_ptr + sizeof(CollectionValue)));
-        array_v->set_data(variable_ptr + sizeof(CollectionValue) +
-                          OLAP_ARRAY_MAX_BYTES / sizeof(char*));
+        array_v->set_null_signs(reinterpret_cast<bool*>(variable_ptr));
         return variable_ptr + _length;
     }
 
@@ -674,6 +675,30 @@ public:
     }
 };
 
+class QuantileStateAggField : public Field {
+public:
+    explicit QuantileStateAggField() : Field() {}
+    explicit QuantileStateAggField(const TabletColumn& column) : Field(column) {}
+
+    // quantile_state storage data always not null
+    void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool,
+                  ObjectPool* agg_pool) const override {
+        _agg_info->init(dst, (const char*)src.cell_ptr(), false, mem_pool, agg_pool);
+    }
+
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto slice = (Slice*)cell_ptr;
+        slice->data = nullptr;
+        return variable_ptr;
+    }
+
+    QuantileStateAggField* clone() const override {
+        auto* local = new QuantileStateAggField();
+        Field::clone(local);
+        return local;
+    }
+};
+
 class HllAggField : public Field {
 public:
     explicit HllAggField() : Field() {}
@@ -749,6 +774,8 @@ public:
             return new HllAggField(column);
         case OLAP_FIELD_AGGREGATION_BITMAP_UNION:
             return new BitmapAggField(column);
+        case OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
+            return new QuantileStateAggField(column);
         case OLAP_FIELD_AGGREGATION_UNKNOWN:
             LOG(WARNING) << "WOW! value column agg type is unknown";
             return nullptr;

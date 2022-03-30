@@ -25,13 +25,14 @@
 namespace doris {
 
 class RowsetWriter;
-class RowsetWriterContext;
+struct RowsetWriterContext;
 
 class RowsetFactory {
 public:
     // return OLAP_SUCCESS and set inited rowset in `*rowset`.
     // return others if failed to create or init rowset.
-    static OLAPStatus create_rowset(const TabletSchema* schema, const std::string& rowset_path,
+    static OLAPStatus create_rowset(const TabletSchema* schema,
+                                    const FilePathDesc& rowset_path_desc,
                                     RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
 
     // create and init rowset writer.

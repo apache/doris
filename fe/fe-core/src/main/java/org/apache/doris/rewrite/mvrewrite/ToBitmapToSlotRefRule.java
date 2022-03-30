@@ -34,6 +34,7 @@ import org.apache.doris.rewrite.ExprRewriteRule;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 
@@ -46,7 +47,7 @@ public class ToBitmapToSlotRefRule implements ExprRewriteRule {
     public static final ExprRewriteRule INSTANCE = new ToBitmapToSlotRefRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         SlotRef queryColumnSlotRef;
         Column mvColumn;
 

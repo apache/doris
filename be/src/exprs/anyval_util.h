@@ -193,6 +193,7 @@ public:
             StringVal max_val;
             max_val.ptr = ctx->allocate(sv.len);
             memcpy(max_val.ptr, sv.ptr, sv.len);
+            max_val.len = sv.len;
 
             return max_val;
         } else if constexpr (std::is_same_v<Val, DateTimeVal>) {
@@ -236,6 +237,7 @@ public:
             return sizeof(doris_udf::DoubleVal);
 
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_HLL:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
@@ -278,6 +280,7 @@ public:
         case TYPE_DOUBLE:
             return alignof(DoubleVal);
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_HLL:
         case TYPE_VARCHAR:
         case TYPE_CHAR:
@@ -378,6 +381,7 @@ public:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_STRING:
             reinterpret_cast<const StringValue*>(slot)->to_string_val(
                     reinterpret_cast<doris_udf::StringVal*>(dst));

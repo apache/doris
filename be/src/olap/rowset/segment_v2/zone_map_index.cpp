@@ -25,14 +25,13 @@
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 
 namespace segment_v2 {
 
 ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field)
-        : _field(field), _tracker(new MemTracker(-1, "ZoneMapIndexWriter")), _pool(_tracker.get()) {
+        : _field(field), _pool("ZoneMapIndexWriter") {
     _page_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
     _page_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
     _reset_zone_map(&_page_zone_map);
@@ -107,11 +106,11 @@ Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 
     // write out zone map for each data pages
-    const TypeInfo* typeinfo = get_type_info(OLAP_FIELD_TYPE_OBJECT);
+    auto typeinfo = get_type_info(OLAP_FIELD_TYPE_OBJECT);
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(typeinfo, false);
+    options.encoding = EncodingInfo::get_default_encoding(typeinfo.get(), false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
     IndexedColumnWriter writer(options, typeinfo, wblock);
@@ -125,12 +124,11 @@ Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
 }
 
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    IndexedColumnReader reader(_filename, _index_meta->page_zone_maps());
+    IndexedColumnReader reader(_path_desc, _index_meta->page_zone_maps());
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 
-    auto tracker = std::make_shared<MemTracker>(-1, "temp in ZoneMapIndexReader");
-    MemPool pool(tracker.get());
+    MemPool pool("ZoneMapIndexReader ColumnBlock");
     _page_zone_maps.resize(reader.num_values());
 
     // read and cache all page zone maps

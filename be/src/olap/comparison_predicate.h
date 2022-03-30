@@ -26,31 +26,40 @@ namespace doris {
 
 class VectorizedRowBatch;
 
-#define COMPARISON_PRED_CLASS_DEFINE(CLASS)                                                   \
-    template <class type>                                                                     \
-    class CLASS : public ColumnPredicate {                                                    \
-    public:                                                                                   \
-        CLASS(uint32_t column_id, const type& value, bool opposite = false);                  \
-        virtual void evaluate(VectorizedRowBatch* batch) const override;                      \
-        void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;      \
-        void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,                    \
-                         bool* flags) const override;                                         \
-        void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,                   \
-                          bool* flags) const override;                                        \
-        virtual Status evaluate(const Schema& schema,                                         \
-                                const std::vector<BitmapIndexIterator*>& iterators,           \
-                                uint32_t num_rows, roaring::Roaring* roaring) const override; \
-                                                                                              \
-    private:                                                                                  \
-        type _value;                                                                          \
+#define COMPARISON_PRED_CLASS_DEFINE(CLASS, PT)                                                    \
+    template <class T>                                                                             \
+    class CLASS : public ColumnPredicate {                                                         \
+    public:                                                                                        \
+        CLASS(uint32_t column_id, const T& value, bool opposite = false);                          \
+        PredicateType type() const override { return PredicateType::PT; }                          \
+        virtual void evaluate(VectorizedRowBatch* batch) const override;                           \
+        void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;           \
+        void evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,                         \
+                         bool* flags) const override;                                              \
+        void evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,                        \
+                          bool* flags) const override;                                             \
+        virtual Status evaluate(const Schema& schema,                                              \
+                                const std::vector<BitmapIndexIterator*>& iterators,                \
+                                uint32_t num_rows, roaring::Roaring* roaring) const override;      \
+        void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override;  \
+        void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,               \
+                          bool* flags) const override;                                             \
+        void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,                \
+                         bool* flags) const override;                                              \
+        void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override; \
+        void set_dict_code_if_necessary(vectorized::IColumn& column) override;                     \
+    private:                                                                                       \
+        T _value;                                                                                  \
+        bool _dict_code_inited = false;                                                            \
+        int32_t _dict_code;                                                                        \
     };
 
-COMPARISON_PRED_CLASS_DEFINE(EqualPredicate)
-COMPARISON_PRED_CLASS_DEFINE(NotEqualPredicate)
-COMPARISON_PRED_CLASS_DEFINE(LessPredicate)
-COMPARISON_PRED_CLASS_DEFINE(LessEqualPredicate)
-COMPARISON_PRED_CLASS_DEFINE(GreaterPredicate)
-COMPARISON_PRED_CLASS_DEFINE(GreaterEqualPredicate)
+COMPARISON_PRED_CLASS_DEFINE(EqualPredicate, EQ)
+COMPARISON_PRED_CLASS_DEFINE(NotEqualPredicate, NE)
+COMPARISON_PRED_CLASS_DEFINE(LessPredicate, LT)
+COMPARISON_PRED_CLASS_DEFINE(LessEqualPredicate, LE)
+COMPARISON_PRED_CLASS_DEFINE(GreaterPredicate, GT)
+COMPARISON_PRED_CLASS_DEFINE(GreaterEqualPredicate, GE)
 
 } //namespace doris
 

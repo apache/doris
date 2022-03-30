@@ -19,7 +19,7 @@ package org.apache.doris.metric;
 
 
 import org.apache.doris.alter.Alter;
-import org.apache.doris.alter.AlterJob.JobType;
+import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;

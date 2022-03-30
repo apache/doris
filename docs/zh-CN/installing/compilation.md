@@ -34,17 +34,19 @@ under the License.
 
 1. 下载 Docker 镜像
 
-    `$ docker pull apache/incubator-doris:build-env-1.4.2`
+    `$ docker pull apache/incubator-doris:build-env-ldb-toolchain-latest`
     
     检查镜像下载完成：
     
     ```
     $ docker images
-    REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-    apache/incubator-doris   build-env-1.4.2    49f68cecbc1a        4 days ago          3.76GB
+    REPOSITORY              TAG                               IMAGE ID            CREATED             SIZE
+    apache/incubator-doris  build-env-ldb-toolchain-latest    49f68cecbc1a        4 days ago          3.76GB
     ```
 
-注: 针对不同的 Doris 版本，需要下载对应的镜像版本
+> 注1：针对不同的 Doris 版本，需要下载对应的镜像版本。从 Apache Doris 0.15 版本起，后续镜像版本号将与 Doris 版本号统一。比如可以使用 `apache/incubator-doris:build-env-for-0.15.0 `  来编译 0.15.0 版本。
+>
+> 注2：`apache/incubator-doris:build-env-ldb-toolchain-latest` 用于编译最新主干版本代码，会随主干版本不断更新。可以查看 `docker/README.md` 中的更新时间。
 
 | 镜像版本 | commit id | doris 版本 |
 |---|---|---|
@@ -52,16 +54,17 @@ under the License.
 | apache/incubator-doris:build-env-1.1 | [ff0dd0d](https://github.com/apache/incubator-doris/commit/ff0dd0d2daa588f18b6db56f947e813a56d8ec81) | 0.10.x, 0.11.x |
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) | 0.12.x - 0.14.0 |
 | apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) | 0.14.x |
-| apache/incubator-doris:build-env-1.4.1 | [24d3861](https://github.com/apache/incubator-doris/commit/24d38614a0f21ed606462816a262c2e1d8273ace) or later | 0.15.x(releasing) |
-| apache/incubator-doris:build-env-1.4.2 | [a81f4da](https://github.com/apache/incubator-doris/commit/a81f4da4e461a54782a96433b746d07be89e6b54) or later | 0.15.x(releasing) |
+| apache/incubator-doris:build-env-for-0.15.0 | [a81f4da](https://github.com/apache/incubator-doris/commit/a81f4da4e461a54782a96433b746d07be89e6b54) or later | 0.15.0 |
+| apache/incubator-doris:build-env-latest | before [0efef1b](https://github.com/apache/incubator-doris/commit/0efef1b332300887ee0473f9df9bdd9d7297d824) | |
+| apache/incubator-doris:build-env-ldb-toolchain-latest | trunk | |
 
 **注意**：
 
 > 1. 编译镜像 [ChangeLog](https://github.com/apache/incubator-doris/blob/master/thirdparty/CHANGELOG.md)。
 
-> 2. doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，之后的代码将使用apache/incubator-doris:build-env-1.3.1。
+> 2. doris 0.14.0 版本仍然使用apache/incubator-doris:build-env-1.2 编译，0.14.x 版本的代码将使用apache/incubator-doris:build-env-1.3.1。
 
-> 3. 在 build-env-1.3.1 的docker镜像中，同时包含了 OpenJDK 8 和 OpenJDK 11，并且默认使用 OpenJDK 11 编译。请确保编译使用的 JDK 版本和运行时使用的 JDK 版本一致，否则会导致非预期的运行错误。你可以使用在进入编译镜像的容器后，使用以下命令切换默认 JDK 版本：
+> 3. 从 build-env-1.3.1 的docker镜像起，同时包含了 OpenJDK 8 和 OpenJDK 11，并且默认使用 OpenJDK 11 编译。请确保编译使用的 JDK 版本和运行时使用的 JDK 版本一致，否则会导致非预期的运行错误。你可以使用在进入编译镜像的容器后，使用以下命令切换默认 JDK 版本：
 > 
 >   切换到 JDK 8：
 >   
@@ -81,14 +84,14 @@ under the License.
 
 2. 运行镜像
 
-    `$ docker run -it apache/incubator-doris:build-env-1.4.2`
+    `$ docker run -it apache/incubator-doris:build-env-ldb-toolchain-latest`
     
     建议以挂载本地 Doris 源码目录的方式运行镜像，这样编译的产出二进制文件会存储在宿主机中，不会因为镜像退出而消失。
 
     同时，建议同时将镜像中 maven 的 `.m2` 目录挂载到宿主机目录，以防止每次启动镜像编译时，重复下载 maven 的依赖库。
 
     ```
-    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-1.4.2
+    $ docker run -it -v /your/local/.m2:/root/.m2 -v /your/local/incubator-doris-DORIS-x.x.x-release/:/root/incubator-doris-DORIS-x.x.x-release/ apache/incubator-doris:build-env-ldb-toolchain-latest
     ```
     
 3. 下载源码
@@ -109,11 +112,11 @@ under the License.
     
     >**注意:**
     >
-    >如果你使用的是 `build-env-1.4.1` 这个环境，第一次编译的时候要使用如下命令：
+    >如果你是第一次使用 `build-env-for-0.15.0` 或之后的版本，第一次编译的时候要使用如下命令：
     >
     > `sh build.sh --clean --be --fe --ui`
     >
-    > 这是因为1.4.1 版本镜像升级了 thrift(0.9 -> 0.13)，需要通过 --clean 命令强制使用新版本的 thrift 生成代码文件，否则会出现不兼容的代码。
+    > 这是因为 build-env-for-0.15.0 版本镜像升级了 thrift(0.9 -> 0.13)，需要通过 --clean 命令强制使用新版本的 thrift 生成代码文件，否则会出现不兼容的代码。
     
     编译完成后，产出文件在 `output/` 目录中。
 
@@ -170,7 +173,7 @@ under the License.
       enabled=1
       ```
    
-    安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。
+    安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。(可以通过`alternatives --list`命令找到jdk的安装目录)
     注意： Doris 0.14.0 的版本仍然使用gcc7 的依赖编译，之后的代码将使用gcc10 的依赖
 
 2. 编译 Doris
@@ -203,6 +206,12 @@ under the License.
         ```
 
         REPOSITORY_URL 中包含所有第三方库源码包和他们的历史版本。
+
+3. `fatal error: Killed signal terminated program ...`
+
+    使用 Docker 镜像编译时如遇到上述报错，可能是分配给镜像的内存不足（Docker 默认分配的内存大小为 2GB，编译过程中内存占用的峰值大于 2GB）。
+
+    尝试适当调大镜像的分配内存，推荐 4GB ~ 8GB。
 
 ## 特别声明
 

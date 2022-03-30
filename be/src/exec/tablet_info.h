@@ -31,10 +31,11 @@
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
 
+#include "vec/core/block.h"
+
 namespace doris {
 
 class MemPool;
-class MemTracker;
 class RowBatch;
 
 struct OlapTableIndexSchema {
@@ -154,8 +155,9 @@ public:
     int64_t version() const { return _t_param.version; }
 
     // return true if we found this tuple in partition
-    bool find_tablet(Tuple* tuple, const OlapTablePartition** partitions,
-                     uint32_t* dist_hash) const;
+    bool find_partition(Tuple* tuple, const OlapTablePartition** partition) const;
+
+    uint32_t find_tablet(Tuple* tuple, const OlapTablePartition& partition) const;
 
     const std::vector<OlapTablePartition*>& get_partitions() const { return _partitions; }
     std::string debug_string() const;
@@ -165,7 +167,7 @@ private:
 
     Status _create_partition_key(const TExprNode& t_expr, Tuple* tuple, SlotDescriptor* slot_desc);
 
-    uint32_t _compute_dist_hash(Tuple* key) const;
+    std::function<uint32_t(Tuple*, int64_t)> _compute_tablet_index;
 
     // check if this partition contain this key
     bool _part_contains(OlapTablePartition* part, Tuple* key) const {
@@ -198,12 +200,110 @@ private:
     std::vector<SlotDescriptor*> _distributed_slot_descs;
 
     ObjectPool _obj_pool;
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::vector<OlapTablePartition*> _partitions;
     std::unique_ptr<std::map<Tuple*, OlapTablePartition*, OlapTablePartKeyComparator>>
             _partitions_map;
 };
+
+using BlockRow = std::pair<vectorized::Block*, int32_t>;
+
+struct VOlapTablePartition {
+    int64_t id = 0;
+    BlockRow start_key;
+    BlockRow end_key;
+    std::vector<BlockRow> in_keys;
+    int64_t num_buckets = 0;
+    std::vector<OlapTableIndexTablets> indexes;
+
+    VOlapTablePartition(vectorized::Block* partition_block):
+        start_key{partition_block, -1}, end_key{partition_block, -1} {};
+};
+
+class VOlapTablePartKeyComparator {
+public:
+    VOlapTablePartKeyComparator(const std::vector<uint16_t>& slot_locs)
+            : _slot_locs(slot_locs) {}
+
+    // return true if lhs < rhs
+    // 'row' is -1 mean
+    bool operator()(const BlockRow* lhs, const BlockRow* rhs) const {
+        if (lhs->second == -1) {
+            return false;
+        } else if (rhs->second == -1) {
+            return true;
+        }
+
+        for (auto slot_loc : _slot_locs) {
+            auto res = lhs->first->get_by_position(slot_loc).column->compare_at(
+                    lhs->second, rhs->second, *rhs->first->get_by_position(slot_loc).column, -1);
+            if (res != 0) {
+                return res < 0;
+            }
+        }
+        // equal, return false
+        return false;
+    }
+
+private:
+    const std::vector<uint16_t>& _slot_locs;
+};
+
+// store an olap table's tablet information
+class VOlapTablePartitionParam {
+public:
+    VOlapTablePartitionParam(std::shared_ptr<OlapTableSchemaParam>& schema,
+                            const TOlapTablePartitionParam& param);
+
+    ~VOlapTablePartitionParam();
+
+    Status init();
+
+    int64_t db_id() const { return _t_param.db_id; }
+    int64_t table_id() const { return _t_param.table_id; }
+    int64_t version() const { return _t_param.version; }
+
+    // return true if we found this block_row in partition
+    bool find_partition(BlockRow* block_row, const VOlapTablePartition** partition) const;
+
+    uint32_t find_tablet(BlockRow* block_row, const VOlapTablePartition& partition) const;
+
+    const std::vector<VOlapTablePartition*>& get_partitions() const { return _partitions; }
+
+private:
+    Status _create_partition_keys(const std::vector<TExprNode>& t_exprs, BlockRow* part_key);
+
+    Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos);
+
+    std::function<uint32_t(BlockRow*, int64_t)> _compute_tablet_index;
+
+    // check if this partition contain this key
+    bool _part_contains(VOlapTablePartition* part, BlockRow* key) const {
+        // start_key.second == -1 means only single partition
+        VOlapTablePartKeyComparator comparator(_partition_slot_locs);
+        return part->start_key.second == -1 || !comparator(key, &part->start_key);
+    }
+
+private:
+    // this partition only valid in this schema
+    std::shared_ptr<OlapTableSchemaParam> _schema;
+    TOlapTablePartitionParam _t_param;
+
+    const std::vector<SlotDescriptor*>& _slots;
+    std::vector<uint16_t> _partition_slot_locs;
+    std::vector<uint16_t> _distributed_slot_locs;
+
+    ObjectPool _obj_pool;
+    vectorized::Block _partition_block;
+    std::shared_ptr<MemTracker> _mem_tracker;
+    std::vector<VOlapTablePartition*> _partitions;
+    std::unique_ptr<std::map<BlockRow*, VOlapTablePartition*, VOlapTablePartKeyComparator>>
+            _partitions_map;
+
+    bool _is_in_partition = false;
+    uint32_t _mem_usage = 0;
+};
+
 
 using TabletLocation = TTabletLocation;
 // struct TTabletLocation {

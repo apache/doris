@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8" ?>
+<?xml version="1.0" encoding="UTF-8"?>
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
@@ -17,11 +17,10 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="org.apache.doris.demo.spring.mapper.DemoMapper">
-
     <select id="selectSkuList" parameterType="java.util.Map" resultType="java.util.Map">
-       select id,number,price,skuname,skudesc from doris_test_sink
+        select id,number,price,skuname,skudesc from doris_test_sink
         <where>
             <if test="skuId !='' and skuId != null">
                 id=#{skuId}

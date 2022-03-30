@@ -18,25 +18,33 @@ thirdparty/installed
 .DS_Store
 *.iml
 core.*
-extension/spark-doris-connector/.classpath
-extension/spark-doris-connector/target
-extension/flink-doris-connector/.classpath
-extension/flink-doris-connector/target
+extension/**/.classpath
+extension/**/target
+nohup.out
+
 fe/log
 custom_env.sh
 ut_dir
 log/
-fe_plugins/*/target
+fe_plugins/**/target
 fe_plugins/output
 fe/mocked
-fe/*/target
+fe/**/target
 dependency-reduced-pom.xml
 fe_plugins/**/.classpath
 fe_plugins/**/.factorypath
 samples/**/.classpath
 fe/fe-core/src/main/resources/static/
-nohup.out
-
+fs_brokers/apache_hdfs_broker/src/main/resources/
+fs_brokers/apache_hdfs_broker/src/main/thrift/
+samples/doris-demo/remote-udf-python-demo/*_pb2.py
+samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py
+samples/doris-demo/remote-udf-cpp-demo/*.o
+samples/doris-demo/remote-udf-cpp-demo/*.pb.h
+samples/doris-demo/remote-udf-cpp-demo/*.pb.cc
+samples/doris-demo/remote-udf-cpp-demo/function_server_demo
+regression-test/framework/target
+regression-test/framework/dependency-reduced-pom.xml
 
 # ignore eclipse project file & idea project file
 .cproject
@@ -61,8 +69,10 @@ build
 ui/dist
 ui/node_modules
 ui/package-lock.json
+ui/yarn.lock
 docs/package-lock.json
 fe/fe-common/.classpath
+
 rpc_data/
 
 ## ignore sample target
@@ -70,5 +80,9 @@ samples/doris-demo/*/target
 
 # ignore vscode project file
 .vscode
+be/.devcontainer/
 
+derby.log
 
+# Ignore all the .flattened-pom.xml files
+.flattened-pom.xml

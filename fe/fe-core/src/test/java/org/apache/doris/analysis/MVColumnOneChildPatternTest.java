@@ -17,8 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
 
@@ -33,19 +35,20 @@ import mockit.Injectable;
 public class MVColumnOneChildPatternTest {
 
     @Test
-    public void testCorrectSum() {
+    public void testCorrectSum(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.SUM.name(), params);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
                 AggregateType.SUM.name().toLowerCase());
         Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
     @Test
-    public void testCorrectMin(@Injectable CastExpr castExpr) {
+    public void testCorrectMin(@Injectable CastExpr castExpr, @Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> child0Params = Lists.newArrayList();
@@ -59,35 +62,38 @@ public class MVColumnOneChildPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(castExpr);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.MIN.name(), params);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
                 AggregateType.MIN.name().toLowerCase());
         Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
     @Test
-    public void testCorrectCountField() {
+    public void testCorrectCountField(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(FunctionSet.COUNT, params);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(FunctionSet.COUNT.toLowerCase());
         Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
     @Test
-    public void testIncorrectLiteral() {
+    public void testIncorrectLiteral(@Injectable AggregateFunction aggregateFunction) {
         IntLiteral intLiteral = new IntLiteral(1);
         List<Expr> params = Lists.newArrayList();
         params.add(intLiteral);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.SUM.name(), params);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
                 AggregateType.SUM.name().toLowerCase());
         Assert.assertFalse(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
     @Test
-    public void testIncorrectArithmeticExpr() {
+    public void testIncorrectArithmeticExpr(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         SlotRef slotRef2 = new SlotRef(tableName, "c2");
@@ -95,6 +101,7 @@ public class MVColumnOneChildPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(arithmeticExpr);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.SUM.name(), params);
+        Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
                 AggregateType.SUM.name().toLowerCase());
         Assert.assertFalse(mvColumnOneChildPattern.match(functionCallExpr));

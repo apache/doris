@@ -23,6 +23,7 @@
 #include <mutex>
 #include <vector>
 
+#include "env/env.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
 #include "olap/rowset/rowset_meta.h"
@@ -31,7 +32,6 @@
 namespace doris {
 
 class DataDir;
-class MemTracker;
 class OlapTuple;
 class RowCursor;
 class Rowset;
@@ -118,10 +118,6 @@ public:
     // returns OLAP_ERR_ROWSET_CREATE_READER when failed to create reader
     virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
 
-    // Support adding parent tracker, but should be careful about destruction sequence.
-    virtual OLAPStatus create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
-                                     std::shared_ptr<RowsetReader>* result) = 0;
-
     // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly
     // `request_block_row_count` rows. Sub-range is represented by pair of OlapTuples and added to `ranges`.
     //
@@ -139,12 +135,11 @@ public:
     bool is_pending() const { return _is_pending; }
 
     // publish rowset to make it visible to read
-    void make_visible(Version version, VersionHash version_hash);
+    void make_visible(Version version);
 
     // helper class to access RowsetMeta
     int64_t start_version() const { return rowset_meta()->version().first; }
     int64_t end_version() const { return rowset_meta()->version().second; }
-    VersionHash version_hash() const { return rowset_meta()->version_hash(); }
     size_t index_disk_size() const { return rowset_meta()->index_disk_size(); }
     size_t data_disk_size() const { return rowset_meta()->total_disk_size(); }
     bool empty() const { return rowset_meta()->empty(); }
@@ -198,10 +193,12 @@ public:
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
-    virtual OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) = 0;
+    virtual OLAPStatus link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) = 0;
 
     // copy all files to `dir`
     virtual OLAPStatus copy_files_to(const std::string& dir) = 0;
+
+    virtual OLAPStatus upload_files_to(const FilePathDesc& dir_desc) { return OLAP_SUCCESS; }
 
     virtual OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) = 0;
 
@@ -211,7 +208,7 @@ public:
     virtual bool check_file_exist() = 0;
 
     // return an unique identifier string for this rowset
-    std::string unique_id() const { return _rowset_path + "/" + rowset_id().to_string(); }
+    std::string unique_id() const { return _rowset_path_desc.filepath + "/" + rowset_id().to_string(); }
 
     bool need_delete_file() const { return _need_delete_file; }
 
@@ -254,7 +251,7 @@ protected:
 
     DISALLOW_COPY_AND_ASSIGN(Rowset);
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    Rowset(const TabletSchema* schema, std::string rowset_path, RowsetMetaSharedPtr rowset_meta);
+    Rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc, RowsetMetaSharedPtr rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual OLAPStatus init() = 0;
@@ -266,10 +263,10 @@ protected:
     virtual void do_close() = 0;
 
     // allow subclass to add custom logic when rowset is being published
-    virtual void make_visible_extra(Version version, VersionHash version_hash) {}
+    virtual void make_visible_extra(Version version) {}
 
     const TabletSchema* _schema;
-    std::string _rowset_path;
+    FilePathDesc _rowset_path_desc;
     RowsetMetaSharedPtr _rowset_meta;
     // init in constructor
     bool _is_pending;    // rowset is pending iff it's not in visible state

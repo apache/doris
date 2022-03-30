@@ -50,9 +50,8 @@ public class TabletStatMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         ImmutableMap<Long, Backend> backends = Catalog.getCurrentSystemInfo().getIdToBackend();
-
         long start = System.currentTimeMillis();
-        for (Backend backend : backends.values()) {
+        backends.values().parallelStream().forEach(backend -> {
             BackendService.Client client = null;
             TNetworkAddress address = null;
             boolean ok = false;
@@ -60,10 +59,8 @@ public class TabletStatMgr extends MasterDaemon {
                 address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 TTabletStatResult result = client.getTabletStat();
-
                 LOG.debug("get tablet stat from backend: {}, num: {}", backend.getId(), result.getTabletsStatsSize());
                 updateTabletStat(backend.getId(), result);
-
                 ok = true;
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backend.getId(), e);
@@ -74,7 +71,7 @@ public class TabletStatMgr extends MasterDaemon {
                     ClientPool.backendPool.invalidateObject(address, client);
                 }
             }
-        }
+        });
         LOG.info("finished to get tablet stat of all backends. cost: {} ms",
                 (System.currentTimeMillis() - start));
 
@@ -91,19 +88,19 @@ public class TabletStatMgr extends MasterDaemon {
                 if (table.getType() != TableType.OLAP) {
                     continue;
                 }
-
                 OlapTable olapTable = (OlapTable) table;
-                table.writeLock();
+                if (!table.writeLockIfExist()) {
+                    continue;
+                }
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long version = partition.getVisibleVersion();
-                        long versionHash = partition.getVisibleVersionHash();
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                             long indexRowCount = 0L;
                             for (Tablet tablet : index.getTablets()) {
                                 long tabletRowCount = 0L;
                                 for (Replica replica : tablet.getReplicas()) {
-                                    if (replica.checkVersionCatchUp(version, versionHash, false)
+                                    if (replica.checkVersionCatchUp(version, false)
                                             && replica.getRowCount() > tabletRowCount) {
                                         tabletRowCount = replica.getRowCount();
                                     }
@@ -126,19 +123,29 @@ public class TabletStatMgr extends MasterDaemon {
 
     private void updateTabletStat(Long beId, TTabletStatResult result) {
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-
-        for (Map.Entry<Long, TTabletStat> entry : result.getTabletsStats().entrySet()) {
-            if (invertedIndex.getTabletMeta(entry.getKey()) == null) {
-                // the replica is obsolete, ignore it.
-                continue;
+        if (result.isSetTabletStatList()) {
+            for (TTabletStat stat : result.getTabletStatList()) {
+                if (invertedIndex.getTabletMeta(stat.getTabletId()) != null) {
+                    Replica replica = invertedIndex.getReplica(stat.getTabletId(), beId);
+                    if (replica != null) {
+                        replica.updateStat(stat.getDataSize(), stat.getRowNum(), stat.getVersionCount());
+                    }
+                }
             }
-            Replica replica = invertedIndex.getReplica(entry.getKey(), beId);
-            if (replica == null) {
-                // replica may be deleted from catalog, ignore it.
-                continue;
+        } else {
+            for (Map.Entry<Long, TTabletStat> entry : result.getTabletsStats().entrySet()) {
+                if (invertedIndex.getTabletMeta(entry.getKey()) == null) {
+                    // the replica is obsolete, ignore it.
+                    continue;
+                }
+                Replica replica = invertedIndex.getReplica(entry.getKey(), beId);
+                if (replica == null) {
+                    // replica may be deleted from catalog, ignore it.
+                    continue;
+                }
+                // TODO(cmy) no db lock protected. I think it is ok even we get wrong row num
+                replica.updateStat(entry.getValue().getDataSize(), entry.getValue().getRowNum());
             }
-            // TODO(cmy) no db lock protected. I think it is ok even we get wrong row num
-            replica.updateStat(entry.getValue().getDataSize(), entry.getValue().getRowNum());
         }
     }
 }

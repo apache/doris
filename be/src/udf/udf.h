@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include <cstdint>
+#include <iostream>
 #include <vector>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
@@ -28,10 +29,11 @@
 // object serves as the interface object between the UDF/UDA and the doris process.
 namespace doris {
 class FunctionContextImpl;
+struct ColumnPtrWrapper;
 struct StringValue;
-struct BitmapValue;
-struct DecimalV2Value;
-struct DateTimeValue;
+class BitmapValue;
+class DecimalV2Value;
+class DateTimeValue;
 struct CollectionValue;
 } // namespace doris
 
@@ -82,7 +84,8 @@ public:
         TYPE_FIXED_BUFFER,
         TYPE_DECIMALV2,
         TYPE_OBJECT,
-        TYPE_ARRAY
+        TYPE_ARRAY,
+        TYPE_QUANTILE_STATE
     };
 
     struct TypeDesc {
@@ -224,11 +227,15 @@ public:
     // FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
     bool is_arg_constant(int arg_idx) const;
 
+    bool is_col_constant(int arg_idx) const;
+
     // Returns a pointer to the value of the arg_idx-th input argument (0 indexed, not
     // including the FunctionContext* argument). Returns nullptr if the argument is not
     // constant. This function can be used to obtain user-specified constants in a UDF's
     // Init() or Close() functions.
     AnyVal* get_constant_arg(int arg_idx) const;
+
+    doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
 
     // Create a test FunctionContext object. The caller is responsible for calling delete
     // on it. This context has additional debugging validation enabled.
@@ -651,7 +658,9 @@ struct StringVal : public AnyVal {
     void append(FunctionContext* ctx, const uint8_t* buf, int64_t len);
     void append(FunctionContext* ctx, const uint8_t* buf, int64_t len, const uint8_t* buf2,
                 int64_t buf2_len);
+    std::string to_string() const { return std::string((char*)ptr, len); }
 };
+std::ostream& operator<<(std::ostream& os, const StringVal& string_val);
 
 struct DecimalV2Val : public AnyVal {
     __int128 val;

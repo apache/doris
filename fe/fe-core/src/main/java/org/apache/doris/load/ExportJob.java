@@ -45,7 +45,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -67,6 +66,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.thrift.TAgentResult;
@@ -256,12 +256,14 @@ public class ExportJob implements Writable {
         plan();
     }
 
-    private void registerToDesc() {
+    private void registerToDesc() throws UserException {
         TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
         BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
+        analyzer.registerTableRef(tableRef);
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);
         exportTupleDesc.setRef(tableRef);
+        exportTupleDesc.setAliases(tableRef.getAliases(), tableRef.hasExplicitAlias());
         if (exportColumns.isEmpty()) {
             for (Column column : exportTable.getBaseSchema()) {
                 SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
@@ -338,7 +340,7 @@ public class ExportJob implements Writable {
         if (whereExpr == null) {
             return;
         }
-        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
+        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
 
         // analyze where slot ref
         Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -451,7 +453,7 @@ public class ExportJob implements Writable {
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
                     id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode),
-                    TimeUtils.DEFAULT_TIME_ZONE);
+                    TimeUtils.DEFAULT_TIME_ZONE, true);
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }
@@ -763,19 +765,17 @@ public class ExportJob implements Writable {
         columnSeparator = Text.readString(in);
         lineDelimiter = Text.readString(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                String propertyKey = Text.readString(in);
-                String propertyValue = Text.readString(in);
-                this.properties.put(propertyKey, propertyValue);
-            }
-            // Because before 0.15, export does not contain label information.
-            // So for compatibility, a label will be added for historical jobs.
-            // This label must be guaranteed to be a certain value to prevent
-            // the label from being different each time.
-            properties.putIfAbsent(ExportStmt.LABEL, "export_" + id);
+        int count = in.readInt();
+        for (int i = 0; i < count; i++) {
+            String propertyKey = Text.readString(in);
+            String propertyValue = Text.readString(in);
+            this.properties.put(propertyKey, propertyValue);
         }
+        // Because before 0.15, export does not contain label information.
+        // So for compatibility, a label will be added for historical jobs.
+        // This label must be guaranteed to be a certain value to prevent
+        // the label from being different each time.
+        properties.putIfAbsent(ExportStmt.LABEL, "export_" + id);
         this.label = properties.get(ExportStmt.LABEL);
         this.columns = this.properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
         if (!Strings.isNullOrEmpty(this.columns)) {
@@ -803,19 +803,8 @@ public class ExportJob implements Writable {
             brokerDesc = BrokerDesc.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_43) {
-            tableName = new TableName();
-            tableName.readFields(in);
-        } else {
-            tableName = new TableName("DUMMY", "DUMMY");
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_97) {
-            origStmt = new OriginStatement("", 0);
-            // old version of export does not have sqlmode, set it to default
-            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
-            return;
-        }
+        tableName = new TableName();
+        tableName.readFields(in);
         origStmt = OriginStatement.read(in);
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

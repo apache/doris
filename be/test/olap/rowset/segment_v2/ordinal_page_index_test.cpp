@@ -62,8 +62,9 @@ TEST_F(OrdinalPageIndexTest, normal) {
     ColumnIndexMetaPB index_meta;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({filename});
-        ASSERT_TRUE(fs::fs_util::block_manager()->create_block(opts, &wblock).ok());
+        fs::CreateBlockOptions opts(filename);
+        ASSERT_TRUE(
+                fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock).ok());
 
         ASSERT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
         ASSERT_EQ(ORDINAL_INDEX, index_meta.type());
@@ -73,7 +74,8 @@ TEST_F(OrdinalPageIndexTest, normal) {
                   << index_meta.ordinal_index().root_page().root_page().size();
     }
 
-    OrdinalIndexReader index(filename, &index_meta.ordinal_index(), 16 * 1024 * 4096 + 1);
+    FilePathDesc path_desc(filename);
+    OrdinalIndexReader index(path_desc, &index_meta.ordinal_index(), 16 * 1024 * 4096 + 1);
     ASSERT_TRUE(index.load(true, false).ok());
     ASSERT_EQ(16 * 1024, index.num_data_pages());
     ASSERT_EQ(1, index.get_first_ordinal(0));
@@ -127,7 +129,8 @@ TEST_F(OrdinalPageIndexTest, one_data_page) {
         ASSERT_EQ(data_page_pointer, root_page_pointer);
     }
 
-    OrdinalIndexReader index("", &index_meta.ordinal_index(), num_values);
+    FilePathDesc path_desc;
+    OrdinalIndexReader index(path_desc, &index_meta.ordinal_index(), num_values);
     ASSERT_TRUE(index.load(true, false).ok());
     ASSERT_EQ(1, index.num_data_pages());
     ASSERT_EQ(0, index.get_first_ordinal(0));
@@ -158,7 +161,7 @@ TEST_F(OrdinalPageIndexTest, one_data_page) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

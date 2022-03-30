@@ -28,6 +28,13 @@
 #include "runtime/collection_value.h"
 #include "runtime/primitive_type.h"
 #include "thrift/protocol/TDebugProtocol.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris {
 
@@ -39,7 +46,6 @@ struct TypeDescriptor {
     /// Only set if type == TYPE_CHAR or type == TYPE_VARCHAR
     int len;
     static const int MAX_VARCHAR_LENGTH = OLAP_VARCHAR_MAX_LENGTH;
-    static const int MAX_STRING_LENGTH = OLAP_STRING_MAX_LENGTH;
     static const int MAX_CHAR_LENGTH = 255;
     static const int MAX_CHAR_INLINE_LENGTH = 128;
 
@@ -66,13 +72,6 @@ struct TypeDescriptor {
 
     // explicit TypeDescriptor(PrimitiveType type) :
     TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {
-#if 0
-        DCHECK_NE(type, TYPE_CHAR);
-        DCHECK_NE(type, TYPE_VARCHAR);
-        DCHECK_NE(type, TYPE_STRUCT);
-        DCHECK_NE(type, TYPE_ARRAY);
-        DCHECK_NE(type, TYPE_MAP);
-#endif
         if (type == TYPE_DECIMALV2) {
             precision = 27;
             scale = 9;
@@ -100,7 +99,7 @@ struct TypeDescriptor {
     static TypeDescriptor create_string_type() {
         TypeDescriptor ret;
         ret.type = TYPE_STRING;
-        ret.len = MAX_STRING_LENGTH;
+        ret.len = config::string_type_length_soft_limit_bytes;
         return ret;
     }
 
@@ -164,7 +163,8 @@ struct TypeDescriptor {
     void to_protobuf(PTypeDesc* ptype) const;
 
     inline bool is_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL || type == TYPE_OBJECT || type == TYPE_STRING;
+        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL ||
+               type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
     }
 
     inline bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
@@ -174,7 +174,8 @@ struct TypeDescriptor {
     inline bool is_datetime_type() const { return type == TYPE_DATETIME; }
 
     inline bool is_var_len_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_OBJECT || type == TYPE_STRING;
+        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR ||
+               type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
     }
 
     inline bool is_complex_type() const {
@@ -191,6 +192,7 @@ struct TypeDescriptor {
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_STRING:
             return 0;
 
@@ -230,6 +232,7 @@ struct TypeDescriptor {
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_STRING:
             return sizeof(StringValue);
 

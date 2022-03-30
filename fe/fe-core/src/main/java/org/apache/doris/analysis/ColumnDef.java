@@ -138,6 +138,10 @@ public class ColumnDef {
     public TypeDef getTypeDef() { return typeDef; }
     public Type getType() { return typeDef.getType(); }
 
+    public String getComment() {
+        return comment;
+    }
+
     public boolean isVisible() {
         return visible;
     }
@@ -211,7 +215,10 @@ public class ColumnDef {
                 throw new AnalysisException("Array type column default value only support null");
             }
         }
-
+        if (isKey() && type.getPrimitiveType() == PrimitiveType.STRING) {
+            throw new AnalysisException("String Type should not be used in key column[" + getName()
+                    + "].");
+        }
         if (type.getPrimitiveType() == PrimitiveType.MAP) {
             if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Map type column default value just support null");

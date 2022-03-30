@@ -28,6 +28,11 @@
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 #include "util/logging.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/predicate_column.h"
+#include "vec/core/block.h"
+
+using namespace doris::vectorized;
 
 namespace doris {
 
@@ -90,9 +95,7 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
         return_columns.push_back(i);
     }
 
-    auto tracker = MemTracker::CreateTracker(-1, "OlapScanner");
-    std::shared_ptr<IBloomFilterFuncBase> bloom_filter(
-            create_bloom_filter(tracker.get(), PrimitiveType::TYPE_FLOAT));
+    std::shared_ptr<IBloomFilterFuncBase> bloom_filter(create_bloom_filter(PrimitiveType::TYPE_FLOAT));
 
     bloom_filter->init(4096, 0.05);
     float value = 4.1;
@@ -171,6 +174,37 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
     ASSERT_EQ(select_size, 1);
     ASSERT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.1);
+
+    // for vectorized::Block no null
+    auto pred_col = PredicateColumnType<vectorized::Float32>::create();
+    pred_col->reserve(size);
+    for (int i = 0; i < size; ++i) {
+        *(col_data + i) = i + 0.1f;
+        pred_col->insert_data(reinterpret_cast<const char*>(col_data + i), 0);
+    }
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    pred->evaluate(*pred_col, _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 3);
+    ASSERT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[0]], 4.1);
+    ASSERT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[1]], 5.1);
+    ASSERT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[2]], 6.1);
+
+    // for vectorized::Block has nulls
+    auto null_map = ColumnUInt8::create(size, 0);
+    auto& null_map_data = null_map->get_data();
+    for (int i = 0; i < size; ++i) {
+        null_map_data[i] = (i % 2 == 0);
+    }
+    _row_block->clear();
+    select_size = _row_block->selected_size();
+    auto nullable_col =
+            vectorized::ColumnNullable::create(std::move(pred_col), std::move(null_map));
+    pred->evaluate(*nullable_col, _row_block->selection_vector(), &select_size);
+    ASSERT_EQ(select_size, 1);
+    auto nested_col = check_and_get_column<PredicateColumnType<vectorized::Float32>>(
+            nullable_col->get_nested_column());
+    ASSERT_FLOAT_EQ((float)nested_col->get_data()[_row_block->selection_vector()[0]], 5.1);
 
     delete pred;
 }

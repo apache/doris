@@ -104,7 +104,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
 
         // 2.1 get existing files from remote path
         std::map<std::string, FileStat> remote_files;
-        RETURN_IF_ERROR(_storage_backend->list(dest_path, &remote_files));
+        RETURN_IF_ERROR(_storage_backend->list(dest_path, true, false, &remote_files));
 
         for (auto& tmp : remote_files) {
             VLOG_CRITICAL << "get remote file: " << tmp.first << ", checksum: " << tmp.second.md5;
@@ -217,7 +217,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
         // 2.2. get remote files
         std::map<std::string, FileStat> remote_files;
-        RETURN_IF_ERROR(_storage_backend->list(remote_path, &remote_files));
+        RETURN_IF_ERROR(_storage_backend->list(remote_path, true, false, &remote_files));
         if (remote_files.empty()) {
             std::stringstream ss;
             ss << "get nothing from remote path: " << remote_path;
@@ -360,8 +360,8 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 // MUST hold tablet's header lock, push lock, cumulative lock and base compaction lock
 Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr tablet,
                             bool overwrite) {
-    std::string tablet_path = tablet->tablet_path();
-    std::string store_path = tablet->data_dir()->path();
+    std::string tablet_path = tablet->tablet_path_desc().filepath;
+    std::string store_path = tablet->data_dir()->path_desc().filepath;
     LOG(INFO) << "begin to move snapshot files. from: " << snapshot_path << ", to: " << tablet_path
               << ", store: " << store_path << ", job: " << _job_id << ", task id: " << _task_id;
 
@@ -554,25 +554,6 @@ Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_p
     LOG(INFO) << "finished to list files in local path: " << local_path
               << ", file num: " << local_files->size();
     return Status::OK();
-}
-
-void SnapshotLoader::_assemble_file_name(const std::string& snapshot_path,
-                                         const std::string& tablet_path, int64_t tablet_id,
-                                         int64_t start_version, int64_t end_version,
-                                         int64_t vesion_hash, int32_t seg_num,
-                                         const std::string suffix, std::string* snapshot_file,
-                                         std::string* tablet_file) {
-    std::stringstream ss1;
-    ss1 << snapshot_path << "/" << tablet_id << "_" << start_version << "_" << end_version << "_"
-        << vesion_hash << "_" << seg_num << suffix;
-    *snapshot_file = ss1.str();
-
-    std::stringstream ss2;
-    ss2 << tablet_path << "/" << tablet_id << "_" << start_version << "_" << end_version << "_"
-        << vesion_hash << "_" << seg_num << suffix;
-    *tablet_file = ss2.str();
-
-    VLOG_CRITICAL << "assemble file name: " << *snapshot_file << ", " << *tablet_file;
 }
 
 Status SnapshotLoader::_replace_tablet_id(const std::string& file_name, int64_t tablet_id,

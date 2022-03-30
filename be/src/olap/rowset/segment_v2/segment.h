@@ -59,20 +59,18 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment> {
 public:
-    static Status open(std::string filename, uint32_t segment_id, const TabletSchema* tablet_schema,
+    static Status open(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema,
                        std::shared_ptr<Segment>* output);
 
     ~Segment();
 
-    Status new_iterator(const Schema& schema, const StorageReadOptions& read_options,
-                        std::shared_ptr<MemTracker> parent,
-                        std::unique_ptr<RowwiseIterator>* iter);
+    Status new_iterator(const Schema& schema, const StorageReadOptions& read_options, std::unique_ptr<RowwiseIterator>* iter);
 
     uint64_t id() const { return _segment_id; }
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
-    Status new_column_iterator(uint32_t cid, std::shared_ptr<MemTracker> parent, ColumnIterator** iter);
+    Status new_column_iterator(uint32_t cid, ColumnIterator** iter);
 
     Status new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter);
 
@@ -105,7 +103,7 @@ public:
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema);
+    Segment(const FilePathDesc& path_desc, uint32_t segment_id, const TabletSchema* tablet_schema);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer();
@@ -116,7 +114,7 @@ private:
 
 private:
     friend class SegmentIterator;
-    std::string _fname;
+    FilePathDesc _path_desc;
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;
 
@@ -141,6 +139,9 @@ private:
     PageHandle _sk_index_handle;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
+    // segment footer need not to be read for remote storage, so _is_open is false. When remote file
+    // need to be read. footer will be read and _is_open will be set to true.
+    bool _is_open = false;
 };
 
 } // namespace segment_v2

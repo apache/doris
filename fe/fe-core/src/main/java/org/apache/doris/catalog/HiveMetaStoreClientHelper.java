@@ -126,7 +126,7 @@ public class HiveMetaStoreClientHelper {
             hivemetastoreclient = new HiveMetaStoreClient(hiveConf);
         } catch (MetaException e) {
             LOG.warn("Create HiveMetaStoreClient failed: {}", e.getMessage());
-            throw new DdlException("Create HiveMetaStoreClient failed");
+            throw new DdlException("Create HiveMetaStoreClient failed: " + e.getMessage());
         }
         return hivemetastoreclient;
     }
@@ -144,7 +144,7 @@ public class HiveMetaStoreClientHelper {
             return client.tableExists(dbName, tblName);
         } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed.");
+            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
         } finally {
             dropClient(client);
         }
@@ -179,7 +179,7 @@ public class HiveMetaStoreClientHelper {
                         SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate), null, (short) -1, hivePartitions);
             } catch (TException e) {
                 LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-                throw new DdlException("Connect hive metastore failed.");
+                throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
             } finally {
                 client.close();
             }
@@ -212,7 +212,7 @@ public class HiveMetaStoreClientHelper {
                 }
             } catch (IOException e) {
                 LOG.warn("List HDFS file IOException: {}", e.getMessage());
-                throw new DdlException("List HDFS file failed.");
+                throw new DdlException("List HDFS file failed. Error: " + e.getMessage());
             }
         }
 
@@ -230,7 +230,7 @@ public class HiveMetaStoreClientHelper {
                 iterators.add(fileSystem.listLocatedStatus(path));
             } catch (IOException e) {
                 LOG.warn("Get HDFS file remote iterator failed. {}", e.getMessage());
-                throw new DdlException("Get HDFS file remote iterator failed.");
+                throw new DdlException("Get HDFS file remote iterator failed. Error: " + e.getMessage());
             }
         }
         return iterators;
@@ -246,7 +246,7 @@ public class HiveMetaStoreClientHelper {
             iterators.add(fileSystem.listLocatedStatus(path));
         } catch (IOException e) {
             LOG.warn("Get HDFS file remote iterator failed. {}" + e.getMessage());
-            throw new DdlException("Get HDFS file remote iterator failed.");
+            throw new DdlException("Get HDFS file remote iterator failed. Error: " + e.getMessage());
         }
         return iterators;
     }
@@ -258,7 +258,7 @@ public class HiveMetaStoreClientHelper {
             partitionNames = client.listPartitionNames(hiveTable.getHiveDb(), hiveTable.getHiveTable(), (short) -1);
         } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed.");
+            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
         }
 
         return partitionNames;
@@ -271,7 +271,7 @@ public class HiveMetaStoreClientHelper {
             table = client.getTable(hiveTable.getHiveDb(), hiveTable.getHiveTable());
         } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed.");
+            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
         }
         return table;
     }
@@ -409,7 +409,7 @@ public class HiveMetaStoreClientHelper {
                     FunctionRegistry.getFunctionInfo(op).getGenericUDF(), args);
         } catch (SemanticException e) {
             LOG.warn("Convert to Hive expr failed: {}", e.getMessage());
-            throw new DdlException("Convert to Hive expr failed.");
+            throw new DdlException("Convert to Hive expr failed. Error: " + e.getMessage());
         }
         return compoundExpr;
     }
@@ -534,7 +534,7 @@ public class HiveMetaStoreClientHelper {
                         FunctionRegistry.getFunctionInfo(name).getGenericUDF(), children));
             } catch (SemanticException e) {
                 LOG.warn("Build Hive expression failed: semantic analyze exception: {}", e.getMessage());
-                throw new DdlException("Build Hive expression Failed");
+                throw new DdlException("Build Hive expression Failed. Error: " + e.getMessage());
             }
             return this;
         }

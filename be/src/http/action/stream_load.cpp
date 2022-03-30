@@ -193,11 +193,16 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
     // wait stream load finish
     RETURN_IF_ERROR(ctx->future.get());
 
-    // If put file success we need commit this load
-    int64_t commit_and_publish_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
-    ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
-
+    if (ctx->two_phase_commit) {
+        int64_t pre_commit_start_time = MonotonicNanos();
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->pre_commit_txn(ctx));
+        ctx->pre_commit_txn_cost_nanos = MonotonicNanos() - pre_commit_start_time;
+    } else {
+        // If put file success we need commit this load
+        int64_t commit_and_publish_start_time = MonotonicNanos();
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
+        ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
+    }
     return Status::OK();
 }
 
@@ -217,6 +222,8 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     if (ctx->label.empty()) {
         ctx->label = generate_uuid_string();
     }
+
+    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true" ? true : false;
 
     LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
               << ", tbl=" << ctx->table;
@@ -264,6 +271,10 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         std::stringstream ss;
         ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
         return Status::InternalError(ss.str());
+    }
+
+    if (ctx->two_phase_commit && config::disable_stream_load_2pc) {
+        return Status::InternalError("Two phase commit (2PC) for stream load was disabled");
     }
 
     // check content length
@@ -495,6 +506,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         }
     }
 
+    if (!http_req->header(HTTP_LOAD_TO_SINGLE_TABLET).empty()) {
+        if (boost::iequals(http_req->header(HTTP_LOAD_TO_SINGLE_TABLET), "true")) {
+            request.__set_load_to_single_tablet(true);
+        } else {
+            request.__set_load_to_single_tablet(false);
+        }
+    }
+
     if (ctx->timeout_second != -1) {
         request.__set_timeout(ctx->timeout_second);
     }
@@ -522,13 +541,15 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_DELETE_CONDITION).empty()) {
         request.__set_delete_condition(http_req->header(HTTP_DELETE_CONDITION));
     }
-    // plan this load
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-#ifndef BE_TEST
+
     if (!http_req->header(HTTP_MAX_FILTER_RATIO).empty()) {
         ctx->max_filter_ratio = strtod(http_req->header(HTTP_MAX_FILTER_RATIO).c_str(), nullptr);
+        request.__set_max_filter_ratio(ctx->max_filter_ratio);
     }
 
+#ifndef BE_TEST
+    // plan this load
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     int64_t stream_load_put_start_time = MonotonicNanos();
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,

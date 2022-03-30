@@ -88,18 +88,19 @@ public:
     virtual Status assign(const char* data, int len) = 0;
 
     virtual Status get_data(char** data, int* len) = 0;
-    virtual MemTracker* tracker() = 0;
     virtual void light_copy(IBloomFilterFuncBase* other) = 0;
 };
 
 template <class BloomFilterAdaptor>
 class BloomFilterFuncBase : public IBloomFilterFuncBase {
 public:
-    BloomFilterFuncBase(MemTracker* tracker) : _tracker(tracker), _inited(false) {}
+    BloomFilterFuncBase() : _inited(false) {
+        _tracker = MemTracker::create_virtual_tracker(-1, "BloomFilterFunc");
+    }
 
     virtual ~BloomFilterFuncBase() {
         if (_tracker != nullptr) {
-            _tracker->Release(_bloom_filter_alloced);
+            _tracker->release(_bloom_filter_alloced);
         }
     }
 
@@ -115,7 +116,7 @@ public:
         _bloom_filter_alloced = bloom_filter_length;
         _bloom_filter.reset(BloomFilterAdaptor::create());
         RETURN_IF_ERROR(_bloom_filter->init(bloom_filter_length));
-        _tracker->Consume(_bloom_filter_alloced);
+        _tracker->consume(_bloom_filter_alloced);
         _inited = true;
         return Status::OK();
     }
@@ -138,7 +139,7 @@ public:
         }
 
         _bloom_filter_alloced = len;
-        _tracker->Consume(_bloom_filter_alloced);
+        _tracker->consume(_bloom_filter_alloced);
         return _bloom_filter->init(data, len);
     }
 
@@ -148,18 +149,16 @@ public:
         return Status::OK();
     }
 
-    MemTracker* tracker() override { return _tracker; }
-
     void light_copy(IBloomFilterFuncBase* bloomfilter_func) override {
         auto other_func = static_cast<BloomFilterFuncBase*>(bloomfilter_func);
-        _tracker = nullptr;
+        _tracker = nullptr; // Avoid repeated release when ~BloomFilterFuncBase
         _bloom_filter_alloced = other_func->_bloom_filter_alloced;
         _bloom_filter = other_func->_bloom_filter;
         _inited = other_func->_inited;
     }
 
 protected:
-    MemTracker* _tracker;
+    std::shared_ptr<MemTracker> _tracker;
     // bloom filter size
     int32_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
@@ -206,11 +205,12 @@ struct StringFindOp {
 template <class BloomFilterAdaptor>
 struct FixedStringFindOp : public StringFindOp<BloomFilterAdaptor> {
     ALWAYS_INLINE bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
-                                        const void* data) const {
-        const auto* value = reinterpret_cast<const StringValue*>(data);
-        auto end_ptr = value->ptr + value->len - 1;
-        while (end_ptr > value->ptr && *end_ptr == '\0') --end_ptr;
-        return bloom_filter.test_bytes(value->ptr, end_ptr - value->ptr + 1);
+                                        const void* input_data) const {
+        const auto* value = reinterpret_cast<const StringValue*>(input_data);
+        int64_t size = value->len;
+        char* data = value->ptr;
+        while (size > 0 && data[size - 1] == '\0') size--;
+        return bloom_filter.test_bytes(value->ptr, size);
     }
 };
 
@@ -297,11 +297,11 @@ struct BloomFilterTypeTraits<TYPE_STRING, BloomFilterAdaptor> {
 template <PrimitiveType type, class BloomFilterAdaptor>
 class BloomFilterFunc final : public BloomFilterFuncBase<BloomFilterAdaptor> {
 public:
-    BloomFilterFunc(MemTracker* tracker) : BloomFilterFuncBase<BloomFilterAdaptor>(tracker) {}
+    BloomFilterFunc() : BloomFilterFuncBase<BloomFilterAdaptor>() {}
 
     ~BloomFilterFunc() = default;
 
-    void insert(const void* data) {
+    void insert(const void* data) override {
         DCHECK(this->_bloom_filter != nullptr);
         dummy.insert(*this->_bloom_filter, data);
     }
@@ -328,6 +328,7 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new BloomFilterPredicate(*this));
     }
+    using Predicate::prepare;
     Status prepare(RuntimeState* state, IBloomFilterFuncBase* bloomfilterfunc);
 
     std::shared_ptr<IBloomFilterFuncBase> get_bloom_filter_func() { return _filter; }

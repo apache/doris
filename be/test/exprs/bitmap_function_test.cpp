@@ -86,24 +86,19 @@ TEST_F(BitmapFunctionsTest, to_bitmap_null) {
     StringVal input = StringVal::null();
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
 
-    BitmapValue bitmap;
-    StringVal expected = convert_bitmap_to_string(ctx, bitmap);
-
-    ASSERT_EQ(expected, result);
+    ASSERT_EQ(StringVal::null(), result);
 }
 
 TEST_F(BitmapFunctionsTest, to_bitmap_invalid_argument) {
     StringVal input = AnyValUtil::from_string_temp(ctx, std::string("-1"));
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
     ASSERT_EQ(StringVal::null(), result);
-    ASSERT_TRUE(ctx->has_error());
 }
 
 TEST_F(BitmapFunctionsTest, to_bitmap_out_of_range) {
     StringVal input = AnyValUtil::from_string_temp(ctx, std::string("18446744073709551616"));
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
     ASSERT_EQ(StringVal::null(), result);
-    ASSERT_TRUE(ctx->has_error());
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_union_int) {
@@ -333,6 +328,43 @@ TEST_F(BitmapFunctionsTest, bitmap_or) {
     ASSERT_EQ(expected, result);
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_or_variable) {
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+        BitmapValue bitmap_empty;  //test empty
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_src4 = convert_bitmap_to_string(ctx, bitmap_empty);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, bitmap_src4};
+
+        StringVal bitmap_result = BitmapFunctions::bitmap_or(ctx, bitmap_src1, 3, bitmap_strs);
+        BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_result);
+
+        BigIntVal expected(7);//0,1,5,33,1024,2019,18446744073709551615
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, StringVal::null()}; //test null
+
+        StringVal bitmap_result = BitmapFunctions::bitmap_or(ctx, bitmap_src1, 3, bitmap_strs);
+        BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_result);
+
+        BigIntVal expected(0);
+        ASSERT_EQ(expected, result);
+    }
+}
+
 TEST_F(BitmapFunctionsTest, bitmap_and) {
     BitmapValue bitmap1({1024, 1, 2019});
     BitmapValue bitmap2({33, 44, 2019});
@@ -347,6 +379,59 @@ TEST_F(BitmapFunctionsTest, bitmap_and) {
     ASSERT_EQ(expected, result);
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_and_variable) {
+    {
+        BitmapValue bitmap1({1024, 1, 0});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::max()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::min()});
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_strs[2] = {bitmap_src2, bitmap_src3};
+
+        StringVal bitmap_result = BitmapFunctions::bitmap_and(ctx, bitmap_src1, 2, bitmap_strs);
+        BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_result);
+
+        BigIntVal expected(1);//0
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+        BitmapValue bitmap_empty;  //test empty
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_src4 = convert_bitmap_to_string(ctx, bitmap_empty);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, bitmap_src4};
+
+        StringVal bitmap_result = BitmapFunctions::bitmap_and(ctx, bitmap_src1, 3, bitmap_strs);
+        BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_result);
+
+        BigIntVal expected(0);
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, StringVal::null()}; //test null
+
+        StringVal bitmap_result = BitmapFunctions::bitmap_and(ctx, bitmap_src1, 3, bitmap_strs);
+        BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_result);
+
+        BigIntVal expected(0);
+        ASSERT_EQ(expected, result);
+    }
+}
+
 TEST_F(BitmapFunctionsTest, bitmap_xor) {
     BitmapValue bitmap1({1024, 1, 2019});
     BitmapValue bitmap2({33, 44, 2019});
@@ -359,6 +444,59 @@ TEST_F(BitmapFunctionsTest, bitmap_xor) {
 
     BigIntVal expected(4);
     ASSERT_EQ(expected, result);
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_xor_variable) {
+    {
+        BitmapValue bitmap1({1024, 1, 0});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::max()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::min()});
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_strs[2] = {bitmap_src2, bitmap_src3};
+
+        StringVal bitmap_result = BitmapFunctions::bitmap_xor(ctx, bitmap_src1, 2, bitmap_strs);
+        BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_result);
+        
+        BigIntVal expected(5); //0,1,5,1024,18446744073709551615
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+        BitmapValue bitmap_empty;  //test empty
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_src4 = convert_bitmap_to_string(ctx, bitmap_empty);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, bitmap_src4};
+
+        StringVal bitmap_result = BitmapFunctions::bitmap_xor(ctx, bitmap_src1, 3, bitmap_strs);
+        BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_result);
+        
+        BigIntVal expected(6); //0,1,5,1024,2019,18446744073709551615
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, StringVal::null()}; //test null
+
+        StringVal bitmap_result = BitmapFunctions::bitmap_xor(ctx, bitmap_src1, 3, bitmap_strs);
+        BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_result);
+
+        BigIntVal expected(0);
+        ASSERT_EQ(expected, result);
+    }
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_xor_count) {
@@ -397,6 +535,54 @@ TEST_F(BitmapFunctionsTest, bitmap_xor_count) {
 
         BigIntVal expected(6);
         ASSERT_EQ(expected.val, result.val);
+    }
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_xor_count_variable) {
+    {
+        BitmapValue bitmap1({1024, 1, 0});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::max()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::min()});
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_strs[2] = {bitmap_src2, bitmap_src3};
+
+        BigIntVal result = BitmapFunctions::bitmap_xor_count(ctx, bitmap_src1, 2, bitmap_strs);
+        
+        BigIntVal expected(5); //0,1,5,1024,18446744073709551615
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+        BitmapValue bitmap_empty;  //test empty
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_src4 = convert_bitmap_to_string(ctx, bitmap_empty);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, bitmap_src4};
+
+        BigIntVal result = BitmapFunctions::bitmap_xor_count(ctx, bitmap_src1, 3, bitmap_strs);
+        
+        BigIntVal expected(6); //0,1,5,1024,2019,18446744073709551615
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, StringVal::null()}; //test null
+
+        BigIntVal result = BitmapFunctions::bitmap_xor_count(ctx, bitmap_src1, 3, bitmap_strs);
+        ASSERT_EQ(BigIntVal::null(), result);
     }
 }
 
@@ -465,6 +651,52 @@ TEST_F(BitmapFunctionsTest, bitmap_and_count) {
     ASSERT_EQ(1, result.val);
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_and_count_variable) {
+    {
+        BitmapValue bitmap1({1024, 1, 0});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::max()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::min()});
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_strs[2] = {bitmap_src2, bitmap_src3};
+
+        BigIntVal result = BitmapFunctions::bitmap_and_count(ctx, bitmap_src1, 2, bitmap_strs);
+        BigIntVal expected(1);//0
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+        BitmapValue bitmap_empty;  //test empty
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_src4 = convert_bitmap_to_string(ctx, bitmap_empty);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, bitmap_src4};
+
+        BigIntVal result = BitmapFunctions::bitmap_and_count(ctx, bitmap_src1, 3, bitmap_strs);
+        BigIntVal expected(0);
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, StringVal::null()}; //test null
+
+        BigIntVal result = BitmapFunctions::bitmap_and_count(ctx, bitmap_src1, 3, bitmap_strs);
+        ASSERT_EQ(BigIntVal::null(), result);
+    }
+}
+
 TEST_F(BitmapFunctionsTest, bitmap_and_count_64) {
     BitmapValue bitmap1({14333000000000000501ull, 2, 1454100000000000503ull});
     BitmapValue bitmap2;
@@ -517,6 +749,39 @@ TEST_F(BitmapFunctionsTest, bitmap_or_count) {
     bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
     result = BitmapFunctions::bitmap_or_count(ctx, bitmap_src1, bitmap_src2);
     ASSERT_EQ(5, result.val);
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_or_count_variable) {
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+        BitmapValue bitmap_empty;  //test empty
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_src4 = convert_bitmap_to_string(ctx, bitmap_empty);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, bitmap_src4};
+
+        BigIntVal result = BitmapFunctions::bitmap_or_count(ctx, bitmap_src1, 3, bitmap_strs);
+
+        BigIntVal expected(7);//0,1,5,33,1024,2019,18446744073709551615
+        ASSERT_EQ(expected, result);
+    }
+    {
+        BitmapValue bitmap1({1024, 1, 2019});
+        BitmapValue bitmap2({0, 33, std::numeric_limits<uint64_t>::min()});
+        BitmapValue bitmap3({33, 5, std::numeric_limits<uint64_t>::max()});
+
+        StringVal bitmap_src1 = convert_bitmap_to_string(ctx, bitmap1);
+        StringVal bitmap_src2 = convert_bitmap_to_string(ctx, bitmap2);
+        StringVal bitmap_src3 = convert_bitmap_to_string(ctx, bitmap3);
+        StringVal bitmap_strs[3] = {bitmap_src2, bitmap_src3, StringVal::null()}; //test null
+
+        BigIntVal result = BitmapFunctions::bitmap_or_count(ctx, bitmap_src1, 3, bitmap_strs);
+        ASSERT_EQ(BigIntVal::null(), result);
+    }
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_or_count_64) {
@@ -584,7 +849,7 @@ TEST_F(BitmapFunctionsTest, bitmap_not) {
     expected = BigIntVal(0);
     ASSERT_EQ(expected, result);
 
-    bitmap1 = BitmapValue({1});
+    bitmap1 = BitmapValue(1);
     bitmap2 = BitmapValue({2, 1});
 
     bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
@@ -881,7 +1146,7 @@ TEST_F(BitmapFunctionsTest, sub_bitmap) {
     ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap5));
 
     res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(-1), BigIntVal(2));
-    BitmapValue bitmap6({500});
+    BitmapValue bitmap6(500);
     ASSERT_EQ(res, convert_bitmap_to_string(ctx, bitmap6));
 
     res = BitmapFunctions::sub_bitmap(ctx, bitmap_src, BigIntVal(-7), BigIntVal(6));

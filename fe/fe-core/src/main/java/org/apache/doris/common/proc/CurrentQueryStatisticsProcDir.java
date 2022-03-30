@@ -26,10 +26,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -38,7 +34,6 @@ import java.util.Map;
  * only set variable "set is_report_success = true" to enable "ScanBytes" and "ProcessRows".
  */
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
-    private static final Logger LOG = LogManager.getLogger(CurrentQueryStatisticsProcDir.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("QueryId").add("ConnectionId").add("Database").add("User")
             .add("ScanBytes").add("ProcessRows").add("ExecTime").build();
@@ -95,13 +90,10 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             sortedRowData.add(values);
         }
         // sort according to ExecTime
-        sortedRowData.sort(new Comparator<List<String>>() {
-            @Override
-            public int compare(List<String> l1, List<String> l2) {
-                final int execTime1 = Integer.valueOf(l1.get(EXEC_TIME_INDEX));
-                final int execTime2 = Integer.valueOf(l2.get(EXEC_TIME_INDEX));
-                return execTime1 <= execTime2 ? 1 : -1;
-            }
+        sortedRowData.sort((l1, l2) -> {
+            final int execTime1 = Integer.parseInt(l1.get(EXEC_TIME_INDEX));
+            final int execTime2 = Integer.parseInt(l2.get(EXEC_TIME_INDEX));
+            return execTime2 - execTime1;
         });
         result.setRows(sortedRowData);
         return result;

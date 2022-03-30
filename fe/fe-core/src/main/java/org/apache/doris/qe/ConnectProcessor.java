@@ -183,13 +183,7 @@ public class ConnectProcessor {
         }
         String sqlHash = DigestUtils.md5Hex(originStmt);
         ctx.setSqlHash(sqlHash);
-        try {
-            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt, sqlHash, ctx.getQualifiedUser());
-        } catch (AnalysisException e) {
-            LOG.warn(e.getMessage());
-            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            return;
-        }
+
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
                 .setTimestamp(System.currentTimeMillis())
@@ -337,8 +331,8 @@ public class ConnectProcessor {
         MysqlCommand command = MysqlCommand.fromCode(code);
         if (command == null) {
             ErrorReport.report(ErrorCode.ERR_UNKNOWN_COM_ERROR);
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + command + ")");
-            LOG.warn("Unknown command(" + command + ")");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + code + ")");
+            LOG.warn("Unknown command(" + code + ")");
             return;
         }
         ctx.setCommand(command);
@@ -476,19 +470,6 @@ public class ConnectProcessor {
         }
 
         ctx.setThreadLocalInfo();
-
-        if (ctx.getCurrentUserIdentity() == null) {
-            // if we upgrade Master FE first, the request from old FE does not set "current_user_ident".
-            // so ctx.getCurrentUserIdentity() will get null, and causing NullPointerException after using it.
-            // return error directly.
-            TMasterOpResult result = new TMasterOpResult();
-            ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Missing current user identity. You need to upgrade this Frontend " +
-                    "to the same version as Master Frontend.");
-            result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
-            result.setPacket(getResultPacket());
-            return result;
-        }
-
         StmtExecutor executor = null;
         try {
             // 0 for compatibility.

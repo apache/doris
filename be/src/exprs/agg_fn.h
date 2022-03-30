@@ -27,7 +27,6 @@ namespace doris {
 using doris_udf::FunctionContext;
 
 class MemPool;
-class MemTracker;
 class ObjectPool;
 class RuntimeState;
 class Tuple;

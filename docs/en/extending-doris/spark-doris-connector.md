@@ -28,6 +28,8 @@ under the License.
 
 Spark Doris Connector can support reading data stored in Doris and writing data to Doris through Spark.
 
+Github: https://github.com/apache/incubator-doris-spark-connector
+
 - Support reading data from `Doris`.
 - Support `Spark DataFrame` batch/stream writing data to `Doris`
 - You can map the `Doris` table to` DataFrame` or `RDD`, it is recommended to use` DataFrame`.
@@ -35,27 +37,37 @@ Spark Doris Connector can support reading data stored in Doris and writing data 
 
 ## Version Compatibility
 
-| Connector | Spark | Doris  | Java | Scala |
-| --------- | ----- | ------ | ---- | ----- |
-| 1.0.0     | 2.x   | 0.12+  | 8    | 2.11  |
-| 1.0.0     | 3.x   | 0.12.+ | 8    | 2.12  |
-
+| Connector     | Spark | Doris  | Java | Scala |
+|---------------| ----- | ------ | ---- | ----- |
+| 2.3.4-2.11.xx | 2.x   | 0.12+  | 8    | 2.11  |
+| 3.1.2-2.12.xx | 3.x   | 0.12.+ | 8    | 2.12  |
 
 ## Build and Install
 
-Execute following command in dir `extension/spark-doris-connector/`:
-
-**Notice:**
-
-1. If you have not compiled the doris source code as a whole, you need to compile the Doris source code first, otherwise the thrift command will not be found, and you need to execute `sh build.sh` in the `incubator-doris` directory.
-2. It is recommended to compile under the docker compile environment `apache/incubator-doris:build-env-1.2` of doris, because the JDK version below 1.3 is 11, there will be compilation problems.
+Execute following command in source dir
 
 ```bash
-sh build.sh 3 ## spark 3.x version, the default is 3.1.2
-sh build.sh 2 ## soark 2.x version, the default is 2.3.4
+sh build.sh 2.3.4 2.11 ## spark 2.3.4 version, and scala 2.11
+sh build.sh 3.1.2 2.12 ## spark 3.1.2 version, and scala 2.12
+```
+> Note: If you check out the source code from tag, you can just run sh build.sh --tag without specifying the spark and scala versions. This is because the version in the tag source code is fixed.
+
+After successful compilation, the file `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package.
+
+## Using Maven
+
+```
+<dependency>
+  <groupId>org.apache.doris</groupId>
+  <artifactId>spark-doris-connector-3.1_2.12</artifactId>
+  <!--artifactId>spark-doris-connector-2.3_2.11</artifactId-->
+  <version>1.0.1</version>
+</dependency>
 ```
 
-After successful compilation, the file `doris-spark-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package.
+**Notes**
+
+Please replace the Connector version according to the different Spark and Scala versions.
 
 ## Example
 ### Read
@@ -182,8 +194,8 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | doris.deserialize.arrow.async    | false             | Whether to support asynchronous conversion of Arrow format to RowBatch required for spark-doris-connector iteration                 |
 | doris.deserialize.queue.size     | 64                | Asynchronous conversion of the internal processing queue in Arrow format takes effect when doris.deserialize.arrow.async is true        |
 | doris.write.fields                | --                 | Specifies the fields (or the order of the fields) to write to the Doris table, fileds separated by commas.<br/>By default, all fields are written in the order of Doris table fields. |
-| sink.batch.size | 1024 | Maximum number of lines in a single write BE |
-| sink.max-retries | 3 | Number of retries after writing BE failed |
+| sink.batch.size | 10000 | Maximum number of lines in a single write BE |
+| sink.max-retries | 1 | Number of retries after writing BE failed |
 
 ### SQL & Dataframe Configuration
 

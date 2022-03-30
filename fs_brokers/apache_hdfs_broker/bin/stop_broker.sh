@@ -37,7 +37,7 @@ if [ -f $pidfile ]; then
    pidcomm=`ps -p $pid -o comm=`
    
    if [ "java" != "$pidcomm" ]; then
-       echo "ERROR: pid process may not be fe. "
+       echo "ERROR: pid process may not broker. "
    fi
 
    if kill -9 $pid > /dev/null 2>&1; then

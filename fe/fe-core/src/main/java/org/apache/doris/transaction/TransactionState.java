@@ -183,6 +183,7 @@ public class TransactionState implements Writable {
     private TransactionStatus transactionStatus;
     private LoadJobSourceType sourceType;
     private long prepareTime;
+    private long preCommitTime;
     private long commitTime;
     private long finishTime;
     private String reason = "";
@@ -208,6 +209,7 @@ public class TransactionState implements Writable {
     // 3. in afterStateTransform(), callback object can not be found, so the write lock can not be released.
     private TxnStateChangeCallback callback = null;
     private long timeoutMs = Config.stream_load_default_timeout_second;
+    private long preCommittedTimeoutMs = Config.stream_load_default_precommit_timeout_second * 1000;
     private String authCode = "";
 
     // is set to true, we will double the publish timeout
@@ -238,6 +240,7 @@ public class TransactionState implements Writable {
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = LoadJobSourceType.FRONTEND;
         this.prepareTime = -1;
+        this.preCommitTime = -1;
         this.commitTime = -1;
         this.finishTime = -1;
         this.reason = "";
@@ -260,6 +263,7 @@ public class TransactionState implements Writable {
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = sourceType;
         this.prepareTime = -1;
+        this.preCommitTime = -1;
         this.commitTime = -1;
         this.finishTime = -1;
         this.reason = "";
@@ -332,6 +336,10 @@ public class TransactionState implements Writable {
 
     public long getPrepareTime() {
         return prepareTime;
+    }
+
+    public long getPreCommitTime() {
+        return preCommitTime;
     }
 
     public long getCommitTime() {
@@ -463,6 +471,10 @@ public class TransactionState implements Writable {
         this.prepareTime = prepareTime;
     }
 
+    public void setPreCommitTime(long preCommitTime) {
+        this.preCommitTime = preCommitTime;
+    }
+
     public void setCommitTime(long commitTime) {
         this.commitTime = commitTime;
     }
@@ -528,7 +540,8 @@ public class TransactionState implements Writable {
 
     // return true if txn is running but timeout
     public boolean isTimeout(long currentMillis) {
-        return transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs;
+        return (transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs) ||
+                (transactionStatus == TransactionStatus.PRECOMMITTED && currentMillis - preCommitTime > preCommittedTimeoutMs);
     }
 
     public synchronized void addTableIndexes(OlapTable table) {
@@ -606,6 +619,7 @@ public class TransactionState implements Writable {
         out.writeInt(transactionStatus.value());
         out.writeInt(sourceType.value());
         out.writeLong(prepareTime);
+        out.writeLong(preCommitTime);
         out.writeLong(commitTime);
         out.writeLong(finishTime);
         Text.writeString(out, reason);
@@ -638,31 +652,13 @@ public class TransactionState implements Writable {
             info.readFields(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_83) {
-            TxnSourceType sourceType = TxnSourceType.valueOf(in.readInt());
-            String ip = Text.readString(in);
-            txnCoordinator = new TxnCoordinator(sourceType, ip);
-        } else {
-            // to compatible old version, the old txn coordinator looks like: "BE: 192.186.1.1"
-            String coordStr = Text.readString(in);
-            String[] parts = coordStr.split(":");
-            if (parts.length != 2) {
-                // should not happen, just create a mocked TxnCoordinator
-                txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
-            } else {
-                if (parts[0].trim().equalsIgnoreCase("FE")) {
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, parts[1].trim());
-                } else if (parts[0].trim().equalsIgnoreCase("BE")) {
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.BE, parts[1].trim());
-                } else {
-                    // unknown format, should not happen, just create a mocked TxnCoordinator
-                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
-                }
-            }
-        }
+        txnCoordinator = new TxnCoordinator(TxnSourceType.valueOf(in.readInt()), Text.readString(in));
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_107) {
+            preCommitTime = in.readLong();
+        }
         commitTime = in.readLong();
         finishTime = in.readLong();
         reason = Text.readString(in);
@@ -671,20 +667,15 @@ public class TransactionState implements Writable {
             errorReplicas.add(in.readLong());
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_49) {
-            if (in.readBoolean()) {
-                txnCommitAttachment = TxnCommitAttachment.read(in);
-            }
-            callbackId = in.readLong();
-            timeoutMs = in.readLong();
+        if (in.readBoolean()) {
+            txnCommitAttachment = TxnCommitAttachment.read(in);
         }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
-            tableIdList = Lists.newArrayList();
-            int tableListSize = in.readInt();
-            for (int i = 0; i < tableListSize; i++) {
-                tableIdList.add(in.readLong());
-            }
+        callbackId = in.readLong();
+        timeoutMs = in.readLong();
+        tableIdList = Lists.newArrayList();
+        int tableListSize = in.readInt();
+        for (int i = 0; i < tableListSize; i++) {
+            tableIdList.add(in.readLong());
         }
     }
 

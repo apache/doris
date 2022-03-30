@@ -23,6 +23,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -30,7 +31,8 @@ namespace doris {
 BlockingJoinNode::BlockingJoinNode(const std::string& node_name, const TJoinOp::type join_op,
                                    ObjectPool* pool, const TPlanNode& tnode,
                                    const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs), _node_name(node_name), _join_op(join_op) {}
+        : ExecNode(pool, tnode, descs), _node_name(node_name), _join_op(join_op),
+          _left_side_eos(false) {}
 
 Status BlockingJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     return ExecNode::init(tnode, state);
@@ -68,7 +70,7 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     _probe_tuple_row_size = num_left_tuples * sizeof(Tuple*);
     _build_tuple_row_size = num_build_tuples * sizeof(Tuple*);
 
-    _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size(), mem_tracker().get()));
+    _left_batch.reset(new RowBatch(child(0)->row_desc(), state->batch_size()));
     return Status::OK();
 }
 
@@ -81,6 +83,7 @@ Status BlockingJoinNode::close(RuntimeState* state) {
 }
 
 void BlockingJoinNode::build_side_thread(RuntimeState* state, std::promise<Status>* status) {
+    SCOPED_ATTACH_TASK_THREAD(state, mem_tracker());
     status->set_value(construct_build_side(state));
 }
 

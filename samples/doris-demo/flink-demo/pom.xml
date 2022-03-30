@@ -17,18 +17,15 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns="http://maven.apache.org/POM/4.0.0"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
     <groupId>org.example</groupId>
     <artifactId>flink-demo</artifactId>
     <version>1.0-SNAPSHOT</version>
-
     <name>flink-demo</name>
     <!-- FIXME change it to the project's website -->
     <url>http://www.example.com</url>
-
     <properties>
         <scala.version>2.12.10</scala.version>
         <scala.binary.version>2.12</scala.binary.version>
@@ -38,7 +35,6 @@ under the License.
         <hadoop.version>2.8.3</hadoop.version>
         <scope.mode>compile</scope.mode>
     </properties>
-
     <dependencies>
         <dependency>
             <groupId>org.apache.flink</groupId>
@@ -75,7 +71,6 @@ under the License.
             <artifactId>flink-connector-jdbc_2.11</artifactId>
             <version>${flink.version}</version>
         </dependency>
-
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-connector-kafka_${scala.binary.version}</artifactId>
@@ -101,14 +96,10 @@ under the License.
             <artifactId>flink-shaded-hadoop-2-uber</artifactId>
             <version>2.6.5-10.0</version>
         </dependency>
-
         <dependency>
-            <groupId>org.apache</groupId>
-            <artifactId>doris-flink</artifactId>
-            <version>1.0.0</version>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>doris-flink-connector</artifactId>
         </dependency>
-
-
         <!--After adding the following two dependencies, Flink's log will appear-->
         <dependency>
             <groupId>org.slf4j</groupId>
@@ -120,8 +111,13 @@ under the License.
             <artifactId>slf4j-simple</artifactId>
             <version>1.7.25</version>
         </dependency>
+        <!-- https://mvnrepository.com/artifact/com.ververica/flink-connector-oracle-cdc -->
+        <dependency>
+            <groupId>com.ververica</groupId>
+            <artifactId>flink-connector-oracle-cdc</artifactId>
+            <version>2.1.1</version>
+        </dependency>
     </dependencies>
-
     <build>
         <plugins>
             <plugin>
@@ -161,5 +157,4 @@ under the License.
             </plugin>
         </plugins>
     </build>
-
 </project>

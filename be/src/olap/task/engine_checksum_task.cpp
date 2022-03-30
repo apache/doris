@@ -23,13 +23,15 @@
 namespace doris {
 
 EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
-                                       TVersion version, TVersionHash version_hash,
-                                       uint32_t* checksum)
+                                       TVersion version, uint32_t* checksum)
         : _tablet_id(tablet_id),
           _schema_hash(schema_hash),
           _version(version),
-          _version_hash(version_hash),
-          _checksum(checksum) {}
+          _checksum(checksum) {
+    _mem_tracker = MemTracker::create_tracker(-1, "compute checksum: " + std::to_string(tablet_id),
+                                              StorageEngine::instance()->consistency_mem_tracker(),
+                                              MemTrackerLevel::TASK);
+}
 
 OLAPStatus EngineChecksumTask::execute() {
     OLAPStatus res = _compute_checksum();
@@ -56,13 +58,13 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     TupleReader reader;
-    ReaderParams reader_params;
+    TabletReader::ReaderParams reader_params;
     reader_params.tablet = tablet;
     reader_params.reader_type = READER_CHECKSUM;
     reader_params.version = Version(0, _version);
 
     {
-        ReadLock rdlock(tablet->get_header_lock_ptr());
+        ReadLock rdlock(tablet->get_header_lock());
         const RowsetSharedPtr message = tablet->rowset_with_max_version();
         if (message == nullptr) {
             LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;
@@ -89,8 +91,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     RowCursor row;
-    std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
-    std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
+    std::unique_ptr<MemPool> mem_pool(new MemPool("EngineChecksumTask:_compute_checksum"));
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
     res = row.init(tablet->tablet_schema(), reader_params.return_columns);
     if (res != OLAP_SUCCESS) {

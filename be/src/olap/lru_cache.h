@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -55,11 +56,9 @@ enum LRUCacheType {
 
 // Create a new cache with a specified name and a fixed SIZE capacity.
 // This implementation of Cache uses a least-recently-used eviction policy.
-extern Cache* new_lru_cache(const std::string& name, size_t capacity,
-                            std::shared_ptr<MemTracker> parent_tracekr = nullptr);
+extern Cache* new_lru_cache(const std::string& name, size_t capacity);
 
-extern Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
-                                  std::shared_ptr<MemTracker> parent_tracekr = nullptr);
+extern Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type);
 
 class CacheKey {
 public:
@@ -148,6 +147,8 @@ private:
 // The entry with smaller CachePriority will evict firstly
 enum class CachePriority { NORMAL = 0, DURABLE = 1 };
 
+using CacheValuePredicate = std::function<bool(const void*)>;
+
 class Cache {
 public:
     Cache() {}
@@ -216,7 +217,7 @@ public:
     // Same as prune(), but the entry will only be pruned if the predicate matched.
     // NOTICE: the predicate should be simple enough, or the prune_if() function
     // may hold lock for a long time to execute predicate.
-    virtual int64_t prune_if(bool (*pred)(const void* value)) { return 0; }
+    virtual int64_t prune_if(CacheValuePredicate pred) { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
@@ -315,9 +316,9 @@ public:
                           CachePriority priority = CachePriority::NORMAL);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
-    void erase(const CacheKey& key, uint32_t hash);
+    void erase(const CacheKey& key, uint32_t hash, MemTracker* tracker);
     int64_t prune();
-    int64_t prune_if(bool (*pred)(const void* value));
+    int64_t prune_if(CacheValuePredicate pred);
 
     uint64_t get_lookup_count() const { return _lookup_count; }
     uint64_t get_hit_count() const { return _hit_count; }
@@ -330,7 +331,6 @@ private:
     bool _unref(LRUHandle* e);
     void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
-    void _prune_one(LRUHandle* old);
 
 private:
     LRUCacheType _type;
@@ -339,7 +339,7 @@ private:
     size_t _capacity = 0;
 
     // _mutex protects the following state.
-    Mutex _mutex;
+    std::mutex _mutex;
     size_t _usage = 0;
 
     // Dummy head of LRU list.
@@ -360,21 +360,20 @@ static const int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
 public:
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             std::shared_ptr<MemTracker> parent);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL);
-    virtual Handle* lookup(const CacheKey& key);
-    virtual void release(Handle* handle);
-    virtual void erase(const CacheKey& key);
-    virtual void* value(Handle* handle);
+                           CachePriority priority = CachePriority::NORMAL) override;
+    virtual Handle* lookup(const CacheKey& key) override;
+    virtual void release(Handle* handle) override;
+    virtual void erase(const CacheKey& key) override;
+    virtual void* value(Handle* handle) override;
     Slice value_slice(Handle* handle) override;
-    virtual uint64_t new_id();
-    virtual int64_t prune();
-    virtual int64_t prune_if(bool (*pred)(const void* value));
+    virtual uint64_t new_id() override;
+    virtual int64_t prune() override;
+    virtual int64_t prune_if(CacheValuePredicate pred) override;
 
 private:
     void update_cache_metrics() const;

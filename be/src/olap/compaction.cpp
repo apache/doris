@@ -26,13 +26,9 @@ using std::vector;
 
 namespace doris {
 
-Compaction::Compaction(TabletSharedPtr tablet, const std::string& label,
-                       const std::shared_ptr<MemTracker>& parent_tracker)
-        : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker, true, false, MemTrackerLevel::TASK)),
-          _readers_tracker(MemTracker::CreateTracker(-1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
-                  true, false)),
-          _writer_tracker(MemTracker::CreateTracker(-1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
-                  true, false)),
+Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
+        : _mem_tracker(
+                  MemTracker::create_tracker(-1, label, nullptr, MemTrackerLevel::INSTANCE)),
           _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
@@ -80,7 +76,6 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
 
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
-    _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version << ", permits: " << permits;
@@ -134,7 +129,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
 
     int64_t current_max_version;
     {
-        ReadLock rdlock(_tablet->get_header_lock_ptr());
+        ReadLock rdlock(_tablet->get_header_lock());
         current_max_version = _tablet->rowset_with_max_version()->end_version();
     }
 
@@ -142,7 +137,8 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
               << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
-              << ". elapsed time=" << watch.get_elapse_second() << "s. cumulative_compaction_policy="
+              << ". elapsed time=" << watch.get_elapse_second()
+              << "s. cumulative_compaction_policy="
               << _tablet->cumulative_compaction_policy()->name() << ".";
 
     return OLAP_SUCCESS;
@@ -159,13 +155,11 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
     if (_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         context.rowset_type = BETA_ROWSET;
     }
-    context.rowset_path_prefix = _tablet->tablet_path();
+    context.path_desc = _tablet->tablet_path_desc();
     context.tablet_schema = &(_tablet->tablet_schema());
     context.rowset_state = VISIBLE;
     context.version = _output_version;
-    context.version_hash = _output_version_hash;
     context.segments_overlap = NONOVERLAPPING;
-    context.parent_mem_tracker = _writer_tracker;
     // The test results show that one rs writer is low-memory-footprint, there is no need to tracker its mem pool
     RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &_output_rs_writer));
     return OLAP_SUCCESS;
@@ -174,11 +168,7 @@ OLAPStatus Compaction::construct_output_rowset_writer() {
 OLAPStatus Compaction::construct_input_rowset_readers() {
     for (auto& rowset : _input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        RETURN_NOT_OK(rowset->create_reader(
-                MemTracker::CreateTracker(
-                        -1, "Compaction:RowsetReader:" + rowset->rowset_id().to_string(),
-                        _readers_tracker, true, true),
-                &rs_reader));
+        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
         _input_rs_readers.push_back(std::move(rs_reader));
     }
     return OLAP_SUCCESS;
@@ -188,7 +178,7 @@ void Compaction::modify_rowsets() {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
 
-    WriteLock wrlock(_tablet->get_header_lock_ptr());
+    WriteLock wrlock(_tablet->get_header_lock());
     _tablet->modify_rowsets(output_rowsets, _input_rowsets);
     _tablet->save_meta();
 }
@@ -297,4 +287,4 @@ int64_t Compaction::get_compaction_permits() {
     return permits;
 }
 
-}  // namespace doris
+} // namespace doris

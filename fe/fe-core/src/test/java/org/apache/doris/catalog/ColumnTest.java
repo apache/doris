@@ -113,5 +113,36 @@ public class ColumnTest {
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }
-    
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeIntToVarchar() throws DdlException {
+        Column oldColumn = new Column("a", ScalarType.createType(PrimitiveType.INT), false, null, true, "0", "");
+        Column newColumn = new Column("a", ScalarType.createType(PrimitiveType.VARCHAR, 1, 0, 0), false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeFloatToVarchar() throws DdlException {
+        Column oldColumn = new Column("b", ScalarType.createType(PrimitiveType.FLOAT), false, null, true, "0", "");
+        Column newColumn = new Column("b", ScalarType.createType(PrimitiveType.VARCHAR, 23 , 0, 0), false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeDecimalToVarchar() throws DdlException {
+        Column oldColumn = new Column("a", ScalarType.createType(PrimitiveType.DECIMALV2, 13, 13, 3), false, null, true, "0", "");
+        Column newColumn = new Column("a", ScalarType.createType(PrimitiveType.VARCHAR, 14, 0, 0), false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSchemaChangeDoubleToVarchar() throws DdlException {
+        Column oldColumn = new Column("c", ScalarType.createType(PrimitiveType.DOUBLE), false, null, true, "0", "");
+        Column newColumn = new Column("c", ScalarType.createType(PrimitiveType.VARCHAR, 31 , 0, 0), false, null, true, "0", "");
+        oldColumn.checkSchemaChangeAllowed(newColumn);
+        Assert.fail("No exception throws.");
+    }
 }

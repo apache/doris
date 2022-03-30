@@ -31,6 +31,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/string_parser.hpp"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -79,6 +80,8 @@ static const std::string ERROR_MEM_LIMIT_EXCEEDED =
 static const std::string ERROR_COL_DATA_IS_ARRAY =
         "Data source returned an array for the type $0"
         "based on column metadata.";
+static const std::string INVALID_NULL_VALUE =
+        "Invalid null value occurs: Non-null column `$0` contains NULL";
 
 #define RETURN_ERROR_IF_COL_IS_ARRAY(col, type)                              \
     do {                                                                     \
@@ -169,7 +172,7 @@ static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, voi
 template <typename T>
 static Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
                               bool pure_doc_value) {
-    DCHECK(sizeof(T) == 4 || sizeof(T) == 8);
+    static_assert(sizeof(T) == 4 || sizeof(T) == 8);
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
         return Status::OK();
@@ -193,8 +196,67 @@ static Status get_float_value(const rapidjson::Value& col, PrimitiveType type, v
     return Status::OK();
 }
 
-ScrollParser::ScrollParser(bool doc_value_mode)
-        : _scroll_id(""), _size(0), _line_index(0), _doc_value_mode(doc_value_mode) {}
+template <typename T>
+static Status insert_float_value(const rapidjson::Value& col, PrimitiveType type,
+                                 vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
+    static_assert(sizeof(T) == 4 || sizeof(T) == 8);
+    if (col.IsNumber() && nullable) {
+        T value = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
+        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
+        return Status::OK();
+    }
+
+    if (pure_doc_value && col.IsArray() && nullable) {
+        T value = (T)(sizeof(T) == 4 ? col[0].GetFloat() : col[0].GetDouble());
+        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
+        return Status::OK();
+    }
+
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+
+    StringParser::ParseResult result;
+    const std::string& val = col.GetString();
+    size_t len = col.GetStringLength();
+    T v = StringParser::string_to_float<T>(val.c_str(), len, &result);
+    RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
+
+    col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&v)), 0);
+
+    return Status::OK();
+}
+
+template <typename T>
+static Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
+                               vectorized::IColumn* col_ptr, bool pure_doc_value, bool nullable) {
+    if (col.IsNumber()) {
+        T value = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
+        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
+        return Status::OK();
+    }
+
+    if (pure_doc_value && col.IsArray()) {
+        RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
+        T value = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
+        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&value)), 0);
+        return Status::OK();
+    }
+
+    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+    RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+
+    StringParser::ParseResult result;
+    const std::string& val = col.GetString();
+    size_t len = col.GetStringLength();
+    T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
+    RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
+
+    col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&v)), 0);
+
+    return Status::OK();
+}
+
+ScrollParser::ScrollParser(bool doc_value_mode) : _scroll_id(""), _size(0), _line_index(0) {}
 
 ScrollParser::~ScrollParser() {}
 
@@ -290,11 +352,12 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             // obj[FIELD_ID] must not be nullptr
             std::string _id = obj[FIELD_ID].GetString();
             size_t len = _id.length();
-            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(len));
+            Status rst;
+            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(len, &rst));
             if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED,
                                                           "MaterializeNextRow", len, "string slot");
-                return tuple_pool->mem_tracker()->MemLimitExceeded(nullptr, details, len);
+                RETURN_LIMIT_EXCEEDED(tuple_pool->mem_tracker(), nullptr, details, len, rst);
             }
             memcpy(buffer, _id.data(), len);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;
@@ -348,11 +411,12 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
                 }
             }
             size_t val_size = val.length();
-            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
+            Status rst;
+            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size, &rst));
             if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(
                         ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
-                return tuple_pool->mem_tracker()->MemLimitExceeded(nullptr, details, val_size);
+                RETURN_LIMIT_EXCEEDED(tuple_pool->mem_tracker(), nullptr, details, val_size, rst);
             }
             memcpy(buffer, val.data(), val_size);
             reinterpret_cast<StringValue*>(slot)->ptr = buffer;
@@ -426,20 +490,51 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
                 *reinterpret_cast<int8_t*>(slot) = col.GetInt();
                 break;
             }
-            if (pure_doc_value && col.IsArray()) {
+
+            bool is_nested_str = false;
+            if (pure_doc_value && col.IsArray() && col[0].IsBool()) {
                 *reinterpret_cast<int8_t*>(slot) = col[0].GetBool();
                 break;
+            } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
+                is_nested_str = true;
+            } else if (pure_doc_value && col.IsArray()) {
+                return Status::InternalError(
+                        strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
             }
 
-            RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-            RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-            const std::string& val = col.GetString();
-            size_t val_size = col.GetStringLength();
+            const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
+            const std::string& val = str_col.GetString();
+            size_t val_size = str_col.GetStringLength();
             StringParser::ParseResult result;
             bool b = StringParser::string_to_bool(val.c_str(), val_size, &result);
-            RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
+            RETURN_ERROR_IF_PARSING_FAILED(result, str_col, type);
             *reinterpret_cast<int8_t*>(slot) = b;
+            break;
+        }
+        case TYPE_DECIMALV2: {
+            DecimalV2Value data;
+
+            if (col.IsDouble()) {
+                data.assign_from_double(col.GetDouble());
+            } else {
+                std::string val;
+                if (pure_doc_value) {
+                    if (!col[0].IsString()) {
+                        val = json_value_to_string(col[0]);
+                    } else {
+                        val = col[0].GetString();
+                    }
+                } else {
+                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                    if (!col.IsString()) {
+                        val = json_value_to_string(col);
+                    } else {
+                        val = col.GetString();
+                    }
+                }
+                data.parse_from_str(val.data(), val.length());
+            }
+            reinterpret_cast<DecimalV2Value*>(slot)->set_value(data.value());
             break;
         }
 
@@ -482,6 +577,235 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
     return Status::OK();
 }
 
+Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
+                                  std::vector<vectorized::MutableColumnPtr>& columns,
+                                  MemPool* tuple_pool, bool* line_eof,
+                                  const std::map<std::string, std::string>& docvalue_context) {
+    *line_eof = true;
+
+    if (_size <= 0 || _line_index >= _size) {
+        return Status::OK();
+    }
+
+    const rapidjson::Value& obj = _inner_hits_node[_line_index++];
+    bool pure_doc_value = false;
+    if (obj.HasMember("fields")) {
+        pure_doc_value = true;
+    }
+    const rapidjson::Value& line = obj.HasMember(FIELD_SOURCE) ? obj[FIELD_SOURCE] : obj["fields"];
+
+    for (int i = 0; i < tuple_desc->slots().size(); ++i) {
+        const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
+        auto col_ptr = columns[i].get();
+
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        if (slot_desc->col_name() == FIELD_ID) {
+            // actually this branch will not be reached, this is guaranteed by Doris FE.
+            if (pure_doc_value) {
+                std::stringstream ss;
+                ss << "obtain `_id` is not supported in doc_values mode";
+                return Status::RuntimeError(ss.str());
+            }
+            // obj[FIELD_ID] must not be NULL
+            std::string _id = obj[FIELD_ID].GetString();
+            size_t len = _id.length();
+
+            col_ptr->insert_data(const_cast<const char*>(_id.data()), len);
+            continue;
+        }
+
+        const char* col_name = pure_doc_value ? docvalue_context.at(slot_desc->col_name()).c_str()
+                                              : slot_desc->col_name().c_str();
+
+        rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
+        if (itr == line.MemberEnd() && slot_desc->is_nullable()) {
+            auto nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
+            nullable_column->insert_data(nullptr, 0);
+            continue;
+        } else if (itr == line.MemberEnd() && !slot_desc->is_nullable()) {
+            std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
+            return Status::RuntimeError(details);
+        }
+
+        const rapidjson::Value& col = line[col_name];
+
+        PrimitiveType type = slot_desc->type().type;
+
+        // when the column value is null, the subsequent type casting will report an error
+        if (col.IsNull() && slot_desc->is_nullable()) {
+            col_ptr->insert_data(nullptr, 0);
+            continue;
+        } else if (col.IsNull() && !slot_desc->is_nullable()) {
+            std::string details = strings::Substitute(INVALID_NULL_VALUE, col_name);
+            return Status::RuntimeError(details);
+        }
+        switch (type) {
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_STRING: {
+            // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
+            // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation
+            // this may be a tricky, but we can workaround this issue
+            std::string val;
+            if (pure_doc_value) {
+                if (!col[0].IsString()) {
+                    val = json_value_to_string(col[0]);
+                } else {
+                    val = col[0].GetString();
+                }
+            } else {
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                if (!col.IsString()) {
+                    val = json_value_to_string(col);
+                } else {
+                    val = col.GetString();
+                }
+            }
+            size_t val_size = val.length();
+            col_ptr->insert_data(const_cast<const char*>(val.data()), val_size);
+            break;
+        }
+
+        case TYPE_TINYINT: {
+            insert_int_value<int8_t>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            break;
+        }
+
+        case TYPE_SMALLINT: {
+            insert_int_value<int16_t>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            break;
+        }
+
+        case TYPE_INT: {
+            insert_int_value<int32>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            break;
+        }
+
+        case TYPE_BIGINT: {
+            insert_int_value<int64_t>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            break;
+        }
+
+        case TYPE_LARGEINT: {
+            insert_int_value<__int128>(col, type, col_ptr, pure_doc_value,
+                                       slot_desc->is_nullable());
+            break;
+        }
+
+        case TYPE_DOUBLE: {
+            insert_float_value<double>(col, type, col_ptr, pure_doc_value,
+                                       slot_desc->is_nullable());
+            break;
+        }
+
+        case TYPE_FLOAT: {
+            insert_float_value<float>(col, type, col_ptr, pure_doc_value, slot_desc->is_nullable());
+            break;
+        }
+
+        case TYPE_BOOLEAN: {
+            if (col.IsBool()) {
+                int8_t val = col.GetBool();
+                col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
+                break;
+            }
+
+            if (col.IsNumber()) {
+                int8_t val = col.GetInt();
+                col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
+                break;
+            }
+
+            bool is_nested_str = false;
+            if (pure_doc_value && col.IsArray() && col[0].IsBool()) {
+                int8_t val = col[0].GetBool();
+                col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&val)), 0);
+                break;
+            } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
+                is_nested_str = true;
+            } else if (pure_doc_value && col.IsArray()) {
+                return Status::InternalError(
+                        strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+            }
+
+            const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
+
+            const std::string& val = str_col.GetString();
+            size_t val_size = str_col.GetStringLength();
+            StringParser::ParseResult result;
+            bool b = StringParser::string_to_bool(val.c_str(), val_size, &result);
+            RETURN_ERROR_IF_PARSING_FAILED(result, str_col, type);
+            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&b)), 0);
+            break;
+        }
+        case TYPE_DECIMALV2: {
+            DecimalV2Value data;
+
+            if (col.IsDouble()) {
+                data.assign_from_double(col.GetDouble());
+            } else {
+                std::string val;
+                if (pure_doc_value) {
+                    if (!col[0].IsString()) {
+                        val = json_value_to_string(col[0]);
+                    } else {
+                        val = col[0].GetString();
+                    }
+                } else {
+                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                    if (!col.IsString()) {
+                        val = json_value_to_string(col);
+                    } else {
+                        val = col.GetString();
+                    }
+                }
+                data.parse_from_str(val.data(), val.length());
+            }
+            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
+            break;
+        }
+
+        case TYPE_DATE:
+        case TYPE_DATETIME: {
+            // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
+            if (col.IsNumber()) {
+                // ES process date/datetime field would use millisecond timestamp for index or docvalue
+                // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
+                // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
+                RETURN_IF_ERROR(fill_date_col_with_timestamp(col_ptr, col, type));
+            } else if (col.IsArray() && pure_doc_value) {
+                // this would happened just only when `enable_docvalue_scan = true`
+                // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
+                // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
+                // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
+                // date field's docvalue
+                if (col[0].IsString()) {
+                    RETURN_IF_ERROR(fill_date_col_with_strval(col_ptr, col[0], type));
+                    break;
+                }
+                // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
+                RETURN_IF_ERROR(fill_date_col_with_timestamp(col_ptr, col, type));
+            } else {
+                // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
+                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+                RETURN_IF_ERROR(fill_date_col_with_strval(col_ptr, col, type));
+            }
+            break;
+        }
+        default: {
+            DCHECK(false);
+            break;
+        }
+        }
+    }
+
+    *line_eof = false;
+    return Status::OK();
+}
+
 Status ScrollParser::fill_date_slot_with_strval(void* slot, const rapidjson::Value& col,
                                                 PrimitiveType type) {
     DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
@@ -508,6 +832,45 @@ Status ScrollParser::fill_date_slot_with_timestamp(void* slot, const rapidjson::
     } else {
         reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
     }
+    return Status::OK();
+}
+
+Status ScrollParser::fill_date_col_with_strval(vectorized::IColumn* col_ptr,
+                                               const rapidjson::Value& col, PrimitiveType type) {
+    vectorized::VecDateTimeValue dt_val;
+    const std::string& val = col.GetString();
+    size_t val_size = col.GetStringLength();
+    if (!dt_val.from_date_str(val.c_str(), val_size)) {
+        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+    }
+    if (type == TYPE_DATE) {
+        dt_val.cast_to_date();
+    } else {
+        dt_val.to_datetime();
+    }
+
+    auto date_packed_int = binary_cast<doris::vectorized::VecDateTimeValue, int64_t>(
+            *reinterpret_cast<vectorized::VecDateTimeValue*>(&dt_val));
+    col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
+    return Status::OK();
+}
+
+Status ScrollParser::fill_date_col_with_timestamp(vectorized::IColumn* col_ptr,
+                                                  const rapidjson::Value& col, PrimitiveType type) {
+    vectorized::VecDateTimeValue dt_val;
+    if (!dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00")) {
+        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+    }
+    if (type == TYPE_DATE) {
+        reinterpret_cast<vectorized::VecDateTimeValue*>(&dt_val)->cast_to_date();
+    } else {
+        reinterpret_cast<vectorized::VecDateTimeValue*>(&dt_val)->set_type(TIME_DATETIME);
+    }
+
+    auto date_packed_int = binary_cast<doris::vectorized::VecDateTimeValue, int64_t>(
+            *reinterpret_cast<vectorized::VecDateTimeValue*>(&dt_val));
+    col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
+
     return Status::OK();
 }
 

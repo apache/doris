@@ -69,8 +69,6 @@ TEST_F(StatusTest, Error) {
         ASSERT_FALSE(other.ok());
         ASSERT_EQ("456", other.get_error_msg());
         ASSERT_EQ("Internal error: 456", other.to_string());
-        ASSERT_TRUE(st.ok());
-        ASSERT_EQ("OK", st.to_string());
     }
 }
 

@@ -29,7 +29,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 
-@Deprecated
 public class RandomDistributionDesc extends DistributionDesc {
     int numBucket;
 
@@ -43,8 +42,10 @@ public class RandomDistributionDesc extends DistributionDesc {
     }
 
     @Override
-    public void analyze(Set<String> colSet) throws AnalysisException {
-        throw new AnalysisException("Random distribution is deprecated now, use Hash distribution instead");
+    public void analyze(Set<String> colSet, List<ColumnDef> columnDefs) throws AnalysisException {
+        if (numBucket <= 0) {
+            throw new AnalysisException("Number of random distribution should be larger than zero.");
+        }
     }
 
     @Override

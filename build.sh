@@ -18,16 +18,8 @@
 
 ##############################################################
 # This script is used to compile Apache Doris(incubating).
-# Usage: 
+# Usage:
 #    sh build.sh --help
-# Eg:
-#    sh build.sh                            build all
-#    sh build.sh  --be                      build Backend without clean
-#    sh build.sh  --fe --clean              clean and build Frontend and Spark Dpp application, without web UI
-#    sh build.sh  --fe --be --clean         clean and build Frontend, Spark Dpp application and Backend, without web UI
-#    sh build.sh  --spark-dpp               build Spark DPP application alone
-#    sh build.sh  --fe --ui                 build Frontend web ui with npm
-#    sh build.sh  --fe --be --ui --clean    clean and build Frontend, Spark Dpp application, Backend and web UI
 #
 # You need to make sure all thirdparty libraries have been
 # compiled and installed correctly.
@@ -42,31 +34,38 @@ export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
 
-# build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
-    echo "Thirdparty libraries need to be build ..."
-    ${DORIS_THIRDPARTY}/build-thirdparty.sh
-fi
-
 # Check args
 usage() {
   echo "
 Usage: $0 <options>
   Optional options:
+     [no option]        build all components
+     --fe               build Frontend and Spark DPP application
      --be               build Backend
-     --fe               build Frontend and Spark Dpp application
-     --ui               build Frontend web ui with npm
+     --meta-tool        build Backend meta tool
+     --broker           build Broker
      --spark-dpp        build Spark DPP application
+     --hive-udf         build Hive UDF library for Spark Load
+     --java-udf         build Java UDF library
      --clean            clean and build target
      -j                 build Backend parallel
 
+  Environment variables:
+    USE_AVX2            If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
+    STRIP_DEBUG_INFO    If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
+
   Eg.
     $0                                      build all
-    $0 --be                                 build Backend without clean
-    $0 --fe --clean                         clean and build Frontend and Spark Dpp application, without web UI
-    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend, without web UI
+    $0 --be                                 build Backend
+    $0 --meta-tool                          build Backend meta tool
+    $0 --fe --clean                         clean and build Frontend and Spark Dpp application
+    $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
     $0 --spark-dpp                          build Spark DPP application alone
-    $0 --fe --ui                            build Frontend web ui with npm
+    $0 --broker                             build Broker
+    $0 --be --fe --java-udf                 build Backend, Frontend, Spark Dpp application and Java UDF library
+
+    USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
+    USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
   "
   exit 1
 }
@@ -74,12 +73,19 @@ Usage: $0 <options>
 clean_gensrc() {
     pushd ${DORIS_HOME}/gensrc
     make clean
+    rm -rf ${DORIS_HOME}/fe/fe-common/target
     rm -rf ${DORIS_HOME}/fe/fe-core/target
     popd
 }
 
 clean_be() {
     pushd ${DORIS_HOME}
+
+    # "build.sh --clean" just cleans and exits, however CMAKE_BUILD_DIR is set
+    # while building be.
+    CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
+    CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
+
     rm -rf $CMAKE_BUILD_DIR
     rm -rf ${DORIS_HOME}/be/output/
     popd
@@ -94,14 +100,16 @@ clean_fe() {
 OPTS=$(getopt \
   -n $0 \
   -o '' \
-  -o 'h' \
-  -l 'be' \
   -l 'fe' \
-  -l 'ui' \
+  -l 'be' \
+  -l 'broker' \
+  -l 'meta-tool' \
   -l 'spark-dpp' \
+  -l 'java-udf' \
+  -l 'hive-udf' \
   -l 'clean' \
   -l 'help' \
-  -o 'j:' \
+  -o 'hj:' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -111,39 +119,56 @@ fi
 eval set -- "$OPTS"
 
 PARALLEL=$[$(nproc)/4+1]
-BUILD_BE=
-BUILD_FE=
-BUILD_UI=
-BUILD_SPARK_DPP=
-CLEAN=
+BUILD_FE=0
+BUILD_BE=0
+BUILD_BROKER=0
+BUILD_META_TOOL=OFF
+BUILD_SPARK_DPP=0
+BUILD_JAVA_UDF=0
+BUILD_HIVE_UDF=0
+CLEAN=0
 HELP=0
+PARAMETER_COUNT=$#
+PARAMETER_FLAG=0
 if [ $# == 1 ] ; then
     # default
-    BUILD_BE=1
     BUILD_FE=1
-    BUILD_UI=1
+    BUILD_BE=1
+    BUILD_BROKER=1
+    BUILD_META_TOOL=1
     BUILD_SPARK_DPP=1
+    BUILD_JAVA_UDF=0 # TODO: open it when ready
+    BUILD_HIVE_UDF=1
     CLEAN=0
 else
-    BUILD_BE=0
-    BUILD_FE=0
-    BUILD_UI=0
-    BUILD_SPARK_DPP=0
-    CLEAN=0
     while true; do
         case "$1" in
+            --fe) BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
             --be) BUILD_BE=1 ; shift ;;
-            --fe) BUILD_FE=1 ; shift ;;
-            --ui) BUILD_UI=1 ; shift ;;
+            --broker) BUILD_BROKER=1 ; shift ;;
+            --meta-tool) BUILD_META_TOOL="ON" ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
+            --java-udf) BUILD_JAVA_UDF=1 BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
+            --hive-udf) BUILD_HIVE_UDF=1 ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;
-            -j) PARALLEL=$2; shift 2 ;;
+            -j) PARALLEL=$2; PARAMETER_FLAG=1; shift 2 ;;
             --) shift ;  break ;;
             *) echo "Internal error" ; exit 1 ;;
         esac
     done
+    #only ./build.sh -j xx then build all 
+    if [[ ${PARAMETER_COUNT} -eq 3 ]] && [[ ${PARAMETER_FLAG} -eq 1 ]];then
+        BUILD_FE=1
+        BUILD_BE=1
+        BUILD_BROKER=1
+        BUILD_META_TOOL=1
+        BUILD_SPARK_DPP=1
+        BUILD_JAVA_UDF=1
+        BUILD_HIVE_UDF=1
+        CLEAN=0
+    fi
 fi
 
 if [[ ${HELP} -eq 1 ]]; then
@@ -152,8 +177,10 @@ if [[ ${HELP} -eq 1 ]]; then
 fi
 
 # build thirdparty libraries if necessary
-if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
+if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a ]]; then
     echo "Thirdparty libraries need to be build ..."
+    # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
+    rm -rf ${DORIS_THIRDPARTY}/installed
     ${DORIS_THIRDPARTY}/build-thirdparty.sh -j $PARALLEL
 fi
 
@@ -176,18 +203,33 @@ fi
 if [[ -z ${WITH_LZO} ]]; then
     WITH_LZO=OFF
 fi
+if [[ -z ${USE_LIBCPP} ]]; then
+    USE_LIBCPP=OFF
+fi
+if [[ -z ${USE_LLD} ]]; then
+    USE_LLD=OFF
+fi
+if [[ -z ${STRIP_DEBUG_INFO} ]]; then
+    STRIP_DEBUG_INFO=OFF
+fi
 
 echo "Get params:
-    BUILD_BE            -- $BUILD_BE
     BUILD_FE            -- $BUILD_FE
-    BUILD_UI            -- $BUILD_UI
+    BUILD_BE            -- $BUILD_BE
+    BUILD_BROKER        -- $BUILD_BROKER
+    BUILD_META_TOOL     -- $BUILD_META_TOOL
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
+    BUILD_JAVA_UDF      -- $BUILD_JAVA_UDF
+    BUILD_HIVE_UDF      -- $BUILD_HIVE_UDF
     PARALLEL            -- $PARALLEL
     CLEAN               -- $CLEAN
     WITH_MYSQL          -- $WITH_MYSQL
     WITH_LZO            -- $WITH_LZO
     GLIBC_COMPATIBILITY -- $GLIBC_COMPATIBILITY
     USE_AVX2            -- $USE_AVX2
+    USE_LIBCPP          -- $USE_LIBCPP
+    USE_LLD             -- $USE_LLD
+    STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
 "
 
 # Clean and build generated code
@@ -197,8 +239,31 @@ fi
 echo "Build generated code"
 cd ${DORIS_HOME}/gensrc
 # DO NOT using parallel make(-j) for gensrc
+python --version
 make
 
+# Assesmble FE modules
+FE_MODULES=
+BUILD_DOCS=OFF
+modules=("")
+if [ ${BUILD_FE} -eq 1 ]; then
+    modules+=("fe-common")
+    modules+=("fe-core")
+    BUILD_DOCS=ON
+fi
+if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
+    modules+=("fe-common")
+    modules+=("spark-dpp")
+fi
+if [ ${BUILD_JAVA_UDF} -eq 1 ]; then
+    modules+=("java-udf")
+fi
+if [ ${BUILD_HIVE_UDF} -eq 1 ]; then
+    modules+=("fe-common")
+    modules+=("hive-udf")
+fi
+FE_MODULES=$(IFS=, ; echo "${modules[*]}")
+    
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
@@ -207,15 +272,23 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     if [ ${CLEAN} -eq 1 ]; then
         clean_be
     fi
+    MAKE_PROGRAM="$(which "${BUILD_SYSTEM}")"
+    echo "-- Make program: ${MAKE_PROGRAM}"
     mkdir -p ${CMAKE_BUILD_DIR}
     cd ${CMAKE_BUILD_DIR}
     ${CMAKE_CMD} -G "${GENERATOR}"  \
+            -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
             -DMAKE_TEST=OFF \
             ${CMAKE_USE_CCACHE} \
             -DWITH_MYSQL=${WITH_MYSQL} \
             -DWITH_LZO=${WITH_LZO} \
+            -DUSE_LIBCPP=${USE_LIBCPP} \
+            -DBUILD_META_TOOL=${BUILD_META_TOOL} \
+            -DUSE_LLD=${USE_LLD} \
+            -DBUILD_JAVA_UDF=${BUILD_JAVA_UDF} \
+            -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}
@@ -223,28 +296,19 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     cd ${DORIS_HOME}
 fi
 
-# Build docs, should be built before Frontend
-echo "Build docs"
-cd ${DORIS_HOME}/docs
-./build_help_zip.sh
-cd ${DORIS_HOME}
-
-# Assesmble FE modules
-FE_MODULES=
-if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
-    if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
-        FE_MODULES="fe-common,spark-dpp"
-    fi
-    if [ ${BUILD_FE} -eq 1 ]; then
-        FE_MODULES="fe-common,spark-dpp,fe-core"
-    fi
+if [ "${BUILD_DOCS}" = "ON" ] ; then
+    # Build docs, should be built before Frontend
+    echo "Build docs"
+    cd ${DORIS_HOME}/docs
+    ./build_help_zip.sh
+    cd ${DORIS_HOME}
 fi
 
 function build_ui() {
     # check NPM env here, not in env.sh.
     # Because UI should be considered a non-essential component at runtime.
     # Only when the compilation is required, check the relevant compilation environment.
-    NPM=npm    
+    NPM=npm
     if ! ${NPM} --version; then
         echo "Error: npm is not found"
         exit 1
@@ -259,7 +323,7 @@ function build_ui() {
     ui_dist=${DORIS_HOME}/ui/dist/
     if [[ ! -z ${CUSTOM_UI_DIST} ]]; then
         ui_dist=${CUSTOM_UI_DIST}
-    else 
+    else
         cd ${DORIS_HOME}/ui
         ${NPM} install
         ${NPM} run build
@@ -271,7 +335,7 @@ function build_ui() {
 }
 
 # FE UI must be built before building FE
-if [ ${BUILD_UI} -eq 1 ] ; then 
+if [ ${BUILD_FE} -eq 1 ] ; then
     build_ui
 fi
 
@@ -291,31 +355,27 @@ DORIS_OUTPUT=${DORIS_HOME}/output/
 mkdir -p ${DORIS_OUTPUT}
 
 # Copy Frontend and Backend
-if [ ${BUILD_FE} -eq 1 -o ${BUILD_SPARK_DPP} -eq 1 ]; then
-    if [ ${BUILD_FE} -eq 1 ]; then
-        install -d ${DORIS_OUTPUT}/fe/bin ${DORIS_OUTPUT}/fe/conf \
-                   ${DORIS_OUTPUT}/fe/webroot/ ${DORIS_OUTPUT}/fe/lib/ \
-                   ${DORIS_OUTPUT}/fe/spark-dpp/
+if [ ${BUILD_FE} -eq 1 ]; then
+    install -d ${DORIS_OUTPUT}/fe/bin ${DORIS_OUTPUT}/fe/conf \
+               ${DORIS_OUTPUT}/fe/webroot/ ${DORIS_OUTPUT}/fe/lib/
 
-        cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
-        cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
-        rm -rf ${DORIS_OUTPUT}/fe/lib/*
-        cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
-        cp -r -p ${DORIS_HOME}/fe/fe-core/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
-        cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
-        cp -r -p ${DORIS_HOME}/webroot/static ${DORIS_OUTPUT}/fe/webroot/
-        cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
+    cp -r -p ${DORIS_HOME}/bin/*_fe.sh ${DORIS_OUTPUT}/fe/bin/
+    cp -r -p ${DORIS_HOME}/conf/fe.conf ${DORIS_OUTPUT}/fe/conf/
+    rm -rf ${DORIS_OUTPUT}/fe/lib/*
+    cp -r -p ${DORIS_HOME}/fe/fe-core/target/lib/* ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/fe/fe-core/target/palo-fe.jar ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/docs/build/help-resource.zip ${DORIS_OUTPUT}/fe/lib/
+    cp -r -p ${DORIS_HOME}/webroot/static ${DORIS_OUTPUT}/fe/webroot/
 
-        cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/fe/webroot/static/
-        mkdir -p ${DORIS_OUTPUT}/fe/log
-        mkdir -p ${DORIS_OUTPUT}/fe/doris-meta
+    cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/fe/webroot/static/
+    mkdir -p ${DORIS_OUTPUT}/fe/log
+    mkdir -p ${DORIS_OUTPUT}/fe/doris-meta
+fi
 
-    elif [ ${BUILD_SPARK_DPP} -eq 1 ]; then
-        install -d ${DORIS_OUTPUT}/fe/spark-dpp/
-        rm -rf ${DORIS_OUTPUT}/fe/spark-dpp/*
-        cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
-    fi
-
+if [ ${BUILD_SPARK_DPP} -eq 1 ]; then
+    install -d ${DORIS_OUTPUT}/fe/spark-dpp/
+    rm -rf ${DORIS_OUTPUT}/fe/spark-dpp/*
+    cp -r -p ${DORIS_HOME}/fe/spark-dpp/target/spark-dpp-*-jar-with-dependencies.jar ${DORIS_OUTPUT}/fe/spark-dpp/
 fi
 
 if [ ${BUILD_BE} -eq 1 ]; then
@@ -328,16 +388,35 @@ if [ ${BUILD_BE} -eq 1 ]; then
 
     cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
-    cp -r -p ${DORIS_HOME}/be/output/lib/* ${DORIS_OUTPUT}/be/lib/
+    cp -r -p ${DORIS_HOME}/be/output/lib/palo_be ${DORIS_OUTPUT}/be/lib/
+    cp -r -p ${DORIS_HOME}/be/output/lib/meta_tool ${DORIS_OUTPUT}/be/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/include/* ${DORIS_OUTPUT}/udf/include/
     cp -r -p ${DORIS_HOME}/webroot/be/* ${DORIS_OUTPUT}/be/www/
+    if [ ${STRIP_DEBUG_INFO} -eq 1 ]; then
+        cp -r -p ${DORIS_HOME}/be/output/lib/debug_info ${DORIS_OUTPUT}/be/lib/
+    fi
+    
+    java_udf_path=${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar
+    if [ -f ${java_udf_path} ];then
+        cp ${java_udf_path} ${DORIS_OUTPUT}/be/lib/
+    fi
 
     cp -r -p ${DORIS_THIRDPARTY}/installed/webroot/* ${DORIS_OUTPUT}/be/www/
     mkdir -p ${DORIS_OUTPUT}/be/log
     mkdir -p ${DORIS_OUTPUT}/be/storage
 
 
+fi
+
+if [ ${BUILD_BROKER} -eq 1 ]; then
+    install -d ${DORIS_OUTPUT}/apache_hdfs_broker
+
+    cd ${DORIS_HOME}/fs_brokers/apache_hdfs_broker/
+    ./build.sh
+    rm -rf ${DORIS_OUTPUT}/apache_hdfs_broker/*
+    cp -r -p ${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker/* ${DORIS_OUTPUT}/apache_hdfs_broker/
+    cd ${DORIS_HOME}
 fi
 
 echo "***************************************"

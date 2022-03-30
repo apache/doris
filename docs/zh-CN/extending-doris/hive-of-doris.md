@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Hive of Doris",
+    "title": "Doris On Hive",
     "language": "zh-CN"
 }
 ---
@@ -101,12 +101,12 @@ PROPERTIES (
 |   DOUBLE  | DOUBLE |  |
 |   DECIMAL  | DECIMAL |  |
 |   DATE   |  DATE  |                                   |
-|   DATETIME  | TIMESTAMP | Timestamp 转成 Datetime 会损失精度 | 
+|   TIMESTAMP  | DATETIME | Timestamp 转成 Datetime 会损失精度 |
 
 **注意：** 
 - Hive 表 Schema 变更**不会自动同步**，需要在 Doris 中重建 Hive 外表。
 - 当前 Hive 的存储格式仅支持 Text，Parquet 和 ORC 类型
-- 当前默认支持的 Hive 版本为 2.3.7，未在其他版本进行测试。后续后支持更多版本。
+- 当前默认支持的 Hive 版本为 `2.3.7、3.1.2`，未在其他版本进行测试。后续后支持更多版本。
 
 ### 查询用法
 

@@ -112,15 +112,6 @@ public:
                                     const doris_udf::StringVal& replace);
     static void regexp_close(doris_udf::FunctionContext*,
                              doris_udf::FunctionContext::FunctionStateScope);
-#if 0
-    static void RegexpMatchCountPrepare(FunctionContext* context,
-                                        FunctionContext::FunctionStateScope scope);
-    static IntVal RegexpMatchCount2Args(FunctionContext* context, const StringVal& str,
-                                        const StringVal& pattern);
-    static IntVal RegexpMatchCount4Args(FunctionContext* context, const StringVal& str,
-                                        const StringVal& pattern, const IntVal& start_pos,
-                                        const StringVal& match_parameter);
-#endif
     static StringVal concat(doris_udf::FunctionContext*, int num_children, const StringVal* strs);
     static StringVal concat_ws(doris_udf::FunctionContext*, const doris_udf::StringVal& sep,
                                int num_children, const doris_udf::StringVal* strs);
@@ -149,8 +140,9 @@ public:
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                              const doris_udf::LargeIntVal& v);
 
-    template <typename T, size_t N> static StringVal do_money_format(FunctionContext* context, const T int_value,
-            const int32_t frac_value = 0) {
+    template <typename T, size_t N>
+    static StringVal do_money_format(FunctionContext* context, const T int_value,
+                                     const int32_t frac_value = 0) {
         char local[N];
         char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
         int32_t string_val_len = local + sizeof(local) - p + 3;
@@ -191,7 +183,10 @@ public:
                              const StringVal& oldStr, const StringVal& newStr);
 
     static doris_udf::IntVal bit_length(doris_udf::FunctionContext* context,
-                                    const doris_udf::StringVal& str);
+                                        const doris_udf::StringVal& str);
+    // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
+    static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
+                                const StringVal& match_parameter);
 };
 } // namespace doris
 

@@ -47,7 +47,7 @@ static StorageEngine* k_engine = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];
-    getcwd(buffer, MAX_PATH_LEN);
+    ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
     FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
@@ -67,7 +67,7 @@ void set_up() {
 
 void tear_down() {
     char buffer[MAX_PATH_LEN];
-    getcwd(buffer, MAX_PATH_LEN);
+    ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
     FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
@@ -76,7 +76,6 @@ void tear_down() {
 void set_default_create_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10003;
     request->__set_version(1);
-    request->__set_version_hash(0);
     request->tablet_schema.schema_hash = 270068375;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
@@ -157,7 +156,6 @@ void set_default_create_tablet_request(TCreateTabletReq* request) {
 void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10009;
     request->__set_version(1);
-    request->__set_version_hash(0);
     request->tablet_schema.schema_hash = 270068376;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::DUP_KEYS;
@@ -246,7 +244,7 @@ protected:
     void SetUp() {
         // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
-        getcwd(buffer, MAX_PATH_LEN);
+        ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
         FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
@@ -259,16 +257,16 @@ protected:
         ASSERT_EQ(OLAP_SUCCESS, res);
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(tablet.get() != nullptr);
-        _tablet_path = tablet->tablet_path();
+        ASSERT_NE(tablet.get(), nullptr);
+        _tablet_path = tablet->tablet_path_desc().filepath;
 
         set_create_duplicate_tablet_request(&_create_dup_tablet);
         res = k_engine->create_tablet(_create_dup_tablet);
         ASSERT_EQ(OLAP_SUCCESS, res);
         dup_tablet = k_engine->tablet_manager()->get_tablet(
                 _create_dup_tablet.tablet_id, _create_dup_tablet.tablet_schema.schema_hash);
-        ASSERT_TRUE(dup_tablet.get() != nullptr);
-        _dup_tablet_path = tablet->tablet_path();
+        ASSERT_TRUE(dup_tablet.get() != NULL);
+        _dup_tablet_path = tablet->tablet_path_desc().filepath;
     }
 
     void TearDown() {
@@ -417,7 +415,7 @@ protected:
     void SetUp() {
         // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
-        getcwd(buffer, MAX_PATH_LEN);
+        ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
         FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
@@ -431,7 +429,7 @@ protected:
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != nullptr);
-        _tablet_path = tablet->tablet_path();
+        _tablet_path = tablet->tablet_path_desc().filepath;
     }
 
     void TearDown() {
@@ -784,7 +782,7 @@ protected:
         CpuInfo::init();
         // Create local data dir for StorageEngine.
         char buffer[MAX_PATH_LEN];
-        getcwd(buffer, MAX_PATH_LEN);
+        ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
         FileUtils::remove_all(config::storage_root_path);
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
@@ -798,7 +796,7 @@ protected:
         tablet = k_engine->tablet_manager()->get_tablet(_create_tablet.tablet_id,
                                                         _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet != nullptr);
-        _tablet_path = tablet->tablet_path();
+        _tablet_path = tablet->tablet_path_desc().filepath;
 
         _data_row_cursor.init(tablet->tablet_schema());
         _data_row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());

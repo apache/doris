@@ -1,11 +1,21 @@
-//  Copyright (c) 2011-present, Facebook, Inc.  All rights reserved.
-//  This source code is licensed under both the GPLv2 (found in the
-//  COPYING file in the root directory) and Apache 2.0 License
-//  (found in the LICENSE.Apache file in the root directory).
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
 //
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "env/env_posix.h"
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -15,6 +25,8 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+#include <filesystem>
+#include <fstream>
 #include <memory>
 
 #include "common/logging.h"
@@ -266,13 +278,38 @@ public:
         }
     }
 
-    Status read_at(uint64_t offset, const Slice& result) const override {
-        return do_readv_at(_fd, _filename, offset, &result, 1);
+    Status read_at(uint64_t offset, const Slice* result) const override {
+        return readv_at(offset, result, 1);
     }
 
-    Status readv_at(uint64_t offset, const Slice* res, size_t res_cnt) const override {
-        return do_readv_at(_fd, _filename, offset, res, res_cnt);
+    Status readv_at(uint64_t offset, const Slice* result, size_t res_cnt) const override {
+        return do_readv_at(_fd, _filename, offset, result, res_cnt);
     }
+
+    Status read_all(std::string* content) const override {
+        std::fstream fs(_filename.c_str(), std::fstream::in);
+        if (!fs.is_open()) {
+            RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError(strings::Substitute(
+                                                   "failed to open cluster id file $0", _filename)),
+                                           "open file failed");
+        }
+        std::string data;
+        fs >> data;
+        fs.close();
+        if ((fs.rdstate() & std::fstream::eofbit) != 0) {
+            *content = data;
+        } else {
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    Status::Corruption(strings::Substitute(
+                            "read_all from file $0 is corrupt. [eofbit=$1 failbit=$2 badbit=$3]",
+                            _filename, fs.rdstate() & std::fstream::eofbit,
+                            fs.rdstate() & std::fstream::failbit,
+                            fs.rdstate() & std::fstream::badbit)),
+                    "read_all is error");
+        }
+        return Status::OK();
+    }
+
     Status size(uint64_t* size) const override {
         struct stat st;
         auto res = fstat(_fd, &st);
@@ -413,12 +450,12 @@ public:
 
     ~PosixRandomRWFile() { WARN_IF_ERROR(close(), "Failed to close " + _filename); }
 
-    virtual Status read_at(uint64_t offset, const Slice& result) const override {
-        return do_readv_at(_fd, _filename, offset, &result, 1);
+    Status read_at(uint64_t offset, const Slice& result) const override {
+        return readv_at(offset, &result, 1);
     }
 
-    Status readv_at(uint64_t offset, const Slice* res, size_t res_cnt) const override {
-        return do_readv_at(_fd, _filename, offset, res, res_cnt);
+    Status readv_at(uint64_t offset, const Slice* result, size_t res_cnt) const override {
+        return do_readv_at(_fd, _filename, offset, result, res_cnt);
     }
 
     Status write_at(uint64_t offset, const Slice& data) override {
@@ -491,219 +528,288 @@ private:
     bool _closed = false;
 };
 
-class PosixEnv : public Env {
-public:
-    ~PosixEnv() override {}
+Status PosixEnv::init_conf() {
+    return Status::OK();
+}
 
-    Status new_sequential_file(const string& fname,
-                               std::unique_ptr<SequentialFile>* result) override {
-        FILE* f;
-        POINTER_RETRY_ON_EINTR(f, fopen(fname.c_str(), "r"));
-        if (f == nullptr) {
-            return io_error(fname, errno);
+Status PosixEnv::new_sequential_file(const string& fname, std::unique_ptr<SequentialFile>* result) {
+    FILE* f;
+    POINTER_RETRY_ON_EINTR(f, fopen(fname.c_str(), "r"));
+    if (f == nullptr) {
+        return io_error(fname, errno);
+    }
+    result->reset(new PosixSequentialFile(fname, f));
+    return Status::OK();
+}
+
+// get a RandomAccessFile pointer without file cache
+Status PosixEnv::new_random_access_file(const std::string& fname,
+                                        std::unique_ptr<RandomAccessFile>* result) {
+    return new_random_access_file(RandomAccessFileOptions(), fname, result);
+}
+
+Status PosixEnv::new_random_access_file(const RandomAccessFileOptions& opts,
+                                        const std::string& fname,
+                                        std::unique_ptr<RandomAccessFile>* result) {
+    int fd;
+    RETRY_ON_EINTR(fd, open(fname.c_str(), O_RDONLY));
+    if (fd < 0) {
+        return io_error(fname, errno);
+    }
+    result->reset(new PosixRandomAccessFile(fname, fd));
+    return Status::OK();
+}
+
+Status PosixEnv::new_writable_file(const string& fname, std::unique_ptr<WritableFile>* result) {
+    return new_writable_file(WritableFileOptions(), fname, result);
+}
+
+Status PosixEnv::new_writable_file(const WritableFileOptions& opts, const string& fname,
+                                   std::unique_ptr<WritableFile>* result) {
+    int fd;
+    RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
+
+    uint64_t file_size = 0;
+    if (opts.mode == MUST_EXIST) {
+        RETURN_IF_ERROR(get_file_size(fname, &file_size));
+    }
+    result->reset(new PosixWritableFile(fname, fd, file_size, opts.sync_on_close));
+    return Status::OK();
+}
+
+Status PosixEnv::new_random_rw_file(const string& fname, std::unique_ptr<RandomRWFile>* result) {
+    return new_random_rw_file(RandomRWFileOptions(), fname, result);
+}
+
+Status PosixEnv::new_random_rw_file(const RandomRWFileOptions& opts, const string& fname,
+                                    std::unique_ptr<RandomRWFile>* result) {
+    int fd;
+    RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
+    result->reset(new PosixRandomRWFile(fname, fd, opts.sync_on_close));
+    return Status::OK();
+}
+
+Status PosixEnv::path_exists(const std::string& fname, bool is_dir) {
+    if (access(fname.c_str(), F_OK) != 0) {
+        return io_error(fname, errno);
+    }
+    return Status::OK();
+}
+
+Status PosixEnv::get_children(const std::string& dir, std::vector<std::string>* result) {
+    result->clear();
+    DIR* d = opendir(dir.c_str());
+    if (d == nullptr) {
+        return io_error(dir, errno);
+    }
+    struct dirent* entry;
+    while ((entry = readdir(d)) != nullptr) {
+        result->push_back(entry->d_name);
+    }
+    closedir(d);
+    return Status::OK();
+}
+
+Status PosixEnv::iterate_dir(const std::string& dir, const std::function<bool(const char*)>& cb) {
+    DIR* d = opendir(dir.c_str());
+    if (d == nullptr) {
+        return io_error(dir, errno);
+    }
+    struct dirent* entry;
+    while ((entry = readdir(d)) != nullptr) {
+        // callback returning false means to terminate iteration
+        if (!cb(entry->d_name)) {
+            break;
         }
-        result->reset(new PosixSequentialFile(fname, f));
-        return Status::OK();
+    }
+    closedir(d);
+    return Status::OK();
+}
+
+Status PosixEnv::delete_file(const std::string& fname) {
+    if (unlink(fname.c_str()) != 0) {
+        return io_error(fname, errno);
+    }
+    return Status::OK();
+}
+
+Status PosixEnv::create_dir(const std::string& name) {
+    if (mkdir(name.c_str(), 0755) != 0) {
+        return io_error(name, errno);
+    }
+    return Status::OK();
+}
+
+Status PosixEnv::create_dir_if_missing(const string& dirname, bool* created) {
+    Status s = create_dir(dirname);
+    if (created != nullptr) {
+        *created = s.ok();
     }
 
-    // get a RandomAccessFile pointer without file cache
-    Status new_random_access_file(const std::string& fname,
-                                  std::unique_ptr<RandomAccessFile>* result) override {
-        return new_random_access_file(RandomAccessFileOptions(), fname, result);
-    }
-
-    Status new_random_access_file(const RandomAccessFileOptions& opts, const std::string& fname,
-                                  std::unique_ptr<RandomAccessFile>* result) override {
-        int fd;
-        RETRY_ON_EINTR(fd, open(fname.c_str(), O_RDONLY));
-        if (fd < 0) {
-            return io_error(fname, errno);
+    // Check that dirname is actually a directory.
+    if (s.is_already_exist()) {
+        bool is_dir = false;
+        RETURN_IF_ERROR(is_directory(dirname, &is_dir));
+        if (is_dir) {
+            return Status::OK();
+        } else {
+            return s.clone_and_append("path already exists but not a dir");
         }
-        result->reset(new PosixRandomAccessFile(fname, fd));
-        return Status::OK();
+    }
+    return s;
+}
+
+Status PosixEnv::create_dirs(const string& dirname) {
+    if (dirname.empty()) {
+        return Status::InvalidArgument(strings::Substitute("Unknown primitive type($0)", dirname));
     }
 
-    Status new_writable_file(const string& fname, std::unique_ptr<WritableFile>* result) override {
-        return new_writable_file(WritableFileOptions(), fname, result);
-    }
+    std::filesystem::path p(dirname);
 
-    Status new_writable_file(const WritableFileOptions& opts, const string& fname,
-                             std::unique_ptr<WritableFile>* result) override {
-        int fd;
-        RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
+    std::string partial_path;
+    for (std::filesystem::path::iterator it = p.begin(); it != p.end(); ++it) {
+        partial_path = partial_path + it->string() + "/";
+        bool is_dir = false;
 
-        uint64_t file_size = 0;
-        if (opts.mode == MUST_EXIST) {
-            RETURN_IF_ERROR(get_file_size(fname, &file_size));
-        }
-        result->reset(new PosixWritableFile(fname, fd, file_size, opts.sync_on_close));
-        return Status::OK();
-    }
+        Status s = is_directory(partial_path, &is_dir);
 
-    Status new_random_rw_file(const string& fname, std::unique_ptr<RandomRWFile>* result) override {
-        return new_random_rw_file(RandomRWFileOptions(), fname, result);
-    }
-
-    Status new_random_rw_file(const RandomRWFileOptions& opts, const string& fname,
-                              std::unique_ptr<RandomRWFile>* result) override {
-        int fd;
-        RETURN_IF_ERROR(do_open(fname, opts.mode, &fd));
-        result->reset(new PosixRandomRWFile(fname, fd, opts.sync_on_close));
-        return Status::OK();
-    }
-
-    Status path_exists(const std::string& fname) override {
-        if (access(fname.c_str(), F_OK) != 0) {
-            return io_error(fname, errno);
-        }
-        return Status::OK();
-    }
-
-    Status get_children(const std::string& dir, std::vector<std::string>* result) override {
-        result->clear();
-        DIR* d = opendir(dir.c_str());
-        if (d == nullptr) {
-            return io_error(dir, errno);
-        }
-        struct dirent* entry;
-        while ((entry = readdir(d)) != nullptr) {
-            result->push_back(entry->d_name);
-        }
-        closedir(d);
-        return Status::OK();
-    }
-
-    Status iterate_dir(const std::string& dir,
-                       const std::function<bool(const char*)>& cb) override {
-        DIR* d = opendir(dir.c_str());
-        if (d == nullptr) {
-            return io_error(dir, errno);
-        }
-        struct dirent* entry;
-        while ((entry = readdir(d)) != nullptr) {
-            // callback returning false means to terminate iteration
-            if (!cb(entry->d_name)) {
-                break;
-            }
-        }
-        closedir(d);
-        return Status::OK();
-    }
-
-    Status delete_file(const std::string& fname) override {
-        if (unlink(fname.c_str()) != 0) {
-            return io_error(fname, errno);
-        }
-        return Status::OK();
-    }
-
-    Status create_dir(const std::string& name) override {
-        if (mkdir(name.c_str(), 0755) != 0) {
-            return io_error(name, errno);
-        }
-        return Status::OK();
-    }
-
-    Status create_dir_if_missing(const string& dirname, bool* created = nullptr) override {
-        Status s = create_dir(dirname);
-        if (created != nullptr) {
-            *created = s.ok();
-        }
-
-        // Check that dirname is actually a directory.
-        if (s.is_already_exist()) {
-            bool is_dir = false;
-            RETURN_IF_ERROR(is_directory(dirname, &is_dir));
+        if (s.ok()) {
             if (is_dir) {
-                return Status::OK();
+                // It's a normal directory.
+                continue;
+            }
+
+            // Maybe a file or a symlink. Let's try to follow the symlink.
+            std::string real_partial_path;
+            RETURN_IF_ERROR(canonicalize(partial_path, &real_partial_path));
+
+            RETURN_IF_ERROR(is_directory(real_partial_path, &is_dir));
+            if (is_dir) {
+                // It's a symlink to a directory.
+                continue;
             } else {
-                return s.clone_and_append("path already exists but not a dir");
+                return Status::IOError(partial_path + " exists but is not a directory");
             }
         }
-        return s;
+
+        RETURN_IF_ERROR(create_dir_if_missing(partial_path));
     }
 
-    // Delete the specified directory.
-    Status delete_dir(const std::string& dirname) override {
-        if (rmdir(dirname.c_str()) != 0) {
-            return io_error(dirname, errno);
-        }
-        return Status::OK();
+    return Status::OK();
+}
+
+// Delete the specified directory.
+Status PosixEnv::delete_dir(const std::string& dirname) {
+    std::filesystem::path boost_path(dirname);
+    std::error_code ec;
+    std::filesystem::remove_all(boost_path, ec);
+    if (ec) {
+        std::stringstream ss;
+        ss << "remove all(" << dirname << ") failed, because: " << ec;
+        return Status::InternalError(ss.str());
+    }
+    return Status::OK();
+}
+
+Status PosixEnv::sync_dir(const string& dirname) {
+    int dir_fd;
+    RETRY_ON_EINTR(dir_fd, open(dirname.c_str(), O_DIRECTORY | O_RDONLY));
+    if (dir_fd < 0) {
+        return io_error(dirname, errno);
+    }
+    ScopedFdCloser fd_closer(dir_fd);
+    if (fsync(dir_fd) != 0) {
+        return io_error(dirname, errno);
+    }
+    return Status::OK();
+}
+
+Status PosixEnv::is_directory(const std::string& path, bool* is_dir) {
+    struct stat path_stat;
+    if (stat(path.c_str(), &path_stat) != 0) {
+        return io_error(path, errno);
+    } else {
+        *is_dir = S_ISDIR(path_stat.st_mode);
     }
 
-    Status sync_dir(const string& dirname) override {
-        int dir_fd;
-        RETRY_ON_EINTR(dir_fd, open(dirname.c_str(), O_DIRECTORY | O_RDONLY));
-        if (dir_fd < 0) {
-            return io_error(dirname, errno);
-        }
-        ScopedFdCloser fd_closer(dir_fd);
-        if (fsync(dir_fd) != 0) {
-            return io_error(dirname, errno);
-        }
-        return Status::OK();
+    return Status::OK();
+}
+
+Status PosixEnv::canonicalize(const std::string& path, std::string* result) {
+    // NOTE: we must use free() to release the buffer retruned by realpath(),
+    // because the buffer is allocated by malloc(), see `man 3 realpath`.
+    std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
+    if (r == nullptr) {
+        return io_error(strings::Substitute("Unable to canonicalize $0", path), errno);
     }
+    *result = std::string(r.get());
+    return Status::OK();
+}
 
-    Status is_directory(const std::string& path, bool* is_dir) override {
-        struct stat path_stat;
-        if (stat(path.c_str(), &path_stat) != 0) {
-            return io_error(path, errno);
-        } else {
-            *is_dir = S_ISDIR(path_stat.st_mode);
-        }
-
-        return Status::OK();
+Status PosixEnv::get_file_size(const string& fname, uint64_t* size) {
+    struct stat sbuf;
+    if (stat(fname.c_str(), &sbuf) != 0) {
+        return io_error(fname, errno);
+    } else {
+        *size = sbuf.st_size;
     }
+    return Status::OK();
+}
 
-    Status canonicalize(const std::string& path, std::string* result) override {
-        // NOTE: we must use free() to release the buffer retruned by realpath(),
-        // because the buffer is allocated by malloc(), see `man 3 realpath`.
-        std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
-        if (r == nullptr) {
-            return io_error(strings::Substitute("Unable to canonicalize $0", path), errno);
-        }
-        *result = std::string(r.get());
-        return Status::OK();
+Status PosixEnv::get_file_modified_time(const std::string& fname, uint64_t* file_mtime) {
+    struct stat s;
+    if (stat(fname.c_str(), &s) != 0) {
+        return io_error(fname, errno);
     }
+    *file_mtime = static_cast<uint64_t>(s.st_mtime);
+    return Status::OK();
+}
 
-    Status get_file_size(const string& fname, uint64_t* size) override {
-        struct stat sbuf;
-        if (stat(fname.c_str(), &sbuf) != 0) {
-            return io_error(fname, errno);
-        } else {
-            *size = sbuf.st_size;
-        }
-        return Status::OK();
+Status PosixEnv::copy_path(const std::string& src, const std::string& target) {
+    try {
+        std::filesystem::copy(src, target, std::filesystem::copy_options::recursive);
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::stringstream ss;
+        ss << "failed to copy_path: from " << src << " to " << target << ". err: " << e.what();
+        LOG(WARNING) << ss.str();
+        return Status::InternalError(ss.str());
     }
+    return Status::OK();
+}
 
-    Status get_file_modified_time(const std::string& fname, uint64_t* file_mtime) override {
-        struct stat s;
-        if (stat(fname.c_str(), &s) != 0) {
-            return io_error(fname, errno);
-        }
-        *file_mtime = static_cast<uint64_t>(s.st_mtime);
-        return Status::OK();
+Status PosixEnv::rename_file(const std::string& src, const std::string& target) {
+    if (rename(src.c_str(), target.c_str()) != 0) {
+        return io_error(src, errno);
     }
+    return Status::OK();
+}
 
-    Status rename_file(const std::string& src, const std::string& target) override {
-        if (rename(src.c_str(), target.c_str()) != 0) {
-            return io_error(src, errno);
-        }
-        return Status::OK();
+Status PosixEnv::rename_dir(const std::string& src, const std::string& target) {
+    return rename_file(src, target);
+}
+
+Status PosixEnv::link_file(const std::string& old_path, const std::string& new_path) {
+    if (link(old_path.c_str(), new_path.c_str()) != 0) {
+        return io_error(old_path, errno);
     }
+    return Status::OK();
+}
 
-    Status link_file(const std::string& old_path, const std::string& new_path) override {
-        if (link(old_path.c_str(), new_path.c_str()) != 0) {
-            return io_error(old_path, errno);
+Status PosixEnv::get_space_info(const std::string& path, int64_t* capacity, int64_t* available) {
+    try {
+        std::filesystem::path path_name(path);
+        std::filesystem::space_info path_info = std::filesystem::space(path_name);
+        if (*capacity <= 0) {
+            *capacity = path_info.capacity;
         }
-        return Status::OK();
+        *available = path_info.available;
+    } catch (std::filesystem::filesystem_error& e) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError(strings::Substitute(
+                        "get path $0 available capacity failed, error=$1", path, e.what())),
+                "std::filesystem::space failed");
     }
-};
-
-// Default Posix Env
-Env* Env::Default() {
-    static PosixEnv default_env;
-    return &default_env;
+    return Status::OK();
 }
 
 } // end namespace doris

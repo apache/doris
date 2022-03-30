@@ -46,14 +46,9 @@ namespace doris {
 
 class Tablet;
 class RowCursor;
-class RowBlock;
-class RuntimeState;
 
-class TupleReader final : public Reader {
+class TupleReader final : public TabletReader {
 public:
-    TupleReader();
-    ~TupleReader() override = default;
-
     // Initialize TupleReader with tablet, data version and fetch range.
     OLAPStatus init(const ReaderParams& read_params) override;
 
@@ -88,8 +83,6 @@ private:
 
 private:
     const RowCursor* _next_key = nullptr;
-
-    std::unique_ptr<CollectIterator> _collect_iter;
 
     OLAPStatus (TupleReader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,
                                          ObjectPool* agg_pool, bool* eof) = nullptr;

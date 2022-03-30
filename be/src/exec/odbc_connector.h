@@ -112,7 +112,6 @@ private:
     bool _is_in_transaction;
 
     SQLSMALLINT _field_num;
-    uint64_t _row_count;
 
     SQLHENV _env;
     SQLHDBC _dbc;

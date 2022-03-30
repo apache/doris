@@ -49,15 +49,13 @@ ExprContext::~ExprContext() {
     }
 }
 
-// TODO(zc): memory tracker
 Status ExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc,
                             const std::shared_ptr<MemTracker>& tracker) {
-    DCHECK(tracker != nullptr) << std::endl << get_stack_trace();
+    DCHECK(!_prepared);
+    _mem_tracker = tracker;
     DCHECK(_pool.get() == nullptr);
     _prepared = true;
-    // TODO: use param tracker to replace instance_mem_tracker, be careful about tracker's life cycle
-    // _pool.reset(new MemPool(new MemTracker(-1)));
-    _pool.reset(new MemPool(state->instance_mem_tracker().get()));
+    _pool.reset(new MemPool(_mem_tracker.get()));
     return _root->prepare(state, row_desc, this);
 }
 
@@ -123,6 +121,7 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx) {
     (*new_ctx)->_is_clone = true;
     (*new_ctx)->_prepared = true;
     (*new_ctx)->_opened = true;
+    (*new_ctx)->_mem_tracker = _mem_tracker;
 
     return _root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
 }
@@ -142,6 +141,7 @@ Status ExprContext::clone(RuntimeState* state, ExprContext** new_ctx, Expr* root
     (*new_ctx)->_is_clone = true;
     (*new_ctx)->_prepared = true;
     (*new_ctx)->_opened = true;
+    (*new_ctx)->_mem_tracker = _mem_tracker;
 
     return root->open(state, *new_ctx, FunctionContext::THREAD_LOCAL);
 }
@@ -246,6 +246,7 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
     case TYPE_STRING: {
         doris_udf::StringVal v = e->get_string_val(this, row);
         if (v.is_null) {
@@ -255,21 +256,6 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         _result.string_val.len = v.len;
         return &_result.string_val;
     }
-#if 0
-    case TYPE_CHAR: {
-        doris_udf::StringVal v = e->get_string_val(this, row);
-        if (v.is_null) {
-            return nullptr;
-        }
-        _result.string_val.ptr = reinterpret_cast<char*>(v.ptr);
-        _result.string_val.len = v.len;
-        if (e->_type.IsVarLenStringType()) {
-            return &_result.string_val;
-        } else {
-            return _result.string_val.ptr;
-        }
-    }
-#endif
     case TYPE_DATE:
     case TYPE_DATETIME: {
         doris_udf::DateTimeVal v = e->get_datetime_val(this, row);
@@ -386,10 +372,11 @@ Status ExprContext::get_const_value(RuntimeState* state, Expr& expr, AnyVal** co
         StringVal* sv = reinterpret_cast<StringVal*>(*const_val);
         if (!sv->is_null && sv->len > 0) {
             // Make sure the memory is owned by this evaluator.
-            char* ptr_copy = reinterpret_cast<char*>(_pool->try_allocate(sv->len));
+            Status rst;
+            char* ptr_copy = reinterpret_cast<char*>(_pool->try_allocate(sv->len, &rst));
             if (ptr_copy == nullptr) {
-                return _pool->mem_tracker()->MemLimitExceeded(
-                        state, "Could not allocate constant string value", sv->len);
+                RETURN_LIMIT_EXCEEDED(_pool->mem_tracker(), state,
+                                      "Could not allocate constant string value", sv->len, rst);
             }
             memcpy(ptr_copy, sv->ptr, sv->len);
             sv->ptr = reinterpret_cast<uint8_t*>(ptr_copy);

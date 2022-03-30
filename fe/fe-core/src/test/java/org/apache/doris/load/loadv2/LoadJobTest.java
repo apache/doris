@@ -93,7 +93,7 @@ public class LoadJobTest {
     public void testExecute(@Mocked GlobalTransactionMgr globalTransactionMgr,
                             @Mocked MasterTaskExecutor masterTaskExecutor)
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
-            QuotaExceedException, MetaNotFoundException {
+            QuotaExceedException, MetaNotFoundException, InterruptedException {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
@@ -110,9 +110,7 @@ public class LoadJobTest {
         } catch (LoadException e) {
             Assert.fail(e.getMessage());
         }
-        Assert.assertEquals(JobState.LOADING, loadJob.getState());
-        Assert.assertEquals(1, loadJob.getTransactionId());
-
+        Assert.assertEquals(JobState.PENDING, loadJob.getState());
     }
 
     @Test
@@ -169,12 +167,12 @@ public class LoadJobTest {
     @Test
     public void testUpdateStateToFinished(@Mocked MetricRepo metricRepo,
                                           @Injectable LoadTask loadTask1,
-            @Mocked LongCounterMetric longCounterMetric) {
-        
+                                          @Mocked LongCounterMetric longCounterMetric) {
+
         MetricRepo.COUNTER_LOAD_FINISHED = longCounterMetric;
         LoadJob loadJob = new BrokerLoadJob();
         loadJob.idToTasks.put(1L, loadTask1);
-        
+
         // TxnStateCallbackFactory factory = Catalog.getCurrentCatalog().getGlobalTransactionMgr().getCallbackFactory();
         Catalog catalog = Catalog.getCurrentCatalog();
         GlobalTransactionMgr mgr = new GlobalTransactionMgr(catalog);
@@ -183,7 +181,7 @@ public class LoadJobTest {
         loadJob.updateState(JobState.FINISHED);
         Assert.assertEquals(JobState.FINISHED, loadJob.getState());
         Assert.assertNotEquals(-1, (long) Deencapsulation.getField(loadJob, "finishTimestamp"));
-        Assert.assertEquals(100, (int)Deencapsulation.getField(loadJob, "progress"));
+        Assert.assertEquals(100, (int) Deencapsulation.getField(loadJob, "progress"));
         Assert.assertEquals(0, loadJob.idToTasks.size());
     }
 }

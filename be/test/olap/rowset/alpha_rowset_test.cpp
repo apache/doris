@@ -52,7 +52,7 @@ static const uint32_t MAX_PATH_LEN = 1024;
 void set_up() {
     config::path_gc_check = false;
     char buffer[MAX_PATH_LEN];
-    getcwd(buffer, MAX_PATH_LEN);
+    ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = std::string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
     ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
@@ -81,7 +81,7 @@ void create_rowset_writer_context(TabletSchema* tablet_schema,
     rowset_writer_context->tablet_schema_hash = 1111;
     rowset_writer_context->partition_id = 10;
     rowset_writer_context->rowset_type = ALPHA_ROWSET;
-    rowset_writer_context->rowset_path_prefix = config::storage_root_path + "/data/0/12345/1111";
+    rowset_writer_context->path_desc.filepath = config::storage_root_path + "/data/0/12345/1111";
     rowset_writer_context->rowset_state = VISIBLE;
     rowset_writer_context->tablet_schema = tablet_schema;
     rowset_writer_context->version.first = 0;

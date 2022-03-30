@@ -271,14 +271,15 @@ public class SelectStmtTest {
         SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         stmt.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
         String rewritedFragment1 = "((`t1`.`k2` = `t4`.`k2` AND `t3`.`k3` = `t1`.`k3` " +
-                "AND ((`t3`.`k1` = 'D' OR `t3`.`k1` = 'S' OR `t3`.`k1` = 'W') " +
+                "AND ((`t1`.`k4` >= 50 AND `t1`.`k4` <= 200) AND " +
+                "(`t3`.`k1` = 'D' OR `t3`.`k1` = 'S' OR `t3`.`k1` = 'W') " +
                 "AND (`t4`.`k3` = '2 yr Degree' OR `t4`.`k3` = 'Advanced Degree' OR `t4`.`k3` = 'Secondary') " +
                 "AND (`t4`.`k4` = 1 OR `t4`.`k4` = 3))) " +
                 "AND ((`t3`.`k1` = 'D' AND `t4`.`k3` = '2 yr Degree' " +
-                "AND `t1`.`k4` >= 100.00 AND `t1`.`k4` <= 150.00 AND `t4`.`k4` = 3) " +
-                "OR (`t3`.`k1` = 'S' AND `t4`.`k3` = 'Secondary' AND `t1`.`k4` >= 50.00 " +
-                "AND `t1`.`k4` <= 100.00 AND `t4`.`k4` = 1) OR (`t3`.`k1` = 'W' AND `t4`.`k3` = 'Advanced Degree' " +
-                "AND `t1`.`k4` >= 150.00 AND `t1`.`k4` <= 200.00 AND `t4`.`k4` = 1)))";
+                "AND `t1`.`k4` >= 100 AND `t1`.`k4` <= 150 AND `t4`.`k4` = 3) " +
+                "OR (`t3`.`k1` = 'S' AND `t4`.`k3` = 'Secondary' AND `t1`.`k4` >= 50 " +
+                "AND `t1`.`k4` <= 100 AND `t4`.`k4` = 1) OR (`t3`.`k1` = 'W' AND `t4`.`k3` = 'Advanced Degree' " +
+                "AND `t1`.`k4` >= 150 AND `t1`.`k4` <= 200 AND `t4`.`k4` = 1)))";
         String rewritedFragment2 = "((`t1`.`k1` = `t5`.`k1` AND `t5`.`k2` = 'United States' " +
                 "AND ((`t1`.`k4` >= 50 AND `t1`.`k4` <= 300) " +
                 "AND `t5`.`k3` IN ('CO', 'IL', 'MN', 'OH', 'MT', 'NM', 'TX', 'MO', 'MI'))) " +
@@ -520,6 +521,35 @@ public class SelectStmtTest {
         Assert.assertFalse(dorisAssert.query(sql7).explainQuery().contains("`table1`.`__DORIS_DELETE_SIGN__` = 0"));
         String sql8 = " SELECT * FROM db1.table1 table2";
         Assert.assertFalse(dorisAssert.query(sql8).explainQuery().contains("`table2`.`__DORIS_DELETE_SIGN__` = 0"));
+    }
+
+    @Test
+    public void testSelectHints() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+
+        // hint with integer literal parameter
+        String sql = "select /*+ common_hint(1) */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with float literal parameter
+        sql = "select /*+ common_hint(1.1) */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with string literal parameter
+        sql = "select /*+ common_hint(\"string\") */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with key value parameter
+        sql = "select /*+ common_hint(k = \"v\") */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // hint with multi-parameters
+        sql = "select /*+ common_hint(1, 1.1, \"string\") */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+
+        // multi-hints
+        sql = "select /*+ common_hint(1) another_hint(2) */ 1";
+        UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
     }
 
     @Test

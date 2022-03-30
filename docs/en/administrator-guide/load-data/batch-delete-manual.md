@@ -34,9 +34,9 @@ There are three ways to merge data import:
 3. MERGE: APPEND or DELETE according to DELETE ON decision
 
 ## Principle
-This is achieved by adding a hidden column `__DELETE_SIGN__`, because we are only doing batch deletion on the unique model, so we only need to add a hidden column whose type is bool and the aggregate function is replace. In be, the various aggregation write processes are the same as normal columns, and there are two read schemes:
+This is achieved by adding a hidden column `__DORIS_DELETE_SIGN__`, because we are only doing batch deletion on the unique model, so we only need to add a hidden column whose type is bool and the aggregate function is replace. In be, the various aggregation write processes are the same as normal columns, and there are two read schemes:
 
-Remove `__DELETE_SIGN__` when fe encounters extensions such as *, and add the condition of `__DELETE_SIGN__ != true` by default
+Remove `__DORIS_DELETE_SIGN__` when fe encounters extensions such as *, and add the condition of `__DORIS_DELETE_SIGN__ != true` by default
 When be reads, a column is added for judgment, and the condition is used to determine whether to delete.
 
 ### Import
@@ -45,7 +45,7 @@ When importing, set the value of the hidden column to the value of the `DELETE O
 
 ### Read
 
-When reading, add the condition of `__DELETE_SIGN__ != true` to all olapScanNodes with hidden columns, be does not perceive this process and executes normally
+When reading, add the condition of `__DORIS_DELETE_SIGN__ != true` to all olapScanNodes with hidden columns, be does not perceive this process and executes normally
 
 ### Cumulative Compaction
 
@@ -129,7 +129,7 @@ There are two ways of enabling batch delete support:
 2. For tables that have not changed the above fe configuration or for existing tables that do not support the bulk delete function, you can use the following statement:
 `ALTER TABLE tablename ENABLE FEATURE "BATCH_DELETE"` to enable the batch delete.
 
-If you want to determine whether a table supports batch delete, you can set a session variable to display the hidden columns `SET show_hidden_columns=true`, and then use `desc tablename`, if there is a `__DELETE_SIGN__` column in the output, it is supported, if not, it is not supported
+If you want to determine whether a table supports batch delete, you can set a session variable to display the hidden columns `SET show_hidden_columns=true`, and then use `desc tablename`, if there is a `__DORIS_DELETE_SIGN__` column in the output, it is supported, if not, it is not supported
 ## Note
 1. Since import operations other than stream load may be executed out of order inside doris, if it is not stream load when importing using the `MERGE` method, it needs to be used with load sequence. For the specific syntax, please refer to the sequence column related documents
 2. `DELETE ON` condition can only be used with MERGE

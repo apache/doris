@@ -29,6 +29,7 @@
 #include "util/logging.h"
 
 using doris::segment_v2::PageBuilderOptions;
+using doris::OlapReaderStatistics;
 
 namespace doris {
 
@@ -189,7 +190,7 @@ TEST_F(BitShufflePageTest, TestBitShuffleFloatBlockEncoderRandom) {
 
     std::unique_ptr<float[]> floats(new float[size]);
     for (int i = 0; i < size; i++) {
-        floats.get()[i] = random() + static_cast<float>(random()) / INT_MAX;
+        floats.get()[i] = random() + static_cast<float>(random()) / static_cast<float>(INT_MAX);
     }
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_FLOAT,
@@ -306,7 +307,7 @@ TEST_F(BitShufflePageTest, TestBitShuffleFloatBlockEncoderSeekValue) {
     const uint32_t size = 1000;
     std::unique_ptr<float[]> floats(new float[size]);
     for (int i = 0; i < size; i++) {
-        floats.get()[i] = i + 100 + static_cast<float>(random()) / INT_MAX;
+        floats.get()[i] = i + 100 + static_cast<float>(random()) / static_cast<float>(INT_MAX);
     }
 
     float small_than_smallest = 99.9;

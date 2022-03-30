@@ -45,10 +45,10 @@ sql mode用一个64位的Long型存储在SessionVariables中，这个地址的�
 1、设置sql mode
 
 ```
-set global sql_mode = "DEFAULT"
-set session sql_mode = "DEFAULT"
+set global sql_mode = ""
+set session sql_mode = ""
 ```
->目前Doris的默认sql mode是DEFAULT（但马上会在后续修改中会改变）。
+>目前Doris的默认sql mode为空。
 >设置global sql mode需要Admin权限，并会影响所有在此后连接的客户端。
 >设置session sql mode只会影响当前对话客户端，默认为session方式。
 

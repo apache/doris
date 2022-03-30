@@ -21,9 +21,12 @@ import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
@@ -126,11 +129,16 @@ public class ExportMgr {
 
     // NOTE: jobid and states may both specified, or only one of them, or neither
     public List<List<String>> getExportJobInfosByIdOrState(
-            long dbId, long jobId, String label, Set<ExportJob.JobState> states,
-            ArrayList<OrderByPair> orderByPairs, long limit) {
+            long dbId, long jobId, String label, boolean isLabelUseLike, Set<ExportJob.JobState> states,
+            ArrayList<OrderByPair> orderByPairs, long limit) throws AnalysisException {
 
         long resultNum = limit == -1L ? Integer.MAX_VALUE : limit;
         LinkedList<List<Comparable>> exportJobInfos = new LinkedList<List<Comparable>>();
+        PatternMatcher matcher = null;
+        if (isLabelUseLike) {
+            matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
+        }
+
         readLock();
         try {
             int counter = 0;
@@ -147,8 +155,14 @@ public class ExportMgr {
                     continue;
                 }
 
-                if (!Strings.isNullOrEmpty(label) && !jobLabel.equals(label)) {
-                    continue;
+                if (!Strings.isNullOrEmpty(label)) {
+                    if (!isLabelUseLike && !jobLabel.equals(label)) {
+                        // use = but does not match
+                        continue;
+                    } else if (isLabelUseLike && !matcher.match(jobLabel)) {
+                        // use like but does not match
+                        continue;
+                    }
                 }
 
                 // check auth

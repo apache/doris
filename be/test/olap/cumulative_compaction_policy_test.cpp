@@ -33,7 +33,7 @@ public:
     void SetUp() {
         _tablet_meta = static_cast<TabletMetaSharedPtr>(
                 new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                               TTabletType::TABLET_TYPE_DISK));
+                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD));
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -44,7 +44,6 @@ public:
             "rowset_state": "VISIBLE",
             "start_version": 2,
             "end_version": 2,
-            "version_hash": 8391828013814912580,
             "num_rows": 3929,
             "total_disk_size": 84699,
             "data_disk_size": 84464,
@@ -323,7 +322,7 @@ public:
 
         _tablet_meta = static_cast<TabletMetaSharedPtr>(
                 new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                               TTabletType::TABLET_TYPE_DISK));
+                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD));
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -334,7 +333,6 @@ public:
             "rowset_state": "VISIBLE",
             "start_version": 2,
             "end_version": 2,
-            "version_hash": 8391828013814912580,
             "num_rows": 3929,
             "total_disk_size": 41,
             "data_disk_size": 41,
@@ -1044,8 +1042,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _pick_missing_version_cumulative
     rowsets.push_back(_tablet->get_rowset_by_version({1, 1}));
     rowsets.push_back(_tablet->get_rowset_by_version({2, 2}));
     rowsets.push_back(_tablet->get_rowset_by_version({4, 4}));
-    std::shared_ptr<MemTracker> mem_tracker(new MemTracker());
-    CumulativeCompaction compaction(_tablet, "label", mem_tracker);
+    CumulativeCompaction compaction(_tablet);
     compaction.find_longest_consecutive_version(&rowsets, nullptr);
     ASSERT_EQ(3, rowsets.size());
     ASSERT_EQ(2, rowsets[2]->end_version());

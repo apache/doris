@@ -17,13 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -33,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -44,6 +38,13 @@ import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 
 public class CastExpr extends Expr {
@@ -177,7 +178,12 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (isImplicit) {
+        boolean isVerbose = ConnectContext.get() != null &&
+                ConnectContext.get().getExecutor() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
+        if (isImplicit && !isVerbose) {
             return getChild(0).toSql();
         }
         if (isAnalyzed) {
@@ -235,12 +241,19 @@ public class CastExpr extends Expr {
         this.opcode = TExprOpcode.CAST;
         FunctionName fnName = new FunctionName(getFnName(type));
         Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
-        if (isImplicit) {
-            fn = Catalog.getCurrentCatalog().getFunction(
-                    searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } else {
-            fn = Catalog.getCurrentCatalog().getFunction(
-                    searchDesc, Function.CompareMode.IS_IDENTICAL);
+        if (type.isScalarType()) {
+            if (isImplicit) {
+                fn = Catalog.getCurrentCatalog().getFunction(
+                        searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            } else {
+                fn = Catalog.getCurrentCatalog().getFunction(
+                        searchDesc, Function.CompareMode.IS_IDENTICAL);
+            }
+        } else if (type.isArrayType()){
+            fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
+                    type, Function.NullableMode.ALWAYS_NULLABLE,
+                    Lists.newArrayList(Type.VARCHAR), false ,
+                    "doris::CastFunctions::cast_to_array_val", null, null, true);
         }
 
         if (fn == null) {
@@ -450,5 +463,12 @@ public class CastExpr extends Expr {
             }
         }
         return -1;
+    }
+
+    @Override
+    public boolean isNullable() {
+        return children.get(0).isNullable() ||
+                (children.get(0).getType().isStringType() && !getType().isStringType()) ||
+                (!children.get(0).getType().isDateType() && getType().isDateType());
     }
 }

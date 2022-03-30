@@ -19,6 +19,7 @@
 
 #include "common/status.h"     // for Status
 #include "olap/column_block.h" // for ColumnBlockView
+#include "vec/columns/column.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -80,6 +81,10 @@ public:
     // to other memory (eg Slices), the referred-to memory is
     // allocated in the column_vector_view's mem_pool.
     virtual Status next_batch(size_t* n, ColumnBlockView* dst) = 0;
+
+    virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
+        return Status::NotSupported("not implement vec op now");
+    }
 
     // Same as `next_batch` except for not moving forward the cursor.
     // When read array's ordinals in `ArrayFileColumnIterator`, we want to read one extra ordinal

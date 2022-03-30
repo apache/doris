@@ -53,14 +53,14 @@ template <FieldType type>
 void write_bloom_filter_index_file(const std::string& file_name, const void* values,
                                    size_t value_count, size_t null_count,
                                    ColumnIndexMetaPB* index_meta) {
-    const TypeInfo* type_info = get_type_info(type);
+    auto type_info = get_type_info(type);
     using CppType = typename CppTypeTraits<type>::CppType;
     FileUtils::create_dir(dname);
     std::string fname = dname + "/" + file_name;
     {
         std::unique_ptr<fs::WritableBlock> wblock;
-        fs::CreateBlockOptions opts({fname});
-        Status st = fs::fs_util::block_manager()->create_block(opts, &wblock);
+        fs::CreateBlockOptions opts(fname);
+        Status st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock);
         ASSERT_TRUE(st.ok()) << st.to_string();
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
@@ -291,7 +291,7 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
 } // namespace doris
 
 int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 0.1);
+    doris::StoragePageCache::create_global_cache(1 << 30, 10);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

@@ -38,7 +38,7 @@ InitialReservations::InitialReservations(ObjectPool* obj_pool,
                                          std::shared_ptr<MemTracker> query_mem_tracker,
                                          int64_t initial_reservation_total_claims)
         : initial_reservation_mem_tracker_(
-                  MemTracker::CreateTracker(-1, "InitialReservations", query_mem_tracker, false)),
+                  MemTracker::create_tracker(-1, "InitialReservations", query_mem_tracker)),
           remaining_initial_reservation_claims_(initial_reservation_total_claims) {
     initial_reservations_.InitChildTracker(nullptr, query_reservation,
                                            initial_reservation_mem_tracker_.get(),
@@ -83,7 +83,5 @@ void InitialReservations::Return(BufferPool::ClientHandle* src, int64_t bytes) {
 
 void InitialReservations::ReleaseResources() {
     initial_reservations_.Close();
-    // TODO(HW): Close() is private. make this tracker shared later
-    // initial_reservation_mem_tracker_->Close();
 }
 } // namespace doris

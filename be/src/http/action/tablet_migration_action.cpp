@@ -63,7 +63,8 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                 do {
                     {
                         std::unique_lock<std::mutex> lock(_migration_status_mutex);
-                        std::map<MigrationTask, std::string>::iterator it_task = _migration_tasks.find(current_task);
+                        std::map<MigrationTask, std::string>::iterator it_task =
+                                _migration_tasks.find(current_task);
                         if (it_task != _migration_tasks.end()) {
                             status = Status::AlreadyExist(strings::Substitute(
                                     "There is a migration task for this tablet already exists. "
@@ -73,8 +74,7 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                         }
                         _migration_tasks[current_task] = "submitted";
                     }
-                    auto st = _migration_thread_pool->submit_func([&, tablet_id, schema_hash,
-                                                                   dest_disk, current_task]() {
+                    auto st = _migration_thread_pool->submit_func([&, dest_disk, current_task]() {
                         {
                             std::unique_lock<std::mutex> lock(_migration_status_mutex);
                             _migration_tasks[current_task] = "running";
@@ -123,7 +123,8 @@ void TabletMigrationAction::handle(HttpRequest* req) {
             std::string status_result;
             do {
                 std::unique_lock<std::mutex> lock(_migration_status_mutex);
-                std::map<MigrationTask, std::string>::iterator it_task = _migration_tasks.find(current_task);
+                std::map<MigrationTask, std::string>::iterator it_task =
+                        _migration_tasks.find(current_task);
                 if (it_task != _migration_tasks.end()) {
                     status_result = "{\"status\": \"Success\", \"msg\": \"migration task is " +
                                     it_task->second + "\", \"dest_disk\": \"" +

@@ -95,7 +95,7 @@ Status TopNNode::open(RuntimeState* state) {
 
     // Limit of 0, no need to fetch anything from children.
     if (_limit != 0) {
-        RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+        RowBatch batch(child(0)->row_desc(), state->batch_size());
         bool eos = false;
 
         do {

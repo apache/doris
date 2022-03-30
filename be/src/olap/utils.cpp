@@ -644,7 +644,7 @@ OLAPStatus move_to_trash(const std::filesystem::path& schema_hash_root,
             OLAP_SUCCESS, "access dir failed. [dir=" + source_parent_dir);
 
     if (sub_dirs.empty() && sub_files.empty()) {
-        LOG(INFO) << "remove empty dir " << source_parent_dir;
+        VLOG_NOTICE << "remove empty dir " << source_parent_dir;
         // no need to exam return status
         Env::Default()->delete_dir(source_parent_dir);
     }
@@ -656,64 +656,6 @@ int operator-(const BinarySearchIterator& left, const BinarySearchIterator& righ
     return *left - *right;
 }
 
-OLAPStatus copy_file(const string& src, const string& dest) {
-    int src_fd = -1;
-    int dest_fd = -1;
-    char buf[1024 * 1024];
-    OLAPStatus res = OLAP_SUCCESS;
-
-    src_fd = ::open(src.c_str(), O_RDONLY);
-    if (src_fd < 0) {
-        char errmsg[64];
-        LOG(WARNING) << "failed to open file. [err='" << strerror_r(errno, errmsg, 64)
-                     << "' file_name=" << src << "]";
-        res = OLAP_ERR_FILE_NOT_EXIST;
-        goto COPY_EXIT;
-    }
-
-    dest_fd = ::open(dest.c_str(), O_WRONLY | O_CREAT, S_IRUSR | S_IWUSR);
-    if (dest_fd < 0) {
-        char errmsg[64];
-        LOG(WARNING) << "failed to open file to write. [err='" << strerror_r(errno, errmsg, 64)
-                     << "' file_name=" << dest << "]";
-        res = OLAP_ERR_FILE_NOT_EXIST;
-        goto COPY_EXIT;
-    }
-
-    while (true) {
-        ssize_t rd_size = ::read(src_fd, buf, sizeof(buf));
-        if (rd_size < 0) {
-            OLAP_LOG_WARNING("failed to read from file. [err=%m file_name=%s fd=%d size=%ld]",
-                             src.c_str(), src_fd, rd_size);
-            return OLAP_ERR_IO_ERROR;
-        } else if (0 == rd_size) {
-            break;
-        }
-
-        ssize_t wr_size = ::write(dest_fd, buf, rd_size);
-        if (wr_size != rd_size) {
-            OLAP_LOG_WARNING(
-                    "failed to write to file. [err=%m file_name=%s fd=%d rd_size=%ld "
-                    "wr_size=%ld]",
-                    dest.c_str(), dest_fd, rd_size, wr_size);
-            res = OLAP_ERR_IO_ERROR;
-            goto COPY_EXIT;
-        }
-    }
-
-COPY_EXIT:
-    if (src_fd >= 0) {
-        ::close(src_fd);
-    }
-
-    if (dest_fd >= 0) {
-        ::close(dest_fd);
-    }
-
-    VLOG_NOTICE << "copy file success. [src=" << src << " dest=" << dest << "]";
-
-    return res;
-}
 OLAPStatus read_write_test_file(const string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
@@ -799,64 +741,6 @@ bool check_datapath_rw(const string& path) {
                     "false. [path="
                  << path << "]";
     return false;
-}
-
-OLAPStatus copy_dir(const string& src_dir, const string& dst_dir) {
-    std::filesystem::path src_path(src_dir);
-    std::filesystem::path dst_path(dst_dir);
-
-    try {
-        // Check whether the function call is valid
-        if (!std::filesystem::exists(src_path) || !std::filesystem::is_directory(src_path)) {
-            OLAP_LOG_WARNING("Source dir not exist or is not a dir.[src_path=%s]",
-                             src_path.string().c_str());
-            return OLAP_ERR_CREATE_FILE_ERROR;
-        }
-
-        if (std::filesystem::exists(dst_path)) {
-            LOG(WARNING) << "Dst dir already exists.[dst_path=" << dst_path.string() << "]";
-            return OLAP_ERR_CREATE_FILE_ERROR;
-        }
-
-        // Create the destination directory
-        if (!std::filesystem::create_directory(dst_path)) {
-            LOG(WARNING) << "Unable to create dst dir.[dst_path=" << dst_path.string() << "]";
-            return OLAP_ERR_CREATE_FILE_ERROR;
-        }
-    } catch (...) {
-        OLAP_LOG_WARNING("input invalid[src_path=%s dst_path=%s]", src_path.string().c_str(),
-                         dst_path.string().c_str());
-        ;
-        return OLAP_ERR_STL_ERROR;
-    }
-
-    // Iterate through the source directory
-    for (std::filesystem::directory_iterator file(src_path);
-         file != std::filesystem::directory_iterator(); ++file) {
-        try {
-            std::filesystem::path current = file->path();
-            if (std::filesystem::is_directory(current)) {
-                // Found directory: Recursion
-                OLAPStatus res = OLAP_SUCCESS;
-                if (OLAP_SUCCESS !=
-                    (res = copy_dir(current.string(), (dst_path / current.filename()).string()))) {
-                    OLAP_LOG_WARNING("Fail to copy file.[src_path=%s dst_path=%s res=%d]",
-                                     src_path.string().c_str(), dst_path.string().c_str(), res);
-                    ;
-                    return OLAP_ERR_CREATE_FILE_ERROR;
-                }
-            } else {
-                // Found file: Copy
-                std::filesystem::copy_file(current, (dst_path / current.filename()).string());
-            }
-        } catch (...) {
-            OLAP_LOG_WARNING("Fail to copy file.[src_path=%s dst_path=%s]",
-                             src_path.string().c_str(), dst_path.string().c_str());
-            ;
-            return OLAP_ERR_STL_ERROR;
-        }
-    }
-    return OLAP_SUCCESS;
 }
 
 __thread char Errno::_buf[BUF_SIZE]; ///< buffer instance

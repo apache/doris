@@ -71,7 +71,7 @@ sh gen-ssb-data.sh -s 100 -c 100
 |Table |Rows |Size | File Number |
 |---|---|---|---|
 |lineorder| 6亿（600037902） | 60GB | 100|
-|customer|3千万（3000000） |277M |1|
+|customer|300万（3000000） |277M |1|
 |part|140万（1400000） | 116M|1|
 |supplier|20万（200000） |17M |1|
 |date| 2556|228K |1|
@@ -81,6 +81,22 @@ sh gen-ssb-data.sh -s 100 -c 100
     复制 [create-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/create-tables.sql) 中的建表语句，在 Doris 中执行。
 
 4. 导入数据
+
+    0. 准备 'doris-cluster.conf' 文件。
+	
+        在调用导入脚本前，需要将 FE 的 ip 端口等信息写在 `doris-cluster.conf` 文件中。
+        
+        文件位置和 `load-dimension-data.sh` 平级。
+   
+        文件内容包括 FE 的 ip，HTTP 端口，用户名，密码以及待导入数据的 DB 名称：
+   
+        ```
+        export FE_HOST="xxx"
+        export FE_HTTP_PORT="8030"
+        export USER="root"
+        export PASSWORD='xxx'
+        export DB="ssb"
+        ```
 
     1. 导入 4 张维度表数据（customer, part, supplier and date）
     
@@ -131,7 +147,7 @@ SSB 测试集共 4 组 14 个 SQL。查询语句在 [queries/](https://github.co
     |Table |Rows |Origin Size | Compacted Size(1 Replica) |
     |---|---|---|---|
     |lineorder| 6亿（600037902） | 60 GB | 14.846 GB |
-    |customer|3千万（3000000） |277 MB | 414.741 MB |
+    |customer|300万（3000000） |277 MB | 414.741 MB |
     |part|140万（1400000） | 116 MB | 38.277 MB |
     |supplier|20万（200000） |17 MB | 27.428 MB |
     |date| 2556|228 KB | 275.804 KB |

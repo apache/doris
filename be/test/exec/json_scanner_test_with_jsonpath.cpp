@@ -391,9 +391,8 @@ TEST_F(JsonScannerTest, normal) {
     status = scan_node.open(&_runtime_state);
     ASSERT_TRUE(status.ok());
 
-    MemTracker tracker;
     // Get batch
-    RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size(), &tracker);
+    RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size());
     bool eof = false;
     status = scan_node.get_next(&_runtime_state, &batch, &eof);
     ASSERT_TRUE(status.ok());

@@ -33,7 +33,6 @@ class AlphaRowset;
 using AlphaRowsetSharedPtr = std::shared_ptr<AlphaRowset>;
 class AlphaRowsetWriter;
 class AlphaRowsetReader;
-class OlapSnapshotConverter;
 class RowsetFactory;
 
 class AlphaRowset : public Rowset {
@@ -42,16 +41,13 @@ public:
 
     OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) override;
 
-    OLAPStatus create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
-                             std::shared_ptr<RowsetReader>* result) override;
-
     OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
                            uint64_t request_block_row_count, size_t key_num,
                            std::vector<OlapTuple>* ranges) override;
 
     OLAPStatus remove() override;
 
-    OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) override;
+    OLAPStatus link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) override;
 
     OLAPStatus copy_files_to(const std::string& dir) override;
 
@@ -70,7 +66,7 @@ public:
 protected:
     friend class RowsetFactory;
 
-    AlphaRowset(const TabletSchema* schema, std::string rowset_path,
+    AlphaRowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
                 RowsetMetaSharedPtr rowset_meta);
 
     // init segment groups
@@ -81,7 +77,7 @@ protected:
     void do_close() override {}
 
     // add custom logic when rowset is published
-    void make_visible_extra(Version version, VersionHash version_hash) override;
+    void make_visible_extra(Version version) override;
 
 private:
     std::shared_ptr<SegmentGroup> _segment_group_with_largest_size();
@@ -89,7 +85,6 @@ private:
 private:
     friend class AlphaRowsetWriter;
     friend class AlphaRowsetReader;
-    friend class OlapSnapshotConverter;
 
     std::vector<std::shared_ptr<SegmentGroup>> _segment_groups;
 };

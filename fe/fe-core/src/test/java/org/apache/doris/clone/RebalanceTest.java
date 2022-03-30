@@ -31,12 +31,12 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -184,11 +184,39 @@ public class RebalanceTest {
     }
 
     @Test
+    public void testPrioBackends() {
+        Rebalancer rebalancer = new DiskRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
+        // add
+        {
+            List<Backend> backends = Lists.newArrayList();
+            for (int i = 0; i < 3; i++) {
+                backends.add(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
+            }
+            rebalancer.addPrioBackends(backends, 1000);
+            Assert.assertTrue(rebalancer.hasPrioBackends());
+        }
+
+        // remove
+        for (int i = 0; i < 3; i++) {
+            List<Backend> backends = Lists.newArrayList(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
+            rebalancer.removePrioBackends(backends);
+            if (i == 2) {
+                Assert.assertFalse(rebalancer.hasPrioBackends());
+            } else {
+                Assert.assertTrue(rebalancer.hasPrioBackends());
+            }
+        }
+    }
+
+    @Test
     public void testPartitionRebalancer() {
         Configurator.setLevel("org.apache.doris.clone.PartitionRebalancer", Level.DEBUG);
 
         // Disable scheduler's rebalancer adding balance task, add balance tasks manually
         Config.disable_balance = true;
+        // generate statistic map again to create skewmap
+        Config.tablet_rebalancer_type = "partition";
+        generateStatisticMap();
         // Create a new scheduler & checker for redundant tablets handling
         // Call runAfterCatalogReady manually instead of starting daemon thread
         TabletSchedulerStat stat = new TabletSchedulerStat();
@@ -211,12 +239,13 @@ public class RebalanceTest {
             try {
                 tabletCtx.setStorageMedium(TStorageMedium.HDD);
                 tabletCtx.setTablet(olapTable.getPartition(tabletCtx.getPartitionId()).getIndex(tabletCtx.getIndexId()).getTablet(tabletCtx.getTabletId()));
-                tabletCtx.setVersionInfo(1, 0, 1, 0);
+                tabletCtx.setVersionInfo(1, 1);
                 tabletCtx.setSchemaHash(olapTable.getSchemaHashByIndexId(tabletCtx.getIndexId()));
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
 
                 // createCloneReplicaAndTask, create replica will change invertedIndex too.
-                rebalancer.createBalanceTask(tabletCtx, tabletScheduler.getBackendsWorkingSlots(), batchTask);
+                AgentTask task = rebalancer.createBalanceTask(tabletCtx, tabletScheduler.getBackendsWorkingSlots());
+                batchTask.addTask(task);
             } catch (SchedException e) {
                 LOG.warn("schedule tablet {} failed: {}", tabletCtx.getTabletId(), e.getMessage());
             }

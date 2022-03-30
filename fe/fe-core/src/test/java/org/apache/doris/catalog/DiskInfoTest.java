@@ -56,6 +56,7 @@ public class DiskInfoTest {
         // write disk info to file
         File file = new File("./diskInfoTest");
         file.createNewFile();
+        file.deleteOnExit();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
         DiskInfo diskInfo1 = new DiskInfo("/disk1");

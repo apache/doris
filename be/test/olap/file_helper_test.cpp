@@ -21,8 +21,8 @@
 #include <filesystem>
 #include <fstream>
 
-#include "agent/status.h"
 #include "common/configbase.h"
+#include "common/status.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "olap/olap_define.h"

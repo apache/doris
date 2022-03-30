@@ -133,9 +133,11 @@ public:
         RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
         rowset_meta->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta->rowset_id(), rowset_id);
-        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(_schema.get(), rowset_meta_path,
+        FilePathDesc rowset_meta_path_desc;
+        rowset_meta_path_desc.filepath = rowset_meta_path;
+        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_desc,
                                                              rowset_meta, &_alpha_rowset));
-        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(_schema.get(), rowset_meta_path,
+        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_desc,
                                                              rowset_meta, &_alpha_rowset_same_id));
 
         // init rowset meta 2
@@ -152,7 +154,9 @@ public:
         RowsetMetaSharedPtr rowset_meta2(new AlphaRowsetMeta());
         rowset_meta2->init_from_json(_json_rowset_meta);
         ASSERT_EQ(rowset_meta2->rowset_id(), rowset_id);
-        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_2,
+        FilePathDesc rowset_meta_path_desc_2;
+        rowset_meta_path_desc_2.filepath = rowset_meta_path_2;
+        ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(_schema.get(), rowset_meta_path_desc_2,
                                                              rowset_meta2, &_alpha_rowset_diff_id));
         _tablet_uid = TabletUid(10, 10);
     }
@@ -280,9 +284,8 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
                                  _tablet_uid, load_id, _alpha_rowset, false);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     Version new_version(10, 11);
-    VersionHash new_versionhash = 123;
     status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                   _tablet_uid, new_version, new_versionhash);
+                                   _tablet_uid, new_version);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 
     RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
@@ -297,10 +300,9 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
 // 1. publish version failed if not found related txn and rowset
 TEST_F(TxnManagerTest, PublishNotExistedTxn) {
     Version new_version(10, 11);
-    VersionHash new_versionhash = 123;
     OLAPStatus status =
             _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
-                                  _tablet_uid, new_version, new_versionhash);
+                                  _tablet_uid, new_version);
     ASSERT_TRUE(status != OLAP_SUCCESS);
 }
 

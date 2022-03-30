@@ -36,7 +36,7 @@ namespace doris {
 
 class BinaryFile;
 class BinaryReader;
-class ColumnMapping;
+struct ColumnMapping;
 class RowCursor;
 
 struct TabletVars {
@@ -184,7 +184,7 @@ private:
 
 class PushBrokerReader {
 public:
-    PushBrokerReader() : _ready(false), _eof(false) {}
+    PushBrokerReader() : _ready(false), _eof(false), _fill_tuple(false) {}
     ~PushBrokerReader() {}
 
     OLAPStatus init(const Schema* schema, const TBrokerScanRange& t_scan_range,
@@ -197,6 +197,7 @@ public:
         return OLAP_SUCCESS;
     }
     bool eof() { return _eof; }
+    bool is_fill_tuple() { return _fill_tuple; }
     MemPool* mem_pool() { return _mem_pool.get(); }
 
 private:
@@ -204,12 +205,12 @@ private:
                               FieldType type);
     bool _ready;
     bool _eof;
+    bool _fill_tuple;
     TupleDescriptor* _tuple_desc;
     Tuple* _tuple;
     const Schema* _schema;
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile* _runtime_profile;
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<ScannerCounter> _counter;
     std::unique_ptr<BaseScanner> _scanner;

@@ -20,8 +20,6 @@ package org.apache.doris.persist;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PrivBitSet;
@@ -158,10 +156,8 @@ public class PrivInfo implements Writable {
             tblPattern = TablePattern.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_87) {
-            if (in.readBoolean()) {
-                resourcePattern = ResourcePattern.read(in);
-            }
+        if (in.readBoolean()) {
+            resourcePattern = ResourcePattern.read(in);
         }
 
         if (in.readBoolean()) {

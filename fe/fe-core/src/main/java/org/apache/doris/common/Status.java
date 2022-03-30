@@ -17,7 +17,7 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.proto.Status.PStatus;
+import org.apache.doris.proto.Types.PStatus;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 

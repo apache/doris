@@ -17,7 +17,6 @@
 
 package org.apache.doris.journal;
 
-import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.analysis.UserIdentity;
@@ -52,6 +51,7 @@ import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
+import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
@@ -90,7 +90,6 @@ import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -157,8 +156,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_DB: {
-                data = new Database();
-                ((Database) data).readFields(in);
+                data = Database.read(in);
                 isRead = true;
                 break;
             }
@@ -225,20 +223,6 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RECOVER_PARTITION: {
                 data = new RecoverInfo();
                 ((RecoverInfo) data).readFields(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_START_ROLLUP:
-            case OperationType.OP_FINISHING_ROLLUP:
-            case OperationType.OP_FINISHING_SCHEMA_CHANGE:
-            case OperationType.OP_FINISH_ROLLUP:
-            case OperationType.OP_CANCEL_ROLLUP:
-            case OperationType.OP_START_SCHEMA_CHANGE:
-            case OperationType.OP_FINISH_SCHEMA_CHANGE:
-            case OperationType.OP_CANCEL_SCHEMA_CHANGE:
-            case OperationType.OP_START_DECOMMISSION_BACKEND:
-            case OperationType.OP_FINISH_DECOMMISSION_BACKEND: {
-                data = AlterJob.read(in);
                 isRead = true;
                 break;
             }
@@ -380,12 +364,6 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_GLOBAL_VARIABLE: {
-                data = new SessionVariable();
-                ((SessionVariable) data).readFields(in);
-                isRead = true;
-                break;
-            }
             case OperationType.OP_CREATE_CLUSTER: {
                 data = Cluster.read(in);
                 isRead = true;
@@ -509,6 +487,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_BACKEND_REPLICAS_INFO: {
+                data = BackendReplicasInfo.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
                 data = RoutineLoadJob.read(in);
                 isRead = true;
@@ -612,7 +595,7 @@ public class JournalEntity implements Writable {
                 data = PluginInfo.read(in);
                 isRead = true;
                 break;
-            }              
+            }
             case OperationType.OP_REMOVE_ALTER_JOB_V2: {
                 data = RemoveAlterJobV2OperationLog.read(in);
                 isRead = true;

@@ -56,8 +56,6 @@
 #include <stddef.h>
 #include <string.h> // to get the POSIX mem*() routines
 
-#include "gutil/port.h" // disable some warnings on Windows
-
 inline char* memcat(char* dest, size_t destlen, const char* src, size_t srclen) {
     return reinterpret_cast<char*>(memcpy(dest + destlen, src, srclen));
 }

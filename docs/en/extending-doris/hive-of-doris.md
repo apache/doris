@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Hive of Doris",
+    "title": "Doris On Hive",
     "language": "en"
 }
 ---
@@ -88,7 +88,7 @@ PROPERTIES (
 
 The supported Hive column types correspond to Doris in the following table.
 
-|  Hive  | Doris  |             描述              |
+|  Hive  | Doris  |             Description              |
 | :------: | :----: | :-------------------------------: |
 |   BOOLEAN  | BOOLEAN  |                         |
 |   CHAR   |  CHAR  |    Only UTF8 encoding is supported      |
@@ -101,12 +101,12 @@ The supported Hive column types correspond to Doris in the following table.
 |   DOUBLE  | DOUBLE |  |
 |   DECIMAL  | DECIMAL |  |
 |   DATE   |  DATE  |                                   |
-|   DATETIME  | TIMESTAMP | Timestamp to Datetime will lose precision | 
+|   TIMESTAMP  | DATETIME | Timestamp to Datetime will lose precision |
 
 **Note:** 
 - Hive table Schema changes **are not automatically synchronized** and require rebuilding the Hive external table in Doris.
 - The current Hive storage format only supports Text, Parquet and ORC types
-- The Hive version currently supported by default is 2.3.7, which has not been tested in other versions. More versions will be supported in the future.
+- The Hive version currently supported by default is `2.3.7、3.1.2`, which has not been tested in other versions. More versions will be supported in the future.
 
 ### Query Usage
 

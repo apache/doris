@@ -27,16 +27,20 @@
 #include "olap/field.h"
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_vector.h"
+#include "vec/columns/predicate_column.h"
+#include "vec/utils/util.hpp"
 
 namespace doris {
 
 class VectorizedRowBatch;
 
 // only use in runtime filter and segment v2
-template <PrimitiveType type>
+template <PrimitiveType T>
 class BloomFilterColumnPredicate : public ColumnPredicate {
 public:
-    using SpecificFilter = BloomFilterFunc<type, CurrentBloomFilterAdaptor>;
+    using SpecificFilter = BloomFilterFunc<T, CurrentBloomFilterAdaptor>;
 
     BloomFilterColumnPredicate(uint32_t column_id,
                                const std::shared_ptr<IBloomFilterFuncBase>& filter)
@@ -44,6 +48,8 @@ public:
               _filter(filter),
               _specific_filter(static_cast<SpecificFilter*>(_filter.get())) {}
     ~BloomFilterColumnPredicate() override = default;
+
+    PredicateType type() const override { return PredicateType::BF; }
 
     void evaluate(VectorizedRowBatch* batch) const override;
 
@@ -59,14 +65,16 @@ public:
         return Status::OK();
     }
 
+    void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override;
+
 private:
     std::shared_ptr<IBloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
 };
 
-// blomm filter column predicate do not support in segment v1
-template <PrimitiveType type>
-void BloomFilterColumnPredicate<type>::evaluate(VectorizedRowBatch* batch) const {
+// bloom filter column predicate do not support in segment v1
+template <PrimitiveType T>
+void BloomFilterColumnPredicate<T>::evaluate(VectorizedRowBatch* batch) const {
     uint16_t n = batch->size();
     uint16_t* sel = batch->selected();
     if (!batch->selected_in_use()) {
@@ -76,8 +84,8 @@ void BloomFilterColumnPredicate<type>::evaluate(VectorizedRowBatch* batch) const
     }
 }
 
-template <PrimitiveType type>
-void BloomFilterColumnPredicate<type>::evaluate(ColumnBlock* block, uint16_t* sel,
+template <PrimitiveType T>
+void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
                                                 uint16_t* size) const {
     uint16_t new_size = 0;
     if (block->is_nullable()) {
@@ -93,6 +101,38 @@ void BloomFilterColumnPredicate<type>::evaluate(ColumnBlock* block, uint16_t* se
             uint16_t idx = sel[i];
             sel[new_size] = idx;
             const auto* cell_value = reinterpret_cast<const void*>(block->cell(idx).cell_ptr());
+            new_size += _specific_filter->find_olap_engine(cell_value);
+        }
+    }
+    *size = new_size;
+}
+
+template <PrimitiveType T>
+void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel,
+                                                uint16_t* size) const {
+    uint16_t new_size = 0;
+    using FT = typename PredicatePrimitiveTypeTraits<T>::PredicateFieldType;
+
+    if (column.is_nullable()) {
+        auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
+        auto& null_map_data = nullable_col->get_null_map_column().get_data();
+        auto* pred_col = vectorized::check_and_get_column<vectorized::PredicateColumnType<FT>>(
+                nullable_col->get_nested_column());
+        auto& pred_col_data = pred_col->get_data();
+        for (uint16_t i = 0; i < *size; i++) {
+            uint16_t idx = sel[i];
+            sel[new_size] = idx;
+            const auto* cell_value = reinterpret_cast<const void*>(&(pred_col_data[idx]));
+            new_size += (!null_map_data[idx]) && _specific_filter->find_olap_engine(cell_value);
+        }
+    } else {
+        auto* pred_col =
+                vectorized::check_and_get_column<vectorized::PredicateColumnType<FT>>(column);
+        auto& pred_col_data = pred_col->get_data();
+        for (uint16_t i = 0; i < *size; i++) {
+            uint16_t idx = sel[i];
+            sel[new_size] = idx;
+            const auto* cell_value = reinterpret_cast<const void*>(&(pred_col_data[idx]));
             new_size += _specific_filter->find_olap_engine(cell_value);
         }
     }

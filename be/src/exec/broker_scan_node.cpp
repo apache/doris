@@ -30,6 +30,7 @@
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -254,7 +255,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
     while (!scanner_eof) {
         // Fill one row batch
         std::shared_ptr<RowBatch> row_batch(
-                new RowBatch(row_desc(), _runtime_state->batch_size(), mem_tracker().get()));
+                new RowBatch(row_desc(), _runtime_state->batch_size()));
 
         // create new tuple buffer for row_batch
         MemPool* tuple_pool = row_batch->tuple_data_pool();
@@ -273,7 +274,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
             }
 
             // This row batch has been filled up, and break this
-            if (row_batch->is_full()) {
+            if (row_batch->is_full() || row_batch->is_full_uncommited() ) {
                 break;
             }
 
@@ -284,8 +285,16 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
             memset(tuple, 0, _tuple_desc->num_null_bytes());
 
             // Get from scanner
-            RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof));
+            bool tuple_fill = false;
+            RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof, &tuple_fill));
             if (scanner_eof) {
+                continue;
+            }
+
+            // if read row succeed, but fill dest tuple fail, we need to increase # of uncommitted rows, 
+            // once reach the capacity of row batch, will transfer the row batch to next operator to release memory
+            if (!tuple_fill) {
+                row_batch->increase_uncommitted_rows();
                 continue;
             }
 
@@ -310,7 +319,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
                    // 1. too many batches in queue, or
                    // 2. at least one batch in queue and memory exceed limit.
                    (_batch_queue.size() >= _max_buffered_batches ||
-                    (mem_tracker()->AnyLimitExceeded(MemLimit::HARD) && !_batch_queue.empty()))) {
+                    (mem_tracker()->any_limit_exceeded() && !_batch_queue.empty()))) {
                 _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
             }
             // Process already set failed, so we just return OK

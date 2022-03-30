@@ -144,8 +144,7 @@ TEST_F(OlapTablePartitionParamTest, normal) {
     ASSERT_TRUE(st.ok());
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     // 12, 9, "abc"
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -159,9 +158,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         memcpy(str_val->ptr, "abc", str_val->len);
 
         // 9:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(10, partition->id);
     }
@@ -178,9 +176,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         memcpy(str_val->ptr, "abcd", str_val->len);
 
         // 25:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(11, partition->id);
     }
@@ -197,9 +194,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         memcpy(str_val->ptr, "abcde", str_val->len);
 
         // 50:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_FALSE(found);
     }
 
@@ -216,9 +212,8 @@ TEST_F(OlapTablePartitionParamTest, normal) {
         memcpy(str_val->ptr, "abcdef", str_val->len);
 
         // 60:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(12, partition->id);
     }
@@ -341,8 +336,7 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
     ASSERT_TRUE(st.ok());
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     // 12, 1, "abc"
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -356,9 +350,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         memcpy(str_val->ptr, "abc", str_val->len);
 
         // 1:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(10, partition->id);
     }
@@ -375,9 +368,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         memcpy(str_val->ptr, "abcd", str_val->len);
 
         // 3:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(11, partition->id);
     }
@@ -394,9 +386,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         memcpy(str_val->ptr, "abcde", str_val->len);
 
         // 50:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_FALSE(found);
     }
 
@@ -413,9 +404,8 @@ TEST_F(OlapTablePartitionParamTest, single_list_partition) {
         memcpy(str_val->ptr, "abcdef", str_val->len);
 
         // 6:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(12, partition->id);
     }
@@ -557,8 +547,7 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
     ASSERT_TRUE(st.ok());
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     // 12, 1, "beijing"
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -572,9 +561,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         memcpy(str_val->ptr, "beijing", str_val->len);
 
         // 1, beijing
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(10, partition->id);
     }
@@ -591,9 +579,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         memcpy(str_val->ptr, "shanghai", str_val->len);
 
         // 2, shanghai
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(12, partition->id);
     }
@@ -610,9 +597,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         memcpy(str_val->ptr, "beijing", str_val->len);
 
         // 50, beijing
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_FALSE(found);
     }
 
@@ -629,9 +615,8 @@ TEST_F(OlapTablePartitionParamTest, multi_list_partition) {
         memcpy(str_val->ptr, "tianjin", str_val->len);
 
         // 1, tianjin
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(11, partition->id);
     }
@@ -694,8 +679,7 @@ TEST_F(OlapTablePartitionParamTest, unpartitioned) {
     ASSERT_TRUE(st.ok());
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     // 12, 9, "abc"
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -709,9 +693,8 @@ TEST_F(OlapTablePartitionParamTest, unpartitioned) {
         memcpy(str_val->ptr, "abc", str_val->len);
 
         // 9:
-        uint32_t dist_hash = 0;
         const OlapTablePartition* partition = nullptr;
-        auto found = part.find_tablet(tuple, &partition, &dist_hash);
+        auto found = part.find_partition(tuple, &partition);
         ASSERT_TRUE(found);
         ASSERT_EQ(10, partition->id);
     }

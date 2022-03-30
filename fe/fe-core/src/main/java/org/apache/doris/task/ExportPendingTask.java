@@ -113,7 +113,6 @@ public class ExportPendingTask extends MasterTask {
                 snapshotRequest.setTabletId(paloScanRange.getTabletId());
                 snapshotRequest.setSchemaHash(Integer.parseInt(paloScanRange.getSchemaHash()));
                 snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
-                snapshotRequest.setVersionHash(Long.parseLong(paloScanRange.getVersionHash()));
                 snapshotRequest.setTimeout(job.getTimeoutSecond());
                 snapshotRequest.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
 

@@ -113,6 +113,9 @@ public class SelectStmt extends QueryStmt {
     // Table alias generator used during query rewriting.
     private TableAliasGenerator tableAliasGenerator = null;
 
+    // Members that need to be reset to origin
+    private SelectList originSelectList;
+
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
         this.valueList = valueList;
@@ -131,6 +134,7 @@ public class SelectStmt extends QueryStmt {
             LimitElement limitElement) {
         super(orderByElements, limitElement);
         this.selectList = selectList;
+        this.originSelectList = selectList.clone();
         if (fromClause == null) {
             fromClause_ = new FromClause();
         } else {
@@ -185,6 +189,13 @@ public class SelectStmt extends QueryStmt {
         analyticInfo = null;
         baseTblSmap.clear();
         groupingInfo = null;
+    }
+
+    @Override
+    public void resetSelectList() {
+        if (originSelectList != null) {
+            selectList = originSelectList;
+        }
     }
 
     @Override
@@ -311,7 +322,7 @@ public class SelectStmt extends QueryStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                             ConnectContext.get().getQualifiedUser(),
                             ConnectContext.get().getRemoteIP(),
-                            tblRef.getName().getTbl());
+                            dbName + ": " + tableName);
                 }
                 tableMap.put(table.getId(), table);
             }
@@ -427,7 +438,7 @@ public class SelectStmt extends QueryStmt {
         if (groupByClause != null && groupByClause.isGroupByExtension()) {
             for (SelectListItem item : selectList.getItems()) {
                 if (item.getExpr() instanceof FunctionCallExpr && item.getExpr().fn instanceof AggregateFunction) {
-                    for (Expr expr: groupByClause.getGroupingExprs()) {
+                    for (Expr expr : groupByClause.getGroupingExprs()) {
                         if (item.getExpr().contains(expr)) {
                             throw new AnalysisException("column: " + expr.toSql() + " cannot both in select list and "
                                     + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
@@ -436,7 +447,7 @@ public class SelectStmt extends QueryStmt {
                     }
                 }
             }
-            groupingInfo = new GroupingInfo(analyzer, groupByClause.getGroupingType());
+            groupingInfo = new GroupingInfo(analyzer, groupByClause);
             groupingInfo.substituteGroupingFn(resultExprs, analyzer);
         } else {
             for (Expr expr : resultExprs) {
@@ -500,6 +511,11 @@ public class SelectStmt extends QueryStmt {
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
 
+        // Change all outer join tuple to null here after analyze where and from clause
+        // all solt desc of join tuple is ready. Before analyze sort info/agg info/analytic info
+        // the solt desc nullable mark must be corrected to make sure BE exec query right.
+        analyzer.changeAllOuterJoinTupleToNull();
+
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
@@ -562,6 +578,15 @@ public class SelectStmt extends QueryStmt {
         }
 
         return result;
+    }
+
+    public boolean hasInlineView() {
+        for (TableRef ref : fromClause_) {
+            if (ref instanceof InlineViewRef) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -852,6 +877,12 @@ public class SelectStmt extends QueryStmt {
             expandStar(new TableName(tableRef.getAliasAsName().getDb(),
                             tableRef.getAliasAsName().getTbl()),
                     tableRef.getDesc());
+
+            if (tableRef.lateralViewRefs != null) {
+                for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
+                    expandStar(lateralViewRef.getName(), lateralViewRef.getDesc());
+                }
+            }
         }
     }
 
@@ -1024,7 +1055,7 @@ public class SelectStmt extends QueryStmt {
             groupByClause.analyze(analyzer);
             createAggInfo(groupByClause.getGroupingExprs(), aggExprs, analyzer);
         } else {
-            createAggInfo( new ArrayList<>(), aggExprs, analyzer);
+            createAggInfo(new ArrayList<>(), aggExprs, analyzer);
         }
 
         // combine avg smap with the one that produces the final agg output
@@ -1101,12 +1132,8 @@ public class SelectStmt extends QueryStmt {
                                     "GROUP BY clause?): " + orderByElements.get(i).getExpr().toSql());
                 }
 
-                if (sortInfo.getOrderingExprs().get(i).type.isHllType()) {
-                    throw new AnalysisException("ORDER BY expression could not contain hll column.");
-                }
-
-                if (sortInfo.getOrderingExprs().get(i).type.isBitmapType()) {
-                    throw new AnalysisException("ORDER BY expression could not contain bitmap column.");
+                if (sortInfo.getOrderingExprs().get(i).type.isObjectStored()) {
+                    throw new AnalysisException("ORDER BY expression could not contain object-stored columnx.");
                 }
             }
         }
@@ -1306,7 +1333,7 @@ public class SelectStmt extends QueryStmt {
         // Also equal exprs in the statements of subqueries.
         List<Subquery> subqueryExprs = Lists.newArrayList();
         if (whereClause != null) {
-            whereClause = rewriter.rewrite(whereClause, analyzer);
+            whereClause = rewriter.rewrite(whereClause, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
             whereClause.collect(Subquery.class, subqueryExprs);
 
         }
@@ -1374,8 +1401,8 @@ public class SelectStmt extends QueryStmt {
 
         }
         if (havingClause != null) {
-            registerExprId(havingClause);
-            exprMap.put(havingClause.getId().toString(), havingClause);
+            registerExprId(havingClauseAfterAnaylzed);
+            exprMap.put(havingClauseAfterAnaylzed.getId().toString(), havingClauseAfterAnaylzed);
             havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
         }
         for (Subquery subquery : subqueryExprs) {
@@ -1419,7 +1446,7 @@ public class SelectStmt extends QueryStmt {
                      * ORDER BY `b` DESC
                      * ```
                      * Aliases information of groupBy and orderBy clauses is recorded in `QueryStmt.aliasSMap`.
-                     * The select clause has it's own alias info in `SelectListItem.alias`.
+                     * The select clause has its own alias info in `SelectListItem.alias`.
                      *
                      * Aliases expr in the `group by` and `order by` clauses are not analyzed, i.e. `Expr.isAnalyzed=false`
                      * Subsequent constant folding will analyze the unanalyzed Expr before collecting the constant
@@ -1440,7 +1467,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (orderByElements != null) {
-            for (OrderByElement orderByElem : orderByElements) {
+            for (OrderByElement orderByElem : orderByElementsAfterAnalyzed) {
                 // same as above
                 if (containAlias(orderByElem.getExpr())) {
                     continue;
@@ -1481,7 +1508,7 @@ public class SelectStmt extends QueryStmt {
             whereClause.collect(Subquery.class, subqueryExprs);
         }
         if (havingClause != null) {
-            havingClause = rewrittenExprMap.get(havingClause.getId().toString());
+            havingClause = rewrittenExprMap.get(havingClauseAfterAnaylzed.getId().toString());
             havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
         }
 
@@ -1517,7 +1544,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (orderByElements != null) {
-            for (OrderByElement orderByElem : orderByElements) {
+            for (OrderByElement orderByElem : orderByElementsAfterAnalyzed) {
                 Expr expr = orderByElem.getExpr();
                 if (expr.getId() == null) {
                     orderByElem.setExpr(expr);
@@ -1525,6 +1552,7 @@ public class SelectStmt extends QueryStmt {
                     orderByElem.setExpr(rewrittenExprMap.get(expr.getId().toString()));
                 }
             }
+            orderByElements = (ArrayList<OrderByElement>) orderByElementsAfterAnalyzed;
         }
     }
 
@@ -1701,9 +1729,10 @@ public class SelectStmt extends QueryStmt {
                 tupleIdList.addAll(tblRef.getMaterializedTupleIds());
             }
         }
-        // Fixme(kks): get tuple id from analyticInfo is wrong, should get from AnalyticEvalNode
+        // Fixme(ml): get tuple id from analyticInfo is wrong, should get from AnalyticEvalNode
+        // Fixme(ml): The tuple id of AnalyticEvalNode actually is the physical output tuple from analytic planner
         // We materialize the agg tuple or the table refs together with the analytic tuple.
-        if (hasAnalyticInfo() && isEvaluateOrderBy()) {
+        if (hasAnalyticInfo() && !isEvaluateOrderBy()) {
             tupleIdList.add(analyticInfo.getOutputTupleId());
         }
     }

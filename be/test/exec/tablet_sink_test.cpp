@@ -31,9 +31,10 @@
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/thread_resource_mgr.h"
+#include "runtime/types.h"
 #include "runtime/tuple_row.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 #include "util/debug/leakcheck_disabler.h"
 #include "util/proto_util.h"
@@ -53,8 +54,10 @@ public:
         _env->_thread_mgr = new ThreadResourceMgr();
         _env->_master_info = new TMasterInfo();
         _env->_load_stream_mgr = new LoadStreamMgr();
-        _env->_brpc_stub_cache = new BrpcStubCache();
+        _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
+        _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         _env->_buffer_reservation = new ReservationTracker();
+        _env->_task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
         ThreadPoolBuilder("SendBatchThreadPool")
                 .set_min_threads(1)
                 .set_max_threads(5)
@@ -65,7 +68,8 @@ public:
     }
 
     void TearDown() override {
-        SAFE_DELETE(_env->_brpc_stub_cache);
+        SAFE_DELETE(_env->_internal_client_cache);
+        SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_load_stream_mgr);
         SAFE_DELETE(_env->_master_info);
         SAFE_DELETE(_env->_thread_mgr);
@@ -339,10 +343,9 @@ public:
             k_add_batch_status.to_protobuf(response->mutable_status());
 
             if (request->has_row_batch() && _row_desc != nullptr) {
-                auto tracker = std::make_shared<MemTracker>();
                 brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
                 attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
-                RowBatch batch(*_row_desc, request->row_batch(), tracker.get());
+                RowBatch batch(*_row_desc, request->row_batch());
                 for (int i = 0; i < batch.num_rows(); ++i) {
                     LOG(INFO) << batch.get_row(i)->to_string(*_row_desc);
                     _output_set->emplace(batch.get_row(i)->to_string(*_row_desc));
@@ -411,8 +414,7 @@ TEST_F(OlapTableSinkTest, normal) {
     st = sink.open(&state);
     ASSERT_TRUE(st.ok());
     // send
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     // 12, 9, "abc"
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -545,8 +547,7 @@ TEST_F(OlapTableSinkTest, convert) {
     st = sink.open(&state);
     ASSERT_TRUE(st.ok());
     // send
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     // 12, 9, "abc"
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -854,8 +855,7 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     st = sink.open(&state);
     ASSERT_TRUE(st.ok());
     // send
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     // 12, 9, "abc"
     {
@@ -935,8 +935,7 @@ TEST_F(OlapTableSinkTest, decimal) {
     st = sink.open(&state);
     ASSERT_TRUE(st.ok());
     // send
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     // 12, 12.3
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());

@@ -27,8 +27,9 @@
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/visit_array_inline.h>
+#include <arrow/visit_type_inline.h>
 #include <arrow/visitor.h>
-#include <arrow/visitor_inline.h>
 
 #include <cstdlib>
 #include <ctime>
@@ -205,7 +206,7 @@ public:
     arrow::Status Visit(const arrow::StringType& type) override {
         arrow::StringBuilder builder(_pool);
         size_t num_rows = _batch.num_rows();
-        builder.Reserve(num_rows);
+        ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
         for (size_t i = 0; i < num_rows; ++i) {
             bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
             if (is_null) {
@@ -258,7 +259,7 @@ public:
                 std::make_shared<arrow::Decimal128Type>(27, 9);
         arrow::Decimal128Builder builder(s_decimal_ptr, _pool);
         size_t num_rows = _batch.num_rows();
-        builder.Reserve(num_rows);
+        ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
         for (size_t i = 0; i < num_rows; ++i) {
             bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
             if (is_null) {
@@ -275,10 +276,10 @@ public:
         return builder.Finish(&_arrays[_cur_field_idx]);
     }
     // process boolean
-    arrow::Status Visit(const arrow::BooleanType& type) {
+    arrow::Status Visit(const arrow::BooleanType& type) override {
         arrow::BooleanBuilder builder(_pool);
         size_t num_rows = _batch.num_rows();
-        builder.Reserve(num_rows);
+        ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
         for (size_t i = 0; i < num_rows; ++i) {
             bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
             if (is_null) {
@@ -300,7 +301,7 @@ private:
         arrow::NumericBuilder<T> builder(_pool);
 
         size_t num_rows = _batch.num_rows();
-        builder.Reserve(num_rows);
+        ARROW_RETURN_NOT_OK(builder.Reserve(num_rows));
         for (size_t i = 0; i < num_rows; ++i) {
             bool is_null = _cur_slot_ref->is_null_bit_set(_batch.get_row(i));
             if (is_null) {
@@ -365,9 +366,8 @@ class ToRowBatchConverter : public arrow::ArrayVisitor {
 public:
     using arrow::ArrayVisitor::Visit;
 
-    ToRowBatchConverter(const arrow::RecordBatch& batch, const RowDescriptor& row_desc,
-                        const std::shared_ptr<MemTracker>& tracker)
-            : _batch(batch), _row_desc(row_desc), _tracker(tracker) {}
+    ToRowBatchConverter(const arrow::RecordBatch& batch, const RowDescriptor& row_desc)
+            : _batch(batch), _row_desc(row_desc) {}
 
 #define PRIMITIVE_VISIT(TYPE) \
     arrow::Status Visit(const arrow::TYPE& array) override { return _visit(array); }
@@ -407,7 +407,6 @@ private:
 private:
     const arrow::RecordBatch& _batch;
     const RowDescriptor& _row_desc;
-    std::shared_ptr<MemTracker> _tracker;
 
     std::unique_ptr<SlotRef> _cur_slot_ref;
     std::shared_ptr<RowBatch> _output;
@@ -427,7 +426,7 @@ Status ToRowBatchConverter::convert(std::shared_ptr<RowBatch>* result) {
     // TODO(zc): check if field type match
 
     size_t num_rows = _batch.num_rows();
-    _output.reset(new RowBatch(_row_desc, num_rows, _tracker.get()));
+    _output.reset(new RowBatch(_row_desc, num_rows));
     _output->commit_rows(num_rows);
     auto pool = _output->tuple_data_pool();
     for (size_t row_id = 0; row_id < num_rows; ++row_id) {
@@ -453,9 +452,8 @@ Status ToRowBatchConverter::convert(std::shared_ptr<RowBatch>* result) {
 }
 
 Status convert_to_row_batch(const arrow::RecordBatch& batch, const RowDescriptor& row_desc,
-                            const std::shared_ptr<MemTracker>& tracker,
                             std::shared_ptr<RowBatch>* result) {
-    ToRowBatchConverter converter(batch, row_desc, tracker);
+    ToRowBatchConverter converter(batch, row_desc);
     return converter.convert(result);
 }
 
@@ -490,7 +488,12 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
         msg << "write record batch failure, reason: " << a_st.ToString();
         return Status::InternalError(msg.str());
     }
-    record_batch_writer->Close();
+    a_st = record_batch_writer->Close();
+    if (!a_st.ok()) {
+        std::stringstream msg;
+        msg << "Close failed, reason: " << a_st.ToString();
+        return Status::InternalError(msg.str());
+    }
     auto finish_res = sink->Finish();
     if (!finish_res.ok()) {
         std::stringstream msg;
@@ -499,7 +502,12 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
     }
     *result = finish_res.ValueOrDie()->ToString();
     // close the sink
-    sink->Close();
+    a_st = sink->Close();
+    if (!a_st.ok()) {
+        std::stringstream msg;
+        msg << "Close failed, reason: " << a_st.ToString();
+        return Status::InternalError(msg.str());
+    }
     return Status::OK();
 }
 
