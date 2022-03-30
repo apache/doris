@@ -30,7 +30,6 @@
 #include <filesystem>
 
 #include "env/env.h"
-#include "env/env_remote_mgr.h"
 #include "env/env_util.h"
 #include "gutil/strings/strcat.h"
 #include "olap/base_compaction.h"
@@ -55,6 +54,7 @@
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
+#include "util/storage_backend_mgr.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -1329,7 +1329,7 @@ void TabletManager::get_tablets_distribution_on_different_disks(
 OLAPStatus TabletManager::_get_storage_param(
         DataDir* data_dir, const std::string& storage_name, StorageParamPB* storage_param) {
     if (data_dir->is_remote()) {
-        RETURN_WITH_WARN_IF_ERROR(Env::get_remote_mgr()->get_storage_param(storage_name, storage_param),
+        RETURN_WITH_WARN_IF_ERROR(StorageBackendMgr::instance()->get_storage_param(storage_name, storage_param),
                                   OLAP_ERR_OTHER_ERROR, "get_storage_param failed for storage_name: " + storage_name);
     } else {
         storage_param->set_storage_medium(fs::fs_util::get_storage_medium_pb(data_dir->storage_medium()));

@@ -33,6 +33,8 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "util/storage_backend.h"
+#include "util/storage_backend_mgr.h"
 
 namespace doris {
 
@@ -53,10 +55,15 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) {       // abnormal exit, remove all files generated
         _segment_writer.reset(); // ensure all files are closed
         Status st;
-        std::shared_ptr<Env> env = Env::get_env(_context.path_desc);
-        if (env == nullptr) {
-            LOG(WARNING) << "env is invalid: " << _context.path_desc.debug_string();
-            return;
+        if (_context.path_desc.is_remote()) {
+            std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
+                    get_storage_backend(_context.path_desc.storage_name);
+            if (storage_backend == nullptr) {
+                LOG(WARNING) << "storage_backend is invalid: " << _context.path_desc.debug_string();
+                return;
+            }
+            WARN_IF_ERROR(storage_backend->rmdir(_context.path_desc.remote_path),
+                    strings::Substitute("Failed to delete remote file=$0", _context.path_desc.remote_path));
         }
         for (int i = 0; i < _num_segment; ++i) {
             auto path_desc = BetaRowset::segment_file_path(_context.path_desc,
@@ -64,7 +71,7 @@ BetaRowsetWriter::~BetaRowsetWriter() {
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
-            WARN_IF_ERROR(env->delete_file(path_desc.filepath),
+            WARN_IF_ERROR(Env::Default()->delete_file(path_desc.filepath),
                           strings::Substitute("Failed to delete file=$0", path_desc.filepath));
         }
     }

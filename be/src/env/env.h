@@ -24,8 +24,7 @@ class RandomRWFile;
 class WritableFile;
 class SequentialFile;
 class PosixEnv;
-class RemoteEnv;
-class RemoteEnvMgr;
+class StorageBackend;
 struct FilePathDesc;
 struct WritableFileOptions;
 struct RandomAccessFileOptions;
@@ -50,8 +49,6 @@ public:
     // system.  Sophisticated users may wish to provide their own Env
     // implementation instead of relying on this default environment.
     static Env* Default();
-    static RemoteEnvMgr* get_remote_mgr();
-    static std::shared_ptr<Env> get_env(const FilePathDesc& path_desc);
 
     // Create a brand new sequentially-readable file with the specified name.
     // On success, stores a pointer to the new file in *result and returns OK.
@@ -194,7 +191,6 @@ public:
 
 private:
     static std::shared_ptr<PosixEnv> _posix_env;
-    static std::shared_ptr<RemoteEnvMgr> _remote_env_mgr;
 };
 
 struct FilePathDesc {

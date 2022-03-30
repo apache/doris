@@ -18,14 +18,18 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "env/env_util.h"
-#include "env/env_remote_mgr.h"
+#include "env/env.h"
 #include "gutil/strings/substitute.h"
 #include "util/faststring.h"
 #include "util/file_utils.h"
+#include "util/storage_backend.h"
+#include "util/storage_backend_mgr.h"
+#include "util/s3_util.h"
+#include "util/s3_storage_backend.h"
 
 namespace doris {
 
-Status RemoteEnvMgr::init(const std::string& storage_param_dir) {
+Status StorageBackendMgr::init(const std::string& storage_param_dir) {
     if (_is_inited) {
         return Status::OK();
     }
@@ -54,7 +58,7 @@ Status RemoteEnvMgr::init(const std::string& storage_param_dir) {
     return Status::OK();
 }
 
-Status RemoteEnvMgr::create_remote_storage(const StorageParamPB& storage_param_pb) {
+Status StorageBackendMgr::create_remote_storage(const StorageParamPB& storage_param_pb) {
     if (_check_exist(storage_param_pb)) {
         return Status::OK();
     }
@@ -83,62 +87,80 @@ Status RemoteEnvMgr::create_remote_storage(const StorageParamPB& storage_param_p
     return Status::OK();
 }
 
-Status RemoteEnvMgr::_create_remote_storage_internal(const StorageParamPB& storage_param_pb) {
+Status StorageBackendMgr::_create_remote_storage_internal(const StorageParamPB& storage_param_pb) {
     std::string storage_name = storage_param_pb.storage_name();
-    WriteLock wrlock(_remote_env_lock);
-    if (_remote_env_map.size() >= doris::config::max_remote_storage_count) {
-        std::map<std::string, time_t>::iterator itr = _remote_env_active_time.begin();
+    WriteLock wrlock(_storage_backend_lock);
+    if (_storage_backend_map.size() >= doris::config::max_remote_storage_count) {
+        std::map<std::string, time_t>::iterator itr = _storage_backend_active_time.begin();
         std::string timeout_key = itr->first;
         time_t min_active_time = itr->second;
         ++itr;
-        for (; itr != _remote_env_active_time.end(); ++itr) {
+        for (; itr != _storage_backend_active_time.end(); ++itr) {
             if (itr->second < min_active_time) {
                 timeout_key = itr->first;
                 min_active_time = itr->second;
             }
         }
-        _remote_env_map.erase(storage_name);
+        _storage_backend_map.erase(storage_name);
         _storage_param_map.erase(storage_name);
-        _remote_env_active_time.erase(storage_name);
+        _storage_backend_active_time.erase(storage_name);
     }
-    std::shared_ptr<RemoteEnv> remote_env(new RemoteEnv());
-    RETURN_NOT_OK_STATUS_WITH_WARN(remote_env->init_conf(storage_param_pb),
-                                   strings::Substitute("create_remote_storage failed. storage_name: $0", storage_name));
+    std::map<std::string, std::string> storage_prop;
+    switch (storage_param_pb.storage_medium()) {
+        case TStorageMedium::S3:
+        default:
+            S3StorageParamPB s3_storage_param = storage_param_pb.s3_storage_param();
+            if (s3_storage_param.s3_ak().empty() || s3_storage_param.s3_sk().empty()
+                || s3_storage_param.s3_endpoint().empty() || s3_storage_param.s3_region().empty()) {
+                return Status::InternalError("s3_storage_param param is invalid");
+            }
+            storage_prop[S3_AK] = s3_storage_param.s3_ak();
+            storage_prop[S3_SK] = s3_storage_param.s3_sk();
+            storage_prop[S3_ENDPOINT] = s3_storage_param.s3_endpoint();
+            storage_prop[S3_REGION] = s3_storage_param.s3_region();
+            storage_prop[S3_MAX_CONN_SIZE] = s3_storage_param.s3_max_conn();
+            storage_prop[S3_REQUEST_TIMEOUT_MS] = s3_storage_param.s3_request_timeout_ms();
+            storage_prop[S3_CONN_TIMEOUT_MS] = s3_storage_param.s3_conn_timeout_ms();
+
+            if (!ClientFactory::is_s3_conf_valid(storage_prop)) {
+                return Status::InternalError("s3_storage_param is invalid");
+            }
+            _storage_backend_map[storage_name] = std::make_shared<S3StorageBackend>(storage_prop);
+    }
     _storage_param_map[storage_name] = storage_param_pb;
-    _remote_env_map[storage_name] = remote_env;
-    _remote_env_active_time[storage_name] = time(nullptr);
+    _storage_backend_active_time[storage_name] = time(nullptr);
 
     return Status::OK();
 }
 
-std::shared_ptr<RemoteEnv> RemoteEnvMgr::get_remote_env(const std::string& storage_name) {
-    ReadLock rdlock(_remote_env_lock);
-    if (_remote_env_map.find(storage_name) == _remote_env_map.end()) {
+std::shared_ptr<StorageBackend> StorageBackendMgr::get_storage_backend(const std::string& storage_name) {
+    ReadLock rdlock(_storage_backend_lock);
+    if (_storage_backend_map.find(storage_name) == _storage_backend_map.end()) {
         return nullptr;
     }
-    _remote_env_active_time[storage_name] = time(nullptr);
-    return _remote_env_map[storage_name];
+    _storage_backend_active_time[storage_name] = time(nullptr);
+    return _storage_backend_map[storage_name];
 }
 
-Status RemoteEnvMgr::get_storage_param(const std::string& storage_name, StorageParamPB* storage_param) {
-    ReadLock rdlock(_remote_env_lock);
-    if (_remote_env_map.find(storage_name) == _remote_env_map.end()) {
+Status StorageBackendMgr::get_storage_param(const std::string& storage_name, StorageParamPB* storage_param) {
+    ReadLock rdlock(_storage_backend_lock);
+    if (_storage_backend_map.find(storage_name) == _storage_backend_map.end()) {
         return Status::InternalError("storage_name not exist: " + storage_name);
     }
     *storage_param = _storage_param_map[storage_name];
     return Status::OK();
 }
 
-Status RemoteEnvMgr::get_root_path(const std::string& storage_name, std::string* root_path) {
-    ReadLock rdlock(_remote_env_lock);
-    if (_remote_env_map.find(storage_name) == _remote_env_map.end()) {
+Status StorageBackendMgr::get_root_path(const std::string& storage_name, std::string* root_path) {
+    ReadLock rdlock(_storage_backend_lock);
+    if (_storage_backend_map.find(storage_name) == _storage_backend_map.end()) {
         return Status::InternalError("storage_name not exist: " + storage_name);
     }
     *root_path = get_root_path_from_param(_storage_param_map[storage_name]);
     return Status::OK();
 }
 
-std::string RemoteEnvMgr::get_root_path_from_param(const StorageParamPB& storage_param) {
+std::string StorageBackendMgr::get_root_path_from_param(const StorageParamPB& storage_param) {
     switch (storage_param.storage_medium()) {
         case TStorageMedium::S3:
         default:
@@ -148,10 +170,10 @@ std::string RemoteEnvMgr::get_root_path_from_param(const StorageParamPB& storage
     }
 }
 
-Status RemoteEnvMgr::_check_exist(const StorageParamPB& storage_param_pb) {
+Status StorageBackendMgr::_check_exist(const StorageParamPB& storage_param_pb) {
     StorageParamPB old_storage_param;
     RETURN_IF_ERROR(get_storage_param(storage_param_pb.storage_name(), &old_storage_param));
-    ReadLock rdlock(_remote_env_lock);
+    ReadLock rdlock(_storage_backend_lock);
     std::string old_param_binary;
     RETURN_NOT_OK_STATUS_WITH_WARN(_serialize_param(old_storage_param, &old_param_binary),
                                    "_serialize_param old_storage_param_pb failed.");
@@ -165,7 +187,7 @@ Status RemoteEnvMgr::_check_exist(const StorageParamPB& storage_param_pb) {
     return Status::OK();
 }
 
-Status RemoteEnvMgr::_serialize_param(const StorageParamPB& storage_param_pb, std::string* param_binary) {
+Status StorageBackendMgr::_serialize_param(const StorageParamPB& storage_param_pb, std::string* param_binary) {
     bool serialize_success = storage_param_pb.SerializeToString(param_binary);
     if (!serialize_success) {
         LOG(WARNING) << "failed to serialize storage_param " << storage_param_pb.storage_name();
@@ -174,7 +196,7 @@ Status RemoteEnvMgr::_serialize_param(const StorageParamPB& storage_param_pb, st
     return Status::OK();
 }
 
-Status RemoteEnvMgr::_deserialize_param(const std::string& param_binary, StorageParamPB* storage_param_pb) {
+Status StorageBackendMgr::_deserialize_param(const std::string& param_binary, StorageParamPB* storage_param_pb) {
     bool parsed = storage_param_pb->ParseFromString(param_binary);
     if (!parsed) {
         LOG(WARNING) << "parse storage_param failed";

@@ -18,29 +18,14 @@
 #include "common/config.h"
 #include "env/env.h"
 #include "env/env_posix.h"
-#include "env/env_remote.h"
-#include "env/env_remote_mgr.h"
 
 namespace doris {
 
 std::shared_ptr<PosixEnv> Env::_posix_env(new PosixEnv());
-std::shared_ptr<RemoteEnvMgr> Env::_remote_env_mgr(new RemoteEnvMgr());
 
 // Default Posix Env
 Env *Env::Default() {
     return _posix_env.get();
-}
-
-std::shared_ptr<Env> Env::get_env(const FilePathDesc& path_desc) {
-    if (path_desc.is_remote()) {
-        return _remote_env_mgr->get_remote_env(path_desc.storage_name);
-    } else {
-        return _posix_env;
-    }
-}
-
-RemoteEnvMgr* Env::get_remote_mgr() {
-    return _remote_env_mgr.get();
 }
 
 } // end namespace doris

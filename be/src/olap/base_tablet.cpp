@@ -17,11 +17,11 @@
 
 #include "olap/base_tablet.h"
 
-#include "env/env_remote_mgr.h"
 #include "gutil/strings/substitute.h"
 #include "olap/data_dir.h"
 #include "util/doris_metrics.h"
 #include "util/path_util.h"
+#include "util/storage_backend_mgr.h"
 
 namespace doris {
 
@@ -71,7 +71,7 @@ void BaseTablet::_gen_tablet_path() {
         root_path_desc.storage_medium = fs::fs_util::get_t_storage_medium(_storage_param.storage_medium());
         if (_data_dir->is_remote()) {
             root_path_desc.storage_name = _storage_param.storage_name();
-            root_path_desc.remote_path = RemoteEnvMgr::get_root_path_from_param(_storage_param);
+            root_path_desc.remote_path = StorageBackendMgr::get_root_path_from_param(_storage_param);
         }
         FilePathDescStream desc_s;
         desc_s << root_path_desc << DATA_PREFIX;

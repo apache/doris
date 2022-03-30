@@ -29,10 +29,10 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "env/env_posix.h"
-#include "env/env_remote.h"
 #include "env/env_util.h"
 #include "gutil/strings/substitute.h"
 #include "olap/fs/block_id.h"
+#include "util/storage_backend.h"
 
 using std::shared_ptr;
 using std::string;
@@ -264,9 +264,9 @@ Status RemoteReadableBlock::readv(uint64_t offset, const Slice* results, size_t 
 // RemoteBlockManager
 ////////////////////////////////////////////////////////////
 
-RemoteBlockManager::RemoteBlockManager(Env* local_env, RemoteEnv* remote_env,
+RemoteBlockManager::RemoteBlockManager(Env* local_env, std::shared_ptr<StorageBackend> storage_backend,
                                        const BlockManagerOptions& opts)
-        : _local_env(local_env), _remote_env(remote_env), _opts(opts) {
+        : _local_env(local_env), _storage_backend(storage_backend), _opts(opts) {
 }
 
 RemoteBlockManager::~RemoteBlockManager() {}
@@ -319,14 +319,14 @@ Status RemoteBlockManager::delete_block(const FilePathDesc& path_desc, bool is_d
             RETURN_IF_ERROR(_local_env->delete_dir(path_desc.filepath));
         }
         if (!path_desc.remote_path.empty()) {
-            RETURN_IF_ERROR(_remote_env->delete_dir(path_desc.remote_path));
+            RETURN_IF_ERROR(_storage_backend->rmdir(path_desc.remote_path));
         }
     } else {
         if (_local_env->path_exists(path_desc.filepath).ok()) {
             RETURN_IF_ERROR(_local_env->delete_file(path_desc.filepath));
         }
-        if (_remote_env->path_exists(path_desc.remote_path).ok()) {
-            RETURN_IF_ERROR(_remote_env->delete_file(path_desc.remote_path));
+        if (_storage_backend->exist(path_desc.remote_path).ok()) {
+            RETURN_IF_ERROR(_storage_backend->rm(path_desc.remote_path));
         }
     }
     return Status::OK();
@@ -336,8 +336,8 @@ Status RemoteBlockManager::link_file(const FilePathDesc& src_path_desc, const Fi
     if (_local_env->path_exists(src_path_desc.filepath).ok()) {
         RETURN_IF_ERROR(_local_env->link_file(src_path_desc.filepath, dest_path_desc.filepath));
     }
-    if (_remote_env->path_exists(src_path_desc.remote_path).ok()) {
-        RETURN_IF_ERROR(_remote_env->link_file(src_path_desc.remote_path, dest_path_desc.remote_path));
+    if (_storage_backend->exist(src_path_desc.remote_path).ok()) {
+        RETURN_IF_ERROR(_storage_backend->copy(src_path_desc.remote_path, dest_path_desc.remote_path));
     }
     return Status::OK();
 }

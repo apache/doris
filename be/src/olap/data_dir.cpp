@@ -33,7 +33,6 @@
 #include <sstream>
 
 #include "env/env_util.h"
-#include "env/env_remote_mgr.h"
 #include "gutil/strings/substitute.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
@@ -47,6 +46,8 @@
 #include "util/errno.h"
 #include "util/file_utils.h"
 #include "util/monotime.h"
+#include "util/storage_backend.h"
+#include "util/storage_backend_mgr.h"
 #include "util/string_util.h"
 
 using strings::Substitute;
@@ -360,7 +361,7 @@ OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
 OLAPStatus DataDir::load() {
     LOG(INFO) << "start to load tablets from " << _path_desc.filepath;
     if (is_remote()) {
-        RETURN_WITH_WARN_IF_ERROR(Env::get_remote_mgr()->init(_path_desc.filepath + STORAGE_PARAM_PREFIX),
+        RETURN_WITH_WARN_IF_ERROR(StorageBackendMgr::instance()->init(_path_desc.filepath + STORAGE_PARAM_PREFIX),
                                   OLAP_ERR_INIT_FAILED, "DataDir init failed.");
     }
     // load rowset meta from meta env and create rowset
@@ -760,7 +761,7 @@ void DataDir::disks_compaction_num_increment(int64_t delta) {
 OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     OLAPStatus res = OLAP_SUCCESS;
     FilePathDesc storage_root_desc = _path_desc;
-    if (is_remote() && !Env::get_remote_mgr()->get_root_path(
+    if (is_remote() && !StorageBackendMgr::instance()->get_root_path(
             segment_path_desc.storage_name, &(storage_root_desc.remote_path)).ok()) {
         LOG(WARNING) << "get_root_path failed for storage_name: " << segment_path_desc.storage_name;
         return OLAP_ERR_OTHER_ERROR;
@@ -821,23 +822,19 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
                          << ", error:" << st.to_string();
             return OLAP_ERR_OS_ERROR;
         }
-        std::shared_ptr<Env> env = Env::get_env(segment_path_desc);
-        if (env == nullptr) {
-            LOG(WARNING) << "env is invalid: " << segment_path_desc.storage_name;
+        std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
+                get_storage_backend(segment_path_desc.storage_name);
+        if (storage_backend == nullptr) {
+            LOG(WARNING) << "storage_backend is invalid: " << segment_path_desc.storage_name;
             return OLAP_ERR_OS_ERROR;
         }
-        Status status = env->path_exists(segment_path_desc.remote_path, true);
+        Status status = storage_backend->exist_dir(segment_path_desc.remote_path);
         if (status.ok()) {
             VLOG_NOTICE << "Move remote file to trash. " << segment_path_desc.remote_path
                         << " -> " << trash_path_desc.remote_path;
-            std::shared_ptr<Env> env = Env::get_env(segment_path_desc);
-            if (env == nullptr) {
-                LOG(WARNING) << "env is invalid: " << segment_path_desc.storage_name;
-                return OLAP_ERR_OS_ERROR;
-            }
-            Status rename_status = env->rename_dir(segment_path_desc.remote_path, trash_path_desc.remote_path);
+            Status rename_status = storage_backend->rename_dir(segment_path_desc.remote_path, trash_path_desc.remote_path);
             if (!rename_status.ok()) {
-                OLAP_LOG_WARNING("Move remote file to trash failed. [file=%s target='%s' err='%m']",
+                OLAP_LOG_WARNING("Move remote file to trash failed. [file=%s target='%s']",
                                  segment_path_desc.remote_path.c_str(), trash_path_desc.remote_path.c_str());
                 return OLAP_ERR_OS_ERROR;
             }

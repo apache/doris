@@ -19,11 +19,12 @@
 
 #include "common/status.h"
 #include "env/env.h"
-#include "env/env_remote.h"
 #include "olap/fs/file_block_manager.h"
 #include "olap/fs/remote_block_manager.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "util/storage_backend.h"
+#include "util/storage_backend_mgr.h"
 
 namespace doris {
 namespace fs {
@@ -34,13 +35,13 @@ BlockManager* block_manager(const FilePathDesc& path_desc) {
     bm_opts.read_only = false;
     if (path_desc.is_remote()) {
         bm_opts.read_only = true;
-        std::shared_ptr<Env> env = Env::get_env(path_desc);
-        if (env == nullptr) {
-            LOG(WARNING) << "env is invalid: " << path_desc.debug_string();
+        std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
+                get_storage_backend(path_desc.storage_name);
+        if (storage_backend == nullptr) {
+            LOG(WARNING) << "storage_backend is invalid: " << path_desc.debug_string();
             return nullptr;
         }
-        static RemoteBlockManager remote_block_mgr(
-                Env::Default(), dynamic_cast<RemoteEnv *>(env.get()), bm_opts);
+        static RemoteBlockManager remote_block_mgr(Env::Default(), storage_backend, bm_opts);
         return &remote_block_mgr;
     } else {
         static FileBlockManager block_mgr(Env::Default(), std::move(bm_opts));
