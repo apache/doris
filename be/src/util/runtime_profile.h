@@ -402,7 +402,8 @@ private:
     std::map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
 
     // True if we have to delete the _pool on destruction.
-    bool _own_pool;
+    // TODO(zxy) not used
+    // bool _own_pool;
 
     // Name for this runtime profile.
     std::string _name;

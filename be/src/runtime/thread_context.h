@@ -93,7 +93,9 @@ public:
     void attach(const TaskType& type, const std::string& task_id,
                 const TUniqueId& fragment_instance_id,
                 const std::shared_ptr<MemTracker>& mem_tracker) {
-        DCHECK(_type == TaskType::UNKNOWN && _task_id == "");
+        DCHECK(_type == TaskType::UNKNOWN && _task_id == "")
+                << ",old tracker label: " << mem_tracker->label()
+                << ",new tracker label: " << _thread_mem_tracker_mgr->mem_tracker()->label();
         _type = type;
         _task_id = task_id;
         _fragment_instance_id = fragment_instance_id;
@@ -187,13 +189,17 @@ public:
 
     explicit AttachTaskThread(const ThreadContext::TaskType& type,
                               const std::shared_ptr<MemTracker>& mem_tracker) {
+#ifndef BE_TEST
         DCHECK(mem_tracker);
+#endif
         thread_local_ctx.get()->attach(type, "", TUniqueId(), mem_tracker);
     }
 
     explicit AttachTaskThread(const TQueryType::type& query_type,
                               const std::shared_ptr<MemTracker>& mem_tracker) {
+#ifndef BE_TEST
         DCHECK(mem_tracker);
+#endif
         thread_local_ctx.get()->attach(query_to_task_type(query_type), "", TUniqueId(),
                                        mem_tracker);
     }
@@ -201,9 +207,11 @@ public:
     explicit AttachTaskThread(const TQueryType::type& query_type, const std::string& task_id,
                               const TUniqueId& fragment_instance_id,
                               const std::shared_ptr<MemTracker>& mem_tracker) {
+#ifndef BE_TEST
         DCHECK(task_id != "");
         DCHECK(fragment_instance_id != TUniqueId());
         DCHECK(mem_tracker);
+#endif
         thread_local_ctx.get()->attach(query_to_task_type(query_type), task_id,
                                        fragment_instance_id, mem_tracker);
     }
@@ -214,10 +222,10 @@ public:
         DCHECK(print_id(runtime_state->query_id()) != "");
         DCHECK(runtime_state->fragment_instance_id() != TUniqueId());
         DCHECK(mem_tracker);
+#endif
         thread_local_ctx.get()->attach(query_to_task_type(runtime_state->query_type()),
                                        print_id(runtime_state->query_id()),
                                        runtime_state->fragment_instance_id(), mem_tracker);
-#endif
     }
 
     const ThreadContext::TaskType query_to_task_type(const TQueryType::type& query_type) {
@@ -233,10 +241,8 @@ public:
     }
 
     ~AttachTaskThread() {
-#ifndef BE_TEST
         thread_local_ctx.get()->detach();
         DorisMetrics::instance()->attach_task_thread_count->increment(1);
-#endif
     }
 };
 

@@ -17,6 +17,7 @@
 
 #include "vec/sink/vtablet_sink.h"
 
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
@@ -55,6 +56,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
 }
 
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status status = Status::OK();
 
     auto rows = input_block->rows();

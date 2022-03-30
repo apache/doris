@@ -40,6 +40,7 @@ Status SetOperationNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status SetOperationNode::prepare(RuntimeState* state) {
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -47,7 +48,6 @@ Status SetOperationNode::prepare(RuntimeState* state) {
     _build_pool.reset(new MemPool(mem_tracker().get()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
-    SCOPED_TIMER(_runtime_profile->total_time_counter());
     for (size_t i = 0; i < _child_expr_lists.size(); ++i) {
         RETURN_IF_ERROR(Expr::prepare(_child_expr_lists[i], state, child(i)->row_desc(),
                                       expr_mem_tracker()));

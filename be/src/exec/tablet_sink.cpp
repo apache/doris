@@ -252,7 +252,7 @@ Status NodeChannel::open_wait() {
 }
 
 Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_node_channel_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_node_channel_tracker);
     // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
@@ -304,7 +304,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
 // Used for vectorized engine.
 // TODO(cmy): deprecated, need refactor
 Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_node_channel_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_node_channel_tracker);
     // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
@@ -615,7 +615,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
 }
 
 void IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_index_channel_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
     auto it = _channels_by_tablet.find(tablet_id);
     DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
     for (auto channel : it->second) {
@@ -631,7 +631,7 @@ void IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
 // Used for vectorized engine.
 // TODO(cmy): deprecated, need refactor
 void IndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_index_channel_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
     auto it = _channels_by_tablet.find(tablet_id);
     DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
     for (auto channel : it->second) {
