@@ -83,4 +83,4 @@ under the License.
 
 ## Contributor
 
-[All Contributors](https://github.com/apache/incubator-doris/graphs/contributors
+[All Contributors](https://github.com/apache/incubator-doris/graphs/contributors)
