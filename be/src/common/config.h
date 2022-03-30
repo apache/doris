@@ -232,9 +232,9 @@ CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
 
-CONF_Bool(enable_storage_vectorization, "false");
+CONF_Bool(enable_storage_vectorization, "true");
 
-CONF_Bool(enable_low_cardinality_optimize, "false");
+CONF_Bool(enable_low_cardinality_optimize, "true");
 
 // be policy
 // whether disable automatic compaction task
