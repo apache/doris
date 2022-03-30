@@ -164,7 +164,7 @@ private:
         inline OLAPStatus _normal_next(Block* block);
 
         // Each LevelIterator corresponds to a rowset reader,
-        // it will be cleared after '_heap' has been initilized when '_merge == true'.
+        // it will be cleared after '_heap' has been initialized when '_merge == true'.
         std::list<LevelIterator*> _children;
         // point to the Level0Iterator containing the next output row.
         // null when VCollectIterator hasn't been initialized or reaches EOF.
@@ -186,7 +186,7 @@ private:
     std::unique_ptr<LevelIterator> _inner_iter;
 
     // Each LevelIterator corresponds to a rowset reader,
-    // it will be cleared after '_inner_iter' has been initilized.
+    // it will be cleared after '_inner_iter' has been initialized.
     std::list<LevelIterator*> _children;
 
     bool _merge = true;

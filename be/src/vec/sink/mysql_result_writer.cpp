@@ -19,13 +19,13 @@
 
 #include "runtime/buffer_control_block.h"
 #include "runtime/runtime_state.h"
-#include "util/date_func.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 namespace vectorized {
 VMysqlResultWriter::VMysqlResultWriter(BufferControlBlock* sinker,

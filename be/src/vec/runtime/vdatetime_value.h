@@ -67,23 +67,10 @@ struct TimeInterval {
     int64_t second;
     bool is_neg;
 
-    TimeInterval()
-            : year(0),
-              month(0),
-              day(0),
-              hour(0),
-              minute(0),
-              second(0),
-              is_neg(false) {}
+    TimeInterval() : year(0), month(0), day(0), hour(0), minute(0), second(0), is_neg(false) {}
 
     TimeInterval(TimeUnit unit, int64_t count, bool is_neg_param)
-            : year(0),
-              month(0),
-              day(0),
-              hour(0),
-              minute(0),
-              second(0),
-              is_neg(is_neg_param) {
+            : year(0), month(0), day(0), hour(0), minute(0), second(0), is_neg(is_neg_param) {
         switch (unit) {
         case YEAR:
             year = count;
@@ -157,8 +144,8 @@ static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::
 
 uint8_t mysql_week_mode(uint32_t mode);
 
-class VecDateTimeValue {  // Now this type is a temp solution with little changes, maybe large refactoring follow-up.
-public:                   
+class VecDateTimeValue { // Now this type is a temp solution with little changes, maybe large refactoring follow-up.
+public:
     // Constructor
     VecDateTimeValue()
             : _neg(0),
@@ -166,14 +153,14 @@ public:
               _second(0),
               _minute(0),
               _hour(0),
-              _day(0),      // _microsecond(0): remove it to reduce memory, and Reorder the variables 
-              _month(0),    // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
-              _year(0) {}   // before int128  16 bytes  --->  after int64 8 bytes
+              _day(0), // _microsecond(0): remove it to reduce memory, and Reorder the variables
+              _month(0), // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
+              _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
     explicit VecDateTimeValue(int64_t t) { from_date_int64(t); }
 
-    void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second);
+    void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute,
+                  uint32_t second);
 
     // Converted from Olap Date or Datetime
     bool from_olap_datetime(uint64_t datetime) {
@@ -182,7 +169,7 @@ public:
         uint64_t date = datetime / 1000000;
         uint64_t time = datetime % 1000000;
 
-        auto [year, month, day, hour, minute, second] = std::tuple{0,0,0,0,0,0};
+        auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
         year = date / 10000;
         date %= 10000;
         month = date / 100;
@@ -205,7 +192,7 @@ public:
         _neg = 0;
         _type = TIME_DATE;
 
-        auto [year, month, day, hour, minute, second] = std::tuple{0,0,0,0,0,0};
+        auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
 
         day = date & 0x1f;
         date >>= 5;
@@ -238,7 +225,7 @@ public:
     bool from_date_daynr(uint64_t);
 
     // Construct Date/Datetime type value from string.
-    // At least the following formats are recogniced (based on number of digits)
+    // At least the following formats are recognised (based on number of digits)
     // 'YYMMDD', 'YYYYMMDD', 'YYMMDDHHMMSS', 'YYYYMMDDHHMMSS'
     // 'YY-MM-DD', 'YYYY-MM-DD', 'YY-MM-DD HH.MM.SS'
     // 'YYYYMMDDTHHMMSS'
@@ -269,13 +256,14 @@ public:
 
     // Return true if range or date is invalid
     static bool check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second, uint16_t type);
+                            uint32_t minute, uint32_t second, uint16_t type);
 
     static bool check_date(uint32_t year, uint32_t month, uint32_t day);
 
     // compute the diff between two datetime value
     template <TimeUnit unit>
-    static int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue& ts_value2) {
+    static int64_t datetime_diff(const VecDateTimeValue& ts_value1,
+                                 const VecDateTimeValue& ts_value2) {
         switch (unit) {
         case YEAR: {
             int year = (ts_value2.year() - ts_value1.year());
@@ -340,7 +328,7 @@ public:
     int64_t to_int64() const;
 
     bool check_range_and_set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second, uint16_t type) {
+                                  uint32_t minute, uint32_t second, uint16_t type) {
         if (check_range(year, month, day, hour, minute, second, type)) {
             return false;
         }
@@ -354,12 +342,13 @@ public:
     // 0000-01-01 is 1st B.C.
     static uint64_t calc_daynr(uint32_t year, uint32_t month, uint32_t day);
 
-    static uint8_t calc_weekday(uint64_t daynr, bool); //W = (D + M*2 + 3*(M+1)/5 + Y + Y/4 -Y/100 + Y/400)%7
+    static uint8_t calc_weekday(uint64_t daynr,
+                                bool); //W = (D + M*2 + 3*(M+1)/5 + Y + Y/4 -Y/100 + Y/400)%7
 
     int year() const { return _year; }
     int month() const { return _month; }
     int quarter() const { return (_month - 1) / 3 + 1; }
-    int week() const { return week(mysql_week_mode(0)); }//00-53
+    int week() const { return week(mysql_week_mode(0)); } //00-53
     int day() const { return _day; }
     int hour() const { return _hour; }
     int minute() const { return _minute; }
@@ -548,11 +537,14 @@ public:
 
     int type() const { return _type; }
 
-    bool is_valid_date() const { return !check_range(_year, _month, _day,
-            _hour, _minute, _second, _type) && _month > 0 && _day > 0; }
-            
+    bool is_valid_date() const {
+        return !check_range(_year, _month, _day, _hour, _minute, _second, _type) && _month > 0 &&
+               _day > 0;
+    }
+
     void convert_vec_dt_to_dt(doris::DateTimeValue* dt);
     void convert_dt_to_vec_dt(doris::DateTimeValue* dt);
+
 private:
     // Used to make sure sizeof VecDateTimeValue
     friend class UnusedClass;
@@ -630,7 +622,7 @@ private:
     uint16_t _year;
 
     VecDateTimeValue(uint8_t neg, uint8_t type, uint8_t hour, uint8_t minute, uint8_t second,
-                  uint16_t year, uint8_t month, uint8_t day)
+                     uint16_t year, uint8_t month, uint8_t day)
             : _neg(neg),
               _type(type),
               _second(second),
@@ -651,13 +643,15 @@ std::ostream& operator<<(std::ostream& os, const VecDateTimeValue& value);
 
 std::size_t hash_value(VecDateTimeValue const& value);
 
+} // namespace vectorized
 } // namespace doris
-}
 
 namespace std {
 template <>
 struct hash<doris::vectorized::VecDateTimeValue> {
-    size_t operator()(const doris::vectorized::VecDateTimeValue& v) const { return doris::vectorized::hash_value(v); }
+    size_t operator()(const doris::vectorized::VecDateTimeValue& v) const {
+        return doris::vectorized::hash_value(v);
+    }
 };
 } // namespace std
 

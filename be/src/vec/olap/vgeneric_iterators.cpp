@@ -21,7 +21,6 @@
 #include "olap/iterators.h"
 #include "olap/row.h"
 #include "olap/row_block2.h"
-#include "olap/row_cursor_cell.h"
 
 namespace doris {
 
@@ -199,7 +198,7 @@ public:
     // Don't call this when valid() is false, action is undefined
     Status advance();
 
-    // Return if has remaining data in this context.
+    // Return if it has remaining data in this context.
     // Only when this function return true, current_row()
     // will return a valid row
     bool valid() const { return _valid; }
@@ -356,7 +355,7 @@ Status VMergeIterator::next_batch(vectorized::Block* block) {
 // VUnionIterator will read data from input iterator one by one.
 class VUnionIterator : public RowwiseIterator {
 public:
-    // Iterators' ownership it transfered to this class.
+    // Iterators' ownership it transferred to this class.
     // This class will delete all iterators when destructs
     // Client should not use iterators any more.
     VUnionIterator(std::vector<RowwiseIterator*>& v, std::shared_ptr<MemTracker> parent)
