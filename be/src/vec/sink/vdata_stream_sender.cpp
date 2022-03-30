@@ -343,7 +343,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _mem_tracker = MemTracker::create_tracker(
             -1, "VDataStreamSender:" + print_id(state->fragment_instance_id()),
             state->instance_mem_tracker(), MemTrackerLevel::VERBOSE, _profile);
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         std::random_device rd;
@@ -377,7 +377,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
 
 Status VDataStreamSender::open(RuntimeState* state) {
     DCHECK(state != nullptr);
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->open(state));

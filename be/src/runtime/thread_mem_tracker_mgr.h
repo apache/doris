@@ -174,6 +174,7 @@ inline int64_t ThreadMemTrackerMgr::update_tracker(const std::shared_ptr<MemTrac
     } else {
         if (_mem_trackers.find(_temp_tracker_id) == _mem_trackers.end()) {
             _mem_trackers[_temp_tracker_id] = mem_tracker;
+            DCHECK(_mem_trackers[_temp_tracker_id]);
             _untracked_mems[_temp_tracker_id] = 0;
         }
     }
@@ -181,6 +182,7 @@ inline int64_t ThreadMemTrackerMgr::update_tracker(const std::shared_ptr<MemTrac
     _untracked_mems[_tracker_id] += _untracked_mem;
     _untracked_mem = 0;
     std::swap(_tracker_id, _temp_tracker_id);
+    DCHECK(_mem_trackers[_tracker_id]);
     return _temp_tracker_id; // old tracker_id
 }
 

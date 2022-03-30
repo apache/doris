@@ -56,7 +56,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
 }
 
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status status = Status::OK();
 
     auto rows = input_block->rows();
