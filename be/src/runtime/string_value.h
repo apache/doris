@@ -188,6 +188,12 @@ struct StringValue {
             return a.compare(b) < 0;
         }
     };
+
+    struct HashOfStringValue {
+        size_t operator()(const StringValue& v) const {
+            return HashUtil::hash(v.ptr, v.len, 0);
+        }
+    };
 };
 
 // This function must be called 'hash_value' to be picked up by boost.

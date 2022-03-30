@@ -433,7 +433,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         int result[result_size];
         RETURN_IF_ERROR(get_partition_column_result(block, result));
 
-        // vectorized caculate hash
+        // vectorized calculate hash
         int rows = block->rows();
         // for each row, we have a siphash val
         std::vector<SipHash> siphashs(rows);
@@ -457,14 +457,13 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         // will only copy schema
         // we don't want send temp columns
         auto column_to_keep = block->columns();
-
-        // 1. caculate hash
+        // 1. calculate hash
         // 2. dispatch rows to channel
         int result_size = _partition_expr_ctxs.size();
         int result[result_size];
         RETURN_IF_ERROR(get_partition_column_result(block, result));
 
-        // vectorized caculate hash val
+        // vectorized calculate hash val
         int rows = block->rows();
         // for each row, we have a hash_val
         std::vector<size_t> hash_vals(rows);
@@ -492,7 +491,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
                 channel_add_rows(_channel_shared_ptrs, _channel_shared_ptrs.size(), hash_vals, rows, block));
     } else {
         // Range partition
-        // 1. caculate range
+        // 1. calculate range
         // 2. dispatch rows to channel
     }
     return Status::OK();

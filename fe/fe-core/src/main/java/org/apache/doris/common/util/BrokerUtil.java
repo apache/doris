@@ -187,7 +187,7 @@ public class BrokerUtil {
             }
             try {
                 FileSystem fs = FileSystem.get(new URI(hdfsFsName), conf, user);
-                FileStatus[] statusList = fs.listStatus(new Path(path));
+                FileStatus[] statusList = fs.globStatus(new Path(path));
                 for (FileStatus status : statusList) {
                     if (status.isFile()) {
                         fileStatuses.add(new TBrokerFileStatus(status.getPath().toUri().getPath(),

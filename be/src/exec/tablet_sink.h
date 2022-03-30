@@ -100,7 +100,7 @@ public:
     void addSuccessHandler(std::function<void(const T&, bool)> fn) { success_handler = fn; }
 
     void join() {
-        if (cid != INVALID_BTHREAD_ID) {
+        if (cid != INVALID_BTHREAD_ID && _packet_in_flight) {
             brpc::Join(cid);
         }
     }

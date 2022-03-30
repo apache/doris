@@ -606,8 +606,9 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             pred_column_ids.insert(cid);
 
             if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
-                type == OLAP_FIELD_TYPE_STRING || predicate->is_in_predicate() ||
-                predicate->is_bloom_filter_predicate()) {
+                type == OLAP_FIELD_TYPE_STRING || predicate->type() == PredicateType::BF ||
+                predicate->type() == PredicateType::IN_LIST ||
+                predicate->type() == PredicateType::NO_IN_LIST) {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
                 _is_all_column_basic_type = false;
@@ -838,23 +839,17 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
         return;
     }
 
-    for (auto column_predicate : _short_cir_eval_predicate) {
-        auto column_id = column_predicate->column_id();
+    for (auto predicate : _short_cir_eval_predicate) {
+        auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
         auto* col_ptr = short_cir_column.get();
-        // todo(zeno) define convert_dict_codes_if_dictionary interface in IColumn
-        if (short_cir_column->is_nullable()) {
-            auto nullable_col =
-                    reinterpret_cast<vectorized::ColumnNullable*>(short_cir_column.get());
-            col_ptr = nullable_col->get_nested_column_ptr().get();
+        // range comparison predicate needs to sort the dict and convert the encoding
+        if (predicate->type() == PredicateType::LT || predicate->type() == PredicateType::LE ||
+            predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
+            col_ptr->convert_dict_codes_if_necessary();
         }
-
-        if (col_ptr->is_column_dictionary() && column_predicate->is_range_comparison_predicate()) {
-            auto& dict_col =
-                    reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(*col_ptr);
-            dict_col.convert_dict_codes();
-        }
-        column_predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
+        predicate->set_dict_code_if_necessary(*short_cir_column);
+        predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
     }
 
     // evaluate delete condition

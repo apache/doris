@@ -504,7 +504,6 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
         }
     }
 
-    _add_batch_closure->reset();
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
@@ -514,6 +513,11 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
             remain_ms = config::min_load_rpc_timeout_ms;
         }
     }
+
+    // After calling reset(), make sure that the rpc will be called finally.
+    // Otherwise, when calling _add_batch_closure->join(), it will be blocked forever.
+    // and _add_batch_closure->join() will be called in ~NodeChannel().
+    _add_batch_closure->reset();
     _add_batch_closure->cntl.set_timeout_ms(remain_ms);
     if (config::tablet_writer_ignore_eovercrowded) {
         _add_batch_closure->cntl.ignore_eovercrowded();

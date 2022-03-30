@@ -109,11 +109,6 @@ public:
       */
     virtual bool is_state() const { return false; }
 
-    /// if return false, during insert_result_into function, you colud get nullable result column,
-    /// so could insert to null value by yourself, rather than by AggregateFunctionNullBase;
-    /// because you maybe be calculate a invalid value, but want to use null replace it;
-    virtual bool insert_to_null_default() const { return true; }
-
     /** Contains a loop with calls to "add" function. You can collect arguments into array "places"
       *  and do a single call to "add_batch" for devirtualization and inlining.
       */

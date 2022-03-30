@@ -59,13 +59,14 @@ sh build.sh
   e.g.:
     build.sh --flink 1.14.3 --scala 2.12
     build.sh --tag
+
 Then, for example, execute the command to compile according to the version you need:
 sh build.sh --flink 1.14.3 --scala 2.12
 ```
 
-> Note: If you check out the source code from tag, you can just run `sh build.sh --tag` without specifying the flink and scala versions. This is because the version in the tag source code is fixed. For example, `1.13.5_2.12-1.0.1` means flink version 1.13.5, scala version 2.12, and connector version 1.0.1.
+> Note: If you check out the source code from tag, you can just run `sh build.sh --tag` without specifying the Flink and Scala versions. This is because the version in the tag source code is fixed. For example, `1.13.5_2.12-1.0.1` means Flink version 1.13.5, scala version 2.12, and connector version 1.0.1.
 
-After successful compilation, the file `flink-doris-connector-1.14_2.12-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
+After successful compilation, the file `flink-doris-connector-1.14_2.12-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `flink-doris-connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 **Remarks:** 
 
@@ -79,20 +80,97 @@ enable_http_server_v2 = true
 ```
 ## Using Maven
 
+Add flink-doris-connector and necessary Flink Maven dependencies
+
+Flink 1.13.* and earlier version
+
 ```
 <dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-java</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-streaming-java_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-clients_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<!-- flink table -->
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-common</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-api-java-bridge_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-planner-blink_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<!-- flink-doris-connector -->
+<dependency>
   <groupId>org.apache.doris</groupId>
-  <artifactId>flink-doris-connector-1.14_2.12</artifactId>
-  <!--artifactId>flink-doris-connector-1.13_2.12</artifactId-->
+  <artifactId>flink-doris-connector-1.13_2.12</artifactId>
   <!--artifactId>flink-doris-connector-1.12_2.12</artifactId-->
   <!--artifactId>flink-doris-connector-1.11_2.12</artifactId-->
   <version>1.0.3</version>
 </dependency>
 ```
 
+Flink 1.14.* version
+
+```
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-java</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-streaming-java_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-clients_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<!-- flink table -->
+<dependency>
+    <groupId>org.apache.flink</groupId>
+    <artifactId>flink-table-planner_${scala.version}</artifactId>
+    <version>${flink.version}</version>
+    <scope>provided</scope>
+</dependency>
+<!-- flink-doris-connector -->
+<dependency>
+  <groupId>org.apache.doris</groupId>
+  <artifactId>flink-doris-connector-1.14_2.12</artifactId>
+  <version>1.0.3</version>
+</dependency>
+```
+
 **Notes**
 
-Please replace the Connector version according to the different Flink and Scala versions.
+Please replace the corresponding Connector and Flink dependency versions according to different Flink and Scala versions.
 
 ## How to use
 
@@ -104,7 +182,7 @@ There are three ways to use Flink Doris Connector.
 
 ### Parameters Configuration
 
-Flink Doris Connector Sink writes data to Doris by the `Stream load`, and also supports the configurations of `Stream load`
+Flink Doris Connector Sink writes data to Doris by the `Stream Load`, and also supports the configurations of `Stream Load`
 
 * SQL  configured by `sink.properties.` in the `WITH`
 * DataStream configured by `DorisExecutionOptions.builder().setStreamLoadProp(Properties)`
@@ -300,8 +378,8 @@ outputFormat.close();
 | doris.request.retries            | 3                 | Number of retries to send requests to Doris                                    |
 | doris.request.connect.timeout.ms | 30000             | Connection timeout for sending requests to Doris                                |
 | doris.request.read.timeout.ms    | 30000             | Read timeout for sending request to Doris                                |
-| doris.request.query.timeout.s    | 3600              | Query the timeout time of doris, the default is 1 hour, -1 means no timeout limit             |
-| doris.request.tablet.size        | Integer.MAX_VALUE | The number of Doris Tablets corresponding to an Partition. The smaller this value is set, the more partitions will be generated. This will increase the parallelism on the flink side, but at the same time will cause greater pressure on Doris. |
+| doris.request.query.timeout.s    | 3600              | Query the timeout time of Doris, the default is 1 hour, -1 means no timeout limit             |
+| doris.request.tablet.size        | Integer.MAX_VALUE | The number of Doris Tablets corresponding to an Partition. The smaller this value is set, the more partitions will be generated. This will increase the parallelism on the Flink side, but at the same time will cause greater pressure on Doris. |
 | doris.batch.size                 | 1024              | The maximum number of rows to read data from BE at one time. Increasing this value can reduce the number of connections between Flink and Doris. Thereby reducing the extra time overhead caused by network delay. |
 | doris.exec.mem.limit             | 2147483648        | Memory limit for a single query. The default is 2GB, in bytes.                     |
 | doris.deserialize.arrow.async    | false             | Whether to support asynchronous conversion of Arrow format to RowBatch required for flink-doris-connector iteration           |
@@ -312,7 +390,7 @@ outputFormat.close();
 | sink.max-retries                        | 1          | Number of retries after writing BE failed                                              |
 | sink.batch.interval                         | 10s           | The flush interval, after which the asynchronous thread will write the data in the cache to BE. The default value is 10 second, and the time units are ms, s, min, h, and d. Set to 0 to turn off periodic writing. |
 | sink.properties.*     | --               | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br />  Setting 'sink.properties.escape_delimiters' = 'true' if you want to use a control char as a separator, so that such as '\\x01' will translate to binary 0x01<br /><br />  Support JSON format import, you need to enable both 'sink.properties.format' ='json' and 'sink.properties.strip_outer_array' ='true'|
-| sink.enable-delete     | true               | Whether to enable deletion. This option requires Doris table to enable batch delete function (0.15+ version is enabled by default), and only supports Uniq model.|
+| sink.enable-delete     | true               | Whether to enable deletion. This option requires Doris table to enable batch delete function (0.15+ version is enabled by default), and only supports Unique model.|
 | sink.batch.bytes                        | 10485760          | Maximum bytes of batch in a single write to BE. When the data size in batch exceeds this threshold, cache data is written to BE. The default value is 10MB |
 
 ## Doris & Flink Column Type Mapping
@@ -337,7 +415,7 @@ outputFormat.close();
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
 
-## An example of using Flink CDC to access Doris (supports insert/update/delete events)
+## An example of using Flink CDC to access Doris (supports Insert / Update / Delete events)
 ```sql
 CREATE TABLE cdc_mysql_source (
   id int
