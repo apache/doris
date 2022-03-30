@@ -638,25 +638,23 @@ void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, cons
         return;
     }
 
-    {
-        std::lock_guard<SpinLock> l(_fail_lock);
-        if (tablet_id == -1) {
-            for (const auto the_tablet_id : it->second) {
-                _failed_channels[the_tablet_id].insert(node_id);
-                _failed_channels_msgs.emplace(the_tablet_id, err + ", host: " + host);
-                if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                    _intolerable_failure_status =
-                            Status::InternalError(_failed_channels_msgs[the_tablet_id]);
-                }
-            }
-        } else {
-            _failed_channels[tablet_id].insert(node_id);
-            _failed_channels_msgs.emplace(tablet_id, err + ", host: " + host);
-            if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
+    std::lock_guard<SpinLock> l(_fail_lock);
+    if (tablet_id == -1) {
+        for (const auto the_tablet_id : it->second) {
+            _failed_channels[the_tablet_id].insert(node_id);
+            _failed_channels_msgs.emplace(the_tablet_id, err + ", host: " + host);
+            if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
                 _intolerable_failure_status =
-                        Status::InternalError(_failed_channels_msgs[tablet_id]);
+                        Status::InternalError(_failed_channels_msgs[the_tablet_id]);
             }
         }
+        return;
+    }
+    _failed_channels[tablet_id].insert(node_id);
+    _failed_channels_msgs.emplace(tablet_id, err + ", host: " + host);
+    if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
+        _intolerable_failure_status =
+                    Status::InternalError(_failed_channels_msgs[tablet_id]);
     }
 }
 
