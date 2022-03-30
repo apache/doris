@@ -100,15 +100,24 @@ public:
     void addSuccessHandler(std::function<void(const T&, bool)> fn) { success_handler = fn; }
 
     void join() {
-        if (cid != INVALID_BTHREAD_ID && _packet_in_flight) {
-            brpc::Join(cid);
+        // We rely on in_flight to assure one rpc is running,
+        // while cid is not reliable due to memory order.
+        // in_flight is written before getting callid,
+        // so we can not use memory fence to synchronize.
+        while (_packet_in_flight) {
+            // cid here is complicated
+            if (cid != INVALID_BTHREAD_ID) {
+                // actually cid may be the last rpc call id.
+                brpc::Join(cid);
+            }
+            if (_packet_in_flight) {
+                SleepFor(MonoDelta::FromMilliseconds(10));
+            }
         }
     }
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
-        join();
-        DCHECK(_packet_in_flight == false);
         cntl.Reset();
         cid = cntl.call_id();
     }
