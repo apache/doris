@@ -15,6 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#ifdef __clang__
+#pragma clang diagnostic ignored "-Wunused-private-field"
+#endif
+
 #include "util/runtime_profile.h"
 
 #include <iomanip>
