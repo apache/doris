@@ -124,7 +124,7 @@ public class StatisticsJob {
     }
 
     /**
-     * get statisticsJob from analyzeStmt.
+     * construct statisticsJob from analyzeStmt.
      * AnalyzeStmt: analyze t1(c1,c2,c3)
      * tableId: [t1]
      * tableIdToColumnName <t1, [c1,c2,c3]>
