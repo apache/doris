@@ -83,9 +83,10 @@ static IAggregateFunction* create_function_single_value(const String& name,
         return new AggregateFunctionTemplate<
                 Data<LeadAndLagData<Int64, is_nullable, false, StoreType>>>(argument_types);
     }
-    if (which.is_string_or_fixed_string())
+    if (which.is_string_or_fixed_string()) {
         return new AggregateFunctionTemplate<
                 Data<LeadAndLagData<StringRef, is_nullable, true, StoreType>>>(argument_types);
+    }
     DCHECK(false) << "with unknowed type, failed in  create_aggregate_function_leadlag";
     return nullptr;
 }

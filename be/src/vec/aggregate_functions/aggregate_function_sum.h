@@ -67,10 +67,11 @@ public:
               scale(get_decimal_scale(data_type)) {}
 
     DataTypePtr get_return_type() const override {
-        if constexpr (IsDecimalNumber<T>)
+        if constexpr (IsDecimalNumber<T>) {
             return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
-        else
+        } else {
             return std::make_shared<ResultDataType>();
+        }
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
