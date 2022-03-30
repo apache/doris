@@ -63,14 +63,14 @@ SegmentWriter::~SegmentWriter() {
 };
 
 void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
-                                     const TabletColumn& column) {
+                                     const TabletColumn& column) const {
     // TODO(zc): Do we need this column_id??
     meta->set_column_id((*column_id)++);
     meta->set_unique_id(column.unique_id());
     meta->set_type(column.type());
     meta->set_length(column.length());
     meta->set_encoding(DEFAULT_ENCODING);
-    meta->set_compression(LZ4F);
+    meta->set_compression(_tablet_schema->compression_type());
     meta->set_is_nullable(column.is_nullable());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));

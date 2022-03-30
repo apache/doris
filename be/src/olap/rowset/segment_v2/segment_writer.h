@@ -79,9 +79,6 @@ public:
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
-    static void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
-                                 const TabletColumn& column);
-
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();
@@ -92,6 +89,7 @@ private:
     Status _write_short_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
+    void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id, const TabletColumn& column) const;
 
     std::string encode_short_keys(const std::vector<const void*> key_column_fields,
                                   bool null_first = true);

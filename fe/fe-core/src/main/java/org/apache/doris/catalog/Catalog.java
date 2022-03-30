@@ -245,6 +245,7 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -3026,6 +3027,7 @@ public class Catalog {
      *     6.2. replicationNum
      *     6.3. inMemory
      *     6.4. storageFormat
+     *     6.5. compressionType
      * 7. set index meta
      * 8. check colocation properties
      * 9. create tablet in BE
@@ -3314,6 +3316,7 @@ public class Catalog {
                     singlePartitionDesc.isInMemory(),
                     olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(),
+                    olapTable.getCompressionType(),
                     olapTable.getDataSortInfo()
             );
 
@@ -3545,6 +3548,7 @@ public class Catalog {
                                                  boolean isInMemory,
                                                  TStorageFormat storageFormat,
                                                  TTabletType tabletType,
+                                                 TCompressionType compressionType,
                                                  DataSortInfo dataSortInfo) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
@@ -3612,7 +3616,8 @@ public class Catalog {
                             indexes,
                             isInMemory,
                             tabletType,
-                            dataSortInfo);
+                            dataSortInfo,
+                            compressionType);
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -3730,6 +3735,15 @@ public class Catalog {
         }
         olapTable.setStorageFormat(storageFormat);
 
+        // get compression type
+        TCompressionType compressionType = TCompressionType.LZ4;
+        try {
+            compressionType = PropertyAnalyzer.analyzeCompressionType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setCompressionType(compressionType);
+
         // check data sort properties
         DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
                 keysDesc.keysColumnSize(), storageFormat);
@@ -3777,6 +3791,7 @@ public class Catalog {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
+
 
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
@@ -3914,7 +3929,7 @@ public class Catalog {
                         partitionInfo.getReplicaAllocation(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory, storageFormat, tabletType, olapTable.getDataSortInfo());
+                        isInMemory, storageFormat, tabletType, compressionType, olapTable.getDataSortInfo());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -3965,7 +3980,7 @@ public class Catalog {
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
                             isInMemory, storageFormat,
-                            partitionInfo.getTabletType(entry.getValue()), olapTable.getDataSortInfo());
+                            partitionInfo.getTabletType(entry.getValue()), compressionType, olapTable.getDataSortInfo());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -4339,6 +4354,9 @@ public class Catalog {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE).append("\" = \"");
                 sb.append(remoteStorageResource).append("\"");
             }
+            // compression type
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
+            sb.append(olapTable.getCompressionType()).append("\"");
 
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
@@ -6882,6 +6900,7 @@ public class Catalog {
                         copiedTbl.isInMemory(),
                         copiedTbl.getStorageFormat(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId),
+                        copiedTbl.getCompressionType(),
                         copiedTbl.getDataSortInfo());
                 newPartitions.add(newPartition);
             }

@@ -28,6 +28,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TBackend;
+import org.apache.doris.thrift.TCompressionType;
+import org.apache.doris.thrift.TKeysType;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TStorageMedium;
@@ -110,7 +112,7 @@ public class AgentTaskTest {
                                                   version, KeysType.AGG_KEYS,
                                                   storageType, TStorageMedium.SSD,
                                                   columns, null, 0, latch, null,
-                                                  false, TTabletType.TABLET_TYPE_DISK);
+                                                  false, TTabletType.TABLET_TYPE_DISK, TCompressionType.LZ4F);
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, schemaHash1);

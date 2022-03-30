@@ -84,6 +84,16 @@ struct TStorageParam {
     3: optional TS3StorageParam s3_storage_param
 }
 
+enum TCompressionType {
+    NO_COMPRESSION = 0,
+    SNAPPY = 1,
+    LZ4 = 2,
+    LZ4F = 3,
+    ZLIB = 4,
+    ZSTD = 5
+}
+
+
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
@@ -105,6 +115,7 @@ struct TCreateTabletReq {
     13: optional TStorageFormat storage_format
     14: optional TTabletType tablet_type
     15: optional TStorageParam storage_param
+    16: optional TCompressionType compression_type
 }
 
 struct TDropTabletReq {
