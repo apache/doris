@@ -117,6 +117,7 @@ struct BaseAggregateFuncs<OLAP_FIELD_TYPE_ARRAY, sub_type> {
         if (src_null) {
             return;
         }
+        // nested array type is unsupported for base aggregate function now
         if (sub_type != OLAP_FIELD_TYPE_ARRAY) {
             const auto* type_info = get_collection_type_info<sub_type>();
             type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);

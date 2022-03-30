@@ -210,7 +210,7 @@ const TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
         }
         return get_array_type_info((FieldType) child_column->type(), iterations);
     }
-    [[likely]] default:
+    default:
         return get_scalar_type_info(type);
     }
 }
@@ -227,7 +227,7 @@ const TypeInfo* get_type_info(const TabletColumn* col) {
         }
         return get_array_type_info(child_column->type(), iterations);
     }
-    [[likely]] default:
+    default:
         return get_scalar_type_info(type);
     }
 }

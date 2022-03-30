@@ -145,8 +145,8 @@ TEST_F(ColumnVectorTest, scalar_column_vector_test) {
         for (int i = 0; i < size; ++i) {
             val[i] = i;
         }
-        const auto* ti = get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>();
-        test_read_write_scalar_column_vector<OLAP_FIELD_TYPE_TINYINT>(ti, val, size);
+        const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>();
+        test_read_write_scalar_column_vector<OLAP_FIELD_TYPE_TINYINT>(type_info, val, size);
         delete[] val;
     }
     {
