@@ -51,7 +51,7 @@ public class StatisticsJob {
         FAILED
     }
 
-    private final long id;
+    private final long id = Catalog.getCurrentCatalog().getNextId();
 
     /**
      * to be collected database stats.
