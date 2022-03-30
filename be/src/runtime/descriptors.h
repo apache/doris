@@ -58,7 +58,8 @@ class PSlotDescriptor;
 struct NullIndicatorOffset {
     int byte_offset;
     uint8_t bit_mask;   // to extract null indicator
-    int8_t  bit_offset; // only used to serialize, from 1 to 8
+    int8_t  bit_offset; // only used to serialize, from 1 to 8, invalid null value
+                        // bit_offset is -1.
 
     NullIndicatorOffset(int byte_offset, int bit_offset_)
             : byte_offset(byte_offset),
