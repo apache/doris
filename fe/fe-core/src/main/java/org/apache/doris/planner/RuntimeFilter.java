@@ -25,10 +25,12 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.TupleIsNullPredicate;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -43,6 +45,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
 
 /**
  * Representation of a runtime filter. A runtime filter is generated from
@@ -226,8 +229,9 @@ public final class RuntimeFilter {
      * or null if a runtime filter cannot be generated from the specified predicate.
      */
     public static RuntimeFilter create(IdGenerator<RuntimeFilterId> idGen, Analyzer analyzer,
-            Expr joinPredicate, int exprOrder, HashJoinNode filterSrcNode,
-            TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
+                                       Expr joinPredicate, int exprOrder, HashJoinNode filterSrcNode,
+                                       TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits,
+                                       HashSet<TupleId> tupleHasConjuncts) {
         Preconditions.checkNotNull(idGen);
         Preconditions.checkNotNull(joinPredicate);
         Preconditions.checkNotNull(filterSrcNode);
@@ -268,6 +272,20 @@ public final class RuntimeFilter {
         if (LOG.isTraceEnabled()) {
             LOG.trace("Generating runtime filter from predicate " + joinPredicate);
         }
+        if (ConnectContext.get().getSessionVariable().enableRemoveNoConjunctsRuntimeFilterPolicy) {
+            if (srcExpr instanceof SlotRef) {
+                if (!tupleHasConjuncts.contains(((SlotRef) srcExpr).getDesc().getParent().getId())) {
+                    // src tuple has no conjunct, don't create runtime filter
+                    return null;
+                } else {
+                    // runtime filter itself is a valid conjunct, add all the target tuple ids
+                    for (TupleId tupleId: targetSlots.keySet()) {
+                        tupleHasConjuncts.add(tupleId);
+                    }
+                }
+            }
+        }
+
         return new RuntimeFilter(idGen.getNextId(), filterSrcNode, srcExpr, exprOrder,
                 targetExpr, targetSlots, type, filterSizeLimits);
     }
