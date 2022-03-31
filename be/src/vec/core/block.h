@@ -104,6 +104,16 @@ public:
                                      doris::vectorized::IColumn* input_col_ptr,
                                      uint16_t* sel_rowid_idx, uint16_t select_size, int block_cid,
                                      size_t batch_size) {
+        // Only the additional deleted filter condition need to materialize column be at the end of the block
+        // We should not to materialize the column of query engine do not need. So here just return OK.
+        // Eg:
+        //      `delete from table where a = 10;`
+        //      `select b from table;`
+        // a column only effective in segment iterator, the block from query engine only contain the b column.
+        // so the `block_cid >= data.size()` is true
+        if (block_cid >= data.size())
+            return Status::OK();
+
         if (is_block_mem_reuse) {
             auto* raw_res_ptr = this->get_by_position(block_cid).column.get();
             const_cast<doris::vectorized::IColumn*>(raw_res_ptr)->reserve(batch_size);
