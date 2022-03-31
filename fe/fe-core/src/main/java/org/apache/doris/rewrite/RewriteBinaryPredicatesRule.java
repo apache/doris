@@ -37,14 +37,14 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
      * Convert the binary predicate of the form <CastExpr<SlotRef(ResultType=BIGINT)>> <op><DecimalLiteral> to the binary
      * predicate of <SlotRef(ResultType=BIGINT)> <new op> <new DecimalLiteral>, thereby allowing the binary predicate
      * The predicate pushes down and completes the bucket clipped.
-     *
+     * <p>
      * Examples & background
      * For query "select * from T where t1 = 2.0", when the ResultType of column t1 is equal to BIGINT, in the binary
      * predicate analyze, the type will be unified to DECIMALV2, so the binary predicate will be converted to
      * <CastExpr<SlotRef>> <op In the form of ><DecimalLiteral>, because Cast wraps the t1 column, it cannot be pushed down,
      * resulting in poor performance.
      * We convert it to the equivalent query "select * from T where t1 = 2" to push down and improve performance.
-     *
+     * <p>
      * Applicable scene:
      * The performance and results of the following scenarios are equivalent.
      * 1) "select * from T where t1 = 2.0" is converted to "select * from T where t1 = 2"
@@ -59,10 +59,13 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
      * 10) "select * from T where t1 <2.1" is converted to "select * from T where t1 <3"
      * 11) "select * from T where t1> 2.0" is converted to "select * from T where t1> 2"
      * 12) "select * from T where t1> 2.1" is converted to "select * from T where t1> 2"
+     *
+     * Consider special decimalLiteral (0.0 equal to 0)
      */
     private Expr rewriteBigintSlotRefCompareDecimalLiteral(Expr expr0, Expr expr1, BinaryPredicate.Operator op)
             throws AnalysisException {
-        if (((DecimalLiteral) expr1).getDoubleValue() % (int) (((DecimalLiteral) expr1).getDoubleValue()) != 0) {
+        if ((((DecimalLiteral) expr1).getDoubleValue()) != 0
+                && ((DecimalLiteral) expr1).getDoubleValue() % (int) (((DecimalLiteral) expr1).getDoubleValue()) != 0) {
             if (op == BinaryPredicate.Operator.EQ || op == BinaryPredicate.Operator.EQ_FOR_NULL) {
                 return new BoolLiteral(false);
             } else if (op == BinaryPredicate.Operator.NE) {

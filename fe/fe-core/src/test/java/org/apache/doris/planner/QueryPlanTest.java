@@ -45,6 +45,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.rewrite.RewriteBinaryPredicatesRuleTest;
 import org.apache.doris.rewrite.RewriteDateLiteralRuleTest;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -2112,4 +2113,13 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
         Assert.assertTrue(explainString.contains("1 | 10 | 1 | 1 | 1"));
     }
+
+    @Test
+    public void testRewriteBinaryPredicatesRuleTest() throws Exception {
+        RewriteBinaryPredicatesRuleTest ruleTest = new RewriteBinaryPredicatesRuleTest();
+        ruleTest.before(connectContext);
+        ruleTest.testRewriteBinaryPredicatesRule();
+        ruleTest.after();
+    }
+
 }
