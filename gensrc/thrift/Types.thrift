@@ -47,6 +47,7 @@ enum TStorageMedium {
     HDD,
     SSD,
     S3,
+    REMOTE_CACHE,
 }
 
 enum TVarType {

@@ -46,7 +46,6 @@ class DataDir {
 public:
     DataDir(const std::string& path, int64_t capacity_bytes = -1,
             TStorageMedium::type storage_medium = TStorageMedium::HDD,
-            const std::string& remote_path = "",
             TabletManager* tablet_manager = nullptr, TxnManager* txn_manager = nullptr);
     ~DataDir();
 
@@ -84,7 +83,7 @@ public:
 
     bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
 
-    bool is_remote() const { return _env->is_remote_env(); }
+    bool is_remote() const { return FilePathDesc::is_remote(_storage_medium); }
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
@@ -133,9 +132,13 @@ public:
 
     void disks_compaction_num_increment(int64_t delta);
 
-    Env* env() {
-        return _env;
-    }
+    // Move segment_path_desc to trash, trash is in storage_root/trash, segment_path_desc can be file or dir
+    // Modify segment_path_desc when this operation is being done.
+    // filepath is replaced by：
+    // storage_root/trash/20150619154308.delete_counter/tablet_path/segment_path,
+    // remote_path is replaced by：
+    // storage_root/trash/20150619154308.delete_counter/tablet_path/segment_path/tablet_uid
+    OLAPStatus move_to_trash(const FilePathDesc& segment_path_desc);
 
 private:
     Status _init_cluster_id();
@@ -172,7 +175,6 @@ private:
     int64_t _disk_capacity_bytes;
     TStorageMedium::type _storage_medium;
     bool _is_used;
-    Env* _env = nullptr;
 
     TabletManager* _tablet_manager;
     TxnManager* _txn_manager;

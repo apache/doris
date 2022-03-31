@@ -199,6 +199,7 @@ Status S3StorageBackend::direct_upload(const std::string& remote, const std::str
 }
 
 Status S3StorageBackend::rm(const std::string& remote) {
+    LOG(INFO) << "S3 rm file: " << remote;
     CHECK_S3_CLIENT(_client);
     CHECK_S3_PATH(uri, remote);
     Aws::S3::Model::DeleteObjectRequest request;

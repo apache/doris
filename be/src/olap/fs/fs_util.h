@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/status.h"
+#include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/fs/block_manager.h"
@@ -28,9 +29,13 @@ namespace fs_util {
 
 // Each BlockManager type may have different params, so we provide a separate
 // method for each type(instead of a factory method which require same params)
-BlockManager* block_manager(TStorageMedium::type storage_medium);
+BlockManager* block_manager(const FilePathDesc& path_desc);
 
 StorageMediumPB get_storage_medium_pb(TStorageMedium::type t_storage_medium);
+
+TStorageMedium::type get_t_storage_medium(StorageMediumPB storage_medium);
+
+StorageParamPB get_storage_param_pb(const TStorageParam& t_storage_param);
 
 } // namespace fs_util
 } // namespace fs

@@ -66,8 +66,8 @@ void write_index_file(std::string& filename, const void* values, size_t value_co
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts(filename);
-        ASSERT_TRUE(
-                fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(opts, &wblock).ok());
+        std::string storage_name;
+        ASSERT_TRUE(fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock).ok());
 
         std::unique_ptr<BitmapIndexWriter> writer;
         BitmapIndexWriter::create(type_info, &writer);

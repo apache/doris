@@ -17,6 +17,7 @@
 
 #include "olap/rowset/rowset_meta_manager.h"
 
+#include <boost/algorithm/string.hpp>
 #include <fstream>
 #include <filesystem>
 #include <sstream>
@@ -72,6 +73,7 @@ public:
         }
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
+        boost::replace_all(_json_rowset_meta, "\r", "");
         _tablet_uid = TabletUid(10, 10);
     }
 

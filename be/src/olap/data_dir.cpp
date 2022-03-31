@@ -23,6 +23,7 @@
 #include <sys/file.h>
 #include <sys/statfs.h>
 #include <utime.h>
+#include <atomic>
 
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -45,6 +46,8 @@
 #include "util/errno.h"
 #include "util/file_utils.h"
 #include "util/monotime.h"
+#include "util/storage_backend.h"
+#include "util/storage_backend_mgr.h"
 #include "util/string_util.h"
 
 using strings::Substitute;
@@ -61,7 +64,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
 static const char* const kTestFilePath = "/.testfile";
 
 DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
-                 TStorageMedium::type storage_medium, const std::string& remote_path,
+                 TStorageMedium::type storage_medium,
                  TabletManager* tablet_manager, TxnManager* txn_manager)
         : _path_desc(path),
           _capacity_bytes(capacity_bytes),
@@ -69,7 +72,6 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _disk_capacity_bytes(0),
           _storage_medium(storage_medium),
           _is_used(false),
-          _env(Env::get_env(storage_medium)),
           _tablet_manager(tablet_manager),
           _txn_manager(txn_manager),
           _cluster_id(-1),
@@ -78,7 +80,6 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _current_shard(0),
           _meta(nullptr) {
     _path_desc.storage_medium = storage_medium;
-    _path_desc.remote_path = remote_path;
     _data_dir_metric_entity = DorisMetrics::instance()->metric_registry()->register_entity(
             std::string("data_dir.") + path, {{"path", path}});
     INT_GAUGE_METRIC_REGISTER(_data_dir_metric_entity, disks_total_capacity);
@@ -124,22 +125,6 @@ Status DataDir::_init_cluster_id() {
     RETURN_IF_ERROR(read_cluster_id(Env::Default(), cluster_id_path_desc.filepath, &_cluster_id));
     if (_cluster_id == -1) {
         _cluster_id_incomplete = true;
-    }
-    if (is_remote()) {
-        int32_t remote_cluster_id;
-        RETURN_IF_ERROR(
-                read_cluster_id(_env, cluster_id_path_desc.remote_path, &remote_cluster_id));
-        if (remote_cluster_id == -1) {
-            _cluster_id_incomplete = true;
-        }
-        if (remote_cluster_id != -1 && _cluster_id != -1 && _cluster_id != remote_cluster_id) {
-            return Status::InternalError(
-                    strings::Substitute("cluster id $0 is not equal with remote cluster id $1",
-                                        _cluster_id, remote_cluster_id));
-        }
-        if (_cluster_id == -1) {
-            _cluster_id = remote_cluster_id;
-        }
     }
 
     return Status::OK();
@@ -242,15 +227,6 @@ Status DataDir::_write_cluster_id_to_path(const FilePathDesc& path_desc, int32_t
         RETURN_IF_ERROR(env_util::write_string_to_file_sync(
                 Env::Default(), Slice(cluster_id_ss.str()), path_desc.filepath));
     }
-    if (_env->is_remote_env()) {
-        Status exist_status = _env->path_exists(path_desc.remote_path);
-        if (exist_status.is_not_found()) {
-            RETURN_IF_ERROR(env_util::write_string_to_file_sync(_env, Slice(cluster_id_ss.str()),
-                                                                path_desc.remote_path));
-        } else {
-            RETURN_IF_ERROR(exist_status);
-        }
-    }
     return Status::OK();
 }
 
@@ -330,12 +306,12 @@ void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* 
     for (auto& sub_dir : sub_dirs) {
         // sub dir is time_label
         std::string sub_path = trash_path + "/" + sub_dir;
-        if (!FileUtils::is_dir(sub_path)) {
+        if (!FileUtils::is_dir(sub_path, Env::Default())) {
             continue;
         }
         std::string tablet_path = sub_path + "/" + std::to_string(tablet_id);
-        bool exist = FileUtils::check_exist(tablet_path);
-        if (exist) {
+        Status exist_status = Env::Default()->path_exists(tablet_path);
+        if (exist_status.ok()) {
             paths->emplace_back(std::move(tablet_path));
         }
     }
@@ -384,6 +360,10 @@ OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
 // TODO(ygl): deal with rowsets and tablets when load failed
 OLAPStatus DataDir::load() {
     LOG(INFO) << "start to load tablets from " << _path_desc.filepath;
+    if (is_remote()) {
+        RETURN_WITH_WARN_IF_ERROR(StorageBackendMgr::instance()->init(_path_desc.filepath + STORAGE_PARAM_PREFIX),
+                                  OLAP_ERR_INIT_FAILED, "DataDir init failed.");
+    }
     // load rowset meta from meta env and create rowset
     // COMMITTED: add to txn manager
     // VISIBLE: add to tablet
@@ -711,8 +691,11 @@ void DataDir::perform_path_scan() {
     _check_path_cv.notify_one();
 }
 
+// This function is called for rowset_id path, only local rowset_id_path can be garbage.
+// remote path is uploaded, moved or deleted by tablet_id,
+// if local path has no remote path params, remote path doesn't exist.
 void DataDir::_process_garbage_path(const std::string& path) {
-    if (_env->path_exists(path).ok()) {
+    if (Env::Default()->path_exists(path).ok()) {
         LOG(INFO) << "collect garbage dir path: " << path;
         WARN_IF_ERROR(FileUtils::remove_all(path), "remove garbage dir failed. path: " + path);
     }
@@ -725,7 +708,7 @@ bool DataDir::_check_pending_ids(const std::string& id) {
 
 Status DataDir::update_capacity() {
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            _env->get_space_info(_path_desc.filepath, &_disk_capacity_bytes, &_available_bytes),
+            Env::Default()->get_space_info(_path_desc.filepath, &_disk_capacity_bytes, &_available_bytes),
             strings::Substitute("get_space_info failed: $0", _path_desc.filepath));
     if (_disk_capacity_bytes < 0) {
         _disk_capacity_bytes = _capacity_bytes;
@@ -772,4 +755,120 @@ void DataDir::disks_compaction_score_increment(int64_t delta) {
 void DataDir::disks_compaction_num_increment(int64_t delta) {
     disks_compaction_num->increment(delta);
 }
+
+// this is moved from src/olap/utils.h, the old move_to_trash() can only support local files,
+// and it is more suitable in DataDir because one trash path is in one DataDir
+OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
+    OLAPStatus res = OLAP_SUCCESS;
+    FilePathDesc storage_root_desc = _path_desc;
+    if (is_remote() && !StorageBackendMgr::instance()->get_root_path(
+            segment_path_desc.storage_name, &(storage_root_desc.remote_path)).ok()) {
+        LOG(WARNING) << "get_root_path failed for storage_name: " << segment_path_desc.storage_name;
+        return OLAP_ERR_OTHER_ERROR;
+    }
+
+    // 1. get timestamp string
+    string time_str;
+    if ((res = gen_timestamp_string(&time_str)) != OLAP_SUCCESS) {
+        OLAP_LOG_WARNING(
+                "failed to generate time_string when move file to trash."
+                "[err code=%d]",
+                res);
+        return res;
+    }
+
+    // 2. generate new file path desc
+    static std::atomic<uint64_t> delete_counter(0); // a global counter to avoid file name duplication.
+    // when file_path points to a schema_path, we need to save tablet info in trash_path,
+    // so we add file_path.parent_path().filename() in new_file_path.
+    // other conditions are not considered, for they are nothing serious.
+    FilePathDescStream trash_root_desc_s;
+    trash_root_desc_s << storage_root_desc << TRASH_PREFIX << "/" << time_str << "." << delete_counter++;
+    std::stringstream trash_local_file_stream;
+    std::filesystem::path old_local_path(segment_path_desc.filepath);
+    trash_local_file_stream << trash_root_desc_s.path_desc().filepath << "/"
+                            << old_local_path.parent_path().filename().string()  // tablet_path
+                            << "/" << old_local_path.filename().string();        // segment_path
+    FilePathDesc trash_path_desc(trash_local_file_stream.str());
+    trash_path_desc.storage_medium = segment_path_desc.storage_medium;
+    if (is_remote()) {
+        std::stringstream trash_remote_file_stream;
+        std::filesystem::path old_remote_path(segment_path_desc.remote_path);
+        trash_remote_file_stream << trash_root_desc_s.path_desc().remote_path
+                                 << "/" << old_remote_path.parent_path().parent_path().filename().string()  // tablet_path
+                                 << "/" << old_remote_path.parent_path().filename().string()                // segment_path
+                                 << "/" << old_remote_path.filename().string();                             // tablet_uid
+        trash_path_desc.remote_path = trash_remote_file_stream.str();
+        trash_path_desc.storage_name = segment_path_desc.storage_name;
+    }
+
+    // 3. create target dir, or the rename() function will fail.
+    string trash_local_file = trash_local_file_stream.str();
+    std::filesystem::path trash_local_path(trash_local_file);
+    string trash_local_dir = trash_local_path.parent_path().string();
+    if (!FileUtils::check_exist(trash_local_dir) && !FileUtils::create_dir(trash_local_dir).ok()) {
+        OLAP_LOG_WARNING("delete file failed. due to mkdir failed. [file=%s new_dir=%s]",
+                         segment_path_desc.filepath.c_str(), trash_local_dir.c_str());
+        return OLAP_ERR_OS_ERROR;
+    }
+
+    // 4. move remote file to trash if needed
+    if (is_remote()) {
+        std::string trash_storage_name_path = trash_root_desc_s.path_desc().filepath + "/" + STORAGE_NAME;
+        Status st = env_util::write_string_to_file(
+                Env::Default(), Slice(segment_path_desc.storage_name), trash_storage_name_path);
+        if (!st.ok()) {
+            LOG(WARNING) << "fail to write storage_name to trash path: " << trash_storage_name_path
+                         << ", error:" << st.to_string();
+            return OLAP_ERR_OS_ERROR;
+        }
+        std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
+                get_storage_backend(segment_path_desc.storage_name);
+        if (storage_backend == nullptr) {
+            LOG(WARNING) << "storage_backend is invalid: " << segment_path_desc.storage_name;
+            return OLAP_ERR_OS_ERROR;
+        }
+        Status status = storage_backend->exist_dir(segment_path_desc.remote_path);
+        if (status.ok()) {
+            VLOG_NOTICE << "Move remote file to trash. " << segment_path_desc.remote_path
+                        << " -> " << trash_path_desc.remote_path;
+            Status rename_status = storage_backend->rename_dir(segment_path_desc.remote_path, trash_path_desc.remote_path);
+            if (!rename_status.ok()) {
+                OLAP_LOG_WARNING("Move remote file to trash failed. [file=%s target='%s']",
+                                 segment_path_desc.remote_path.c_str(), trash_path_desc.remote_path.c_str());
+                return OLAP_ERR_OS_ERROR;
+            }
+        } else if (status.is_not_found()) {
+            LOG(WARNING) << "File may be removed before: " << segment_path_desc.remote_path;
+        } else {
+            LOG(WARNING) << "File check exist error: " << segment_path_desc.remote_path;
+            return OLAP_ERR_OS_ERROR;
+        }
+    }
+
+    // 5. move file to trash
+    VLOG_NOTICE << "move file to trash. " << segment_path_desc.filepath << " -> " << trash_local_file;
+    if (rename(segment_path_desc.filepath.c_str(), trash_local_file.c_str()) < 0) {
+        OLAP_LOG_WARNING("move file to trash failed. [file=%s target='%s' err='%m']",
+                         segment_path_desc.filepath.c_str(), trash_local_file.c_str());
+        return OLAP_ERR_OS_ERROR;
+    }
+
+    // 6. check parent dir of source file, delete it when empty
+    string source_parent_dir = old_local_path.parent_path().string(); // tablet_id level
+    std::set<std::string> sub_dirs, sub_files;
+
+    RETURN_WITH_WARN_IF_ERROR(
+            FileUtils::list_dirs_files(source_parent_dir, &sub_dirs, &sub_files, Env::Default()),
+            OLAP_SUCCESS, "access dir failed. [dir=" + source_parent_dir);
+
+    if (sub_dirs.empty() && sub_files.empty()) {
+        LOG(INFO) << "remove empty dir " << source_parent_dir;
+        // no need to exam return status
+        Env::Default()->delete_dir(source_parent_dir);
+    }
+
+    return OLAP_SUCCESS;
+}
+
 } // namespace doris

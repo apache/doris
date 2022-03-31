@@ -51,6 +51,7 @@ set(UTIL_FILES
   progress_updater.cpp
   runtime_profile.cpp
   static_asserts.cpp
+  storage_backend_mgr.cpp
   string_parser.cpp
   thrift_util.cpp
   thrift_client.cpp
