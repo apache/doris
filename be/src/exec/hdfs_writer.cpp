@@ -157,7 +157,8 @@ Status HDFSWriter::_connect() {
     _hdfs_fs = hdfsBuilderConnect(hdfs_builder);
     if (_hdfs_fs == nullptr) {
         std::stringstream ss;
-        ss << "connect failed. namenode:" << _namenode;
+        ss << "connect to hdfs failed. namenode address:" << _namenode << ", error"
+           << hdfsGetLastError();
         return Status::InternalError(ss.str());
     }
     return Status::OK();
