@@ -286,6 +286,8 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     {
         SCOPED_TIMER(_parent->_scan_timer);
+        ObjectPool tmp_object_pool;
+ 
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
             if (batch->is_full() ||
@@ -295,8 +297,9 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                 break;
             }
             // Read one row from reader
+            tmp_object_pool.clear();  
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
-                                                                 batch->agg_object_pool(), eof);
+                                                                 &tmp_object_pool, eof);
             if (res != OLAP_SUCCESS) {
                 std::stringstream ss;
                 ss << "Internal Error: read storage fail. res=" << res
@@ -395,6 +398,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
 
                 // check direct && pushdown conjuncts success then commit tuple
                 batch->commit_last_row();
+                batch->agg_object_pool()->acquire_data(&tmp_object_pool); 
                 char* new_tuple = reinterpret_cast<char*>(tuple);
                 new_tuple += _tuple_desc->byte_size();
                 tuple = reinterpret_cast<Tuple*>(new_tuple);
