@@ -107,7 +107,7 @@ Status StorageBackendMgr::_create_remote_storage_internal(const StorageParamPB& 
     }
     std::map<std::string, std::string> storage_prop;
     switch (storage_param_pb.storage_medium()) {
-        case TStorageMedium::S3:
+        case StorageMediumPB::S3:
         default:
             S3StorageParamPB s3_storage_param = storage_param_pb.s3_storage_param();
             if (s3_storage_param.s3_ak().empty() || s3_storage_param.s3_sk().empty()
@@ -162,7 +162,7 @@ Status StorageBackendMgr::get_root_path(const std::string& storage_name, std::st
 
 std::string StorageBackendMgr::get_root_path_from_param(const StorageParamPB& storage_param) {
     switch (storage_param.storage_medium()) {
-        case TStorageMedium::S3:
+        case StorageMediumPB::S3:
         default:
         {
             return storage_param.s3_storage_param().root_path();

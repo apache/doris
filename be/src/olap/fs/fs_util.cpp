@@ -77,7 +77,7 @@ StorageParamPB get_storage_param_pb(const TStorageParam& t_storage_param) {
     StorageParamPB storage_param;
     storage_param.set_storage_medium(get_storage_medium_pb(t_storage_param.storage_medium));
     storage_param.set_storage_name(t_storage_param.storage_name);
-    switch (storage_param.storage_medium()) {
+    switch (t_storage_param.storage_medium) {
         case TStorageMedium::S3: {
             S3StorageParamPB* s3_param = storage_param.mutable_s3_storage_param();
             s3_param->set_s3_endpoint(t_storage_param.s3_storage_param.s3_endpoint);
