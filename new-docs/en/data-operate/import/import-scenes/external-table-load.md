@@ -38,7 +38,7 @@ This document describes how to create external tables accessed through the ODBC 
 
 ## create external table
 
-For a detailed introduction to creating ODBC external tables, please refer to the [CREATE ODBC TABLE]() syntax help manual.
+For a detailed introduction to creating ODBC external tables, please refer to the [CREATE ODBC TABLE]((../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) syntax help manual.
 
 Here is just an example of how to use it.
 
@@ -47,25 +47,25 @@ Here is just an example of how to use it.
    The purpose of ODBC Resource is to manage the connection information of external tables uniformly.
 
    ```sql
-   CREATE EXTERNAL RESOURCE `oracle_odbc`
+   CREATE EXTERNAL RESOURCE `oracle_test_odbc`
    PROPERTIES (
        "type" = "odbc_catalog",
        "host" = "192.168.0.1",
        "port" = "8086",
-       "user" = "test",
-       "password" = "test",
-       "database" = "test",
+       "user" = "oracle",
+       "password" = "oracle",
+       "database" = "oracle",
        "odbc_type" = "oracle",
        "driver" = "Oracle"
    );
    ````
 
-Here we have created a Resource named `oracle_odbc`, whose type is `odbc_catalog`, indicating that this is a Resource used to store ODBC information. `odbc_type` is `oracle`, indicating that this OBDC Resource is used to connect to the Oracle database. For other types of resources, see the [resource management]() documentation for details.
+Here we have created a Resource named `oracle_test_odbc`, whose type is `odbc_catalog`, indicating that this is a Resource used to store ODBC information. `odbc_type` is `oracle`, indicating that this OBDC Resource is used to connect to the Oracle database. For other types of resources, see the [resource management](../../../advanced/resource.html) documentation for details.
 
 2. Create an external table
 
 ```sql
-CREATE EXTERNAL TABLE `ext_oracle_tbl` (
+CREATE EXTERNAL TABLE `ext_oracle_demo` (
   `k1` decimal(9, 3) NOT NULL COMMENT "",
   `k2` char(10) NOT NULL COMMENT "",
   `k3` datetime NOT NULL COMMENT "",
@@ -74,22 +74,22 @@ CREATE EXTERNAL TABLE `ext_oracle_tbl` (
 ) ENGINE=ODBC
 COMMENT "ODBC"
 PROPERTIES (
-    "odbc_catalog_resource" = "oracle_odbc",
-    "database" = "test",
+    "odbc_catalog_resource" = "oracle_test_odbc",
+    "database" = "oracle",
     "table" = "baseall"
 );
 ````
 
-Here we create an `ext_oracle_tbl` external table and reference the `oracle_odbc` Resource created earlier
+Here we create an `ext_oracle_demo` external table and reference the `oracle_test_odbc` Resource created earlier
 
 ## Import Data
 
 1. Create the Doris table
 
-   Here we create a Doris table with the same column information as the external table `ext_oracle_tbl` created in the previous step:
+   Here we create a Doris table with the same column information as the external table `ext_oracle_demo` created in the previous step:
 
    ```sql
-   CREATE TABLE `doris_tbl` (
+   CREATE TABLE `doris_oralce_tbl` (
      `k1` decimal(9, 3) NOT NULL COMMENT "",
      `k2` char(10) NOT NULL COMMENT "",
      `k3` datetime NOT NULL COMMENT "",
@@ -105,14 +105,12 @@ Here we create an `ext_oracle_tbl` external table and reference the `oracle_odbc
 
    For detailed instructions on creating Doris tables, see [CREATE-TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) syntax help.
 
-2. Import data (from `ext_oracle_tbl` table to `doris_tbl` table)
-
-   
+2. Import data (from `ext_oracle_demo` table to `doris_oralce_tbl` table)
 
    ```sql
-   INSERT INTO doris_tbl SELECT k1,k2,k3 FROM ext_oracle_tbl limit 100;
+   INSERT INTO doris_oralce_tbl SELECT k1,k2,k3 FROM ext_oracle_demo limit 200
    ````
-
+   
    The INSERT command is a synchronous command, and a successful return indicates that the import was successful.
 
 ## Precautions

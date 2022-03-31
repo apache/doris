@@ -39,7 +39,7 @@ Doris 可以创建通过 ODBC 协议访问的外部表。创建完成后，可�
 
 ## 创建外部表
 
-创建 ODBC 外部表的详细介绍请参阅 [CREATE ODBC TABLE]() 语法帮助手册。
+创建 ODBC 外部表的详细介绍请参阅 [CREATE ODBC TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) 语法帮助手册。
 
 这里仅通过示例说明使用方式。
 
@@ -48,25 +48,25 @@ Doris 可以创建通过 ODBC 协议访问的外部表。创建完成后，可�
    ODBC Resource 的目的是用于统一管理外部表的连接信息。
 
    ```sql
-   CREATE EXTERNAL RESOURCE `oracle_odbc`
+   CREATE EXTERNAL RESOURCE `oracle_test_odbc`
    PROPERTIES (
        "type" = "odbc_catalog",
-       "host" = "192.168.0.1",
+       "host" = "192.168.0.10",
        "port" = "8086",
-       "user" = "test",
-       "password" = "test",
-       "database" = "test",
+       "user" = "oracle",
+       "password" = "oracle",
+       "database" = "oracle",
        "odbc_type" = "oracle",
        "driver" = "Oracle"
    );
    ```
 
-这里我们创建了一个名为 `oracle_odbc` 的 Resource，其类型为 `odbc_catalog`，表示这是一个用于存储 ODBC 信息的 Resource。`odbc_type` 为 `oracle`，表示这个 OBDC Resource 是用于连接 Oracle 数据库的。关于其他类型的资源，具体可参阅 [资源管理]() 文档。
+这里我们创建了一个名为 `oracle_test_odbc` 的 Resource，其类型为 `odbc_catalog`，表示这是一个用于存储 ODBC 信息的 Resource。`odbc_type` 为 `oracle`，表示这个 OBDC Resource 是用于连接 Oracle 数据库的。关于其他类型的资源，具体可参阅 [资源管理](../../../advanced/resource.html) 文档。
 
 2. 创建外部表
 
 ```sql
-CREATE EXTERNAL TABLE `ext_oracle_tbl` (
+CREATE EXTERNAL TABLE `ext_oracle_demo` (
   `k1` decimal(9, 3) NOT NULL COMMENT "",
   `k2` char(10) NOT NULL COMMENT "",
   `k3` datetime NOT NULL COMMENT "",
@@ -75,22 +75,22 @@ CREATE EXTERNAL TABLE `ext_oracle_tbl` (
 ) ENGINE=ODBC
 COMMENT "ODBC"
 PROPERTIES (
-    "odbc_catalog_resource" = "oracle_odbc",
-    "database" = "test",
+    "odbc_catalog_resource" = "oracle_test_odbc",
+    "database" = "oracle",
     "table" = "baseall"
 );
 ```
 
-这里我们创建一个 `ext_oracle_tbl` 外部表，并引用了之前创建的 `oracle_odbc` Resource
+这里我们创建一个 `ext_oracle_demo` 外部表，并引用了之前创建的 `oracle_test_odbc` Resource
 
 ## 导入数据
 
 1. 创建 Doris 表
 
-   这里我们创建一张 Doris 的表，列信息和上一步创建的外部表 `ext_oracle_tbl` 一样：
+   这里我们创建一张 Doris 的表，列信息和上一步创建的外部表 `ext_oracle_demo` 一样：
 
    ```sql
-   CREATE TABLE `doris_tbl` (
+   CREATE TABLE `doris_oralce_tbl` (
      `k1` decimal(9, 3) NOT NULL COMMENT "",
      `k2` char(10) NOT NULL COMMENT "",
      `k3` datetime NOT NULL COMMENT "",
@@ -106,12 +106,12 @@ PROPERTIES (
 
    关于创建 Doris 表的详细说明，请参阅 [CREATE-TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) 语法帮助。
 
-2. 导入数据 (从 `ext_oracle_tbl`表 导入到 `doris_tbl` 表)
+2. 导入数据 (从 `ext_oracle_demo`表 导入到 `doris_oralce_tbl` 表)
 
    
 
    ```sql
-   INSERT INTO doris_tbl SELECT k1,k2,k3 FROM ext_oracle_tbl limit 100;
+   INSERT INTO doris_oralce_tbl SELECT k1,k2,k3 FROM ext_oracle_demo limit 100;
    ```
 
    INSERT 命令是同步命令，返回成功，即表示导入成功。

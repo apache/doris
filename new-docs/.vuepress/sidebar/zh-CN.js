@@ -172,6 +172,7 @@ module.exports = [
         ],
       },
       "broker",
+      "resource",
       "orthogonal-bitmap-manual",
       "orthogonal-hll-manual",
       "variables",
@@ -569,6 +570,7 @@ module.exports = [
                   "CREATE-TABLE-LIKE",
                   "CREATE-TABLE",
                   "CREATE-VIEW",
+                  "CREATE-EXTERNAL-TABLE",
                 ],
               },
               {

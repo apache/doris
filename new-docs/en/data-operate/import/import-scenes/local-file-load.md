@@ -1,7 +1,7 @@
 ---
 {
-    "title": "本地数据导入",
-    "language": "zh-CN"
+    "title": "Import local data",
+    "language": "en"
 }
 ---
 
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# import local data
+# Import local data
 
 Stream Load is used to import local files into Doris.
 
@@ -32,8 +32,8 @@ Unlike the submission methods of other commands, Stream Load communicates with D
 
 The HOST:PORT involved in this method should be the HTTP protocol port.
 
-- Public cloud users must use the HTTP protocol port of the Compute Node (BE), which is 8040 by default.
-- Private deployment users can use the HTTP protocol port of Leader Node (FE), which is 8030 by default. However, it must be ensured that the network of the machine where the client is located can connect to the machine where the Compute Node is located.
+- BE's HTTP protocol port, the default is 8040.
+- FE's HTTP protocol port, the default is 8030. However, it must be ensured that the network of the machine where the client is located can connect to the machine where the BE is located.
 
 In this document, we use the [curl](https://curl.se/docs/manpage.html) command as an example to demonstrate how to import data.
 
@@ -55,7 +55,8 @@ PUT /api/{db}/{table}/_stream_load
    CREATE TABLE IF NOT EXISTS load_local_file_test
    (
        id INT,
-       name VARCHAR(128)
+       age TINYINT,
+       name VARCHAR(50)
    )
    unique key(id)
    DISTRIBUTED BY HASH(id) BUCKETS 3;
@@ -69,8 +70,8 @@ PUT /api/{db}/{table}/_stream_load
     curl -u user:passwd -H "label:load_local_file_test" -T /path/to/local/demo.txt http://host:port/api/demo/load_local_file_test/_stream_load
    ````
 
-   - user:passwd is the user created in Doris. The initial user is admin, and the password is the password set when the Doris cluster was created.
-   - host:port is the HTTP protocol port of the Compute Node, the default is 8040, which can be viewed on the Smart Cloud Doris cluster details page.
+   - user:passwd is the user created in Doris. The initial user is admin/root, and the password is blank in the initial state.
+   - host:port is the HTTP protocol port of BE, the default is 8040, which can be viewed on the Doris cluster WEB UI page.
    - label: Label can be specified in the Header to uniquely identify this import task.
 
    For more advanced operations of the Stream Load command, see [Stream Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) Command documentation.
@@ -103,10 +104,10 @@ PUT /api/{db}/{table}/_stream_load
    - The status of the `Status` field is `Success`, which means the import is successful.
    - For details of other fields, please refer to the [Stream Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) command documentation.
 
-## Recommendations
+## Import suggestion
 
 - Stream Load can only import local files.
-- It is recommended that the amount of data for an import request be limited to 1 GB. If you have a large number of local files, you can submit them concurrently in batches.
+- It is recommended to limit the amount of data for an import request to 1 - 2 GB. If you have a large number of local files, you can submit them concurrently in batches.
 
 ## Java code example
 

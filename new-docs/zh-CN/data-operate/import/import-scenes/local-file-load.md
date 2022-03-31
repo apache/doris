@@ -33,8 +33,8 @@ Stream Load 用于将本地文件导入到 Doris 中。
 
 该方式中涉及 HOST:PORT 应为 HTTP 协议端口。
 
-- 公有云用户必须使用 Compute Node（BE）的 HTTP 协议端口，默认为 8040。
-- 私有化部署用户可以使用 Leader Node（FE）的 HTTP 协议端口，默认为 8030。但须保证客户端所在机器网络能够联通 Compute Node 所在机器。
+- BE 的 HTTP 协议端口，默认为 8040。
+- FE 的 HTTP 协议端口，默认为 8030。但须保证客户端所在机器网络能够联通 BE 所在机器。
 
 本文文档我们以 [curl](https://curl.se/docs/manpage.html) 命令为例演示如何进行数据导入。
 
@@ -56,7 +56,8 @@ PUT /api/{db}/{table}/_stream_load
    CREATE TABLE IF NOT EXISTS load_local_file_test
    (
        id INT,
-       name VARCHAR(128)
+       age TINYINT,
+       name VARCHAR(50)
    )
    unique key(id)
    DISTRIBUTED BY HASH(id) BUCKETS 3;
@@ -70,8 +71,8 @@ PUT /api/{db}/{table}/_stream_load
     curl -u user:passwd -H "label:load_local_file_test" -T /path/to/local/demo.txt http://host:port/api/demo/load_local_file_test/_stream_load
    ```
 
-   - user:passwd 为在 Doris 中创建的用户。初始用户为 admin，密码为创建 Doris 集群时设置的密码。
-   - host:port 为 Compute Node 的 HTTP 协议端口，默认是 8040，可以在智能云 Doris 集群详情页面查看。
+   - user:passwd 为在 Doris 中创建的用户。初始用户为 admin / root，密码初始状态下为空。
+   - host:port 为 BE 的 HTTP 协议端口，默认是 8040，可以在 Doris 集群 WEB UI页面查看。
    - label: 可以在 Header 中指定 Label 唯一标识这个导入任务。
 
    关于 Stream Load 命令的更多高级操作，请参阅 [Stream Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令文档。
@@ -104,10 +105,10 @@ PUT /api/{db}/{table}/_stream_load
    - `Status` 字段状态为 `Success` 即表示导入成功。
    - 其他字段的详细介绍，请参阅 [Stream Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令文档。
 
-## 使用建议
+## 导入建议
 
 - Stream Load 只能导入本地文件。
-- 建议一个导入请求的数据量控制在 1 GB 以内。如果有大量本地文件，可以分批并发提交。
+- 建议一个导入请求的数据量控制在 1 - 2 GB 以内。如果有大量本地文件，可以分批并发提交。
 
 ## Java 代码示例
 
