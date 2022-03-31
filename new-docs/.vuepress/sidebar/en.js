@@ -40,7 +40,6 @@ module.exports = [
     initialOpenGroupIndex: -1,
     children: [
       "install-deploy",
-      "docker-install",
       {
         title: "Compile",
         directoryPath: "source-install/",
