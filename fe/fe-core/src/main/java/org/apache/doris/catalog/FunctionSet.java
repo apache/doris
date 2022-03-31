@@ -2423,12 +2423,12 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
 
         List<Function> explodes = Lists.newArrayList();
         explodes.add(ScalarFunction.createBuiltin(
-                EXPLODE_OUTER, Type.INT, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                EXPLODE_OUTER, Type.INT, Function.NullableMode.ALWAYS_NULLABLE,
                 Lists.newArrayList(new ArrayType(Type.INT)), false,
                 "_ZN5doris19DummyTableFunctions13explode_outerEPN9doris_udf15FunctionContextERKNS1_13CollectionValE",
                 null, null, true));
         explodes.add(ScalarFunction.createBuiltin(
-                EXPLODE_OUTER, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                EXPLODE_OUTER, Type.VARCHAR, Function.NullableMode.ALWAYS_NULLABLE,
                 Lists.newArrayList(new ArrayType(Type.VARCHAR)), false,
                 "_ZN5doris19DummyTableFunctions13explode_outerEPN9doris_udf15FunctionContextERKNS1_13CollectionValE",
                 null, null, true));
