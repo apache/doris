@@ -108,8 +108,6 @@ public:
         // Now, Doris only support precision:27, scale: 9
         DCHECK(precision_ == 27);
         DCHECK(scale_ == 9);
-        precision_ = 27;
-        scale_ = 9;
     }
 
     const char* get_family_name() const override { return "Decimal"; }
