@@ -227,19 +227,31 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
     if (compaction_type == PARAM_COMPACTION_BASE) {
         BaseCompaction base_compaction(tablet);
         OLAPStatus res = base_compaction.compact();
-        if (res != OLAP_SUCCESS && res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
-            DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-            LOG(WARNING) << "failed to init base compaction. res=" << res
-                         << ", table=" << tablet->full_name();
+        if (res != OLAP_SUCCESS) {
+            if (res == OLAP_ERR_BE_NO_SUITABLE_VERSION) {
+                // Ignore this error code.
+                VLOG_NOTICE << "failed to init base compaction due to no suitable version, tablet="
+                            << tablet->full_name();
+            } else {
+                DorisMetrics::instance()->base_compaction_request_failed->increment(1);
+                LOG(WARNING) << "failed to init base compaction. res=" << res
+                             << ", tablet=" << tablet->full_name();
+            }
         }
         status = res;
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
         CumulativeCompaction cumulative_compaction(tablet);
         OLAPStatus res = cumulative_compaction.compact();
-        if (res != OLAP_SUCCESS && res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
-            DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-            LOG(WARNING) << "failed to do cumulative compaction. res=" << res
-                         << ", table=" << tablet->full_name();
+        if (res != OLAP_SUCCESS) {
+            if (res == OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
+                // Ignore this error code.
+                VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
+                            << "tablet=" << tablet->full_name();
+            } else {
+                DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
+                LOG(WARNING) << "failed to do cumulative compaction. res=" << res
+                             << ", table=" << tablet->full_name();
+            }
         }
         status = res;
     }

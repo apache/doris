@@ -398,6 +398,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
                 Status st = _submit_compaction_task(tablet, compaction_type);
+                LOG(INFO) << "debug: _submit_compaction_complete";
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit compaction task for tablet: " << tablet->tablet_id()
                         << ", err: " << st.get_error_msg();
