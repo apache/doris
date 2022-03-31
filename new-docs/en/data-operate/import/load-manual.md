@@ -1,6 +1,6 @@
 ---
 {
-    "title": "import overview",
+    "title": "Import Overview",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# import overview
+# Import Overview
 
 ## Supported data sources
 
