@@ -31,7 +31,7 @@ namespace doris {
 
 class BlockId;
 class Env;
-class RemoteEnv;
+class StorageBackend;
 
 namespace fs {
 
@@ -40,7 +40,7 @@ class RemoteBlockManager : public BlockManager {
 public:
     // Note: all objects passed as pointers should remain alive for the lifetime
     // of the block manager.
-    RemoteBlockManager(Env* local_env, RemoteEnv* remote_env, const BlockManagerOptions& opts);
+    RemoteBlockManager(Env* local_env, std::shared_ptr<StorageBackend> storage_backend, const BlockManagerOptions& opts);
     virtual ~RemoteBlockManager();
 
     Status open() override;
@@ -62,7 +62,7 @@ public:
 
 private:
     Env* _local_env;
-    RemoteEnv* _remote_env;
+    std::shared_ptr<StorageBackend> _storage_backend;
     const BlockManagerOptions _opts;
     // Underlying cache instance. Caches opened files.
     std::unique_ptr<FileCache<RandomAccessFile>> _file_cache;

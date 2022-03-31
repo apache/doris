@@ -676,13 +676,8 @@ CONF_mInt32(external_table_connect_timeout_sec, "5");
 CONF_mInt32(segment_cache_capacity, "1000000");
 
 // s3 config
-CONF_String(default_remote_storage_s3_ak, "");
-CONF_String(default_remote_storage_s3_sk, "");
-CONF_String(default_remote_storage_s3_endpoint, "");
-CONF_String(default_remote_storage_s3_region, "");
-CONF_mInt32(default_remote_storage_s3_max_conn, "50");
-CONF_mInt32(default_remote_storage_s3_request_timeout_ms, "3000");
-CONF_mInt32(default_remote_storage_s3_conn_timeout_ms, "1000");
+CONF_mInt32(max_remote_storage_count, "10");
+
 // Set to true to disable the minidump feature.
 CONF_Bool(disable_minidump, "false");
 

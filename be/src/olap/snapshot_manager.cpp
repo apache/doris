@@ -98,13 +98,13 @@ OLAPStatus SnapshotManager::release_snapshot(const string& snapshot_path) {
             continue;
         }
         std::string abs_path;
-        RETURN_WITH_WARN_IF_ERROR(store->env()->canonicalize(store->path(), &abs_path),
+        RETURN_WITH_WARN_IF_ERROR(Env::Default()->canonicalize(store->path(), &abs_path),
                                   OLAP_ERR_DIR_NOT_EXIST,
                                   "canonical path " + store->path() + "failed");
 
         if (snapshot_path.compare(0, abs_path.size(), abs_path) == 0 &&
             snapshot_path.compare(abs_path.size(), SNAPSHOT_PREFIX.size(), SNAPSHOT_PREFIX) == 0) {
-            store->env()->delete_dir(snapshot_path);
+            Env::Default()->delete_dir(snapshot_path);
             LOG(INFO) << "success to release snapshot path. [path='" << snapshot_path << "']";
 
             return OLAP_SUCCESS;
