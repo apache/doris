@@ -458,7 +458,8 @@ public:
         DCHECK(state != nullptr);
         DCHECK(container != nullptr);
         DCHECK(_pool != nullptr);
-        DCHECK(prob_expr->root()->type().type == _column_return_type);
+        DCHECK(prob_expr->root()->type().type == _column_return_type ||
+        (is_string_type(prob_expr->root()->type().type) && is_string_type(_column_return_type)));
 
         auto real_filter_type = get_real_type();
         switch (real_filter_type) {

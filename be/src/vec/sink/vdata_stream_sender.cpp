@@ -425,9 +425,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         }
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
-        int num_channels = _channels.size();
         // will only copy schema
         // we don't want send temp columns
+        auto column_to_keep = block->columns();
 
         int result_size = _partition_expr_ctxs.size();
         int result[result_size];
@@ -451,12 +451,14 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
             hash_vals[i] = siphashs[i].get64();
         }
 
-        RETURN_IF_ERROR(channel_add_rows(_channels, num_channels, hash_vals, rows, block));
+        Block::erase_useless_column(block, column_to_keep);
+        RETURN_IF_ERROR(channel_add_rows(_channels, _channels.size(), hash_vals, rows, block));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+        // will only copy schema
+        // we don't want send temp columns
+        auto column_to_keep = block->columns();
         // 1. calculate hash
         // 2. dispatch rows to channel
-        int num_channels = _channel_shared_ptrs.size();
-
         int result_size = _partition_expr_ctxs.size();
         int result[result_size];
         RETURN_IF_ERROR(get_partition_column_result(block, result));
@@ -484,8 +486,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
             }
         }
 
+        Block::erase_useless_column(block, column_to_keep);
         RETURN_IF_ERROR(
-                channel_add_rows(_channel_shared_ptrs, num_channels, hash_vals, rows, block));
+                channel_add_rows(_channel_shared_ptrs, _channel_shared_ptrs.size(), hash_vals, rows, block));
     } else {
         // Range partition
         // 1. calculate range
