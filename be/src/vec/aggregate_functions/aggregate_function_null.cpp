@@ -39,15 +39,18 @@ public:
     DataTypes transform_arguments(const DataTypes& arguments) const override {
         size_t size = arguments.size();
         DataTypes res(size);
-        for (size_t i = 0; i < size; ++i) res[i] = remove_nullable(arguments[i]);
+        for (size_t i = 0; i < size; ++i) {
+            res[i] = remove_nullable(arguments[i]);
+        }
         return res;
     }
 
-    AggregateFunctionPtr transform_aggregate_function(const AggregateFunctionPtr& nested_function,
-                                                      const DataTypes& arguments,
-                                                      const Array& params,
-                                                      const bool result_is_nullable) const override {
-        if (nested_function == nullptr) return nullptr;
+    AggregateFunctionPtr transform_aggregate_function(
+            const AggregateFunctionPtr& nested_function, const DataTypes& arguments,
+            const Array& params, const bool result_is_nullable) const override {
+        if (nested_function == nullptr) {
+            return nullptr;
+        }
 
         bool has_null_types = false;
         for (const auto& arg_type : arguments) {
@@ -57,22 +60,26 @@ public:
             }
         }
 
-        if (has_null_types) return std::make_shared<AggregateFunctionNothing>(arguments, params);
+        if (has_null_types) {
+            return std::make_shared<AggregateFunctionNothing>(arguments, params);
+        }
 
         if (arguments.size() == 1) {
-            if (result_is_nullable)
+            if (result_is_nullable) {
                 return std::make_shared<AggregateFunctionNullUnary<true>>(nested_function,
                                                                           arguments, params);
-            else
+            } else {
                 return std::make_shared<AggregateFunctionNullUnary<false>>(nested_function,
                                                                            arguments, params);
+            }
         } else {
-            if (result_is_nullable)
+            if (result_is_nullable) {
                 return std::make_shared<AggregateFunctionNullVariadic<true>>(nested_function,
                                                                              arguments, params);
-            else
+            } else {
                 return std::make_shared<AggregateFunctionNullVariadic<false>>(nested_function,
                                                                               arguments, params);
+            }
         }
     }
 };
@@ -84,7 +91,8 @@ void register_aggregate_function_combinator_null(AggregateFunctionSimpleFactory&
         auto function_combinator = std::make_shared<AggregateFunctionCombinatorNull>();
         auto transform_arguments = function_combinator->transform_arguments(types);
         auto nested_function = factory.get(name, transform_arguments, params);
-        return function_combinator->transform_aggregate_function(nested_function, types, params, result_is_nullable);
+        return function_combinator->transform_aggregate_function(nested_function, types, params,
+                                                                 result_is_nullable);
     };
     factory.register_nullable_function_combinator(creator);
 }

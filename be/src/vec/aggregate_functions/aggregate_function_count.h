@@ -50,7 +50,9 @@ public:
         ++data(place).count;
     }
 
-    void reset(AggregateDataPtr place) const override { this->data(place).count = 0; }
+    void reset(AggregateDataPtr place) const override {
+        AggregateFunctionCount::data(place).count = 0;
+    }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {

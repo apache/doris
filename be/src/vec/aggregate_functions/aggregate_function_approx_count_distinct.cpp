@@ -31,7 +31,7 @@ AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
                                 : argument_types[0]);
 
     res.reset(create_class_with_type<AggregateFunctionApproxCountDistinct>(*argument_types[0],
-                                                                     argument_types));
+                                                                           argument_types));
 
     if (!res) {
         LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",
