@@ -135,8 +135,7 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
 
     Expr::close(_output_expr_ctxs, state);
 
-    _closed = true;
-    return Status::OK();
+    return DataSink::close(state, exec_status);
 }
 
 void ResultSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
