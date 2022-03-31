@@ -456,7 +456,7 @@ public:
 
     bool allocates_memory_in_arena() const override { return AllocatesMemoryInArena; }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
 };

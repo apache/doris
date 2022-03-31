@@ -129,7 +129,7 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = static_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).template result<ResultType>());
     }

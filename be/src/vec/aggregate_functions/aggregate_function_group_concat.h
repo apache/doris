@@ -131,7 +131,7 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         std::string result = this->data(place).get();
         static_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
     }

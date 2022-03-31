@@ -57,7 +57,7 @@ public:
         WindowFunctionRowNumber::data(place).count = 0;
     }
 
-    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
     }
 
@@ -102,7 +102,7 @@ public:
         WindowFunctionRank::data(place).peer_group_start = -1;
     }
 
-    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).rank);
     }
 
@@ -143,7 +143,7 @@ public:
         WindowFunctionDenseRank::data(place).peer_group_start = -1;
     }
 
-    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).rank);
     }
 
@@ -383,7 +383,7 @@ public:
 
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
-    void insert_result_into(AggregateDataPtr place, IColumn& to) const override {
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
 

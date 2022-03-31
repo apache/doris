@@ -203,8 +203,8 @@ public:
         this->data(place).read(buf);
     }
 
-    void insert_result_into(AggregateDataPtr __restrict place, IColumn& to) const override {
-        this->data(place).sort();
+    void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
+        this->data(const_cast<AggregateDataPtr>(place)).sort();
         assert_cast<ColumnInt32&>(to).get_data().push_back(data(place).get());
     }
 };
