@@ -97,7 +97,6 @@ module.exports = [
               "external-storage-load",
               "kafka-load",
               "external-table-load",
-              "rdbms-load",
               "jdbc-load",
               "load-atomicity",
               "load-data-convert",
@@ -172,6 +171,7 @@ module.exports = [
           "query-cache"
         ],
       },
+      "broker",
       "orthogonal-bitmap-manual",
       "orthogonal-hll-manual",
       "variables",
@@ -607,6 +607,10 @@ module.exports = [
                   "RESUME-ROUTINE-LOAD",
                   "STOP-ROUTINE-LOAD",
                   "STREAM-LOAD",
+                  "PAUSE-SYNC-JOB",
+                  "RESUME-SYNC-JOB",
+                  "STOP-SYNC-JOB",
+                  "CREATE-SYNC-JOB",
                 ],
               },
               {
