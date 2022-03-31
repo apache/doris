@@ -48,8 +48,6 @@ const uint64_t LzopDecompressor::F_ADLER32_C = 0x00000002L;
 const uint64_t LzopDecompressor::F_CRC32_D = 0x00000100L;
 const uint64_t LzopDecompressor::F_ADLER32_D = 0x00000001L;
 
-LzopDecompressor::~LzopDecompressor() {}
-
 Status LzopDecompressor::init() {
     return Status::OK();
 }
