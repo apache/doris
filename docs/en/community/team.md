@@ -28,19 +28,19 @@ under the License.
 
 ## Mentors (3)
 
-| Apache ID                                                    | Github Username | Public Name           |
-| ------------------------------------------------------------ | --------------- | --------------------- |
+| Apache ID                                                    | Github Username | Public Name       |
+| ------------------------------------------------------------ | --------------- | ----------------- |
 | [wenming](https://people.apache.org/committer-index.html#wenming) | moonming        | Ming Wen          |
 | [shaofengshi](https://people.apache.org/committer-index.html#shaofengshi) | shaofengshi     | Shao Feng Shi     |
 | [ningjiang](https://people.apache.org/committer-index.html#ningjiang) | WillemJiang     | Willem Ning Jiang |
 
 We'd like to thank the following committers to the Apache Doris (incubating) project who have helped get the project to where it is today. This list might be stale, the canonical list is located on [Apache's website](https://people.apache.org/committers-by-project.html#doris).
 
-## PPMC (21)
+## PPMC (22)
 
 (the listing below excludes mentors)
 
-| Apache ID                                                    | Github Username       | Public Name        |
+| Apache ID                                                    | Github Username     | Public Name   |
 | :----------------------------------------------------------- | :------------------ | :------------ |
 | [lingbin](https://people.apache.org/committer-index.html#lingbin) | lingbin             | Bin Ling      |
 | [wangbo](https://people.apache.org/committer-index.html#wangbo) | wangbo              | Bo Wang       |
@@ -57,24 +57,28 @@ We'd like to thank the following committers to the Apache Doris (incubating) pro
 | [lingmiao](https://people.apache.org/committer-index.html#lingmiao) | EmmyMiao87          | Ling Miao     |
 | [morningman](https://people.apache.org/committer-index.html#morningman) | morningman          | Mingyu Chen   |
 | [maruyue](https://people.apache.org/committer-index.html#maruyue) |                     | Ruyue Ma      |
-| [sijie](https://people.apache.org/committer-index.html#sijie) | sijie               | Sijie Guo |
-| [zshao](https://people.apache.org/committer-index.html#zshao) | zshao | Zheng Shao |
-| [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg | Zhengguo Yang |
+| [sijie](https://people.apache.org/committer-index.html#sijie) | sijie               | Sijie Guo     |
+| [zshao](https://people.apache.org/committer-index.html#zshao) | zshao               | Zheng Shao    |
+| [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
+| [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93            | Zuo Wei       |
 
-## Committers (29)
+## Committers (33)
 
 (the listing excludes PPMC members above)
 
 | Apache ID                                                    | Github Username  | Public Name    |
 | :----------------------------------------------------------- | :--------------- | :------------- |
+| [diwu](https://people.apache.org/committer-index.html#diwu)  | JNSimba          | Di Wu          |
+| [yiguolei](https://people.apache.org/committer-index.html#yiguolei) | yiguolei         | Guolei Yi      |
+| [huajianlan](https://people.apache.org/committer-index.html#huajianlan) | 924060929        | Huajian Lan    |
 | [huangwei](https://people.apache.org/committer-index.html#huangwei) | vagetablechicken | Huang Wei      |
+| [jianliangqi](https://people.apache.org/committer-index.html#jianliangqi) | qidaye           | Jianliang Qi   |
 | [kangpinghuang](https://people.apache.org/committer-index.html#kangpinghuang) | kangpinghuang    | Kangping Huang |
 | [liulijia](https://people.apache.org/committer-index.html#liulijia) | liutang123       | Lijia Liu      |
 | [wangxixu](https://people.apache.org/committer-index.html#wangxixu) | xinghuayu007     | Xixu Wang      |
 | [xuyang](https://people.apache.org/committer-index.html#xuyang) | xy720            | Yang Xu        |
 | [laiyingchun](https://people.apache.org/committer-index.html#laiyingchun) | acelyc111        | Yingchun Lai   |
 | [wyf](https://people.apache.org/committer-index.html#wyf)    | wuyunfeng        | Yunfeng Wu     |
-| [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93         | Zuo Wei        |
 
 ## Contributor
 
