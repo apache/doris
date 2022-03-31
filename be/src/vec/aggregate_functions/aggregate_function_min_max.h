@@ -43,10 +43,11 @@ public:
     bool has() const { return has_value; }
 
     void insert_result_into(IColumn& to) const {
-        if (has())
+        if (has()) {
             assert_cast<ColumnVector<T>&>(to).get_data().push_back(value);
-        else
+        } else {
             assert_cast<ColumnVector<T>&>(to).insert_default();
+        }
     }
 
     void reset() {
@@ -57,12 +58,16 @@ public:
 
     void write(BufferWritable& buf) const {
         write_binary(has(), buf);
-        if (has()) write_binary(value, buf);
+        if (has()) {
+            write_binary(value, buf);
+        }
     }
 
     void read(BufferReadable& buf) {
         read_binary(has_value, buf);
-        if (has()) read_binary(value, buf);
+        if (has()) {
+            read_binary(value, buf);
+        }
     }
 
     void change(const IColumn& column, size_t row_num, Arena*) {
@@ -80,32 +85,36 @@ public:
         if (!has() || assert_cast<const ColumnVector<T>&>(column).get_data()[row_num] < value) {
             change(column, row_num, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool change_if_less(const Self& to, Arena* arena) {
         if (to.has() && (!has() || to.value < value)) {
             change(to, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
         if (!has() || assert_cast<const ColumnVector<T>&>(column).get_data()[row_num] > value) {
             change(column, row_num, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool change_if_greater(const Self& to, Arena* arena) {
         if (to.has() && (!has() || to.value > value)) {
             change(to, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool is_equal_to(const Self& to) const { return has() && to.value == value; }
@@ -132,8 +141,9 @@ public:
         if (has()) {
             DecimalV2Value decimal(value);
             assert_cast<ColumnDecimal<Decimal128>&>(to).insert_data((const char*)&decimal, 0);
-        } else
+        } else {
             assert_cast<ColumnDecimal<Decimal128>&>(to).insert_default();
+        }
     }
 
     void reset() {
@@ -144,12 +154,16 @@ public:
 
     void write(BufferWritable& buf) const {
         write_binary(has(), buf);
-        if (has()) write_binary(value, buf);
+        if (has()) {
+            write_binary(value, buf);
+        }
     }
 
     void read(BufferReadable& buf) {
         read_binary(has_value, buf);
-        if (has()) read_binary(value, buf);
+        if (has()) {
+            read_binary(value, buf);
+        }
     }
 
     void change(const IColumn& column, size_t row_num, Arena*) {
@@ -168,16 +182,18 @@ public:
             assert_cast<const ColumnDecimal<Decimal128>&>(column).get_data()[row_num] < value) {
             change(column, row_num, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool change_if_less(const Self& to, Arena* arena) {
         if (to.has() && (!has() || to.value < value)) {
             change(to, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
@@ -185,16 +201,18 @@ public:
             assert_cast<const ColumnDecimal<Decimal128>&>(column).get_data()[row_num] > value) {
             change(column, row_num, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool change_if_greater(const Self& to, Arena* arena) {
         if (to.has() && (!has() || to.value > value)) {
             change(to, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool is_equal_to(const Self& to) const { return has() && to.value == value; }
@@ -232,10 +250,11 @@ public:
     const char* get_data() const { return size <= MAX_SMALL_STRING_SIZE ? small_data : large_data; }
 
     void insert_result_into(IColumn& to) const {
-        if (has())
+        if (has()) {
             assert_cast<ColumnString&>(to).insert_data(get_data(), size);
-        else
+        } else {
             assert_cast<ColumnString&>(to).insert_default();
+        }
     }
 
     void reset() {
@@ -249,7 +268,9 @@ public:
 
     void write(BufferWritable& buf) const {
         write_binary(size, buf);
-        if (has()) buf.write(get_data(), size);
+        if (has()) {
+            buf.write(get_data(), size);
+        }
     }
 
     void read(BufferReadable& buf) {
@@ -262,7 +283,9 @@ public:
 
                 size = rhs_size;
 
-                if (size > 0) buf.read(small_data, size);
+                if (size > 0) {
+                    buf.read(small_data, size);
+                }
             } else {
                 if (capacity < rhs_size) {
                     capacity = static_cast<UInt32>(round_up_to_power_of_two_or_zero(rhs_size));
@@ -316,8 +339,9 @@ public:
             assert_cast<const ColumnString&>(column).get_data_at(row_num) < get_string_ref()) {
             change(column, row_num, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
@@ -325,24 +349,27 @@ public:
             assert_cast<const ColumnString&>(column).get_data_at(row_num) > get_string_ref()) {
             change(column, row_num, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool change_if_less(const Self& to, Arena* arena) {
         if (to.has() && (!has() || to.get_string_ref() < get_string_ref())) {
             change(to, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool change_if_greater(const Self& to, Arena* arena) {
         if (to.has() && (!has() || to.get_string_ref() > get_string_ref())) {
             change(to, arena);
             return true;
-        } else
+        } else {
             return false;
+        }
     }
 
     bool is_equal_to(const Self& to) const {

@@ -53,7 +53,9 @@ struct AggregateFunctionDistinctSingleNumericData {
     MutableColumns get_arguments(const DataTypes& argument_types) const {
         MutableColumns argument_columns;
         argument_columns.emplace_back(argument_types[0]->create_column());
-        for (const auto& elem : set) argument_columns[0]->insert(elem.get_value());
+        for (const auto& elem : set) {
+            argument_columns[0]->insert(elem.get_value());
+        }
 
         return argument_columns;
     }
@@ -68,13 +70,16 @@ struct AggregateFunctionDistinctGenericData {
     void merge(const Self& rhs, Arena* arena) {
         Set::LookupResult it;
         bool inserted;
-        for (const auto& elem : rhs.set)
+        for (const auto& elem : rhs.set) {
             set.emplace(ArenaKeyHolder {elem.get_value(), *arena}, it, inserted);
+        }
     }
 
     void serialize(BufferWritable& buf) const {
         write_var_uint(set.size(), buf);
-        for (const auto& elem : set) write_string_binary(elem.get_value(), buf);
+        for (const auto& elem : set) {
+            write_string_binary(elem.get_value(), buf);
+        }
     }
 
     void deserialize(BufferReadable& buf, Arena* arena) {
@@ -101,8 +106,9 @@ struct AggregateFunctionDistinctSingleGenericData : public AggregateFunctionDist
     MutableColumns get_arguments(const DataTypes& argument_types) const {
         MutableColumns argument_columns;
         argument_columns.emplace_back(argument_types[0]->create_column());
-        for (const auto& elem : set)
+        for (const auto& elem : set) {
             deserialize_and_insert<is_plain_column>(elem.get_value(), *argument_columns[0]);
+        }
 
         return argument_columns;
     }
@@ -126,13 +132,15 @@ struct AggregateFunctionDistinctMultipleGenericData : public AggregateFunctionDi
 
     MutableColumns get_arguments(const DataTypes& argument_types) const {
         MutableColumns argument_columns(argument_types.size());
-        for (size_t i = 0; i < argument_types.size(); ++i)
+        for (size_t i = 0; i < argument_types.size(); ++i) {
             argument_columns[i] = argument_types[i]->create_column();
+        }
 
         for (const auto& elem : set) {
             const char* begin = elem.get_value().data;
-            for (auto& column : argument_columns)
+            for (auto& column : argument_columns) {
                 begin = column->deserialize_and_insert_from_arena(begin);
+            }
         }
 
         return argument_columns;
@@ -189,7 +197,9 @@ public:
         auto place = const_cast<AggregateDataPtr>(targetplace);
         auto arguments = this->data(place).get_arguments(this->argument_types);
         ColumnRawPtrs arguments_raw(arguments.size());
-        for (size_t i = 0; i < arguments.size(); ++i) arguments_raw[i] = arguments[i].get();
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            arguments_raw[i] = arguments[i].get();
+        }
 
         assert(!arguments.empty());
         // nested_func->add_batch_single_place(arguments[0]->size(), get_nested_place(place), arguments_raw.data(), arena);

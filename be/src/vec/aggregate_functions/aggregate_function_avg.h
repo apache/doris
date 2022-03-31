@@ -36,9 +36,11 @@ struct AggregateFunctionAvgData {
 
     template <typename ResultT>
     ResultT result() const {
-        if constexpr (std::is_floating_point_v<ResultT>)
-            if constexpr (std::numeric_limits<ResultT>::is_iec559)
+        if constexpr (std::is_floating_point_v<ResultT>) {
+            if constexpr (std::numeric_limits<ResultT>::is_iec559) {
                 return static_cast<ResultT>(sum) / count; /// allow division by zero
+            }
+        }
 
         if (!count) {
             // null is handled in AggregationNode::_get_without_key_result
@@ -85,10 +87,11 @@ public:
     String get_name() const override { return "avg"; }
 
     DataTypePtr get_return_type() const override {
-        if constexpr (IsDecimalNumber<T>)
+        if constexpr (IsDecimalNumber<T>) {
             return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
-        else
+        } else {
             return std::make_shared<ResultDataType>();
+        }
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
