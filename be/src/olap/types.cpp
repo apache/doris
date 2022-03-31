@@ -51,9 +51,9 @@ const TypeInfo* get_scalar_type_info(FieldType field_type) {
     static const TypeInfo* field_type_array[] = {
         nullptr,
         get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>(),
-        get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_TINYINT>(),
+        nullptr,
         get_scalar_type_info<OLAP_FIELD_TYPE_SMALLINT>(),
-        get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_SMALLINT>(),
+        nullptr,
         get_scalar_type_info<OLAP_FIELD_TYPE_INT>(),
         get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_INT>(),
         get_scalar_type_info<OLAP_FIELD_TYPE_BIGINT>(),
@@ -125,9 +125,9 @@ const TypeInfo* get_array_type_info(FieldType leaf_type, int32_t iterations) {
     static const ArrayTypeInfo* array_type_Info_arr[][depth] = {
         { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
         INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_TINYINT),
-        INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_UNSIGNED_TINYINT),
+        { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
         INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_SMALLINT),
-        INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_UNSIGNED_SMALLINT),
+        { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr },
         INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_INT),
         INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_UNSIGNED_INT),
         INIT_ARRAY_TYPE_INFO_LIST(OLAP_FIELD_TYPE_BIGINT),
