@@ -520,8 +520,7 @@ COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
                 auto& dict_col =                                                               \
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
                                 *col_ptr);                                                     \
-                auto code = dict_col.find_code(_value);                                        \
-                _dict_code = code;                                                             \
+                _dict_code = dict_col.find_code(_value);                                       \
                 _dict_code_inited = true;                                                      \
             }                                                                                  \
         }                                                                                      \
@@ -548,8 +547,7 @@ COMPARISON_PRED_SET_DICT_CODE(NotEqualPredicate)
                 auto& dict_col =                                                               \
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
                                 *col_ptr);                                                     \
-                auto code = dict_col.find_code_by_bound(_value, 0 OP 1, 1 OP 1);               \
-                _dict_code = code;                                                             \
+                _dict_code = dict_col.find_code_by_bound(_value, 1 OP 0, 1 OP 1);              \
                 _dict_code_inited = true;                                                      \
             }                                                                                  \
         }                                                                                      \

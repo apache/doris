@@ -299,8 +299,7 @@ IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, -=)
                 auto& dict_col =                                                               \
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
                                 *col_ptr);                                                     \
-                auto code_set = dict_col.find_codes(_values);                                  \
-                _dict_codes = std::move(code_set);                                             \
+                _dict_codes = std::move(dict_col.find_codes(_values));                         \
                 _dict_code_inited = true;                                                      \
             }                                                                                  \
         }                                                                                      \

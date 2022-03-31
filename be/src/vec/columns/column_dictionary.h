@@ -244,8 +244,8 @@ public:
 
     int32_t find_code(const StringValue& value) const { return _dict.find_code(value); }
 
-    int32_t find_code_by_bound(const StringValue& value, bool lower, bool eq) const {
-        return _dict.find_code_by_bound(value, lower, eq);
+    int32_t find_code_by_bound(const StringValue& value, bool greater, bool eq) const {
+        return _dict.find_code_by_bound(value, greater, eq);
     }
 
     phmap::flat_hash_set<int32_t> find_codes(
@@ -294,19 +294,14 @@ public:
             return -1;
         }
 
-        inline int32_t find_code_by_bound(const StringValue& value, bool lower, bool eq) const {
+        inline int32_t find_code_by_bound(const StringValue& value, bool greater, bool eq) const {
             auto code = find_code(value);
             if (code >= 0) {
                 return code;
             }
-
-            if (lower) {
-                return std::lower_bound(_dict_data.begin(), _dict_data.end(), value) -
-                       _dict_data.begin() - eq;
-            } else {
-                return std::upper_bound(_dict_data.begin(), _dict_data.end(), value) -
-                       _dict_data.begin() + eq;
-            }
+            auto bound = std::upper_bound(_dict_data.begin(), _dict_data.end(), value) -
+                         _dict_data.begin();
+            return greater ? bound - greater + eq : bound - eq;
         }
 
         inline phmap::flat_hash_set<int32_t> find_codes(
