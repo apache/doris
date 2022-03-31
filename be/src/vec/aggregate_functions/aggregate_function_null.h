@@ -62,15 +62,19 @@ protected:
     }
 
     static void init_flag(AggregateDataPtr __restrict place) noexcept {
-        if constexpr (result_is_nullable) place[0] = 0;
+        if constexpr (result_is_nullable) {
+            place[0] = false;
+        }
     }
 
     static void set_flag(AggregateDataPtr __restrict place) noexcept {
-        if constexpr (result_is_nullable) place[0] = 1;
+        if constexpr (result_is_nullable) {
+            place[0] = true;
+        }
     }
 
     static bool get_flag(ConstAggregateDataPtr __restrict place) noexcept {
-        return result_is_nullable ? place[0] : 1;
+        return result_is_nullable ? place[0] : true;
     }
 
 public:
@@ -78,10 +82,11 @@ public:
                               const Array& params)
             : IAggregateFunctionHelper<Derived>(arguments, params),
               nested_function {nested_function_} {
-        if (result_is_nullable)
+        if (result_is_nullable) {
             prefix_size = nested_function->align_of_data();
-        else
+        } else {
             prefix_size = 0;
+        }
     }
 
     String get_name() const override {
@@ -117,14 +122,18 @@ public:
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena* arena) const override {
-        if (result_is_nullable && get_flag(rhs)) set_flag(place);
+        if (result_is_nullable && get_flag(rhs)) {
+            set_flag(place);
+        }
 
         nested_function->merge(nested_place(place), nested_place(rhs), arena);
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
         bool flag = get_flag(place);
-        if (result_is_nullable) write_binary(flag, buf);
+        if (result_is_nullable) {
+            write_binary(flag, buf);
+        }
         if (flag) {
             nested_function->serialize(nested_place(place), buf);
         }
@@ -133,7 +142,9 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena* arena) const override {
         bool flag = true;
-        if (result_is_nullable) read_binary(flag, buf);
+        if (result_is_nullable) {
+            read_binary(flag, buf);
+        }
         if (flag) {
             set_flag(place);
             nested_function->deserialize(nested_place(place), buf, arena);
@@ -248,8 +259,9 @@ public:
                     size_t(MAX_ARGS));
         }
 
-        for (size_t i = 0; i < number_of_arguments; ++i)
+        for (size_t i = 0; i < number_of_arguments; ++i) {
             is_nullable[i] = arguments[i]->is_nullable();
+        }
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
@@ -267,8 +279,9 @@ public:
                     return;
                 }
                 nested_columns[i] = &nullable_col.get_nested_column();
-            } else
+            } else {
                 nested_columns[i] = columns[i];
+            }
         }
 
         this->set_flag(place);

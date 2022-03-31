@@ -42,7 +42,9 @@ inline void assert_binary(const std::string& name, const DataTypes& argument_typ
 
 template <std::size_t maximal_arity>
 inline void assert_arity_at_most(const std::string& name, const DataTypes& argument_types) {
-    if (argument_types.size() <= maximal_arity) return;
+    if (argument_types.size() <= maximal_arity) {
+        return;
+    }
 
     if constexpr (maximal_arity == 0) {
         LOG(FATAL) << fmt::format("Aggregate function {} cannot have arguments", name);

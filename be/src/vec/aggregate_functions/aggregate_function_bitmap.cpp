@@ -28,14 +28,18 @@ static IAggregateFunction* createWithIntDataType(const DataTypes& argument_type)
         type = assert_cast<const DataTypeNullable*>(type)->get_nested_type().get();
     }
     WhichDataType which(type);
-    if (which.idx == TypeIndex::Int8)
+    if (which.idx == TypeIndex::Int8) {
         return new AggregateFunctionTemplate<nullable, ColumnVector<Int8>>(argument_type);
-    if (which.idx == TypeIndex::Int16)
+    }
+    if (which.idx == TypeIndex::Int16) {
         return new AggregateFunctionTemplate<nullable, ColumnVector<Int16>>(argument_type);
-    if (which.idx == TypeIndex::Int32)
+    }
+    if (which.idx == TypeIndex::Int32) {
         return new AggregateFunctionTemplate<nullable, ColumnVector<Int32>>(argument_type);
-    if (which.idx == TypeIndex::Int64)
+    }
+    if (which.idx == TypeIndex::Int64) {
         return new AggregateFunctionTemplate<nullable, ColumnVector<Int64>>(argument_type);
+    }
     return nullptr;
 }
 
