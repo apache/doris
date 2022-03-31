@@ -222,7 +222,7 @@ TEST(InternalQueue, TestClear) {
 
 TEST(InternalQueue, TestSingleProducerSingleConsumer) {
     std::vector<IntNode> nodes;
-    std::atomic<int32_t> counter;
+    std::atomic<int32_t> counter = 0;
     nodes.resize(LOOP_LESS_OR_MORE(100, 1000000));
     std::vector<int> results;
 
