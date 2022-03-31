@@ -338,7 +338,6 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                         // make sure to reset null indicators since we're overwriting
                         // the tuple assembled for the previous row
                         tuple->init(_tuple_desc->byte_size());
-                        batch->agg_object_pool()->remove_last_one();
                         break;
                     }
                 } else {
@@ -347,7 +346,6 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                         // make sure to reset null indicators since we're overwriting
                         // the tuple assembled for the previous row
                         tuple->init(_tuple_desc->byte_size());
-                        batch->agg_object_pool()->remove_last_one();
                         break;
                     }
                 }
@@ -362,7 +360,6 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                         // the tuple assembled for the previous row
                         tuple->init(_tuple_desc->byte_size());
                         _num_rows_pushed_cond_filtered++;
-                        batch->agg_object_pool()->remove_last_one();
                         break;
                     }
                 }

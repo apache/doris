@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_COMMON_COMMON_OBJECT_POOL_H
 
 #include <mutex>
-#include <list>
+#include <vector>
 
 #include "util/spinlock.h"
 
@@ -55,15 +55,6 @@ public:
         _objects.clear();
     }
 
-    void remove_last_one() {
-        std::lock_guard<SpinLock> l(_lock);
-        if (!_objects.empty()) {
-            Element& elem = _objects.back();
-            elem.delete_fn(elem.obj);
-            _objects.pop_back();
-        }
-    }
-
     void acquire_data(ObjectPool* src) {
         _objects.insert(_objects.end(), src->_objects.begin(), src->_objects.end());
         src->_objects.clear();
@@ -82,7 +73,7 @@ private:
         DeleteFn delete_fn;
     };
 
-    std::list<Element> _objects;
+    std::vector<Element> _objects;
     SpinLock _lock;
 };
 
