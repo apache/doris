@@ -467,6 +467,9 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             DecimalV2Value* slot = tuple->get_decimalv2_slot(slot_desc->tuple_offset());
             auto packed_decimal = *reinterpret_cast<const decimal12_t*>(ptr);
 
+            // We convert the format for storage to the format for computation.
+            // Coding coverting in the opposite direction is in AggregateFuncTraits
+            // for decimal.
             int64_t int_value = packed_decimal.integer;
             int32_t frac_value = packed_decimal.fraction;
             if (!slot->from_olap_decimal(int_value, frac_value)) {
