@@ -762,6 +762,7 @@ void SegmentIterator::_init_current_block(
 }
 
 void SegmentIterator::_output_non_pred_columns(vectorized::Block* block, bool is_block_mem_reuse) {
+    SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
     for (auto cid : _non_predicate_columns) {
         block->replace_by_position(_schema_block_id_map[cid],
                                    std::move(_current_return_columns[cid]));
@@ -978,7 +979,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         }
     }
 
-    // shink char_type suffix zero data
+    // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
     return Status::OK();
