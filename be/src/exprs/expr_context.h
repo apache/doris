@@ -165,11 +165,6 @@ private:
     /// and owned by this ExprContext.
     std::vector<FunctionContext*> _fn_contexts;
 
-    /// Array access to fn_contexts_. Used by ScalarFnCall's codegen'd compute function
-    /// to access the correct FunctionContext.
-    /// TODO: revisit this
-    FunctionContext** _fn_contexts_ptr;
-
     // Used to create _pool, if change to raw pointer later, be careful about tracker's life cycle.
     std::shared_ptr<MemTracker> _mem_tracker;
 
