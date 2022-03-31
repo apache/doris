@@ -167,7 +167,8 @@ public class ColumnDef {
         Type type = typeDef.getType();
 
         if(!Config.enable_quantile_state_type && type.isQuantileStateType()) {
-            throw new AnalysisException("quantile state column is coming soon.")
+            throw new AnalysisException("quantile_state is disabled" +
+                    "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
         }
 
         // disable Bitmap Hll type in keys, values without aggregate function.
