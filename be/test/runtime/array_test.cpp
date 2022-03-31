@@ -288,7 +288,9 @@ private:
     std::unique_ptr<fs::WritableBlock> create_writable_block(const std::string& path) {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions fs_opts(path);
-        auto st = fs::fs_util::block_manager(TStorageMedium::HDD)->create_block(fs_opts, &wblock);
+        FilePathDesc path_desc;
+        path_desc.storage_medium = TStorageMedium::HDD;
+        auto st = fs::fs_util::block_manager(path_desc)->create_block(fs_opts, &wblock);
         return st.ok() ? std::move(wblock) : nullptr;
     }
 
@@ -321,8 +323,9 @@ private:
     std::unique_ptr<fs::ReadableBlock> create_readable_block(const std::string& path) {
         std::unique_ptr<fs::ReadableBlock> rblock;
         FilePathDesc path_desc;
+        path_desc.storage_medium = TStorageMedium::HDD;
         path_desc.filepath = path;
-        auto block_manager = fs::fs_util::block_manager(TStorageMedium::HDD);
+        auto block_manager = fs::fs_util::block_manager(path_desc);
         auto st = block_manager->open_block(path_desc, &rblock);
         return st.ok() ? std::move(rblock) : nullptr;
     }

@@ -53,9 +53,9 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                   DataDir* data_dir = nullptr);
+            const StorageParamPB& storage_param, DataDir* data_dir = nullptr);
 
-    Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir,
+    Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir,
            const std::string& cumulative_compaction_type = "");
 
     OLAPStatus init();

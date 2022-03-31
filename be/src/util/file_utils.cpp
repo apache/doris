@@ -52,11 +52,6 @@ Status FileUtils::remove_all(const std::string& file_path) {
     return Env::Default()->delete_dir(file_path);
 }
 
-Status FileUtils::remove_all(const std::string& path, TStorageMedium::type storage_medium) {
-    Env* env = Env::get_env(storage_medium);
-    return env->delete_dir(path);
-}
-
 Status FileUtils::remove(const std::string& path) {
     if (!Env::Default()->path_exists(path).ok()) {
         LOG(WARNING) << "path does exist: " << path;
