@@ -230,6 +230,10 @@ private:
     std::vector<uint32_t> _items_counts;
     std::vector<int8_t> _build_block_offsets;
     std::vector<int> _build_block_rows;
+
+    std::vector<SlotId> _hash_output_slot_ids;
+    std::vector<bool> _left_output_slot_flags;
+    std::vector<bool> _right_output_slot_flags;
 private:
     Status _hash_table_build(RuntimeState* state);
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
