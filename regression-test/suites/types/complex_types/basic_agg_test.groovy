@@ -15,19 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+def tables=["bitmap_basic_agg","hll_basic_agg"]
 
-#include "common/status.h"
+for (String table in tables) {
+    sql """drop table if exists ${table};"""
+    sql new File("""regression-test/common/table/${table}.sql""").text
+    sql new File("""regression-test/common/load/${table}.sql""").text
+}
 
-namespace doris {
+qt_sql_bitmap """select * from bitmap_basic_agg;"""
 
-// This class is used for CSV scanner, to read content line by line
-class LineReader {
-public:
-    virtual ~LineReader() = default;
-    virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof) = 0;
-
-    virtual void close() = 0;
-};
-
-} // namespace doris
+qt_sql_hll """select * from hll_basic_agg;"""
