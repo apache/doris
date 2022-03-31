@@ -144,6 +144,16 @@ struct TAlterMaterializedViewParam {
     3: optional Exprs.TExpr mv_expr
 }
 
+struct TStorageMigrationReqV2 {
+    1: required Types.TTabletId base_tablet_id
+    2: required Types.TTabletId new_tablet_id
+    3: required Types.TSchemaHash base_schema_hash
+    4: required Types.TSchemaHash new_schema_hash
+    // version of data which this alter task should transform
+    5: optional Types.TVersion alter_version
+    6: optional Types.TVersionHash alter_version_hash // Deprecated
+}
+
 struct TClusterInfo {
     1: required string user
     2: required string password
@@ -350,6 +360,7 @@ struct TAgentTaskRequest {
     25: optional i64 recv_time // time the task is inserted to queue
     26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
     27: optional TCompactionReq compaction_req
+    28: optional TStorageMigrationReqV2 storage_migration_req_v2
 }
 
 struct TAgentResult {
