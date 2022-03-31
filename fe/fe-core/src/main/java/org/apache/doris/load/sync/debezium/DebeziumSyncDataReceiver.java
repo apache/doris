@@ -20,6 +20,7 @@ package org.apache.doris.load.sync.debezium;
 import io.debezium.embedded.Connect;
 import io.debezium.engine.ChangeEvent;
 import io.debezium.engine.DebeziumEngine;
+import org.apache.doris.common.FeConstants;
 import org.apache.kafka.connect.source.SourceRecord;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,7 +48,7 @@ public class DebeziumSyncDataReceiver {
 
         props.setProperty("offset.storage", DebeziumOffsetBackingStore.class.getCanonicalName());
         String offsetState = syncJob.getStatus();
-        if (offsetState != null) {
+        if (!FeConstants.null_string.equals(offsetState)) {
             props.setProperty(DebeziumOffsetBackingStore.OFFSET_STATE_VALUE, offsetState);
         }
         props.setProperty("database.history", DebeziumDatabaseHistory.class.getCanonicalName());

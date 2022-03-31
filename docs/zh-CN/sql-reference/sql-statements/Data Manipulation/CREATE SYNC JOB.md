@@ -100,7 +100,7 @@ binlog_desc
 		
 3. `binlog_desc`
 
-    用来描述远端数据源，目前仅支持canal一种。
+    用来描述远端数据源，目前支持canal和debezium两种。
 	
     语法：
 	
@@ -112,7 +112,7 @@ binlog_desc
     )
     ```
 	
-	1. Canal 数据源对应的属性，以`canal.`为前缀
+	1. Canal 数据源对应的属性，配置"type" = "canal", 以`canal.`为前缀
 
 		1. canal.server.ip: canal server的地址
 		2. canal.server.port: canal server的端口
@@ -121,6 +121,14 @@ binlog_desc
 		5. canal.username: instance的用户名
 		6. canal.password: instance的密码
 		7. canal.debug: 可选，设置为true时，会将batch和每一行数据的详细信息都打印出来
+
+	2. 直连MySQL数据源对应的属性，配置"type" = "debezium", 以`mysql.`为前缀
+
+		1. mysql.server.ip: mysql server的地址
+		2. mysql.server.port: mysql server的端口
+		3. mysql.username: mysql 的用户名
+		4. mysql.password: mysql 的密码
+		5. mysql.debug: 可选，设置为true时，会将数据导入过程打印到服务日志
 
 ## example
 

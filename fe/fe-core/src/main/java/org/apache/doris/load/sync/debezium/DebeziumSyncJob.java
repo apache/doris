@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -271,7 +272,10 @@ public class DebeziumSyncJob extends SyncJob {
 
     @Override
     public String getStatus() {
-        return positionInfo;
+        if (positionInfo != null) {
+            return positionInfo;
+        }
+        return FeConstants.null_string;
     }
 
     public void setStatus(String info) {
