@@ -79,6 +79,7 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_byte_offset(_tuple_offset);
     pslot->set_null_indicator_byte(_null_indicator_offset.byte_offset);
     pslot->set_null_indicator_bit(_null_indicator_offset.bit_offset);
+    DCHECK_LE(_null_indicator_offset.bit_offset, 8);
     pslot->set_col_name(_col_name);
     pslot->set_slot_idx(_slot_idx);
     pslot->set_is_materialized(_is_materialized);
