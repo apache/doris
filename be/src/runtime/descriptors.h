@@ -57,12 +57,15 @@ class PSlotDescriptor;
 struct NullIndicatorOffset {
     int byte_offset;
     uint8_t bit_mask;   // to extract null indicator
-    uint8_t bit_offset; // only used to serialize, from 1 to 8
+    int8_t  bit_offset; // only used to serialize, from 1 to 8, invalid null value
+                        // bit_offset is -1.
 
     NullIndicatorOffset(int byte_offset, int bit_offset_)
             : byte_offset(byte_offset),
               bit_mask(bit_offset_ == -1 ? 0 : 1 << (7 - bit_offset_)),
-              bit_offset(bit_offset_) {}
+              bit_offset(bit_offset_) {
+              DCHECK_LE(bit_offset_, 8);
+              }
 
     bool equals(const NullIndicatorOffset& o) const {
         return this->byte_offset == o.byte_offset && this->bit_mask == o.bit_mask;
