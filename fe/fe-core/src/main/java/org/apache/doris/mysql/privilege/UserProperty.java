@@ -274,6 +274,13 @@ public class UserProperty implements Writable {
                 if (keyArr.length != 1) {
                     throw new DdlException(PROP_SQL_BLOCK_RULES + " format error");
                 }
+
+                // check if sql_block_rule has already exist
+                for (String ruleName : value.replaceAll(" ","").split(",")){
+                    if (!ruleName.equals("") && !Catalog.getCurrentCatalog().getSqlBlockRuleMgr().existRule(ruleName)){
+                        throw new DdlException("the sql block rule " + ruleName + " not exist");
+                    }
+                }
                 sqlBlockRules = value;
             } else if (keyArr[0].equalsIgnoreCase(PROP_CPU_RESOURCE_LIMIT)) {
                 // set property "cpu_resource_limit" = "2";
