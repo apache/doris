@@ -13,5 +13,13 @@ Checks: |
   readability-non-const-parameter,
   readability-static-accessed-through-instance,
   readability-redundant-smartptr-get,
-  readability-redundant-string-init
+  readability-redundant-member-init,
+  readability-redundant-string-cstr,
+  readability-redundant-string-init,
+  readability-braces-around-statements,
+  portability-simd-intrinsics,
+  performance-type-promotion-in-math-fn,
+  performance-faster-string-find,
+  performance-inefficient-algorithm,
+  performance-move-const-arg
 WarningsAsErrors: '*'
