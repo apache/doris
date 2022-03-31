@@ -215,11 +215,11 @@ Shuffle join: tables in both side are Hash according to Join's key, and then dis
 
 Broadcast join is perfermance better when right hand table size is really small, vice versa.
 
-Doris will try to use Broadcast Join first. You can specify how each join operator is implemented explicitly. System provides configurable parameter `auto_broadcast_join_threshold` to configure the maximum percentage of execute memory could used for build hash table for broadcast join. The meaningful values range from 0 to 1, and the default value is 0.8. System will use shuffle join when broadcast join used memory more than it. Note that if you use Broadcast Join explicitly in this case, Doris will still switch to Shuffle Join automatically.
+Doris will try to use Broadcast Join first. You can specify how each join operator is implemented explicitly. System provides configurable parameter `auto_broadcast_join_threshold` to configure the maximum percentage of execute memory could used for build hash table for broadcast join. The meaningful values range from 0 to 1, and the default value is 0.8. System will use shuffle join when broadcast join used memory more than it.
 
 You can turn off broadcast join by set `auto_broadcast_join_threshold` to negative or zero.
 
-Use Broadcast Join (default):
+Choose join implementation automaticaly (default):
 
 ```
 mysql> select sum(table1.pv) from table1 join table2 where table1.siteid = 2;
