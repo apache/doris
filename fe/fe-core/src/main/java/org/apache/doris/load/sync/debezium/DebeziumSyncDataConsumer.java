@@ -50,6 +50,7 @@ public class DebeziumSyncDataConsumer extends SyncDataConsumer
 
     private final DebeziumSyncJob syncJob;
     private Map<Long, DebeziumSyncChannel> idToChannels;
+    private Map<String, DebeziumSyncChannel> tableToChannels;
     private final SyncChannelHandle handle;
     private final DebeziumState debeziumState;
     private final DebeziumStateSerializer stateSerializer;
@@ -61,6 +62,11 @@ public class DebeziumSyncDataConsumer extends SyncDataConsumer
             channel.setCallback(handle);
         }
         this.idToChannels = idToChannels;
+        this.tableToChannels = Maps.newHashMap();
+        for (DebeziumSyncChannel channel : idToChannels.values()) {
+            String key = DebeziumUtils.getFullName(channel.getSrcDataBase(), channel.getSrcTable());
+            tableToChannels.put(key, channel);
+        }
     }
 
     public DebeziumSyncDataConsumer(DebeziumSyncJob syncJob, boolean debug) {
@@ -80,6 +86,8 @@ public class DebeziumSyncDataConsumer extends SyncDataConsumer
         try {
             for (ChangeEvent<SourceRecord, SourceRecord> event : changeEvents) {
                 SourceRecord record = event.value();
+                String schemaTableName = DebeziumUtils.getFullName(record);
+                if (!tableToChannels.containsKey(schemaTableName)) continue;
                 if (debug) {
                     logger.info("debezium consumer handle record: " + record);
                 }
@@ -118,7 +126,7 @@ public class DebeziumSyncDataConsumer extends SyncDataConsumer
                             // do nothing
                         }
                     } else {
-                        executeOneBatch(dataEvent);
+                        executeOneEvent(dataEvent);
                         totalSize += 1;
                         totalMemSize += dataEvent.value().toString().length();
                         // size of bytes received so far is larger than max commit memory size.
@@ -154,18 +162,10 @@ public class DebeziumSyncDataConsumer extends SyncDataConsumer
         }
     }
 
-    private void executeOneBatch(SourceRecord dataEvent) throws UserException {
-        Map<String, DebeziumSyncChannel> preferChannels = Maps.newHashMap();
-        for (DebeziumSyncChannel channel : idToChannels.values()) {
-            String key = DebeziumUtils.getFullName(channel.getSrcDataBase(), channel.getSrcTable());
-            preferChannels.put(key, channel);
-        }
-
-        // distribute data to channels
+    private void executeOneEvent(SourceRecord dataEvent) throws UserException {
         try {
             String schemaTableName = DebeziumUtils.getFullName(dataEvent);
-            DebeziumSyncChannel channel = preferChannels.get(schemaTableName);
-            if (channel == null) return;
+            DebeziumSyncChannel channel = tableToChannels.get(schemaTableName);
             channel.submit(dataEvent);
             // print row
             if (debug) {
