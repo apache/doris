@@ -398,12 +398,9 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
                 Status st = _submit_compaction_task(tablet, compaction_type);
-                LOG(INFO) << "debug: _submit_compaction_complete";
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to submit compaction task for tablet: " << tablet->tablet_id()
                         << ", err: " << st.get_error_msg();
-                } else {
-                    LOG(INFO) << "debug: " << st.get_error_msg() << ", " << st.code();
                 }
             }
             interval = config::generate_compaction_tasks_min_interval_ms;
@@ -581,15 +578,13 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet, Compaction
         // reset compaction
         tablet->reset_compaction(compaction_type);
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-        if (st != OLAP_SUCCESS) {
-            LOG(INFO) << "debug: return an internal error";
+        if (!st.ok()) {
             return Status::InternalError(strings::Substitute(
                         "failed to prepare compaction task and calculate permits, tablet_id=$0, compaction_type=$1, "
                         "permit=$2, current_permit=$3, status=$4",
                         tablet->tablet_id(), compaction_type, permits, _permit_limiter.usage(), st.get_error_msg()));
-        } else {
-            return Status::OK();
         }
+        return st;
     }
 }
 

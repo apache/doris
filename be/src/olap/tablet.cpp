@@ -1329,16 +1329,12 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         StorageEngine::instance()->create_cumulative_compaction(tablet, _cumulative_compaction);
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
         OLAPStatus res = _cumulative_compaction->prepare_compact();
-        if (res == OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
-            LOG(INFO) << "debug: no suitable version";
-        }
         if (res != OLAP_SUCCESS) {
             set_last_cumu_compaction_failure_time(UnixMillis());
             if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
             }
             *permits = 0;
-            LOG(INFO) << "debug: return an internal error";
             return Status::InternalError(fmt::format("prepare compaction with err: {}", res));
         }
         compaction_rowsets = _cumulative_compaction->get_input_rowsets();
