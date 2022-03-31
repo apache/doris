@@ -641,7 +641,6 @@ Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
     // TODO: only close channels that didn't have any errors
     // make all channels close parallel
     if (_closed) return Status::OK();
-    _closed = true;
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
         Status st = _channels[i]->close(state);
@@ -661,6 +660,7 @@ Status DataStreamSender::close(RuntimeState* state, Status exec_status) {
     }
     Expr::close(_partition_expr_ctxs, state);
 
+    DataSink::close(state, exec_status);
     return final_st;
 }
 

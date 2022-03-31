@@ -122,7 +122,9 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
         _closure->cntl.Reset();
     }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
-             << " dest_node=" << _dest_node_id;
+             << " dest_node=" << _dest_node_id << " to_host=" << _brpc_dest_addr.hostname
+	     << " _packet_seq=" << _packet_seq
+	     << " row_desc=" << _row_desc.debug_string();
     if (_is_transfer_chain && (_send_query_statistics_with_every_batch || eos)) {
         auto statistic = _brpc_request.mutable_query_statistics();
         _parent->_query_statistics->to_pb(statistic);
@@ -499,7 +501,6 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
 
 Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     if (_closed) return Status::OK();
-    _closed = true;
 
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
@@ -519,6 +520,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         iter->close(state);
     }
     VExpr::close(_partition_expr_ctxs, state);
+    DataSink::close(state, exec_status);
     return final_st;
 }
 
