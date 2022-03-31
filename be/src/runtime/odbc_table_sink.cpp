@@ -89,11 +89,14 @@ Status OdbcTableSink::send(RuntimeState* state, RowBatch* batch) {
 }
 
 Status OdbcTableSink::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
     Expr::close(_output_expr_ctxs, state);
     if (exec_status.ok() && _use_transaction) {
         RETURN_IF_ERROR(_writer->finish_trans());
     }
-    return Status::OK();
+    return DataSink::close(state, exec_status);
 }
 
 } // namespace doris
