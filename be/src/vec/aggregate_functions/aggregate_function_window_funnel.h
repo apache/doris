@@ -176,7 +176,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
         const auto& window = static_cast<const ColumnVector<Int64>&>(*columns[0]).get_data()[row_num];
-        // handle mode in the future.
+        // TODO: handle mode in the future.
         // be/src/olap/row_block2.cpp copy_data_to_column
         const auto& timestamp = static_cast<const ColumnVector<VecDateTimeValue>&>(*columns[2]).get_data()[row_num];
         const int NON_EVENT_NUM = 3;

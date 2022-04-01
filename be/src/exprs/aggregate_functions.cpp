@@ -2412,7 +2412,7 @@ void AggregateFunctions::window_funnel_init(FunctionContext* ctx, StringVal* dst
     DCHECK(ctx->is_arg_constant(0));
     BigIntVal* window = reinterpret_cast<BigIntVal*>(ctx->get_constant_arg(0));
     state->window = window->val;
-    // handle mode in the future
+    // TODO handle mode in the future
 }
 
 void AggregateFunctions::window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
