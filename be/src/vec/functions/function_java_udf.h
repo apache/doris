@@ -86,9 +86,9 @@ private:
 
         jobject executor = nullptr;
 
-        std::unique_ptr<int64_t> input_values_buffer_ptr;
-        std::unique_ptr<int64_t> input_nulls_buffer_ptr;
-        std::unique_ptr<int64_t> input_offsets_ptrs;
+        std::unique_ptr<int64_t[]> input_values_buffer_ptr;
+        std::unique_ptr<int64_t[]> input_nulls_buffer_ptr;
+        std::unique_ptr<int64_t[]> input_offsets_ptrs;
         std::unique_ptr<int64_t> output_value_buffer;
         std::unique_ptr<int64_t> output_null_value;
         std::unique_ptr<int64_t> output_offsets_ptr;

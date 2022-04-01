@@ -165,9 +165,9 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block, const C
             chars.resize(buffer_size);                                                           \
             offsets.reserve(num_rows);                                                           \
             offsets.resize(num_rows);                                                            \
-            *(jni_ctx->output_value_buffer) =                                         \
+            *(jni_ctx->output_value_buffer) =                                                    \
                     reinterpret_cast<int64_t>(chars.data());                                     \
-            *(jni_ctx->output_offsets_ptr) =                                          \
+            *(jni_ctx->output_offsets_ptr) =                                                     \
                     reinterpret_cast<int64_t>(offsets.data());                                   \
             jni_ctx->output_intermediate_state_ptr->row_idx = 0;                                 \
             jni_ctx->output_intermediate_state_ptr->buffer_size = buffer_size;                   \
@@ -178,7 +178,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block, const C
                 int32_t buffer_size =                                                            \
                     JavaFunctionCall::IncreaseReservedBufferSize(increase_buffer_size);          \
                 chars.resize(buffer_size);                                                       \
-                *(jni_ctx->output_value_buffer) =                                     \
+                *(jni_ctx->output_value_buffer) =                                                \
                         reinterpret_cast<int64_t>(chars.data());                                 \
                 jni_ctx->output_intermediate_state_ptr->buffer_size = buffer_size;               \
                 env->CallNonvirtualVoidMethodA(                                                  \
@@ -187,7 +187,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block, const C
         } else if (data_col->is_numeric()) {                                                     \
             data_col->reserve(num_rows);                                                         \
             data_col->resize(num_rows);                                                          \
-            *(jni_ctx->output_value_buffer) =                                         \
+            *(jni_ctx->output_value_buffer) =                                                    \
                     reinterpret_cast<int64_t>(data_col->get_raw_data().data);                    \
             env->CallNonvirtualVoidMethodA(                                                      \
                     jni_ctx->executor, executor_cl_, executor_evaluate_id_, nullptr);            \
@@ -200,6 +200,7 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block, const C
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(data_col), std::move(null_col)));
     } else {
+        *(jni_ctx->output_null_value) = -1;
         auto data_col = return_type->create_column();
         EVALUATE_JAVA_UDF;
         block.replace_by_position(result, std::move(data_col));

@@ -286,6 +286,7 @@ public class UdfExecutor {
     // Sets the result object 'obj' into the outputBufferPtr_ and outputNullPtr_
     private boolean storeUdfResult(Object obj, long row) throws UdfRuntimeException {
         if (obj == null) {
+            assert (UdfUtils.UNSAFE.getLong(null, outputNullPtr_) != -1);
             UdfUtils.UNSAFE.putByte(null, UdfUtils.UNSAFE.getLong(null, outputNullPtr_) + row, (byte) 1);
             if (retType_.equals(JavaUdfDataType.STRING)) {
                 long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr_);
@@ -300,7 +301,9 @@ public class UdfExecutor {
             }
             return true;
         }
-        UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputNullPtr_) + row, (byte) 0);
+        if (UdfUtils.UNSAFE.getLong(null, outputNullPtr_) != -1) {
+            UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputNullPtr_) + row, (byte) 0);
+        }
         switch (retType_) {
             case BOOLEAN: {
                 boolean val = (boolean) obj;
