@@ -80,15 +80,11 @@ class ExplainAction implements SuiteAction {
                 }
             } catch (Throwable t) {
                 log.error("Explain and custom check failed", t)
-                List resList = [context.file.getName(), 'explain', sql, t]
-                context.recorder.reportDiffResult(resList)
                 throw t
             }
         } else if (result.exception != null) {
             String msg = "Explain failed"
             log.error(msg, result.exception)
-            List resList = [context.file.getName(), 'explain', sql, result.exception]
-            context.recorder.reportDiffResult(resList)
             throw new IllegalStateException(msg, result.exception)
         } else {
             for (String string : containsStrings) {
@@ -97,8 +93,6 @@ class ExplainAction implements SuiteAction {
                             + "but actual explain string is:\n${explainString}").toString()
                     log.info(msg)
                     def t = new IllegalStateException(msg)
-                    List resList = [context.file.getName(), 'explain', sql, t]
-                    context.recorder.reportDiffResult(resList)
                     throw t
                 }
             }
@@ -108,8 +102,6 @@ class ExplainAction implements SuiteAction {
                             + "but actual explain string is:\n${explainString}").toString()
                     log.info(msg)
                     def t = new IllegalStateException(msg)
-                    List resList = [context.file.getName(), 'explain', sql, t]
-                    context.recorder.reportDiffResult(resList)
                     throw t
                 }
             }
