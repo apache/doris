@@ -410,10 +410,10 @@ public class BrokerScanNode extends LoadScanNode {
                 return TFileFormatType.FORMAT_ORC;
             } else if (fileFormat.toLowerCase().equals("json")) {
                 return TFileFormatType.FORMAT_JSON;
-            // csv/csv_with_name/csv_with_names_and_types treat as csv format
-            } else if (fileFormat.toLowerCase().equals("csv") 
-                || fileFormat.toLowerCase().equals(FeConstants.csv_with_names)
-                || fileFormat.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
+                // csv/csv_with_name/csv_with_names_and_types treat as csv format
+            } else if (fileFormat.toLowerCase().equals("csv")
+                    || fileFormat.toLowerCase().equals(FeConstants.csv_with_names)
+                    || fileFormat.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;
             } else {
                 throw new UserException("Not supported file format: " + fileFormat);
@@ -441,15 +441,15 @@ public class BrokerScanNode extends LoadScanNode {
     public String getHostUri() throws UserException {
         return "";
     }
-    
-    private String getHeaderType(String format_type){
-        if(format_type!=null){
-            if(format_type.toLowerCase().equals(FeConstants.csv_with_names)
-               || format_type.toLowerCase().equals(FeConstants.csv_with_names_and_types)){
+
+    private String getHeaderType(String format_type) {
+        if (format_type != null) {
+            if (format_type.toLowerCase().equals(FeConstants.csv_with_names)
+                    || format_type.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
                 return format_type;
             }
         }
-        return "";        
+        return "";
     }
 
     // If fileFormat is not null, we use fileFormat instead of check file's suffix

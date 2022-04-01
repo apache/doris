@@ -260,16 +260,16 @@ public class ExportJob implements Writable {
 
     private String genHeader(Map<String, String> properties) {
         String header = "";
-        if (properties.containsKey("format")){
+        if (properties.containsKey("format")) {
             String headerType = properties.get("format");
-            if (headerType.equals(FeConstants.csv_with_names)){
+            if (headerType.equals(FeConstants.csv_with_names)) {
                 //names
-                for (SlotDescriptor slot : exportTupleDesc.getSlots()){
+                for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
                     header = header + slot.getColumn().getName() + getColumnSeparator();
                 }
                 header = header.substring(0, header.length() - getColumnSeparator().length());
                 header = header + getLineDelimiter();
-            }else if (headerType.equals(FeConstants.csv_with_names_and_types)) {
+            } else if (headerType.equals(FeConstants.csv_with_names_and_types)) {
                 //names
                 for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
                     header = header + slot.getColumn().getName() + getColumnSeparator();
@@ -280,7 +280,7 @@ public class ExportJob implements Writable {
                 for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
                     header = header + slot.getColumn().getType().toString() + getColumnSeparator();
                 }
-                header = header.substring(0,header.length() - getColumnSeparator().length());
+                header = header.substring(0, header.length() - getColumnSeparator().length());
                 header = header + getLineDelimiter();
             }
         }
