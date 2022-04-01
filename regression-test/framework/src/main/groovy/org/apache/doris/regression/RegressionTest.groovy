@@ -14,22 +14,31 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.regression
 
+import com.google.common.collect.Lists
 import groovy.transform.CompileStatic
 import jodd.util.Wildcard
-import org.apache.doris.regression.suite.Suite
-import org.apache.doris.regression.suite.SuiteContext
+import org.apache.doris.regression.suite.event.EventListener
+import org.apache.doris.regression.suite.GroovyFileSource
+import org.apache.doris.regression.suite.ScriptContext
+import org.apache.doris.regression.suite.ScriptSource
+import org.apache.doris.regression.suite.SqlFileSource
+import org.apache.doris.regression.suite.event.RecorderEventListener
+import org.apache.doris.regression.suite.event.StackEventListeners
+import org.apache.doris.regression.suite.SuiteScript
+import org.apache.doris.regression.suite.event.TeamcityEventListener
 import org.apache.doris.regression.util.Recorder
 import groovy.util.logging.Slf4j
 import org.apache.commons.cli.*
-import org.apache.doris.regression.util.SuiteInfo
 import org.codehaus.groovy.control.CompilerConfiguration
 
+import java.beans.Introspector
 import java.util.concurrent.Executors
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Future
-import java.util.stream.Collectors
+import java.util.function.Predicate
 
 @Slf4j
 @CompileStatic
@@ -38,8 +47,11 @@ class RegressionTest {
     static ClassLoader classloader
     static CompilerConfiguration compileConfig
     static GroovyShell shell
-    static ExecutorService executorService
-    static ExecutorService actionExecutorService
+    static ExecutorService scriptExecutors
+    static ExecutorService suiteExecutors
+    static ExecutorService actionExecutors
+    static ThreadLocal<Integer> threadLoadedClassNum = new ThreadLocal<>()
+    static final int cleanLoadedClassesThreshold = 20
 
     static void main(String[] args) {
         CommandLine cmd = ConfigOptions.initCommands(args)
@@ -49,150 +61,114 @@ class RegressionTest {
 
         Config config = Config.fromCommandLine(cmd)
         initGroovyEnv(config)
+        boolean success = true
         for (int i = 0; i < config.times; i++) {
             log.info("=== run ${i} time ===")
-            Recorder recorder = runSuites(config)
-            printResult(config, recorder)
+            Recorder recorder = runScripts(config)
+            success = printResult(config, recorder)
         }
-        actionExecutorService.shutdown()
-        executorService.shutdown()
+        actionExecutors.shutdown()
+        suiteExecutors.shutdown()
+        scriptExecutors.shutdown()
+        log.info("Test finished")
+        if (!success) {
+            System.exit(1)
+        }
     }
 
     static void initGroovyEnv(Config config) {
-        log.info("parallel = ${config.parallel}")
+        log.info("parallel = ${config.parallel}, suiteParallel = ${config.suiteParallel}, actionParallel = ${config.actionParallel}")
         classloader = new GroovyClassLoader()
         compileConfig = new CompilerConfiguration()
-        compileConfig.setScriptBaseClass((Suite as Class).name)
+        compileConfig.setScriptBaseClass((SuiteScript as Class).name)
         shell = new GroovyShell(classloader, new Binding(), compileConfig)
-        log.info("starting ${config.parallel} threads")
-        executorService = Executors.newFixedThreadPool(config.parallel)
-        actionExecutorService = Executors.newFixedThreadPool(config.actionParallel)
+        scriptExecutors = Executors.newFixedThreadPool(config.parallel)
+        suiteExecutors = Executors.newFixedThreadPool(config.suiteParallel)
+        actionExecutors = Executors.newFixedThreadPool(config.actionParallel)
     }
 
-    static List<File> findSuiteFiles(String root) {
+    static List<ScriptSource> findScriptSources(String root, Predicate<String> directoryFilter,
+                                                Predicate<String> fileFilter) {
         if (root == null) {
             log.warn('Not specify suite path')
-            return new ArrayList<File>()
+            return new ArrayList<ScriptSource>()
         }
-        List<File> files = new ArrayList<>()
+        List<ScriptSource> sources = new ArrayList<>()
         // 1. generate groovy for sql, excluding ddl
-        new File(root).eachFileRecurse { f ->
-            if (f.isFile() && f.name.endsWith('.sql') && f.getParentFile().name != "ddl") {
-                genetate_groovy_from_sql(f)
+        def rootFile = new File(root)
+        rootFile.eachFileRecurse { f ->
+            if (f.isFile() && f.name.endsWith('.sql') && f.getParentFile().name != "ddl"
+                    && fileFilter.test(f.name) && directoryFilter.test(f.getParent())) {
+                sources.add(new SqlFileSource(rootFile, f))
             }
         }
 
-        // 2. collect groovy files.
-        new File(root).eachFileRecurse { f ->
-            if (f.isFile() && f.name.endsWith('.groovy')) {
-                files.add(f)
+        // 2. collect groovy sources.
+        rootFile.eachFileRecurse { f ->
+            if (f.isFile() && f.name.endsWith('.groovy') && fileFilter.test(f.name)
+                    && directoryFilter.test(f.getParent())) {
+                sources.add(new GroovyFileSource(f))
             }
         }
-        return files
+        return sources
     }
 
-    static void genetate_groovy_from_sql(File f) {
-        File groovy_file = new File(f.getAbsolutePath() + '.generated.groovy')
-        groovy_file.delete()
-        groovy_file.createNewFile()
-        int separatorIndex = f.name.lastIndexOf('.')
-        String action_name = f.name.substring(0, separatorIndex)
-        if (action_name.endsWith('order')) {
-             groovy_file.text = "order_qt_${action_name} \"\"\"${f.text}\"\"\""
-        } else {
-             groovy_file.text = "qt_${action_name} \"\"\"${f.text}\"\"\""
+    static void runScript(Config config, ScriptSource source, Recorder recorder) {
+        def suiteFilter = { String suiteName, String groupName ->
+            canRun(config, suiteName, groupName)
         }
-    }
-
-    static String parseGroup(Config config, File suiteFile) {
-        // ./run-regression-test.sh -g group_name runs all groups
-        // whose name starting with ${group_name}.
-        String group = new File(config.suitePath).relativePath(suiteFile)
-        int separatorIndex = group.lastIndexOf(File.separator)
-        String groups = ",";
-        while (separatorIndex != -1) {
-            group = group.substring(0, separatorIndex)
-            groups += "${group},"
-            separatorIndex = group.lastIndexOf(File.separator)
-        }
-        // remove ',' at head and trail
-        groups = groups.substring(1, groups.length() - 1);
-        return groups;
-    }
-
-    static Integer runSuite(Config config, SuiteFile sf, ExecutorService executorService, Recorder recorder) {
-        File file = sf.file
-        String suiteName = sf.suiteName
-        String group = sf.group
-        def suiteConn = config.getConnection()
-        new SuiteContext(file, suiteConn, executorService, config, recorder).withCloseable { context ->
-            Suite suite = null
+        def file = source.getFile()
+        def eventListeners = getEventListeners(config, recorder)
+        new ScriptContext(file, suiteExecutors, actionExecutors,
+                config, eventListeners, suiteFilter).start { scriptContext ->
             try {
-                log.info("Run ${suiteName} in $file".toString())
-                suite = shell.parse(file) as Suite
-                suite.init(suiteName, group, context)
-                suite.run()
-                suite.doLazyCheck()
-                suite.successCallbacks.each { it() }
-                recorder.onSuccess(new SuiteInfo(file, group, suiteName))
-                log.info("Run ${suiteName} in ${file.absolutePath} succeed".toString())
-            } catch (Throwable t) {
-                if (suite != null) {
-                    suite.failCallbacks.each { it() }
-                }
-                recorder.onFailure(new SuiteInfo(file, group, suiteName))
-                log.error("Run ${suiteName} in ${file.absolutePath} failed".toString(), t)
+                SuiteScript suiteScript = source.toScript(scriptContext, shell)
+                suiteScript.run()
             } finally {
-                if (suite != null) {
-                    suite.finishCallbacks.each { it() }
-                }
+                // avoid jvm metaspace oom
+                cleanLoadedClassesIfNecessary()
             }
-            shell.resetLoadedClasses()
         }
-
-        return 0
     }
 
-    static void runSuites(Config config, Recorder recorder, Closure suiteNameMatch) {
-        def files = findSuiteFiles(config.suitePath)
-        List<SuiteFile> runScripts = files.stream().map({ file ->
-            String suiteName = file.name.substring(0, file.name.lastIndexOf('.'))
-            String group = parseGroup(config, file)
-            return new SuiteFile(file, suiteName, group)
-        }).filter({ sf ->
-            suiteNameMatch(sf.suiteName) && canRun(config, sf.suiteName, sf.group)
-        }).collect(Collectors.toList())
-
+    static void runScripts(Config config, Recorder recorder,
+                           Predicate<String> directoryFilter, Predicate<String> fileNameFilter) {
+        def scriptSources = findScriptSources(config.suitePath, directoryFilter, fileNameFilter)
         if (config.randomOrder) {
-            Collections.shuffle(files)
+            Collections.shuffle(scriptSources)
         }
-        log.info('Start to run suites')
-        int totalFile = runScripts.size()
-        def futures = new ArrayList<Future>()
-        runScripts.eachWithIndex { sf, i ->
-            log.info("[${i + 1}/${totalFile}] Run ${sf.suiteName} in ${sf.file}".toString())
-            Future future = executorService.submit {
-                runSuite(config, sf, actionExecutorService, recorder)
+//        int totalFile = scriptSources.size()
+
+        List<Future> futures = Lists.newArrayList()
+        scriptSources.eachWithIndex { source, i ->
+//            log.info("Prepare scripts [${i + 1}/${totalFile}]".toString())
+            def future = scriptExecutors.submit {
+                runScript(config, source, recorder)
             }
             futures.add(future)
         }
 
-        for (Future<Integer> future : futures) {
+        // wait all scripts
+        for (Future future : futures) {
             try {
                 future.get()
-            }
-            catch (Throwable t) {
-                log.info(" exception ${t.toString()}")
+            } catch (Throwable t) {
+                // do nothing, because already save to Recorder
             }
         }
     }
 
-    static Recorder runSuites(Config config) {
+    static Recorder runScripts(Config config) {
         def recorder = new Recorder()
+        def directoryFilter = config.getDirectoryFilter()
         if (!config.withOutLoadData) {
-            runSuites(config, recorder, {suiteName -> suiteName == "load" })
+            log.info('Start to run load scripts')
+            runScripts(config, recorder, directoryFilter,
+                    { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) == "load" })
         }
-        runSuites(config, recorder, {suiteName -> suiteName != "load" })
+        log.info('Start to run scripts')
+        runScripts(config, recorder, directoryFilter,
+                { fileName -> fileName.substring(0, fileName.lastIndexOf(".")) != "load" })
 
         return recorder
     }
@@ -211,28 +187,67 @@ class RegressionTest {
         return false
     }
 
-    static void printResult(Config config, Recorder recorder) {
+    static List<EventListener> getEventListeners(Config config, Recorder recorder) {
+        StackEventListeners listeners = new StackEventListeners()
+
+        // RecorderEventListener **MUST BE** first listener
+        listeners.addListener(new RecorderEventListener(recorder))
+
+        // other listeners
+        String stdoutAppenderType = System.getProperty("stdoutAppenderType")
+        if (stdoutAppenderType != null && stdoutAppenderType.equalsIgnoreCase("teamcity")) {
+            listeners.addListener(new TeamcityEventListener())
+        }
+        return [listeners] as List<EventListener>
+    }
+
+    static void cleanLoadedClassesIfNecessary() {
+        Integer loadedClassNum = threadLoadedClassNum.get()
+        if (loadedClassNum == null) {
+            loadedClassNum = 0
+        }
+        loadedClassNum += 1
+        if (loadedClassNum >= cleanLoadedClassesThreshold) {
+            // release dynamic script class: ThreadGroupContext.getContext().beanInfoCache()
+            Introspector.flushCaches()
+            loadedClassNum = 0
+        }
+        threadLoadedClassNum.set(loadedClassNum)
+    }
+
+    static boolean printResult(Config config, Recorder recorder) {
         int allSuiteNum = recorder.successList.size() + recorder.failureList.size()
         int failedSuiteNum = recorder.failureList.size()
-        log.info("Test ${allSuiteNum} suites, failed ${failedSuiteNum} suites".toString())
+        int fatalScriptNum = recorder.fatalScriptList.size()
+        log.info("Test ${allSuiteNum} suites, failed ${failedSuiteNum} suites, fatal ${fatalScriptNum} scripts".toString())
 
         // print success list
-        {
+        if (!recorder.successList.isEmpty()) {
             String successList = recorder.successList.collect { info ->
                 "${info.file.absolutePath}: group=${info.group}, name=${info.suiteName}"
             }.join('\n')
-            log.info("successList suites:\n${successList}".toString())
+            log.info("SuccessList suites:\n${successList}".toString())
         }
 
         // print failure list
-        if (!recorder.failureList.isEmpty()) {
-            def failureList = recorder.failureList.collect() { info ->
-                "${info.file.absolutePath}: group=${info.group}, name=${info.suiteName}"
-            }.join('\n')
-            log.info("Failure suites:\n${failureList}".toString())
+        if (!recorder.failureList.isEmpty() || !recorder.fatalScriptList.isEmpty()) {
+            if (!recorder.failureList.isEmpty()) {
+                def failureList = recorder.failureList.collect() { info ->
+                    "${info.file.absolutePath}: group=${info.group}, name=${info.suiteName}"
+                }.join('\n')
+                log.info("Failure suites:\n${failureList}".toString())
+            }
+            if (!recorder.fatalScriptList.isEmpty()) {
+                def failureList = recorder.fatalScriptList.collect() { info ->
+                    "${info.file.absolutePath}"
+                }.join('\n')
+                log.info("Fatal scripts:\n${failureList}".toString())
+            }
             printFailed()
+            return false
         } else {
             printPassed()
+            return true
         }
     }
 
@@ -255,19 +270,4 @@ class RegressionTest {
                  ||_|/_/   \\_\\___|_____|_____|____/
                  |'''.stripMargin())
     }
-
-    static class SuiteFile {
-
-        File file
-        String suiteName
-        String group
-
-        SuiteFile(File file, String suiteName, String group) {
-            this.file = file
-            this.suiteName = suiteName
-            this.group = group
-        }
-
-    }
-
 }

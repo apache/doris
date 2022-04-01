@@ -15,27 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.regression.util
+package org.apache.doris.regression.suite
 
 import groovy.transform.CompileStatic
-import org.apache.doris.regression.suite.ScriptInfo
-import org.apache.doris.regression.suite.SuiteInfo
 
 @CompileStatic
-class Recorder {
-    public final List<SuiteInfo> successList = new Vector<>()
-    public final List<SuiteInfo> failureList = new Vector<>()
-    public final List<ScriptInfo> fatalScriptList = new Vector<>()
+class ScriptInfo {
+    File file
 
-    void onSuccess(SuiteInfo suiteInfo) {
-        successList.add(suiteInfo)
-    }
-
-    void onFailure(SuiteInfo suiteInfo) {
-        failureList.add(suiteInfo)
-    }
-
-    void onFatal(ScriptInfo scriptInfo) {
-        fatalScriptList.add(scriptInfo)
+    ScriptInfo(File file) {
+        this.file = file
     }
 }

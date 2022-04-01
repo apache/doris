@@ -24,8 +24,17 @@ import org.apache.commons.csv.CSVPrinter
 import org.apache.commons.csv.CSVRecord
 import org.apache.commons.io.LineIterator
 
+import java.util.function.Function
+
 @CompileStatic
 class OutputUtils {
+    static String columnToCsvString(Object column) {
+        StringWriter writer = new StringWriter()
+        def printer = new CSVPrinter(new PrintWriter(writer), CSVFormat.MYSQL)
+        printer.print(column)
+        return writer.toString()
+    }
+
     static String toCsvString(List<Object> row) {
         StringWriter writer = new StringWriter()
         def printer = new CSVPrinter(new PrintWriter(writer), CSVFormat.MYSQL)
@@ -35,23 +44,27 @@ class OutputUtils {
         return writer.toString()
     }
 
-    static String checkOutput(Iterator<List<String>> expect, Iterator<List<Object>> real, String info) {
+    static <T1, T2> String checkOutput(Iterator<T1> expect, Iterator<T2> real,
+                                       Function<T1, String> transform1, Function<T2, String> transform2,
+                                       String info) {
+        int line = 1
         while (true) {
             if (expect.hasNext() && !real.hasNext()) {
-                return "${info}, result mismatch, real line is empty, but expect is ${expect.next()}"
+                return "${info}, line ${line} mismatch, real line is empty, but expect is ${transform1(expect.next())}"
             }
             if (!expect.hasNext() && real.hasNext()) {
-                return "${info}, result mismatch, expect line is empty, but real is ${toCsvString(real.next())}"
+                return "${info}, line ${line} mismatch, expect line is empty, but real is ${transform2(real.next())}"
             }
             if (!expect.hasNext() && !real.hasNext()) {
                 break
             }
 
-            def expectCsvString = toCsvString(expect.next() as List<Object>)
-            def realCsvString = toCsvString(real.next())
+            def expectCsvString = transform1.apply(expect.next())
+            def realCsvString = transform2.apply(real.next())
             if (!expectCsvString.equals(realCsvString)) {
-                return "${info}, result mismatch.\nExpect line is: ${expectCsvString}\nBut real is   : ${realCsvString}"
+                return "${info}, line ${line} mismatch.\nExpect line is: ${expectCsvString}\nBut real is   : ${realCsvString}"
             }
+            line++
         }
     }
 
