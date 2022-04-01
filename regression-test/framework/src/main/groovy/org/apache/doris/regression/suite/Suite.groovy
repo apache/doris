@@ -321,9 +321,6 @@ class Suite implements GroovyInterceptable {
                 return null
             }
         } else {
-            if (metaClass == null) {
-                println("eeee")
-            }
             // invoke origin method
             return metaClass.invokeMethod(this, name, args)
         }

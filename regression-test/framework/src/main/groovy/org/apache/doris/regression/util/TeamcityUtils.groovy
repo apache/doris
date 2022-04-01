@@ -38,24 +38,6 @@ class TeamcityUtils {
         return "##teamcity[testStdErr name='${suiteContext.flowName}' out='${escape(msg)}' flowId='${suiteContext.flowId}' timestamp='${timestamp}']"
     }
 
-//    static void testSuiteStarted(ScriptContext scriptContext) {
-//        String timestamp = formatNow()
-//        println("##teamcity[flowStarted flowId='${scriptContext.flowId}' timestamp='${timestamp}']")
-//        println("##teamcity[testSuiteStarted name='${scriptContext.flowName}' flowId='${scriptContext.flowId}' timestamp='${timestamp}']")
-//    }
-
-//    static void testSuiteFinished(ScriptContext scriptContext) {
-//        String timestamp = formatNow()
-//        println("##teamcity[testSuiteFinished name='${scriptContext.flowName}' flowId='${scriptContext.flowId}' timestamp='${timestamp}']")
-//        println("##teamcity[flowFinished flowId='${scriptContext.flowId}' timestamp='${timestamp}']")
-//    }
-
-//    static void testStarted(SuiteContext suiteContext) {
-//        String timestamp = formatNow()
-//        println("##teamcity[flowStarted flowId='${suiteContext.flowId}' parent='${suiteContext.scriptContext.flowId}' timestamp='${timestamp}']")
-//        println("##teamcity[testStarted name='${suiteContext.flowName}' flowId='${suiteContext.flowId}' timestamp='${timestamp}']")
-//    }
-
     static void testStarted(SuiteContext suiteContext) {
         String timestamp = formatNow()
         println("##teamcity[flowStarted flowId='${suiteContext.flowId}' timestamp='${timestamp}']")

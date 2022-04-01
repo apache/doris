@@ -99,9 +99,9 @@ else
     WRONG_CMD=0
     while true; do
         case "$1" in
-            --clean)    CLEAN=1 ; shift ;;
-	     --teamcity) TEAMCITY=1 ; shift ;;
-              --run)      RUN=1 ; shift ;;
+            --clean)      CLEAN=1 ; shift ;;
+            --teamcity)   TEAMCITY=1 ; shift ;;
+            --run)        RUN=1 ; shift ;;
             *)
                 if [ ${RUN} -eq 0 ] && [ ${CLEAN} -eq 0 ]; then
                     WRONG_CMD=1
