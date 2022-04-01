@@ -146,9 +146,10 @@ private:
     // remember the rowids we've read for the current row block.
     // could be a local variable of next_batch(), kept here to reuse vector memory
     std::vector<rowid_t> _block_rowids;
+    bool _is_need_vec_eval = false;
+    bool _is_need_short_eval = false;
 
     // fields for vectorization execution
-    bool _is_all_column_basic_type;
     std::vector<ColumnId>
             _vec_pred_column_ids; // keep columnId of columns for vectorized predicate evaluation
     std::vector<ColumnId>

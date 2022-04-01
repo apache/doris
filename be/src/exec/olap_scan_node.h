@@ -290,7 +290,7 @@ protected:
     RuntimeProfile::Counter* _rows_vec_cond_counter = nullptr;
     RuntimeProfile::Counter* _vec_cond_timer = nullptr;
     RuntimeProfile::Counter* _short_cond_timer = nullptr;
-    RuntimeProfile::Counter* _pred_col_read_timer = nullptr;
+    RuntimeProfile::Counter* _first_read_timer = nullptr;
     RuntimeProfile::Counter* _lazy_read_timer = nullptr;
     RuntimeProfile::Counter* _output_col_timer = nullptr;
 
