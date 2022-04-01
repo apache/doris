@@ -94,7 +94,7 @@ Export 需要借助 Broker 进程访问远端存储，不同的 Broker 需要提
 
 ## 使用示例
 
-Export 的详细命令可以通过 `HELP EXPORT;` 。举例如下：
+Export 的详细用法可参考 [EXPORT]() 。举例如下：
 
 ```
 EXPORT TABLE db1.tbl1 

@@ -1,7 +1,7 @@
 ---
 {
-"title": "Mysqldump导出表结构或数据",
-"language": "zh-CN"
+    "title": "Mysqldump导出表结构或数据",
+    "language": "zh-CN"
 }
 ---
 

@@ -28,66 +28,34 @@ under the License.
 
 本文档介绍如何使用 `SELECT INTO OUTFILE` 命令进行查询结果的导出操作。
 
-## 语法
+## 示例
 
-`SELECT INTO OUTFILE` 语句可以将查询结果导出到文件中。目前支持通过 Broker 进程, 通过 S3 协议, 或直接通过 HDFS 协议，导出到远端存储，如 HDFS，S3，BOS，COS（腾讯云）上。语法如下
+### 导出到HDFS
 
+将简单查询结果导出到文件 `hdfs://path/to/result.txt`。指定导出格式为 CSV。
+
+```text
+SELECT * FROM tbl
+INTO OUTFILE "hdfs://path/to/result_"
+FORMAT AS CSV
+PROPERTIES
+(
+    "broker.name" = "my_broker",
+    "column_separator" = ",",
+    "line_delimiter" = "\n"
+);
 ```
-query_stmt
-INTO OUTFILE "file_path"
-[format_as]
-[properties]
+
+### 导出到本地文件 
+
+导出到本地文件时需要在fe.conf中配置enable_outfile_to_local=true
+
+```text
+select * from tbl1 limit 10 
+INTO OUTFILE "file:///home/work/path/result_";
 ```
 
-* `file_path`
-
-  `file_path` 指向文件存储的路径以及文件前缀。如 `hdfs://path/to/my_file_`。
-
-  最终的文件名将由 `my_file_`，文件序号以及文件格式后缀组成。其中文件序号由0开始，数量为文件被分割的数量。如：
-
-    ```
-    my_file_abcdefg_0.csv
-    my_file_abcdefg_1.csv
-    my_file_abcdegf_2.csv
-    ```
-
-* `[format_as]`
-
-    ```
-    FORMAT AS CSV
-    ```
-
-  指定导出格式。默认为 CSV。
-
-
-* `[properties]`
-
-  指定相关属性。目前支持通过 Broker 进程, 或通过 S3 协议进行导出。
-
-    + Broker 相关属性需加前缀 `broker.`。具体参阅[Broker 文档](./advanced/broker.html)。
-    + HDFS 相关属性需加前缀 `hdfs.` 其中 hdfs.fs.defaultFS 用于填写 namenode 地址和端口。属于必填项。。
-    + S3 协议则直接执行 S3 协议配置即可。
-
-      ```
-      ("broker.prop_key" = "broker.prop_val", ...)
-      or
-      ("hdfs.fs.defaultFS" = "xxx", "hdfs.hdfs_user" = "xxx")
-      or 
-      ("AWS_ENDPOINT" = "xxx", ...)
-      ``` 
-
-  其他属性：
-
-    ```
-    ("key1" = "val1", "key2" = "val2", ...)
-    ```
-
-  目前支持以下属性：
-
-    * `column_separator`：列分隔符，仅对 CSV 格式适用。默认为 `\t`。
-    * `line_delimiter`：行分隔符，仅对 CSV 格式适用。默认为 `\n`。
-    * `max_file_size`：单个文件的最大大小。默认为 1GB。取值范围在 5MB 到 2GB 之间。超过这个大小的文件将会被切分。
-    * `schema`：PARQUET 文件schema信息。仅对 PARQUET 格式适用。导出文件格式为PARQUET时，必须指定`schema`。
+更多用法可查看[OUTFILE ](../sql-reference/sql-statements/Data%20Manipulation/OUTFILE.md)。
 
 ## 并发导出
 
@@ -135,10 +103,6 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 |      TABLE: multi_tablet                                                    |
 +-----------------------------------------------------------------------------+
 ```
-
-## 使用示例
-
-具体参阅[OUTFILE 文档](../sql-reference/sql-statements/Data%20Manipulation/OUTFILE.md)。
 
 ## 返回结果
 
