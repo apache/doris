@@ -86,27 +86,26 @@ private:
 
         jobject executor = nullptr;
 
-        int64_t input_values_buffer_ptr;
-        int64_t input_nulls_buffer_ptr;
-        int64_t input_offsets_ptrs;
-        int64_t output_value_buffer;
-        int64_t output_null_value;
-        int64_t output_offsets_ptr;
-        int64_t batch_size_ptr;
+        std::unique_ptr<int64_t> input_values_buffer_ptr;
+        std::unique_ptr<int64_t> input_nulls_buffer_ptr;
+        std::unique_ptr<int64_t> input_offsets_ptrs;
+        std::unique_ptr<int64_t> output_value_buffer;
+        std::unique_ptr<int64_t> output_null_value;
+        std::unique_ptr<int64_t> output_offsets_ptr;
+        std::unique_ptr<int32_t> batch_size_ptr;
         // intermediate_state includes two parts: reserved / used buffer size and rows
-            IntermediateState* output_intermediate_state_ptr;
+        std::unique_ptr<IntermediateState> output_intermediate_state_ptr;
 
         JniContext(int64_t num_args, JavaFunctionCall* parent):
                   parent(parent) {
-            input_values_buffer_ptr = (int64_t) new int64_t[num_args];
-            input_nulls_buffer_ptr = (int64_t) new int64_t[num_args];
-            input_offsets_ptrs = (int64_t) new int64_t[num_args];
-
-            output_value_buffer = (int64_t) malloc(sizeof(int64_t));
-            output_null_value = (int64_t) malloc(sizeof(int64_t));
-            batch_size_ptr = (int64_t) malloc(sizeof(int32_t));
-            output_offsets_ptr = (int64_t) malloc(sizeof(int32_t));
-            output_intermediate_state_ptr = (IntermediateState*) malloc(sizeof(IntermediateState));
+            input_values_buffer_ptr.reset(new int64_t[num_args]);
+            input_nulls_buffer_ptr.reset(new int64_t[num_args]);
+            input_offsets_ptrs.reset(new int64_t[num_args]);
+            output_value_buffer.reset((int64_t*) malloc(sizeof(int64_t)));
+            output_null_value.reset((int64_t*) malloc(sizeof(int64_t)));
+            batch_size_ptr.reset((int32_t*) malloc(sizeof(int32_t)));
+            output_offsets_ptr.reset((int64_t*) malloc(sizeof(int64_t)));
+            output_intermediate_state_ptr.reset((IntermediateState*) malloc(sizeof(IntermediateState)));
         }
 
         ~JniContext() {
@@ -119,14 +118,6 @@ private:
             Status s = JniUtil::GetJniExceptionMsg(env);
             if (!s.ok()) LOG(WARNING) << s.get_error_msg();
             env->DeleteGlobalRef(executor);
-            delete[] ((int64*) input_values_buffer_ptr);
-            delete[] ((int64*) input_nulls_buffer_ptr);
-            delete[] ((int64*) input_offsets_ptrs);
-            free((int64*) output_value_buffer);
-            free((int64*) output_null_value);
-            free((int32_t*) output_offsets_ptr);
-            free((int32*) batch_size_ptr);
-            free(output_intermediate_state_ptr);
         }
 
         /// These functions are cross-compiled to IR and used by codegen.
