@@ -36,6 +36,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -411,8 +412,8 @@ public class BrokerScanNode extends LoadScanNode {
                 return TFileFormatType.FORMAT_JSON;
             // csv/csv_with_name/csv_with_names_and_types treat as csv format
             } else if (fileFormat.toLowerCase().equals("csv") 
-                || fileFormat.toLowerCase().equals("csv_with_names")
-                || fileFormat.toLowerCase().equals("csv_with_names_and_types")) {
+                || fileFormat.toLowerCase().equals(FeConstants.csv_with_names)
+                || fileFormat.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;
             } else {
                 throw new UserException("Not supported file format: " + fileFormat);
@@ -443,8 +444,8 @@ public class BrokerScanNode extends LoadScanNode {
     
     private String getHeaderType(String format_type){
         if(format_type!=null){
-            if(format_type.toLowerCase().equals("csv_with_names")
-               || format_type.toLowerCase().equals("csv_with_names_and_types")){
+            if(format_type.toLowerCase().equals(FeConstants.csv_with_names)
+               || format_type.toLowerCase().equals(FeConstants.csv_with_names_and_types)){
                 return format_type;
             }
         }

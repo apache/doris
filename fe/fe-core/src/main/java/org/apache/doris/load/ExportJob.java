@@ -52,6 +52,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.MysqlScanNode;
@@ -261,14 +262,14 @@ public class ExportJob implements Writable {
         String header = "";
         if (properties.containsKey("format")){
             String headerType = properties.get("format");
-            if (headerType.equals("csv_with_names")){
+            if (headerType.equals(FeConstants.csv_with_names)){
                 //names
                 for (SlotDescriptor slot : exportTupleDesc.getSlots()){
                     header = header + slot.getColumn().getName() + getColumnSeparator();
                 }
                 header = header.substring(0, header.length() - getColumnSeparator().length());
                 header = header + getLineDelimiter();
-            }else if (headerType.equals("csv_with_names_and_types")) {
+            }else if (headerType.equals(FeConstants.csv_with_names_and_types)) {
                 //names
                 for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
                     header = header + slot.getColumn().getName() + getColumnSeparator();

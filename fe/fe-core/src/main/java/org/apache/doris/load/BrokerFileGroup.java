@@ -39,6 +39,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -215,8 +216,8 @@ public class BrokerFileGroup implements Writable {
                     && !fileFormat.equalsIgnoreCase("csv")
                     && !fileFormat.equalsIgnoreCase("orc")
                     && !fileFormat.equalsIgnoreCase("json")
-                    && !fileFormat.equalsIgnoreCase("csv_with_names")
-                    && !fileFormat.equalsIgnoreCase("csv_with_names_and_types")) {
+                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
+                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)) {
                 throw new DdlException("File Format Type " + fileFormat + " is invalid.");
             }
         }

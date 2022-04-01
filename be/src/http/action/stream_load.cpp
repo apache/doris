@@ -59,6 +59,7 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "common/consts.h"
 
 namespace doris {
 
@@ -266,8 +267,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         return Status::InternalError("compress data of JSON format is not supported.");
     }
     std::string format_str = http_req->header(HTTP_FORMAT_KEY);
-    if (boost::iequals(format_str, "csv_with_names") ||
-        boost::iequals(format_str, "csv_with_names_and_types")) {
+    if (boost::iequals(format_str, BeConsts::CSV_WITH_NAMES) ||
+        boost::iequals(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
         ctx->header_type = format_str;
         //treat as CSV
         format_str = "csv";

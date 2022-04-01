@@ -40,6 +40,7 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "util/utf8_check.h"
+#include "common/consts.h"
 
 namespace doris {
 
@@ -163,9 +164,9 @@ Status BrokerScanner::open_file_reader() {
     //means first range, skip
     if (start_offset == 0 && range.header_type.size() > 0) {
         std::string header_type = to_lower(range.header_type);
-        if (header_type == "csv_with_names") {
+        if (header_type == BeConsts::CSV_WITH_NAMES) {
             _skip_next_line = 1;
-        } else if (header_type == "csv_with_names_and_types") {
+        } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
             _skip_next_line = 2;
         }
     }
