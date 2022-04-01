@@ -535,7 +535,8 @@ thread, lazyCheck, events, connect, selectUnionAll
 
 ## CI/CD的支持
 ### TeamCity
-可以使用--teamcity开启TeamCity Service Message. `-Dteamcity.enableStdErr=false`可以让错误日志也打印到stdout中，方便按顺序分析日志。
+TeamCity可以通过stdout识别Service Message。当使用`--teamcity`参数启动回归测试框架时，回归测试框架就会在stdout打印TeamCity Service Message，TeamCity将会自动读取stdout中的事件日志，并在当前流水线中展示`Tests`，其中会展示测试的test及其日志。
+因此只需要配置下面一行启动回归测试框架的命令即可。其中`-Dteamcity.enableStdErr=false`可以让错误日志也打印到stdout中，方便按顺序分析日志。
 ```shell
-JAVA_OPTS="-Dteamcity.enableStdErr=${enableStdErr}" ./run-regression-test.sh --teamcity --run -s ${suite}
+JAVA_OPTS="-Dteamcity.enableStdErr=${enableStdErr}" ./run-regression-test.sh --teamcity --run
 ```
