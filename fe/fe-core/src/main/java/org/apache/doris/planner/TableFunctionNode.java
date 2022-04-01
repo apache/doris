@@ -118,7 +118,7 @@ public class TableFunctionNode extends PlanNode {
         for (TupleId tupleId : inputTupleIds) {
             TupleDescriptor td = analyzer.getTupleDesc(tupleId);
             for (SlotDescriptor sd : td.getSlots()) {
-                if (!outputSlotIds.contains(sd.getId())) {
+                if (!outputSlotIds.contains(sd.getId()) && !sd.getColumn().isDeleteSignColumn()) {
                     sd.setIsNullable(true);
                 }
             }
