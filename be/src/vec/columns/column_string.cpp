@@ -331,12 +331,7 @@ void ColumnString::reserve(size_t n) {
 }
 
 void ColumnString::resize(size_t n) {
-    auto origin_size = size();
-    if (origin_size > n) {
-        offsets.resize(n);
-    } else if (origin_size < n) {
-        insert_many_defaults(n - origin_size);
-    }
+    offsets.resize(n);
 }
 
 void ColumnString::get_extremes(Field& min, Field& max) const {
