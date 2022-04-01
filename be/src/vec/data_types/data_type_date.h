@@ -28,7 +28,7 @@ class DataTypeDate final : public DataTypeNumberBase<Int64> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::Date; }
     const char* get_family_name() const override { return "DateTime"; }
-    std::string do_get_name() const override {return "Date"; }
+    std::string do_get_name() const override { return "Date"; }
 
     bool can_be_used_as_version() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }

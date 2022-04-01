@@ -28,9 +28,9 @@
 
 namespace doris::vectorized {
 
-IDataType::IDataType() {}
+IDataType::IDataType() = default;
 
-IDataType::~IDataType() {}
+IDataType::~IDataType() = default;
 
 String IDataType::get_name() const {
     return do_get_name();
@@ -47,10 +47,11 @@ void IDataType::update_avg_value_size_hint(const IColumn& column, double& avg_va
         double current_avg_value_size = static_cast<double>(column.byte_size()) / column_size;
 
         /// Heuristic is chosen so that avg_value_size_hint increases rapidly but decreases slowly.
-        if (current_avg_value_size > avg_value_size_hint)
-            avg_value_size_hint = std::min(1024., current_avg_value_size); /// avoid overestimation
-        else if (current_avg_value_size * 2 < avg_value_size_hint)
+        if (current_avg_value_size > avg_value_size_hint) {
+            avg_value_size_hint = std::min(1024.0, current_avg_value_size); /// avoid overestimation
+        } else if (current_avg_value_size * 2 < avg_value_size_hint) {
             avg_value_size_hint = (current_avg_value_size + avg_value_size_hint * 3) / 4;
+        }
     }
 }
 

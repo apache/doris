@@ -151,13 +151,19 @@ public:
     T get_scale_multiplier() const { return get_scale_multiplier(scale); }
 
     T whole_part(T x) const {
-        if (scale == 0) return x;
+        if (scale == 0) {
+            return x;
+        }
         return x / get_scale_multiplier();
     }
 
     T fractional_part(T x) const {
-        if (scale == 0) return 0;
-        if (x < T(0)) x *= T(-1);
+        if (scale == 0) {
+            return 0;
+        }
+        if (x < T(0)) {
+            x *= T(-1);
+        }
         return x % get_scale_multiplier();
     }
 
@@ -165,7 +171,9 @@ public:
 
     bool can_store_whole(T x) const {
         T max = max_whole_value();
-        if (x > max || x < -max) return false;
+        if (x > max || x < -max) {
+            return false;
+        }
         return true;
     }
 
@@ -182,7 +190,9 @@ public:
 
     template <typename U>
     T scale_factor_for(const DataTypeNumber<U>&, bool is_multiply_or_divisor) const {
-        if (is_multiply_or_divisor) return 1;
+        if (is_multiply_or_divisor) {
+            return 1;
+        }
         return get_scale_multiplier();
     }
 
@@ -226,9 +236,15 @@ inline const DataTypeDecimal<T>* check_decimal(const IDataType& data_type) {
 
 inline UInt32 get_decimal_scale(const IDataType& data_type,
                                 UInt32 default_value = std::numeric_limits<UInt32>::max()) {
-    if (auto* decimal_type = check_decimal<Decimal32>(data_type)) return decimal_type->get_scale();
-    if (auto* decimal_type = check_decimal<Decimal64>(data_type)) return decimal_type->get_scale();
-    if (auto* decimal_type = check_decimal<Decimal128>(data_type)) return decimal_type->get_scale();
+    if (auto* decimal_type = check_decimal<Decimal32>(data_type)) {
+        return decimal_type->get_scale();
+    }
+    if (auto* decimal_type = check_decimal<Decimal64>(data_type)) {
+        return decimal_type->get_scale();
+    }
+    if (auto* decimal_type = check_decimal<Decimal128>(data_type)) {
+        return decimal_type->get_scale();
+    }
     return default_value;
 }
 
@@ -266,9 +282,10 @@ convert_decimals(const typename FromDataType::FieldType& value, UInt32 scale_fro
                                  converted_value)) {
             LOG(FATAL) << "Decimal convert overflow";
         }
-    } else
+    } else {
         converted_value =
                 value / DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
+    }
 
     if constexpr (sizeof(FromFieldType) > sizeof(ToFieldType)) {
         if (converted_value < std::numeric_limits<typename ToFieldType::NativeType>::min() ||
@@ -287,9 +304,9 @@ convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
-    if constexpr (std::is_floating_point_v<ToFieldType>)
+    if constexpr (std::is_floating_point_v<ToFieldType>) {
         return binary_cast<int128_t, DecimalV2Value>(value);
-    else {
+    } else {
         FromFieldType converted_value =
                 convert_decimals<FromDataType, FromDataType>(value, scale, 0);
 
@@ -334,9 +351,11 @@ convert_to_decimal(const typename FromDataType::FieldType& value, UInt32 scale) 
         }
         return out;
     } else {
-        if constexpr (std::is_same_v<FromFieldType, UInt64>)
-            if (value > static_cast<UInt64>(std::numeric_limits<Int64>::max()))
+        if constexpr (std::is_same_v<FromFieldType, UInt64>) {
+            if (value > static_cast<UInt64>(std::numeric_limits<Int64>::max())) {
                 return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType>(value, 0, scale);
+            }
+        }
         return convert_decimals<DataTypeDecimal<Decimal64>, ToDataType>(value, 0, scale);
     }
 }

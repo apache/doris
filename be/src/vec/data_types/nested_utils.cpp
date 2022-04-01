@@ -40,25 +40,37 @@ std::pair<std::string, std::string> splitName(const std::string& name) {
     const char* pos = begin;
     const char* end = begin + name.size();
 
-    if (pos >= end || !is_valid_identifier_begin(*pos)) return {name, {}};
+    if (pos >= end || !is_valid_identifier_begin(*pos)) {
+        return {name, {}};
+    }
 
     ++pos;
 
-    while (pos < end && is_word_char_ascii(*pos)) ++pos;
+    while (pos < end && is_word_char_ascii(*pos)) {
+        ++pos;
+    }
 
-    if (pos >= end || *pos != '.') return {name, {}};
+    if (pos >= end || *pos != '.') {
+        return {name, {}};
+    }
 
     const char* first_end = pos;
     ++pos;
     const char* second_begin = pos;
 
-    if (pos >= end || !is_valid_identifier_begin(*pos)) return {name, {}};
+    if (pos >= end || !is_valid_identifier_begin(*pos)) {
+        return {name, {}};
+    }
 
     ++pos;
 
-    while (pos < end && is_word_char_ascii(*pos)) ++pos;
+    while (pos < end && is_word_char_ascii(*pos)) {
+        ++pos;
+    }
 
-    if (pos != end) return {name, {}};
+    if (pos != end) {
+        return {name, {}};
+    }
 
     return {{begin, first_end}, {second_begin, end}};
 }

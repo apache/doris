@@ -40,7 +40,9 @@ String get_exception_message_prefix(const DataTypes& types) {
 
     bool first = true;
     for (const auto& type : types) {
-        if (!first) res << ", ";
+        if (!first) {
+            res << ", ";
+        }
         first = false;
 
         res << type->get_name();
@@ -53,9 +55,13 @@ String get_exception_message_prefix(const DataTypes& types) {
 DataTypePtr get_least_supertype(const DataTypes& types) {
     /// Trivial cases
 
-    if (types.empty()) return std::make_shared<DataTypeNothing>();
+    if (types.empty()) {
+        return std::make_shared<DataTypeNothing>();
+    }
 
-    if (types.size() == 1) return types[0];
+    if (types.size() == 1) {
+        return types[0];
+    }
 
     /// All types are equal
     {
@@ -67,7 +73,9 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
             }
         }
 
-        if (all_equal) return types[0];
+        if (all_equal) {
+            return types[0];
+        }
     }
 
     /// Recursive rules
@@ -77,11 +85,15 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
         DataTypes non_nothing_types;
         non_nothing_types.reserve(types.size());
 
-        for (const auto& type : types)
-            if (!typeid_cast<const DataTypeNothing*>(type.get()))
+        for (const auto& type : types) {
+            if (!typeid_cast<const DataTypeNothing*>(type.get())) {
                 non_nothing_types.emplace_back(type);
+            }
+        }
 
-        if (non_nothing_types.size() < types.size()) return get_least_supertype(non_nothing_types);
+        if (non_nothing_types.size() < types.size()) {
+            return get_least_supertype(non_nothing_types);
+        }
     }
 
     /// For Nullable
@@ -96,10 +108,12 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
                         typeid_cast<const DataTypeNullable*>(type.get())) {
                 have_nullable = true;
 
-                if (!type_nullable->only_null())
+                if (!type_nullable->only_null()) {
                     nested_types.emplace_back(type_nullable->get_nested_type());
-            } else
+                }
+            } else {
                 nested_types.emplace_back(type);
+            }
         }
 
         if (have_nullable) {
@@ -110,7 +124,9 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
     /// Non-recursive rules
 
     std::unordered_set<TypeIndex> type_ids;
-    for (const auto& type : types) type_ids.insert(type->get_type_id());
+    for (const auto& type : types) {
+        type_ids.insert(type->get_type_id());
+    }
 
     /// For String and FixedString, or for different FixedStrings, the common type is String.
     /// No other types are compatible with Strings. TODO Enums?
@@ -165,7 +181,9 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
                 UInt32 num = type_ids.count(int_ids[i]);
                 num_ints[i] = num;
                 num_supported += num;
-                if (num) max_int = int_ids[i];
+                if (num) {
+                    max_int = int_ids[i];
+                }
             }
 
             if (num_supported != type_ids.size()) {
@@ -176,17 +194,20 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
             UInt32 max_scale = 0;
             for (const auto& type : types) {
                 UInt32 scale = get_decimal_scale(*type, 0);
-                if (scale > max_scale) max_scale = scale;
+                if (scale > max_scale) {
+                    max_scale = scale;
+                }
             }
 
             UInt32 min_precision = max_scale + least_decimal_precision_for(max_int);
 
             /// special cases Int32 -> Dec32, Int64 -> Dec64
             if (max_scale == 0) {
-                if (max_int == TypeIndex::Int32)
+                if (max_int == TypeIndex::Int32) {
                     min_precision = DataTypeDecimal<Decimal32>::max_precision();
-                else if (max_int == TypeIndex::Int64)
+                } else if (max_int == TypeIndex::Int64) {
                     min_precision = DataTypeDecimal<Decimal64>::max_precision();
+                }
             }
 
             if (min_precision > DataTypeDecimal<Decimal128>::max_precision()) {
@@ -195,12 +216,14 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
                                           max_scale);
             }
 
-            if (have_decimal128 || min_precision > DataTypeDecimal<Decimal64>::max_precision())
+            if (have_decimal128 || min_precision > DataTypeDecimal<Decimal64>::max_precision()) {
                 return std::make_shared<DataTypeDecimal<Decimal128>>(
                         DataTypeDecimal<Decimal128>::max_precision(), max_scale);
-            if (have_decimal64 || min_precision > DataTypeDecimal<Decimal32>::max_precision())
+            }
+            if (have_decimal64 || min_precision > DataTypeDecimal<Decimal32>::max_precision()) {
                 return std::make_shared<DataTypeDecimal<Decimal64>>(
                         DataTypeDecimal<Decimal64>::max_precision(), max_scale);
+            }
             return std::make_shared<DataTypeDecimal<Decimal32>>(
                     DataTypeDecimal<Decimal32>::max_precision(), max_scale);
         }
@@ -215,32 +238,35 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
         size_t max_mantissa_bits_of_floating = 0;
 
         auto maximize = [](size_t& what, size_t value) {
-            if (value > what) what = value;
+            if (value > what) {
+                what = value;
+            }
         };
 
         for (const auto& type : types) {
-            if (typeid_cast<const DataTypeUInt8*>(type.get()))
+            if (typeid_cast<const DataTypeUInt8*>(type.get())) {
                 maximize(max_bits_of_unsigned_integer, 8);
-            else if (typeid_cast<const DataTypeUInt16*>(type.get()))
+            } else if (typeid_cast<const DataTypeUInt16*>(type.get())) {
                 maximize(max_bits_of_unsigned_integer, 16);
-            else if (typeid_cast<const DataTypeUInt32*>(type.get()))
+            } else if (typeid_cast<const DataTypeUInt32*>(type.get())) {
                 maximize(max_bits_of_unsigned_integer, 32);
-            else if (typeid_cast<const DataTypeUInt64*>(type.get()))
+            } else if (typeid_cast<const DataTypeUInt64*>(type.get())) {
                 maximize(max_bits_of_unsigned_integer, 64);
-            else if (typeid_cast<const DataTypeInt8*>(type.get()))
+            } else if (typeid_cast<const DataTypeInt8*>(type.get())) {
                 maximize(max_bits_of_signed_integer, 8);
-            else if (typeid_cast<const DataTypeInt16*>(type.get()))
+            } else if (typeid_cast<const DataTypeInt16*>(type.get())) {
                 maximize(max_bits_of_signed_integer, 16);
-            else if (typeid_cast<const DataTypeInt32*>(type.get()))
+            } else if (typeid_cast<const DataTypeInt32*>(type.get())) {
                 maximize(max_bits_of_signed_integer, 32);
-            else if (typeid_cast<const DataTypeInt64*>(type.get()))
+            } else if (typeid_cast<const DataTypeInt64*>(type.get())) {
                 maximize(max_bits_of_signed_integer, 64);
-            else if (typeid_cast<const DataTypeFloat32*>(type.get()))
+            } else if (typeid_cast<const DataTypeFloat32*>(type.get())) {
                 maximize(max_mantissa_bits_of_floating, 24);
-            else if (typeid_cast<const DataTypeFloat64*>(type.get()))
+            } else if (typeid_cast<const DataTypeFloat64*>(type.get())) {
                 maximize(max_mantissa_bits_of_floating, 53);
-            else
+            } else {
                 all_numbers = false;
+            }
         }
 
         if (max_bits_of_signed_integer || max_bits_of_unsigned_integer ||
@@ -258,18 +284,19 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
 
             /// If unsigned is not covered by signed.
             if (max_bits_of_signed_integer &&
-                max_bits_of_unsigned_integer >= max_bits_of_signed_integer)
+                max_bits_of_unsigned_integer >= max_bits_of_signed_integer) {
                 ++min_bit_width_of_integer;
+            }
 
             /// If the result must be floating.
             if (max_mantissa_bits_of_floating) {
                 size_t min_mantissa_bits =
                         std::max(min_bit_width_of_integer, max_mantissa_bits_of_floating);
-                if (min_mantissa_bits <= 24)
+                if (min_mantissa_bits <= 24) {
                     return std::make_shared<DataTypeFloat32>();
-                else if (min_mantissa_bits <= 53)
+                } else if (min_mantissa_bits <= 53) {
                     return std::make_shared<DataTypeFloat64>();
-                else {
+                } else {
                     LOG(FATAL) << get_exception_message_prefix(types)
                                << " because some of them are integers and some are floating point "
                                   "but there is no floating point type, that can exactly represent "
@@ -279,15 +306,15 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
 
             /// If the result must be signed integer.
             if (max_bits_of_signed_integer) {
-                if (min_bit_width_of_integer <= 8)
+                if (min_bit_width_of_integer <= 8) {
                     return std::make_shared<DataTypeInt8>();
-                else if (min_bit_width_of_integer <= 16)
+                } else if (min_bit_width_of_integer <= 16) {
                     return std::make_shared<DataTypeInt16>();
-                else if (min_bit_width_of_integer <= 32)
+                } else if (min_bit_width_of_integer <= 32) {
                     return std::make_shared<DataTypeInt32>();
-                else if (min_bit_width_of_integer <= 64)
+                } else if (min_bit_width_of_integer <= 64) {
                     return std::make_shared<DataTypeInt64>();
-                else {
+                } else {
                     LOG(FATAL) << get_exception_message_prefix(types)
                                << " because some of them are signed integers and some are unsigned "
                                   "integers, but there is no signed integer type, that can exactly "
@@ -297,15 +324,15 @@ DataTypePtr get_least_supertype(const DataTypes& types) {
 
             /// All unsigned.
             {
-                if (min_bit_width_of_integer <= 8)
+                if (min_bit_width_of_integer <= 8) {
                     return std::make_shared<DataTypeUInt8>();
-                else if (min_bit_width_of_integer <= 16)
+                } else if (min_bit_width_of_integer <= 16) {
                     return std::make_shared<DataTypeUInt16>();
-                else if (min_bit_width_of_integer <= 32)
+                } else if (min_bit_width_of_integer <= 32) {
                     return std::make_shared<DataTypeUInt32>();
-                else if (min_bit_width_of_integer <= 64)
+                } else if (min_bit_width_of_integer <= 64) {
                     return std::make_shared<DataTypeUInt64>();
-                else {
+                } else {
                     LOG(FATAL) << "Logical error: " << get_exception_message_prefix(types)
                                << "but as all data types are unsigned integers, we must have found "
                                   "maximum unsigned integer type";
