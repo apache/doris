@@ -26,6 +26,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
+#include <boost/algorithm/string/trim.hpp>
 #include <cstdio>
 #include <filesystem>
 #include <new>
@@ -36,6 +37,7 @@
 #include "agent/cgroups_mgr.h"
 #include "agent/task_worker_pool.h"
 #include "env/env.h"
+#include "env/env_util.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
@@ -58,6 +60,8 @@
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
+#include "util/storage_backend.h"
+#include "util/storage_backend_mgr.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -118,6 +122,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
                                                          MemTrackerLevel::OVERVIEW)),
           _schema_change_mem_tracker(MemTracker::create_tracker(
                   -1, "StorageEngine::SchemaChange", nullptr, MemTrackerLevel::OVERVIEW)),
+          _storage_migration_mem_tracker(MemTracker::create_tracker(
+                  -1, "StorageEngine::StorageMigration", nullptr, MemTrackerLevel::OVERVIEW)),
           _clone_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::Clone", nullptr,
                                                         MemTrackerLevel::OVERVIEW)),
           _batch_load_mem_tracker(MemTracker::create_tracker(-1, "StorageEngine::BatchLoad",
@@ -477,7 +483,9 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
         for (auto& it : _store_map) {
             if (it.second->is_used()) {
                 if (_available_storage_medium_type_count == 1 ||
-                    it.second->storage_medium() == storage_medium) {
+                    it.second->storage_medium() == storage_medium ||
+                    (it.second->storage_medium() == TStorageMedium::REMOTE_CACHE
+                            && FilePathDesc::is_remote(storage_medium))) {
                     stores.push_back(it.second);
                 }
             }
@@ -683,18 +691,20 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         tmp_usage = std::max(tmp_usage, curr_usage);
 
         OLAPStatus curr_res = OLAP_SUCCESS;
-        string snapshot_path = info.path_desc.filepath + SNAPSHOT_PREFIX;
-        curr_res = _do_sweep(snapshot_path, local_now, snapshot_expire);
+        FilePathDesc snapshot_path_desc(info.path_desc.filepath + SNAPSHOT_PREFIX);
+        curr_res = _do_sweep(snapshot_path_desc, local_now, snapshot_expire);
         if (curr_res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path
+            LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path_desc.filepath
                          << ", err_code=" << curr_res;
             res = curr_res;
         }
 
-        string trash_path = info.path_desc.filepath + TRASH_PREFIX;
-        curr_res = _do_sweep(trash_path, local_now, curr_usage > guard_space ? 0 : trash_expire);
+        FilePathDescStream trash_path_desc_s;
+        trash_path_desc_s << info.path_desc << TRASH_PREFIX;
+        FilePathDesc trash_path_desc = trash_path_desc_s.path_desc();
+        curr_res = _do_sweep(trash_path_desc, local_now, curr_usage > guard_space ? 0 : trash_expire);
         if (curr_res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to sweep trash. [path=%s" << trash_path
+            LOG(WARNING) << "failed to sweep trash. path=" << trash_path_desc.filepath
                          << ", err_code=" << curr_res;
             res = curr_res;
         }
@@ -803,10 +813,10 @@ void StorageEngine::_clean_unused_txns() {
     }
 }
 
-OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local_now,
+OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_now,
                                     const int32_t expire) {
     OLAPStatus res = OLAP_SUCCESS;
-    if (!FileUtils::check_exist(scan_root)) {
+    if (!FileUtils::check_exist(scan_root_desc.filepath)) {
         // dir not existed. no need to sweep trash.
         return res;
     }
@@ -814,7 +824,7 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
     try {
         // Sort pathes by name, that is by delete time.
         std::vector<path> sorted_pathes;
-        std::copy(directory_iterator(path(scan_root)), directory_iterator(),
+        std::copy(directory_iterator(path(scan_root_desc.filepath)), directory_iterator(),
                   std::back_inserter(sorted_pathes));
         std::sort(sorted_pathes.begin(), sorted_pathes.end());
         for (const auto& sorted_path : sorted_pathes) {
@@ -839,10 +849,42 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
 
             string path_name = sorted_path.string();
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
+                std::string storage_name_path = path_name + "/" + STORAGE_NAME;
+                if (scan_root_desc.is_remote() && FileUtils::check_exist(storage_name_path)) {
+                    faststring buf;
+                    if (!env_util::read_file_to_string(Env::Default(), storage_name_path, &buf).ok()) {
+                        LOG(WARNING) << "read storage_name failed: " << storage_name_path;
+                        continue;
+                    }
+                    FilePathDesc remote_path_desc = scan_root_desc;
+                    remote_path_desc.storage_name = buf.ToString();
+                    boost::algorithm::trim(remote_path_desc.storage_name);
+                    std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
+                            get_storage_backend(remote_path_desc.storage_name);
+                    if (storage_backend != nullptr) {
+                        std::string remote_root_path;
+                        if (!StorageBackendMgr::instance()->get_root_path(
+                                remote_path_desc.storage_name, &remote_root_path)) {
+                            LOG(WARNING) << "read storage root_path failed: " << remote_path_desc.storage_name;
+                            continue;
+                        }
+                        remote_path_desc.remote_path = remote_root_path + TRASH_PREFIX;
+                        std::filesystem::path local_path(path_name);
+                        std::stringstream remote_file_stream;
+                        remote_file_stream << remote_path_desc.remote_path << "/" << local_path.filename().string();
+                        Status ret = storage_backend->rmdir(remote_file_stream.str());
+                        if (!ret.ok()) {
+                            LOG(WARNING) << "fail to remove file or directory. path=" << remote_file_stream.str()
+                                         << ", error=" << ret.to_string();
+                            res = OLAP_ERR_OS_ERROR;
+                            continue;
+                        }
+                    }
+                }
                 Status ret = FileUtils::remove_all(path_name);
                 if (!ret.ok()) {
-                    LOG(WARNING) << "fail to remove file or directory. path=" << path_name
-                                 << ", error=" << ret.to_string();
+                    LOG(WARNING) << "fail to remove file or directory. path_desc: "
+                                 << scan_root_desc.debug_string();
                     res = OLAP_ERR_OS_ERROR;
                     continue;
                 }
@@ -852,7 +894,7 @@ OLAPStatus StorageEngine::_do_sweep(const string& scan_root, const time_t& local
             }
         }
     } catch (...) {
-        LOG(WARNING) << "Exception occur when scan directory. path=" << scan_root;
+        LOG(WARNING) << "Exception occur when scan directory. path_desc=" << scan_root_desc.debug_string();
         res = OLAP_ERR_IO_ERROR;
     }
 

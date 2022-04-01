@@ -49,6 +49,8 @@ public:
     OLAPStatus add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
                                                    const SchemaMapping& schema_mapping) override;
 
+    OLAPStatus add_rowset_for_migration(RowsetSharedPtr rowset) override;
+
     OLAPStatus flush() override;
 
     // Return the file size flushed to disk in "flush_size"

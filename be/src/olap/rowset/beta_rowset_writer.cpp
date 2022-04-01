@@ -141,6 +141,36 @@ OLAPStatus BetaRowsetWriter::add_rowset_for_linked_schema_change(
     return add_rowset(rowset);
 }
 
+OLAPStatus BetaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
+    OLAPStatus res = OLAP_SUCCESS;
+    assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
+    if (!rowset->rowset_path_desc().is_remote() && !_context.path_desc.is_remote()) {
+        res = rowset->copy_files_to(_context.path_desc.filepath, _context.rowset_id);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "copy_files failed. src: " << rowset->rowset_path_desc().filepath
+                         << ", dest: " << _context.path_desc.filepath;
+            return res;
+        }
+    } else if (!rowset->rowset_path_desc().is_remote() && _context.path_desc.is_remote()) {
+        res = rowset->upload_files_to(_context.path_desc, _context.rowset_id);
+        if (res != OLAP_SUCCESS) {
+            LOG(WARNING) << "upload_files failed. src: " << rowset->rowset_path_desc().debug_string()
+                         << ", dest: " << _context.path_desc.debug_string();
+            return res;
+        }
+    }
+
+    _num_rows_written += rowset->num_rows();
+    _total_data_size += rowset->rowset_meta()->data_disk_size();
+    _total_index_size += rowset->rowset_meta()->index_disk_size();
+    _num_segment += rowset->num_segments();
+    // TODO update zonemap
+    if (rowset->rowset_meta()->has_delete_predicate()) {
+        _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
+    }
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus BetaRowsetWriter::flush() {
     if (_segment_writer != nullptr) {
         RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));

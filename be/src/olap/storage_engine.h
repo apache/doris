@@ -187,6 +187,7 @@ public:
     std::shared_ptr<MemTracker> compaction_mem_tracker() { return _compaction_mem_tracker; }
     std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
     std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
+    std::shared_ptr<MemTracker> storage_migration_mem_tracker() { return _storage_migration_mem_tracker; }
     std::shared_ptr<MemTracker> clone_mem_tracker() { return _clone_mem_tracker; }
     std::shared_ptr<MemTracker> batch_load_mem_tracker() { return _batch_load_mem_tracker; }
     std::shared_ptr<MemTracker> consistency_mem_tracker() { return _consistency_mem_tracker; }
@@ -219,7 +220,7 @@ private:
 
     void _clean_unused_rowset_metas();
 
-    OLAPStatus _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
+    OLAPStatus _do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_tm_now,
                          const int32_t expire);
 
     // All these xxx_callback() functions are for Background threads
@@ -332,6 +333,8 @@ private:
     std::shared_ptr<MemTracker> _tablet_mem_tracker;
     // Count the memory consumption of all SchemaChange tasks.
     std::shared_ptr<MemTracker> _schema_change_mem_tracker;
+    // Count the memory consumption of all StorageMigration tasks.
+    std::shared_ptr<MemTracker> _storage_migration_mem_tracker;
     // Count the memory consumption of all EngineCloneTask.
     std::shared_ptr<MemTracker> _clone_mem_tracker;
     // Count the memory consumption of all EngineBatchLoadTask.

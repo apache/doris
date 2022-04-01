@@ -149,9 +149,8 @@ struct TStorageMigrationReqV2 {
     2: required Types.TTabletId new_tablet_id
     3: required Types.TSchemaHash base_schema_hash
     4: required Types.TSchemaHash new_schema_hash
-    // version of data which this alter task should transform
-    5: optional Types.TVersion alter_version
-    6: optional Types.TVersionHash alter_version_hash // Deprecated
+    5: optional Types.TVersion migration_version
+    6: optional Types.TVersionHash migration_version_hash // Deprecated
 }
 
 struct TClusterInfo {

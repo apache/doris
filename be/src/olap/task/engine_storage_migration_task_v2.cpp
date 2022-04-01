@@ -17,7 +17,7 @@
 
 #include "olap/task/engine_storage_migration_task_v2.h"
 
-#include "olap/schema_change.h"
+#include "olap/storage_migration_v2.h"
 #include "runtime/mem_tracker.h"
 
 namespace doris {
@@ -27,16 +27,17 @@ using std::to_string;
 EngineStorageMigrationTask::EngineStorageMigrationTask(const TStorageMigrationReqV2& request)
         : _storage_migration_req(request) {
     _mem_tracker = MemTracker::create_tracker(
-            config::memory_limitation_per_thread_for_schema_change_bytes,
+            config::memory_limitation_per_thread_for_storage_migration_bytes,
             fmt::format("EngineStorageMigrationTask: {}-{}",
                         std::to_string(_storage_migration_req.base_tablet_id),
                         std::to_string(_storage_migration_req.new_tablet_id)),
-            StorageEngine::instance()->schema_change_mem_tracker(), MemTrackerLevel::TASK);
+            StorageEngine::instance()->storage_migration_mem_tracker(), MemTrackerLevel::TASK);
 }
 
 OLAPStatus EngineStorageMigrationTask::execute() {
-    auto schema_change_handler = SchemaChangeHandler::instance();
-    OLAPStatus res = schema_change_handler->process_alter_tablet_v2(_storage_migration_req);
+    DorisMetrics::instance()->storage_migrate_v2_requests_total->increment(1);
+    StorageMigrationV2Handler* storage_migration_v2_handler = StorageMigrationV2Handler::instance();
+    OLAPStatus res = storage_migration_v2_handler->process_storage_migration_v2(_storage_migration_req);
 
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to do storage migration task. res=" << res
@@ -44,7 +45,7 @@ OLAPStatus EngineStorageMigrationTask::execute() {
                      << ", base_schema_hash=" << _storage_migration_req.base_schema_hash
                      << ", new_tablet_id=" << _storage_migration_req.new_tablet_id
                      << ", new_schema_hash=" << _storage_migration_req.new_schema_hash;
-        DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
+        DorisMetrics::instance()->storage_migrate_v2_requests_failed->increment(1);
         return res;
     }
 

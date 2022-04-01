@@ -49,7 +49,7 @@ public:
 
     OLAPStatus link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) override;
 
-    OLAPStatus copy_files_to(const std::string& dir) override;
+    OLAPStatus copy_files_to(const std::string& dir, RowsetId new_rowset_id) override;
 
     OLAPStatus convert_from_old_files(const std::string& snapshot_path,
                                       std::vector<std::string>* success_files);

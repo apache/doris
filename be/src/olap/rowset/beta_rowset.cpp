@@ -132,19 +132,23 @@ OLAPStatus BetaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
+OLAPStatus BetaRowset::copy_files_to(const std::string& dir, RowsetId new_rowset_id) {
     for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc dst_path_desc = segment_file_path(dir, rowset_id(), i);
+        FilePathDesc dst_path_desc = segment_file_path(dir, new_rowset_id, i);
         Status status = Env::Default()->path_exists(dst_path_desc.filepath);
         if (status.ok()) {
-            LOG(WARNING) << "file already exist: " << dst_path_desc.filepath;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
+            LOG(WARNING) << "file already exist, delete it: " << dst_path_desc.filepath;
+            status = Env::Default()->delete_file(dst_path_desc.filepath);
+            if (!status.ok()) {
+                LOG(WARNING) << "file delete failed: " << dst_path_desc.filepath;
+                return OLAP_ERR_FILE_ALREADY_EXIST;
+            }
         }
         if (!status.is_not_found()) {
             LOG(WARNING) << "file check exist error: " << dst_path_desc.filepath;
             return OLAP_ERR_OS_ERROR;
         }
-        FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
+        FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, new_rowset_id, i);
         if (!Env::Default()->copy_path(src_path_desc.filepath, dst_path_desc.filepath).ok()) {
             LOG(WARNING) << "fail to copy file. from=" << src_path_desc.filepath << ", to="
                     << dst_path_desc.filepath << ", errno=" << Errno::no();
@@ -154,7 +158,7 @@ OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc) {
+OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id, bool delete_src) {
     std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
             get_storage_backend(dir_desc.storage_name);
     if (storage_backend == nullptr) {
@@ -162,21 +166,28 @@ OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc) {
         return OLAP_ERR_OS_ERROR;
     }
     for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc dst_path_desc = segment_file_path(dir_desc, rowset_id(), i);
+        FilePathDesc dst_path_desc = segment_file_path(dir_desc, new_rowset_id, i);
         Status status = storage_backend->exist(dst_path_desc.remote_path);
         if (status.ok()) {
-            LOG(WARNING) << "file already exist: " << dst_path_desc.remote_path;
-            return OLAP_ERR_FILE_ALREADY_EXIST;
-        }
-        if (!status.is_not_found()) {
+            LOG(WARNING) << "file already exist, delete it: " << dst_path_desc.remote_path;
+            status = storage_backend->rm(dst_path_desc.remote_path);
+            if (!status.ok()) {
+                LOG(WARNING) << "file delete failed: " << dst_path_desc.remote_path;
+                return OLAP_ERR_FILE_ALREADY_EXIST;
+            }
+        } else if (!status.is_not_found()) {
             LOG(WARNING) << "file check exist error: " << dst_path_desc.remote_path;
             return OLAP_ERR_OS_ERROR;
         }
-        FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
+        FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, new_rowset_id, i);
 
         if (!storage_backend->upload(src_path_desc.filepath, dst_path_desc.remote_path).ok()) {
             LOG(WARNING) << "fail to upload file. from=" << src_path_desc.filepath << ", to="
                          << dst_path_desc.remote_path << ", errno=" << Errno::no();
+            return OLAP_ERR_OS_ERROR;
+        }
+        if (delete_src && !Env::Default()->delete_file(src_path_desc.filepath).ok()) {
+            LOG(WARNING) << "fail to delete local file: " << src_path_desc.filepath << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
         }
         LOG(INFO) << "succeed to upload file. from " << src_path_desc.filepath << " to "
