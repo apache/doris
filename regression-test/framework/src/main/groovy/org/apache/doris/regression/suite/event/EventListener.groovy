@@ -15,27 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.regression.util
+package org.apache.doris.regression.suite.event
 
 import groovy.transform.CompileStatic
-import org.apache.doris.regression.suite.ScriptInfo
-import org.apache.doris.regression.suite.SuiteInfo
+import org.apache.doris.regression.suite.ScriptContext
+import org.apache.doris.regression.suite.SuiteContext
 
 @CompileStatic
-class Recorder {
-    public final List<SuiteInfo> successList = new Vector<>()
-    public final List<SuiteInfo> failureList = new Vector<>()
-    public final List<ScriptInfo> fatalScriptList = new Vector<>()
-
-    void onSuccess(SuiteInfo suiteInfo) {
-        successList.add(suiteInfo)
-    }
-
-    void onFailure(SuiteInfo suiteInfo) {
-        failureList.add(suiteInfo)
-    }
-
-    void onFatal(ScriptInfo scriptInfo) {
-        fatalScriptList.add(scriptInfo)
-    }
+interface EventListener {
+    void onScriptStarted(ScriptContext scriptContext)
+    void onScriptFailed(ScriptContext scriptContext, Throwable t)
+    void onScriptFinished(ScriptContext scriptContext, long elapsed)
+    void onSuiteStarted(SuiteContext suiteContext)
+    void onSuiteFailed(SuiteContext suiteContext, Throwable t)
+    void onSuiteFinished(SuiteContext suiteContext, boolean success, long elapsed)
+    void onThreadStarted(SuiteContext suiteContext)
+    void onThreadFailed(SuiteContext suiteContext, Throwable t)
+    void onThreadFinished(SuiteContext suiteContext, long elapsed)
 }

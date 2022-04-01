@@ -27,6 +27,7 @@ import org.apache.doris.regression.util.JdbcUtils
 
 import java.sql.Connection
 import java.sql.DriverManager
+import java.util.function.Predicate
 
 import static org.apache.doris.regression.ConfigOptions.*
 
@@ -47,6 +48,7 @@ class Config {
 
     public String testGroups
     public String testSuites
+    public String testDirectories
     public boolean generateOutputFile
     public boolean forceGenerateOutputFile
     public boolean randomOrder
@@ -55,8 +57,10 @@ class Config {
 
     public Set<String> suiteWildcard = new HashSet<>()
     public Set<String> groups = new HashSet<>()
+    public Set<String> directories = new HashSet<>()
     public InetSocketAddress feHttpInetSocketAddress
     public Integer parallel
+    public Integer suiteParallel
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
@@ -65,7 +69,7 @@ class Config {
 
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword,
-           String suitePath, String dataPath, String testGroups, String testSuites) {
+           String suitePath, String dataPath, String testGroups, String testSuites, String testDirectories) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -77,6 +81,7 @@ class Config {
         this.dataPath = dataPath
         this.testGroups = testGroups
         this.testSuites = testSuites
+        this.testDirectories = testDirectories
     }
 
     static Config fromCommandLine(CommandLine cmd) {
@@ -106,6 +111,11 @@ class Config {
                 .collect({g -> g.trim()})
                 .findAll({g -> g != null && g.length() > 0})
                 .toSet()
+        config.directories = cmd.getOptionValue(directoriesOpt, config.testDirectories)
+                .split(",")
+                .collect({d -> d.trim()})
+                .findAll({d -> d != null && d.length() > 0})
+                .toSet()
 
         config.feHttpAddress = cmd.getOptionValue(feHttpAddressOpt, config.feHttpAddress)
         try {
@@ -116,7 +126,7 @@ class Config {
             throw new IllegalStateException("Can not parse stream load address: ${config.feHttpAddress}", t)
         }
 
-        config.defaultDb = cmd.getOptionValue(jdbcOpt, config.defaultDb)
+        config.defaultDb = cmd.getOptionValue(defaultDbOpt, config.defaultDb)
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
         config.jdbcUser = cmd.getOptionValue(userOpt, config.jdbcUser)
         config.jdbcPassword = cmd.getOptionValue(passwordOpt, config.jdbcPassword)
@@ -125,6 +135,7 @@ class Config {
         config.generateOutputFile = cmd.hasOption(genOutOpt)
         config.forceGenerateOutputFile = cmd.hasOption(forceGenOutOpt)
         config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "1"))
+        config.suiteParallel = Integer.parseInt(cmd.getOptionValue(suiteParallelOpt, "1"))
         config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
@@ -151,7 +162,8 @@ class Config {
             configToString(obj.suitePath),
             configToString(obj.dataPath),
             configToString(obj.testGroups),
-            configToString(obj.testSuites)
+            configToString(obj.testSuites),
+            configToString(obj.testDirectories)
         )
 
         def declareFileNames = config.getClass()
@@ -218,6 +230,11 @@ class Config {
             log.info("Set testGroups to '${config.testGroups}' because not specify.".toString())
         }
 
+        if (config.testDirectories == null) {
+            config.testDirectories = ""
+            log.info("Set testDirectories to empty because not specify.".toString())
+        }
+
         if (config.testSuites == null) {
             config.testSuites = ""
             log.info("Set testSuites to empty because not specify.".toString())
@@ -226,6 +243,11 @@ class Config {
         if (config.parallel == null) {
             config.parallel = 1
             log.info("Set parallel to 1 because not specify.".toString())
+        }
+
+        if (config.suiteParallel == null) {
+            config.suiteParallel = 1
+            log.info("Set suiteParallel to 1 because not specify.".toString())
         }
 
         if (config.actionParallel == null) {
@@ -263,6 +285,25 @@ class Config {
 
     Connection getConnection() {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
+    }
+
+    Predicate<String> getDirectoryFilter() {
+        return (Predicate<String>) { String directoryName ->
+            if (directories.isEmpty()) {
+                return true
+            }
+
+            String relativePath = new File(suitePath).relativePath(new File(directoryName))
+            List<String> allLevelPaths = new ArrayList<>()
+            String parentPath = ""
+            for (String pathName : relativePath.split(File.separator)) {
+                String currentPath = parentPath + pathName
+                allLevelPaths.add(currentPath)
+                parentPath = currentPath + File.separator
+            }
+
+            return allLevelPaths.any {directories.contains(it) }
+        }
     }
 
     private void buildUrlWithDefaultDb() {

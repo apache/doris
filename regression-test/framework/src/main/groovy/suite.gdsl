@@ -22,14 +22,24 @@ def suiteContext = context(
     filetypes: ["groovy"]
 )
 
+def suiteScriptClassName = "org.apache.doris.regression.suite.SuiteScript"
 def suiteClassName = "org.apache.doris.regression.suite.Suite"
+
+// bind suite
+contributor([suiteContext]) {
+    if (!enclosingCall("suite")) {
+        delegatesTo(findClass(suiteScriptClassName))
+    }
+}
 
 def bindAction = { actionName, actionClassName ->
     def closureBody = context(scope: closureScope(isArg: false))
     contributor([closureBody]) {
-        if (enclosingCall(actionName)) {
-            def actionClass = findClass(actionClassName)
-            delegatesTo(actionClass)
+        if (enclosingCall("suite")) {
+            if (enclosingCall(actionName)) {
+                def actionClass = findClass(actionClassName)
+                delegatesTo(actionClass)
+            }
         }
     }
 }
@@ -40,44 +50,48 @@ bindAction("streamLoad", "org.apache.doris.regression.action.StreamLoadAction")
 
 // bind qt_xxx and order_qt_xxx methods
 contributor([suiteContext]) {
-    def place = getPlace()
-    if (place == null || !place.getClass().getName().contains("GrReferenceExpressionImpl")) {
-        return
-    }
-    def invokeMethodName = place.getQualifiedReferenceName()
-    if (invokeMethodName == null) {
-        return
-    }
-    if (invokeMethodName.startsWith("qt_") || invokeMethodName.startsWith("order_qt_")) {
-        def suiteClass = findClass(suiteClassName)
-        def quickTestMethods = suiteClass.findMethodsByName("quickTest")
-        method(name: invokeMethodName, bindsTo: quickTestMethods[0])
+    if (enclosingCall("suite")) {
+        def place = getPlace()
+        if (place == null || !place.getClass().getName().contains("GrReferenceExpressionImpl")) {
+            return
+        }
+        def invokeMethodName = place.getQualifiedReferenceName()
+        if (invokeMethodName == null) {
+            return
+        }
+        if (invokeMethodName.startsWith("qt_") || invokeMethodName.startsWith("order_qt_")) {
+            def suiteClass = findClass(suiteClassName)
+            def quickTestMethods = suiteClass.findMethodsByName("quickTest")
+            method(name: invokeMethodName, bindsTo: quickTestMethods[0])
+        }
     }
 }
 
 contributor([suiteContext]) {
-    // bind assertXxx
-    def assertionsClass = findClass("org.junit.jupiter.api.Assertions")
-    delegatesTo(assertionsClass)
+    if (enclosingCall("suite")) {
+        // bind assertXxx
+        def assertionsClass = findClass("org.junit.jupiter.api.Assertions")
+        delegatesTo(assertionsClass)
 
-    if (enclosingCall("check") ||
-            (!enclosingCall("test") &&
-            !enclosingCall("explain") &&
-            !enclosingCall("streamLoad"))) {
-        // bind other suite method and field
-        def suiteClass = findClass(suiteClassName)
-        delegatesTo(suiteClass)
+        if (enclosingCall("check") ||
+                (!enclosingCall("test") &&
+                        !enclosingCall("explain") &&
+                        !enclosingCall("streamLoad"))) {
+            // bind other suite method and field
+            def suiteClass = findClass(suiteClassName)
+            delegatesTo(suiteClass)
 
-        // bind try_xxx
-        suiteClass.methods.each { m ->
-            if (m.isConstructor()) {
-                return
+            // bind try_xxx
+            suiteClass.methods.each { m ->
+                if (m.isConstructor()) {
+                    return
+                }
+                def parameters = m.getParameterList().getParameters().collectEntries { p ->
+                    [p.name, p.getType().getPresentableText()]
+                }
+                def returnType = m.returnType.getPresentableText()
+                method(name: "try_${m.name}", bindsTo: m, params: parameters, type: returnType)
             }
-            def parameters = m.getParameterList().getParameters().collectEntries { p ->
-                [p.name, p.getType().getPresentableText()]
-            }
-            def returnType = m.returnType.getPresentableText()
-            method(name: "try_${m.name}", bindsTo: m, params: parameters, type: returnType)
         }
     }
 }
