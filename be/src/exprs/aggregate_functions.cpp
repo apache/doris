@@ -1110,11 +1110,9 @@ void AggregateFunctions::hll_merge(FunctionContext* ctx, const StringVal& src, S
     DCHECK(!src.is_null);
     DCHECK_EQ(dst->len, std::pow(2, HLL_COLUMN_PRECISION));
     DCHECK_EQ(src.len, std::pow(2, HLL_COLUMN_PRECISION));
-
-    auto dp = dst->ptr;
-    auto sp = src.ptr;
+    
     for (int i = 0; i < src.len; ++i) {
-        dp[i] = (dp[i] < sp[i] ? sp[i] : dp[i]);
+        dst->ptr[i] = (dst->ptr[i] < src.ptr[i] ? src.ptr[i] : dst->ptr[i]);
     }
 }
 
