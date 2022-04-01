@@ -30,7 +30,6 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
@@ -171,6 +170,13 @@ public class Planner {
 
         if (VectorizedUtil.isVectorized()) {
             singleNodePlan.convertToVectoriezd();
+        }
+
+        if (analyzer.getContext() != null
+                && analyzer.getContext().getSessionVariable().isEnableProjection()
+                && statement instanceof SelectStmt) {
+            ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
+            projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
         }
 
         if (statement instanceof InsertStmt) {

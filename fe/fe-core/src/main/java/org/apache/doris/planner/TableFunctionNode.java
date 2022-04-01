@@ -84,6 +84,7 @@ public class TableFunctionNode extends PlanNode {
      * Query: select k1 from table a lateral view explode_split(v1, ",") t1 as c1;
      * The outputSlots: [k1, c1]
      */
+    // TODO(ml): Unified to projectplanner
     public void projectSlots(Analyzer analyzer, SelectStmt selectStmt) throws AnalysisException {
         // TODO(ml): Support project calculations that include aggregation and sorting in select stmt
         if ((selectStmt.hasAggInfo() || selectStmt.getSortInfo() != null || selectStmt.hasAnalyticInfo())
