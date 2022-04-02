@@ -101,8 +101,8 @@ struct AggregationMethodOneNumber {
     static void insert_key_into_columns(const Key& key, MutableColumns& key_columns,
                                         const Sizes& /*key_sizes*/) {
         const auto* key_holder = reinterpret_cast<const char*>(&key);
-        auto* column = static_cast<ColumnVectorHelper*>(key_columns[0].get());
-        column->insert_raw_data<sizeof(FieldType)>(key_holder);
+        auto* column = key_columns[0].get();
+        column->insert_data(key_holder, sizeof(FieldType));
     }
 
     void init_once() {
