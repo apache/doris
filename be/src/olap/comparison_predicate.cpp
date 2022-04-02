@@ -529,6 +529,9 @@ COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
 COMPARISON_PRED_SET_DICT_CODE(EqualPredicate)
 COMPARISON_PRED_SET_DICT_CODE(NotEqualPredicate)
 
+// If 1 OP 0 returns true, it means the predicate is > or >=
+// If 1 OP 1 returns true, it means the predicate is >= or <=
+// by this way, avoid redundant code
 #define RAMGE_COMPARISON_PRED_SET_DICT_CODE(CLASS, OP)                                         \
     template <class T>                                                                         \
     void CLASS<T>::set_dict_code_if_necessary(vectorized::IColumn& column) {                   \
