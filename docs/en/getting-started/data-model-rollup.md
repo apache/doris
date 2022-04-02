@@ -38,7 +38,7 @@ Columns can be divided into two categories: Key and Value. From a business persp
 Doris's data model is divided into three main categories:
 
 * Aggregate
-* Uniq
+* Unique
 * Duplicate
 
 Let's introduce them separately.
@@ -230,11 +230,11 @@ Data aggregation occurs in Doris in the following three stages:
 2. The stage in which the underlying BE performs data Compaction. At this stage, BE aggregates data from different batches that have been imported.
 3. Data query stage. In data query, the data involved in the query will be aggregated accordingly.
 
-Data may be aggregated to varying degrees at different times. For example, when a batch of data is just imported, it may not be aggregated with the existing data. But for users, user**can only query aggregated data**. That is, different degrees of aggregation are transparent to user queries. Users should always assume that data exists in terms of the degree of aggregation that **ultimately completes**, and **should not assume that some aggregation has not yet occurred**. (See the section **Limitations of the aggregation model** for more details.)
+Data may be aggregated to varying degrees at different times. For example, when a batch of data is just imported, it may not be aggregated with the existing data. But for users, user **can only query aggregated data**. That is, different degrees of aggregation are transparent to user queries. Users should always assume that data exists in terms of the degree of aggregation that **ultimately completes**, and **should not assume that some aggregation has not yet occurred**. (See the section **Limitations of the aggregation model** for more details.)
 
-## Uniq Model
+## Unique Model
 
-In some multi-dimensional analysis scenarios, users are more concerned with how to ensure the uniqueness of Key, that is, how to obtain the Primary Key uniqueness constraint. Therefore, we introduce Uniq's data model. This model is essentially a special case of aggregation model and a simplified representation of table structure. Let's give an example.
+In some multi-dimensional analysis scenarios, users are more concerned with how to ensure the uniqueness of Key, that is, how to obtain the Primary Key uniqueness constraint. Therefore, we introduce Unique's data model. This model is essentially a special case of aggregation model and a simplified representation of table structure. Let's give an example.
 
 |ColumnName|Type|IsKey|Comment|
 |---|---|---|---|
@@ -297,7 +297,7 @@ AGGREGATE KEY(`user_id`, `username`)
 ;
 ```
 
-That is to say, Uniq model can be completely replaced by REPLACE in aggregation model. Its internal implementation and data storage are exactly the same. No further examples will be given here.
+That is to say, Unique model can be completely replaced by REPLACE in aggregation model. Its internal implementation and data storage are exactly the same. No further examples will be given here.
 
 ## Duplicate Model
 
@@ -328,7 +328,7 @@ DUPLICATE KEY(`timestamp`, `type`)
 ;
 ```
 
-This data model is different from Aggregate and Uniq models. Data is stored entirely in accordance with the data in the imported file, without any aggregation. Even if the two rows of data are identical, they will be retained.
+This data model is different from Aggregate and Unique models. Data is stored entirely in accordance with the data in the imported file, without any aggregation. Even if the two rows of data are identical, they will be retained.
 The DUPLICATE KEY specified in the table building statement is only used to specify which columns the underlying data is sorted according to. (The more appropriate name should be "Sorted Column", where the name "DUPLICATE KEY" is used to specify the data model used. For more explanations of "Sorted Column", see the section ** Prefix Index **. On the choice of DUPLICATE KEY, we recommend that the first 2-4 columns be selected appropriately.
 
 This data model is suitable for storing raw data without aggregation requirements and primary key uniqueness constraints. For more usage scenarios, see the ** Limitations of the Aggregation Model ** section.
@@ -347,9 +347,9 @@ The basic function of ROLLUP tables is to obtain coarser aggregated data on the 
 
 Let's illustrate the ROLLUP tables and their roles in different data models with examples.
 
-#### ROLLUP in Aggregate Model and Uniq Model
+#### ROLLUP in Aggregate Model and Unique Model
 
-Because Uniq is only a special case of the Aggregate model, we do not distinguish it here.
+Because Unique is only a special case of the Aggregate model, we do not distinguish it here.
 
 Example 1: Get the total consumption per user
 
@@ -444,7 +444,7 @@ Because the Duplicate model has no aggregate semantics. So the ROLLLUP in this m
 Unlike traditional database design, Doris does not support indexing on any column. OLAP databases based on MPP architecture such as Doris usually handle large amounts of data by improving concurrency.
 In essence, Doris's data is stored in a data structure similar to SSTable (Sorted String Table). This structure is an ordered data structure, which can be sorted and stored according to the specified column. In this data structure, it is very efficient to search by sorting columns.
 
-In Aggregate, Uniq and Duplicate three data models. The underlying data storage is sorted and stored according to the columns specified in AGGREGATE KEY, UNIQ KEY and DUPLICATE KEY in their respective table-building statements.
+In Aggregate, Unique and Duplicate three data models. The underlying data storage is sorted and stored according to the columns specified in AGGREGATE KEY, UNIQUE KEY and DUPLICATE KEY in their respective table-building statements.
 
 The prefix index, which is based on sorting, implements an index method to query data quickly according to a given prefix column.
 
@@ -526,7 +526,7 @@ In this document, you can see [Query how to hit Rollup](hit-the-rollup)
 
 ## Limitations of aggregation model
 
-Here we introduce the limitations of Aggregate model (including Uniq model).
+Here we introduce the limitations of Aggregate model (including Unique model).
 
 In the aggregation model, what the model presents is the aggregated data. That is to say, any data that has not yet been aggregated (for example, two different imported batches) must be presented in some way to ensure consistency. Let's give an example.
 
@@ -632,5 +632,5 @@ Duplicate model has no limitation of aggregation model. Because the model does n
 Because the data model was established when the table was built, and **could not be modified **. Therefore, it is very important to select an appropriate data model**.
 
 1. Aggregate model can greatly reduce the amount of data scanned and the amount of query computation by pre-aggregation. It is very suitable for report query scenarios with fixed patterns. But this model is not very friendly for count (*) queries. At the same time, because the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
-2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP cannot be exploited (because the essence is REPLACE, there is no such aggregation as SUM).
+2. Unique model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP cannot be exploited (because the essence is REPLACE, there is no such aggregation as SUM).
 3. Duplicate is suitable for ad-hoc queries of any dimension. Although it is also impossible to take advantage of the pre-aggregation feature, it is not constrained by the aggregation model and can take advantage of the queue-store model (only reading related columns, but not all Key columns).

@@ -108,7 +108,7 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         bool is_repeat_slot =
                 _all_slot_ids.find(_output_slots[cur_col]->id()) != _all_slot_ids.end();
         bool is_set_null_slot = repeat_ids.find(_output_slots[cur_col]->id()) == repeat_ids.end();
-        const auto column_size = src_column.column->size();
+        const auto row_size = src_column.column->size();
 
         if (is_repeat_slot) {
             DCHECK(_output_slots[cur_col]->is_nullable());
@@ -118,19 +118,19 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
 
             // set slot null not in repeat_ids
             if (is_set_null_slot) {
-                nullable_column->resize(column_size);
-                memset(nullable_column->get_null_map_data().data(), 1, sizeof(UInt8) * column_size);
+                nullable_column->resize(row_size);
+                memset(nullable_column->get_null_map_data().data(), 1, sizeof(UInt8) * row_size);
             } else {
                 if (!src_column.type->is_nullable()) {
-                    for (size_t j = 0; j < column_size; ++j) {
+                    for (size_t j = 0; j < row_size; ++j) {
                         null_map.push_back(0);
                     }
                     column_ptr = &nullable_column->get_nested_column();
                 }
-                column_ptr->insert_range_from(*src_column.column, 0, column_size);
+                column_ptr->insert_range_from(*src_column.column, 0, row_size);
             }
         } else {
-            columns[cur_col]->insert_range_from(*src_column.column, 0, column_size);
+            columns[cur_col]->insert_range_from(*src_column.column, 0, row_size);
         }
         cur_col++;
     }

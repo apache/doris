@@ -231,12 +231,10 @@ public:
                                                     StringVal* dst);
     static void count_or_sum_distinct_decimalv2_merge(FunctionContext* ctx, StringVal& src,
                                                       StringVal* dst);
-    static StringVal count_or_sum_distinct_decimal_serialize(FunctionContext* ctx,
-                                                             const StringVal& state_sv);
+
     static StringVal count_or_sum_distinct_decimalv2_serialize(FunctionContext* ctx,
                                                                const StringVal& state_sv);
-    static BigIntVal count_distinct_decimal_finalize(FunctionContext* ctx,
-                                                     const StringVal& state_sv);
+
     static BigIntVal count_distinct_decimalv2_finalize(FunctionContext* ctx,
                                                        const StringVal& state_sv);
     static DecimalV2Val sum_distinct_decimalv2_finalize(FunctionContext* ctx,
