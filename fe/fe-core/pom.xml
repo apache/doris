@@ -32,7 +32,7 @@ under the License.
         <doris.home>${basedir}/../../</doris.home>
         <fe_ut_parallel>1</fe_ut_parallel>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
-        <log4j2.version>2.17.1</log4j2.version>
+        <log4j2.version>2.17.2</log4j2.version>
     </properties>
     <profiles>
         <profile>
