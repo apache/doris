@@ -45,7 +45,6 @@ static const std::string ROOT_COUNTER = "";
 
 RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile)
         : _pool(new ObjectPool()),
-          _own_pool(false),
           _name(name),
           _metadata(-1),
           _is_averaged_profile(is_averaged_profile),
