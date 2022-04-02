@@ -275,7 +275,7 @@ mysql> show load order by createtime desc limit 1\G
          JobId: 76391
          Label: label1
          State: FINISHED
-      Progress: ETL:N/A; LOAD:100%
+      Progress: ETL:100%; LOAD:100%
           Type: BROKER
        EtlInfo: dpp.abnorm.ALL=15; dpp.norm.ALL=28133376
       TaskInfo: cluster:N/A; timeout(s):10800; max_filter_ratio:5.0E-5
@@ -307,7 +307,7 @@ The following is mainly about the significance of viewing the parameters in the 
 
 + Progress
 
-	Import the progress description of the task. There are two kinds of progress: ETL and LOAD, which correspond to the two stages of the import process, ETL and LOADING. At present, Broker load only has the LOADING stage, so ETL will always be displayed as `N/A`.
+	Import the progress description of the task. There are two kinds of progress: ETL and LOAD, which correspond to the two stages of the import process, ETL and LOADING. At present, Broker load only has the LOADING stage, so ETL will always be displayed as `100%`.
 
 	The progress range of LOAD is 0-100%.
 
@@ -320,7 +320,7 @@ The following is mainly about the significance of viewing the parameters in the 
 + Type
 
 	Types of import tasks. The type value of Broker load is only BROKER.
-+ Etlinfo
++ EtlInfo
 
 	It mainly shows the imported data quantity indicators `unselected.rows`, `dpp.norm.ALL` and `dpp.abnorm.ALL`. The first value shows the rows which has been filtered by where predicate. Users can verify that the error rate of the current import task exceeds max\_filter\_ratio based on these two indicators.
 

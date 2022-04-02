@@ -29,23 +29,20 @@
 
 namespace doris::vectorized {
 
-struct ArrayContainsAction
-{
+struct ArrayContainsAction {
     using ResultType = UInt8;
     static constexpr const bool resume_execution = false;
     static constexpr void apply(ResultType& current, size_t) noexcept { current = 1; }
 };
 
-struct ArrayPositionAction
-{
+struct ArrayPositionAction {
     using ResultType = Int64;
     static constexpr const bool resume_execution = false;
     static constexpr void apply(ResultType& current, size_t j) noexcept { current = j + 1; }
 };
 
 template <typename ConcreteAction, typename Name>
-class FunctionArrayIndex : public IFunction
-{
+class FunctionArrayIndex : public IFunction {
 public:
     using ResultType = typename ConcreteAction::ResultType;
 
@@ -60,21 +57,32 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DCHECK(WhichDataType(arguments[0]).is_array());
+        DCHECK(is_array(arguments[0]));
         return std::make_shared<DataTypeNumber<ResultType>>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        return execute_non_nullable(block, arguments, result, input_rows_count);
+        return _execute_non_nullable(block, arguments, result, input_rows_count);
     }
 
 private:
-    static bool execute_string(Block& block, const ColumnNumbers& arguments, size_t result, size_t input_rows_count) {
+    static bool _execute_string(Block& block, const ColumnNumbers& arguments, size_t result,
+                                size_t input_rows_count) {
         // check array nested column type and get data
-        auto array_column = check_and_get_column<ColumnArray>(*block.get_by_position(arguments[0]).column);
+        auto array_column =
+                check_and_get_column<ColumnArray>(*block.get_by_position(arguments[0]).column);
         DCHECK(array_column != nullptr);
-        auto nested_column = check_and_get_column<ColumnString>(array_column->get_data());
+        const ColumnString* nested_column = nullptr;
+        const UInt8* nested_null_map = nullptr;
+        auto nested_null_column = check_and_get_column<ColumnNullable>(array_column->get_data());
+        if (nested_null_column) {
+            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
+            nested_column =
+                    check_and_get_column<ColumnString>(nested_null_column->get_nested_column());
+        } else {
+            nested_column = check_and_get_column<ColumnString>(array_column->get_data());
+        }
         if (!nested_column) {
             return false;
         }
@@ -92,7 +100,8 @@ private:
         }
 
         // expand const column and get data
-        auto right_column = check_and_get_column<ColumnString>(*block.get_by_position(arguments[1]).column->convert_to_full_column_if_const());
+        auto right_column = check_and_get_column<ColumnString>(
+                *block.get_by_position(arguments[1]).column->convert_to_full_column_if_const());
         const auto& right_offs = right_column->get_offsets();
         const auto& right_chars = right_column->get_chars();
 
@@ -110,12 +119,16 @@ private:
             size_t right_off = right_offs[row - 1];
             size_t right_len = right_offs[row] - right_off;
             for (size_t pos = 0; pos < len; ++pos) {
+                if (nested_null_map && nested_null_map[pos + off]) {
+                    continue;
+                }
+
                 size_t str_pos = str_offs[pos + off - 1];
                 size_t str_len = str_offs[pos + off] - str_pos;
-
                 const char* left_raw_v = reinterpret_cast<const char*>(&str_chars[str_pos]);
                 const char* right_raw_v = reinterpret_cast<const char*>(&right_chars[right_off]);
-                if (std::string_view(left_raw_v, str_len) == std::string_view(right_raw_v, right_len)) {
+                if (std::string_view(left_raw_v, str_len) ==
+                    std::string_view(right_raw_v, right_len)) {
                     ConcreteAction::apply(res, pos);
                     break;
                 }
@@ -126,21 +139,37 @@ private:
         return true;
     }
 
-#define INTEGRAL_TPL_PACK UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Float32, Float64
-    template <typename... Integral>
-    static bool execute_integral(Block& block, const ColumnNumbers& arguments, size_t result, size_t input_rows_count) {
-        return (execute_integral_expanded<Integral, Integral...>(block, arguments, result, input_rows_count) || ...);
+#define NUMBER_TPL_PACK Int8, Int16, Int32, Int64, Float32, Float64
+    template <typename... Number>
+    static bool _execute_number(Block& block, const ColumnNumbers& arguments, size_t result,
+                                size_t input_rows_count) {
+        return (_execute_number_expanded<Number, Number...>(block, arguments, result,
+                                                            input_rows_count) ||
+                ...);
     }
     template <typename A, typename... Other>
-    static bool execute_integral_expanded(Block& block, const ColumnNumbers& arguments, size_t result, size_t input_rows_count) {
-        return (execute_integral_impl<A, Other>(block, arguments, result, input_rows_count) || ...);
+    static bool _execute_number_expanded(Block& block, const ColumnNumbers& arguments,
+                                         size_t result, size_t input_rows_count) {
+        return (_execute_number_impl<A, Other>(block, arguments, result, input_rows_count) || ...);
     }
-    template <typename Initial, typename Resulting>
-    static bool execute_integral_impl(Block& block, const ColumnNumbers& arguments, size_t result, size_t input_rows_count) {
+    template <typename LeftElementType, typename RightType>
+    static bool _execute_number_impl(Block& block, const ColumnNumbers& arguments, size_t result,
+                                     size_t input_rows_count) {
         // check array nested column type and get data
-        auto array_column = check_and_get_column<ColumnArray>(*block.get_by_position(arguments[0]).column);
+        auto array_column =
+                check_and_get_column<ColumnArray>(*block.get_by_position(arguments[0]).column);
         DCHECK(array_column != nullptr);
-        auto nested_column = check_and_get_column<ColumnVector<Initial>>(array_column->get_data());
+        const ColumnVector<LeftElementType>* nested_column = nullptr;
+        const UInt8* nested_null_map = nullptr;
+        auto nested_null_column = check_and_get_column<ColumnNullable>(array_column->get_data());
+        if (nested_null_column) {
+            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
+            nested_column = check_and_get_column<ColumnVector<LeftElementType>>(
+                    nested_null_column->get_nested_column());
+        } else {
+            nested_column =
+                    check_and_get_column<ColumnVector<LeftElementType>>(array_column->get_data());
+        }
         if (!nested_column) {
             return false;
         }
@@ -152,13 +181,15 @@ private:
         if (is_column_const(*ptr)) {
             ptr = check_and_get_column<ColumnConst>(ptr)->get_data_column_ptr();
         }
-        if (!check_and_get_column<ColumnVector<Resulting>>(*ptr)) {
+        if (!check_and_get_column<ColumnVector<RightType>>(*ptr)) {
             return false;
         }
 
         // expand const column and get data
-        auto right_column = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        const auto& right_data = check_and_get_column<ColumnVector<Resulting>>(*right_column)->get_data();
+        auto right_column =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        const auto& right_data =
+                check_and_get_column<ColumnVector<RightType>>(*right_column)->get_data();
 
         // prepare return data
         auto dst = ColumnVector<ResultType>::create();
@@ -171,6 +202,10 @@ private:
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
             for (size_t pos = 0; pos < len; ++pos) {
+                if (nested_null_map && nested_null_map[pos + off]) {
+                    continue;
+                }
+
                 if (nested_data[pos + off] == right_data[row]) {
                     ConcreteAction::apply(res, pos);
                     break;
@@ -182,15 +217,20 @@ private:
         return true;
     }
 
-    Status execute_non_nullable(Block& block, const ColumnNumbers& arguments, size_t result, size_t input_rows_count) {
+    Status _execute_non_nullable(Block& block, const ColumnNumbers& arguments, size_t result,
+                                 size_t input_rows_count) {
         WhichDataType right_type(block.get_by_position(arguments[1]).type);
-        if ((right_type.is_string() && execute_string(block, arguments, result, input_rows_count)) ||
-                execute_integral<INTEGRAL_TPL_PACK>(block, arguments, result, input_rows_count)) {
+        if ((right_type.is_string() &&
+             _execute_string(block, arguments, result, input_rows_count)) ||
+            _execute_number<NUMBER_TPL_PACK>(block, arguments, result, input_rows_count)) {
             return Status::OK();
         }
-        return Status::OK();
+        return Status::RuntimeError(
+                fmt::format("unsupported types for function {}({}, {})", get_name(),
+                            block.get_by_position(arguments[0]).type->get_name(),
+                            block.get_by_position(arguments[1]).type->get_name()));
     }
-#undef INTEGRAL_TPL_PACK
+#undef NUMBER_TPL_PACK
 };
 
 } // namespace doris::vectorized

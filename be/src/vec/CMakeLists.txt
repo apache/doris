@@ -112,6 +112,7 @@ set(VEC_FILES
   exprs/table_function/vexplode_split.cpp
   exprs/table_function/vexplode_numbers.cpp
   functions/array/function_array_index.cpp
+  functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
   functions/math.cpp
   functions/function_bitmap.cpp

@@ -1100,6 +1100,10 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
         final Type[] candicateArgTypes = candicate.getArgs();
         if (!(descArgTypes[0] instanceof ScalarType)
                 || !(candicateArgTypes[0] instanceof ScalarType)) {
+            if (candicateArgTypes[0] instanceof ArrayType) {
+                return candicateArgTypes[0].matchesType(descArgTypes[0]);
+            }
+
             return false;
         }
         if (functionName.equalsIgnoreCase("hex")
@@ -1151,27 +1155,27 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
      */
     public void addScalarBuiltin(String fnName, String symbol, boolean userVisible,
                                  String prepareFnSymbol, String closeFnSymbol,
-                                 Function.NullableMode nullableMode, PrimitiveType retType,
-                                 boolean varArgs, PrimitiveType ... args) {
+                                 Function.NullableMode nullableMode, Type retType,
+                                 boolean varArgs, Type ... args) {
         ArrayList<Type> argsType = new ArrayList<Type>();
-        for (PrimitiveType type : args) {
-            argsType.add(Type.fromPrimitiveType(type));
+        for (Type type : args) {
+            argsType.add(type);
         }
         addBuiltin(ScalarFunction.createBuiltin(
-                fnName, Type.fromPrimitiveType(retType), nullableMode, argsType, varArgs,
+                fnName, retType, nullableMode, argsType, varArgs,
                 symbol, prepareFnSymbol, closeFnSymbol, userVisible));
     }
 
     public void addScalarAndVectorizedBuiltin(String fnName, String symbol, boolean userVisible,
                                               String prepareFnSymbol, String closeFnSymbol,
-                                              Function.NullableMode nullableMode, PrimitiveType retType,
-                                              boolean varArgs, PrimitiveType ... args) {
+                                              Function.NullableMode nullableMode, Type retType,
+                                              boolean varArgs, Type ... args) {
         ArrayList<Type> argsType = new ArrayList<Type>();
-        for (PrimitiveType type : args) {
-            argsType.add(Type.fromPrimitiveType(type));
+        for (Type type : args) {
+            argsType.add(type);
         }
         addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
-                fnName, Type.fromPrimitiveType(retType), nullableMode, argsType, varArgs,
+                fnName, retType, nullableMode, argsType, varArgs,
                 symbol, prepareFnSymbol, closeFnSymbol, userVisible));
     }
 
