@@ -347,6 +347,16 @@ public:
     static void offset_fn_update(doris_udf::FunctionContext*, const T& src,
                                  const doris_udf::BigIntVal&, const T&, T* dst);
 
+    // windowFunnel
+    static void window_funnel_init(FunctionContext* ctx, StringVal* dst);
+    static void window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
+                             const StringVal& mode, const DateTimeVal& timestamp,
+                             int num_cond, const BooleanVal* conds, StringVal* dst);
+    static void window_funnel_merge(FunctionContext* ctx, const StringVal& src,
+                            StringVal* dst);
+    static StringVal window_funnel_serialize(FunctionContext* ctx, const StringVal& src);
+    static IntVal window_funnel_finalize(FunctionContext* ctx, const StringVal& src);
+
     // todo(kks): keep following HLL methods only for backward compatibility, we should remove these methods
     //            when doris 0.12 release
     static void hll_init(doris_udf::FunctionContext*, doris_udf::StringVal* slot);
