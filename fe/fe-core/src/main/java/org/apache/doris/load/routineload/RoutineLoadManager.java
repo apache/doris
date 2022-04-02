@@ -421,8 +421,6 @@ public class RoutineLoadManager implements Writable {
             return -1L;
         }
 
-
-
         // check if be has idle slot
         readLock();
         try {
