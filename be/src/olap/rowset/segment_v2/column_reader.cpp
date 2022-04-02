@@ -778,7 +778,7 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
     char* data_ptr = (char *) &int128;
     size_t data_len = sizeof(int128);
 
-    auto insert_column_data = [data_ptr, data_len, n, &dst]() {
+    auto insert_column_data = [&]() {
         for (size_t i = 0; i < n; ++i) {
             dst->insert_data(data_ptr, data_len);
         }
