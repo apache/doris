@@ -106,6 +106,7 @@ private:
     Status _output_column_by_sel_idx(vectorized::Block* block, const Container& column_ids,
                                      uint16_t* sel_rowid_idx, uint16_t select_size,
                                      bool is_block_mem_reuse) {
+        SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
         for (auto cid : column_ids) {
             int block_cid = _schema_block_id_map[cid];
             RETURN_IF_ERROR(block->copy_column_data_to_block(
