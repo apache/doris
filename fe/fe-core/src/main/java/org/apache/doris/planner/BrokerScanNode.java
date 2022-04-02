@@ -411,7 +411,7 @@ public class BrokerScanNode extends LoadScanNode {
             } else if (fileFormat.toLowerCase().equals("json")) {
                 return TFileFormatType.FORMAT_JSON;
                 // csv/csv_with_name/csv_with_names_and_types treat as csv format
-            } else if (fileFormat.toLowerCase().equals("csv")
+            } else if (fileFormat.toLowerCase().equals(FeConstants.csv)
                     || fileFormat.toLowerCase().equals(FeConstants.csv_with_names)
                     || fileFormat.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;

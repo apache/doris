@@ -213,7 +213,7 @@ public class BrokerFileGroup implements Writable {
         fileFormat = dataDescription.getFileFormat();
         if (fileFormat != null) {
             if (!fileFormat.equalsIgnoreCase("parquet")
-                    && !fileFormat.equalsIgnoreCase("csv")
+                    && !fileFormat.equalsIgnoreCase(FeConstants.csv)
                     && !fileFormat.equalsIgnoreCase("orc")
                     && !fileFormat.equalsIgnoreCase("json")
                     && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)

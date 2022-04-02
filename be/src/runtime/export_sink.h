@@ -77,6 +77,7 @@ private:
     RuntimeProfile::Counter* _bytes_written_counter;
     RuntimeProfile::Counter* _rows_written_counter;
     RuntimeProfile::Counter* _write_timer;
+    bool _send_header;
 };
 
 } // end namespace doris

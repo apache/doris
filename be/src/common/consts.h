@@ -21,6 +21,7 @@
 
 namespace doris {
 namespace BeConsts {
+const std::string CSV = "csv";
 const std::string CSV_WITH_NAMES = "csv_with_names";
 const std::string CSV_WITH_NAMES_AND_TYPES = "csv_with_names_and_types";
 } // namespace BeConsts

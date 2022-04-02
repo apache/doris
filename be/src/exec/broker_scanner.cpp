@@ -58,7 +58,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
           _cur_decompressor(nullptr),
           _next_range(0),
           _cur_line_reader_eof(false),
-          _skip_next_line(0) {
+          _skip_lines(0) {
     if (params.__isset.column_separator_length && params.column_separator_length > 1) {
         _value_separator = params.column_separator_str;
         _value_separator_length = params.column_separator_length;
@@ -103,8 +103,8 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, boo
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         RETURN_IF_ERROR(_cur_line_reader->read_line(&ptr, &size, &_cur_line_reader_eof));
-        if (_skip_next_line > 0) {
-            _skip_next_line--;
+        if (_skip_lines > 0) {
+            _skip_lines--;
             continue;
         }
         if (size == 0) {
@@ -165,9 +165,9 @@ Status BrokerScanner::open_file_reader() {
     if (start_offset == 0 && range.header_type.size() > 0) {
         std::string header_type = to_lower(range.header_type);
         if (header_type == BeConsts::CSV_WITH_NAMES) {
-            _skip_next_line = 1;
+            _skip_lines = 1;
         } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
-            _skip_next_line = 2;
+            _skip_lines = 2;
         }
     }
     switch (range.file_type) {
@@ -279,7 +279,7 @@ Status BrokerScanner::open_line_reader() {
         }
         size += 1;
         // not  first range will always skip one line
-        _skip_next_line = 1;
+        _skip_lines = 1;
     }
 
     // create decompressor.
