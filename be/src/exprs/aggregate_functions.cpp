@@ -2254,6 +2254,212 @@ void AggregateFunctions::offset_fn_update(FunctionContext* ctx, const T& src, co
     *dst = src;
 }
 
+// Refer to AggregateFunctionWindowFunnel.h in https://github.com/ClickHouse/ClickHouse.git
+struct WindowFunnelState {
+    std::vector<std::pair<DateTimeValue, int>> events;
+    int max_event_level;
+    bool sorted;
+    int64_t window;
+
+    WindowFunnelState() {
+        sorted = true;
+        max_event_level = 0;
+        window = 0;
+    }
+
+    void add(DateTimeValue& timestamp, int event_idx, int event_num) {
+        max_event_level = event_num;
+        if (sorted && events.size() > 0) {
+            if (events.back().first == timestamp) {
+                sorted = events.back().second <= event_idx;
+            } else {
+                sorted = events.back().first < timestamp;
+            }
+        }
+        events.emplace_back(timestamp, event_idx);
+    }
+
+    void sort() {
+        if (sorted) {
+            return;
+        }
+        std::stable_sort(events.begin(), events.end());
+    }
+
+    int get_event_level() {
+        std::vector<std::optional<DateTimeValue>> events_timestamp(max_event_level);
+        for (int64_t i = 0; i < events.size(); i++) {
+            int& event_idx = events[i].second;
+            DateTimeValue& timestamp = events[i].first;
+            if (event_idx == 0) {
+                events_timestamp[0] = timestamp;
+                continue;
+            }
+            if (events_timestamp[event_idx - 1].has_value()) {
+                DateTimeValue& first_timestamp = events_timestamp[event_idx - 1].value();
+                DateTimeValue last_timestamp = first_timestamp;
+                TimeInterval interval(SECOND, window, false);
+                last_timestamp.date_add_interval(interval, SECOND);
+
+                if (timestamp <= last_timestamp) {
+                    events_timestamp[event_idx] = first_timestamp;
+                    if (event_idx + 1 == max_event_level) {
+                        // Usually, max event level is small.
+                        return max_event_level;
+                    }
+                }
+            }
+        }
+
+        for (int64_t i = events_timestamp.size() - 1; i >= 0; i--) {
+            if (events_timestamp[i].has_value()) {
+                return i + 1;
+            }
+        }
+
+        return 0;
+    }
+
+    void merge(WindowFunnelState *other) {
+        if (other->events.empty()) {
+            return;
+        }
+
+        int64_t orig_size = events.size();
+        events.insert(std::end(events), std::begin(other->events), std::end(other->events));
+        const auto begin = std::begin(events);
+        const auto middle = std::next(events.begin(), orig_size);
+        const auto end = std::end(events);
+        if (!other->sorted) {
+            std::stable_sort(middle, end);
+        }
+
+        if (!sorted) {
+            std::stable_sort(begin, middle);
+        }
+        std::inplace_merge(begin, middle, end);
+        max_event_level = max_event_level > 0 ? max_event_level : other->max_event_level;
+        window = window > 0 ? window : other->window;
+
+        sorted = true;
+    }
+
+    int64_t serialized_size() {
+        return sizeof(int) + sizeof(int64_t) + sizeof(uint64_t) +
+               events.size() * (sizeof(int64_t) + sizeof(int));
+    }
+
+    void serialize(uint8_t *buf) {
+        memcpy(buf, &max_event_level, sizeof(int));
+        buf += sizeof(int);
+        memcpy(buf, &window, sizeof(int64_t));
+        buf += sizeof(int64_t);
+
+        uint64_t event_num = events.size();
+        memcpy(buf, &event_num, sizeof(uint64_t));
+        buf += sizeof(uint64_t);
+        for (int64_t i = 0; i < events.size(); i++) {
+            int64_t timestamp = events[i].first;
+            int event_idx = events[i].second;
+            memcpy(buf, &timestamp, sizeof(int64_t));
+            buf += sizeof(int64_t);
+            memcpy(buf, &event_idx, sizeof(int));
+            buf += sizeof(int);
+        }
+    }
+
+    void deserialize(uint8_t *buf) {
+        uint64_t size;
+
+        memcpy(&max_event_level, buf, sizeof(int));
+        buf += sizeof(int);
+        memcpy(&window, buf, sizeof(int64_t));
+        buf += sizeof(int64_t);
+        memcpy(&size, buf, sizeof(uint64_t));
+        buf += sizeof(uint64_t);
+        for (int64_t i = 0; i < size; i++) {
+            int64_t timestamp;
+            int event_idx;
+
+            memcpy(&timestamp, buf, sizeof(int64_t));
+            buf += sizeof(int64_t);
+            memcpy(&event_idx, buf, sizeof(int));
+            buf += sizeof(int);
+            DateTimeValue time_value;
+            time_value.from_date_int64(timestamp);
+            add(time_value, event_idx, max_event_level);
+        }
+    }
+};
+
+void AggregateFunctions::window_funnel_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = false;
+    dst->len = sizeof(WindowFunnelState);
+    WindowFunnelState* state = new WindowFunnelState();
+    dst->ptr = (uint8_t*)state;
+    // constant args at index 0 and 1
+    DCHECK(ctx->is_arg_constant(0));
+    BigIntVal* window = reinterpret_cast<BigIntVal*>(ctx->get_constant_arg(0));
+    state->window = window->val;
+    // TODO handle mode in the future
+}
+
+void AggregateFunctions::window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
+                                             const StringVal& mode, const DateTimeVal& timestamp,
+                                             int num_cond, const BooleanVal* conds, StringVal* dst) {
+    DCHECK(dst->ptr != nullptr);
+    DCHECK_EQ(sizeof(WindowFunnelState), dst->len);
+
+    if (timestamp.is_null) {
+        return;
+    }
+
+    WindowFunnelState* state = reinterpret_cast<WindowFunnelState*>(dst->ptr);
+    for (int i = 0; i < num_cond; i++) {
+        if (conds[i].is_null) {
+            continue;
+        }
+        if (conds[i].val) {
+            DateTimeValue time_value = DateTimeValue::from_datetime_val(timestamp);
+            state->add(time_value, i, num_cond);
+        }
+    }
+}
+
+StringVal AggregateFunctions::window_funnel_serialize(FunctionContext* ctx,
+                                                const StringVal& src) {
+    WindowFunnelState* state = reinterpret_cast<WindowFunnelState*>(src.ptr);
+    int64_t serialized_size = state->serialized_size();
+    StringVal result(ctx, sizeof(double) + serialized_size);
+    state->serialize(result.ptr);
+
+    delete state;
+    return result;
+}
+
+void AggregateFunctions::window_funnel_merge(FunctionContext* ctx, const StringVal& src,
+                                            StringVal* dst) {
+    DCHECK(dst->ptr != nullptr);
+    DCHECK_EQ(sizeof(WindowFunnelState), dst->len);
+    WindowFunnelState* dst_state = reinterpret_cast<WindowFunnelState*>(dst->ptr);
+
+    WindowFunnelState* src_state = new WindowFunnelState;
+
+    src_state->deserialize(src.ptr);
+    dst_state->merge(src_state);
+    delete src_state;
+}
+
+IntVal AggregateFunctions::window_funnel_finalize(FunctionContext* ctx, const StringVal& src) {
+    DCHECK(!src.is_null);
+
+    WindowFunnelState* state = reinterpret_cast<WindowFunnelState*>(src.ptr);
+    state->sort();
+    int val = state->get_event_level();
+    delete state;
+    return doris_udf::IntVal(val);
+}
+
 // Stamp out the templates for the types we need.
 template void AggregateFunctions::init_zero_null<BigIntVal>(FunctionContext*, BigIntVal* dst);
 template void AggregateFunctions::init_zero_null<LargeIntVal>(FunctionContext*, LargeIntVal* dst);
@@ -2729,4 +2935,5 @@ template void AggregateFunctions::percentile_approx_update<doris_udf::DoubleVal>
 template void AggregateFunctions::percentile_approx_update<doris_udf::DoubleVal>(
         FunctionContext* ctx, const doris_udf::DoubleVal&, const doris_udf::DoubleVal&,
         const doris_udf::DoubleVal&, doris_udf::StringVal*);
+
 } // namespace doris
