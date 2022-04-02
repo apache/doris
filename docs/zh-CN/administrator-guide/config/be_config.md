@@ -863,7 +863,7 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我
 
 * 类型：int32
 * 描述：在 cumulative compaction 过程中，当选中的 tablet 没能成功的进行版本合并，则会等待一段时间后才会再次有可能被选中。等待的这段时间就是这个配置的值。
-* 默认值：600
+* 默认值：5
 * 单位：秒
 
 ### `min_compaction_threads`
