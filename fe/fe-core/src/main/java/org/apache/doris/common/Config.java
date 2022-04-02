@@ -1658,10 +1658,4 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = false;
 
-    /**
-     * Routine load aborted and re-allocate retry times
-     * Default is 5.
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int routine_load_task_reallocate_times = 5;
 }

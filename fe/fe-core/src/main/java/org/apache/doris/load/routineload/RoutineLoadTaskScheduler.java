@@ -289,13 +289,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     private boolean allocateTaskToBe(RoutineLoadTaskInfo routineLoadTaskInfo) throws LoadException {
         long beId = routineLoadManager.getAvailableBeForTask(routineLoadTaskInfo.getPreviousBeId(), routineLoadTaskInfo.getClusterName());
         if (beId == -1L) {
-            int failedCount = routineLoadTaskInfo.getFailAllocateCount() + 1;
-            if (failedCount < Config.routine_load_task_reallocate_times) {
-                routineLoadTaskInfo.setFailAllocateCount(failedCount);
-            } else {
-                routineLoadTaskInfo.setFailAllocateCount(0);
-                routineLoadTaskInfo.setPreviousBeId(-1L);
-            }
             return false;
         }
 
