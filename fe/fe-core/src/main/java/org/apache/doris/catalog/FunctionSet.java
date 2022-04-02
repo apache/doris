@@ -1218,6 +1218,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
 
 
     public static final String COUNT = "count";
+    public static final String WINDOW_FUNNEL = "window_funnel";
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1250,6 +1251,36 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 null, null,
                 prefix + "17count_star_removeEPN9doris_udf15FunctionContextEPNS1_9BigIntValE",
                 null, false, true, true, true));
+
+        // windowFunnel
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
+                Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIME, Type.BOOLEAN),
+                Type.INT,
+                Type.VARCHAR,
+                true,
+                prefix + "18window_funnel_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                prefix + "20window_funnel_updateEPN9doris_udf15FunctionContextERKNS1_9BigIntValERKNS1_9StringValERKNS1_11DateTimeValEiPKNS1_10BooleanValEPS7_",
+                prefix + "19window_funnel_mergeEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                prefix + "23window_funnel_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "",
+                "",
+                prefix + "22window_funnel_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                true, false, true));
+
+        // Vectorization does not need symbol any more, we should clean it in the future.
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,
+                Lists.newArrayList(Type.BIGINT, Type.STRING, Type.DATETIME, Type.BOOLEAN),
+                Type.INT,
+                Type.VARCHAR,
+                true,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                true, false, true, true));
 
         for (Type t : Type.getSupportedTypes()) {
             if (t.isNull()) {
