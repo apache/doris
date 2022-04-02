@@ -29,25 +29,17 @@ struct StPoint {
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 2);
         auto return_type = block.get_data_type(result);
-        DCHECK_EQ(return_type->is_nullable(), true);
         auto column_x = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto column_y = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
         const auto size = column_x->size();
 
         MutableColumnPtr res = nullptr;
-        auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
-        res = ColumnNullable::create(null_type->get_nested_type()->create_column(),
-                                     ColumnUInt8::create());
+        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         GeoPoint point;
         std::string buf;
         for (int row = 0; row < size; ++row) {
-            if (column_x->is_null_at(row) || column_y->is_null_at(row)) {
-                res->insert_data(nullptr, 0);
-                continue;
-            }
-
             auto cur_res = point.from_coord(column_x->operator[](row).get<Float64>(),
                                             column_y->operator[](row).get<Float64>());
             if (cur_res != GEO_PARSE_OK) {
@@ -79,7 +71,6 @@ struct StAsText {
     static Status execute(Block& block, const ColumnNumbers& arguments,size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
-        DCHECK_EQ(return_type->is_nullable(), true);
         auto input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
@@ -87,15 +78,10 @@ struct StAsText {
 
         MutableColumnPtr res = nullptr;
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
-        res = ColumnNullable::create(
-                null_type->get_nested_type()->create_column(), ColumnUInt8::create());
+        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         std::unique_ptr<GeoShape> shape;
         for (int row = 0; row < size; ++row) {
-            if (col->is_null_at(row)) {
-                res->insert_data(nullptr, 0);
-                continue;
-            }
             auto shape_value = col->get_data_at(row);
             shape.reset(GeoShape::from_encoded(shape_value.data, shape_value.size));
 
@@ -118,7 +104,6 @@ struct StX {
     static Status execute(Block& block, const ColumnNumbers& arguments,size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
-        DCHECK_EQ(return_type->is_nullable(), true);
         auto input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
@@ -126,15 +111,10 @@ struct StX {
 
         MutableColumnPtr res = nullptr;
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
-        res = ColumnNullable::create(
-                null_type->get_nested_type()->create_column(), ColumnUInt8::create());
+        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         GeoPoint point;
         for (int row = 0; row < size; ++row) {
-            if (col->is_null_at(row)) {
-                res->insert_data(nullptr, 0);
-                continue;
-            }
             auto point_value = col->get_data_at(row);
             auto pt = point.decode_from(point_value.data, point_value.size);
 
@@ -157,7 +137,6 @@ struct StY {
     static Status execute(Block& block, const ColumnNumbers& arguments,size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
-        DCHECK_EQ(return_type->is_nullable(), true);
         auto input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
@@ -165,15 +144,10 @@ struct StY {
 
         MutableColumnPtr res = nullptr;
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
-        res = ColumnNullable::create(
-                null_type->get_nested_type()->create_column(), ColumnUInt8::create());
+        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         GeoPoint point;
         for (int row = 0; row < size; ++row) {
-            if (col->is_null_at(row)) {
-                res->insert_data(nullptr, 0);
-                continue;
-            }
             auto point_value = col->get_data_at(row);
             auto pt = point.decode_from(point_value.data, point_value.size);
 
@@ -196,7 +170,6 @@ struct StDistanceSphere {
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 4);
         auto return_type = block.get_data_type(result);
-        DCHECK_EQ(return_type->is_nullable(), true);
         auto x_lng = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto x_lat = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         auto y_lng = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
@@ -206,16 +179,9 @@ struct StDistanceSphere {
 
         MutableColumnPtr res = nullptr;
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
-        res = ColumnNullable::create(null_type->get_nested_type()->create_column(),
-                                     ColumnUInt8::create());
+        res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         for (int row = 0; row < size; ++row) {
-            if (x_lng->is_null_at(row) || x_lat->is_null_at(row) ||
-                y_lng->is_null_at(row) || y_lat->is_null_at(row)) {
-                res->insert_data(nullptr, 0);
-                continue;
-            }
-
             double distance;
             if (!GeoPoint::ComputeDistance(x_lng->operator[](row).get<Float64>(),
                                            x_lat->operator[](row).get<Float64>(),
