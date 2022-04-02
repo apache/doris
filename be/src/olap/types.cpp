@@ -48,6 +48,7 @@ bool is_olap_string_type(FieldType field_type) {
 }
 
 const TypeInfo* get_scalar_type_info(FieldType field_type) {
+    // nullptr means that there is no TypeInfo implementation for the corresponding field_type
     static const TypeInfo* field_type_array[] = {
         nullptr,
         get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>(),
