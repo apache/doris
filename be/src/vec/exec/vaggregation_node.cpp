@@ -245,27 +245,20 @@ Status AggregationNode::prepare(RuntimeState* state) {
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
 
     for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
-        _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
-
         const auto& agg_function = _aggregate_evaluators[i]->function();
-        // aggreate states are aligned based on maximum requirement
-        _align_aggregate_states = std::max(_align_aggregate_states, agg_function->align_of_data());
+
+        size_t alignment = agg_function->align_of_data();
+        if ((alignment & (alignment - 1)) != 0) {
+            return Status::RuntimeError(fmt::format("Logical error: align_of_data is not 2^N"));
+        }
+
+        _total_size_of_aggregate_states = (_total_size_of_aggregate_states + (alignment - 1)) &
+                                          (~(alignment - 1));
+        _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
         _total_size_of_aggregate_states += agg_function->size_of_data();
 
-        // If not the last aggregate_state, we need pad it so that next aggregate_state will be aligned.
-        if (i + 1 < _aggregate_evaluators.size()) {
-            size_t alignment_of_next_state =
-                    _aggregate_evaluators[i + 1]->function()->align_of_data();
-            if ((alignment_of_next_state & (alignment_of_next_state - 1)) != 0) {
-                return Status::RuntimeError(fmt::format("Logical error: align_of_data is not 2^N"));
-            }
-
-            /// Extend total_size to next alignment requirement
-            /// Add padding by rounding up 'total_size_of_aggregate_states' to be a multiplier of alignment_of_next_state.
-            _total_size_of_aggregate_states =
-                    (_total_size_of_aggregate_states + alignment_of_next_state - 1) /
-                    alignment_of_next_state * alignment_of_next_state;
-        }
+        // aggreate states are aligned based on maximum requirement
+        _align_aggregate_states = std::max(_align_aggregate_states, alignment);
     }
 
     if (_probe_expr_ctxs.empty()) {
