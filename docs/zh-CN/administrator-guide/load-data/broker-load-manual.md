@@ -281,7 +281,7 @@ mysql> show load order by createtime desc limit 1\G
          JobId: 76391
          Label: label1
          State: FINISHED
-      Progress: ETL:N/A; LOAD:100%
+      Progress: ETL:100%; LOAD:100%
           Type: BROKER
        EtlInfo: unselected.rows=4; dpp.abnorm.ALL=15; dpp.norm.ALL=28133376
       TaskInfo: cluster:N/A; timeout(s):10800; max_filter_ratio:5.0E-5
@@ -313,7 +313,7 @@ LoadFinishTime: 2019-07-27 11:50:16
     
 + Progress
 
-    导入任务的进度描述。分为两种进度：ETL 和 LOAD，对应了导入流程的两个阶段 ETL 和 LOADING。目前 Broker load 由于只有 LOADING 阶段，所以 ETL 则会永远显示为 `N/A` 
+    导入任务的进度描述。分为两种进度：ETL 和 LOAD，对应了导入流程的两个阶段 ETL 和 LOADING。目前 Broker load 由于只有 LOADING 阶段，所以 ETL 则会永远显示为 `100%` 
     
     LOAD 的进度范围为：0~100%。
     
