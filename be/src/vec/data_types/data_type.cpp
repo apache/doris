@@ -42,9 +42,9 @@ String IDataType::do_get_name() const {
 
 void IDataType::update_avg_value_size_hint(const IColumn& column, double& avg_value_size_hint) {
     /// Update the average value size hint if amount of read rows isn't too small
-    size_t column_size = column.size();
-    if (column_size > 10) {
-        double current_avg_value_size = static_cast<double>(column.byte_size()) / column_size;
+    size_t row_size = column.size();
+    if (row_size > 10) {
+        double current_avg_value_size = static_cast<double>(column.byte_size()) / row_size;
 
         /// Heuristic is chosen so that avg_value_size_hint increases rapidly but decreases slowly.
         if (current_avg_value_size > avg_value_size_hint)
