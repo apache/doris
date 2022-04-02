@@ -425,25 +425,29 @@ public class RoutineLoadManager implements Writable {
         readLock();
         try {
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
-            // get the previousBackend status
-            Backend previousBackend = Catalog.getCurrentSystemInfo().getBackend(previousBeId);
-            // 1. Find if the given BE id has available slots && check if it is alive
-            if (previousBeId != -1L && previousBackend.isAlive()) {
-                int idleTaskNum = 0;
-                if (!beIdToMaxConcurrentTasks.containsKey(previousBeId)) {
-                    idleTaskNum = 0;
-                } else if (beIdToConcurrentTasks.containsKey(previousBeId)) {
-                    idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId) - beIdToConcurrentTasks.get(previousBeId);
-                } else {
-                    idleTaskNum = Config.max_routine_load_task_num_per_be;
-                }
-                if (idleTaskNum > 0) {
-                    return previousBeId;
+
+            // 1. Find if the given BE id has available slots
+            if (previousBeId != -1L) {
+                // get the previousBackend info
+                Backend previousBackend = Catalog.getCurrentSystemInfo().getBackend(previousBeId);
+                // check previousBackend is alive && load available
+                if (previousBackend.isLoadAvailable()) {
+                    int idleTaskNum = 0;
+                    if (!beIdToMaxConcurrentTasks.containsKey(previousBeId)) {
+                        idleTaskNum = 0;
+                    } else if (beIdToConcurrentTasks.containsKey(previousBeId)) {
+                        idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId) - beIdToConcurrentTasks.get(previousBeId);
+                    } else {
+                        idleTaskNum = Config.max_routine_load_task_num_per_be;
+                    }
+                    if (idleTaskNum > 0) {
+                        return previousBeId;
+                    }
                 }
             }
 
             // 2. The given BE id does not have available slots, find a BE with min tasks
-            // 3. The previos BE is not alive, find a new BE with min tasks
+            // 3. The previos BE is not load available, find a new BE with min tasks
             int idleTaskNum = 0;
             long resultBeId = -1L;
             int maxIdleSlotNum = 0;
