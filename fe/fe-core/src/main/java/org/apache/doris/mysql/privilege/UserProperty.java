@@ -274,6 +274,13 @@ public class UserProperty implements Writable {
                 if (keyArr.length != 1) {
                     throw new DdlException(PROP_SQL_BLOCK_RULES + " format error");
                 }
+
+                // check if sql_block_rule has already exist
+                for (String ruleName : value.replaceAll(" ","").split(",")){
+                    if (!ruleName.equals("") && !Catalog.getCurrentCatalog().getSqlBlockRuleMgr().existRule(ruleName)){
+                        throw new DdlException("the sql block rule " + ruleName + " not exist");
+                    }
+                }
                 sqlBlockRules = value;
             } else if (keyArr[0].equalsIgnoreCase(PROP_CPU_RESOURCE_LIMIT)) {
                 // set property "cpu_resource_limit" = "2";
@@ -329,7 +336,7 @@ public class UserProperty implements Writable {
         this.commonProperties.setCpuResourceLimit(cpuResourceLimit);
         this.commonProperties.setResourceTags(resourceTags);
         this.commonProperties.setExecMemLimit(execMemLimit);
-        this.commonProperties.setExecMemLimit(loadMemLimit);
+        this.commonProperties.setLoadMemLimit(loadMemLimit);
         resource = newResource;
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
@@ -451,6 +458,12 @@ public class UserProperty implements Writable {
 
         // cpu resource limit
         result.add(Lists.newArrayList(PROP_CPU_RESOURCE_LIMIT, String.valueOf(commonProperties.getCpuResourceLimit())));
+
+        // exec mem limit
+        result.add(Lists.newArrayList(PROP_EXEC_MEM_LIMIT, String.valueOf(commonProperties.getExecMemLimit())));
+
+        // load mem limit
+        result.add(Lists.newArrayList(PROP_LOAD_MEM_LIMIT, String.valueOf(commonProperties.getLoadMemLimit())));
 
         // resource tag
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));

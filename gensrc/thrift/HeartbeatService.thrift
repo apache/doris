@@ -18,6 +18,7 @@
 namespace cpp doris
 namespace java org.apache.doris.thrift
 
+include "AgentService.thrift"
 include "Status.thrift"
 include "Types.thrift"
 

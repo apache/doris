@@ -135,11 +135,6 @@ uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len);
 // 获取系统当前时间，并将时间转换为字符串
 OLAPStatus gen_timestamp_string(std::string* out_string);
 
-// 将file移到回收站，回收站位于storage_root/trash, file可以是文件或目录
-// 移动的同时将file改名：storage_root/trash/20150619154308/file
-OLAPStatus move_to_trash(const std::filesystem::path& schema_hash_root,
-                         const std::filesystem::path& file_path);
-
 enum ComparatorEnum {
     COMPARATOR_LESS = 0,
     COMPARATOR_LARGER = 1,

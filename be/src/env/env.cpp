@@ -15,36 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/config.h"
 #include "env/env.h"
 #include "env/env_posix.h"
-#include "env/env_remote.h"
 
 namespace doris {
 
 std::shared_ptr<PosixEnv> Env::_posix_env(new PosixEnv());
-std::shared_ptr<RemoteEnv> Env::_remote_env(new RemoteEnv());
 
 // Default Posix Env
 Env *Env::Default() {
     return _posix_env.get();
-}
-
-Env* Env::get_env(TStorageMedium::type storage_medium) {
-    switch (storage_medium) {
-        case TStorageMedium::S3:
-            return _remote_env.get();
-        case TStorageMedium::SSD:
-        case TStorageMedium::HDD:
-        default:
-            return Default();
-    }
-}
-
-Status Env::init() {
-    RETURN_IF_ERROR(_posix_env->init_conf());
-    RETURN_IF_ERROR(_remote_env->init_conf());
-    LOG(INFO) << "Env init successfully.";
-    return Status::OK();
 }
 
 } // end namespace doris

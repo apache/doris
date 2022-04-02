@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+
 #include "common/status.h"
 #include "runtime/dpp_sink_internal.h"
 #include "vec/exprs/vexpr.h"
@@ -51,7 +52,7 @@ private:
     int64_t _id;
     PartRange _range;
     // Information used to distribute data
-    // distribute exprs
+    // distribute express.
     std::vector<VExprContext*> _distributed_expr_ctxs;
     int32_t _distributed_bucket;
 };

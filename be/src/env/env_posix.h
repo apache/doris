@@ -33,8 +33,6 @@ class PosixEnv : public Env {
 public:
     ~PosixEnv() override {}
 
-    Status init_conf() override;
-
     Status new_sequential_file(const std::string& fname,
                                std::unique_ptr<SequentialFile>* result) override;
 
@@ -94,7 +92,6 @@ public:
 
     Status get_space_info(const std::string& path, int64_t* capacity, int64_t* available) override;
 
-    bool is_remote_env() override { return false; }
 };
 
 } // namespace doris

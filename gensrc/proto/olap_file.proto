@@ -146,6 +146,7 @@ enum AlterTabletState {
 enum AlterTabletType {
     SCHEMA_CHANGE = 1;
     ROLLUP = 2;
+    MIGRATION = 3;
 }
 
 message AlterTabletPB {
@@ -213,6 +214,24 @@ enum StorageMediumPB {
     HDD = 0;
     SSD = 1;
     S3 = 2;
+    REMOTE_CACHE = 99;
+}
+
+message S3StorageParamPB {
+    optional string s3_endpoint = 1;
+    optional string s3_region = 2;
+    optional string s3_ak = 3;
+    optional string s3_sk = 4;
+    optional int32 s3_max_conn = 5 [default = 50];
+    optional int32 s3_request_timeout_ms = 6 [default = 3000];
+    optional int32 s3_conn_timeout_ms = 7 [default = 1000];
+    optional string root_path = 8;
+}
+
+message StorageParamPB {
+    optional StorageMediumPB storage_medium = 1 [default = HDD];
+    optional string storage_name = 2 [default = "local"];
+    optional S3StorageParamPB s3_storage_param = 3;
 }
 
 message TabletMetaPB {
@@ -240,6 +259,7 @@ message TabletMetaPB {
     optional TabletTypePB tablet_type = 17;
     repeated RowsetMetaPB stale_rs_metas = 18;
     optional StorageMediumPB storage_medium = 19 [default = HDD];
+    optional string remote_storage_name = 20;
 }
 
 message OLAPIndexHeaderMessage {

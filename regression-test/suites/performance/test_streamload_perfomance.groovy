@@ -1,7 +1,8 @@
-def tableName = "test_streamload_performance1"
+suite("test_streamload_perfomance", "performance") {
+    def tableName = "test_streamload_performance1"
 
-try {
-    sql """
+    try {
+        sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
             id int,
             name varchar(255)
@@ -12,16 +13,17 @@ try {
         ) 
         """
 
-    def rowCount = 10000
-    def rowIt = java.util.stream.LongStream.range(0, rowCount)
-            .mapToObj({i -> [i, "a_" + i]})
-            .iterator()
+        def rowCount = 10000
+        def rowIt = java.util.stream.LongStream.range(0, rowCount)
+                .mapToObj({i -> [i, "a_" + i]})
+                .iterator()
 
-    streamLoad {
-        table tableName
-        time 5000
-        inputIterator rowIt
+        streamLoad {
+            table tableName
+            time 5000
+            inputIterator rowIt
+        }
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName}"
     }
-} finally {
-    try_sql "DROP TABLE IF EXISTS ${tableName}"
 }

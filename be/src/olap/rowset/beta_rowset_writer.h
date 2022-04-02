@@ -76,7 +76,7 @@ private:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
-    AtomicInt<int32_t> _num_segment;
+    std::atomic<int32_t> _num_segment;
     /// When flushing the memtable in the load process, we do not use this writer but an independent writer.
     /// Because we want to flush memtables in parallel.
     /// In other processes, such as merger or schema change, we will use this unified writer for data writing.
@@ -86,14 +86,13 @@ private:
     std::vector<std::unique_ptr<fs::WritableBlock>> _wblocks;
 
     // counters and statistics maintained during data write
-    AtomicInt<int64_t> _num_rows_written;
-    AtomicInt<int64_t> _total_data_size;
-    AtomicInt<int64_t> _total_index_size;
+    std::atomic<int64_t> _num_rows_written;
+    std::atomic<int64_t> _total_data_size;
+    std::atomic<int64_t> _total_index_size;
     // TODO rowset Zonemap
 
     bool _is_pending = false;
     bool _already_built = false;
-
 };
 
 } // namespace doris

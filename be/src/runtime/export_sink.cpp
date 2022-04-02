@@ -216,12 +216,15 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
 }
 
 Status ExportSink::close(RuntimeState* state, Status exec_status) {
+    if (_closed) {
+        return Status::OK();
+    }
     Expr::close(_output_expr_ctxs, state);
     if (_file_writer != nullptr) {
         _file_writer->close();
         _file_writer = nullptr;
     }
-    return Status::OK();
+    return DataSink::close(state, exec_status);
 }
 
 Status ExportSink::open_file_writer() {

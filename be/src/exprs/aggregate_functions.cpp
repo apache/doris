@@ -234,7 +234,6 @@ StringVal AggregateFunctions::percentile_serialize(FunctionContext* ctx, const S
 }
 
 DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const StringVal& src) {
-    DCHECK(!src.is_null);
 
     PercentileState* percentile = reinterpret_cast<PercentileState*>(src.ptr);
     double quantile = percentile->quantile;
@@ -340,7 +339,6 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
 
 DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx,
                                                          const StringVal& src) {
-    DCHECK(!src.is_null);
 
     PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(src.ptr);
     double quantile = percentile->targetQuantile;
@@ -1764,7 +1762,6 @@ StringVal AggregateFunctions::count_distinct_date_serialize(FunctionContext* ctx
 template <typename T>
 BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize(FunctionContext* ctx,
                                                                      const StringVal& state_sv) {
-    DCHECK(!state_sv.is_null);
     MultiDistinctNumericState<T>* state =
             reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
     BigIntVal result = state->count_finalize();
@@ -1774,7 +1771,6 @@ BigIntVal AggregateFunctions::count_or_sum_distinct_numeric_finalize(FunctionCon
 
 BigIntVal AggregateFunctions::count_distinct_string_finalize(FunctionContext* ctx,
                                                              const StringVal& state_sv) {
-    DCHECK(!state_sv.is_null);
     MultiDistinctStringCountState* state =
             reinterpret_cast<MultiDistinctStringCountState*>(state_sv.ptr);
     BigIntVal result = state->finalize();
@@ -1785,7 +1781,6 @@ BigIntVal AggregateFunctions::count_distinct_string_finalize(FunctionContext* ct
 template <typename T>
 DoubleVal AggregateFunctions::sum_distinct_double_finalize(FunctionContext* ctx,
                                                            const StringVal& state_sv) {
-    DCHECK(!state_sv.is_null);
     MultiDistinctNumericState<T>* state =
             reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
     DoubleVal result = state->sum_finalize_double();
@@ -1796,7 +1791,6 @@ DoubleVal AggregateFunctions::sum_distinct_double_finalize(FunctionContext* ctx,
 template <typename T>
 LargeIntVal AggregateFunctions::sum_distinct_largeint_finalize(FunctionContext* ctx,
                                                                const StringVal& state_sv) {
-    DCHECK(!state_sv.is_null);
     MultiDistinctNumericState<T>* state =
             reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
     LargeIntVal result = state->sum_finalize_largeint();
@@ -1807,7 +1801,6 @@ LargeIntVal AggregateFunctions::sum_distinct_largeint_finalize(FunctionContext* 
 template <typename T>
 BigIntVal AggregateFunctions::sum_distinct_bigint_finalize(FunctionContext* ctx,
                                                            const StringVal& state_sv) {
-    DCHECK(!state_sv.is_null);
     MultiDistinctNumericState<T>* state =
             reinterpret_cast<MultiDistinctNumericState<T>*>(state_sv.ptr);
     BigIntVal result = state->sum_finalize_bigint();
@@ -1817,7 +1810,6 @@ BigIntVal AggregateFunctions::sum_distinct_bigint_finalize(FunctionContext* ctx,
 
 BigIntVal AggregateFunctions::count_distinct_decimalv2_finalize(FunctionContext* ctx,
                                                                 const StringVal& state_sv) {
-    DCHECK(!state_sv.is_null);
     MultiDistinctDecimalV2State* state =
             reinterpret_cast<MultiDistinctDecimalV2State*>(state_sv.ptr);
     BigIntVal result = state->count_finalize();
@@ -1827,7 +1819,6 @@ BigIntVal AggregateFunctions::count_distinct_decimalv2_finalize(FunctionContext*
 
 DecimalV2Val AggregateFunctions::sum_distinct_decimalv2_finalize(FunctionContext* ctx,
                                                                  const StringVal& state_sv) {
-    DCHECK(!state_sv.is_null);
     MultiDistinctDecimalV2State* state =
             reinterpret_cast<MultiDistinctDecimalV2State*>(state_sv.ptr);
     DecimalV2Val result = state->sum_finalize();
@@ -1837,7 +1828,6 @@ DecimalV2Val AggregateFunctions::sum_distinct_decimalv2_finalize(FunctionContext
 
 BigIntVal AggregateFunctions::count_distinct_date_finalize(FunctionContext* ctx,
                                                            const StringVal& state_sv) {
-    DCHECK(!state_sv.is_null);
     MultiDistinctCountDateState* state =
             reinterpret_cast<MultiDistinctCountDateState*>(state_sv.ptr);
     BigIntVal result = state->count_finalize();
@@ -1993,7 +1983,6 @@ void AggregateFunctions::decimalv2_knuth_var_merge(FunctionContext* ctx, const S
 }
 
 DoubleVal AggregateFunctions::knuth_var_finalize(FunctionContext* ctx, const StringVal& state_sv) {
-    DCHECK(!state_sv.is_null);
     KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
     if (state->count == 0 || state->count == 1) return DoubleVal::null();
     double variance = compute_knuth_variance(*state, false);

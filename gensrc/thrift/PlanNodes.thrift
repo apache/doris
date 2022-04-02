@@ -393,7 +393,10 @@ struct THashJoinNode {
 
   // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
   // equi-join predicate, only use in vec exec engine
-  5: optional Exprs.TExpr vother_join_conjunct	
+  5: optional Exprs.TExpr vother_join_conjunct
+
+  // hash output column
+  6: optional list<Types.TSlotId> hash_output_slot_ids
 }
 
 struct TMergeJoinNode {
@@ -789,6 +792,9 @@ struct TPlanNode {
   40: optional Exprs.TExpr vconjunct
 
   41: optional TTableFunctionNode table_function_node
+
+  // output column
+  42: optional list<Types.TSlotId> output_slot_ids
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

@@ -57,7 +57,7 @@ public:
     /// Get the result type.
     virtual DataTypePtr get_return_type() const = 0;
 
-    virtual ~IAggregateFunction() {}
+    virtual ~IAggregateFunction() = default;
 
     /** Create empty data for aggregation with `placement new` at the specified location.
       * You will have to destroy them using the `destroy` method.
@@ -109,11 +109,6 @@ public:
       */
     virtual bool is_state() const { return false; }
 
-    /// if return false, during insert_result_into function, you colud get nullable result column,
-    /// so could insert to null value by yourself, rather than by AggregateFunctionNullBase;
-    /// because you maybe be calculate a invalid value, but want to use null replace it;
-    virtual bool insert_to_null_default() const { return true; }
-
     /** Contains a loop with calls to "add" function. You can collect arguments into array "places"
       *  and do a single call to "add_batch" for devirtualization and inlining.
       */
@@ -152,14 +147,16 @@ public:
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena* arena) const override {
-        for (size_t i = 0; i < batch_size; ++i)
+        for (size_t i = 0; i < batch_size; ++i) {
             static_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+        }
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
-        for (size_t i = 0; i < batch_size; ++i)
+        for (size_t i = 0; i < batch_size; ++i) {
             static_cast<const Derived*>(this)->add(place, columns, i, arena);
+        }
     }
     //now this is use for sum/count/avg/min/max win function, other win function should override this function in class
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
@@ -174,8 +171,9 @@ public:
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
                          const IColumn** columns, Arena* arena, bool has_null) override {
-        for (size_t i = batch_begin; i <= batch_end; ++i)
+        for (size_t i = batch_begin; i <= batch_end; ++i) {
             static_cast<const Derived*>(this)->add(place, columns, i, arena);
+        }
     }
 };
 

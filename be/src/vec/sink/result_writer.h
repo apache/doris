@@ -16,7 +16,9 @@
 // under the License.
 
 #pragma once
+
 #include "runtime/result_writer.h"
+
 namespace doris {
 namespace vectorized {
 class VResultWriter : public ResultWriter {

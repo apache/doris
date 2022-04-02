@@ -12,6 +12,7 @@ header:
     - 'DISCLAIMER'
     - '.clang-format'
     - '.clang-format-ignore'
+    - '.clang-tidy'
     - '.gitattributes'
     - '.gitignore'
     - '.gitmodules'
@@ -51,6 +52,7 @@ header:
     - 'be/src/util/sse2neon.h'
     - 'be/src/util/utf8_check.cpp'
     - 'build-support/run_clang_format.py'
+    - 'regression-test/common'
     - 'regression-test/suites'
     - 'regression-test/data'
 

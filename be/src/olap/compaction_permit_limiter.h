@@ -45,7 +45,7 @@ public:
 
 private:
     // sum of "permits" held by executing compaction tasks currently
-    AtomicInt64 _used_permits;
+    std::atomic<int64_t> _used_permits;
     std::mutex _permits_mutex;
     std::condition_variable _permits_cv;
 };

@@ -42,8 +42,11 @@ struct PercentileApproxState {
 
     void write(BufferWritable& buf) const {
         write_binary(init_flag, buf);
-        write_binary(target_quantile, buf);
+        if (!init_flag) {
+            return;
+        }
 
+        write_binary(target_quantile, buf);
         uint32_t serialize_size = digest->serialized_size();
         std::string result(serialize_size, '0');
         DCHECK(digest.get() != nullptr);
@@ -54,17 +57,29 @@ struct PercentileApproxState {
 
     void read(BufferReadable& buf) {
         read_binary(init_flag, buf);
-        read_binary(target_quantile, buf);
+        if (!init_flag) {
+            return;
+        }
 
+        read_binary(target_quantile, buf);
         std::string str;
         read_binary(str, buf);
         digest.reset(new TDigest());
         digest->unserialize((uint8_t*)str.c_str());
     }
 
-    double get() const { return digest->quantile(target_quantile); }
+    double get() const {
+        if (init_flag) {
+            return digest->quantile(target_quantile);
+        } else {
+            return std::nan("");
+        }
+    }
 
     void merge(const PercentileApproxState& rhs) {
+        if (!rhs.init_flag) {
+            return;
+        }
         if (init_flag) {
             DCHECK(digest.get() != nullptr);
             digest->merge(rhs.digest.get());
@@ -90,7 +105,7 @@ struct PercentileApproxState {
     }
 
     bool init_flag = false;
-    std::unique_ptr<TDigest> digest;
+    std::unique_ptr<TDigest> digest = nullptr;
     double target_quantile = INIT_QUANTILE;
 };
 
@@ -105,31 +120,32 @@ public:
 
     String get_name() const override { return "percentile_approx"; }
 
-    bool insert_to_null_default() const override { return false; }
-
     DataTypePtr get_return_type() const override {
         return make_nullable(std::make_shared<DataTypeFloat64>());
     }
 
-    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+    void reset(AggregateDataPtr __restrict place) const override {
+        AggregateFunctionPercentileApprox::data(place).reset();
+    }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(place).merge(this->data(rhs));
+        AggregateFunctionPercentileApprox::data(place).merge(
+                AggregateFunctionPercentileApprox::data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
+        AggregateFunctionPercentileApprox::data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        this->data(place).read(buf);
+        AggregateFunctionPercentileApprox::data(place).read(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        double result = this->data(place).get();
+        double result = AggregateFunctionPercentileApprox::data(place).get();
 
         if (std::isnan(result)) {
             nullable_column.insert_default();
@@ -142,6 +158,7 @@ public:
 };
 
 // only for merge
+template <bool is_nullable>
 class AggregateFunctionPercentileApproxMerge : public AggregateFunctionPercentileApprox {
 public:
     AggregateFunctionPercentileApproxMerge(const DataTypes& argument_types_)
@@ -152,32 +169,84 @@ public:
     }
 };
 
+template <bool is_nullable>
 class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPercentileApprox {
 public:
     AggregateFunctionPercentileApproxTwoParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& sources = static_cast<const ColumnVector<Float64>&>(*columns[0]);
-        const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
+        if constexpr (is_nullable) {
+            double column_data[2] = {0, 0};
 
-        this->data(place).init();
-        this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
+            for (int i = 0; i < 2; ++i) {
+                const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
+                if (nullable_column == nullptr) { //Not Nullable column
+                    const auto& column = static_cast<const ColumnVector<Float64>&>(*columns[i]);
+                    column_data[i] = column.get_float64(row_num);
+                } else if (!nullable_column->is_null_at(
+                                   row_num)) { // Nullable column && Not null data
+                    const auto& column = static_cast<const ColumnVector<Float64>&>(
+                            nullable_column->get_nested_column());
+                    column_data[i] = column.get_float64(row_num);
+                } else { // Nullable column && null data
+                    if (i == 0) {
+                        return;
+                    }
+                }
+            }
+
+            this->data(place).init();
+            this->data(place).add(column_data[0], column_data[1]);
+
+        } else {
+            const auto& sources = static_cast<const ColumnVector<Float64>&>(*columns[0]);
+            const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
+
+            this->data(place).init();
+            this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
+        }
     }
 };
 
+template <bool is_nullable>
 class AggregateFunctionPercentileApproxThreeParams : public AggregateFunctionPercentileApprox {
 public:
     AggregateFunctionPercentileApproxThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& sources = static_cast<const ColumnVector<Float64>&>(*columns[0]);
-        const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
-        const auto& compression = static_cast<const ColumnVector<Float64>&>(*columns[2]);
+        if constexpr (is_nullable) {
+            double column_data[3] = {0, 0, 0};
 
-        this->data(place).init(compression.get_float64(row_num));
-        this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
+            for (int i = 0; i < 3; ++i) {
+                const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[i]);
+                if (nullable_column == nullptr) { //Not Nullable column
+                    const auto& column = static_cast<const ColumnVector<Float64>&>(*columns[i]);
+                    column_data[i] = column.get_float64(row_num);
+                } else if (!nullable_column->is_null_at(
+                                   row_num)) { // Nullable column && Not null data
+                    const auto& column = static_cast<const ColumnVector<Float64>&>(
+                            nullable_column->get_nested_column());
+                    column_data[i] = column.get_float64(row_num);
+                } else { // Nullable column && null data
+                    if (i == 0) {
+                        return;
+                    }
+                }
+            }
+
+            this->data(place).init(column_data[2]);
+            this->data(place).add(column_data[0], column_data[1]);
+
+        } else {
+            const auto& sources = static_cast<const ColumnVector<Float64>&>(*columns[0]);
+            const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
+            const auto& compression = static_cast<const ColumnVector<Float64>&>(*columns[2]);
+
+            this->data(place).init(compression.get_float64(row_num));
+            this->data(place).add(sources.get_float64(row_num), quantile.get_float64(row_num));
+        }
     }
 };
 
@@ -239,28 +308,31 @@ public:
         const auto& sources = static_cast<const ColumnVector<Int64>&>(*columns[0]);
         const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
 
-        this->data(place).add(sources.get_int(row_num), quantile.get_float64(row_num));
+        AggregateFunctionPercentile::data(place).add(sources.get_int(row_num),
+                                                     quantile.get_float64(row_num));
     }
 
-    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+    void reset(AggregateDataPtr __restrict place) const override {
+        AggregateFunctionPercentile::data(place).reset();
+    }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(place).merge(this->data(rhs));
+        AggregateFunctionPercentile::data(place).merge(AggregateFunctionPercentile::data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
+        AggregateFunctionPercentile::data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        this->data(place).read(buf);
+        AggregateFunctionPercentile::data(place).read(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnVector<Float64>&>(to);
-        col.insert_value(this->data(place).get());
+        col.insert_value(AggregateFunctionPercentile::data(place).get());
     }
 };
 

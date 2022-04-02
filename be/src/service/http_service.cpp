@@ -71,6 +71,9 @@ Status HttpService::start() {
     // register download action
     std::vector<std::string> allow_paths;
     for (auto& path : _env->store_paths()) {
+        if (FilePathDesc::is_remote(path.storage_medium)) {
+            continue;
+        }
         allow_paths.emplace_back(path.path);
     }
     DownloadAction* download_action = _pool.add(new DownloadAction(_env, allow_paths));

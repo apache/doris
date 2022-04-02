@@ -1644,5 +1644,11 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean disable_mini_load = true;
+    /**
+     * Enable quantile_state type column
+     * Default is false.
+     * */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_quantile_state_type = false;
 
 }
