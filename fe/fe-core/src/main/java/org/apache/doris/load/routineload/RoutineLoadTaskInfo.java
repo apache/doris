@@ -76,6 +76,9 @@ public abstract class RoutineLoadTaskInfo {
     // so that user or other logic can know the status of the corresponding txn.
     protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
 
+    // count allocate failed times
+    private int failAllocateCount = 0;
+
     public RoutineLoadTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs) {
         this.id = id;
         this.jobId = jobId;
@@ -145,6 +148,13 @@ public abstract class RoutineLoadTaskInfo {
         return txnStatus;
     }
 
+    public void setFailAllocateCount() {
+        this.failAllocateCount = failAllocateCount;
+    }
+
+    public int getFailAllocateCount() {
+        return failAllocateCount;
+    }
     public boolean isTimeout() {
         if (txnStatus == TransactionStatus.COMMITTED || txnStatus == TransactionStatus.VISIBLE) {
             // the corresponding txn is already finished, this task can not be treated as timeout.
