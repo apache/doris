@@ -47,10 +47,7 @@ public class ExportSink extends DataSink {
 
     public ExportSink(String exportPath, String columnSeparator,
                       String lineDelimiter, BrokerDesc brokerDesc, String header) {
-        this.exportPath = exportPath;
-        this.columnSeparator = columnSeparator;
-        this.lineDelimiter = lineDelimiter;
-        this.brokerDesc = brokerDesc;
+        this(exportPath, columnSeparator, lineDelimiter, brokerDesc);
         this.header = header;
     }
 

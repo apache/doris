@@ -46,7 +46,7 @@ ExportSink::ExportSink(ObjectPool* pool, const RowDescriptor& row_desc,
           _bytes_written_counter(nullptr),
           _rows_written_counter(nullptr),
           _write_timer(nullptr),
-          _send_header(false) {
+          _header_sent(false) {
     _name = "ExportSink";
 }
 
@@ -97,12 +97,12 @@ Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
     int num_rows = batch->num_rows();
     // we send at most 1024 rows at a time
     int batch_send_rows = num_rows > 1024 ? 1024 : num_rows;
-    if (!_send_header && _t_export_sink.header.size() > 0) {
+    if (!_header_sent && _t_export_sink.header.size() > 0) {
         size_t written_len = 0;
         RETURN_IF_ERROR(
                 _file_writer->write(reinterpret_cast<const uint8_t*>(_t_export_sink.header.c_str()),
                                     _t_export_sink.header.size(), &written_len));
-        _send_header = true;
+        _header_sent = true;
     }
     std::stringstream ss;
     for (int i = 0; i < num_rows;) {

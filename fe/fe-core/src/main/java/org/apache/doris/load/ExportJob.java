@@ -258,30 +258,36 @@ public class ExportJob implements Writable {
         plan();
     }
 
+    
+    private String genNames() {
+        String names = "";
+        for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
+            names = names + slot.getColumn().getName() + getColumnSeparator();
+        }
+        names = names.substring(0, names.length() - getColumnSeparator().length());
+        names = names + getLineDelimiter();
+        return names;
+    }
+
+    private String genTypes() {
+        String types = "";
+        for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
+            types = types + slot.getColumn().getType().toString() + getColumnSeparator();
+        }
+        types = types.substring(0, types.length() - getColumnSeparator().length());
+        types = types + getLineDelimiter();
+        return types;
+    }
+
     private String genHeader(Map<String, String> properties) {
         String header = "";
         if (properties.containsKey("format")) {
             String headerType = properties.get("format");
             if (headerType.equals(FeConstants.csv_with_names)) {
-                //names
-                for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
-                    header = header + slot.getColumn().getName() + getColumnSeparator();
-                }
-                header = header.substring(0, header.length() - getColumnSeparator().length());
-                header = header + getLineDelimiter();
+                header = genNames();
             } else if (headerType.equals(FeConstants.csv_with_names_and_types)) {
-                //names
-                for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
-                    header = header + slot.getColumn().getName() + getColumnSeparator();
-                }
-                header = header.substring(0, header.length() - getColumnSeparator().length());
-                header = header + getLineDelimiter();
-                //types 
-                for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
-                    header = header + slot.getColumn().getType().toString() + getColumnSeparator();
-                }
-                header = header.substring(0, header.length() - getColumnSeparator().length());
-                header = header + getLineDelimiter();
+                header = genNames();
+                header += genTypes();
             }
         }
         return header;

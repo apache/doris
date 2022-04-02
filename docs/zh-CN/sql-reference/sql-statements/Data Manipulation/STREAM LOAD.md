@@ -78,7 +78,7 @@ under the License.
 
         exec_mem_limit: 导入内存限制。默认为 2GB。单位为字节。
 
-        format: 指定导入数据格式，默认是csv，支持json格和带header的csv格式: csv_with_names、csv_with_names_and_types。
+        format: 指定导入数据格式，默认是csv，支持json格式和带header的csv格式: csv_with_names、csv_with_names_and_types。
 
         jsonpaths: 导入json方式分为：简单模式和匹配模式。
               简单模式：没有设置jsonpaths参数即为简单模式，这种模式下要求json数据是对象类型，例如：
