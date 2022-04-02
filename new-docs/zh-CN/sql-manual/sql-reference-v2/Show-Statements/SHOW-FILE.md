@@ -1,11 +1,11 @@
 ---
 {
-    "title": "HLL近似精准去重",
+    "title": "SHOW-FILE",
     "language": "zh-CN"
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,4 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# HLL近似精准去重
+## SHOW-FILE
+
+### Description
+
+### Example
+
+### Keywords
+
+    SHOW, USER
+
+### Best Practice
+

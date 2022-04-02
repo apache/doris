@@ -32,8 +32,6 @@ It's design, implementation and effects, please refer to [ISSUE 6116](https://gi
 
 ## Noun Interpretation
 
-* FE: Frontend, the front-end node of Doris. Responsible for metadata management and request access.
-* BE: Backend, the back-end node of Doris. Responsible for query execution and data storage.
 * Left table: the table on the left during Join query. Perform Probe operation. The order can be adjusted by Join Reorder.
 * Right table: the table on the right during Join query. Perform the Build operation. The order can be adjusted by Join Reorder.
 * Fragment: FE will convert the execution of specific SQL statements into corresponding fragments and send them to BE for execution. The corresponding Fragment is executed on the BE, and the results are aggregated and returned to the FE.

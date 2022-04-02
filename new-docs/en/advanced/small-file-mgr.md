@@ -30,8 +30,6 @@ Some functions in Doris require some user-defined files. For example, public key
 
 ## Noun Interpretation
 
-* FE: Frontend, the front-end node of Doris. Responsible for metadata management and request access.
-* BE: Backend, Doris's back-end node. Responsible for query execution and data storage.
 * BDBJE: Oracle Berkeley DB Java Edition. Distributed embedded database for persistent metadata in FE.
 * SmallFileMgr: File Manager. Responsible for creating and maintaining user files.
 
@@ -47,31 +45,57 @@ File creation and deletion can only be performed by users with `admin` privilege
 
 File management has three main commands: `CREATE FILE`, `SHOW FILE` and `DROP FILE`, creating, viewing and deleting files respectively. The specific syntax of these three commands can be viewed by connecting to Doris and executing `HELP cmd;`.
 
-1. CREATE FILE
+### CREATE FILE
 
-	In the command to create a file, the user must provide the following information:
+This statement is used to create and upload a file to the Doris cluster. For details, see [CREATE FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.md).
 
-	* file_name: File name. User-defined, unique within a catalog.
-	* Catalog: Category of files. User-defined, unique within a database.
+Examples:
 
-		> Doris also has some special classification names for specific commands.
+```sql
+1. Create file ca.pem , classified as kafka
 
-		> 1. Kafka
+    CREATE FILE "ca.pem"
+    PROPERTIES
+    (
+        "url" = "https://test.bj.bcebos.com/kafka-key/ca.pem",
+        "catalog" = "kafka"
+    );
 
-		> When the data source is specified as Kafka in the routine Import command and the file needs to be referenced, Doris defaults to looking for the file from the catalog category named "kafka".
+2. Create a file client.key, classified as my_catalog
 
-	* url: the download address of the file. Currently, only unauthenticated HTTP download addresses are supported. This download address is only used to download files from this address when executing the create file command. When the file is successfully created and saved in Doris, the address will no longer be used.
-	* md5: optional. The MD5 value of the file. If the user provides this value, the MD5 value will be checked after the file is downloaded. File creation fails if validation fails.
+    CREATE FILE "client.key"
+    IN my_database
+    PROPERTIES
+    (
+        "url" = "https://test.bj.bcebos.com/kafka-key/client.key",
+        "catalog" = "my_catalog",
+        "md5" = "b5bb901bf10f99205b39a46ac3557dd9"
+    );
+```
 
-	When the file is created successfully, the file-related information will be persisted in Doris. Users can view successfully created files through the `SHOW FILE` command.
+### SHOW FILE
 
-2. SHOW FILE
+This statement can view the files that have been created successfully. For details, see [SHOW FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.md).
 
-	This command allows you to view files that have been created successfully. Specific operations see: `HELP SHOW FILE;`
+Examples:
 
-3. DROP FILE
+```sql
+1. View uploaded files in database my_database
 
-	This command can delete a file that has been created. Specific operations see: `HELP DROP FILE;`
+    SHOW FILE FROM my_database;
+```
+
+### DROP FILE
+
+This statement can view and delete an already created file. For specific operations, see [DROP FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.md).
+
+Examples:
+
+```sql
+1. delete file ca.pem
+
+    DROP FILE "ca.pem" properties("catalog" = "kafka");
+```
 
 ## Implementation details
 
