@@ -294,6 +294,23 @@ public:
             return -1;
         }
 
+        // For > , code takes upper_bound - 1; For >= , code takes upper_bound
+        // For < , code takes upper_bound; For <=, code takes upper_bound - 1
+        // For example a sorted dict: <'b',0> <'c',1> <'d',2>
+        // Now the predicate value is 'ccc', 'ccc' is not in the dict, 'ccc' is between 'c' and 'd'.
+        // std::upper_bound(..., 'ccc') - begin, will return the encoding of 'd', which is 2
+        // If the predicate is col > 'ccc' and the value of upper_bound-1 is 1,
+        //  then evaluate code > 1 and the result is 'd'.
+        // If the predicate is col < 'ccc' and the value of upper_bound is 2,
+        //  evaluate code < 2, and the return result is 'b'.
+        // If the predicate is col >= 'ccc' and the value of upper_bound is 2,
+        //  evaluate code >= 2, and the return result is 'd'.
+        // If the predicate is col <= 'ccc' and the value of upper_bound-1 is 1,
+        //  evaluate code <= 1, and the returned result is 'b'.
+        // If the predicate is col < 'a', 'a' is also not in the dict, and 'a' is less than 'b',
+        //  so upper_bound is the code 0 of b, then evaluate code < 0 and returns empty
+        // If the predicate is col <= 'a' and upper_bound-1 is -1,
+        //  then evaluate code <= -1 and returns empty
         inline int32_t find_code_by_bound(const StringValue& value, bool greater, bool eq) const {
             auto code = find_code(value);
             if (code >= 0) {
