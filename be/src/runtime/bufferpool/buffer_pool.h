@@ -23,7 +23,6 @@
 #include <string>
 #include <vector>
 
-#include "common/atomic.h"
 #include "common/compiler_util.h"
 #include "common/object_pool.h"
 #include "common/status.h"

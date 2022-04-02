@@ -24,7 +24,6 @@
 #include <limits>
 #include <sstream>
 
-#include "common/logging.h"
 #include "util/timezone_utils.h"
 #include "runtime/datetime_value.h"
 

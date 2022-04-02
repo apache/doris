@@ -37,6 +37,7 @@ static std::string CAPACITY_UC = "CAPACITY";
 static std::string MEDIUM_UC = "MEDIUM";
 static std::string SSD_UC = "SSD";
 static std::string HDD_UC = "HDD";
+static std::string REMOTE_CACHE_UC = "REMOTE_CACHE";
 
 // TODO: should be a general util method
 static std::string to_upper(const std::string& str) {
@@ -45,9 +46,11 @@ static std::string to_upper(const std::string& str) {
     return out;
 }
 
-// Currently, both of two following formats are supported(see be.conf)
+// Currently, both of three following formats are supported(see be.conf), remote cache is the
+// local cache path for remote storage.
 //   format 1:   /home/disk1/palo.HDD,50
 //   format 2:   /home/disk1/palo,medium:ssd,capacity:50
+//   remote cache format:  /home/disk/palo/cache,medium:remote_cache,capacity:50
 OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
     std::vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
 
@@ -122,6 +125,8 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
             path->storage_medium = TStorageMedium::SSD;
         } else if (medium_str == HDD_UC) {
             path->storage_medium = TStorageMedium::HDD;
+        } else if (medium_str == REMOTE_CACHE_UC) {
+            path->storage_medium = TStorageMedium::REMOTE_CACHE;
         } else {
             LOG(WARNING) << "invalid storage medium. medium=" << medium_str;
             return OLAP_ERR_INPUT_PARAMETER_ERROR;

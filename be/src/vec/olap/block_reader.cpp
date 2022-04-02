@@ -109,7 +109,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         function->create(place);
         _agg_places.push_back(place);
 
-        //calculate has_string tag
+        // calculate `has_string` tag.
         _stored_has_string_tag[idx] =
                 _stored_data_columns[idx]->is_column_string() ||
                 (_stored_data_columns[idx]->is_nullable() &&

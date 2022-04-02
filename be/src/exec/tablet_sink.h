@@ -100,7 +100,7 @@ public:
     void addSuccessHandler(std::function<void(const T&, bool)> fn) { success_handler = fn; }
 
     void join() {
-        if (cid != INVALID_BTHREAD_ID) {
+        if (cid != INVALID_BTHREAD_ID && _packet_in_flight) {
             brpc::Join(cid);
         }
     }
@@ -484,8 +484,6 @@ protected:
     int64_t _load_channel_timeout_s = 0;
 
     int32_t _send_batch_parallelism = 1;
-    // True if this sink has been closed once bool
-    bool _is_closed = false;
     // Save the status of close() method
     Status _close_status;
 

@@ -37,14 +37,15 @@ public:
 
     Status put(const std::string& key, const std::string& value);
 
-    Status get_batch(const std::string& start, const int batch_size, std::map<std::string, std::string>* stream_load_records);
+    Status get_batch(const std::string& start, const int batch_size,
+                     std::map<std::string, std::string>* stream_load_records);
 
 private:
     std::string _root_path;
     rocksdb::DBWithTTL* _db;
     std::vector<rocksdb::ColumnFamilyHandle*> _handles;
 
-    AtomicInt64 _last_compaction_time;
+    std::atomic<int64_t> _last_compaction_time;
 
     enum ColumnFamilyIndex {
         DEFAULT_COLUMN_FAMILY_INDEX = 0,

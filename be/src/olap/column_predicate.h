@@ -33,12 +33,29 @@ class VectorizedRowBatch;
 class Schema;
 class RowBlockV2;
 
+enum class PredicateType {
+    UNKNOWN = 0,
+    EQ = 1,
+    NE = 2,
+    LT = 3,
+    LE = 4,
+    GT = 5,
+    GE = 6,
+    IN_LIST = 7,
+    NO_IN_LIST = 8,
+    IS_NULL = 9,
+    NOT_IS_NULL = 10,
+    BF = 11, // BloomFilter
+};
+
 class ColumnPredicate {
 public:
     explicit ColumnPredicate(uint32_t column_id, bool opposite = false)
             : _column_id(column_id), _opposite(opposite) {}
 
     virtual ~ColumnPredicate() = default;
+
+    virtual PredicateType type() const = 0;
 
     //evaluate predicate on VectorizedRowBatch
     virtual void evaluate(VectorizedRowBatch* batch) const = 0;
@@ -69,11 +86,7 @@ public:
     virtual void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {};
     uint32_t column_id() const { return _column_id; }
 
-    virtual bool is_in_predicate() { return false; }
-
-    virtual bool is_bloom_filter_predicate() { return false; }
-
-    virtual bool is_range_comparison_predicate() { return false; }
+    virtual void set_dict_code_if_necessary(vectorized::IColumn& column) { }
 
 protected:
     uint32_t _column_id;

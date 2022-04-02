@@ -51,6 +51,7 @@ set(UTIL_FILES
   progress_updater.cpp
   runtime_profile.cpp
   static_asserts.cpp
+  storage_backend_mgr.cpp
   string_parser.cpp
   thrift_util.cpp
   thrift_client.cpp
@@ -64,7 +65,6 @@ set(UTIL_FILES
   mysql_row_buffer.cpp
   tuple_row_compare.cpp
   error_util.cc
-  spinlock.cc
   filesystem_util.cc
   load_error_hub.cpp
   broker_load_error_hub.cpp

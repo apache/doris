@@ -47,6 +47,7 @@ enum TStorageMedium {
     HDD,
     SSD,
     S3,
+    REMOTE_CACHE,
 }
 
 enum TVarType {
@@ -81,7 +82,7 @@ enum TPrimitiveType {
   STRUCT,
   STRING,
   ALL,
-  QUANTILE_STATE
+  QUANTILE_STATE,
 }
 
 enum TTypeNodeType {

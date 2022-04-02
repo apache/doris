@@ -1283,7 +1283,7 @@ The Apache Software License, Version 2.0
     * oro:
         - oro:oro:2.0.8 (no url defined)
     * je:
-        - com.sleepycat:je:7.3.7 (no url defined)
+        - com.sleepycat:je:18.3.12 (no url defined)
     ### The following components use multiple licenses and we choose APLv2
     * JAX-RS provider for JSON content type:
         - org.codehaus.jackson:jackson-jaxrs:1.8.3 (http://jackson.codehaus.org)
@@ -1499,6 +1499,10 @@ Revised BSD -- licenses/LICENSE-JSch.txt
 Sun Binary Code License Agreement -- licenses/LICENSE-jta.txt
     * Java Transaction API:
         - javax.transaction:jta:1.1 (http://java.sun.com/products/jta)
+
+LGPL -- licenes/LICENSE-LGPL.txt
+    * MariaDB Java Client
+        - org.mariadb.jdbc:mariadb-java-client:3.0.4 (https://mariadb.com/kb/en/mariadb/about-mariadb-connector-j/)
 
 ====================================================================================
 This projects includes binary packages with the following licenses (BE part):

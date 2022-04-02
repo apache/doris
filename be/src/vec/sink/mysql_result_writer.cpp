@@ -19,13 +19,13 @@
 
 #include "runtime/buffer_control_block.h"
 #include "runtime/runtime_state.h"
-#include "util/date_func.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 namespace vectorized {
 VMysqlResultWriter::VMysqlResultWriter(BufferControlBlock* sinker,
@@ -58,7 +58,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                                            const DataTypePtr& nested_type_ptr) {
     SCOPED_TIMER(_convert_tuple_timer);
 
-    const auto column_size = column_ptr->size();
+    const auto row_size = column_ptr->size();
 
     doris::vectorized::ColumnPtr column;
     if constexpr (is_nullable) {
@@ -71,7 +71,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
     int buf_ret = 0;
 
     if constexpr (type == TYPE_OBJECT || type == TYPE_VARCHAR) {
-        for (int i = 0; i < column_size; ++i) {
+        for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
@@ -109,7 +109,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
     } else if constexpr (type == TYPE_ARRAY) {
         auto& column_array = assert_cast<const ColumnArray&>(*column);
         auto& offsets = column_array.get_offsets();
-        for (int i = 0; i < column_size; ++i) {
+        for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
             }
@@ -146,7 +146,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
         using ColumnType = typename PrimitiveTypeTraits<type>::ColumnType;
         auto& data = assert_cast<const ColumnType&>(*column).get_data();
 
-        for (int i = 0; i < column_size; ++i) {
+        for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
             }

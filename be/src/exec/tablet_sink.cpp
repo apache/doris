@@ -504,7 +504,6 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
         }
     }
 
-    _add_batch_closure->reset();
     int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
@@ -514,6 +513,11 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
             remain_ms = config::min_load_rpc_timeout_ms;
         }
     }
+
+    // After calling reset(), make sure that the rpc will be called finally.
+    // Otherwise, when calling _add_batch_closure->join(), it will be blocked forever.
+    // and _add_batch_closure->join() will be called in ~NodeChannel().
+    _add_batch_closure->reset();
     _add_batch_closure->cntl.set_timeout_ms(remain_ms);
     if (config::tablet_writer_ignore_eovercrowded) {
         _add_batch_closure->cntl.ignore_eovercrowded();
@@ -973,7 +977,7 @@ Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
 }
 
 Status OlapTableSink::close(RuntimeState* state, Status close_status) {
-    if (_is_closed) {
+    if (_closed) {
         /// The close method may be called twice.
         /// In the open_internal() method of plan_fragment_executor, close is called once.
         /// If an error occurs in this call, it will be called again in fragment_mgr.
@@ -1086,7 +1090,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     _output_batch.reset();
 
     _close_status = status;
-    _is_closed = true;
+    DataSink::close(state, close_status);
     return status;
 }
 

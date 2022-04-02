@@ -91,7 +91,7 @@ For query options related to Runtime Filter, please refer to the following secti
 
 - The first query option is to adjust the type of Runtime Filter used. In most cases, you only need to adjust this option, and keep the other options as default.
 
-  - `runtime_filter_type`: Including Bloom Filter, MinMax Filter, IN predicate and IN_OR_BLOOM Filter. By default, only IN_OR_BLOOM Filter will be used. In some cases, the performance will be higher when both Bloom Filter, MinMax Filter and IN predicate are used at the same time.
+  - `runtime_filter_type`: Including Bloom Filter, MinMax Filter, IN predicate and IN Or Bloom Filter. By default, only IN Or Bloom Filter will be used. In some cases, the performance will be higher when both Bloom Filter, MinMax Filter and IN predicate are used at the same time.
 
 - Other query options usually only need to be further adjusted in certain specific scenarios to achieve the best results. Usually only after performance testing, optimize for resource-intensive, long enough running time and high enough frequency queries.
 
@@ -114,7 +114,7 @@ The query options are further explained below.
 #### 1.runtime_filter_type
 Type of Runtime Filter used.
 
-**Type**: Number (1, 2, 4, 8) or the corresponding mnemonic string (IN, BLOOM_FILTER, MIN_MAX, IN_OR_BLOOM_FILTER), the default is 8 (IN_OR_BLOOM FILTER), use multiple commas to separate, pay attention to the need to add quotation marks , Or add any number of types, for example:
+**Type**: Number (1, 2, 4, 8) or the corresponding mnemonic string (IN, BLOOM_FILTER, MIN_MAX, ```IN_OR_BLOOM_FILTER```), the default is 8 (```IN_OR_BLOOM_FILTER```), use multiple commas to separate, pay attention to the need to add quotation marks , Or add any number of types, for example:
 ```
 set runtime_filter_type="BLOOM_FILTER,IN,MIN_MAX";
 ```
