@@ -94,7 +94,7 @@ Export 需要借助 Broker 进程访问远端存储，不同的 Broker 需要提
 
 ## 使用示例
 
-Export 的详细用法可参考 [EXPORT]() 。举例如下：
+Export 的详细用法可参考 [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 。举例如下：
 
 ```
 EXPORT TABLE db1.tbl1 
@@ -103,7 +103,7 @@ PARTITION (p1,p2)
 TO "hdfs://host/path/to/export/" 
 PROPERTIES
 (
-  "label" = "mylabel",
+    "label" = "mylabel",
     "column_separator"=",",
     "columns" = "col1,col2",
     "exec_mem_limit"="2147483648",
@@ -111,8 +111,8 @@ PROPERTIES
 )
 WITH BROKER "hdfs"
 (
-  "username" = "user",
-  "password" = "passwd"
+    "username" = "user",
+    "password" = "passwd"
 );
 ```
 
@@ -124,7 +124,7 @@ WITH BROKER "hdfs"
 * `timeout`：作业超时时间。默认 2小时。单位秒。
 * `tablet_num_per_task`：每个查询计划分配的最大分片数。默认为 5。
 
-提交作业后，可以通过 `SHOW EXPORT` 命令查询导入作业状态。结果举例如下：
+提交作业后，可以通过  [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 命令查询导入作业状态。结果举例如下：
 
 ```
      JobId: 14008
@@ -180,7 +180,7 @@ FinishTime: 2019-06-25 17:08:34
 * 在 Export 作业运行过程中，如果 FE 发生重启或切主，则 Export 作业会失败，需要用户重新提交。
 * 如果 Export 作业运行失败，在远端存储中产生的 `__doris_export_tmp_xxx` 临时目录，以及已经生成的文件不会被删除，需要用户手动删除。
 * 如果 Export 作业运行成功，在远端存储中产生的 `__doris_export_tmp_xxx` 目录，根据远端存储的文件系统语义，可能会保留，也可能会被清除。比如在百度对象存储（BOS）中，通过 rename 操作将一个目录中的最后一个文件移走后，该目录也会被删除。如果该目录没有被清除，用户可以手动清除。
-* 当 Export 运行完成后（成功或失败），FE 发生重启或切主，则 `SHOW EXPORT` 展示的作业的部分信息会丢失，无法查看。
+* 当 Export 运行完成后（成功或失败），FE 发生重启或切主，则  [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 展示的作业的部分信息会丢失，无法查看。
 * Export 作业只会导出 Base 表的数据，不会导出 Rollup Index 的数据。
 * Export 作业会扫描数据，占用 IO 资源，可能会影响系统的查询延迟。
 

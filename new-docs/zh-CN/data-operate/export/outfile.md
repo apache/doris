@@ -26,7 +26,7 @@ under the License.
 
 # 导出查询结果集
 
-本文档介绍如何使用 `SELECT INTO OUTFILE` 命令进行查询结果的导出操作。
+本文档介绍如何使用 [SELECT INTO OUTFILE](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/OUTFILE.html) 命令进行查询结果的导出操作。
 
 ## 示例
 
@@ -48,14 +48,14 @@ PROPERTIES
 
 ### 导出到本地文件 
 
-导出到本地文件时需要在fe.conf中配置enable_outfile_to_local=true
+导出到本地文件时需要先在fe.conf中配置enable_outfile_to_local=true
 
 ```text
 select * from tbl1 limit 10 
 INTO OUTFILE "file:///home/work/path/result_";
 ```
 
-更多用法可查看[OUTFILE ](../sql-reference/sql-statements/Data%20Manipulation/OUTFILE.md)。
+更多用法可查看[OUTFILE文档](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/OUTFILE.html)。
 
 ## 并发导出
 
