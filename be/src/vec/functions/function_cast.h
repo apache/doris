@@ -813,10 +813,8 @@ struct ConvertToComplex {
     using ToFieldType = typename ToDataType::FieldType;
     using ColVecTo = ColumnComplexType<ToFieldType>;
 
-    template <typename Additions = void*>
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t input_rows_count,
-                          Additions additions [[maybe_unused]] = Additions()) {
+                          size_t input_rows_count) {
         const IColumn* col_from = block.get_by_position(arguments[0]).column.get();
         const ColumnString* col_from_string = check_and_get_column<ColumnString>(col_from);
 
@@ -839,10 +837,10 @@ struct ConvertToComplex {
             int64_t str_size = offsets[i] - offsets[i - 1] - 1;
             bool res = false;
 
-            if constexpr (std::is_same_v<ToDataType, DataTypeBitMap>) {  //bitmap
+            if constexpr (std::is_same_v<ToDataType, DataTypeBitMap>) { //bitmap
                 res = vec_to[i].deserialize(raw_str);
             } else {
-                res = vec_to[i].deserialize(Slice(raw_str, str_size));   //hll
+                res = vec_to[i].deserialize(Slice(raw_str, str_size)); //hll
             }
 
             null_map[i] = !res;
