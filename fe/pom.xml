@@ -118,9 +118,10 @@ under the License.
         <hadoop.version>2.8.0</hadoop.version>
         <jmockit.version>1.49</jmockit.version>
         <log4j2.version>2.17.1</log4j2.version>
+        <iceberg.version>0.12.0</iceberg.version>
+
         <revision>0.15-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
-        <iceberg.version>0.12.0</iceberg.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->
@@ -773,6 +774,11 @@ under the License.
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk-s3</artifactId>
                 <version>1.11.95</version>
+            </dependency>
+            <dependency> 
+                <groupId>org.mariadb.jdbc</groupId>
+                <artifactId>mariadb-java-client</artifactId>
+                <version>3.0.4</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
