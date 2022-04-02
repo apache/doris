@@ -32,9 +32,9 @@ under the License.
 
 ### 导出到HDFS
 
-将简单查询结果导出到文件 `hdfs://path/to/result.txt`。指定导出格式为 CSV。
+将简单查询结果导出到文件 `hdfs://path/to/result.txt`，指定导出格式为 CSV。
 
-```text
+```sql
 SELECT * FROM tbl
 INTO OUTFILE "hdfs://path/to/result_"
 FORMAT AS CSV
@@ -48,9 +48,9 @@ PROPERTIES
 
 ### 导出到本地文件 
 
-导出到本地文件时需要先在fe.conf中配置enable_outfile_to_local=true
+导出到本地文件时需要先在fe.conf中配置`enable_outfile_to_local=true`
 
-```text
+```sql
 select * from tbl1 limit 10 
 INTO OUTFILE "file:///home/work/path/result_";
 ```
@@ -71,7 +71,7 @@ INTO OUTFILE "file:///home/work/path/result_";
 
 用户通过 session 变量设置开启并发导出后，如果想验证当前查询是否能进行并发导出，则可以通过下面这个方法。
 
-```
+```sql
 explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv properties ("AWS_ENDPOINT" = "xxx", ...);
 ```
 
@@ -110,7 +110,7 @@ explain select xxx from xxx where xxx  into outfile "s3://xxx" format as csv pro
 
 如果正常导出并返回，则结果如下：
 
-```
+```sql
 mysql> select * from tbl1 limit 10 into outfile "file:///home/work/path/result_";
 +------------+-----------+----------+--------------------------------------------------------------------+
 | FileNumber | TotalRows | FileSize | URL                                                                |
@@ -127,7 +127,7 @@ mysql> select * from tbl1 limit 10 into outfile "file:///home/work/path/result_"
 
 如果进行了并发导出，则会返回多行数据。
 
-```
+```sql
 +------------+-----------+----------+--------------------------------------------------------------------+
 | FileNumber | TotalRows | FileSize | URL                                                                |
 +------------+-----------+----------+--------------------------------------------------------------------+
@@ -139,7 +139,7 @@ mysql> select * from tbl1 limit 10 into outfile "file:///home/work/path/result_"
 
 如果执行错误，则会返回错误信息，如：
 
-```
+```sql
 mysql> SELECT * FROM tbl INTO OUTFILE ...
 ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 ```

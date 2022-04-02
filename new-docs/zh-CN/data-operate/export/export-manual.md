@@ -92,11 +92,13 @@ Doris 会首先在指定的远端存储的路径中，建立一个名为 `__dori
 
 Export 需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](./advanced/broker.html)
 
-## 使用示例
+## 开始导出
 
-Export 的详细用法可参考 [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 。举例如下：
+Export 的详细用法可参考 [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 。
 
-```
+### 导出到HDFS
+
+```sql
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
 [WHERE [expr]]
@@ -124,9 +126,11 @@ WITH BROKER "hdfs"
 * `timeout`：作业超时时间。默认 2小时。单位秒。
 * `tablet_num_per_task`：每个查询计划分配的最大分片数。默认为 5。
 
+### 查看导出状态
+
 提交作业后，可以通过  [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 命令查询导入作业状态。结果举例如下：
 
-```
+```sql
      JobId: 14008
      Label: mylabel
      State: FINISHED
@@ -193,3 +197,6 @@ FinishTime: 2019-06-25 17:08:34
 * `export_task_default_timeout_second`：Export 作业默认超时时间。默认为 2 小时。可以运行时调整。
 * `export_tablet_num_per_task`：一个查询计划负责的最大分片数。默认为 5。
 
+## 更多帮助
+
+关于 Export 使用的更多详细语法及最佳实践，请参阅 [Export](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP EXPORT` 获取更多帮助信息。
