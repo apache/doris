@@ -253,7 +253,7 @@ LOAD LABEL demo.label_20220402
         );
 ```
 
-这里的具体 参数可以参照：  [Broker](../../../advanced/broker.html)  及 [Broker Load]((../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 文档
+这里的具体 参数可以参照：  [Broker](../../../advanced/broker.html)  及 [Broker Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 文档
 
 ## 查看导入状态
 
