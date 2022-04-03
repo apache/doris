@@ -100,8 +100,13 @@ public class CreateTableAsSelectStmtTest {
     }
     
     private static void createTableAsSelect(String sql) throws Exception {
-        CreateTableAsSelectStmt stmt = (CreateTableAsSelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTableAsSelect(stmt);
+        try {
+            CreateTableAsSelectStmt stmt = (CreateTableAsSelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+            Catalog.getCurrentCatalog().createTableAsSelect(stmt);
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.out.println("cch13");
+        }
     }
     
     private static ShowResultSet showCreateTable(String tableName) throws Exception {
@@ -132,8 +137,8 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromDecimal);
         ShowResultSet showResultSet = showCreateTable("select_varchar");
         Assert.assertEquals("CREATE TABLE `select_varchar` (\n" +
-                "  `userId` text NULL COMMENT \"\",\n" +
-                "  `username` text NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -203,8 +208,8 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectAlias2);
         ShowResultSet showResultSet2 = showCreateTable("select_alias_2");
         Assert.assertEquals("CREATE TABLE `select_alias_2` (\n" +
-                "  `alias_name` text NULL COMMENT \"\",\n" +
-                "  `username` text NULL COMMENT \"\"\n" +
+                "  `alias_name` varchar(255) NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`alias_name`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -223,8 +228,8 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromJoin);
         ShowResultSet showResultSet = showCreateTable("select_join");
         Assert.assertEquals("CREATE TABLE `select_join` (\n" +
-                "  `userId` text NULL COMMENT \"\",\n" +
-                "  `username` text NULL COMMENT \"\",\n" +
+                "  `userId` varchar(255) NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) NULL COMMENT \"\",\n" +
                 "  `status` int(11) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
@@ -244,8 +249,8 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_name");
         Assert.assertEquals("CREATE TABLE `select_name` (\n" +
-                "  `user` text NULL COMMENT \"\",\n" +
-                "  `testname` text NULL COMMENT \"\",\n" +
+                "  `user` varchar(255) NULL COMMENT \"\",\n" +
+                "  `testname` varchar(255) NULL COMMENT \"\",\n" +
                 "  `userstatus` int(11) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`user`)\n" +
@@ -265,7 +270,7 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_union");
         Assert.assertEquals("CREATE TABLE `select_union` (\n" +
-                "  `userId` text NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -284,7 +289,7 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_cte");
         Assert.assertEquals("CREATE TABLE `select_cte` (\n" +
-                "  `userId` text NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +

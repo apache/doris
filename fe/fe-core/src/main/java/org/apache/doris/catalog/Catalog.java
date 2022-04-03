@@ -3116,12 +3116,12 @@ public class Catalog {
                 }
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
-                // varchar/char transfer to string
-                if (resultExpr.getType().isStringType()) {
+                if (resultExpr.getType().isStringType() && resultExpr.getType().getLength() < 0) {
                     typeDef = new TypeDef(Type.STRING);
-                } else {
+                }  else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
+                typeDef = new TypeDef(resultExpr.getType());
                 createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
                         null, true,
                         new DefaultValue(false, null),

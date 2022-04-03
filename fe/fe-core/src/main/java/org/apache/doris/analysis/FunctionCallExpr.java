@@ -246,7 +246,7 @@ public class FunctionCallExpr extends Expr {
         if (params.isDistinct()) {
             sb.append("DISTINCT ");
         }
-        int len = params.exprs().size();
+        int len = children.size();
         List<String> result = Lists.newArrayList();
         if (fnName.getFunction().equalsIgnoreCase("json_array") ||
                 fnName.getFunction().equalsIgnoreCase("json_object")) {
@@ -265,7 +265,7 @@ public class FunctionCallExpr extends Expr {
                     fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 result.add("\'***\'");
             } else {
-                result.add(params.exprs().get(i).toSql());
+                result.add(children.get(i).toSql());
             }
         }
         sb.append(Joiner.on(", ").join(result)).append(")");
