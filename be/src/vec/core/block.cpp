@@ -946,22 +946,24 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
     return temp_block;
 }
 
-void Block::shrink_char_type_column_suffix_zero(std::vector<size_t> char_type_idx) {
+void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx) {
     for (auto idx : char_type_idx) {
-        if (this->get_by_position(idx).column->is_nullable()) {
-            this->get_by_position(idx).column = ColumnNullable::create(
-                    reinterpret_cast<const ColumnString*>(
-                            reinterpret_cast<const ColumnNullable*>(
-                                    this->get_by_position(idx).column.get())
-                                    ->get_nested_column_ptr()
-                                    .get())
-                            ->get_shinked_column(),
-                    reinterpret_cast<const ColumnNullable*>(this->get_by_position(idx).column.get())
-                            ->get_null_map_column_ptr());
-        } else {
-            this->get_by_position(idx).column =
-                    reinterpret_cast<const ColumnString*>(this->get_by_position(idx).column.get())
-                            ->get_shinked_column();
+        if (idx < data.size()) {
+            if (this->get_by_position(idx).column->is_nullable()) {
+                this->get_by_position(idx).column = ColumnNullable::create(
+                        reinterpret_cast<const ColumnString *>(
+                                reinterpret_cast<const ColumnNullable *>(
+                                        this->get_by_position(idx).column.get())
+                                        ->get_nested_column_ptr()
+                                        .get())
+                                ->get_shinked_column(),
+                        reinterpret_cast<const ColumnNullable *>(this->get_by_position(idx).column.get())
+                                ->get_null_map_column_ptr());
+            } else {
+                this->get_by_position(idx).column =
+                        reinterpret_cast<const ColumnString *>(this->get_by_position(idx).column.get())
+                                ->get_shinked_column();
+            }
         }
     }
 }
