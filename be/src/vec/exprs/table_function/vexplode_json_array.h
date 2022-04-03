@@ -15,17 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/function_fake.h"
+#pragma once
+
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+
+#include "exprs/table_function/explode_json_array.h"
+#include "gutil/strings/stringpiece.h"
+#include "runtime/string_value.h"
+#include "vec/columns/column.h"
 
 namespace doris::vectorized {
 
-void register_function_fake(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionFake<FunctionEsqueryImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeSplitImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeNumbersImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayDoubleImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayIntImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayStringImpl>>();
-}
+class VExplodeJsonArrayTableFunction : public ExplodeJsonArrayTableFunction {
+public:
+    VExplodeJsonArrayTableFunction(ExplodeJsonArrayType type);
+    virtual ~VExplodeJsonArrayTableFunction() = default;
+
+    virtual Status process_init(vectorized::Block* block) override;
+    virtual Status process_row(size_t row_idx) override;
+    virtual Status process_close() override;
+    virtual Status get_value(void** output) override;
+    virtual Status get_value_length(int64_t* length) override;
+
+private:
+    ColumnPtr _text_column;
+};
 
 } // namespace doris::vectorized
