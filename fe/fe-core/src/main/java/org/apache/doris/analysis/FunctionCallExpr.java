@@ -236,14 +236,14 @@ public class FunctionCallExpr extends Expr {
                 && fnParams.isStar() == o.fnParams.isStar();
     }
 
-    private String paramsToSql(FunctionParams params) {
+    private String paramsToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("(");
 
-        if (params.isStar()) {
+        if (fnParams.isStar()) {
             sb.append("*");
         }
-        if (params.isDistinct()) {
+        if (fnParams.isDistinct()) {
             sb.append("DISTINCT ");
         }
         int len = children.size();
@@ -282,7 +282,7 @@ public class FunctionCallExpr extends Expr {
         }
         StringBuilder sb = new StringBuilder();
         sb.append(((FunctionCallExpr) expr).fnName);
-        sb.append(paramsToSql(fnParams));
+        sb.append(paramsToSql());
         if (fnName.getFunction().equalsIgnoreCase("json_quote") ||
             fnName.getFunction().equalsIgnoreCase("json_array") ||
             fnName.getFunction().equalsIgnoreCase("json_object")) {
