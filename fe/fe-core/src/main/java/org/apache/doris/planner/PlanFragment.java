@@ -329,15 +329,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         dest.addChild(this);
     }
 
-    public List<DataPartition> getInputDataPartition() {
-        List<DataPartition> result = Lists.newArrayList();
-        result.add(getDataPartition());
-        for (PlanFragment child : children) {
-            result.add(child.getOutputPartition());
-        }
-        return result;
-    }
-
     public DataPartition getDataPartition() {
         return dataPartition;
     }
