@@ -601,8 +601,7 @@ void AggregateFunctions::sum(FunctionContext* ctx, const DecimalV2Val& src, Deci
 template <typename T>
 void AggregateFunctions::min_init(FunctionContext* ctx, T* dst) {
     auto val = AnyValUtil::max_val<T>(ctx);
-    // set to null when intermediate slot is nullable
-    val.is_null = true;
+    val.is_null = false;
     *dst = val;
 }
 
