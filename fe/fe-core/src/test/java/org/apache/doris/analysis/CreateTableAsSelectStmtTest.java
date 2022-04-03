@@ -100,13 +100,8 @@ public class CreateTableAsSelectStmtTest {
     }
     
     private static void createTableAsSelect(String sql) throws Exception {
-        try {
-            CreateTableAsSelectStmt stmt = (CreateTableAsSelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-            Catalog.getCurrentCatalog().createTableAsSelect(stmt);
-        } catch (Exception e) {
-            e.printStackTrace();
-            System.out.println("cch13");
-        }
+        CreateTableAsSelectStmt stmt = (CreateTableAsSelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().createTableAsSelect(stmt);
     }
     
     private static ShowResultSet showCreateTable(String tableName) throws Exception {
