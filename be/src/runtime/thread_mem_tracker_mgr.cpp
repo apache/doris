@@ -55,6 +55,8 @@ void ThreadMemTrackerMgr::detach_task() {
     _untracked_mems[0] = 0;
     _mem_trackers.clear();
     _mem_trackers[0] = MemTracker::get_process_tracker();
+    _mem_tracker_labels.clear();
+    _mem_tracker_labels[0] = MemTracker::get_process_tracker()->label();
 }
 
 void ThreadMemTrackerMgr::exceeded_cancel_task(const std::string& cancel_details) {

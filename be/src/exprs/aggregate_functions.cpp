@@ -340,7 +340,8 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
 
 DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx,
                                                          const StringVal& src) {
-    DCHECK(!src.is_null);
+    // TODO
+    // DCHECK(!src.is_null);
 
     PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(src.ptr);
     double quantile = percentile->targetQuantile;
