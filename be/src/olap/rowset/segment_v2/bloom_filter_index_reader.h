@@ -45,7 +45,7 @@ public:
     explicit BloomFilterIndexReader(const FilePathDesc& path_desc,
                                     const BloomFilterIndexPB* bloom_filter_index_meta)
             : _path_desc(path_desc), _bloom_filter_index_meta(bloom_filter_index_meta) {
-        _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        _typeinfo = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
     }
 
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -53,13 +53,13 @@ public:
     // create a new column iterator.
     Status new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator);
 
-    std::shared_ptr<const TypeInfo> type_info() const { return _typeinfo; }
+    const TypeInfo* type_info() const { return _typeinfo; }
 
 private:
     friend class BloomFilterIndexIterator;
 
     FilePathDesc _path_desc;
-    std::shared_ptr<const TypeInfo> _typeinfo;
+    const TypeInfo* _typeinfo;
     const BloomFilterIndexPB* _bloom_filter_index_meta;
     std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;
 };
