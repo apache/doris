@@ -73,6 +73,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory);
 void register_function_convert_tz(SimpleFunctionFactory& factory);
 void register_function_least_greast(SimpleFunctionFactory& factory);
 void register_function_fake(SimpleFunctionFactory& factory);
+void register_geo_functions(SimpleFunctionFactory& factory);
 
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
@@ -200,6 +201,7 @@ public:
             register_function_encryption(instance);
             register_function_regexp_extract(instance);
             register_function_hex_variadic(instance);
+            register_geo_functions(instance);
         });
         return instance;
     }
