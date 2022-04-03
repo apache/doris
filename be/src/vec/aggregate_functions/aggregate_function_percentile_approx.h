@@ -124,25 +124,28 @@ public:
         return make_nullable(std::make_shared<DataTypeFloat64>());
     }
 
-    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+    void reset(AggregateDataPtr __restrict place) const override {
+        AggregateFunctionPercentileApprox::data(place).reset();
+    }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(place).merge(this->data(rhs));
+        AggregateFunctionPercentileApprox::data(place).merge(
+                AggregateFunctionPercentileApprox::data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
+        AggregateFunctionPercentileApprox::data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        this->data(place).read(buf);
+        AggregateFunctionPercentileApprox::data(place).read(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        double result = this->data(place).get();
+        double result = AggregateFunctionPercentileApprox::data(place).get();
 
         if (std::isnan(result)) {
             nullable_column.insert_default();
@@ -305,28 +308,31 @@ public:
         const auto& sources = static_cast<const ColumnVector<Int64>&>(*columns[0]);
         const auto& quantile = static_cast<const ColumnVector<Float64>&>(*columns[1]);
 
-        this->data(place).add(sources.get_int(row_num), quantile.get_float64(row_num));
+        AggregateFunctionPercentile::data(place).add(sources.get_int(row_num),
+                                                     quantile.get_float64(row_num));
     }
 
-    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+    void reset(AggregateDataPtr __restrict place) const override {
+        AggregateFunctionPercentile::data(place).reset();
+    }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        this->data(place).merge(this->data(rhs));
+        AggregateFunctionPercentile::data(place).merge(AggregateFunctionPercentile::data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
+        AggregateFunctionPercentile::data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        this->data(place).read(buf);
+        AggregateFunctionPercentile::data(place).read(buf);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnVector<Float64>&>(to);
-        col.insert_value(this->data(place).get());
+        col.insert_value(AggregateFunctionPercentile::data(place).get());
     }
 };
 

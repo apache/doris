@@ -109,7 +109,7 @@ public class SqlBlockRuleMgrTest {
         String sql = "select * from table1 limit 10";
         String sqlHash = DigestUtils.md5Hex(sql);
         SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", null, sqlHash, 0L, 0L, 0L, false, true);
-        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        SqlBlockRuleMgr mgr = Catalog.getCurrentCatalog().getSqlBlockRuleMgr();
         mgr.replayCreate(sqlRule);
         // sql block rules
         String setPropertyStr = "set property for \"root\" \"sql_block_rules\" = \"test_rule1\"";
@@ -286,5 +286,43 @@ public class SqlBlockRuleMgrTest {
 
         Assert.assertEquals(1, mgr.getSqlBlockRule(showStmt).size());
         Assert.assertEquals("select \\* from test_table", mgr.getSqlBlockRule(showStmt).get(0).getSql());
+    }
+
+    @Test
+    public void testLimitationsInvalid() throws Exception {
+        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+
+        // create sql_block_rule with partition_num = -1
+        // DdlException: the value of partition_num can't be a negative
+        String createSql = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"partition_num\"=\"-1\",\"enable\"=\"true\")";
+        CreateSqlBlockRuleStmt stmt = (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql, connectContext);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of partition_num can't be a negative",
+                () -> mgr.createSqlBlockRule(stmt));
+
+        // create sql_block_rule with tablet_num = -1
+        // DdlException: the value of tablet_num can't be a negative
+        String createSql1 = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"tablet_num\"=\"-1\",\"enable\"=\"true\")";
+        CreateSqlBlockRuleStmt stmt1 = (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql1, connectContext);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of tablet_num can't be a negative",
+                () -> mgr.createSqlBlockRule(stmt1));
+
+        // create sql_block_rule with cardinality = -1
+        // DdlException: the value of cardinality can't be a negative
+        String createSql2 = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"cardinality\"=\"-1\",\"enable\"=\"true\")";
+        CreateSqlBlockRuleStmt stmt2 = (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql2, connectContext);
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of cardinality can't be a negative",
+                () -> mgr.createSqlBlockRule(stmt2));
+    }
+
+    @Test
+    public void testUserPropertyInvalid() throws Exception {
+        // sql block rules
+        String ruleName = "test_rule_name";
+        String setPropertyStr = String.format("set property for \"root\" \"sql_block_rules\" = \"%s\"", ruleName);
+        SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(setPropertyStr, connectContext);
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, String.format("the sql block rule %s not exist", ruleName),
+                () -> Catalog.getCurrentCatalog().getAuth().updateUserProperty(setUserPropertyStmt));
+
     }
 }

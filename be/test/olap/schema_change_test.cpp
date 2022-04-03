@@ -110,7 +110,7 @@ public:
         ASSERT_TRUE(_column_reader != nullptr);
 
         ASSERT_EQ(system("mkdir -p ./ut_dir"), 0);
-        ASSERT_EQ(system("rm ./ut_dir/tmp_file"), 0);
+        ASSERT_EQ(system("rm -f ./ut_dir/tmp_file"), 0);
 
         ASSERT_EQ(OLAP_SUCCESS,
                   helper.open_with_mode("./ut_dir/tmp_file", O_CREAT | O_EXCL | O_WRONLY,
@@ -231,7 +231,7 @@ public:
         _col_vector.reset(new ColumnVector());
         ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
-        auto st = read_row.convert_from(0, data, write_row.column_schema(0)->type_info().get(),
+        auto st = read_row.convert_from(0, data, write_row.column_schema(0)->type_info(),
                                         _mem_pool.get());
         ASSERT_EQ(st, expected_st);
         if (st == OLAP_SUCCESS) {
@@ -239,8 +239,8 @@ public:
             ASSERT_TRUE(dst_str.compare(0, expected_val.size(), expected_val) == 0);
         }
 
-        auto tp = get_type_info(OLAP_FIELD_TYPE_HLL);
-        st = read_row.convert_from(0, read_row.cell_ptr(0), tp.get(), _mem_pool.get());
+        const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+        st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
         ASSERT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
     }
 
@@ -275,7 +275,7 @@ public:
         _col_vector.reset(new ColumnVector());
         ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
-        auto st = read_row.convert_from(0, data, write_row.column_schema(0)->type_info().get(),
+        auto st = read_row.convert_from(0, data, write_row.column_schema(0)->type_info(),
                                         _mem_pool.get());
         ASSERT_EQ(st, expected_st);
         if (st == OLAP_SUCCESS) {
@@ -283,8 +283,8 @@ public:
             ASSERT_TRUE(dst_str.compare(0, value.size(), value) == 0);
         }
 
-        auto tp = get_scalar_type_info(OLAP_FIELD_TYPE_HLL);
-        st = read_row.convert_from(0, read_row.cell_ptr(0), tp.get(), _mem_pool.get());
+        const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+        st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
         ASSERT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
     }
 
@@ -346,7 +346,7 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
-    read_row.convert_from(0, data, write_row.column_schema(0)->type_info().get(), _mem_pool.get());
+    read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     //float val1 = *reinterpret_cast<float*>(read_row.cell_ptr(0));
     double val2 = *reinterpret_cast<double*>(read_row.cell_ptr(0));
 
@@ -358,8 +358,8 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
     ASSERT_EQ(v2, 1.234);
 
     //test not support type
-    auto tp = get_scalar_type_info(OLAP_FIELD_TYPE_HLL);
-    OLAPStatus st = read_row.convert_from(0, data, tp.get(), _mem_pool.get());
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
     ASSERT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
 }
 
@@ -397,13 +397,13 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
-    read_row.convert_from(0, data, write_row.column_schema(0)->type_info().get(), _mem_pool.get());
+    read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
     ASSERT_TRUE(strncmp(dest_string.c_str(), "2019-11-25", strlen("2019-11-25")) == 0);
 
     //test not support type
-    auto tp = get_type_info(OLAP_FIELD_TYPE_HLL);
-    OLAPStatus st = read_row.convert_from(0, data, tp.get(), _mem_pool.get());
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
     ASSERT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
 }
 
@@ -442,13 +442,13 @@ TEST_F(TestColumn, ConvertDateToDatetime) {
     ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
-    read_row.convert_from(0, data, write_row.column_schema(0)->type_info().get(), _mem_pool.get());
+    read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
     ASSERT_TRUE(dest_string.compare("2019-12-04 00:00:00") == 0);
 
     //test not support type
-    auto tp = get_type_info(OLAP_FIELD_TYPE_HLL);
-    OLAPStatus st = read_row.convert_from(0, data, tp.get(), _mem_pool.get());
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
     ASSERT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
 }
 
@@ -484,13 +484,13 @@ TEST_F(TestColumn, ConvertIntToDate) {
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
-    read_row.convert_from(0, data, write_row.column_schema(0)->type_info().get(), _mem_pool.get());
+    read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
     ASSERT_TRUE(strncmp(dest_string.c_str(), "2019-12-05", strlen("2019-12-05")) == 0);
 
     //test not support type
-    auto tp = get_type_info(OLAP_FIELD_TYPE_HLL);
-    OLAPStatus st = read_row.convert_from(0, read_row.cell_ptr(0), tp.get(), _mem_pool.get());
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    OLAPStatus st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
     ASSERT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
 }
 
@@ -532,7 +532,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         _col_vector.reset(new ColumnVector());
         ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
-        read_row.convert_from(0, data, write_row.column_schema(0)->type_info().get(),
+        read_row.convert_from(0, data, write_row.column_schema(0)->type_info(),
                               _mem_pool.get());
         std::string dst_str = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
         ASSERT_EQ(expected_val, dst_str);
@@ -545,8 +545,8 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
     read_row.init(convert_tablet_schema);
 
     //test not support type
-    auto tp = get_type_info(OLAP_FIELD_TYPE_HLL);
-    OLAPStatus st = read_row.convert_from(0, read_row.cell_ptr(0), tp.get(), _mem_pool.get());
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    OLAPStatus st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
     ASSERT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
 }
 

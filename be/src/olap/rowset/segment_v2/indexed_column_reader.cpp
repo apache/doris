@@ -31,17 +31,17 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
     _use_page_cache = use_page_cache;
     _kept_in_memory = kept_in_memory;
 
-    _type_info = get_type_info((FieldType)_meta.data_type());
+    _type_info = get_scalar_type_info((FieldType)_meta.data_type());
     if (_type_info == nullptr) {
         return Status::NotSupported(
                 strings::Substitute("unsupported typeinfo, type=$0", _meta.data_type()));
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), _meta.encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
     _value_key_coder = get_key_coder(_type_info->type());
 
     std::unique_ptr<fs::ReadableBlock> rblock;
-    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc.storage_medium);
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager(_path_desc);
     RETURN_IF_ERROR(block_mgr->open_block(_path_desc, &rblock));
     // read and parse ordinal index page when exists
     if (_meta.has_ordinal_index_meta()) {

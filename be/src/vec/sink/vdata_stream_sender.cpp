@@ -56,7 +56,6 @@ Status VDataStreamSender::Channel::init(RuntimeState* state) {
     _brpc_request.set_be_number(_be_number);
 
     _brpc_timeout_ms = std::min(3600, state->query_options().query_timeout) * 1000;
-    _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
 
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
@@ -123,7 +122,9 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
         _closure->cntl.Reset();
     }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
-             << " dest_node=" << _dest_node_id;
+             << " dest_node=" << _dest_node_id << " to_host=" << _brpc_dest_addr.hostname
+	     << " _packet_seq=" << _packet_seq
+	     << " row_desc=" << _row_desc.debug_string();
     if (_is_transfer_chain && (_send_query_statistics_with_every_batch || eos)) {
         auto statistic = _brpc_request.mutable_query_statistics();
         _parent->_query_statistics->to_pb(statistic);
@@ -429,9 +430,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         }
         _current_channel_idx = (_current_channel_idx + 1) % _channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED) {
-        int num_channels = _channels.size();
         // will only copy schema
         // we don't want send temp columns
+        auto column_to_keep = block->columns();
 
         int result_size = _partition_expr_ctxs.size();
         int result[result_size];
@@ -455,12 +456,14 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
             hash_vals[i] = siphashs[i].get64();
         }
 
-        RETURN_IF_ERROR(channel_add_rows(_channels, num_channels, hash_vals, rows, block));
+        Block::erase_useless_column(block, column_to_keep);
+        RETURN_IF_ERROR(channel_add_rows(_channels, _channels.size(), hash_vals, rows, block));
     } else if (_part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
+        // will only copy schema
+        // we don't want send temp columns
+        auto column_to_keep = block->columns();
         // 1. calculate hash
         // 2. dispatch rows to channel
-        int num_channels = _channel_shared_ptrs.size();
-
         int result_size = _partition_expr_ctxs.size();
         int result[result_size];
         RETURN_IF_ERROR(get_partition_column_result(block, result));
@@ -488,8 +491,9 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
             }
         }
 
+        Block::erase_useless_column(block, column_to_keep);
         RETURN_IF_ERROR(
-                channel_add_rows(_channel_shared_ptrs, num_channels, hash_vals, rows, block));
+                channel_add_rows(_channel_shared_ptrs, _channel_shared_ptrs.size(), hash_vals, rows, block));
     } else {
         // Range partition
         // 1. calculate range
@@ -500,7 +504,6 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
 
 Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     if (_closed) return Status::OK();
-    _closed = true;
 
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
@@ -520,6 +523,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         iter->close(state);
     }
     VExpr::close(_partition_expr_ctxs, state);
+    DataSink::close(state, exec_status);
     return final_st;
 }
 

@@ -18,6 +18,7 @@
 # where to put generated libraries
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/vec/function")
 
+ADD_BE_TEST(function_array_element_test)
 ADD_BE_TEST(function_array_index_test)
 ADD_BE_TEST(function_bitmap_test)
 ADD_BE_TEST(function_comparison_test)
@@ -30,3 +31,4 @@ ADD_BE_TEST(function_nullif_test)
 ADD_BE_TEST(function_like_test)
 ADD_BE_TEST(function_arithmetic_test)
 ADD_BE_TEST(function_json_test)
+ADD_BE_TEST(function_geo_test)

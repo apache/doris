@@ -125,7 +125,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     public FunctionCallExpr(String fnName, FunctionParams params) {
-        this(new FunctionName(fnName), params);
+        this(new FunctionName(fnName), params, false);
     }
 
     public FunctionCallExpr(FunctionName fnName, FunctionParams params) {
@@ -140,8 +140,8 @@ public class FunctionCallExpr extends Expr {
         this.isMergeAggFn = isMergeAggFn;
         if (params.exprs() != null) {
             children.addAll(params.exprs());
-            originChildSize = children.size();
         }
+        originChildSize = children.size();
     }
 
     // Constructs the same agg function with new params.
@@ -236,29 +236,21 @@ public class FunctionCallExpr extends Expr {
                 && fnParams.isStar() == o.fnParams.isStar();
     }
 
-    @Override
-    public String toSqlImpl() {
-        Expr expr;
-        if (originStmtFnExpr != null) {
-            expr = originStmtFnExpr;
-        } else {
-            expr = this;
-        }
+    private String paramsToSql(FunctionParams params) {
         StringBuilder sb = new StringBuilder();
-        sb.append(((FunctionCallExpr) expr).fnName).append("(");
-        if (((FunctionCallExpr) expr).fnParams.isStar()) {
+        sb.append("(");
+
+        if (params.isStar()) {
             sb.append("*");
         }
-        if (((FunctionCallExpr) expr).fnParams.isDistinct()) {
+        if (params.isDistinct()) {
             sb.append("DISTINCT ");
         }
-        boolean isJsonFunction = false;
-        int len = children.size();
+        int len = params.exprs().size();
         List<String> result = Lists.newArrayList();
         if (fnName.getFunction().equalsIgnoreCase("json_array") ||
                 fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;
-            isJsonFunction = true;
         }
         if (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
                 fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
@@ -273,11 +265,27 @@ public class FunctionCallExpr extends Expr {
                     fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 result.add("\'***\'");
             } else {
-                result.add(children.get(i).toSql());
+                result.add(params.exprs().get(i).toSql());
             }
         }
         sb.append(Joiner.on(", ").join(result)).append(")");
-        if (fnName.getFunction().equalsIgnoreCase("json_quote") || isJsonFunction) {
+        return sb.toString();
+    }
+
+    @Override
+    public String toSqlImpl() {
+        Expr expr;
+        if (originStmtFnExpr != null) {
+            expr = originStmtFnExpr;
+        } else {
+            expr = this;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(((FunctionCallExpr) expr).fnName);
+        sb.append(paramsToSql(fnParams));
+        if (fnName.getFunction().equalsIgnoreCase("json_quote") ||
+            fnName.getFunction().equalsIgnoreCase("json_array") ||
+            fnName.getFunction().equalsIgnoreCase("json_object")) {
             return forJSON(sb.toString());
         }
         return sb.toString();
@@ -783,6 +791,34 @@ public class FunctionCallExpr extends Expr {
             }
 
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.WINDOW_FUNNEL)) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {
+                throw new AnalysisException("The " + fnName + " function must have at least four params");
+            }
+
+            if (!children.get(0).type.isIntegerType()) {
+                throw new AnalysisException("The window params of " + fnName + " function must be integer");
+            }
+            if (!children.get(1).type.isStringType()) {
+                throw new AnalysisException("The mode params of " + fnName + " function must be integer");
+            }
+            if (!children.get(2).type.isDateType()) {
+                throw new AnalysisException("The 3rd param of " + fnName + " function must be DATE or DATETIME");
+            }
+
+            Type[] childTypes = new Type[children.size()];
+            for (int i = 0; i < 3; i++) {
+                childTypes[i] = children.get(i).type;
+            }
+            for (int i = 3; i < children.size(); i++) {
+                if (children.get(i).type != Type.BOOLEAN) {
+                    throw new AnalysisException("The 4th and subsequent params of " + fnName + " function must be boolean");
+                }
+                childTypes[i] = children.get(i).type;
+            }
+
+            fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets

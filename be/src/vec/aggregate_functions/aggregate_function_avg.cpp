@@ -45,11 +45,12 @@ AggregateFunctionPtr create_aggregate_function_avg(const std::string& name,
 
     AggregateFunctionPtr res;
     DataTypePtr data_type = argument_types[0];
-    if (is_decimal(data_type))
+    if (is_decimal(data_type)) {
         res.reset(
                 create_with_decimal_type<AggregateFuncAvg>(*data_type, *data_type, argument_types));
-    else
+    } else {
         res.reset(create_with_numeric_type<AggregateFuncAvg>(*data_type, argument_types));
+    }
 
     if (!res) {
         LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",

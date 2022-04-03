@@ -73,7 +73,7 @@ public:
             const AggregateFunctionPtr& nested_function, const DataTypes& arguments,
             const Array& params, const bool result_is_nullable) const = 0;
 
-    virtual ~IAggregateFunctionCombinator() {}
+    virtual ~IAggregateFunctionCombinator() = default;
 };
 
 } // namespace doris::vectorized

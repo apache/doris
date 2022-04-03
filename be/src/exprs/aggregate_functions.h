@@ -231,12 +231,10 @@ public:
                                                     StringVal* dst);
     static void count_or_sum_distinct_decimalv2_merge(FunctionContext* ctx, StringVal& src,
                                                       StringVal* dst);
-    static StringVal count_or_sum_distinct_decimal_serialize(FunctionContext* ctx,
-                                                             const StringVal& state_sv);
+
     static StringVal count_or_sum_distinct_decimalv2_serialize(FunctionContext* ctx,
                                                                const StringVal& state_sv);
-    static BigIntVal count_distinct_decimal_finalize(FunctionContext* ctx,
-                                                     const StringVal& state_sv);
+
     static BigIntVal count_distinct_decimalv2_finalize(FunctionContext* ctx,
                                                        const StringVal& state_sv);
     static DecimalV2Val sum_distinct_decimalv2_finalize(FunctionContext* ctx,
@@ -348,6 +346,16 @@ public:
     template <typename T>
     static void offset_fn_update(doris_udf::FunctionContext*, const T& src,
                                  const doris_udf::BigIntVal&, const T&, T* dst);
+
+    // windowFunnel
+    static void window_funnel_init(FunctionContext* ctx, StringVal* dst);
+    static void window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
+                             const StringVal& mode, const DateTimeVal& timestamp,
+                             int num_cond, const BooleanVal* conds, StringVal* dst);
+    static void window_funnel_merge(FunctionContext* ctx, const StringVal& src,
+                            StringVal* dst);
+    static StringVal window_funnel_serialize(FunctionContext* ctx, const StringVal& src);
+    static IntVal window_funnel_finalize(FunctionContext* ctx, const StringVal& src);
 
     // todo(kks): keep following HLL methods only for backward compatibility, we should remove these methods
     //            when doris 0.12 release

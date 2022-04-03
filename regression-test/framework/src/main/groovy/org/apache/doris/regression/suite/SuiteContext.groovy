@@ -20,50 +20,88 @@ package org.apache.doris.regression.suite
 import groovy.transform.CompileStatic
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.OutputUtils
-import org.apache.doris.regression.util.Recorder
 import groovy.util.logging.Slf4j
 
+import java.lang.reflect.UndeclaredThrowableException
 import java.sql.Connection
 import java.sql.DriverManager
 import java.util.concurrent.ExecutorService
+import java.util.function.Function
 
 @Slf4j
 @CompileStatic
 class SuiteContext implements Closeable {
     public final File file
-    private final Connection conn
+    public final String suiteName
+    public final String group
     public final ThreadLocal<Connection> threadLocalConn = new ThreadLocal<>()
     public final Config config
     public final File dataPath
     public final File outputFile
+    public final ScriptContext scriptContext
+    public final String flowName
+    public final String flowId
     public final ThreadLocal<OutputUtils.OutputBlocksIterator> threadLocalOutputIterator = new ThreadLocal<>()
-    public final ExecutorService executorService
-    public final Recorder recorder
-//    public final File tmpOutputPath
+    public final ExecutorService suiteExecutors
+    public final ExecutorService actionExecutors
     private volatile OutputUtils.OutputBlocksWriter outputBlocksWriter
+    private long startTime
+    private long finishTime
+    private volatile Throwable throwable
 
-    SuiteContext(File file, Connection conn, ExecutorService executorService, Config config, Recorder recorder) {
+    SuiteContext(File file, String suiteName, String group, ScriptContext scriptContext,
+                 ExecutorService suiteExecutors, ExecutorService actionExecutors, Config config) {
         this.file = file
-        this.conn = conn
+        this.suiteName = suiteName
+        this.group = group
         this.config = config
-        this.executorService = executorService
-        this.recorder = recorder
+        this.scriptContext = scriptContext
+
+        String packageName = getPackageName()
+        String className = getClassName()
+        this.flowName = "${packageName}.${className}.${suiteName}"
+        this.flowId = "${scriptContext.flowId}#${suiteName}"
+        this.suiteExecutors = suiteExecutors
+        this.actionExecutors = actionExecutors
 
         def path = new File(config.suitePath).relativePath(file)
         def outputRelativePath = path.substring(0, path.lastIndexOf(".")) + ".out"
         this.outputFile = new File(new File(config.dataPath), outputRelativePath)
         this.dataPath = this.outputFile.getParentFile().getCanonicalFile()
-//        def dataParentPath = new File(config.dataPath).parentFile.absolutePath
-//        def tmpOutputPath = "${dataParentPath}/tmp_output/${outputRelativePath}".toString()
-//        this.tmpOutputPath = new File(tmpOutputPath)
+    }
+
+    String getPackageName() {
+        String packageName = scriptContext.name
+        int dirSplitPos = packageName.lastIndexOf(File.separator)
+        if (dirSplitPos != -1) {
+            packageName = packageName.substring(0, dirSplitPos)
+        }
+        packageName = packageName.replace(File.separator, ".")
+        return packageName
+    }
+
+    String getClassName() {
+        String scriptFileName = scriptContext.file.name
+        int suffixPos = scriptFileName.lastIndexOf(".")
+        String className = scriptFileName
+        if (suffixPos != -1) {
+            className = scriptFileName.substring(0, suffixPos)
+        }
+        return className
+    }
+
+    // compatible to context.conn
+    Connection getConn() {
+        return getConnection()
     }
 
     Connection getConnection() {
         def threadConn = threadLocalConn.get()
-        if (threadConn != null) {
-            return threadConn
+        if (threadConn == null) {
+            threadConn = config.getConnection()
+            threadLocalConn.set(threadConn)
         }
-        return this.conn
+        return threadConn
     }
 
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
@@ -122,8 +160,40 @@ class SuiteContext implements Closeable {
     void closeThreadLocal() {
         def outputIterator = threadLocalOutputIterator.get()
         if (outputIterator != null) {
-            outputIterator.close()
             threadLocalOutputIterator.remove()
+            try {
+                outputIterator.close()
+            } catch (Throwable t) {
+                log.warn("Close outputIterator failed", t)
+            }
+        }
+
+        Connection conn = threadLocalConn.get()
+        if (conn != null) {
+            threadLocalConn.remove()
+            try {
+                conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+    }
+
+    public <T> T start(Function<SuiteContext, T> func) {
+        this.startTime = System.currentTimeMillis()
+        scriptContext.eventListeners.each { it.onSuiteStarted(this) }
+
+        this.withCloseable {suiteContext ->
+            try {
+                func.apply(suiteContext)
+            } catch (Throwable t) {
+                if (t instanceof UndeclaredThrowableException) {
+                    t = ((UndeclaredThrowableException) t).undeclaredThrowable
+                }
+                scriptContext.eventListeners.each { it.onSuiteFailed(this, t) }
+                throwable = t
+                null
+            }
         }
     }
 
@@ -135,10 +205,8 @@ class SuiteContext implements Closeable {
             outputBlocksWriter.close()
         }
 
-        try {
-            conn.close()
-        } catch (Throwable t) {
-            log.warn("Close connection failed", t)
-        }
+        this.finishTime = System.currentTimeMillis()
+        long elapsed = finishTime - startTime
+        scriptContext.eventListeners.each { it.onSuiteFinished(this, throwable == null, elapsed) }
     }
 }

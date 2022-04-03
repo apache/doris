@@ -23,10 +23,11 @@
 
 #include <set>
 
-#include "env/env_remote.h"
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/utils.h"
+#include "util/storage_backend.h"
+#include "util/storage_backend_mgr.h"
 
 namespace doris {
 
@@ -91,7 +92,7 @@ OLAPStatus BetaRowset::remove() {
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
         LOG(INFO) << "deleting " << path_desc.debug_string();
-        fs::BlockManager* block_mgr = fs::fs_util::block_manager(path_desc.storage_medium);
+        fs::BlockManager* block_mgr = fs::fs_util::block_manager(path_desc);
         if (!block_mgr->delete_block(path_desc).ok()) {
             char errmsg[64];
             VLOG_NOTICE << "failed to delete file. err=" << strerror_r(errno, errmsg, 64)
@@ -121,7 +122,7 @@ OLAPStatus BetaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_
         FilePathDesc src_file_path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
         // TODO(lingbin): how external storage support link?
         //     use copy? or keep refcount to avoid being delete?
-        fs::BlockManager* block_mgr = fs::fs_util::block_manager(dir_desc.storage_medium);
+        fs::BlockManager* block_mgr = fs::fs_util::block_manager(dir_desc);
         if (!block_mgr->link_file(src_file_path_desc, dst_link_path_desc).ok()) {
             LOG(WARNING) << "fail to create hard link. from=" << src_file_path_desc.debug_string() << ", "
                          << "to=" << dst_link_path_desc.debug_string() << ", errno=" << Errno::no();
@@ -132,10 +133,9 @@ OLAPStatus BetaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_
 }
 
 OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
-    Env* env = Env::get_env(_rowset_path_desc.storage_medium);
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc dst_path_desc = segment_file_path(dir, rowset_id(), i);
-        Status status = env->path_exists(dst_path_desc.filepath);
+        Status status = Env::Default()->path_exists(dst_path_desc.filepath);
         if (status.ok()) {
             LOG(WARNING) << "file already exist: " << dst_path_desc.filepath;
             return OLAP_ERR_FILE_ALREADY_EXIST;
@@ -145,8 +145,7 @@ OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
             return OLAP_ERR_OS_ERROR;
         }
         FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
-        if (!Env::get_env(_rowset_path_desc.storage_medium)->copy_path(
-                src_path_desc.filepath, dst_path_desc.filepath).ok()) {
+        if (!Env::Default()->copy_path(src_path_desc.filepath, dst_path_desc.filepath).ok()) {
             LOG(WARNING) << "fail to copy file. from=" << src_path_desc.filepath << ", to="
                     << dst_path_desc.filepath << ", errno=" << Errno::no();
             return OLAP_ERR_OS_ERROR;
@@ -156,8 +155,12 @@ OLAPStatus BetaRowset::copy_files_to(const std::string& dir) {
 }
 
 OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc) {
-    RemoteEnv* dest_env = dynamic_cast<RemoteEnv*>(Env::get_env(_rowset_path_desc.storage_medium));
-    std::shared_ptr<StorageBackend> storage_backend = dest_env->get_storage_backend();
+    std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
+            get_storage_backend(dir_desc.storage_name);
+    if (storage_backend == nullptr) {
+        LOG(WARNING) << "storage_backend is invalid: " << dir_desc.debug_string();
+        return OLAP_ERR_OS_ERROR;
+    }
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc dst_path_desc = segment_file_path(dir_desc, rowset_id(), i);
         Status status = storage_backend->exist(dst_path_desc.remote_path);
@@ -192,13 +195,29 @@ bool BetaRowset::check_path(const std::string& path) {
 }
 
 bool BetaRowset::check_file_exist() {
-    Env* env = Env::get_env(_rowset_path_desc.storage_medium);
-    for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
-        if (!env->path_exists(path_desc.filepath).ok()) {
-            LOG(WARNING) << "data file not existed: " << path_desc.filepath
-                    << " for rowset_id: " << rowset_id();
+    if (_rowset_path_desc.is_remote()) {
+        std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
+                get_storage_backend(_rowset_path_desc.storage_name);
+        if (storage_backend == nullptr) {
+            LOG(WARNING) << "storage_backend is invalid: " << _rowset_path_desc.debug_string();
             return false;
+        }
+        for (int i = 0; i < num_segments(); ++i) {
+            FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
+            if (!storage_backend->exist(path_desc.remote_path).ok()) {
+                LOG(WARNING) << "data file not existed: " << path_desc.remote_path
+                             << " for rowset_id: " << rowset_id();
+                return false;
+            }
+        }
+    } else {
+        for (int i = 0; i < num_segments(); ++i) {
+            FilePathDesc path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
+            if (!Env::Default()->path_exists(path_desc.filepath).ok()) {
+                LOG(WARNING) << "data file not existed: " << path_desc.filepath
+                             << " for rowset_id: " << rowset_id();
+                return false;
+            }
         }
     }
     return true;

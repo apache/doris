@@ -67,6 +67,23 @@ enum TTabletType {
     TABLET_TYPE_MEMORY = 1
 }
 
+struct TS3StorageParam {
+    1: optional string s3_endpoint
+    2: optional string s3_region
+    3: optional string s3_ak
+    4: optional string s3_sk
+    5: optional i32 s3_max_conn = 50
+    6: optional i32 s3_request_timeout_ms = 3000
+    7: optional i32 s3_conn_timeout_ms = 1000
+    8: optional string root_path
+}
+
+struct TStorageParam {
+    1: required Types.TStorageMedium storage_medium = TStorageMedium.HDD
+    2: required string storage_name = "";
+    3: optional TS3StorageParam s3_storage_param
+}
+
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
@@ -87,6 +104,7 @@ struct TCreateTabletReq {
     12: optional bool is_eco_mode
     13: optional TStorageFormat storage_format
     14: optional TTabletType tablet_type
+    15: optional TStorageParam storage_param
 }
 
 struct TDropTabletReq {
@@ -100,6 +118,12 @@ struct TAlterTabletReq {
     3: required TCreateTabletReq new_tablet_req
 }
 
+enum TAlterTabletType {
+    SCHEMA_CHANGE = 1,
+    ROLLUP = 2,
+    MIGRATION = 3
+}
+
 // This v2 request will replace the old TAlterTabletReq.
 // TAlterTabletReq should be deprecated after new alter job process merged.
 struct TAlterTabletReqV2 {
@@ -111,6 +135,7 @@ struct TAlterTabletReqV2 {
     5: optional Types.TVersion alter_version
     6: optional Types.TVersionHash alter_version_hash // Deprecated
     7: optional list<TAlterMaterializedViewParam> materialized_view_params
+    8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
 }
 
 struct TAlterMaterializedViewParam {

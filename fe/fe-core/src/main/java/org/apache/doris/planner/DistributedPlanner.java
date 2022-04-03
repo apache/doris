@@ -927,7 +927,7 @@ public class DistributedPlanner {
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
-            if (canColocateAgg(node.getAggInfo(), childFragment.getInputDataPartition())) {
+            if (canColocateAgg(node.getAggInfo(), childFragment.getDataPartition())) {
                 childFragment.addPlanRoot(node);
                 childFragment.setHasColocatePlanNode(true);
                 return childFragment;
@@ -942,7 +942,7 @@ public class DistributedPlanner {
      * 1. Session variables disable_colocate_plan = false
      * 2. The input data partition of child fragment < agg node partition exprs
      */
-    private boolean canColocateAgg(AggregateInfo aggregateInfo, List<DataPartition> childFragmentDataPartition) {
+    private boolean canColocateAgg(AggregateInfo aggregateInfo, DataPartition childFragmentDataPartition) {
         // Condition1
         if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             LOG.debug("Agg node is not colocate in:" + ConnectContext.get().queryId()
@@ -952,10 +952,8 @@ public class DistributedPlanner {
 
         // Condition2
         List<Expr> aggPartitionExprs = aggregateInfo.getInputPartitionExprs();
-        for (DataPartition childDataPartition : childFragmentDataPartition) {
-            if (dataPartitionMatchAggInfo(childDataPartition, aggPartitionExprs)) {
-                return true;
-            }
+        if (dataPartitionMatchAggInfo(childFragmentDataPartition, aggPartitionExprs)) {
+            return true;
         }
         return false;
     }

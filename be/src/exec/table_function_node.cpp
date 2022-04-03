@@ -272,20 +272,21 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
 
                 Tuple* child_tuple = _cur_child_tuple_row->get_tuple(
                         child_rowdesc.get_tuple_idx(child_tuple_desc->id()));
+
+                // copy the child tuple to parent_tuple
+                memcpy(tuple_ptr, child_tuple, parent_tuple_desc->byte_size());
+                // only deep copy the child slot if it is selected and is var len (Eg: string, bitmap, hll)
                 for (int j = 0; j < _child_slot_sizes[i]; ++j) {
                     SlotDescriptor* child_slot_desc = child_tuple_desc->slots()[j];
                     SlotDescriptor* parent_slot_desc = parent_tuple_desc->slots()[j];
 
                     if (_output_slot_ids[parent_slot_desc->id()] &&
-                        !child_tuple->is_null(child_slot_desc->null_indicator_offset())) {
-                        // only write child slot if it is selected and not null.
+                        !child_tuple->is_null(child_slot_desc->null_indicator_offset())
+                        && child_slot_desc->type().is_string_type()) {
                         void* dest_slot = tuple_ptr->get_slot(parent_slot_desc->tuple_offset());
                         RawValue::write(child_tuple->get_slot(child_slot_desc->tuple_offset()),
                                         dest_slot, parent_slot_desc->type(),
                                         row_batch->tuple_data_pool());
-                        tuple_ptr->set_not_null(parent_slot_desc->null_indicator_offset());
-                    } else {
-                        tuple_ptr->set_null(parent_slot_desc->null_indicator_offset());
                     }
                 }
                 parent_tuple_row->set_tuple(tuple_idx, tuple_ptr);

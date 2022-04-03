@@ -52,23 +52,26 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
         }
     }
 
-    do {
-        // Read one block from block reader
-        auto res = _tablet_reader->next_block_with_aggregation(block, nullptr, nullptr, eof);
-        if (res != OLAP_SUCCESS) {
-            std::stringstream ss;
-            ss << "Internal Error: read storage fail. res=" << res
-               << ", tablet=" << _tablet->full_name()
-               << ", backend=" << BackendOptions::get_localhost();
-            return Status::InternalError(ss.str());
-        }
-        _num_rows_read += block->rows();
-        _update_realtime_counter();
+    {
+        SCOPED_TIMER(_parent->_scan_timer);
+        do {
+            // Read one block from block reader
+            auto res = _tablet_reader->next_block_with_aggregation(block, nullptr, nullptr, eof);
+            if (res != OLAP_SUCCESS) {
+                std::stringstream ss;
+                ss << "Internal Error: read storage fail. res=" << res
+                   << ", tablet=" << _tablet->full_name()
+                   << ", backend=" << BackendOptions::get_localhost();
+                return Status::InternalError(ss.str());
+            }
+            _num_rows_read += block->rows();
+            _update_realtime_counter();
 
-        RETURN_IF_ERROR(
-                VExprContext::filter_block(_vconjunct_ctx, block, _tuple_desc->slots().size()));
-    } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold &&
-             block->allocated_bytes() < raw_bytes_threshold);
+            RETURN_IF_ERROR(
+                    VExprContext::filter_block(_vconjunct_ctx, block, _tuple_desc->slots().size()));
+        } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold &&
+                 block->allocated_bytes() < raw_bytes_threshold);
+    }
     // NOTE:
     // There is no need to check raw_bytes_threshold since block->rows() == 0 is checked first.
     // But checking raw_bytes_threshold is still added here for consistency with raw_rows_threshold
