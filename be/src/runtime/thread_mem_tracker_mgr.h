@@ -217,6 +217,7 @@ inline void ThreadMemTrackerMgr::cache_consume(int64_t size) {
     if (_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
         _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) {
         DCHECK(_untracked_mems.find(_tracker_id) != _untracked_mems.end());
+        start_thread_mem_tracker = false;
         // When switching to the current tracker last time, the remaining untracked memory.
         if (_untracked_mems[_tracker_id] != 0) {
             _untracked_mem += _untracked_mems[_tracker_id];
@@ -224,7 +225,6 @@ inline void ThreadMemTrackerMgr::cache_consume(int64_t size) {
         }
         // Avoid getting stuck in infinite loop if there is memory allocation in noncache_consume.
         // For example: GC function when try_consume; mem_limit_exceeded.
-        start_thread_mem_tracker = false;
         noncache_consume();
         start_thread_mem_tracker = true;
     }
