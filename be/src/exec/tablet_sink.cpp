@@ -457,14 +457,24 @@ int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
     if (!st.ok()) {
         return 0;
     }
-    bool is_finished = true;
-    if (!_add_batch_closure->is_packet_in_flight() && _pending_batches_num > 0 &&
-        _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
+
+    if (!_add_batch_closure->try_set_in_flight()) {
+        return _send_finished ? 0 : 1;
+    }
+
+    // We are sure that try_send_batch is not running
+    if (_pending_batches_num > 0) {
         auto s = thread_pool_token->submit_func(
                 std::bind(&NodeChannel::try_send_batch, this, state));
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
+            // clear in flight
+            _add_batch_closure->clear_in_flight();
         }
+        // in_flight is cleared in closure::Run
+    } else {
+        // clear in flight
+        _add_batch_closure->clear_in_flight();
     }
     return _send_finished ? 0 : 1;
 }
@@ -495,6 +505,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
                                          &compressed_bytes, _tuple_data_buffer_ptr);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+            _add_batch_closure->clear_in_flight();
             return;
         }
         if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
@@ -508,6 +519,7 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
             cancel(fmt::format("{}, err: timeout", channel_info()));
+            _add_batch_closure->clear_in_flight();
             return;
         } else {
             remain_ms = config::min_load_rpc_timeout_ms;
@@ -544,7 +556,6 @@ void NodeChannel::try_send_batch(RuntimeState* state) {
                                    _add_batch_closure);
 
     _next_packet_seq++;
-    _last_patch_processed_finished = true;
 }
 
 Status NodeChannel::none_of(std::initializer_list<bool> vars) {
