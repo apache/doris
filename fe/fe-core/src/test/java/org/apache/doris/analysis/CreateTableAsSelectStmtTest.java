@@ -113,14 +113,14 @@ public class CreateTableAsSelectStmtTest {
     }
     
     @Test
-    public void testErrorType() throws Exception {
+    public void testErrorType() {
         String selectFromDecimal = "create table `test`.`select_decimal_table` PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`decimal_table`";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Unsupported type",
                 () -> UtFrameUtils.parseAndAnalyzeStmt(selectFromDecimal, connectContext));
     }
     
     @Test
-    public void testErrorColumn() throws Exception {
+    public void testErrorColumn() {
         String selectFromColumn = "create table `test`.`select_column_table`(test_error) PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`varchar_table`";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Number of columns don't equal number of SELECT statement's select list",
                 () -> UtFrameUtils.parseAndAnalyzeStmt(selectFromColumn, connectContext));
