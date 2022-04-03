@@ -417,10 +417,6 @@ public class RoutineLoadManager implements Writable {
             throw new LoadException("The " + clusterName + " has been deleted");
         }
 
-        if (previousBeId != -1L && !beIdsInCluster.contains(previousBeId)) {
-            return -1L;
-        }
-
         // check if be has idle slot
         readLock();
         try {
@@ -430,8 +426,8 @@ public class RoutineLoadManager implements Writable {
             if (previousBeId != -1L) {
                 // get the previousBackend info
                 Backend previousBackend = Catalog.getCurrentSystemInfo().getBackend(previousBeId);
-                // check previousBackend is alive && load available
-                if (previousBackend.isLoadAvailable()) {
+                // check previousBackend is in cluster && alive && load available
+                if (beIdsInCluster.contains(previousBeId) && previousBackend.isLoadAvailable()) {
                     int idleTaskNum = 0;
                     if (!beIdToMaxConcurrentTasks.containsKey(previousBeId)) {
                         idleTaskNum = 0;
@@ -447,7 +443,7 @@ public class RoutineLoadManager implements Writable {
             }
 
             // 2. The given BE id does not have available slots, find a BE with min tasks
-            // 3. The previos BE is not load available, find a new BE with min tasks
+            // 3. The previos BE is not in cluster && is not load available, find a new BE with min tasks
             int idleTaskNum = 0;
             long resultBeId = -1L;
             int maxIdleSlotNum = 0;
