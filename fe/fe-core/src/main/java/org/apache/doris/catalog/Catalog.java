@@ -3121,7 +3121,6 @@ public class Catalog {
                 }  else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
-                typeDef = new TypeDef(resultExpr.getType());
                 createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
                         null, true,
                         new DefaultValue(false, null),

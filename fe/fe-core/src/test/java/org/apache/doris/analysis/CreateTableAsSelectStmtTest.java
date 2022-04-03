@@ -150,7 +150,6 @@ public class CreateTableAsSelectStmtTest {
         String selectFromFunction1 = "create table `test`.`select_function_1` PROPERTIES(\"replication_num\" = \"1\") as select count(*) from `test`.`varchar_table`";
         createTableAsSelect(selectFromFunction1);
         ShowResultSet showResultSet1 = showCreateTable("select_function_1");
-        System.out.println(showResultSet1.getResultRows().get(0).get(1));
         Assert.assertEquals("CREATE TABLE `select_function_1` (\n" +
                 "  `_col0` bigint(20) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
