@@ -36,7 +36,7 @@ class ColumnBlock {
 public:
     ColumnBlock(ColumnVectorBatch* batch, MemPool* pool) : _batch(batch), _pool(pool) {}
 
-    const TypeInfo* type_info() const { return _batch->type_info().get(); }
+    const TypeInfo* type_info() const { return _batch->type_info(); }
     uint8_t* data() const { return _batch->data(); }
     bool is_nullable() const { return _batch->is_nullable(); }
     MemPool* pool() const { return _pool; }
