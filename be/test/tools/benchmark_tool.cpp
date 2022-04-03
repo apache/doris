@@ -190,7 +190,7 @@ public:
 
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
-            auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(num, false, type_info, nullptr, &cvb);
             ColumnBlock column_block(cvb.get(), &pool);

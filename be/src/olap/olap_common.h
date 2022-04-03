@@ -115,6 +115,8 @@ enum DelCondSatisfied {
     DEL_PARTIAL_SATISFIED = 2, //partially satisfy delete condition
 };
 // Define all data types supported by Field.
+// If new filed_type is defined, not only new TypeInfo may need be defined,
+// but also some functions like get_type_info in types.cpp need to be changed.
 enum FieldType {
     OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,

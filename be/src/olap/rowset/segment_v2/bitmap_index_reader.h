@@ -40,7 +40,7 @@ class BitmapIndexReader {
 public:
     explicit BitmapIndexReader(const FilePathDesc& path_desc, const BitmapIndexPB* bitmap_index_meta)
             : _path_desc(path_desc), _bitmap_index_meta(bitmap_index_meta) {
-        _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        _typeinfo = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
     }
 
     Status load(bool use_page_cache, bool kept_in_memory);
@@ -50,13 +50,13 @@ public:
 
     int64_t bitmap_nums() { return _bitmap_column_reader->num_values(); }
 
-    std::shared_ptr<const TypeInfo> type_info() { return _typeinfo; }
+    const TypeInfo* type_info() { return _typeinfo; }
 
 private:
     friend class BitmapIndexIterator;
 
     FilePathDesc _path_desc;
-    std::shared_ptr<const TypeInfo> _typeinfo;
+    const TypeInfo* _typeinfo;
     const BitmapIndexPB* _bitmap_index_meta;
     bool _has_null = false;
     std::unique_ptr<IndexedColumnReader> _dict_column_reader;
