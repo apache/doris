@@ -520,8 +520,7 @@ COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
                 auto& dict_col =                                                               \
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
                                 *col_ptr);                                                     \
-                auto code = dict_col.find_code(_value);                                        \
-                _dict_code = code;                                                             \
+                _dict_code = dict_col.find_code(_value);                                       \
                 _dict_code_inited = true;                                                      \
             }                                                                                  \
         }                                                                                      \
@@ -530,6 +529,9 @@ COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
 COMPARISON_PRED_SET_DICT_CODE(EqualPredicate)
 COMPARISON_PRED_SET_DICT_CODE(NotEqualPredicate)
 
+// If 1 OP 0 returns true, it means the predicate is > or >=
+// If 1 OP 1 returns true, it means the predicate is >= or <=
+// by this way, avoid redundant code
 #define RAMGE_COMPARISON_PRED_SET_DICT_CODE(CLASS, OP)                                         \
     template <class T>                                                                         \
     void CLASS<T>::set_dict_code_if_necessary(vectorized::IColumn& column) {                   \
@@ -548,8 +550,7 @@ COMPARISON_PRED_SET_DICT_CODE(NotEqualPredicate)
                 auto& dict_col =                                                               \
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
                                 *col_ptr);                                                     \
-                auto code = dict_col.find_code_by_bound(_value, 0 OP 1, 1 OP 1);               \
-                _dict_code = code;                                                             \
+                _dict_code = dict_col.find_code_by_bound(_value, 1 OP 0, 1 OP 1);              \
                 _dict_code_inited = true;                                                      \
             }                                                                                  \
         }                                                                                      \
