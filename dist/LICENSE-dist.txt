@@ -200,6 +200,7 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 
+
 --------------------------------------------------------------------------------
 
 be/src/common/status.* : BSD-style license
@@ -1239,25 +1240,25 @@ The Apache Software License, Version 2.0
     * spark-dpp:
         - org.apache.doris:spark-dpp:0.15-SNAPSHOT (https://doris.apache.org/spark-dpp/)
     * spring-boot:
-        - org.springframework.boot:spring-boot:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot:2.6.6 (https://spring.io/projects/spring-boot)
     * spring-boot-autoconfigure:
-        - org.springframework.boot:spring-boot-autoconfigure:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-autoconfigure:2.6.6 (https://spring.io/projects/spring-boot)
     * spring-boot-configuration-processor:
-        - org.springframework.boot:spring-boot-configuration-processor:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-configuration-processor:2.6.6 (https://spring.io/projects/spring-boot)
     * spring-boot-devtools:
-        - org.springframework.boot:spring-boot-devtools:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-devtools:2.6.6 (https://spring.io/projects/spring-boot)
     * spring-boot-starter:
-        - org.springframework.boot:spring-boot-starter:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter:2.6.6 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-data-ldap:
-        - org.springframework.boot:spring-boot-starter-data-ldap:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-data-ldap:2.6.6 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-jetty:
-        - org.springframework.boot:spring-boot-starter-jetty:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-jetty:2.6.6 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-json:
-        - org.springframework.boot:spring-boot-starter-json:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-json:2.6.6 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-logging:
-        - org.springframework.boot:spring-boot-starter-logging:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-logging:2.6.6 (https://spring.io/projects/spring-boot)
     * spring-boot-starter-web:
-        - org.springframework.boot:spring-boot-starter-web:2.6.2 (https://spring.io/projects/spring-boot)
+        - org.springframework.boot:spring-boot-starter-web:2.6.6 (https://spring.io/projects/spring-boot)
     * spring-ldap-core:
         - org.springframework.ldap:spring-ldap-core:2.3.5.RELEASE (https://www.springframework.org/ldap)
     * stream-lib:
