@@ -423,6 +423,9 @@ public class Repository implements Writable {
             LOG.warn("failed to read backup meta from file", e);
             return new Status(ErrCode.COMMON_ERROR, "Failed create backup meta from file: "
                     + localMetaFile.getAbsolutePath() + ", msg: " + e.getMessage());
+        } catch (IllegalArgumentException e) {
+            LOG.warn("failed to set meta version", e);
+            return new Status(ErrCode.COMMON_ERROR, e.getMessage());
         } finally {
             localMetaFile.delete();
         }
