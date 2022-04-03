@@ -33,7 +33,7 @@ public:
 
 template <FieldType field_type>
 void common_test(typename TypeTraits<field_type>::CppType src_val) {
-    auto type = get_scalar_type_info(field_type);
+    const auto* type = get_scalar_type_info<field_type>();
 
     ASSERT_EQ(field_type, type->type());
     ASSERT_EQ(sizeof(src_val), type->size());
@@ -72,7 +72,7 @@ template <FieldType fieldType>
 void test_char(Slice src_val) {
     Field* field = FieldFactory::create_by_type(fieldType);
     field->_length = src_val.size;
-    auto type = field->type_info();
+    const auto* type = field->type_info();
 
     ASSERT_EQ(field->type(), fieldType);
     ASSERT_EQ(sizeof(src_val), type->size());
@@ -155,7 +155,7 @@ void common_test_array(CollectionValue src_val) {
     TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
     list_column.add_sub_column(item_column);
 
-    auto array_type = dynamic_cast<const ArrayTypeInfo*>(get_type_info(&list_column).get());
+    const auto* array_type = dynamic_cast<const ArrayTypeInfo*>(get_type_info(&list_column));
     ASSERT_EQ(item_type, array_type->item_type_info()->type());
 
     { // test deep copy

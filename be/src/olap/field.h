@@ -278,7 +278,7 @@ public:
 
     FieldType type() const { return _type_info->type(); }
     FieldAggregationMethod aggregation() const { return _agg_info->agg_method(); }
-    std::shared_ptr<const TypeInfo> type_info() const { return _type_info; }
+    const TypeInfo* type_info() const { return _type_info; }
     bool is_nullable() const { return _is_nullable; }
 
     // similar to `full_encode_ascending`, but only encode part (the first `index_size` bytes) of the value.
@@ -302,7 +302,7 @@ public:
     size_t get_sub_field_count() const { return _sub_fields.size(); }
 
 protected:
-    std::shared_ptr<const TypeInfo> _type_info;
+    const TypeInfo* _type_info;
     const AggregateInfo* _agg_info;
     // unit : byte
     // except for strings, other types have fixed lengths
