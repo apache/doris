@@ -178,37 +178,6 @@ TEST_F(EnvPosixTest, random_rw) {
         ASSERT_EQ(TStatusCode::END_OF_FILE, st.code());
         LOG(INFO) << "st=" << st.to_string();
     }
-    // SequentialFile
-    {
-        char mem[1024];
-        std::unique_ptr<SequentialFile> rfile;
-        st = env->new_sequential_file(fname, &rfile);
-        ASSERT_TRUE(st.ok());
-
-        Slice slice1(mem, 3);
-        st = rfile->read(&slice1);
-        ASSERT_TRUE(st.ok());
-        ASSERT_STREQ("abc", std::string(slice1.data, slice1.size).c_str());
-
-        st = rfile->skip(3);
-        ASSERT_TRUE(st.ok());
-
-        Slice slice3(mem, 3);
-        st = rfile->read(&slice3);
-        ASSERT_STREQ("789", std::string(slice3.data, slice3.size).c_str());
-
-        st = rfile->skip(90);
-        ASSERT_TRUE(st.ok());
-
-        Slice slice4(mem, 15);
-        st = rfile->read(&slice4);
-        ASSERT_TRUE(st.ok());
-        ASSERT_EQ(10, slice4.size);
-
-        st = rfile->read(&slice4);
-        ASSERT_TRUE(st.ok());
-        ASSERT_EQ(0, slice4.size);
-    }
 }
 
 TEST_F(EnvPosixTest, iterate_dir) {

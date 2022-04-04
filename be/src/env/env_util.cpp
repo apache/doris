@@ -75,26 +75,14 @@ Status write_string_to_file_sync(Env* env, const Slice& data, const std::string&
     return do_write_string_to_file(env, data, fname, true);
 }
 
-Status read_file_to_string(Env* env, const std::string& fname, faststring* data) {
+Status read_file_to_string(Env* env, const std::string& fname, std::string* data) {
     data->clear();
-    std::unique_ptr<SequentialFile> file;
-    Status s = env->new_sequential_file(fname, &file);
+    std::unique_ptr<RandomAccessFile> file;
+    Status s = env->new_random_access_file(fname, &file);
     if (!s.ok()) {
         return s;
     }
-    static const int kBufferSize = 8192;
-    std::unique_ptr<uint8_t[]> scratch(new uint8_t[kBufferSize]);
-    while (true) {
-        Slice fragment(scratch.get(), kBufferSize);
-        s = file->read(&fragment);
-        if (!s.ok()) {
-            break;
-        }
-        data->append(fragment.get_data(), fragment.get_size());
-        if (fragment.empty()) {
-            break;
-        }
-    }
+    s = file->read_all(data);
     return s;
 }
 
