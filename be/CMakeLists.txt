@@ -51,7 +51,7 @@ endif ()
 
 # Set boost/stacktrace use backtrace api to unwind
 add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
-add_definitions(-DPRINT_ALL_ERR_STATUS_STACKTRACE)
+#add_definitions(-DPRINT_ALL_ERR_STATUS_STACKTRACE)
 
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 message(STATUS "GLIBC_COMPATIBILITY is ${GLIBC_COMPATIBILITY}")

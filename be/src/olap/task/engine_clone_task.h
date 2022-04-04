@@ -32,7 +32,7 @@ namespace doris {
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineCloneTask : public EngineTask {
 public:
-    virtual OLAPStatus execute();
+    virtual Status execute();
 
 public:
     EngineCloneTask(const TCloneReq& _clone_req, const TMasterInfo& _master_info,
@@ -41,15 +41,15 @@ public:
     ~EngineCloneTask() {}
 
 private:
-    OLAPStatus _do_clone();
+    Status _do_clone();
 
-    virtual OLAPStatus _finish_clone(Tablet* tablet, const std::string& clone_dir,
+    virtual Status _finish_clone(Tablet* tablet, const std::string& clone_dir,
                                      int64_t committed_version, bool is_incremental_clone);
 
-    OLAPStatus _finish_incremental_clone(Tablet* tablet, const TabletMeta& cloned_tablet_meta,
+    Status _finish_incremental_clone(Tablet* tablet, const TabletMeta& cloned_tablet_meta,
                                        int64_t committed_version);
 
-    OLAPStatus _finish_full_clone(Tablet* tablet, TabletMeta* cloned_tablet_meta);
+    Status _finish_full_clone(Tablet* tablet, TabletMeta* cloned_tablet_meta);
 
     Status _make_and_download_snapshots(DataDir& data_dir, const string& local_data_path, TBackend* src_host,
                             string* src_file_path, vector<string>* error_msgs,

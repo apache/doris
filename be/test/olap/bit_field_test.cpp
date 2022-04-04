@@ -51,13 +51,13 @@ public:
     }
 
     void CreateReader() {
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   _helper.open_with_mode(_file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY,
                                          S_IRUSR | S_IWUSR));
         _out_stream->write_to_file(&_helper, 0);
         _helper.close();
 
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   _helper.open_with_mode(_file_path.c_str(), O_RDONLY, S_IRUSR | S_IWUSR));
 
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
@@ -67,7 +67,7 @@ public:
         _stream = new (std::nothrow)
                 ReadOnlyFileStream(&_helper, &_shared_buffer, 0, _helper.length(), nullptr,
                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, &_stats);
-        EXPECT_EQ(OLAP_SUCCESS, _stream->init());
+        EXPECT_EQ(Status::OK(), _stream->init());
 
         _reader = new (std::nothrow) BitFieldReader(_stream);
         EXPECT_TRUE(_reader != nullptr);
@@ -87,14 +87,14 @@ public:
 
 TEST_F(TestBitField, ReadWriteOneBit) {
     // write data
-    EXPECT_EQ(OLAP_SUCCESS, _writer->write(true));
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->write(true));
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
 
     char value = 0;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 1);
 }
 
@@ -102,19 +102,19 @@ TEST_F(TestBitField, ReadWriteMultiBits) {
     // write data
     for (int32_t i = 0; i < 100; i++) {
         if (0 == i % 2) {
-            EXPECT_EQ(OLAP_SUCCESS, _writer->write(true));
+            EXPECT_EQ(Status::OK(), _writer->write(true));
         } else {
-            EXPECT_EQ(OLAP_SUCCESS, _writer->write(false));
+            EXPECT_EQ(Status::OK(), _writer->write(false));
         }
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
 
     char value = 0;
     for (int32_t i = 0; i < 100; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         if (0 == i % 2) {
             EXPECT_EQ(value, 1);
         } else {
@@ -127,17 +127,17 @@ TEST_F(TestBitField, Seek) {
     // write data
     for (int32_t i = 0; i < 100; i++) {
         if (0 == i % 2) {
-            EXPECT_EQ(OLAP_SUCCESS, _writer->write(true));
+            EXPECT_EQ(Status::OK(), _writer->write(true));
         } else {
-            EXPECT_EQ(OLAP_SUCCESS, _writer->write(false));
+            EXPECT_EQ(Status::OK(), _writer->write(false));
         }
     }
     PositionEntryWriter index_entry;
     _writer->get_position(&index_entry);
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->write(true));
+    EXPECT_EQ(Status::OK(), _writer->write(true));
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -150,7 +150,7 @@ TEST_F(TestBitField, Seek) {
 
     PositionProvider position(&entry);
     _reader->seek(&position);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 1);
 }
 
@@ -158,22 +158,22 @@ TEST_F(TestBitField, Skip) {
     // write data
     for (int32_t i = 0; i < 100; i++) {
         if (0 == i % 2) {
-            EXPECT_EQ(OLAP_SUCCESS, _writer->write(true));
+            EXPECT_EQ(Status::OK(), _writer->write(true));
         } else {
-            EXPECT_EQ(OLAP_SUCCESS, _writer->write(false));
+            EXPECT_EQ(Status::OK(), _writer->write(false));
         }
     }
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->write(true));
+    EXPECT_EQ(Status::OK(), _writer->write(true));
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
 
     char value = 0;
     _reader->skip(100);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 1);
 }
 

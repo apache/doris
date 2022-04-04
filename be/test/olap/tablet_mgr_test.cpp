@@ -104,7 +104,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    EXPECT_TRUE(create_st == OLAP_SUCCESS);
+    EXPECT_TRUE(create_st == Status::OK());
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
     // check dir exist
@@ -113,17 +113,17 @@ TEST_F(TabletMgrTest, CreateTablet) {
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
-    EXPECT_TRUE(check_meta_st == OLAP_SUCCESS);
+    EXPECT_TRUE(check_meta_st == Status::OK());
 
     // retry create should be successfully
     create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    EXPECT_TRUE(create_st == OLAP_SUCCESS);
+    EXPECT_TRUE(create_st == Status::OK());
 
     OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, false);
-    EXPECT_TRUE(drop_st == OLAP_SUCCESS);
+    EXPECT_TRUE(drop_st == Status::OK());
     tablet.reset();
     OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
-    EXPECT_TRUE(trash_st == OLAP_SUCCESS);
+    EXPECT_TRUE(trash_st == Status::OK());
 }
 
 TEST_F(TabletMgrTest, CreateTabletWithSequence) {
@@ -162,7 +162,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    EXPECT_TRUE(create_st == OLAP_SUCCESS);
+    EXPECT_TRUE(create_st == Status::OK());
 
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
@@ -172,13 +172,13 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
     OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
-    EXPECT_TRUE(check_meta_st == OLAP_SUCCESS);
+    EXPECT_TRUE(check_meta_st == Status::OK());
 
     OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, false);
-    EXPECT_TRUE(drop_st == OLAP_SUCCESS);
+    EXPECT_TRUE(drop_st == Status::OK());
     tablet.reset();
     OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
-    EXPECT_TRUE(trash_st == OLAP_SUCCESS);
+    EXPECT_TRUE(trash_st == Status::OK());
 }
 
 TEST_F(TabletMgrTest, DropTablet) {
@@ -203,19 +203,19 @@ TEST_F(TabletMgrTest, DropTablet) {
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    EXPECT_TRUE(create_st == OLAP_SUCCESS);
+    EXPECT_TRUE(create_st == Status::OK());
     TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
 
     // drop unexist tablet will be success
     OLAPStatus drop_st = _tablet_mgr->drop_tablet(1121, false);
-    EXPECT_TRUE(drop_st == OLAP_SUCCESS);
+    EXPECT_TRUE(drop_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet != nullptr);
 
     // drop exist tablet will be success
     drop_st = _tablet_mgr->drop_tablet(111, false);
-    EXPECT_TRUE(drop_st == OLAP_SUCCESS);
+    EXPECT_TRUE(drop_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111);
     EXPECT_TRUE(tablet == nullptr);
     tablet = _tablet_mgr->get_tablet(111, true);
@@ -229,7 +229,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     // do trash sweep, tablet will not be garbage collected
     // because tablet ptr referenced it
     OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
-    EXPECT_TRUE(trash_st == OLAP_SUCCESS);
+    EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
     EXPECT_TRUE(tablet != nullptr);
     dir_exist = FileUtils::check_exist(tablet_path);
@@ -238,7 +238,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     // reset tablet ptr
     tablet.reset();
     trash_st = _tablet_mgr->start_trash_sweep();
-    EXPECT_TRUE(trash_st == OLAP_SUCCESS);
+    EXPECT_TRUE(trash_st == Status::OK());
     tablet = _tablet_mgr->get_tablet(111, true);
     EXPECT_TRUE(tablet == nullptr);
     dir_exist = FileUtils::check_exist(tablet_path);

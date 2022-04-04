@@ -28,7 +28,7 @@ public:
     PositionEntryReader();
     ~PositionEntryReader() {}
     // 使用前需要初始化，需要header来计算每一组position/stat的偏移量
-    OLAPStatus init(StreamIndexHeader* header, FieldType type, bool null_supported);
+    Status init(StreamIndexHeader* header, FieldType type, bool null_supported);
     // attach到一块内存上读取position和stat
     void attach(char* buffer);
     // 返回指定下标的position
@@ -70,13 +70,13 @@ public:
     StreamIndexReader();
     ~StreamIndexReader();
 
-    OLAPStatus init(char* buffer, size_t buffer_size, FieldType type, bool is_using_cache,
+    Status init(char* buffer, size_t buffer_size, FieldType type, bool is_using_cache,
                     bool null_supported);
     const PositionEntryReader& entry(uint64_t entry_id);
     size_t entry_count();
 
 protected:
-    OLAPStatus _parse_header(FieldType type);
+    Status _parse_header(FieldType type);
 
 private:
     char* _buffer;

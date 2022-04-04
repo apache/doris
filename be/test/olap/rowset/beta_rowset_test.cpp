@@ -153,11 +153,11 @@ protected:
     void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context,
                                        RowsetReaderSharedPtr* result) {
         auto s = rowset->create_reader(result);
-        EXPECT_EQ(OLAP_SUCCESS, s);
+        EXPECT_EQ(Status::OK(), s);
         EXPECT_TRUE(*result != nullptr);
 
         s = (*result)->init(&context);
-        EXPECT_EQ(OLAP_SUCCESS, s);
+        EXPECT_EQ(Status::OK(), s);
     }
 };
 
@@ -175,7 +175,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 
         std::unique_ptr<RowsetWriter> rowset_writer;
         s = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
-        EXPECT_EQ(OLAP_SUCCESS, s);
+        EXPECT_EQ(Status::OK(), s);
 
         RowCursor input_row;
         input_row.init(tablet_schema);
@@ -194,10 +194,10 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                 input_row.set_field_content(1, reinterpret_cast<char*>(&k2), &mem_pool);
                 input_row.set_field_content(2, reinterpret_cast<char*>(&k3), &mem_pool);
                 s = rowset_writer->add_row(input_row);
-                EXPECT_EQ(OLAP_SUCCESS, s);
+                EXPECT_EQ(Status::OK(), s);
             }
             s = rowset_writer->flush();
-            EXPECT_EQ(OLAP_SUCCESS, s);
+            EXPECT_EQ(Status::OK(), s);
         }
 
         rowset = rowset_writer->build();
@@ -221,7 +221,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
             create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
             RowBlock* output_block;
             uint32_t num_rows_read = 0;
-            while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
+            while ((s = rowset_reader->next_block(&output_block)) == Status::OK()) {
                 EXPECT_TRUE(output_block != nullptr);
                 EXPECT_GT(output_block->row_num(), 0);
                 EXPECT_EQ(0, output_block->pos());
@@ -260,7 +260,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
             create_and_init_rowset_reader(rowset.get(), reader_context, &rowset_reader);
             RowBlock* output_block;
             uint32_t num_rows_read = 0;
-            while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
+            while ((s = rowset_reader->next_block(&output_block)) == Status::OK()) {
                 EXPECT_TRUE(output_block != nullptr);
                 EXPECT_EQ(1, output_block->row_num());
                 EXPECT_EQ(0, output_block->pos());
@@ -302,7 +302,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 
             RowBlock* output_block;
             uint32_t num_rows_read = 0;
-            while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
+            while ((s = rowset_reader->next_block(&output_block)) == Status::OK()) {
                 EXPECT_TRUE(output_block != nullptr);
                 EXPECT_GT(output_block->row_num(), 0);
                 EXPECT_EQ(0, output_block->pos());
@@ -335,7 +335,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 
             RowBlock* output_block;
             uint32_t num_rows_read = 0;
-            while ((s = rowset_reader->next_block(&output_block)) == OLAP_SUCCESS) {
+            while ((s = rowset_reader->next_block(&output_block)) == Status::OK()) {
                 EXPECT_TRUE(output_block != nullptr);
                 EXPECT_LE(output_block->row_num(), 100);
                 EXPECT_EQ(0, output_block->pos());

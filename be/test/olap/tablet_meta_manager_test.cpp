@@ -80,16 +80,16 @@ TEST_F(TabletMetaManagerTest, TestSaveAndGetAndRemove) {
     tablet_meta_pb.SerializeToString(&meta_binary);
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     OLAPStatus s = tablet_meta->deserialize(meta_binary);
-    EXPECT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(Status::OK(), s);
 
     s = TabletMetaManager::save(_data_dir, tablet_id, schema_hash, tablet_meta);
-    EXPECT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(Status::OK(), s);
     std::string json_meta_read;
     s = TabletMetaManager::get_json_meta(_data_dir, tablet_id, schema_hash, &json_meta_read);
-    EXPECT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(Status::OK(), s);
     EXPECT_EQ(_json_header, json_meta_read);
     s = TabletMetaManager::remove(_data_dir, tablet_id, schema_hash);
-    EXPECT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(Status::OK(), s);
     TabletMetaSharedPtr meta_read(new TabletMeta());
     s = TabletMetaManager::get_meta(_data_dir, tablet_id, schema_hash, meta_read);
     EXPECT_EQ(OLAP_ERR_META_KEY_NOT_FOUND, s);
@@ -99,10 +99,10 @@ TEST_F(TabletMetaManagerTest, TestLoad) {
     const TTabletId tablet_id = 15672;
     const TSchemaHash schema_hash = 567997577;
     OLAPStatus s = TabletMetaManager::load_json_meta(_data_dir, meta_path);
-    EXPECT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(Status::OK(), s);
     std::string json_meta_read;
     s = TabletMetaManager::get_json_meta(_data_dir, tablet_id, schema_hash, &json_meta_read);
-    EXPECT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(Status::OK(), s);
     EXPECT_EQ(_json_header, json_meta_read);
 }
 

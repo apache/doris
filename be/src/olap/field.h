@@ -235,7 +235,7 @@ public:
     }
 
     //convert and copy field from src to desc
-    OLAPStatus convert_from(char* dest, const char* src, const TypeInfo* src_type,
+    Status convert_from(char* dest, const char* src, const TypeInfo* src_type,
                                    MemPool* mem_pool) const {
         return _type_info->convert_from(dest, src, src_type, mem_pool, get_variable_len());
     }
@@ -246,7 +246,7 @@ public:
 
     // used by init scan key stored in string format
     // value_string should end with '\0'
-    OLAPStatus from_string(char* buf, const std::string& value_string) const {
+    Status from_string(char* buf, const std::string& value_string) const {
         if (type() == OLAP_FIELD_TYPE_STRING && !value_string.empty()) {
             auto slice = reinterpret_cast<Slice*>(buf);
             if (slice->size < value_string.size()) {

@@ -48,7 +48,7 @@ TEST_F(TestByteBuffer, TestReadWrite) {
 
     char in[10] = {'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'};
     for (int i = 0; i < 5; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, buf1->put(in, sizeof(in)));
+        EXPECT_EQ(Status::OK(), buf1->put(in, sizeof(in)));
         EXPECT_EQ(100u - (i + 1) * sizeof(in), buf1->remaining());
         EXPECT_EQ((i + 1) * sizeof(in), buf1->position());
     }
@@ -57,7 +57,7 @@ TEST_F(TestByteBuffer, TestReadWrite) {
     EXPECT_EQ(OLAP_ERR_OUT_OF_BOUND, buf1->put(in, sizeof(in), 5, 10));
 
     for (int i = 0; i < 50; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, buf1->put(i));
+        EXPECT_EQ(Status::OK(), buf1->put(i));
         EXPECT_EQ(50u - (i + 1), buf1->remaining());
         EXPECT_EQ(50u + i + 1, buf1->position());
     }
@@ -72,7 +72,7 @@ TEST_F(TestByteBuffer, TestReadWrite) {
     for (int i = 0; i < 5; i++) {
         for (int j = 0; j < 10; j++) {
             char byte;
-            EXPECT_EQ(OLAP_SUCCESS, buf1->get(&byte));
+            EXPECT_EQ(Status::OK(), buf1->get(&byte));
             EXPECT_EQ(100u - (i * 10 + j + 1), buf1->remaining());
             EXPECT_EQ(i * 10 + j + 1, buf1->position());
             EXPECT_EQ('a' + j, byte);
@@ -81,7 +81,7 @@ TEST_F(TestByteBuffer, TestReadWrite) {
     char buf[50];
     EXPECT_EQ(OLAP_ERR_OUT_OF_BOUND, buf1->get(buf, 100));
     EXPECT_EQ(OLAP_ERR_BUFFER_OVERFLOW, buf1->get(buf, 10, 50));
-    EXPECT_EQ(OLAP_SUCCESS, buf1->get(buf, sizeof(buf)));
+    EXPECT_EQ(Status::OK(), buf1->get(buf, sizeof(buf)));
     EXPECT_EQ(0u, buf1->remaining());
     EXPECT_EQ(100u, buf1->position());
 
@@ -92,16 +92,16 @@ TEST_F(TestByteBuffer, TestReadWrite) {
     EXPECT_EQ(OLAP_ERR_OUT_OF_BOUND, buf1->get(&byte));
     EXPECT_EQ(OLAP_ERR_OUT_OF_BOUND, buf1->get(&byte, 1));
 
-    EXPECT_EQ(OLAP_SUCCESS, buf1->put(10, 'x'));
-    EXPECT_EQ(OLAP_SUCCESS, buf1->get(10, &byte));
+    EXPECT_EQ(Status::OK(), buf1->put(10, 'x'));
+    EXPECT_EQ(Status::OK(), buf1->get(10, &byte));
     EXPECT_EQ('x', byte);
 
-    EXPECT_EQ(OLAP_SUCCESS, buf1->set_limit(11));
+    EXPECT_EQ(Status::OK(), buf1->set_limit(11));
     EXPECT_EQ(11u, buf1->limit());
     EXPECT_EQ(11u, buf1->position());
     EXPECT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR, buf1->set_limit(101));
-    EXPECT_EQ(OLAP_SUCCESS, buf1->set_position(10));
-    EXPECT_EQ(OLAP_SUCCESS, buf1->get(&byte));
+    EXPECT_EQ(Status::OK(), buf1->set_position(10));
+    EXPECT_EQ(Status::OK(), buf1->get(&byte));
     EXPECT_EQ('x', byte);
     EXPECT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR, buf1->set_position(12));
 
@@ -117,7 +117,7 @@ TEST_F(TestByteBuffer, TestRef) {
     EXPECT_TRUE(buf1 != nullptr);
 
     for (int i = 0; i < 256; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, buf1->put(i));
+        EXPECT_EQ(Status::OK(), buf1->put(i));
     }
     StorageByteBuffer buf2 = *buf1;
     EXPECT_EQ(buf2.array(), buf1->array());
@@ -133,7 +133,7 @@ TEST_F(TestByteBuffer, TestRef) {
 
     for (int i = 0; i < 90; i++) {
         char byte;
-        EXPECT_EQ(OLAP_SUCCESS, buf3->get(&byte));
+        EXPECT_EQ(Status::OK(), buf3->get(&byte));
         EXPECT_EQ(i + 10, byte);
     }
 
@@ -148,17 +148,17 @@ TEST_F(TestByteBuffer, TestMmap) {
     FileHandler file_handle;
     std::string file_name = ".test_byte_buffer";
     OLAPStatus res = file_handle.open_with_mode(file_name, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
 
     char buf[100];
     for (int i = 0; i < 100; i++) {
         buf[i] = i;
     }
-    EXPECT_EQ(OLAP_SUCCESS, file_handle.write(buf, 100));
+    EXPECT_EQ(Status::OK(), file_handle.write(buf, 100));
     file_handle.close();
 
     res = file_handle.open(file_name, O_RDWR);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     StorageByteBuffer* buf1 = StorageByteBuffer::mmap(nullptr, 80, PROT_READ | PROT_WRITE,
                                                       MAP_SHARED, file_handle.fd(), 0);
     // mmap完成后就可以关闭原fd
@@ -167,21 +167,21 @@ TEST_F(TestByteBuffer, TestMmap) {
 
     for (int i = 0; i < 80; i++) {
         char byte;
-        EXPECT_EQ(OLAP_SUCCESS, buf1->get(&byte));
+        EXPECT_EQ(Status::OK(), buf1->get(&byte));
         EXPECT_EQ(i, byte);
     }
 
     // 测试通过mmap写入数据
     buf1->set_position(0);
     for (int i = 0; i < 10; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, buf1->put('x'));
+        EXPECT_EQ(Status::OK(), buf1->put('x'));
     }
 
     SAFE_DELETE(buf1);
 
     res = file_handle.open(file_name, O_RDONLY);
-    EXPECT_EQ(OLAP_SUCCESS, res);
-    EXPECT_EQ(OLAP_SUCCESS, file_handle.pread(buf, 10, SEEK_SET));
+    EXPECT_EQ(Status::OK(), res);
+    EXPECT_EQ(Status::OK(), file_handle.pread(buf, 10, SEEK_SET));
     for (int i = 0; i < 10; i++) {
         EXPECT_EQ('x', buf[i]);
     }

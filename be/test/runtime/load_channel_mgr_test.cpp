@@ -50,11 +50,11 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine) : _re
 DeltaWriter::~DeltaWriter() {}
 
 OLAPStatus DeltaWriter::init() {
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
-    if (open_status != OLAP_SUCCESS) {
+    if (open_status != Status::OK()) {
         return open_status;
     }
     *writer = new DeltaWriter(req, nullptr);
@@ -79,7 +79,7 @@ OLAPStatus DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>&
 }
 
 OLAPStatus DeltaWriter::close() {
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
@@ -88,15 +88,15 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 }
 
 OLAPStatus DeltaWriter::cancel() {
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 OLAPStatus DeltaWriter::wait_flush() {
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 int64_t DeltaWriter::partition_id() const {
@@ -112,9 +112,9 @@ public:
     virtual ~LoadChannelMgrTest() {}
     void SetUp() override {
         _k_tablet_recorder.clear();
-        open_status = OLAP_SUCCESS;
-        add_status = OLAP_SUCCESS;
-        close_status = OLAP_SUCCESS;
+        open_status = Status::OK();
+        add_status = Status::OK();
+        close_status = Status::OK();
         config::streaming_load_rpc_max_alive_time_sec = 120;
     }
 

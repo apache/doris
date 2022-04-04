@@ -57,12 +57,12 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
         do {
             // Read one block from block reader
             auto res = _tablet_reader->next_block_with_aggregation(block, nullptr, nullptr, eof);
-            if (res != OLAP_SUCCESS) {
+            if (!res) {
                 std::stringstream ss;
-                ss << "Internal Error: read storage fail. res=" << res
+                ss << "Internal Error: read storage fail. res=" << res.to_string()
                    << ", tablet=" << _tablet->full_name()
                    << ", backend=" << BackendOptions::get_localhost();
-                return Status::InternalError(ss.str());
+                return res;
             }
             _num_rows_read += block->rows();
             _update_realtime_counter();

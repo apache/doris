@@ -4,9 +4,29 @@
 
 #include "common/status.h"
 
-#include "gutil/strings/fastmem.h" // for memcpy_inlined
+#include <boost/stacktrace.hpp>
+#include <glog/logging.h>
 
+#include "gutil/strings/fastmem.h" // for memcpy_inlined
 namespace doris {
+
+constexpr int MAX_ERROR_NUM = 65536;
+struct ErrorCodeState {
+    int16_t error_code = 0;
+    bool stacktrace = true;
+    size_t count = 0;   // Used for count the number of error happens
+    std::mutex mutex;   // lock guard for count state
+};
+ErrorCodeState error_states[MAX_ERROR_NUM];
+class Initializer {
+public:
+    Initializer() {
+    #define M(NAME, ERRORCODE, DESC, STACKTRACEENABLED) error_states[abs(ERRORCODE)].stacktrace = STACKTRACEENABLED;
+        APPLY_FOR_ERROR_CODES(M)
+    #undef M
+    }
+};
+Initializer init; // Used to init the error_states array
 
 Status::Status(const TStatus& s) {
     if (s.status_code != TStatusCode::OK) {
@@ -36,6 +56,23 @@ Status::Status(const PStatus& s) {
         }
     } else {
         _length = 0;
+    }
+}
+
+// Implement it here to remove the boost header file from status.h to reduce precompile time
+Status Status::ConstructErrorStatus(int16_t precise_code, const Slice& msg) {
+    // This will print all error status's stack, it maybe too many, but it is just used for debug
+    #ifdef PRINT_ALL_ERR_STATUS_STACKTRACE
+    LOG(WARNING) << "Error occurred, error code = " << precise_code << ", with message: " << msg
+                    << "\n caused by:" << boost::stacktrace::stacktrace();
+    #endif
+    if (error_states[abs(precise_code)].stacktrace) {
+        // Add stacktrace as part of message, could use LOG(WARN) << "" << status will print both
+        // the error message and the stacktrace
+        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, 
+                    boost::stacktrace::to_string(boost::stacktrace::stacktrace()));
+    } else {
+        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, Slice());
     }
 }
 

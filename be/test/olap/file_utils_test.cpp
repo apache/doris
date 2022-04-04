@@ -73,7 +73,7 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     EXPECT_FALSE(std::filesystem::exists(src_file_name));
     OLAPStatus op_status = src_file_handler.open_with_mode(
             src_file_name, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
-    EXPECT_EQ(OLAPStatus::OLAP_SUCCESS, op_status);
+    EXPECT_EQ(OLAPStatus::Status::OK(), op_status);
     EXPECT_TRUE(std::filesystem::exists(src_file_name));
 
     char large_bytes2[(1 << 12)];

@@ -357,11 +357,10 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         TStatus task_status;
 
         std::vector<TTabletInfo> finish_tablet_infos;
-        OLAPStatus create_status = _env->storage_engine()->create_tablet(create_tablet_req);
-        if (create_status != OLAPStatus::OLAP_SUCCESS) {
+        Status create_status = _env->storage_engine()->create_tablet(create_tablet_req);
+        if (!create_status.ok()) {
             LOG(WARNING) << "create table failed. status: " << create_status
                          << ", signature: " << agent_task_req.signature;
-            // TODO liutao09 distinguish the OLAPStatus
             status_code = TStatusCode::RUNTIME_ERROR;
         } else {
             ++_s_report_version;
@@ -379,7 +378,6 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
             finish_tablet_infos.push_back(tablet_info);
         }
-        TRACE("StorageEngine create tablet finish, status: $0", create_status);
 
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
@@ -422,9 +420,9 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 drop_tablet_req.tablet_id, false, &err);
         if (dropped_tablet != nullptr) {
-            OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
+            Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
                     drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
-            if (drop_status != OLAP_SUCCESS) {
+            if (!drop_status.ok()) {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
                 status_code = TStatusCode::RUNTIME_ERROR;
@@ -524,9 +522,9 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
-        OLAPStatus sc_status = _env->storage_engine()->execute_task(&engine_task);
-        if (sc_status != OLAP_SUCCESS) {
-            if (sc_status == OLAP_ERR_DATA_QUALITY_ERR) {
+        Status sc_status = _env->storage_engine()->execute_task(&engine_task);
+        if (!sc_status.ok()) {
+            if (sc_status == Status::OLAPInternalError(OLAP_ERR_DATA_QUALITY_ERR)) {
                 error_msgs.push_back("The data quality does not satisfy, please check your data. ");
             }
             status = Status::DataQualityError("The data quality does not satisfy");
@@ -685,15 +683,14 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         DorisMetrics::instance()->publish_task_request_total->increment(1);
         VLOG_NOTICE << "get publish version task, signature:" << agent_task_req.signature;
 
-        Status st;
         std::vector<TTabletId> error_tablet_ids;
         uint32_t retry_time = 0;
-        OLAPStatus res = OLAP_SUCCESS;
+        Status res = Status::OK();
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             error_tablet_ids.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids);
             res = _env->storage_engine()->execute_task(&engine_task);
-            if (res == OLAP_SUCCESS) {
+            if (res.ok()) {
                 break;
             } else {
                 LOG(WARNING) << "publish version error, retry. [transaction_id="
@@ -705,19 +702,18 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         }
 
         TFinishTaskRequest finish_task_request;
-        if (res != OLAP_SUCCESS) {
+        if (!res) {
             DorisMetrics::instance()->publish_task_failed_total->increment(1);
             // if publish failed, return failed, FE will ignore this error and
             // check error tablet ids and FE will also republish this task
             LOG(WARNING) << "publish version failed. signature:" << agent_task_req.signature
-                         << ", error_code=" << res;
-            st = Status::RuntimeError(strings::Substitute("publish version failed. error=$0", res));
+                         << ", error_code=" << res.to_string();
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
             LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
         }
 
-        st.to_thrift(&finish_task_request.task_status);
+        res.to_thrift(&finish_task_request.task_status);
         finish_task_request.__set_backend(_backend);
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
@@ -929,13 +925,12 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
         // check request and get info
         TabletSharedPtr tablet;
         DataDir* dest_store = nullptr;
-        if (_check_migrate_request(storage_medium_migrate_req, tablet, &dest_store) !=
-            OLAP_SUCCESS) {
+        if (!_check_migrate_request(storage_medium_migrate_req, tablet, &dest_store)) {
             status_code = TStatusCode::RUNTIME_ERROR;
         } else {
             EngineStorageMigrationTask engine_task(tablet, dest_store);
-            OLAPStatus res = _env->storage_engine()->execute_task(&engine_task);
-            if (res != OLAP_SUCCESS) {
+            Status res = _env->storage_engine()->execute_task(&engine_task);
+            if (!res.ok()) {
                 LOG(WARNING) << "storage media migrate failed. status: " << res
                              << ", signature: " << agent_task_req.signature;
                 status_code = TStatusCode::RUNTIME_ERROR;
@@ -961,13 +956,13 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
     }
 }
 
-OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& req,
+Status TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& req,
                                                   TabletSharedPtr& tablet, DataDir** dest_store) {
     int64_t tablet_id = req.tablet_id;
     tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "can't find tablet. tablet_id= " << tablet_id;
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     if (req.__isset.data_dir) {
@@ -975,7 +970,7 @@ OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq
         *dest_store = StorageEngine::instance()->get_store(req.data_dir);
         if (*dest_store == nullptr) {
             LOG(WARNING) << "data dir not found: " << req.data_dir;
-            return OLAP_ERR_DIR_NOT_EXIST;
+            return Status::OLAPInternalError(OLAP_ERR_DIR_NOT_EXIST);
         }
     } else {
         // this is a storage medium
@@ -986,7 +981,7 @@ OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq
         if (count <= 1) {
             LOG(INFO) << "available storage medium type count is less than 1, "
                       << "no need to migrate. count=" << count;
-            return OLAP_REQUEST_FAILED;
+            return Status::OLAPInternalError(OLAP_REQUEST_FAILED);
         }
         // check current tablet storage medium
         TStorageMedium::type storage_medium = req.storage_medium;
@@ -994,21 +989,21 @@ OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq
         if (src_storage_medium == storage_medium) {
             LOG(INFO) << "tablet is already on specified storage medium. "
                       << "storage_medium=" << storage_medium;
-            return OLAP_REQUEST_FAILED;
+            return Status::OLAPInternalError(OLAP_REQUEST_FAILED);
         }
         // get a random store of specified storage medium
         auto stores = StorageEngine::instance()->get_stores_for_create_tablet(storage_medium);
         if (stores.empty()) {
             LOG(WARNING) << "fail to get root path for create tablet.";
-            return OLAP_ERR_INVALID_ROOT_PATH;
+            return Status::OLAPInternalError(OLAP_ERR_INVALID_ROOT_PATH);
         }
 
         *dest_store = stores[0];
     }
     if (tablet->data_dir()->path() == (*dest_store)->path()) {
         LOG(INFO) << "tablet is already on specified path. "
-                  << "path=" << tablet->data_dir()->path();
-        return OLAP_REQUEST_FAILED;
+                    << "path=" << tablet->data_dir()->path();
+        return Status::OLAPInternalError(OLAP_REQUEST_FAILED);
     }
 
     // check disk capacity
@@ -1016,10 +1011,10 @@ OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq
     if ((*dest_store)->reach_capacity_limit(tablet_size)) {
         LOG(WARNING) << "reach the capacity limit of path: " << (*dest_store)->path()
                      << ", tablet size: " << tablet_size;
-        return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
+        return Status::OLAPInternalError(OLAP_ERR_DISK_REACH_CAPACITY_LIMIT);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void TaskWorkerPool::_check_consistency_worker_thread_callback() {
@@ -1048,8 +1043,8 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         EngineChecksumTask engine_task(check_consistency_req.tablet_id,
                                        check_consistency_req.schema_hash,
                                        check_consistency_req.version, &checksum);
-        OLAPStatus res = _env->storage_engine()->execute_task(&engine_task);
-        if (res != OLAP_SUCCESS) {
+        Status res = _env->storage_engine()->execute_task(&engine_task);
+        if (!res.ok()) {
             LOG(WARNING) << "check consistency failed. status: " << res
                          << ", signature: " << agent_task_req.signature;
             status_code = TStatusCode::RUNTIME_ERROR;
@@ -1190,7 +1185,7 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
         _random_sleep(5);
         request.tablets.clear();
         uint64_t report_version = _s_report_version;
-        OLAPStatus build_all_report_tablets_info_status =
+        Status build_all_report_tablets_info_status =
                 StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
                         &request.tablets);
         if (report_version < _s_report_version) {
@@ -1203,7 +1198,7 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
             DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
             continue;
         }
-        if (build_all_report_tablets_info_status != OLAP_SUCCESS) {
+        if (!build_all_report_tablets_info_status.ok()) {
             LOG(WARNING) << "build all report tablets info failed. status: "
                          << build_all_report_tablets_info_status;
             continue;
@@ -1370,18 +1365,15 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         string snapshot_path;
         bool allow_incremental_clone = false; // not used
         std::vector<string> snapshot_files;
-        OLAPStatus make_snapshot_status = SnapshotManager::instance()->make_snapshot(
+        Status make_snapshot_status = SnapshotManager::instance()->make_snapshot(
                 snapshot_request, &snapshot_path, &allow_incremental_clone);
-        if (make_snapshot_status != OLAP_SUCCESS) {
-            status_code = make_snapshot_status == OLAP_ERR_VERSION_ALREADY_MERGED
-                                  ? TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED
-                                  : TStatusCode::RUNTIME_ERROR;
+        if (!make_snapshot_status.ok()) {
+            status_code = make_snapshot_status.code();
             LOG(WARNING) << "make_snapshot failed. tablet_id:" << snapshot_request.tablet_id
                          << ", schema_hash:" << snapshot_request.schema_hash
                          << ", version:" << snapshot_request.version
-                         << ", status: " << make_snapshot_status;
-            error_msgs.push_back("make_snapshot failed. status: " +
-                                 boost::lexical_cast<string>(make_snapshot_status));
+                         << ", status: " << make_snapshot_status.to_string();
+            error_msgs.push_back("make_snapshot failed. status: " + make_snapshot_status.get_error_msg());
         } else {
             LOG(INFO) << "make_snapshot success. tablet_id:" << snapshot_request.tablet_id
                       << ", schema_hash:" << snapshot_request.schema_hash
@@ -1400,9 +1392,8 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
                     LOG(WARNING) << "make_snapshot failed. tablet_id:" << snapshot_request.tablet_id
                                  << ", schema_hash:" << snapshot_request.schema_hash
                                  << ", version:" << snapshot_request.version
-                                 << ",list file failed: " << st.get_error_msg();
-                    error_msgs.push_back("make_snapshot failed. list file failed: " +
-                                         st.get_error_msg());
+                                 << ",list file failed: " << st.to_string();
+                    error_msgs.push_back("make_snapshot failed. list file failed: " + st.get_error_msg());
                 }
             }
         }
@@ -1447,9 +1438,9 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
         TStatus task_status;
 
         string& snapshot_path = release_snapshot_request.snapshot_path;
-        OLAPStatus release_snapshot_status =
+        Status release_snapshot_status =
                 SnapshotManager::instance()->release_snapshot(snapshot_path);
-        if (release_snapshot_status != OLAP_SUCCESS) {
+        if (!release_snapshot_status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;
             LOG(WARNING) << "release_snapshot failed. snapshot_path: " << snapshot_path
                          << ". status: " << release_snapshot_status;
@@ -1480,9 +1471,9 @@ Status TaskWorkerPool::_get_tablet_info(const TTabletId tablet_id,
     Status status = Status::OK();
     tablet_info->__set_tablet_id(tablet_id);
     tablet_info->__set_schema_hash(schema_hash);
-    OLAPStatus olap_status =
+    Status olap_status =
             StorageEngine::instance()->tablet_manager()->report_tablet_info(tablet_info);
-    if (olap_status != OLAP_SUCCESS) {
+    if (!olap_status.ok()) {
         LOG(WARNING) << "get tablet info failed. status: " << olap_status
                      << ", signature: " << signature;
         status = Status::InternalError("Get tablet info failed");

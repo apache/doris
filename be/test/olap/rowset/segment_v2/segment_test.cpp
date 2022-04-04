@@ -123,7 +123,7 @@ protected:
 
         RowCursor row;
         auto olap_st = row.init(build_schema);
-        EXPECT_EQ(OLAP_SUCCESS, olap_st);
+        EXPECT_EQ(Status::OK(), olap_st);
 
         for (size_t rid = 0; rid < nrows; ++rid) {
             for (int cid = 0; cid < build_schema.num_columns(); ++cid) {
@@ -448,7 +448,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(&tablet_schema);
-            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
@@ -471,7 +471,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(&tablet_schema);
-            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
@@ -520,7 +520,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(&tablet_schema);
-            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             // the second page read will be pruned by the following delete predicate
             TCondition delete_condition;
@@ -530,7 +530,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             delete_condition.__set_condition_values(vals2);
             std::shared_ptr<Conditions> delete_conditions(new Conditions());
             delete_conditions->set_tablet_schema(&tablet_schema);
-            EXPECT_EQ(OLAP_SUCCESS, delete_conditions->append_condition(delete_condition));
+            EXPECT_EQ(Status::OK(), delete_conditions->append_condition(delete_condition));
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
@@ -583,7 +583,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(&tablet_schema);
-            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
             read_opts.conditions = conditions.get();
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
@@ -630,7 +630,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
 
     RowCursor row;
     auto olap_st = row.init(*tablet_schema);
-    EXPECT_EQ(OLAP_SUCCESS, olap_st);
+    EXPECT_EQ(Status::OK(), olap_st);
 
     // 0, 1, 2, 3
     // 10, 11, 12, 13
@@ -803,7 +803,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
     RowCursor row;
     auto olap_st = row.init(*tablet_schema);
-    EXPECT_EQ(OLAP_SUCCESS, olap_st);
+    EXPECT_EQ(Status::OK(), olap_st);
 
     // 0, 1, 2, 3
     // 10, 11, 12, 13
@@ -943,7 +943,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(tablet_schema.get());
-            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
@@ -1000,7 +1000,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(tablet_schema.get());
-            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(Status::OK(), conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;

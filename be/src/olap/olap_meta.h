@@ -33,17 +33,17 @@ public:
 
     virtual ~OlapMeta();
 
-    OLAPStatus init();
+    Status init();
 
-    OLAPStatus get(const int column_family_index, const std::string& key, std::string* value);
+    Status get(const int column_family_index, const std::string& key, std::string* value);
 
     bool key_may_exist(const int column_family_index, const std::string& key, std::string* value);
 
-    OLAPStatus put(const int column_family_index, const std::string& key, const std::string& value);
+    Status put(const int column_family_index, const std::string& key, const std::string& value);
 
-    OLAPStatus remove(const int column_family_index, const std::string& key);
+    Status remove(const int column_family_index, const std::string& key);
 
-    OLAPStatus iterate(const int column_family_index, const std::string& prefix,
+    Status iterate(const int column_family_index, const std::string& prefix,
                        std::function<bool(const std::string&, const std::string&)> const& func);
 
     std::string get_root_path();

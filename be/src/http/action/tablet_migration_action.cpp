@@ -222,19 +222,16 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
     int32_t schema_hash = tablet->schema_hash();
     string dest_disk = dest_store->path();
     EngineStorageMigrationTask engine_task(tablet, dest_store);
-    OLAPStatus res = StorageEngine::instance()->execute_task(&engine_task);
-    Status status = Status::OK();
-    if (res != OLAP_SUCCESS) {
+    Status res = StorageEngine::instance()->execute_task(&engine_task);
+    if (!res.ok()) {
         LOG(WARNING) << "tablet migrate failed. tablet_id=" << tablet_id
                      << ", schema_hash=" << schema_hash << ", dest_disk=" << dest_disk
-                     << ", status:" << res;
-        status = Status::InternalError(strings::Substitute("migration task failed, res: $0", res));
+                     << ", status:" << res.to_string();
     } else {
         LOG(INFO) << "tablet migrate success. tablet_id=" << tablet_id
-                  << ", schema_hash=" << schema_hash << ", dest_disk=" << dest_disk
-                  << ", status:" << res;
+                  << ", schema_hash=" << schema_hash << ", dest_disk=" << dest_disk;
     }
-    return status;
+    return res;
 }
 
 } // namespace doris

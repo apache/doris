@@ -96,7 +96,7 @@ TEST_F(TestMemTableFlushExecutor, create_flush_handler) {
     EXPECT_NE(nullptr, flush_handler.get());
 
     FlushResult res;
-    res.flush_status = OLAP_SUCCESS;
+    res.flush_status = Status::OK();
     res.flush_time_ns = 100;
     flush_handler->on_flush_finished(res);
     EXPECT_FALSE(flush_handler->is_cancelled());

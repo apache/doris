@@ -86,7 +86,7 @@ public:
         _column_writer = ColumnWriter::create(0, tablet_schema, _stream_factory, 1024,
                                               BLOOM_FILTER_DEFAULT_FPP);
         EXPECT_TRUE(_column_writer != nullptr);
-        EXPECT_EQ(_column_writer->init(), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->init(), Status::OK());
     }
 
     void create_column_reader(const TabletSchema& tablet_schema) {
@@ -112,7 +112,7 @@ public:
         EXPECT_EQ(system("mkdir -p ./ut_dir"), 0);
         EXPECT_EQ(system("rm -f ./ut_dir/tmp_file"), 0);
 
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   helper.open_with_mode("./ut_dir/tmp_file", O_CREAT | O_EXCL | O_WRONLY,
                                         S_IRUSR | S_IWUSR));
         std::vector<int> off;
@@ -154,7 +154,7 @@ public:
         }
         helper.close();
 
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   helper.open_with_mode("./ut_dir/tmp_file", O_RDONLY, S_IRUSR | S_IWUSR));
 
         SAFE_DELETE(_shared_buffer);
@@ -171,12 +171,12 @@ public:
             ReadOnlyFileStream* in_stream = new (std::nothrow)
                     ReadOnlyFileStream(&helper, &_shared_buffer, off[i], length[i], lz4_decompress,
                                        buffer_size[i], &_stats);
-            EXPECT_EQ(OLAP_SUCCESS, in_stream->init());
+            EXPECT_EQ(Status::OK(), in_stream->init());
             _map_in_streams[name[i]] = in_stream;
         }
 
         EXPECT_EQ(_column_reader->init(&_map_in_streams, 1024, _mem_pool.get(), &_stats),
-                  OLAP_SUCCESS);
+                  Status::OK());
     }
 
     void set_tablet_schema(const std::string& name, const std::string& type,
@@ -195,7 +195,7 @@ public:
     }
 
     void create_and_save_last_position() {
-        EXPECT_EQ(_column_writer->create_row_index_entry(), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->create_row_index_entry(), Status::OK());
     }
 
     template <typename T>
@@ -216,9 +216,9 @@ public:
         write_row.set_field_content(0, reinterpret_cast<char*>(&val), _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
         ColumnDataHeaderMessage header;
-        EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
         helper.close();
 
         TabletSchema dst_tablet_schema;
@@ -229,12 +229,12 @@ public:
         read_row.init(dst_tablet_schema);
 
         _col_vector.reset(new ColumnVector());
-        EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+        EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
         auto st = read_row.convert_from(0, data, write_row.column_schema(0)->type_info(),
                                         _mem_pool.get());
         EXPECT_EQ(st, expected_st);
-        if (st == OLAP_SUCCESS) {
+        if (st == Status::OK()) {
             std::string dst_str = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
             EXPECT_TRUE(dst_str.compare(0, expected_val.size(), expected_val) == 0);
         }
@@ -260,9 +260,9 @@ public:
         write_row.set_field_content(0, reinterpret_cast<char*>(&normal_str), _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
         ColumnDataHeaderMessage header;
-        EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
         helper.close();
 
         TabletSchema converted_tablet_schema;
@@ -273,12 +273,12 @@ public:
         read_row.init(converted_tablet_schema);
 
         _col_vector.reset(new ColumnVector());
-        EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+        EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
         auto st = read_row.convert_from(0, data, write_row.column_schema(0)->type_info(),
                                         _mem_pool.get());
         EXPECT_EQ(st, expected_st);
-        if (st == OLAP_SUCCESS) {
+        if (st == Status::OK()) {
             std::string dst_str = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
             EXPECT_TRUE(dst_str.compare(0, value.size(), value) == 0);
         }
@@ -326,16 +326,16 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     value = 3.234;
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     TabletSchema convert_tablet_schema;
@@ -344,7 +344,7 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
     RowCursor read_row;
     read_row.init(convert_tablet_schema);
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     //float val1 = *reinterpret_cast<float*>(read_row.cell_ptr(0));
@@ -382,10 +382,10 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
     write_row.from_tuple(tuple);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     TabletSchema convert_tablet_schema;
@@ -395,7 +395,7 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
     read_row.init(convert_tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
@@ -427,10 +427,10 @@ TEST_F(TestColumn, ConvertDateToDatetime) {
     write_row.from_tuple(tuple);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header_message;
-    EXPECT_EQ(_column_writer->finalize(&header_message), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header_message), Status::OK());
 
     TabletSchema convert_tablet_schema;
     set_tablet_schema("DateTimeColumn", "DATETIME", "REPLACE", 8, false, false,
@@ -439,7 +439,7 @@ TEST_F(TestColumn, ConvertDateToDatetime) {
     RowCursor read_row;
     read_row.init(convert_tablet_schema);
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
@@ -469,10 +469,10 @@ TEST_F(TestColumn, ConvertIntToDate) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&time_val), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     TabletSchema convert_tablet_schema;
     set_tablet_schema("DateColumn", "DATE", "REPLACE", 3, false, false, &convert_tablet_schema);
@@ -482,7 +482,7 @@ TEST_F(TestColumn, ConvertIntToDate) {
     read_row.init(convert_tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
@@ -516,10 +516,10 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
         ColumnDataHeaderMessage header;
-        EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
         // because file_helper is reused in this case, we should close it.
         helper.close();
@@ -530,7 +530,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         read_row.init(convert_tablet_schema);
 
         _col_vector.reset(new ColumnVector());
-        EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+        EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
         read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
         std::string dst_str = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
@@ -550,7 +550,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToTinyInt1) {
-    test_convert_from_varchar("TINYINT", 1, "127", OLAP_SUCCESS);
+    test_convert_from_varchar("TINYINT", 1, "127", Status::OK());
 }
 
 TEST_F(TestColumn, ConvertVarcharToTinyInt2) {
@@ -558,7 +558,7 @@ TEST_F(TestColumn, ConvertVarcharToTinyInt2) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToSmallInt1) {
-    test_convert_from_varchar("SMALLINT", 2, "32767", OLAP_SUCCESS);
+    test_convert_from_varchar("SMALLINT", 2, "32767", Status::OK());
 }
 
 TEST_F(TestColumn, ConvertVarcharToSmallInt2) {
@@ -566,7 +566,7 @@ TEST_F(TestColumn, ConvertVarcharToSmallInt2) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToInt1) {
-    test_convert_from_varchar("INT", 4, "2147483647", OLAP_SUCCESS);
+    test_convert_from_varchar("INT", 4, "2147483647", Status::OK());
 }
 
 TEST_F(TestColumn, ConvertVarcharToInt2) {
@@ -574,7 +574,7 @@ TEST_F(TestColumn, ConvertVarcharToInt2) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToBigInt1) {
-    test_convert_from_varchar("BIGINT", 8, "9223372036854775807", OLAP_SUCCESS);
+    test_convert_from_varchar("BIGINT", 8, "9223372036854775807", Status::OK());
 }
 
 TEST_F(TestColumn, ConvertVarcharToBigInt2) {
@@ -583,7 +583,7 @@ TEST_F(TestColumn, ConvertVarcharToBigInt2) {
 
 TEST_F(TestColumn, ConvertVarcharToLargeInt1) {
     test_convert_from_varchar("LARGEINT", 16, "170141183460469000000000000000000000000",
-                              OLAP_SUCCESS);
+                              Status::OK());
 }
 
 TEST_F(TestColumn, ConvertVarcharToLargeInt2) {
@@ -592,7 +592,7 @@ TEST_F(TestColumn, ConvertVarcharToLargeInt2) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToFloat1) {
-    test_convert_from_varchar("FLOAT", 4, "3.40282e+38", OLAP_SUCCESS);
+    test_convert_from_varchar("FLOAT", 4, "3.40282e+38", Status::OK());
 }
 
 TEST_F(TestColumn, ConvertVarcharToFloat2) {
@@ -606,7 +606,7 @@ TEST_F(TestColumn, ConvertVarcharToFloat2) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToDouble1) {
-    test_convert_from_varchar("DOUBLE", 8, "123.456", OLAP_SUCCESS);
+    test_convert_from_varchar("DOUBLE", 8, "123.456", Status::OK());
 }
 
 TEST_F(TestColumn, ConvertVarcharToDouble2) {
@@ -624,7 +624,7 @@ TEST_F(TestColumn, ConvertTinyIntToVarchar3) {
 }
 
 TEST_F(TestColumn, ConvertTinyIntToVarchar5) {
-    test_convert_to_varchar<int8_t>("TINYINT", 1, 127, "127", OLAP_SUCCESS, 3 + 2);
+    test_convert_to_varchar<int8_t>("TINYINT", 1, 127, "127", Status::OK(), 3 + 2);
 }
 
 TEST_F(TestColumn, ConvertTinyIntToVarchar4) {
@@ -633,7 +633,7 @@ TEST_F(TestColumn, ConvertTinyIntToVarchar4) {
 
 TEST_F(TestColumn, ConvertTinyIntToVarchar6) {
     // 4: tinyint digit count + minus symbol, +2 for var len bytes
-    test_convert_to_varchar<int8_t>("TINYINT", 1, -127, "-127", OLAP_SUCCESS, 4 + 2);
+    test_convert_to_varchar<int8_t>("TINYINT", 1, -127, "-127", Status::OK(), 4 + 2);
 }
 
 TEST_F(TestColumn, ConvertSmallIntToVarchar5) {
@@ -641,7 +641,7 @@ TEST_F(TestColumn, ConvertSmallIntToVarchar5) {
 }
 
 TEST_F(TestColumn, ConvertSmallIntToVarchar7) {
-    test_convert_to_varchar<int16_t>("SMALLINT", 2, 32767, "32767", OLAP_SUCCESS, 7);
+    test_convert_to_varchar<int16_t>("SMALLINT", 2, 32767, "32767", Status::OK(), 7);
 }
 
 TEST_F(TestColumn, ConvertSmallIntToVarchar6) {
@@ -649,7 +649,7 @@ TEST_F(TestColumn, ConvertSmallIntToVarchar6) {
 }
 
 TEST_F(TestColumn, ConvertSmallIntToVarchar8) {
-    test_convert_to_varchar<int16_t>("SMALLINT", 2, -32767, "-32767", OLAP_SUCCESS, 8);
+    test_convert_to_varchar<int16_t>("SMALLINT", 2, -32767, "-32767", Status::OK(), 8);
 }
 
 TEST_F(TestColumn, ConvertIntToVarchar10) {
@@ -657,7 +657,7 @@ TEST_F(TestColumn, ConvertIntToVarchar10) {
 }
 
 TEST_F(TestColumn, ConvertIntToVarchar12) {
-    test_convert_to_varchar<int32_t>("INT", 4, 2147483647, "2147483647", OLAP_SUCCESS, 12);
+    test_convert_to_varchar<int32_t>("INT", 4, 2147483647, "2147483647", Status::OK(), 12);
 }
 
 TEST_F(TestColumn, ConvertIntToVarchar11) {
@@ -665,7 +665,7 @@ TEST_F(TestColumn, ConvertIntToVarchar11) {
 }
 
 TEST_F(TestColumn, ConvertIntToVarchar13) {
-    test_convert_to_varchar<int32_t>("INT", 4, -2147483647, "-2147483647", OLAP_SUCCESS, 13);
+    test_convert_to_varchar<int32_t>("INT", 4, -2147483647, "-2147483647", Status::OK(), 13);
 }
 
 TEST_F(TestColumn, ConvertBigIntToVarchar19) {
@@ -675,7 +675,7 @@ TEST_F(TestColumn, ConvertBigIntToVarchar19) {
 
 TEST_F(TestColumn, ConvertBigIntToVarchar21) {
     test_convert_to_varchar<int64_t>("BIGINT", 8, 9223372036854775807, "9223372036854775807",
-                                     OLAP_SUCCESS, 21);
+                                     Status::OK(), 21);
 }
 
 TEST_F(TestColumn, ConvertBigIntToVarchar20) {
@@ -685,7 +685,7 @@ TEST_F(TestColumn, ConvertBigIntToVarchar20) {
 
 TEST_F(TestColumn, ConvertBigIntToVarchar22) {
     test_convert_to_varchar<int64_t>("BIGINT", 8, -9223372036854775807, "-9223372036854775807",
-                                     OLAP_SUCCESS, 22);
+                                     Status::OK(), 22);
 }
 
 TEST_F(TestColumn, ConvertLargeIntToVarchar39) {
@@ -704,7 +704,7 @@ TEST_F(TestColumn, ConvertLargeIntToVarchar41) {
     int128_t int128_val =
             StringParser::string_to_int<int128_t>(str_val.c_str(), str_val.length(), &result);
     DCHECK(result == StringParser::PARSE_SUCCESS);
-    test_convert_to_varchar<int128_t>("LARGEINT", 16, int128_val, str_val, OLAP_SUCCESS, 41);
+    test_convert_to_varchar<int128_t>("LARGEINT", 16, int128_val, str_val, Status::OK(), 41);
 }
 
 TEST_F(TestColumn, ConvertLargeIntToVarchar40) {
@@ -723,7 +723,7 @@ TEST_F(TestColumn, ConvertLargeIntToVarchar46) {
     int128_t int128_val =
             StringParser::string_to_int<int128_t>(str_val.c_str(), str_val.length(), &result);
     DCHECK(result == StringParser::PARSE_SUCCESS);
-    test_convert_to_varchar<int128_t>("LARGEINT", 16, int128_val, str_val, OLAP_SUCCESS, 42);
+    test_convert_to_varchar<int128_t>("LARGEINT", 16, int128_val, str_val, Status::OK(), 42);
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar11) {
@@ -732,11 +732,11 @@ TEST_F(TestColumn, ConvertFloatToVarchar11) {
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar13) {
-    test_convert_to_varchar<float>("FLOAT", 4, 3.40282e+38, "3.40282e+38", OLAP_SUCCESS, 13);
+    test_convert_to_varchar<float>("FLOAT", 4, 3.40282e+38, "3.40282e+38", Status::OK(), 13);
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar13_2) {
-    test_convert_to_varchar<float>("FLOAT", 4, 3402820000000000000.0, "3.40282e+18", OLAP_SUCCESS,
+    test_convert_to_varchar<float>("FLOAT", 4, 3402820000000000000.0, "3.40282e+18", Status::OK(),
                                    13);
 }
 
@@ -746,11 +746,11 @@ TEST_F(TestColumn, ConvertFloatToVarchar12) {
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar14) {
-    test_convert_to_varchar<float>("FLOAT", 4, -3.40282e+38, "-3.40282e+38", OLAP_SUCCESS, 14);
+    test_convert_to_varchar<float>("FLOAT", 4, -3.40282e+38, "-3.40282e+38", Status::OK(), 14);
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar14_2) {
-    test_convert_to_varchar<float>("FLOAT", 4, -3402820000000000000.0, "-3.40282e+18", OLAP_SUCCESS,
+    test_convert_to_varchar<float>("FLOAT", 4, -3402820000000000000.0, "-3.40282e+18", Status::OK(),
                                    14);
 }
 
@@ -761,7 +761,7 @@ TEST_F(TestColumn, ConvertFloatToVarchar13_3) {
 
 TEST_F(TestColumn, ConvertFloatToVarchar15) {
     test_convert_to_varchar<float>("FLOAT", 4, 1.17549435082228750796873653722224568e-38F,
-                                   "1.1754944e-38", OLAP_SUCCESS, 15);
+                                   "1.1754944e-38", Status::OK(), 15);
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar14_3) {
@@ -771,7 +771,7 @@ TEST_F(TestColumn, ConvertFloatToVarchar14_3) {
 
 TEST_F(TestColumn, ConvertFloatToVarchar16) {
     test_convert_to_varchar<float>("FLOAT", 4, -1.17549435082228750796873653722224568e-38F,
-                                   "-1.1754944e-38", OLAP_SUCCESS, 16);
+                                   "-1.1754944e-38", Status::OK(), 16);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar7) {
@@ -780,7 +780,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar7) {
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar9) {
-    test_convert_to_varchar<double>("DOUBLE", 8, 123.456, "123.456", OLAP_SUCCESS, 9);
+    test_convert_to_varchar<double>("DOUBLE", 8, 123.456, "123.456", Status::OK(), 9);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar23) {
@@ -790,7 +790,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar23) {
 
 TEST_F(TestColumn, ConvertDoubleToVarchar25) {
     test_convert_to_varchar<double>("DOUBLE", 8, 1.79769313486231570814527423731704357e+308,
-                                    "1.7976931348623157e+308", OLAP_SUCCESS, 25);
+                                    "1.7976931348623157e+308", Status::OK(), 25);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar22) {
@@ -800,7 +800,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar22) {
 
 TEST_F(TestColumn, ConvertDoubleToVarchar24) {
     test_convert_to_varchar<double>("DOUBLE", 8, 1797693134862315708.0, "1.7976931348623158e+18",
-                                    OLAP_SUCCESS, 24);
+                                    Status::OK(), 24);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar23_2) {
@@ -810,7 +810,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar23_2) {
 
 TEST_F(TestColumn, ConvertDoubleToVarchar25_2) {
     test_convert_to_varchar<double>("DOUBLE", 8, -1797693134862315708.0, "-1.7976931348623158e+18",
-                                    OLAP_SUCCESS, 25);
+                                    Status::OK(), 25);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar23_3) {
@@ -820,7 +820,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar23_3) {
 
 TEST_F(TestColumn, ConvertDoubleToVarchar25_3) {
     test_convert_to_varchar<double>("DOUBLE", 8, 2.22507385850720138309023271733240406e-308,
-                                    "2.2250738585072014e-308", OLAP_SUCCESS, 25);
+                                    "2.2250738585072014e-308", Status::OK(), 25);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar24_2) {
@@ -830,7 +830,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar24_2) {
 
 TEST_F(TestColumn, ConvertDoubleToVarchar26) {
     test_convert_to_varchar<double>("DOUBLE", 8, -2.22507385850720138309023271733240406e-308,
-                                    "-2.2250738585072014e-308", OLAP_SUCCESS, 26);
+                                    "-2.2250738585072014e-308", Status::OK(), 26);
 }
 
 TEST_F(TestColumn, ConvertDecimalToVarchar13) {
@@ -841,7 +841,7 @@ TEST_F(TestColumn, ConvertDecimalToVarchar13) {
 
 TEST_F(TestColumn, ConvertDecimalToVarchar15) {
     decimal12_t val = {456, 789000000};
-    test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "456.789000000", OLAP_SUCCESS, 15);
+    test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "456.789000000", Status::OK(), 15);
 }
 
 TEST_F(TestColumn, ConvertDecimalToVarchar28) {
@@ -853,7 +853,7 @@ TEST_F(TestColumn, ConvertDecimalToVarchar28) {
 TEST_F(TestColumn, ConvertDecimalToVarchar30) {
     decimal12_t val = {999999999999999999, 999999999};
     test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "999999999999999999.999999999",
-                                         OLAP_SUCCESS, 30);
+                                         Status::OK(), 30);
 }
 
 TEST_F(TestColumn, ConvertDecimalToVarchar29) {
@@ -865,7 +865,7 @@ TEST_F(TestColumn, ConvertDecimalToVarchar29) {
 TEST_F(TestColumn, ConvertDecimalToVarchar31) {
     decimal12_t val = {-999999999999999999, 999999999};
     test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "-999999999999999999.999999999",
-                                         OLAP_SUCCESS, 31);
+                                         Status::OK(), 31);
 }
 
 void CreateTabletSchema(TabletSchema& tablet_schema) {
@@ -943,9 +943,9 @@ TEST_F(TestColumn, ConvertIntToBitmap) {
     write_row.from_tuple(tuple);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     //Materialized View tablet schema
     TabletSchemaPB mv_tablet_schema_pb;
@@ -1026,9 +1026,9 @@ TEST_F(TestColumn, ConvertCharToHLL) {
     write_row.from_tuple(tuple);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     //Materialized View tablet schema
     TabletSchemaPB mv_tablet_schema_pb;
@@ -1109,7 +1109,7 @@ TEST_F(TestColumn, ConvertCharToCount) {
 
     block.finalize(1);
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     //Materialized View tablet schema
     TabletSchemaPB mv_tablet_schema_pb;
