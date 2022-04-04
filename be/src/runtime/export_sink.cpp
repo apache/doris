@@ -91,12 +91,7 @@ Status ExportSink::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
-    VLOG_ROW << "debug: export_sink send batch: " << batch->to_string();
-    SCOPED_TIMER(_profile->total_time_counter());
-    int num_rows = batch->num_rows();
-    // we send at most 1024 rows at a time
-    int batch_send_rows = num_rows > 1024 ? 1024 : num_rows;
+Status ExportSink::write_csv_header() {
     if (!_header_sent && _t_export_sink.header.size() > 0) {
         size_t written_len = 0;
         RETURN_IF_ERROR(
@@ -104,6 +99,16 @@ Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
                                     _t_export_sink.header.size(), &written_len));
         _header_sent = true;
     }
+    return Status::OK();
+}
+
+Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
+    VLOG_ROW << "debug: export_sink send batch: " << batch->to_string();
+    SCOPED_TIMER(_profile->total_time_counter());
+    int num_rows = batch->num_rows();
+    // we send at most 1024 rows at a time
+    int batch_send_rows = num_rows > 1024 ? 1024 : num_rows;
+    RETURN_IF_ERROR(write_csv_header());
     std::stringstream ss;
     for (int i = 0; i < num_rows;) {
         ss.str("");

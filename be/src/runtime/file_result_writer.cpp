@@ -17,6 +17,7 @@
 
 #include "runtime/file_result_writer.h"
 
+#include "common/consts.h"
 #include "exec/broker_writer.h"
 #include "exec/hdfs_reader_writer.h"
 #include "exec/hdfs_writer.h"
@@ -175,6 +176,7 @@ Status FileResultWriter::_get_next_file_name(std::string* file_name) {
     ss << _file_opts->file_path << print_id(_fragment_instance_id) << "_" << (_file_idx++) << "."
        << _file_format_to_name();
     *file_name = ss.str();
+    _header_sent = false;
     if (_storage_type == TStorageBackendType::LOCAL) {
         // For local file writer, the file_path is a local dir.
         // Here we do a simple security verification by checking whether the file exists.
@@ -216,12 +218,82 @@ std::string FileResultWriter::_file_format_to_name() {
         return "unknown";
     }
 }
+std::string FileResultWriter::gen_types() {
+    std::string types = "";
+    int num_columns = _output_expr_ctxs.size();
+    for (int i = 0; i < num_columns; ++i) {
+        switch (_output_expr_ctxs[i]->root()->type().type) {
+        case TYPE_BOOLEAN:
+        case TYPE_TINYINT:
+            types += "TINYINT";
+            break;
+        case TYPE_SMALLINT:
+            types += "SMALLINT";
+            break;
+        case TYPE_INT:
+            types += "INT";
+            break;
+        case TYPE_BIGINT:
+            types += "BIGINT";
+            break;
+        case TYPE_LARGEINT:
+            types += "LARGEINT";
+            break;
+        case TYPE_FLOAT: {
+            types += "FLOAT";
+            break;
+        }
+        case TYPE_DOUBLE: {
+            types += "DOUBLE";
+            break;
+        }
+        case TYPE_DATE:
+        case TYPE_DATETIME:
+            types += "DATE";
+            break;
+        case TYPE_VARCHAR:
+        case TYPE_CHAR:
+        case TYPE_STRING:
+            types += "VARCHAR(*)";
+            break;
+        case TYPE_DECIMALV2: {
+            types += "DECIMAL";
+            break;
+        }
+        case TYPE_OBJECT:
+        case TYPE_HLL:
+            types += "HLL";
+            break;
+        default:
+            types += "";
+        }
+        if (i < num_columns - 1) {
+            types += _file_opts->column_separator;
+        }
+    }
+    types += _file_opts->line_delimiter;
+    return types;
+}
+
+Status FileResultWriter::write_csv_header() {
+    if (!_header_sent && _header.size() > 0) {
+        std::string tmp_header = _header;
+        if (_header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
+            tmp_header += gen_types();
+        }
+        size_t written_len = 0;
+        RETURN_IF_ERROR(_file_writer->write(reinterpret_cast<const uint8_t*>(tmp_header.c_str()),
+                                            tmp_header.size(), &written_len));
+        _header_sent = true;
+    }
+    return Status::OK();
+}
 
 Status FileResultWriter::append_row_batch(const RowBatch* batch) {
     if (nullptr == batch || 0 == batch->num_rows()) {
         return Status::OK();
     }
-
+    RETURN_IF_ERROR(write_csv_header());
     SCOPED_TIMER(_append_row_batch_timer);
     if (_parquet_writer != nullptr) {
         RETURN_IF_ERROR(_write_parquet_file(*batch));

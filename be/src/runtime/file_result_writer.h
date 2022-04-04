@@ -97,6 +97,9 @@ public:
     // file result writer always return statistic result in one row
     virtual int64_t get_written_rows() const override { return 1; }
 
+    std::string gen_types();
+    Status write_csv_header();
+
 private:
     Status _write_csv_file(const RowBatch& batch);
     Status _write_parquet_file(const RowBatch& batch);
@@ -170,6 +173,7 @@ private:
     RowBatch* _output_batch = nullptr;
     // set to true if the final statistic result is sent
     bool _is_result_sent = false;
+    bool _header_sent = false;
 };
 
 } // namespace doris

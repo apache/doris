@@ -59,6 +59,7 @@ private:
     Status open_file_writer();
     Status gen_row_buffer(TupleRow* row, std::stringstream* ss);
     std::string gen_file_name();
+    Status write_csv_header();
 
     RuntimeState* _state;
 
