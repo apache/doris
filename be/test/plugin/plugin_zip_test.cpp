@@ -40,8 +40,6 @@ public:
         std::string path = GetCurrentRunningDir();
         ASSERT_FALSE(path.empty());
 
-        std::unique_ptr<SequentialFile> file;
-
         auto& file_name = req->param("FILE");
 
         FILE* fp = fopen((path + "/plugin_test/source/" + file_name).c_str(), "r");
