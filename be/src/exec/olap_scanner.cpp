@@ -287,6 +287,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     {
         SCOPED_TIMER(_parent->_scan_timer);
         ObjectPool tmp_object_pool;
+        ObjectPool unused_object_pool;
  
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
@@ -297,7 +298,14 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                 break;
             }
             // Read one row from reader
-            tmp_object_pool.clear();  
+            if (tmp_object_pool.size() > 0) {
+                unused_object_pool.acquire_data(&tmp_object_pool); 
+            }
+
+            if (unused_object_pool.size() >= config::object_pool_buffer_size) {
+                unused_object_pool.clear();
+            }
+ 
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
                                                                  &tmp_object_pool, eof);
             if (res != OLAP_SUCCESS) {

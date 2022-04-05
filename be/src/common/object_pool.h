@@ -54,6 +54,10 @@ public:
         for (Element& elem : _objects) elem.delete_fn(elem.obj);
         _objects.clear();
     }
+    
+    uint64_t size() {
+        return _objects.size();
+    }
 
     void acquire_data(ObjectPool* src) {
         _objects.insert(_objects.end(), src->_objects.begin(), src->_objects.end());
