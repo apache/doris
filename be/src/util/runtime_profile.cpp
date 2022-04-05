@@ -41,7 +41,7 @@ static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSw
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";
 
 // The root counter name for all top level counters.
-static const std::string ROOT_COUNTER = "";
+static const std::string ROOT_COUNTER;
 
 RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile)
         : _pool(new ObjectPool()),
@@ -53,7 +53,7 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
     _counter_map["TotalTime"] = &_counter_total_time;
 }
 
-RuntimeProfile::~RuntimeProfile() {}
+RuntimeProfile::~RuntimeProfile() = default;
 
 void RuntimeProfile::merge(RuntimeProfile* other) {
     DCHECK(other != nullptr);
