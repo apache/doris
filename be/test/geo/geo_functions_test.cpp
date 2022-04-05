@@ -18,6 +18,7 @@
 #include "geo/geo_functions.h"
 
 #include <gtest/gtest.h>
+#include <s2/s2polygon.h>
 
 #include <vector>
 
