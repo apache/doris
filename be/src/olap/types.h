@@ -22,29 +22,37 @@
 #include <stdio.h>
 
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <string>
 
-#include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
 #include "gutil/strings/numbers.h"
-#include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/tablet_schema.h" // for TabletColumn
-#include "olap/uint24.h"
 #include "runtime/collection_value.h"
-#include "runtime/datetime_value.h"
-#include "runtime/mem_pool.h"
-#include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"
 
 namespace doris {
+
+namespace segment_v2 {
+class ColumnMetaPB;
+}
+
+class MemPool;
+struct uint24_t;
+struct decimal12_t;
 class TabletColumn;
 
 extern bool is_olap_string_type(FieldType field_type);
+
+class TypeInfo;
+using TypeInfoPtr = std::unique_ptr<const TypeInfo, void (*)(const TypeInfo*)>;
+
+TypeInfoPtr create_static_type_info_ptr(const TypeInfo* type_info);
+TypeInfoPtr create_dynamic_type_info_ptr(const TypeInfo* type_info);
 
 class TypeInfo {
 public:
@@ -67,7 +75,7 @@ public:
 
     // Convert and deep copy value from other type's source.
     virtual Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
-                                    MemPool* mem_pool, size_t variable_len = 0) const = 0;
+                                MemPool* mem_pool, size_t variable_len = 0) const = 0;
 
     virtual Status from_string(void* buf, const std::string& scan_key) const = 0;
 
@@ -84,15 +92,11 @@ public:
 
 class ScalarTypeInfo : public TypeInfo {
 public:
-    bool equal(const void* left, const void* right) const override {
-        return _equal(left, right);
-    }
+    bool equal(const void* left, const void* right) const override { return _equal(left, right); }
 
     int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
-    void shallow_copy(void* dest, const void* src) const override {
-        _shallow_copy(dest, src);
-    }
+    void shallow_copy(void* dest, const void* src) const override { _shallow_copy(dest, src); }
 
     void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
         _deep_copy(dest, src, mem_pool);
@@ -111,8 +115,8 @@ public:
     }
 
     // Convert and deep copy value from other type's source.
-    Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
-                            MemPool* mem_pool, size_t variable_len = 0) const override {
+    Status convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool,
+                        size_t variable_len = 0) const override {
         return _convert_from(dest, src, src_type, mem_pool, variable_len);
     }
 
@@ -160,7 +164,7 @@ private:
     void (*_direct_copy)(void* dest, const void* src);
     void (*_direct_copy_may_cut)(void* dest, const void* src);
     Status (*_convert_from)(void* dest, const void* src, const TypeInfo* src_type,
-                                MemPool* mem_pool, size_t variable_len);
+                            MemPool* mem_pool, size_t variable_len);
 
     Status (*_from_string)(void* buf, const std::string& scan_key);
     std::string (*_to_string)(const void* src);
@@ -178,10 +182,11 @@ private:
 
 class ArrayTypeInfo : public TypeInfo {
 public:
-    explicit ArrayTypeInfo(const TypeInfo* item_type_info)
-            : _item_type_info(item_type_info), _item_size(item_type_info->size()) {}
-    ~ArrayTypeInfo() = default;
-    bool equal(const void* left, const void* right) const override {
+    explicit ArrayTypeInfo(TypeInfoPtr item_type_info)
+            : _item_type_info(std::move(item_type_info)), _item_size(_item_type_info->size()) {}
+    ~ArrayTypeInfo() override = default;
+
+    inline bool equal(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const CollectionValue*>(left);
         auto r_value = reinterpret_cast<const CollectionValue*>(right);
         if (l_value->length() != r_value->length()) {
@@ -330,7 +335,7 @@ public:
         if (_item_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
             for (uint32_t i = 0; i < src_value->length(); ++i) {
                 if (dest_value->is_null_at(i)) continue;
-                dynamic_cast<const ArrayTypeInfo*>(_item_type_info)
+                dynamic_cast<const ArrayTypeInfo*>(_item_type_info.get())
                         ->direct_copy(base, (uint8_t*)(dest_value->mutable_data()) + i * _item_size,
                                       (uint8_t*)(src_value->data()) + i * _item_size);
             }
@@ -351,12 +356,10 @@ public:
         }
     }
 
-    void direct_copy_may_cut(void* dest, const void* src) const override {
-        direct_copy(dest, src);
-    }
+    void direct_copy_may_cut(void* dest, const void* src) const override { direct_copy(dest, src); }
 
-    Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
-                            MemPool* mem_pool, size_t variable_len = 0) const override {
+    Status convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool,
+                        size_t variable_len = 0) const override {
         return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
     }
 
@@ -407,20 +410,22 @@ public:
 
     FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 
-    const TypeInfo* item_type_info() const { return _item_type_info; }
+    inline const TypeInfo* item_type_info() const { return _item_type_info.get(); }
 
 private:
-    const TypeInfo* _item_type_info;
+    TypeInfoPtr _item_type_info;
     const size_t _item_size;
 };
 
-extern bool is_scalar_type(FieldType field_type);
+bool is_scalar_type(FieldType field_type);
 
-extern const TypeInfo* get_scalar_type_info(FieldType field_type);
+const TypeInfo* get_scalar_type_info(FieldType field_type);
 
-extern const TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
+TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
 
-extern const TypeInfo* get_type_info(const TabletColumn* col);
+TypeInfoPtr get_type_info(const TabletColumn* col);
+
+TypeInfoPtr clone_type_info(const TypeInfo* type_info);
 
 // support following formats when convert varchar to date
 static const std::vector<std::string> DATE_FORMATS {
@@ -563,7 +568,7 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
     static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
 
     static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
-                                   MemPool* mem_pool, size_t variable_len = 0) {
+                               MemPool* mem_pool, size_t variable_len = 0) {
         return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
     }
 
@@ -646,7 +651,7 @@ struct NumericFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
     }
 
     static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
-                                   MemPool* mem_pool, size_t variable_len = 0) {
+                               MemPool* mem_pool, size_t variable_len = 0) {
         if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR ||
             src_type->type() == OLAP_FIELD_TYPE_STRING) {
             return arithmetic_convert_from_varchar<CppType>(dest, src);
@@ -825,7 +830,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE>
         return std::string(buf);
     }
     static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
-                                   MemPool* mem_pool, size_t variable_len = 0) {
+                               MemPool* mem_pool, size_t variable_len = 0) {
         //only support float now
         if (src_type->type() == OLAP_FIELD_TYPE_FLOAT) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_FLOAT>::CppType;
@@ -895,7 +900,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
         return reinterpret_cast<const CppType*>(src)->to_string();
     }
     static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
-                                   MemPool* mem_pool, size_t variable_len = 0) {
+                               MemPool* mem_pool, size_t variable_len = 0) {
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType;
             SrcType src_value = *reinterpret_cast<const SrcType*>(src);
@@ -993,7 +998,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
         return std::string(buf);
     }
     static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
-                                   MemPool* memPool, size_t variable_len = 0) {
+                               MemPool* memPool, size_t variable_len = 0) {
         // when convert date to datetime, automatic padding zero
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType;
@@ -1113,7 +1118,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
     }
 
     static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
-                                   MemPool* mem_pool, size_t variable_len = 0) {
+                               MemPool* mem_pool, size_t variable_len = 0) {
         assert(variable_len > 0);
         switch (src_type->type()) {
         case OLAP_FIELD_TYPE_TINYINT:
@@ -1125,7 +1130,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         case OLAP_FIELD_TYPE_DOUBLE:
         case OLAP_FIELD_TYPE_DECIMAL: {
             auto result = src_type->to_string(src);
-            if (result.size() > variable_len) return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
+            if (result.size() > variable_len)
+                return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
             auto slice = reinterpret_cast<Slice*>(dest);
             slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
             memcpy(slice->data, result.c_str(), result.size());
@@ -1164,7 +1170,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIE
     }
 
     static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
-                                   MemPool* mem_pool, size_t variable_len = 0) {
+                               MemPool* mem_pool, size_t variable_len = 0) {
         switch (src_type->type()) {
         case OLAP_FIELD_TYPE_TINYINT:
         case OLAP_FIELD_TYPE_SMALLINT:
@@ -1270,7 +1276,8 @@ inline const TypeInfo* get_scalar_type_info() {
 
 template <FieldType field_type>
 inline const TypeInfo* get_collection_type_info() {
-    static ArrayTypeInfo collection_type_info(get_scalar_type_info<field_type>());
+    static ArrayTypeInfo collection_type_info(
+            create_static_type_info_ptr(get_scalar_type_info<field_type>()));
     return &collection_type_info;
 }
 

@@ -41,7 +41,7 @@ namespace doris {
 // User can use this class to access or deal with column data in memory.
 class Field {
 public:
-    explicit Field() = default;
+    explicit Field() : _type_info(TypeInfoPtr(nullptr, nullptr)) {}
     explicit Field(const TabletColumn& column)
             : _type_info(get_type_info(&column)),
               _length(column.length()),
@@ -278,7 +278,7 @@ public:
 
     FieldType type() const { return _type_info->type(); }
     FieldAggregationMethod aggregation() const { return _agg_info->agg_method(); }
-    const TypeInfo* type_info() const { return _type_info; }
+    const TypeInfo* type_info() const { return _type_info.get(); }
     bool is_nullable() const { return _is_nullable; }
 
     // similar to `full_encode_ascending`, but only encode part (the first `index_size` bytes) of the value.
@@ -302,7 +302,7 @@ public:
     size_t get_sub_field_count() const { return _sub_fields.size(); }
 
 protected:
-    const TypeInfo* _type_info;
+    TypeInfoPtr _type_info;
     const AggregateInfo* _agg_info;
     // unit : byte
     // except for strings, other types have fixed lengths
@@ -323,7 +323,7 @@ protected:
     }
 
     void clone(Field* other) const {
-        other->_type_info = this->_type_info;
+        other->_type_info = clone_type_info(this->_type_info.get());
         other->_key_coder = this->_key_coder;
         other->_name = this->_name;
         other->_index_size = this->_index_size;

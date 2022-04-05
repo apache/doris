@@ -29,16 +29,14 @@
 
 namespace doris {
 
-typedef google::protobuf::RepeatedPtrField<DeletePredicatePB> DelPredicateArray;
+using DelPredicateArray = google::protobuf::RepeatedPtrField<DeletePredicatePB>;
 class Conditions;
 class RowCursor;
 class TabletReader;
+class TabletSchema;
 
 class DeleteConditionHandler {
 public:
-    DeleteConditionHandler() {}
-    ~DeleteConditionHandler() {}
-
     // generated DeletePredicatePB by TCondition
     Status generate_delete_predicate(const TabletSchema& schema,
                                          const std::vector<TCondition>& conditions,
