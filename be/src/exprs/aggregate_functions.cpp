@@ -657,22 +657,6 @@ void AggregateFunctions::min(FunctionContext*, const DecimalV2Val& src, DecimalV
 }
 
 template <>
-void AggregateFunctions::min(FunctionContext*, const LargeIntVal& src, LargeIntVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-
-    if (dst->is_null) {
-        *dst = src;
-        return;
-    }
-
-    if (src.val < dst->val) {
-        dst->val = src.val;
-    }
-}
-
-template <>
 void AggregateFunctions::max(FunctionContext*, const DecimalV2Val& src, DecimalV2Val* dst) {
     if (src.is_null) {
         return;
@@ -687,22 +671,6 @@ void AggregateFunctions::max(FunctionContext*, const DecimalV2Val& src, DecimalV
         if (new_src > new_dst) {
             *dst = src;
         }
-    }
-}
-
-template <>
-void AggregateFunctions::max(FunctionContext*, const LargeIntVal& src, LargeIntVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-
-    if (dst->is_null) {
-        *dst = src;
-        return;
-    }
-
-    if (src.val > dst->val) {
-        dst->val = src.val;
     }
 }
 
@@ -2725,6 +2693,8 @@ template void AggregateFunctions::max<SmallIntVal>(FunctionContext*, const Small
 template void AggregateFunctions::max<IntVal>(FunctionContext*, const IntVal& src, IntVal* dst);
 template void AggregateFunctions::max<BigIntVal>(FunctionContext*, const BigIntVal& src,
                                                  BigIntVal* dst);
+template void AggregateFunctions::max<LargeIntVal>(FunctionContext*, const LargeIntVal& src,
+                                                 LargeIntVal* dst);
 template void AggregateFunctions::max<FloatVal>(FunctionContext*, const FloatVal& src,
                                                 FloatVal* dst);
 template void AggregateFunctions::max<DoubleVal>(FunctionContext*, const DoubleVal& src,
