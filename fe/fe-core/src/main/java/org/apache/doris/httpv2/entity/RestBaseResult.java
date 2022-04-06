@@ -14,21 +14,34 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+package org.apache.doris.httpv2.entity;
 
-package org.apache.doris.http;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
-public class IllegalArgException extends Exception {
-    private static final long serialVersionUID = 3344697787301861667L;
+// Base restful result
+public class RestBaseResult {
 
-    public IllegalArgException() {
-        super("");
-    }
+  private static final RestBaseResult OK = new RestBaseResult();
+  public ActionStatus status;
+  public String msg;
 
-    public IllegalArgException(String msg) {
-        super(msg);
-    }
+  public RestBaseResult() {
+    status = ActionStatus.OK;
+    msg = "Success";
+  }
 
-    public IllegalArgException(String msg, Throwable cause) {
-        super(msg, cause);
-    }
+  public RestBaseResult(String msg) {
+    status = ActionStatus.FAILED;
+    this.msg = msg;
+  }
+
+  public static RestBaseResult getOk() {
+    return OK;
+  }
+
+  public String toJson() {
+    Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+    return gson.toJson(this);
+  }
 }

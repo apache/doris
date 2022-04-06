@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.http;
+package org.apache.doris.httpv2.entity;
 
-import org.apache.doris.common.DdlException;
-
-public class UnauthorizedException extends DdlException {
-    public UnauthorizedException(String msg) {
-        super(msg);
-    }
+// Status of RESTful action
+public enum ActionStatus {
+  OK,
+  FAILED
 }

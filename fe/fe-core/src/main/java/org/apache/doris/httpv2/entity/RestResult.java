@@ -15,33 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.http.rest;
+package org.apache.doris.httpv2.entity;
 
+import java.util.Map;
+
+import com.google.common.collect.Maps;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 
-// Base restful result
-public class RestBaseResult {
-    private static final RestBaseResult OK = new RestBaseResult();
-    public ActionStatus status;
-    public String msg;
+public class RestResult extends RestBaseResult {
 
-    public RestBaseResult() {
-        status = ActionStatus.OK;
-        msg = "Success";
+  private Map<String, Object> resultMap;
+
+  public RestResult() {
+    super();
+    resultMap = Maps.newHashMap();
+  }
+
+  public void addResultEntry(String key, Object value) {
+    resultMap.put(key, value);
+  }
+
+  public String toJson() {
+    Gson gson = new Gson();
+    addResultEntry("status", status);
+    if (status != ActionStatus.OK) {
+      addResultEntry("msg", msg);
     }
-
-    public RestBaseResult(String msg) {
-        status = ActionStatus.FAILED;
-        this.msg = msg;
-    }
-
-    public static RestBaseResult getOk() {
-        return OK;
-    }
-
-    public String toJson() {
-        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-        return gson.toJson(this);
-    }
+    return gson.toJson(resultMap);
+  }
 }
