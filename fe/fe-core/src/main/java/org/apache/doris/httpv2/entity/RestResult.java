@@ -24,23 +24,23 @@ import com.google.gson.Gson;
 
 public class RestResult extends RestBaseResult {
 
-  private Map<String, Object> resultMap;
+    private Map<String, Object> resultMap;
 
-  public RestResult() {
-    super();
-    resultMap = Maps.newHashMap();
-  }
-
-  public void addResultEntry(String key, Object value) {
-    resultMap.put(key, value);
-  }
-
-  public String toJson() {
-    Gson gson = new Gson();
-    addResultEntry("status", status);
-    if (status != ActionStatus.OK) {
-      addResultEntry("msg", msg);
+    public RestResult() {
+      super();
+      resultMap = Maps.newHashMap();
     }
-    return gson.toJson(resultMap);
-  }
+
+    public void addResultEntry(String key, Object value) {
+      resultMap.put(key, value);
+    }
+
+    public String toJson() {
+      Gson gson = new Gson();
+      addResultEntry("status", status);
+      if (status != ActionStatus.OK) {
+        addResultEntry("msg", msg);
+      }
+      return gson.toJson(resultMap);
+    }
 }

@@ -19,6 +19,6 @@ package org.apache.doris.httpv2.entity;
 
 // Status of RESTful action
 public enum ActionStatus {
-  OK,
-  FAILED
+    OK,
+    FAILED
 }
