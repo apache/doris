@@ -122,20 +122,20 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         vectorized::ColumnPtr column7 = block.get_columns()[6];
 
         if (i % 5 != 0) {
-            ASSERT_EQ((int16_t)column1->get64(i), k1);
+            EXPECT_EQ((int16_t)column1->get64(i), k1);
         } else {
-            ASSERT_TRUE(column1->is_null_at(i));
+            EXPECT_TRUE(column1->is_null_at(i));
         }
-        ASSERT_EQ(column2->get_int(i), k2++);
-        ASSERT_EQ(column3->get_float64(i), k3);
-        ASSERT_STREQ(column4->get_data_at(i).data, std::to_string(k1).c_str());
+        EXPECT_EQ(column2->get_int(i), k2++);
+        EXPECT_EQ(column3->get_float64(i), k3);
+        EXPECT_STREQ(column4->get_data_at(i).data, std::to_string(k1).c_str());
         auto decimal_field =
                 column5->operator[](i).get<vectorized::DecimalField<vectorized::Decimal128>>();
         DecimalV2Value decimalv2_num(std::to_string(k3));
-        ASSERT_EQ(DecimalV2Value(decimal_field.get_value()), decimalv2_num);
+        EXPECT_EQ(DecimalV2Value(decimal_field.get_value()), decimalv2_num);
 
         int128_t larget_int = k1;
-        ASSERT_EQ(column6->operator[](i).get<vectorized::Int128>(), k1);
+        EXPECT_EQ(column6->operator[](i).get<vectorized::Int128>(), k1);
 
         larget_int = column7->operator[](i).get<vectorized::Int128>();
         vectorized::VecDateTimeValue k7;
@@ -146,7 +146,7 @@ TEST(BlockTest, RowBatchCovertToBlock) {
         vectorized::TimeInterval time_interval(vectorized::TimeUnit::DAY, k1, false);
         date_time_value.date_add_interval(time_interval, vectorized::TimeUnit::DAY);
 
-        ASSERT_EQ(k7, date_time_value);
+        EXPECT_EQ(k7, date_time_value);
 
         k1++;
         k3 += 0.1;
@@ -157,13 +157,15 @@ void block_to_pb(const vectorized::Block& block, PBlock* pblock) {
     size_t uncompressed_bytes = 0;
     size_t compressed_bytes = 0;
     std::string column_values_buffer;
-    Status st = block.serialize(pblock, &uncompressed_bytes, &compressed_bytes, &column_values_buffer);
+    Status st =
+            block.serialize(pblock, &uncompressed_bytes, &compressed_bytes, &column_values_buffer);
     EXPECT_TRUE(st.ok());
     EXPECT_TRUE(uncompressed_bytes >= compressed_bytes);
     EXPECT_EQ(compressed_bytes, column_values_buffer.size());
     pblock->set_column_values(column_values_buffer);
-    
-    const vectorized::ColumnWithTypeAndName& type_and_name = block.get_columns_with_type_and_name()[0];
+
+    const vectorized::ColumnWithTypeAndName& type_and_name =
+            block.get_columns_with_type_and_name()[0];
     EXPECT_EQ(type_and_name.name, pblock->column_metas()[0].name());
 }
 
@@ -197,7 +199,8 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
             strcol->insert_data(is.c_str(), is.size());
         }
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
-        vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, "test_string");
+        vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
+                                                        "test_string");
         vectorized::Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock);
@@ -214,13 +217,14 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9));
         auto decimal_column = decimal_data_type->create_column();
         auto& data = ((vectorized::ColumnDecimal<vectorized::Decimal<vectorized::Int128>>*)
-                decimal_column.get())->get_data();
+                              decimal_column.get())
+                             ->get_data();
         for (int i = 0; i < 1024; ++i) {
             __int128_t value = i * pow(10, 9) + i * pow(10, 8);
             data.push_back(value);
         }
-        vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
-                "test_decimal");
+        vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
+                                                        decimal_data_type, "test_decimal");
         vectorized::Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock);
@@ -236,15 +240,17 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
     {
         vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container = ((vectorized::ColumnComplexType<BitmapValue>*) bitmap_column.get())->get_data();
+        std::vector<BitmapValue>& container =
+                ((vectorized::ColumnComplexType<BitmapValue>*)bitmap_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
             for (int j = 0; j <= i; ++j) {
                 bv.add(j);
             }
-            container.push_back(bv);    
+            container.push_back(bv);
         }
-        vectorized::ColumnWithTypeAndName type_and_name(bitmap_column->get_ptr(), bitmap_data_type, "test_bitmap");
+        vectorized::ColumnWithTypeAndName type_and_name(bitmap_column->get_ptr(), bitmap_data_type,
+                                                        "test_bitmap");
         vectorized::Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock);
@@ -259,11 +265,12 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
     // nullable string
     {
         vectorized::DataTypePtr string_data_type(std::make_shared<vectorized::DataTypeString>());
-        vectorized::DataTypePtr nullable_data_type(std::make_shared<vectorized::DataTypeNullable>(string_data_type));
+        vectorized::DataTypePtr nullable_data_type(
+                std::make_shared<vectorized::DataTypeNullable>(string_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*) nullable_column.get())->insert_null_elements(1024);
-        vectorized::ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(), nullable_data_type,
-                "test_nullable");
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        vectorized::ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(),
+                                                        nullable_data_type, "test_nullable");
         vectorized::Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock);
@@ -278,11 +285,12 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
     // nullable decimal
     {
         vectorized::DataTypePtr decimal_data_type(doris::vectorized::create_decimal(27, 9));
-        vectorized::DataTypePtr nullable_data_type(std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
+        vectorized::DataTypePtr nullable_data_type(
+                std::make_shared<vectorized::DataTypeNullable>(decimal_data_type));
         auto nullable_column = nullable_data_type->create_column();
-        ((vectorized::ColumnNullable*) nullable_column.get())->insert_null_elements(1024);
-        vectorized::ColumnWithTypeAndName type_and_name(nullable_column->get_ptr(), nullable_data_type,
-                "test_nullable_decimal");
+        ((vectorized::ColumnNullable*)nullable_column.get())->insert_null_elements(1024);
+        vectorized::ColumnWithTypeAndName type_and_name(
+                nullable_column->get_ptr(), nullable_data_type, "test_nullable_decimal");
         vectorized::Block block({type_and_name});
         PBlock pblock;
         block_to_pb(block, &pblock);
@@ -378,21 +386,11 @@ TEST(BlockTest, dump_data) {
         datetime_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
     }
     vectorized::DataTypePtr datetime_type(std::make_shared<vectorized::DataTypeDateTime>());
-    vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(), datetime_type,
-                                                    "test_datetime");
+    vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
+                                                    datetime_type, "test_datetime");
 
     vectorized::Block block(
             {test_int, test_string, test_decimal, test_nullable_int32, test_date, test_datetime});
     EXPECT_GT(block.dump_data().size(), 1);
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

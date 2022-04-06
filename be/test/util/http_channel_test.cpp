@@ -28,30 +28,24 @@ class HttpChannelTest : public testing::Test {
 public:
     void check_data_eq(const std::string& output, const std::string& expected) {
         std::ostringstream oss;
-        ASSERT_TRUE(zlib::Uncompress(Slice(output), &oss).ok());
-        ASSERT_EQ(expected, oss.str());
+        EXPECT_TRUE(zlib::Uncompress(Slice(output), &oss).ok());
+        EXPECT_EQ(expected, oss.str());
     }
 };
 
 TEST_F(HttpChannelTest, CompressContent) {
-    ASSERT_FALSE(HttpChannel::compress_content("gzip", "", nullptr));
-    ASSERT_FALSE(HttpChannel::compress_content("", "test", nullptr));
-    ASSERT_FALSE(HttpChannel::compress_content("Gzip", "", nullptr));
+    EXPECT_FALSE(HttpChannel::compress_content("gzip", "", nullptr));
+    EXPECT_FALSE(HttpChannel::compress_content("", "test", nullptr));
+    EXPECT_FALSE(HttpChannel::compress_content("Gzip", "", nullptr));
 
     const std::string& intput("test_data_0123456789abcdefg");
     std::string output;
 
-    ASSERT_TRUE(HttpChannel::compress_content("gzip", intput, &output));
-    ASSERT_NO_FATAL_FAILURE(check_data_eq(output, intput));
+    EXPECT_TRUE(HttpChannel::compress_content("gzip", intput, &output));
+    EXPECT_NO_FATAL_FAILURE(check_data_eq(output, intput));
 
-    ASSERT_TRUE(HttpChannel::compress_content("123,gzip,321", intput, &output));
-    ASSERT_NO_FATAL_FAILURE(check_data_eq(output, intput));
+    EXPECT_TRUE(HttpChannel::compress_content("123,gzip,321", intput, &output));
+    EXPECT_NO_FATAL_FAILURE(check_data_eq(output, intput));
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
