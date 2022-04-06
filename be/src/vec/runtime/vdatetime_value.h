@@ -134,10 +134,10 @@ constexpr size_t max_char_length(const char* const* name, size_t end) {
 
 static constexpr const char* s_month_name[] = {
         "",     "January", "February",  "March",   "April",    "May",      "June",
-        "July", "August",  "September", "October", "November", "December", NULL};
+        "July", "August",  "September", "October", "November", "December", nullptr};
 
 static constexpr const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
-                                             "Friday", "Saturday", "Sunday",    NULL};
+                                             "Friday", "Saturday", "Sunday",    nullptr};
 
 static constexpr size_t MAX_DAY_NAME_LEN = max_char_length(s_day_name, std::size(s_day_name));
 static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::size(s_month_name));
@@ -157,7 +157,30 @@ public:
               _month(0), // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
-    explicit VecDateTimeValue(int64_t t) { from_date_int64(t); }
+    static VecDateTimeValue create_from_olap_date(uint64_t value) {
+        VecDateTimeValue date;
+        date.from_olap_date(value);
+        return date;
+    }
+
+    static VecDateTimeValue create_from_olap_datetime(uint64_t value) {
+        VecDateTimeValue datetime;
+        datetime.from_olap_datetime(value);
+        return datetime;
+    }
+
+    static VecDateTimeValue create_from_normal_date(uint64_t value) {
+        VecDateTimeValue date;
+        date.from_date_int64(value);
+        return date;
+    }
+
+    static VecDateTimeValue create_from_normal_datetime(uint64_t value) {
+        VecDateTimeValue datetime;
+        datetime.from_date_int64(value);
+        datetime.to_datetime();
+        return datetime;
+    }
 
     void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute,
                   uint32_t second);

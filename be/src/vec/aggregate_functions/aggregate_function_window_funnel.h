@@ -152,7 +152,7 @@ struct WindowFunnelState {
 
             read_var_int(timestamp, in);
             read_var_int(event_idx, in);
-            VecDateTimeValue time_value(timestamp);
+            VecDateTimeValue time_value = VecDateTimeValue::create_from_normal_datetime(timestamp);
             add(time_value, (int)event_idx, max_event_level, window);
         }
     }
