@@ -179,6 +179,10 @@ public class Analyzer {
     public List<RuntimeFilter> getAssignedRuntimeFilter() { return assignedRuntimeFilters; }
     public void clearAssignedRuntimeFilters() { assignedRuntimeFilters.clear(); }
 
+    public long getAutoBroadcastJoinThreshold() {
+        return globalState.autoBroadcastJoinThreshold;
+    }
+
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
     // a tuple is outer/semi joined, etc. Remove the maps in favor of making
@@ -292,6 +296,8 @@ public class Analyzer {
 
         private final ExprRewriter mvExprRewriter;
 
+        private final long autoBroadcastJoinThreshold;
+
         public GlobalState(Catalog catalog, ConnectContext context) {
             this.catalog = catalog;
             this.context = context;
@@ -325,8 +331,19 @@ public class Analyzer {
             mvRewriteRules.add(HLLHashToSlotRefRule.INSTANCE);
             mvRewriteRules.add(CountFieldToSum.INSTANCE);
             mvExprRewriter = new ExprRewriter(mvRewriteRules);
+
+            // compute max exec mem could be used for broadcast join
+            long perNodeMemLimit = context.getSessionVariable().getMaxExecMemByte();
+            double autoBroadcastJoinThresholdPercentage = context.getSessionVariable().autoBroadcastJoinThreshold;
+            if (autoBroadcastJoinThresholdPercentage > 1) {
+                autoBroadcastJoinThresholdPercentage = 1.0;
+            } else if (autoBroadcastJoinThresholdPercentage <= 0) {
+                autoBroadcastJoinThresholdPercentage = -1.0;
+            }
+            autoBroadcastJoinThreshold = (long)(perNodeMemLimit * autoBroadcastJoinThresholdPercentage);
         }
-    };
+    }
+
     private final GlobalState globalState;
 
     // An analyzer stores analysis state for a single select block. A select block can be

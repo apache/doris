@@ -60,18 +60,9 @@ public class DistributedPlanner {
     private final static Logger LOG = LogManager.getLogger(DistributedPlanner.class);
 
     private final PlannerContext ctx_;
-    private final long autoBroadcastJoinThreshold;
 
     public DistributedPlanner(PlannerContext ctx) {
         ctx_ = ctx;
-        long perNodeMemLimit = ctx_.getQueryOptions().mem_limit;
-        double autoBroadcastJoinThresholdPercentage = ctx_.getQueryOptions().getAutoBroadcastJoinThreshold();
-        if (autoBroadcastJoinThresholdPercentage > 1) {
-            autoBroadcastJoinThresholdPercentage = 1.0;
-        } else if (autoBroadcastJoinThresholdPercentage <= 0) {
-            autoBroadcastJoinThresholdPercentage = -1.0;
-        }
-        autoBroadcastJoinThreshold = (long)(perNodeMemLimit * autoBroadcastJoinThresholdPercentage);
     }
 
     /**
@@ -365,9 +356,9 @@ public class DistributedPlanner {
             if (node.getInnerRef().isBroadcastJoin()) {
                 // respect user join hint
                 doBroadcast = true;
-            } else if (!node.getInnerRef().isPartitionJoin()
-                    && joinCostEvaluation.isBroadcastCostSmaller()
-                    && joinCostEvaluation.constructHashTableSpace() <= autoBroadcastJoinThreshold) {
+            } else if (!node.getInnerRef().isPartitionJoin() && joinCostEvaluation.isBroadcastCostSmaller()
+                    && joinCostEvaluation.constructHashTableSpace()
+                    <= ctx_.getRootAnalyzer().getAutoBroadcastJoinThreshold()) {
                 doBroadcast = true;
             } else {
                 doBroadcast = false;
