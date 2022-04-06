@@ -130,7 +130,7 @@ public class AggregateTest {
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("The window param of window_funnel function must be integer"));
+                Assert.assertTrue(e.getMessage().contains("The window params of window_funnel function must be integer"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
@@ -144,7 +144,7 @@ public class AggregateTest {
             try {
                 UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
             } catch (AnalysisException e) {
-                Assert.assertTrue(e.getMessage().contains("The mode param of window_funnel function must be string"));
+                Assert.assertTrue(e.getMessage().contains("The mode params of window_funnel function must be integer"));
                 break;
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");

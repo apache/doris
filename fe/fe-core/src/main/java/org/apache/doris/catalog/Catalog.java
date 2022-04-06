@@ -3116,8 +3116,7 @@ public class Catalog {
                 }
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
-                // varchar/char transfer to string
-                if (resultExpr.getType().isStringType()) {
+                if (resultExpr.getType().isStringType() && resultExpr.getType().getLength() < 0) {
                     typeDef = new TypeDef(Type.STRING);
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
