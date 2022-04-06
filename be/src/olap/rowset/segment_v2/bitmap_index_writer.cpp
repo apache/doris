@@ -63,7 +63,7 @@ public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using MemoryIndexType = typename BitmapIndexTraits<CppType>::MemoryIndexType;
 
-    explicit BitmapIndexWriterImpl(std::shared_ptr<const TypeInfo> typeinfo)
+    explicit BitmapIndexWriterImpl(const TypeInfo* typeinfo)
             : _typeinfo(typeinfo),
               _reverted_index_size(0),
               _pool("BitmapIndexWriterImpl") {}
@@ -112,7 +112,7 @@ public:
             IndexedColumnWriterOptions options;
             options.write_ordinal_index = false;
             options.write_value_index = true;
-            options.encoding = EncodingInfo::get_default_encoding(_typeinfo.get(), true);
+            options.encoding = EncodingInfo::get_default_encoding(_typeinfo, true);
             options.compression = LZ4F;
 
             IndexedColumnWriter dict_column_writer(options, _typeinfo, wblock);
@@ -142,12 +142,12 @@ public:
                 bitmap_sizes.push_back(bitmap_size);
             }
 
-            auto bitmap_typeinfo = get_type_info(OLAP_FIELD_TYPE_OBJECT);
+            const auto* bitmap_typeinfo = get_scalar_type_info<OLAP_FIELD_TYPE_OBJECT>();
 
             IndexedColumnWriterOptions options;
             options.write_ordinal_index = true;
             options.write_value_index = false;
-            options.encoding = EncodingInfo::get_default_encoding(bitmap_typeinfo.get(), false);
+            options.encoding = EncodingInfo::get_default_encoding(bitmap_typeinfo, false);
             // we already store compressed bitmap, use NO_COMPRESSION to save some cpu
             options.compression = NO_COMPRESSION;
 
@@ -177,7 +177,7 @@ public:
     }
 
 private:
-    std::shared_ptr<const TypeInfo> _typeinfo;
+    const TypeInfo* _typeinfo;
     uint64_t _reverted_index_size;
     rowid_t _rid = 0;
     // row id list for null value
@@ -189,7 +189,7 @@ private:
 
 } // namespace
 
-Status BitmapIndexWriter::create(std::shared_ptr<const TypeInfo> typeinfo,
+Status BitmapIndexWriter::create(const TypeInfo* typeinfo,
                                  std::unique_ptr<BitmapIndexWriter>* res) {
     FieldType type = typeinfo->type();
     switch (type) {

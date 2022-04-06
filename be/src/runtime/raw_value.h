@@ -294,6 +294,7 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_HLL:
+    case TYPE_OBJECT:
     case TYPE_STRING: {
         const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
         return HashUtil::fnv_hash(string_value->ptr, string_value->len, seed);

@@ -461,7 +461,7 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
 template <FieldType type>
 void test_read_default_value(string value, void* result) {
     using Type = typename TypeTraits<type>::CppType;
-    auto type_info = get_type_info(type);
+    const auto* type_info = get_scalar_type_info(type);
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
@@ -572,7 +572,7 @@ static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type)
 template <FieldType type>
 void test_v_read_default_value(string value, void* result) {
     using Type = typename TypeTraits<type>::CppType;
-    auto type_info = get_type_info(type);
+    const auto* type_info = get_scalar_type_info(type);
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);

@@ -529,6 +529,10 @@ void OlapScanner::update_counter() {
     _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, stats.num_rows_filtered);
     COUNTER_UPDATE(_parent->_vec_cond_timer, stats.vec_cond_ns);
+    COUNTER_UPDATE(_parent->_short_cond_timer, stats.short_cond_ns);
+    COUNTER_UPDATE(_parent->_pred_col_read_timer, stats.pred_col_read_ns);
+    COUNTER_UPDATE(_parent->_lazy_read_timer, stats.lazy_read_ns);
+    COUNTER_UPDATE(_parent->_output_col_timer, stats.output_col_ns);
     COUNTER_UPDATE(_parent->_rows_vec_cond_counter, stats.rows_vec_cond_filtered);
 
     COUNTER_UPDATE(_parent->_stats_filtered_counter, stats.rows_stats_filtered);

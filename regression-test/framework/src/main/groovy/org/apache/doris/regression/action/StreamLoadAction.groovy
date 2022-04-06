@@ -26,6 +26,8 @@ import org.apache.doris.regression.util.OutputUtils
 import groovy.json.JsonSlurper
 import groovy.util.logging.Slf4j
 import org.apache.http.HttpEntity
+import org.apache.http.HttpStatus
+import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.client.methods.RequestBuilder
 import org.apache.http.entity.FileEntity
 import org.apache.http.entity.InputStreamEntity
@@ -153,7 +155,14 @@ class StreamLoadAction implements SuiteAction {
     }
 
     private InputStream httpGetStream(CloseableHttpClient client, String url) {
-        return client.execute(RequestBuilder.get(url).build()).getEntity().getContent()
+        CloseableHttpResponse resp = client.execute(RequestBuilder.get(url).build())
+        int code = resp.getStatusLine().getStatusCode()
+        if (code != HttpStatus.SC_OK) {
+            String streamBody = EntityUtils.toString(resp.getEntity())
+            throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
+        }
+
+        return resp.getEntity().getContent()
     }
 
     private RequestBuilder prepareRequestHeader(RequestBuilder requestBuilder) {
@@ -207,9 +216,6 @@ class StreamLoadAction implements SuiteAction {
                 def respCode = resp.getStatusLine().getStatusCode()
                 // should redirect to backend
                 if (respCode != 307) {
-                    List resList = [context.file.getName(), 'streamLoad', '', "Expect frontend stream load response code is 307, " +
-                            "but meet ${respCode}\nbody: ${body}"]
-                    context.recorder.reportDiffResult(resList)
                     throw new IllegalStateException("Expect frontend stream load response code is 307, " +
                             "but meet ${respCode}\nbody: ${body}")
                 }
@@ -230,10 +236,6 @@ class StreamLoadAction implements SuiteAction {
                     String body = EntityUtils.toString(resp.getEntity())
                     def respCode = resp.getStatusLine().getStatusCode()
                     if (respCode != 200) {
-                        List resList = [context.file.getName(), 'streamLoad', '', "Expect backend stream load response code is 200, " +
-                                "but meet ${respCode}\nbody: ${body}"]
-                        context.recorder.reportDiffResult(resList)
-
                         throw new IllegalStateException("Expect backend stream load response code is 200, " +
                                 "but meet ${respCode}\nbody: ${body}")
                     }
@@ -242,8 +244,6 @@ class StreamLoadAction implements SuiteAction {
             }
         } catch (Throwable t) {
             log.info("StreamLoadAction Exception: ", t)
-            List resList = [context.file.getName(), 'streamLoad', '', t]
-            context.recorder.reportDiffResult(resList)
         }
         return responseText
     }
@@ -253,8 +253,6 @@ class StreamLoadAction implements SuiteAction {
             check.call(responseText, ex, startTime, endTime)
         } else {
             if (ex != null) {
-                List resList = [context.file.getName(), 'streamLoad', '', ex]
-                context.recorder.reportDiffResult(resList)
                 throw ex
             }
 
@@ -267,19 +265,13 @@ class StreamLoadAction implements SuiteAction {
                     String errorDetails = HttpClients.createDefault().withCloseable { client ->
                         httpGetString(client, errorUrl)
                     }
-                    List resList = [context.file.getName(), 'streamLoad', '', "Stream load failed:\n${responseText}\n${errorDetails}"]
-                    context.recorder.reportDiffResult(resList)
                     throw new IllegalStateException("Stream load failed:\n${responseText}\n${errorDetails}")
                 }
-                List resList = [context.file.getName(), 'streamLoad', '', "Stream load failed:\n${responseText}"]
-                context.recorder.reportDiffResult(resList)
                 throw new IllegalStateException("Stream load failed:\n${responseText}")
             }
             long numberTotalRows = result.NumberTotalRows.toLong()
             long numberLoadedRows = result.NumberLoadedRows.toLong()
             if (numberTotalRows != numberLoadedRows) {
-                List resList = [context.file.getName(), 'streamLoad', '', "Stream load rows mismatch:\n${responseText}"]
-                context.recorder.reportDiffResult(resList)
                 throw new IllegalStateException("Stream load rows mismatch:\n${responseText}")
 
             }
@@ -289,8 +281,6 @@ class StreamLoadAction implements SuiteAction {
                 try{
                     Assert.assertTrue("Expect elapsed <= ${time}, but meet ${elapsed}", elapsed <= time)
                 } catch (Throwable t) {
-                    List resList = [context.file.getName(), 'streamLoad', '', "Expect elapsed <= ${time}, but meet ${elapsed}"]
-                    context.recorder.reportDiffResult(resList)
                     throw new IllegalStateException("Expect elapsed <= ${time}, but meet ${elapsed}")
                 }
             }

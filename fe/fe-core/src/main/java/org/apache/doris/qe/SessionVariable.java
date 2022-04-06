@@ -176,6 +176,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BLOCK_ENCRYPTION_MODE = "block_encryption_mode";
 
+    public static final String ENABLE_PROJECTION = "enable_projection";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -428,6 +430,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
     private String blockEncryptionMode = "";
+
+    @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
+    private boolean enableProjection = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -892,6 +897,10 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setEnableInferPredicate(boolean enableInferPredicate) { this.enableInferPredicate = enableInferPredicate; }
+
+    public boolean isEnableProjection() {
+        return enableProjection;
+    }
 
     // Serialize to thrift object
     // used for rest api

@@ -21,10 +21,8 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LateralViewRef;
 import org.apache.doris.analysis.SelectStmt;
-import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -84,6 +82,7 @@ public class TableFunctionNode extends PlanNode {
      * Query: select k1 from table a lateral view explode_split(v1, ",") t1 as c1;
      * The outputSlots: [k1, c1]
      */
+    // TODO(ml): Unified to projectplanner
     public void projectSlots(Analyzer analyzer, SelectStmt selectStmt) throws AnalysisException {
         // TODO(ml): Support project calculations that include aggregation and sorting in select stmt
         if ((selectStmt.hasAggInfo() || selectStmt.getSortInfo() != null || selectStmt.hasAnalyticInfo())
@@ -108,20 +107,6 @@ public class TableFunctionNode extends PlanNode {
         // set output slot ids
         for (SlotRef slotRef : outputSlotRef) {
             outputSlotIds.add(slotRef.getSlotId());
-        }
-
-        // For all other slots from input node which are not in outputSlotIds,
-        // set them as nullable, so that we can set them to null in TableFunctionNode
-        // TODO(cmy): This should be done with a ProjectionNode
-        PlanNode inputNode = getChild(0);
-        List<TupleId> inputTupleIds = inputNode.getTupleIds();
-        for (TupleId tupleId : inputTupleIds) {
-            TupleDescriptor td = analyzer.getTupleDesc(tupleId);
-            for (SlotDescriptor sd : td.getSlots()) {
-                if (!outputSlotIds.contains(sd.getId())) {
-                    sd.setIsNullable(true);
-                }
-            }
         }
     }
 

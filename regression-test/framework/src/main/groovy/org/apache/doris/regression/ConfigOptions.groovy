@@ -39,10 +39,12 @@ class ConfigOptions {
     static Option dataOpt
     static Option suiteOpt
     static Option groupsOpt
+    static Option directoriesOpt
     static Option confOpt
     static Option genOutOpt
     static Option forceGenOutOpt
     static Option parallelOpt
+    static Option suiteParallelOpt
     static Option actionParallelOpt
     static Option randomOrderOpt
     static Option timesOpt
@@ -130,6 +132,15 @@ class ConfigOptions {
                 .longOpt("groups")
                 .desc("the suite group to be test")
                 .build()
+        directoriesOpt = Option.builder("d")
+                .argName("directories")
+                .required(false)
+                .hasArg(true)
+                .optionalArg(true)
+                .type(String.class)
+                .longOpt("directories")
+                .desc("only the use cases in these directories can be executed")
+                .build()
         feHttpAddressOpt = Option.builder("ha")
                 .argName("address")
                 .required(false)
@@ -179,7 +190,15 @@ class ConfigOptions {
                 .optionalArg(true)
                 .type(String.class)
                 .longOpt("parallel")
-                .desc("the num of threads running test")
+                .desc("the num of threads running scripts")
+                .build()
+        suiteParallelOpt = Option.builder("suiteParallel")
+                .argName("parallel")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("suiteParallel")
+                .desc("the num of threads running for suites")
                 .build()
         actionParallelOpt = Option.builder("actionParallel")
                 .argName("parallel")
@@ -221,6 +240,7 @@ class ConfigOptions {
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(groupsOpt)
+                .addOption(directoriesOpt)
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)
@@ -228,8 +248,10 @@ class ConfigOptions {
                 .addOption(confFileOpt)
                 .addOption(forceGenOutOpt)
                 .addOption(parallelOpt)
+                .addOption(suiteParallelOpt)
                 .addOption(actionParallelOpt)
                 .addOption(randomOrderOpt)
+                .addOption(timesOpt)
                 .addOption(withOutLoadDataOpt)
 
         CommandLine cmd = new DefaultParser().parse(options, args, true)

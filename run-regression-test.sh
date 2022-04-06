@@ -21,6 +21,7 @@
 # Usage: $0 <shell_options> <framework_options>
 #  Optional shell_options:
 #     --clean      clean output of regression test
+#     --teamcity   print teamcity service messages
 #     --run        run regression test. build framework if necessary
 #
 #  Optional framework_options
@@ -49,6 +50,7 @@ usage() {
 Usage: $0 <shell_options> <framework_options>
   Optional shell_options:
      --clean    clean output of regression test framework
+     --teamcity print teamcity service messages
      --run      run regression test. build framework if necessary
 
   Optional framework_options:
@@ -68,9 +70,11 @@ Usage: $0 <shell_options> <framework_options>
     $0 --run -s test_select            run a suite which named as test_select
     $0 --run test_select -genOut       generate output file for test_select if not exist
     $0 --run -g default                run all suite in the group which named as default
+    $0 --run -d demo,correctness/tmp   run all suite in the directories which named as demo and correctness/tmp
     $0 --clean                         clean output of regression test framework
     $0 --clean --run test_select       clean output and build regression test framework and run a suite which named as test_select
     $0 --run -h                        print framework options
+    $0 --teamcity --run test_select    print teamcity service messages and build regression test framework and run test_select
 
 Log path: \${DORIS_HOME}/output/regression-test/log
 Default config file: \${DORIS_HOME}/regression-test/conf/regression-conf.groovy
@@ -80,20 +84,24 @@ Default config file: \${DORIS_HOME}/regression-test/conf/regression-conf.groovy
 
 CLEAN=
 WRONG_CMD=
+TEAMCITY=
 RUN=
 if [ $# == 0 ] ; then
     #default
     CLEAN=0
     WRONG_CMD=0
+    TEAMCITY=0
     RUN=1
 else
     CLEAN=0
     RUN=0
+    TEAMCITY=0
     WRONG_CMD=0
     while true; do
         case "$1" in
-            --clean) CLEAN=1 ; shift ;;
-            --run) RUN=1 ; shift ;;
+            --clean)      CLEAN=1 ; shift ;;
+            --teamcity)   TEAMCITY=1 ; shift ;;
+            --run)        RUN=1 ; shift ;;
             *)
                 if [ ${RUN} -eq 0 ] && [ ${CLEAN} -eq 0 ]; then
                     WRONG_CMD=1
@@ -171,10 +179,15 @@ fi
 
 echo "===== Run Regression Test ====="
 
+JAVA_OPTS=${JAVA_OPTS}
+if [ ${TEAMCITY} -eq 1 ]; then
+  JAVA_OPTS="$JAVA_OPTS -DstdoutAppenderType=teamcity"
+fi
+
 $JAVA -DDORIS_HOME=$DORIS_HOME \
       -DLOG_PATH=$LOG_OUTPUT_FILE \
       -Dlogback.configurationFile=${LOG_CONFIG_FILE} \
-      -Xmx2048m \
+      ${JAVA_OPTS} \
       -jar ${RUN_JAR} \
       -cf ${CONFIG_FILE} \
       ${REGRESSION_OPTIONS_PREFIX} "$@"

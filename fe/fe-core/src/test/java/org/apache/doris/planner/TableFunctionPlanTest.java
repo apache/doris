@@ -199,7 +199,7 @@ public class TableFunctionPlanTest {
         String sql = "explain select k1 from db1.tbl1 where explode_split(k2, \",\");";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertTrue(
-                explainString.contains("No matching function with signature: explode_split(varchar(-1), varchar(-1))."));
+                explainString.contains("No matching function with signature: explode_split(varchar(1), varchar(-1))."));
     }
 
     // test projection
@@ -340,8 +340,8 @@ public class TableFunctionPlanTest {
         Assert.assertTrue(explainString.contains("table function: explode_split(concat(`a`.`k2`, ',', `a`.`k3`), ',')"));
         Assert.assertTrue(explainString.contains("lateral view tuple id: 1"));
         Assert.assertTrue(explainString.contains("output slot id: 3"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=0, col=k2, type=VARCHAR(*)}"));
-        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=k3, type=VARCHAR(*)}"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=0, col=k2, type=VARCHAR(1)}"));
+        Assert.assertTrue(explainString.contains("SlotDescriptor{id=1, col=k3, type=VARCHAR(1)}"));
     }
 
     // lateral view of subquery
@@ -398,7 +398,7 @@ public class TableFunctionPlanTest {
                         + "materialized=true"
         ));
         Assert.assertTrue(formatString.contains(
-                "SlotDescriptor{id=1,col=k2,type=VARCHAR(*)}\n"
+                "SlotDescriptor{id=1,col=k2,type=VARCHAR(1)}\n"
                         + "parent=0\n"
                         + "materialized=true"
         ));

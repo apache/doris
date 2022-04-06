@@ -17,15 +17,18 @@
 
 #pragma once
 
-#include <string>
 #include <map>
+#include <memory>
+#include <shared_mutex>
+#include <string>
 #include <vector>
 
-#include "util/mutex.h"
+#include "common/status.h"
 
 namespace doris {
 
 class StorageBackend;
+class StorageParamPB;
 
 // StorageBackendMgr is used to manage StorageBackend, it has (key -> StorageBackend) map used to connect remote storage
 class StorageBackendMgr {
@@ -55,6 +58,7 @@ public:
 
     // get root_path of remote storage from storage_param
     static std::string get_root_path_from_param(const StorageParamPB& storage_param);
+
 private:
     Status _create_remote_storage_internal(const StorageParamPB& storage_param);
     Status _check_exist(const StorageParamPB& storage_param_pb);
