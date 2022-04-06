@@ -128,9 +128,10 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
             RETURN_IF_ERROR(_process_next_child_row());
         }
 
+        bool skip_child_row = false;
         while (true) {
             int idx = _find_last_fn_eos_idx();
-            if (idx == 0) {
+            if (idx == 0 || skip_child_row) {
                 // all table functions' results are exhausted, process next child row.
                 RETURN_IF_ERROR(_process_next_child_row());
                 if (_cur_child_offset == -1) {
@@ -146,9 +147,18 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
 
             // get slots from every table function.
             // notice that _fn_values[i] may be null if the table function has empty result set.
+            skip_child_row = false;
             for (int i = 0; i < _fn_num; i++) {
+                // if any table function is not outer and has empty result, go to next child row
+                if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
+                    skip_child_row = true;
+                    break;
+                }
                 RETURN_IF_ERROR(_fns[i]->get_value(&_fn_values[i]));
                 RETURN_IF_ERROR(_fns[i]->get_value_length(&_fn_value_lengths[i]));
+            }
+            if (skip_child_row) {
+                continue;
             }
 
             // The tuples order in parent row batch should be

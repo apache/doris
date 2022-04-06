@@ -21,10 +21,6 @@
 
 namespace doris::vectorized {
 
-VExplodeTableFunction::VExplodeTableFunction() {
-    _fn_name = "vexplode_outer";
-}
-
 Status VExplodeTableFunction::process_init(vectorized::Block* block) {
     CHECK(_vexpr_context->root()->children().size() == 1)
             << "VExplodeTableFunction must be have 1 children but have "
@@ -32,9 +28,6 @@ Status VExplodeTableFunction::process_init(vectorized::Block* block) {
 
     int value_column_idx = -1;
     _vexpr_context->root()->children()[0]->execute(_vexpr_context, block, &value_column_idx);
-    VLOG_DEBUG << "get_name:" << block->get_by_position(value_column_idx).column->get_name()
-               << " get_family_name: "
-               << block->get_by_position(value_column_idx).column->get_family_name();
 
     if (block->get_by_position(value_column_idx).column->is_nullable()) {
         auto array_nullable_column = check_and_get_column<ColumnNullable>(

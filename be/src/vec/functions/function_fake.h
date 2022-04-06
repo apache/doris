@@ -78,6 +78,15 @@ struct FunctionExplodeBitmapImpl {
 };
 
 struct FunctionExplodeImpl {
+    static constexpr auto name = "explode";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
+        return make_nullable(
+                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
+    }
+};
+
+struct FunctionExplodeOuterImpl {
     static constexpr auto name = "explode_outer";
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";

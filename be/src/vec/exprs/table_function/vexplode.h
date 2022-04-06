@@ -27,7 +27,11 @@ namespace doris::vectorized {
 
 class VExplodeTableFunction : public TableFunction {
 public:
-    VExplodeTableFunction();
+    VExplodeTableFunction() {
+        _fn_name = "vexplode";
+        _is_outer = false;
+    }
+
     virtual ~VExplodeTableFunction() = default;
 
     virtual Status process_init(vectorized::Block* block) override;
@@ -41,6 +45,15 @@ private:
     const UInt8* _array_null_map;
     const ColumnArray* _array_column;
     size_t _pos;
+};
+
+class VExplodeOuterTableFunction : public VExplodeTableFunction {
+public:
+    VExplodeOuterTableFunction() {
+        _fn_name = "vexplode_outer";
+        _is_outer = true;
+    }
+    virtual ~VExplodeOuterTableFunction() = default;
 };
 
 } // namespace doris::vectorized

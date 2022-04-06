@@ -27,6 +27,10 @@
 #include "vec/exprs/table_function/vexplode_json_array.h"
 =======
 #include "vec/exprs/table_function/vexplode.h"
+<<<<<<< HEAD
+>>>>>>> add codes for explode table function
+=======
+#include "vec/exprs/table_function/vexplode_json_array.h"
 >>>>>>> add codes for explode table function
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
@@ -87,7 +91,9 @@ const std::unordered_map<std::pair<std::string, bool>, std::function<TableFuncti
                 {{"explode_bitmap", true},
                  TableFunctionCreator<vectorized::VExplodeBitmapTableFunction>()},
                 {{"explode", true}, TableFunctionCreator<vectorized::VExplodeTableFunction>()},
-                {{"explode_outer", true}, TableFunctionCreator<vectorized::VExplodeTableFunction>()}};
+                {{"explode_outer", true},
+                 TableFunctionCreator<
+                         vectorized::VExplodeOuterTableFunction>()}}; // namespace doris
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name, bool is_vectorized,
                                     ObjectPool* pool, TableFunction** fn) {

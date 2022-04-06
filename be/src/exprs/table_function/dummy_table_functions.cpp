@@ -51,8 +51,14 @@ IntVal DummyTableFunctions::explode_numbers(doris_udf::FunctionContext* context,
     return IntVal();
 }
 
+AnyVal DummyTableFunctions::explode(doris_udf::FunctionContext* context,
+                                    const doris_udf::CollectionVal& value) {
+    return AnyVal();
+}
+
 AnyVal DummyTableFunctions::explode_outer(doris_udf::FunctionContext* context,
                                           const doris_udf::CollectionVal& value) {
     return AnyVal();
 }
+
 } // namespace doris
