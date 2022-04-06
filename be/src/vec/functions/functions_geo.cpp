@@ -247,18 +247,16 @@ struct StCircle {
                 res->insert_data(buf.data(), buf.size());
             }
             block.replace_by_position(result, std::move(res));
-            return Status::OK();
         } else {
             if (state->is_null) {
                 res->insert_data(nullptr, 0);
                 block.replace_by_position(result, ColumnConst::create(std::move(res), size));
-                return Status::OK();
             } else {
                 res->insert_data(state->encoded_buf.data(), state->encoded_buf.size());
                 block.replace_by_position(result, ColumnConst::create(std::move(res), size));
-                return Status::OK();
             }
         }
+        return Status::OK();
     }
 
     static Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
@@ -329,11 +327,6 @@ struct StContains {
         int i;
         GeoShape* shapes[2] = {nullptr, nullptr};
         for (int row = 0; row < size; ++row) {
-            if (shape1->is_null_at(row) || shape2->is_null_at(row)) {
-                res->insert_data(nullptr, 0);
-                continue;
-            }
-
             auto lhs_value = shape1->get_data_at(row);
             auto rhs_value = shape2->get_data_at(row);
             StringRef* strs[2] = {&lhs_value, &rhs_value};
@@ -452,11 +445,6 @@ struct StGeoFromText {
             GeoParseStatus status;
             std::string buf;
             for (int row = 0; row < size; ++row) {
-                if (geo->is_null_at(row)) {
-                    res->insert_data(nullptr, 0);
-                    continue;
-                }
-
                 auto value = geo->get_data_at(row);
                 std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(value.data, value.size, &status));
                 if (shape == nullptr || status != GEO_PARSE_OK ||
@@ -469,18 +457,16 @@ struct StGeoFromText {
                 res->insert_data(buf.data(), buf.size());
             }
             block.replace_by_position(result, std::move(res));
-            return Status::OK();
         } else {
             if (state->is_null) {
                 res->insert_data(nullptr, 0);
                 block.replace_by_position(result, ColumnConst::create(std::move(res), size));
-                return Status::OK();
             } else {
                 res->insert_data(state->encoded_buf.data(), state->encoded_buf.size());
                 block.replace_by_position(result, ColumnConst::create(std::move(res), size));
-                return Status::OK();
             }
         }
+        return Status::OK();
     }
 
     static Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
