@@ -17,17 +17,40 @@
 
 package org.apache.doris.statistics;
 
+import com.google.common.collect.Maps;
 import java.util.Map;
 
 public class StatisticsTaskResult {
-    private StatsGranularityDesc granularityDesc;
-    private StatsCategoryDesc categoryDesc;
-    private Map<StatsType, String> statsTypeToValue;
+    private final StatsGranularityDesc granularityDesc;
+    private final StatsCategoryDesc categoryDesc;
+    private final Map<StatsType, String> statsTypeToValue;
 
     public StatisticsTaskResult(StatsGranularityDesc granularityDesc, StatsCategoryDesc categoryDesc,
                                 Map<StatsType, String> statsTypeToValue) {
         this.granularityDesc = granularityDesc;
         this.categoryDesc = categoryDesc;
         this.statsTypeToValue = statsTypeToValue;
+    }
+
+    public StatsGranularityDesc getGranularityDesc() {
+        return this.granularityDesc;
+    }
+
+    public StatsCategoryDesc getCategoryDesc() {
+        return this.categoryDesc;
+    }
+
+    public Map<StatsType, String> getStatsTypeToValue() {
+        return this.statsTypeToValue;
+    }
+
+    public Map<String, String> getStatsNameToValue() {
+        Map<String, String> statsNameToValue = Maps.newHashMap();
+        for (Map.Entry<StatsType, String> typeStringEntry : this.statsTypeToValue.entrySet()) {
+            String statsName = typeStringEntry.getKey().getValue();
+            String value = typeStringEntry.getValue();
+            statsNameToValue.put(statsName, value);
+        }
+        return statsNameToValue;
     }
 }

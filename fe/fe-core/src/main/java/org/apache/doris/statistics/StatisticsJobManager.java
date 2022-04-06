@@ -114,4 +114,31 @@ public class StatisticsJobManager {
             throw new AnalysisException("The unfinished statistics job could not more then cbo_max_statistics_job_num");
         }
     }
+
+    public void alterStatisticsJobInfo(Long jobId, Long taskId, Exception exception) {
+        StatisticsJob statisticsJob = this.idToStatisticsJob.get(jobId);
+        if (statisticsJob == null) {
+            return;
+        }
+
+        List<StatisticsTask> tasks = statisticsJob.getTasks();
+        for (StatisticsTask task : tasks) {
+            if (taskId == task.getId()) {
+                if (exception == null) {
+                    int progress = statisticsJob.getProgress() + 1;
+                    statisticsJob.setProgress(progress);
+                    if (progress == statisticsJob.getTasks().size()) {
+                        statisticsJob.setFinishTime(System.currentTimeMillis());
+                        statisticsJob.setJobState(StatisticsJob.JobState.FINISHED);
+                    }
+                    task.setFinishTime(System.currentTimeMillis());
+                    task.setTaskState(StatisticsTask.TaskState.FINISHED);
+                } else {
+                    task.setTaskState(StatisticsTask.TaskState.FAILED);
+                    statisticsJob.setJobState(StatisticsJob.JobState.FAILED);
+                }
+                return;
+            }
+        }
+    }
 }

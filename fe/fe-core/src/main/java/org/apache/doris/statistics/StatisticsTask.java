@@ -19,12 +19,16 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Catalog;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
  * The StatisticsTask belongs to one StatisticsJob.
  * A job may be split into multiple tasks but a task can only belong to one job.
+ *
  * @granularityDesc, @categoryDesc, @statsTypeList
  * These three attributes indicate which statistics this task is responsible for collecting.
  * In general, a task will collect more than one @StatsType at the same time
@@ -33,23 +37,88 @@ import java.util.concurrent.Callable;
  * @granularityDesc: StatsGranularity=partition
  */
 public class StatisticsTask implements Callable<StatisticsTaskResult> {
-    protected long id = Catalog.getCurrentCatalog().getNextId();;
+    protected static final Logger LOG = LogManager.getLogger(StatisticsTask.class);
+
+    public enum TaskState {
+        CREATED,
+        RUNNING,
+        FINISHED,
+        FAILED
+    }
+
+    protected long id = Catalog.getCurrentCatalog().getNextId();
+
     protected long jobId;
     protected StatsGranularityDesc granularityDesc;
     protected StatsCategoryDesc categoryDesc;
     protected List<StatsType> statsTypeList;
+    protected TaskState taskState = TaskState.CREATED;
 
-    public StatisticsTask(long jobId, StatsGranularityDesc granularityDesc,
-                          StatsCategoryDesc categoryDesc, List<StatsType> statsTypeList) {
+    protected final long createTime = System.currentTimeMillis();
+    protected long scheduleTime;
+    protected long finishTime;
+
+    public StatisticsTask(long jobId,
+                          StatsGranularityDesc granularityDesc,
+                          StatsCategoryDesc categoryDesc,
+                          List<StatsType> statsTypeList) {
         this.jobId = jobId;
         this.granularityDesc = granularityDesc;
         this.categoryDesc = categoryDesc;
         this.statsTypeList = statsTypeList;
     }
 
+    public long getId() {
+        return this.id;
+    }
+
+    public long getJobId() {
+        return this.jobId;
+    }
+
+    public StatsGranularityDesc getGranularityDesc() {
+        return this.granularityDesc;
+    }
+
+    public StatsCategoryDesc getCategoryDesc() {
+        return this.categoryDesc;
+    }
+
+    public List<StatsType> getStatsTypeList() {
+        return this.statsTypeList;
+    }
+
+    public TaskState getTaskState() {
+        return this.taskState;
+    }
+
+    public void setTaskState(TaskState taskState) {
+        this.taskState = taskState;
+    }
+
+    public long getCreateTime() {
+        return this.createTime;
+    }
+
+    public long getScheduleTime() {
+        return this.scheduleTime;
+    }
+
+    public void setScheduleTime(long scheduleTime) {
+        this.scheduleTime = scheduleTime;
+    }
+
+    public long getFinishTime() {
+        return this.finishTime;
+    }
+
+    public void setFinishTime(long finishTime) {
+        this.finishTime = finishTime;
+    }
+
     @Override
     public StatisticsTaskResult call() throws Exception {
-        // TODO
+        LOG.warn("execute invalid statistics task.");
         return null;
     }
 }
