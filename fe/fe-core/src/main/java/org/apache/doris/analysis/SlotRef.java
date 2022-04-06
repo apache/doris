@@ -74,6 +74,9 @@ public class SlotRef extends Expr {
         this.type = desc.getType();
         // TODO(zc): label is meaningful
         this.label = null;
+        if (this.type.equals(Type.CHAR)) {
+            this.type = Type.VARCHAR;
+        }
         analysisDone();
     }
 
@@ -172,6 +175,9 @@ public class SlotRef extends Expr {
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         desc = analyzer.registerColumnRef(tblName, col);
         type = desc.getType();
+        if (this.type.equals(Type.CHAR)) {
+            this.type = Type.VARCHAR;
+        }
         if (!type.isSupported()) {
             throw new AnalysisException(
                     "Unsupported type '" + type.toString() + "' in '" + toSql() + "'.");
