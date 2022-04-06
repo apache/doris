@@ -2645,6 +2645,8 @@ template void AggregateFunctions::min<SmallIntVal>(FunctionContext*, const Small
 template void AggregateFunctions::min<IntVal>(FunctionContext*, const IntVal& src, IntVal* dst);
 template void AggregateFunctions::min<BigIntVal>(FunctionContext*, const BigIntVal& src,
                                                  BigIntVal* dst);
+template void AggregateFunctions::min<LargeIntVal>(FunctionContext*, const LargeIntVal& src,
+                                                 LargeIntVal* dst);
 template void AggregateFunctions::min<FloatVal>(FunctionContext*, const FloatVal& src,
                                                 FloatVal* dst);
 template void AggregateFunctions::min<DoubleVal>(FunctionContext*, const DoubleVal& src,
