@@ -215,6 +215,14 @@ public class TableRef implements ParseNode, Writable {
         return null;
     }
 
+    public boolean isOuterJoin() {
+        if (joinOp != null) {
+            return joinOp == JoinOperator.LEFT_OUTER_JOIN || joinOp == JoinOperator.RIGHT_OUTER_JOIN
+                    || joinOp == JoinOperator.FULL_OUTER_JOIN;
+        }
+        return false;
+    }
+
     public JoinOperator getJoinOp() {
         // if it's not explicitly set, we're doing an inner join
         return (joinOp == null ? JoinOperator.INNER_JOIN : joinOp);
@@ -572,7 +580,12 @@ public class TableRef implements ParseNode, Writable {
     public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
             throws AnalysisException {
         Preconditions.checkState(isAnalyzed);
-        if (onClause != null) onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
+        if (onClause != null) {
+            if (isOuterJoin()) {
+                return;
+            }
+            onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
+        }
     }
 
     private String joinOpToSql() {
