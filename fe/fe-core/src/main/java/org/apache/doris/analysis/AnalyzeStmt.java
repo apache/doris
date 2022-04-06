@@ -36,6 +36,9 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -53,12 +56,13 @@ import java.util.Map;
  */
 public class AnalyzeStmt extends DdlStmt {
     private final TableName dbTableName;
-    private List<String> columnNames;
+    private final List<String> columnNames;
     private Map<String, String> properties;
 
     // after analyzed
-    private String dbName;
-    private String tblName;
+    private Database db;
+    private List<Table> tables;
+    private final Map<Long, List<String>> tableIdToColumnName = Maps.newHashMap();
 
     public AnalyzeStmt(TableName dbTableName, List<String> columns, Map<String, String> properties) {
         this.dbTableName = dbTableName;
@@ -66,20 +70,22 @@ public class AnalyzeStmt extends DdlStmt {
         this.properties = properties;
     }
 
-    public String getDbName() {
+    public Database getDb() {
         Preconditions.checkArgument(isAnalyzed(),
                 "The db name must be obtained after the parsing is complete");
-        return this.dbName;
+        return this.db;
     }
 
-    public String getTblName() {
+    public List<Table> getTables() {
         Preconditions.checkArgument(isAnalyzed(),
-                "The tbl name must be obtained after the parsing is complete");
-        return this.tblName;
+                "The db name must be obtained after the parsing is complete");
+        return this.tables;
     }
 
-    public List<String> getColumnNames() {
-        return this.columnNames;
+    public Map<Long, List<String>> getTableIdToColumnName() {
+        Preconditions.checkArgument(isAnalyzed(),
+                "The db name must be obtained after the parsing is complete");
+        return this.tableIdToColumnName;
     }
 
     public Map<String, String> getProperties() {
@@ -92,70 +98,72 @@ public class AnalyzeStmt extends DdlStmt {
 
         // step1: analyze database and table
         if (this.dbTableName != null) {
+            String dbName;
             if (Strings.isNullOrEmpty(this.dbTableName.getDb())) {
-                this.dbName = analyzer.getDefaultDb();
+                dbName = analyzer.getDefaultDb();
             } else {
-                this.dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), this.dbTableName.getDb());
+                dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), this.dbTableName.getDb());
             }
 
             // check db
-            if (Strings.isNullOrEmpty(this.dbName)) {
+            if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            Database db = analyzer.getCatalog().getDbOrAnalysisException(this.dbName);
+            this.db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
 
             // check table
-            this.tblName = this.dbTableName.getTbl();
-            if (Strings.isNullOrEmpty(this.tblName)) {
-                List<Table> tables = db.getTables();
-                for (Table table : tables) {
-                    checkAnalyzePriv(this.dbName, table.getName());
+            String tblName = this.dbTableName.getTbl();
+            if (Strings.isNullOrEmpty(tblName)) {
+                this.tables = this.db.getTables();
+                for (Table table : this.tables) {
+                    checkAnalyzePriv(dbName, table.getName());
                 }
             } else {
-                Table table = db.getTableOrAnalysisException(this.tblName);
-                checkAnalyzePriv(this.dbName, table.getName());
+                Table table = this.db.getTableOrAnalysisException(tblName);
+                this.tables = Collections.singletonList(table);
+                checkAnalyzePriv(dbName, table.getName());
             }
 
             // check column
-            if (this.columnNames != null) {
-                Table table = db.getTableOrAnalysisException(this.tblName);
+            if (this.columnNames == null || this.columnNames.isEmpty()) {
+                setTableIdToColumnName();
+            } else {
+                Table table = this.db.getTableOrAnalysisException(tblName);
                 for (String columnName : this.columnNames) {
                     Column column = table.getColumn(columnName);
                     if (column == null) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
                     }
                 }
-            } else {
-                if (!Strings.isNullOrEmpty(this.tblName)) {
-                    this.columnNames = Lists.newArrayList();
-                    Table table = db.getOlapTableOrAnalysisException(this.tblName);
-                    List<Column> baseSchema = table.getBaseSchema();
-                    baseSchema.stream().map(Column::getName).forEach(name -> this.columnNames.add(name));
-                }
+                this.tableIdToColumnName.put(table.getId(), this.columnNames);
             }
         } else {
-            // analyze the default db
-            this.dbName = analyzer.getDefaultDb();
-            Database db = analyzer.getCatalog().getDbOrAnalysisException(this.dbName);
-            List<Table> tables = db.getTables();
-            for (Table table : tables) {
-                checkAnalyzePriv(this.dbName, table.getName());
+            // analyze the current default db
+            String dbName = analyzer.getDefaultDb();
+            if (Strings.isNullOrEmpty(dbName)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
+            this.db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+            this.tables = this.db.getTables();
+            for (Table table : this.tables) {
+                checkAnalyzePriv(dbName, table.getName());
+            }
+            setTableIdToColumnName();
         }
 
         // step2: analyze properties
         if (this.properties != null) {
             for (Map.Entry<String, String> pros : this.properties.entrySet()) {
-                if (!"cbo_statistics_task_timeout".equals(pros.getKey())) {
+                if (!"cbo_statistics_task_timeout_sec".equals(pros.getKey())) {
                     throw new AnalysisException("Unsupported property: " + pros.getKey());
                 }
-                if (Integer.parseInt(pros.getValue()) <= 0) {
+                if (!StringUtils.isNumeric(pros.getValue()) || Integer.parseInt(pros.getValue()) <= 0) {
                     throw new AnalysisException("Invalid property value: " + pros.getValue());
                 }
             }
         } else {
             this.properties = Maps.newHashMap();
-            this.properties.put("cbo_statistics_task_timeout", String.valueOf(Config.cbo_statistics_task_timeout));
+            this.properties.put("cbo_statistics_task_timeout_sec", String.valueOf(Config.cbo_statistics_task_timeout_sec));
         }
     }
 
@@ -173,6 +181,16 @@ public class AnalyzeStmt extends DdlStmt {
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
                     dbName + ": " + tblName);
+        }
+    }
+
+    private void setTableIdToColumnName() {
+        for (Table table : this.tables) {
+            long tableId = table.getId();
+            List<Column> baseSchema = table.getBaseSchema();
+            List<String> colNames = Lists.newArrayList();
+            baseSchema.stream().map(Column::getName).forEach(colNames::add);
+            this.tableIdToColumnName.put(tableId, colNames);
         }
     }
 }
