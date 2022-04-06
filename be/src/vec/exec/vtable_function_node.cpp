@@ -92,6 +92,15 @@ Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos
     return Status::OK();
 }
 
+bool VTableFunctionNode::_is_inner_and_empty() {
+    for (int i = 0; i < _fn_num; i++) {
+        // if any table function is not outer and has empty result, go to next child row
+        if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
+            return true;
+    }
+    return false;
+}
+
 Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output_block, bool* eos) {
     DCHECK(_child_block != nullptr);
 
@@ -145,20 +154,16 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
                 }
             }
 
+            // if any table function is not outer and has empty result, go to next child row
+            if ((skip_child_row = _is_inner_and_empty()) == true) {
+                continue;
+            }
+
             // get slots from every table function.
             // notice that _fn_values[i] may be null if the table function has empty result set.
-            skip_child_row = false;
             for (int i = 0; i < _fn_num; i++) {
-                // if any table function is not outer and has empty result, go to next child row
-                if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
-                    skip_child_row = true;
-                    break;
-                }
                 RETURN_IF_ERROR(_fns[i]->get_value(&_fn_values[i]));
                 RETURN_IF_ERROR(_fns[i]->get_value_length(&_fn_value_lengths[i]));
-            }
-            if (skip_child_row) {
-                continue;
             }
 
             // The tuples order in parent row batch should be
