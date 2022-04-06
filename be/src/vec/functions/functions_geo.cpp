@@ -214,6 +214,10 @@ struct StCircle {
                           size_t result) {
         DCHECK_EQ(arguments.size(), 3);
         auto return_type = block.get_data_type(result);
+        if (return_type->is_nullable()) {
+            return_type =
+                    reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
+        }
         auto center_lng = block.get_by_position(arguments[0])
                                   .column->convert_to_full_column_if_const();
         auto center_lat = block.get_by_position(arguments[1])
@@ -309,6 +313,10 @@ struct StContains {
                           size_t result) {
         DCHECK_EQ(arguments.size(), 2);
         auto return_type = block.get_data_type(result);
+        if (return_type->is_nullable()) {
+            return_type =
+                    reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
+        }
         auto shape1 = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto shape2 = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
@@ -434,6 +442,10 @@ struct StGeoFromText {
                           size_t result) {
         DCHECK_EQ(arguments.size(), 1);
         auto return_type = block.get_data_type(result);
+        if (return_type->is_nullable()) {
+            return_type =
+                    reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
+        }
         auto geo = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
 
         const auto size = geo->size();
