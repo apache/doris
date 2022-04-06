@@ -2334,6 +2334,10 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     prefix + OFFSET_FN_UPDATE_SYMBOL.get(t),
                     null, null, null, true));
 
+            addBuiltin(AggregateFunction.createAnalyticBuiltin(
+                     "nth_value", Lists.newArrayList(t, Type.BIGINT, t), t, t,
+                     null, null, null, null, null, true));
+
             // lead() and lag() the default offset and the default value should be
             // rewritten to call the overrides that take all parameters.
             addBuiltin(AggregateFunction.createAnalyticBuiltin(

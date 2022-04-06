@@ -158,6 +158,16 @@ AggregateFunctionPtr create_aggregate_function_replace_nullable(const std::strin
                     name, argument_types, parameters));
 }
 
+template <bool is_nullable>
+AggregateFunctionPtr create_aggregate_function_nth(const std::string& name,
+                                                   const DataTypes& argument_types,
+                                                   const Array& parameters,
+                                                   const bool result_is_nullable) {
+    return AggregateFunctionPtr(
+            create_function_single_value<WindowFunctionData, WindowFunctionNthData, is_nullable>(
+                    name, argument_types, parameters));
+}
+
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("dense_rank", create_aggregate_function_dense_rank);
     factory.register_function("rank", create_aggregate_function_rank);
@@ -173,5 +183,7 @@ void register_aggregate_function_window_lead_lag(AggregateFunctionSimpleFactory&
     factory.register_function("first_value", create_aggregate_function_first<true>, true);
     factory.register_function("last_value", create_aggregate_function_last<false>);
     factory.register_function("last_value", create_aggregate_function_last<true>, true);
+    factory.register_function("nth_value", create_aggregate_function_nth<false>);
+    factory.register_function("nth_value", create_aggregate_function_nth<true>, true);
 }
 } // namespace doris::vectorized

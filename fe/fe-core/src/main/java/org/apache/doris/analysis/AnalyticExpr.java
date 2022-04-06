@@ -86,6 +86,7 @@ public class AnalyticExpr extends Expr {
     private static String MAX = "MAX";
     private static String SUM = "SUM";
     private static String COUNT = "COUNT";
+    private static String NTHVALUE = "NTH_VALUE";
 
     // Internal function used to implement FIRST_VALUE with a window equal and
     // additional null handling in the backend.
@@ -236,6 +237,14 @@ public class AnalyticExpr extends Expr {
         return fn.functionName().equalsIgnoreCase(HLL_UNION_AGG);
     }
 
+    static private boolean isNthValueFn(Function fn) {
+        if (!isAnalyticFn(fn)) {
+            return false;
+        }
+
+        return fn.functionName().equalsIgnoreCase(NTHVALUE);
+    }
+
     /**
      * Rewrite the following analytic functions:
      * percent_rank(), cume_dist() and ntile()
@@ -336,7 +345,8 @@ public class AnalyticExpr extends Expr {
      * Checks offset of lag()/lead().
      */
     void checkOffset(Analyzer analyzer) throws AnalysisException {
-        Preconditions.checkState(isOffsetFn(getFnCall().getFn()));
+        Preconditions.checkState(isOffsetFn(getFnCall().getFn())
+            || isNthValueFn(getFnCall().getFn()));
         Preconditions.checkState(getFnCall().getChildren().size() > 1);
         Expr offset = getFnCall().getChild(1);
 
@@ -428,7 +438,8 @@ public class AnalyticExpr extends Expr {
                     "Windowing clause not allowed with '" + getFnCall().toSql() + "'");
             }
 
-            if (isOffsetFn(fn) && getFnCall().getChildren().size() > 1) {
+            if ((isOffsetFn(fn) || isNthValueFn(fn))
+                    && getFnCall().getChildren().size() > 1) {
                 checkOffset(analyzer);
 
                 // check the default, which needs to be a constant at the moment
@@ -659,6 +670,22 @@ public class AnalyticExpr extends Expr {
             fnCall.setIsAnalyticFnCall(true);
             fnCall.analyzeNoThrow(analyzer);
             analyticFnName = getFnCall().getFnName();
+        }
+
+        if (isNthValueFn(getFnCall().getFn())) {
+            if (window == null && !orderByElements.isEmpty()) {
+                window = new AnalyticWindow(AnalyticWindow.Type.ROWS,
+                                            new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
+                                            new Boundary(BoundaryType.CURRENT_ROW, null));
+
+                try {
+                    window.analyze(analyzer);
+                } catch (AnalysisException e) {
+                    throw new IllegalStateException(e);
+                }
+
+                resetWindow = true;
+            }
         }
 
         // Reverse the ordering and window for windows ending with UNBOUNDED FOLLOWING,

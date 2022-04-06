@@ -185,7 +185,7 @@ struct LeadAndLagData {
 public:
     bool has_init() const { return _is_init; }
 
-    void reset() {
+    virtual void reset() {
         _data_value.reset();
         _default_value.reset();
         _is_init = false;
@@ -361,6 +361,52 @@ struct WindowFunctionLastData : Data {
     }
     void add(int64_t row, const IColumn** columns) { this->set_value(columns, row); }
     static const char* name() { return "last_value"; }
+};
+
+template <typename Data>
+struct WindowFunctionNthData : Data {
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, const IColumn** columns) {
+        int64_t offset = columns[1]->get64(partition_start);
+        this->check_default(columns[2]);
+        if (this->has_set_value()) {
+            return;
+        }
+
+        if (!is_set_frame_start) {
+            this->frame_start = std::max<int64_t>(frame_start, partition_start);
+            is_set_frame_start = true;
+        }
+        frame_end = std::min<int64_t>(frame_end, partition_end);
+
+        if (this->frame_start + offset > frame_end) {
+            if (this->defualt_is_null()) {
+                this->set_is_null();
+            } else {
+                this->set_value_from_default();
+            }
+            return;
+        }
+        this->set_value(columns, this->frame_start + offset - 1);
+    }
+
+    void add(int64_t row, const IColumn** columns) {
+        if (this->has_set_value()) {
+            return;
+        }
+        this->set_value(columns, row);
+    }
+
+    virtual void reset() {
+        Data::reset();
+        is_set_frame_start = false;
+    }
+
+    static const char* name() { return "nth_value"; }
+
+private:
+    uint64_t frame_start = 0;
+    bool is_set_frame_start = false;
 };
 
 template <typename Data>
