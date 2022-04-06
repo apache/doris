@@ -3118,7 +3118,7 @@ public class Catalog {
                 Expr resultExpr = resultExprs.get(i);
                 if (resultExpr.getType().isStringType() && resultExpr.getType().getLength() < 0) {
                     typeDef = new TypeDef(Type.STRING);
-                }  else {
+                } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
                 createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
