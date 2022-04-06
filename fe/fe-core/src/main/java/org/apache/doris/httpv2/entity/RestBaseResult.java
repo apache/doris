@@ -27,21 +27,21 @@ public class RestBaseResult {
     public String msg;
 
     public RestBaseResult() {
-      status = ActionStatus.OK;
-      msg = "Success";
+        status = ActionStatus.OK;
+        msg = "Success";
     }
 
     public RestBaseResult(String msg) {
-      status = ActionStatus.FAILED;
-      this.msg = msg;
+        status = ActionStatus.FAILED;
+        this.msg = msg;
     }
 
     public static RestBaseResult getOk() {
-    return OK;
-  }
+        return OK;
+    }
 
     public String toJson() {
-      Gson gson = new GsonBuilder().disableHtmlEscaping().create();
-      return gson.toJson(this);
+        Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+        return gson.toJson(this);
     }
 }
