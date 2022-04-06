@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.base.Strings;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -95,6 +96,16 @@ public abstract class Resource implements Writable {
 
     public ResourceType getType() {
         return type;
+    }
+
+    public void modifyProperties(Map<String, String> properties) throws DdlException {
+        throw new DdlException("Not support modify properties of resource type: " + type.name());
+    }
+
+    protected void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {
+        if (!Strings.isNullOrEmpty(value)) {
+            properties.put(key, value);
+        }
     }
 
     /**

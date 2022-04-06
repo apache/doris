@@ -108,6 +108,33 @@ public class S3Resource extends Resource {
     }
 
     @Override
+    public void modifyProperties(Map<String, String> properties) throws DdlException {
+        // check properties
+        String endpoint = properties.remove(S3_ENDPOINT);
+        String region = properties.remove(S3_REGION);
+        String rootPath = properties.remove(S3_ROOT_PATH);
+        String accessKey = properties.remove(S3_ACCESS_KEY);
+        String secretKey = properties.remove(S3_SECRET_KEY);
+        String maxConnections = properties.remove(S3_MAX_CONNECTIONS);
+        String requestTimeoutMs = properties.remove(S3_REQUEST_TIMEOUT_MS);
+        String connectionTimeoutMs = properties.remove(S3_CONNECTION_TIMEOUT_MS);
+
+        if (!properties.isEmpty()) {
+            throw new DdlException("Unknown S3 resource properties: " + properties);
+        }
+
+        // modify properties
+        replaceIfEffectiveValue(this.properties, S3_ENDPOINT, endpoint);
+        replaceIfEffectiveValue(this.properties, S3_REGION, region);
+        replaceIfEffectiveValue(this.properties, S3_ROOT_PATH, rootPath);
+        replaceIfEffectiveValue(this.properties, S3_ACCESS_KEY, accessKey);
+        replaceIfEffectiveValue(this.properties, S3_SECRET_KEY, secretKey);
+        replaceIfEffectiveValue(this.properties, S3_MAX_CONNECTIONS, maxConnections);
+        replaceIfEffectiveValue(this.properties, S3_REQUEST_TIMEOUT_MS, requestTimeoutMs);
+        replaceIfEffectiveValue(this.properties, S3_CONNECTION_TIMEOUT_MS, connectionTimeoutMs);
+    }
+
+    @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
         for (Map.Entry<String, String> entry : properties.entrySet()) {

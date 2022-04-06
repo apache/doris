@@ -93,6 +93,29 @@ public class OdbcCatalogResource extends Resource {
 
     }
 
+    @Override
+    public void modifyProperties(Map<String, String> properties) throws DdlException {
+        // check properties
+        String host = properties.remove(HOST);
+        String port = properties.remove(PORT);
+        String user = properties.remove(USER);
+        String password = properties.remove(PASSWORD);
+        String type = properties.remove(TYPE);
+        String driver = properties.remove(DRIVER);
+
+        if (!properties.isEmpty()) {
+            throw new DdlException("Unknown ODBC catalog resource: " + properties);
+        }
+
+        // modify properties
+        replaceIfEffectiveValue(this.configs, HOST, host);
+        replaceIfEffectiveValue(this.configs, PORT, port);
+        replaceIfEffectiveValue(this.configs, USER, user);
+        replaceIfEffectiveValue(this.configs, PASSWORD, password);
+        replaceIfEffectiveValue(this.configs, TYPE, type);
+        replaceIfEffectiveValue(this.configs, DRIVER, driver);
+    }
+
     public String getProperties(String propertiesKey)  {
         // check the properties key
         String value = configs.get(propertiesKey);

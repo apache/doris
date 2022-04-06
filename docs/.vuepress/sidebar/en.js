@@ -621,6 +621,7 @@ module.exports = [
             initialOpenGroupIndex: -1,
             children: [
               "ALTER DATABASE",
+              "ALTER RESOURCE",
               "ALTER TABLE",
               "ALTER VIEW",
               "BACKUP",

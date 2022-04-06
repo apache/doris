@@ -206,6 +206,11 @@ public class SparkResource extends Resource {
             return;
         }
 
+        // update properties
+        updateProperties(properties);
+    }
+
+    private void updateProperties(Map<String, String> properties) throws DdlException {
         // update spark configs
         if (properties.containsKey(SPARK_MASTER)) {
             throw new DdlException("Cannot change spark master");
@@ -289,6 +294,11 @@ public class SparkResource extends Resource {
             }
         }
         return brokerProperties;
+    }
+
+    @Override
+    public void modifyProperties(Map<String, String> properties) throws DdlException {
+        updateProperties(properties);
     }
 
     @Override

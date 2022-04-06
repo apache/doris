@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -37,6 +38,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -1032,5 +1034,12 @@ public class AlterTest {
         Assert.assertEquals("db1", odbcTable.getOdbcDatabaseName());
         Assert.assertEquals("tbl1", odbcTable.getOdbcTableName());
         Assert.assertEquals("MySQL", odbcTable.getOdbcDriver());
+    }
+
+    @Test(expected = DdlException.class)
+    public void testDropInUseResource() throws Exception {
+        String sql = "drop resource remote_s3";
+        DropResourceStmt stmt = (DropResourceStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().getResourceMgr().dropResource(stmt);
     }
 }

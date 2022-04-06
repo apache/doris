@@ -51,7 +51,7 @@ public class S3ResourceTest {
     private String s3Region;
     private String s3RootPath;
     private String s3AccessKey;
-    private String s3secretKey;
+    private String s3SecretKey;
     private String s3MaxConnections;
     private String s3ReqTimeoutMs;
     private String s3ConnTimeoutMs;
@@ -67,7 +67,7 @@ public class S3ResourceTest {
         s3Region = "bj";
         s3RootPath = "/path/to/root";
         s3AccessKey = "xxx";
-        s3secretKey = "yyy";
+        s3SecretKey = "yyy";
         s3MaxConnections = "50";
         s3ReqTimeoutMs = "3000";
         s3ConnTimeoutMs = "1000";
@@ -77,7 +77,7 @@ public class S3ResourceTest {
         s3Properties.put("s3_region", s3Region);
         s3Properties.put("s3_root_path", s3RootPath);
         s3Properties.put("s3_access_key", s3AccessKey);
-        s3Properties.put("s3_secret_key", s3secretKey);
+        s3Properties.put("s3_secret_key", s3SecretKey);
 
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
@@ -103,7 +103,7 @@ public class S3ResourceTest {
         Assert.assertEquals(s3Region, s3Resource.getProperty("s3_region"));
         Assert.assertEquals(s3RootPath, s3Resource.getProperty("s3_root_path"));
         Assert.assertEquals(s3AccessKey, s3Resource.getProperty("s3_access_key"));
-        Assert.assertEquals(s3secretKey, s3Resource.getProperty("s3_secret_key"));
+        Assert.assertEquals(s3SecretKey, s3Resource.getProperty("s3_secret_key"));
         Assert.assertEquals(s3MaxConnections, s3Resource.getProperty("s3_max_connections"));
         Assert.assertEquals(s3ReqTimeoutMs, s3Resource.getProperty("s3_request_timeout_ms"));
         Assert.assertEquals(s3ConnTimeoutMs, s3Resource.getProperty("s3_connection_timeout_ms"));
@@ -122,7 +122,7 @@ public class S3ResourceTest {
         Assert.assertEquals(s3Region, s3Resource.getProperty("s3_region"));
         Assert.assertEquals(s3RootPath, s3Resource.getProperty("s3_root_path"));
         Assert.assertEquals(s3AccessKey, s3Resource.getProperty("s3_access_key"));
-        Assert.assertEquals(s3secretKey, s3Resource.getProperty("s3_secret_key"));
+        Assert.assertEquals(s3SecretKey, s3Resource.getProperty("s3_secret_key"));
         Assert.assertEquals("100", s3Resource.getProperty("s3_max_connections"));
         Assert.assertEquals("2000", s3Resource.getProperty("s3_request_timeout_ms"));
         Assert.assertEquals("2000", s3Resource.getProperty("s3_connection_timeout_ms"));

@@ -22,7 +22,9 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
+
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -85,6 +87,10 @@ public class DataProperty implements Writable {
     }
 
     public static DataProperty read(DataInput in) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_108) {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, DataProperty.class);
+        }
         DataProperty dataProperty = new DataProperty();
         dataProperty.readFields(in);
         return dataProperty;
@@ -92,22 +98,20 @@ public class DataProperty implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, storageMedium.name());
-        out.writeLong(cooldownTimeMs);
-        Text.writeString(out, storageColdMedium.name());
-        Text.writeString(out, remoteStorageResourceName);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_108) {
+            String json = GsonUtils.GSON.toJson(this);
+            Text.writeString(out, json);
+        } else {
+            Text.writeString(out, storageMedium.name());
+            out.writeLong(cooldownTimeMs);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
         storageMedium = TStorageMedium.valueOf(Text.readString(in));
         cooldownTimeMs = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_108) {
-            storageColdMedium = TStorageMedium.valueOf(Text.readString(in));
-            remoteStorageResourceName = Text.readString(in);
-        } else {
-            storageColdMedium = TStorageMedium.HDD;
-            remoteStorageResourceName = "";
-        }
+        storageColdMedium = TStorageMedium.HDD;
+        remoteStorageResourceName = "";
     }
 
     @Override
