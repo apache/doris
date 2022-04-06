@@ -67,7 +67,7 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 4. Add the configuration in fe.conf: metadatafailure_recovery=true
 5. Copy the metadata directory doris-meta of the online environment Master FE to the test environment
 6. Modify the cluster_id in the doris-meta/image/VERSION file copied into the test environment to 123456 (that is, the same as in Step 3)
-7. "27979;" "35797;" "3681616;" sh bin /start fe.sh "21551;" FE
+7. run sh bin /start fe.sh in the test environment.
 8. Observe whether the start-up is successful through FE log fe.log.
 9. If the startup is successful, run sh bin/stop_fe.sh to stop the FE process of the test environment.
 10. **The purpose of the above 2-6 steps is to prevent the FE of the test environment from being misconnected to the online environment after it starts.**
