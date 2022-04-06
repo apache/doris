@@ -44,6 +44,8 @@ import org.apache.logging.log4j.Logger;
 import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.Set;
+import java.util.Date;
+import java.text.SimpleDateFormat;
 
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
@@ -549,11 +551,20 @@ public class ConnectContext {
             row.add(getMysqlChannel().getRemoteHostPortString());
             row.add(clusterName);
             row.add(ClusterNamespace.getNameFromFullName(currentDb));
+                        row.add(queryDetail.getQueryId());
             row.add(command.toString());
+            row.add(fromLongToDate(startTime));
             row.add("" + (nowMs - startTime) / 1000);
             row.add("");
-            row.add("");
+            String stmt = executor == null ? "" : executor.getOriginStmtInString();
+            row.add(stmt);
             return row;
+        }
+        
+        public String fromLongToDate(long time){
+            SimpleDateFormat sdf = new SimpleDateFormat("YYYY-MM-dd HH:mm:ss");
+            Date date = new Date(time);
+            return sdf.format(date);
         }
     }
 

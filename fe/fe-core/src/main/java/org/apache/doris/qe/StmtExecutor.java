@@ -1554,6 +1554,13 @@ public class StmtExecutor implements ProfileWriter {
         }
         return statisticsForAuditLog.build();
     }
+    
+    public String getOriginStmtInString(){
+        if (originStmt == null){
+            return "";
+        }
+        return originStmt.originStmt;
+    }
 
     private List<PrimitiveType> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
