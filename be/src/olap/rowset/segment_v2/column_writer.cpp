@@ -118,7 +118,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_options.meta->set_unique_id(2);
             length_options.meta->set_type(length_type);
             length_options.meta->set_is_nullable(false);
-            length_options.meta->set_length(get_scalar_type_info(length_type)->size());
+            length_options.meta->set_length(get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_INT>()->size());
             length_options.meta->set_encoding(DEFAULT_ENCODING);
             length_options.meta->set_compression(LZ4F);
 
@@ -145,7 +145,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.meta->set_unique_id(3);
                 null_options.meta->set_type(null_type);
                 null_options.meta->set_is_nullable(false);
-                null_options.meta->set_length(get_scalar_type_info(null_type)->size());
+                null_options.meta->set_length(get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>()->size());
                 null_options.meta->set_encoding(DEFAULT_ENCODING);
                 null_options.meta->set_compression(LZ4F);
 
@@ -226,7 +226,7 @@ Status ScalarColumnWriter::init() {
     PageBuilder* page_builder = nullptr;
 
     RETURN_IF_ERROR(
-            EncodingInfo::get(get_field()->type_info().get(), _opts.meta->encoding(), &_encoding_info));
+            EncodingInfo::get(get_field()->type_info(), _opts.meta->encoding(), &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;

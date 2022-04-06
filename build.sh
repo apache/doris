@@ -135,7 +135,7 @@ if [ $# == 1 ] ; then
     BUILD_FE=1
     BUILD_BE=1
     BUILD_BROKER=1
-    BUILD_META_TOOL=1
+    BUILD_META_TOOL=ON
     BUILD_SPARK_DPP=1
     BUILD_JAVA_UDF=0 # TODO: open it when ready
     BUILD_HIVE_UDF=1
@@ -146,7 +146,7 @@ else
             --fe) BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
             --be) BUILD_BE=1 ; shift ;;
             --broker) BUILD_BROKER=1 ; shift ;;
-            --meta-tool) BUILD_META_TOOL="ON" ; shift ;;
+            --meta-tool) BUILD_META_TOOL=ON ; shift ;;
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --java-udf) BUILD_JAVA_UDF=1 BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
             --hive-udf) BUILD_HIVE_UDF=1 ; shift ;;
@@ -163,7 +163,7 @@ else
         BUILD_FE=1
         BUILD_BE=1
         BUILD_BROKER=1
-        BUILD_META_TOOL=1
+        BUILD_META_TOOL=ON
         BUILD_SPARK_DPP=1
         BUILD_JAVA_UDF=1
         BUILD_HIVE_UDF=1
@@ -388,11 +388,16 @@ if [ ${BUILD_BE} -eq 1 ]; then
 
     cp -r -p ${DORIS_HOME}/be/output/bin/* ${DORIS_OUTPUT}/be/bin/
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
-    cp -r -p ${DORIS_HOME}/be/output/lib/* ${DORIS_OUTPUT}/be/lib/
+    cp -r -p ${DORIS_HOME}/be/output/lib/palo_be ${DORIS_OUTPUT}/be/lib/
+
+    if [ "${BUILD_META_TOOL}" = "ON" ] ; then
+        cp -r -p ${DORIS_HOME}/be/output/lib/meta_tool ${DORIS_OUTPUT}/be/lib/
+    fi
+
     cp -r -p ${DORIS_HOME}/be/output/udf/*.a ${DORIS_OUTPUT}/udf/lib/
     cp -r -p ${DORIS_HOME}/be/output/udf/include/* ${DORIS_OUTPUT}/udf/include/
     cp -r -p ${DORIS_HOME}/webroot/be/* ${DORIS_OUTPUT}/be/www/
-    if [ ${STRIP_DEBUG_INFO} -eq 1 ]; then
+    if [ "${STRIP_DEBUG_INFO}" = "ON" ]; then
         cp -r -p ${DORIS_HOME}/be/output/lib/debug_info ${DORIS_OUTPUT}/be/lib/
     fi
     

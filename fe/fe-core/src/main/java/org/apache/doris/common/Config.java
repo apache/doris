@@ -1650,4 +1650,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean skip_compaction_slower_replica = true;
+
+    /**
+     * Enable quantile_state type column
+     * Default is false.
+     * */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_quantile_state_type = false;
+
 }

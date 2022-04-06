@@ -237,6 +237,10 @@ OLAP_SCAN_NODE (id=0):(Active: 1.2ms,% non-child: 0.00%)
       - TotalPagesNum: 30               # Only in V2, the total number of pages read.
       - UncompressedBytesRead: 0.00     # V1 is the decompressed size of the read data file (if the file does not need to be decompressed, the file size is directly counted). In V2, only the decompressed size of the Page that missed PageCache is counted (if the Page does not need to be decompressed, the Page size is directly counted)
       - VectorPredEvalTime: 0ns         # Time-consuming of vectorized condition filtering operation.
+      - ShortPredEvalTime: 0ns          # Time-consuming of short-circuiting predicate condition filtering operations.
+      - PredColumnReadTime: 0ns         # Time-consuming of predicate column read.
+      - LazyReadTime: 0ns               # Time-consuming of non-predicate column read.
+      - OutputColumnTime: 0ns           # Time-consuming of materialize columns.
 ```
 
 The predicate push down and index usage can be inferred from the related indicators of the number of data rows in the profile. The following only describes the profile in the reading process of segment V2 format data. In segment V1 format, the meaning of these indicators is slightly different.

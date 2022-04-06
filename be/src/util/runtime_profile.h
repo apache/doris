@@ -91,7 +91,7 @@ public:
     class Counter {
     public:
         Counter(TUnit::type type, int64_t value = 0) : _value(value), _type(type) {}
-        virtual ~Counter() {}
+        virtual ~Counter() = default;
 
         virtual void update(int64_t delta) { _value.fetch_add(delta, std::memory_order_relaxed); }
 
@@ -151,7 +151,7 @@ public:
             }
         }
 
-        virtual void set(int64_t v) {
+        void set(int64_t v) override {
             current_value_.store(v, std::memory_order_relaxed);
             UpdateMax(v);
         }
@@ -165,10 +165,13 @@ public:
             while (true) {
                 int64_t old_max = _value.load(std::memory_order_relaxed);
                 int64_t new_max = std::max(old_max, v);
-                if (new_max == old_max) break; // Avoid atomic update.
+                if (new_max == old_max) {
+                    break; // Avoid atomic update.
+                }
                 if (LIKELY(_value.compare_exchange_weak(old_max, new_max,
-                                                        std::memory_order_relaxed)))
+                                                        std::memory_order_relaxed))) {
                     break;
+                }
             }
         }
 
@@ -177,7 +180,7 @@ public:
         std::atomic<int64_t> current_value_;
     };
 
-    typedef std::function<int64_t()> DerivedCounterFunction;
+    using DerivedCounterFunction = std::function<int64_t()>;
 
     // A DerivedCounter also has a name and type, but the value is computed.
     // Do not call Set() and Update().
@@ -186,7 +189,7 @@ public:
         DerivedCounter(TUnit::type type, const DerivedCounterFunction& counter_fn)
                 : Counter(type, 0), _counter_fn(counter_fn) {}
 
-        virtual int64_t value() const { return _counter_fn(); }
+        int64_t value() const override { return _counter_fn(); }
 
     private:
         DerivedCounterFunction _counter_fn;
@@ -200,7 +203,7 @@ public:
     // Not thread-safe.
     class EventSequence {
     public:
-        EventSequence() {}
+        EventSequence() = default;
 
         // starts the timer without resetting it.
         void start() { _sw.start(); }
@@ -218,10 +221,10 @@ public:
         int64_t elapsed_time() { return _sw.elapsed_time(); }
 
         // An Event is a <label, timestamp> pair
-        typedef std::pair<std::string, int64_t> Event;
+        using Event = std::pair<std::string, int64_t>;
 
         // An EventList is a sequence of Events, in increasing timestamp order
-        typedef std::vector<Event> EventList;
+        using EventList = std::vector<Event>;
 
         const EventList& events() const { return _events; }
 
@@ -359,7 +362,7 @@ public:
 
     // Function that returns a counter metric.
     // Note: this function should not block (or take a long time).
-    typedef std::function<int64_t()> SampleFn;
+    using SampleFn = std::function<int64_t()>;
 
     // Add a rate counter to the current profile based on src_counter with name.
     // The rate counter is updated periodically based on the src counter.
@@ -401,9 +404,6 @@ private:
     // Pool for allocated counters. These counters are shared with some other objects.
     std::map<std::string, std::shared_ptr<HighWaterMarkCounter>> _shared_counter_pool;
 
-    // True if we have to delete the _pool on destruction.
-    bool _own_pool;
-
     // Name for this runtime profile.
     std::string _name;
 
@@ -416,12 +416,12 @@ private:
 
     // Map from counter names to counters.  The profile owns the memory for the
     // counters.
-    typedef std::map<std::string, Counter*> CounterMap;
+    using CounterMap = std::map<std::string, Counter*>;
     CounterMap _counter_map;
 
     // Map from parent counter name to a set of child counter name.
     // All top level counters are the child of "" (root).
-    typedef std::map<std::string, std::set<std::string>> ChildCounterMap;
+    using ChildCounterMap = std::map<std::string, std::set<std::string>>;
     ChildCounterMap _child_counter_map;
 
     // A set of bucket counters registered in this runtime profile.
@@ -433,24 +433,24 @@ private:
     // Child profiles.  Does not own memory.
     // We record children in both a map (to facilitate updates) and a vector
     // (to print things in the order they were registered)
-    typedef std::map<std::string, RuntimeProfile*> ChildMap;
+    using ChildMap = std::map<std::string, RuntimeProfile*>;
     ChildMap _child_map;
     // vector of (profile, indentation flag)
-    typedef std::vector<std::pair<RuntimeProfile*, bool>> ChildVector;
+    using ChildVector = std::vector<std::pair<RuntimeProfile*, bool>>;
     ChildVector _children;
     mutable std::mutex _children_lock; // protects _child_map and _children
 
-    typedef std::map<std::string, std::string> InfoStrings;
+    using InfoStrings = std::map<std::string, std::string>;
     InfoStrings _info_strings;
 
     // Keeps track of the order in which InfoStrings are displayed when printed
-    typedef std::vector<std::string> InfoStringsDisplayOrder;
+    using InfoStringsDisplayOrder = std::vector<std::string>;
     InfoStringsDisplayOrder _info_strings_display_order;
 
     // Protects _info_strings and _info_strings_display_order
     mutable std::mutex _info_strings_lock;
 
-    typedef std::map<std::string, EventSequence*> EventSequenceMap;
+    using EventSequenceMap = std::map<std::string, EventSequence*>;
     EventSequenceMap _event_sequence_map;
     mutable std::mutex _event_sequences_lock;
 
@@ -518,11 +518,11 @@ public:
         }
     }
 
-private:
     // Disable copy constructor and assignment
-    ScopedCounter(const ScopedCounter& counter);
-    ScopedCounter& operator=(const ScopedCounter& counter);
+    ScopedCounter(const ScopedCounter& counter) = delete;
+    ScopedCounter& operator=(const ScopedCounter& counter) = delete;
 
+private:
     int64_t _val;
     RuntimeProfile::Counter* _counter;
 };
@@ -560,11 +560,11 @@ public:
         UpdateCounter();
     }
 
-private:
     // Disable copy constructor and assignment
-    ScopedTimer(const ScopedTimer& timer);
-    ScopedTimer& operator=(const ScopedTimer& timer);
+    ScopedTimer(const ScopedTimer& timer) = delete;
+    ScopedTimer& operator=(const ScopedTimer& timer) = delete;
 
+private:
     T _sw;
     RuntimeProfile::Counter* _counter;
     const bool* _is_cancelled;
@@ -580,11 +580,11 @@ public:
     // Update counter when object is destroyed
     ~ScopedRawTimer() { *_counter += _sw.elapsed_time(); }
 
-private:
     // Disable copy constructor and assignment
-    ScopedRawTimer(const ScopedRawTimer& timer);
-    ScopedRawTimer& operator=(const ScopedRawTimer& timer);
+    ScopedRawTimer(const ScopedRawTimer& timer) = delete;
+    ScopedRawTimer& operator=(const ScopedRawTimer& timer) = delete;
 
+private:
     T _sw;
     C* _counter;
 };

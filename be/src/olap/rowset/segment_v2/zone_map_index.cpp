@@ -106,11 +106,11 @@ Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 
     // write out zone map for each data pages
-    auto typeinfo = get_type_info(OLAP_FIELD_TYPE_OBJECT);
+    const auto* typeinfo = get_scalar_type_info<OLAP_FIELD_TYPE_OBJECT>();
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(typeinfo.get(), false);
+    options.encoding = EncodingInfo::get_default_encoding(typeinfo, false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
     IndexedColumnWriter writer(options, typeinfo, wblock);

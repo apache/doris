@@ -54,7 +54,7 @@ public:
 // struct that contains column data(null bitmap), data array in sub class.
 class ColumnVectorBatch {
 public:
-    explicit ColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info, bool is_nullable)
+    explicit ColumnVectorBatch(const TypeInfo* type_info, bool is_nullable)
             : _type_info(type_info),
               _capacity(0),
               _delete_state(DEL_NOT_SATISFIED),
@@ -63,7 +63,7 @@ public:
 
     virtual ~ColumnVectorBatch();
 
-    std::shared_ptr<const TypeInfo> type_info() const { return _type_info; }
+    const TypeInfo* type_info() const { return _type_info; }
 
     size_t capacity() const { return _capacity; }
 
@@ -105,11 +105,11 @@ public:
     // Get thr idx's cell_ptr for write
     virtual uint8_t* mutable_cell_ptr(size_t idx) = 0;
 
-    static Status create(size_t init_capacity, bool is_nullable, std::shared_ptr<const TypeInfo> type_info,
+    static Status create(size_t init_capacity, bool is_nullable, const TypeInfo* type_info,
                          Field* field, std::unique_ptr<ColumnVectorBatch>* column_vector_batch);
 
 private:
-    std::shared_ptr<const TypeInfo> _type_info;
+    const TypeInfo* _type_info;
     size_t _capacity;
     DelCondSatisfied _delete_state;
     const bool _nullable;
@@ -119,7 +119,7 @@ private:
 template <class ScalarCppType>
 class ScalarColumnVectorBatch : public ColumnVectorBatch {
 public:
-    explicit ScalarColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info, bool is_nullable);
+    explicit ScalarColumnVectorBatch(const TypeInfo* type_info, bool is_nullable);
 
     ~ScalarColumnVectorBatch() override;
 
@@ -150,7 +150,7 @@ private:
 class ArrayNullColumnVectorBatch : public ColumnVectorBatch {
 public:
     explicit ArrayNullColumnVectorBatch(ColumnVectorBatch* array)
-            : ColumnVectorBatch(get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_TINYINT), false),
+            : ColumnVectorBatch(get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>(), false),
               _array(array) {}
 
     ~ArrayNullColumnVectorBatch() override = default;
@@ -177,7 +177,7 @@ private:
 
 class ArrayColumnVectorBatch : public ColumnVectorBatch {
 public:
-    explicit ArrayColumnVectorBatch(std::shared_ptr<const TypeInfo> type_info, bool is_nullable,
+    explicit ArrayColumnVectorBatch(const TypeInfo* type_info, bool is_nullable,
                                     ScalarColumnVectorBatch<uint32_t>* offsets,
                                     ColumnVectorBatch* elements);
     ~ArrayColumnVectorBatch() override;

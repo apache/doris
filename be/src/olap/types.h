@@ -178,7 +178,7 @@ private:
 
 class ArrayTypeInfo : public TypeInfo {
 public:
-    explicit ArrayTypeInfo(std::shared_ptr<const TypeInfo> item_type_info)
+    explicit ArrayTypeInfo(const TypeInfo* item_type_info)
             : _item_type_info(item_type_info), _item_size(item_type_info->size()) {}
     ~ArrayTypeInfo() = default;
     inline bool equal(const void* left, const void* right) const override {
@@ -325,13 +325,12 @@ public:
             memory_copy(dest_value->mutable_null_signs(), src_value->null_signs(),
                         src_value->length());
         }
-
         *base += nulls_size + src_value->length() * _item_type_info->size();
         // Direct copy item.
         if (_item_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
             for (uint32_t i = 0; i < src_value->length(); ++i) {
                 if (dest_value->is_null_at(i)) continue;
-                dynamic_cast<const ArrayTypeInfo*>(_item_type_info.get())
+                dynamic_cast<const ArrayTypeInfo*>(_item_type_info)
                         ->direct_copy(base, (uint8_t*)(dest_value->mutable_data()) + i * _item_size,
                                       (uint8_t*)(src_value->data()) + i * _item_size);
             }
@@ -408,24 +407,20 @@ public:
 
     inline FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 
-    inline std::shared_ptr<const TypeInfo> item_type_info() const { return _item_type_info; }
+    inline const TypeInfo* item_type_info() const { return _item_type_info; }
 
 private:
-    std::shared_ptr<const TypeInfo> _item_type_info;
+    const TypeInfo* _item_type_info;
     const size_t _item_size;
 };
 
 extern bool is_scalar_type(FieldType field_type);
 
-extern std::shared_ptr<const TypeInfo> get_scalar_type_info(FieldType field_type);
+extern const TypeInfo* get_scalar_type_info(FieldType field_type);
 
-extern std::shared_ptr<const TypeInfo> get_collection_type_info(FieldType sub_type);
+extern const TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
 
-extern std::shared_ptr<const TypeInfo> get_type_info(FieldType field_type);
-
-extern std::shared_ptr<const TypeInfo> get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
-
-extern std::shared_ptr<const TypeInfo> get_type_info(const TabletColumn* col);
+extern const TypeInfo* get_type_info(const TabletColumn* col);
 
 // support following formats when convert varchar to date
 static const std::vector<std::string> DATE_FORMATS {
@@ -1266,12 +1261,23 @@ struct TypeTraits : public FieldTypeTraits<field_type> {
     static const int32_t size = sizeof(CppType);
 };
 
-// Get ScalarTypeInfo at compile time for performance.
 template <FieldType field_type>
-inline TypeInfo* get_scalar_type_info() {
+inline const TypeInfo* get_scalar_type_info() {
     static constexpr TypeTraits<field_type> traits;
-    static auto _scala_type_info = ScalarTypeInfo(traits);
-    return dynamic_cast<TypeInfo*>(&_scala_type_info);
+    static ScalarTypeInfo scalar_type_info(traits);
+    return &scalar_type_info;
+}
+
+template <FieldType field_type>
+inline const TypeInfo* get_collection_type_info() {
+    static ArrayTypeInfo collection_type_info(get_scalar_type_info<field_type>());
+    return &collection_type_info;
+}
+
+// nested array type is unsupported for sub_type of collection
+template <>
+inline const TypeInfo* get_collection_type_info<OLAP_FIELD_TYPE_ARRAY>() {
+    return nullptr;
 }
 
 } // namespace doris

@@ -186,4 +186,23 @@ public class ColocatePlanTest {
         Assert.assertTrue(isColocateFragment1);
     }
 
+    // Fix #8778
+    @Test
+    public void rollupAndMoreThanOneInstanceWithoutColocate() throws Exception {
+        String createColocateTblStmtStr = "create table db1.test_colocate_one_backend(k1 int, k2 int, k3 int, k4 int) "
+                + "distributed by hash(k1, k2, k3) buckets 10 properties('replication_num' = '1');";
+        CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createColocateTableStmt);
+
+        String sql = "select a.k1, a.k2, sum(a.k3) "
+                + "from db1.test_colocate_one_backend a join[shuffle] db1.test_colocate_one_backend b on a.k1=b.k1 "
+                + "group by rollup(a.k1, a.k2);";
+        Deencapsulation.setField(ctx.getSessionVariable(), "parallelExecInstanceNum", 2);
+        String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
+        Assert.assertEquals(2, StringUtils.countMatches(plan1, "AGGREGATE"));
+        Assert.assertEquals(5, StringUtils.countMatches(plan1, "PLAN FRAGMENT"));
+
+    }
+
+
 }

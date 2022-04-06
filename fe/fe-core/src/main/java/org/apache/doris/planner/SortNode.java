@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -31,16 +32,18 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TSortInfo;
 import org.apache.doris.thrift.TSortNode;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Sorting.
@@ -149,14 +152,21 @@ public class SortNode extends PlanNode {
     }
 
     @Override
+    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+        List<SlotId> result = Lists.newArrayList();
+        Expr.getIds(resolvedTupleExprs, null, result);
+        return new HashSet<>(result);
+    }
+
+    @Override
     protected String debugString() {
         List<String> strings = Lists.newArrayList();
         for (Boolean isAsc : info.getIsAscOrder()) {
             strings.add(isAsc ? "a" : "d");
         }
         return MoreObjects.toStringHelper(this).add("ordering_exprs",
-          Expr.debugString(info.getOrderingExprs())).add("is_asc",
-          "[" + Joiner.on(" ").join(strings) + "]").addValue(super.debugString()).toString();
+                Expr.debugString(info.getOrderingExprs())).add("is_asc",
+                "[" + Joiner.on(" ").join(strings) + "]").addValue(super.debugString()).toString();
     }
 
     @Override
