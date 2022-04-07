@@ -1,7 +1,7 @@
 ---
 {
-    "title": "关系数据库数据导入",
-    "language": "zh-CN"
+    "title": "Resource Management",
+    "language": "en"
 }
 ---
 
@@ -24,4 +24,4 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 关系数据库数据导入
+# Resource Management

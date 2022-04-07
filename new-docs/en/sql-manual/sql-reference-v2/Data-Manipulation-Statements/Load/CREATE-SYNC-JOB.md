@@ -1,11 +1,11 @@
 ---
 {
-    "title": "Variable",
+    "title": "CREATE-SYNC-JOB",
     "language": "en"
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,6 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Variable
+## CREATE-SYNC-JOB
 
+### Description
 
+### Example
+
+### Keywords
+
+    CREATE, SYNC, JOB
+
+### Best Practice

@@ -1,11 +1,12 @@
 ---
 {
-    "title": "关系数据库数据导入",
+    "title": "SHOW-SYNC-JOB",
     "language": "zh-CN"
 }
+
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,4 +25,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 关系数据库数据导入
+## SHOW-SYNC-JOB
+
+### Description
+
+### Example
+
+### Keywords
+
+    SHOW, SYNC, JOB
+
+### Best Practice
+

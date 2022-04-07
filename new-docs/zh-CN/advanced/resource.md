@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Variable",
-    "language": "en"
+    "title": "资源管理",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,6 +24,4 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Variable
-
-
+# 资源管理
