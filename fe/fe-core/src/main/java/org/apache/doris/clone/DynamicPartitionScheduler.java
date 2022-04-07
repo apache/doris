@@ -242,7 +242,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.SSD.name());
         String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(property, now, offset + hotPartitionNum,
                 DynamicPartitionUtil.DATETIME_FORMAT);
-        partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, cooldownTime);
+        partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOL_DOWN_TIME, cooldownTime);
     }
 
     private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn, String partitionFormat,

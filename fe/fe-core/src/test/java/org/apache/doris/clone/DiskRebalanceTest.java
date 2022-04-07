@@ -145,7 +145,7 @@ public class DiskRebalanceTest {
             long id = 31 + idx;
             Partition partition = new Partition(id, "p" + idx, index, new HashDistributionInfo());
             olapTable.addPartition(partition);
-            olapTable.getPartitionInfo().addPartition(id, new DataProperty(TStorageMedium.HDD, TStorageMedium.HDD),
+            olapTable.getPartitionInfo().addPartition(id, new DataProperty(TStorageMedium.HDD),
                     ReplicaAllocation.DEFAULT_ALLOCATION, false);
         });
     }

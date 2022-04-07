@@ -28,15 +28,16 @@ public class DataPropertyTest {
     public void tesCooldownTimeMs() throws Exception {
         Config.default_storage_medium = "ssd";
         DataProperty dataProperty = DataProperty.DEFAULT_DATA_PROPERTY;
-        Assert.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
+        Assert.assertNotEquals(DataProperty.MAX_COOL_DOWN_TIME_MS, dataProperty.getCoolDownTimeMs());
 
-        dataProperty = new DataProperty(TStorageMedium.SSD, TStorageMedium.HDD);
-        Assert.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
+        dataProperty = new DataProperty(TStorageMedium.SSD);
+        Assert.assertNotEquals(DataProperty.MAX_COOL_DOWN_TIME_MS, dataProperty.getCoolDownTimeMs());
 
-        dataProperty = new DataProperty(TStorageMedium.SSD, System.currentTimeMillis() + 24 * 3600 * 1000L, TStorageMedium.HDD, "");
-        Assert.assertEquals(System.currentTimeMillis() + 24 * 3600 * 1000L, dataProperty.getCooldownTimeMs());
+        long storageCoolDownTimeMs = System.currentTimeMillis() + 24 * 3600 * 1000L;
+        dataProperty = new DataProperty(TStorageMedium.SSD, storageCoolDownTimeMs, "", DataProperty.MAX_COOL_DOWN_TIME_MS);
+        Assert.assertEquals(storageCoolDownTimeMs, dataProperty.getCoolDownTimeMs());
 
-        dataProperty = new DataProperty(TStorageMedium.HDD, TStorageMedium.HDD);
-        Assert.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
+        dataProperty = new DataProperty(TStorageMedium.HDD);
+        Assert.assertEquals(DataProperty.MAX_COOL_DOWN_TIME_MS, dataProperty.getCoolDownTimeMs());
     }
 }

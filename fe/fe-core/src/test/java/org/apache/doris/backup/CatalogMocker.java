@@ -241,7 +241,7 @@ public class CatalogMocker {
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setReplicaAllocation(TEST_SINGLE_PARTITION_ID, new ReplicaAllocation((short) 3));
         partitionInfo.setIsInMemory(TEST_SINGLE_PARTITION_ID, false);
-        DataProperty dataProperty = new DataProperty(TStorageMedium.HDD, TStorageMedium.HDD);
+        DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
         partitionInfo.setDataProperty(TEST_SINGLE_PARTITION_ID, dataProperty);
         OlapTable olapTable = new OlapTable(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA,
                                             KeysType.AGG_KEYS, partitionInfo, distributionInfo);
@@ -312,8 +312,8 @@ public class CatalogMocker {
 
         rangePartitionInfo.setReplicaAllocation(TEST_PARTITION1_ID, new ReplicaAllocation((short) 3));
         rangePartitionInfo.setReplicaAllocation(TEST_PARTITION2_ID, new ReplicaAllocation((short) 3));
-        DataProperty dataPropertyP1 = new DataProperty(TStorageMedium.HDD, TStorageMedium.HDD);
-        DataProperty dataPropertyP2 = new DataProperty(TStorageMedium.HDD, TStorageMedium.HDD);
+        DataProperty dataPropertyP1 = new DataProperty(TStorageMedium.HDD);
+        DataProperty dataPropertyP2 = new DataProperty(TStorageMedium.HDD);
         rangePartitionInfo.setDataProperty(TEST_PARTITION1_ID, dataPropertyP1);
         rangePartitionInfo.setDataProperty(TEST_PARTITION2_ID, dataPropertyP2);
 

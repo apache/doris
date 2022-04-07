@@ -307,23 +307,25 @@ under the License.
     ```
        PROPERTIES (
            "storage_medium" = "[SSD|HDD]",
-           ["storage_cold_medium" = "[HDD|S3]"],
-           ["remote_storage_resource" = "xxx"],
            ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
+           ["remote_storage_resource" = "xxx"],
+           ["remote_storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
            ["replication_num" = "3"]
            ["replication_allocation" = "xxx"]
            )
     ```
 
-       storage_medium：        用于指定该分区的初始存储介质，可选择 SSD 或 HDD。默认初始存储介质可通过fe的配置文件 `fe.conf` 中指定 `default_storage_medium=xxx`，如果没有指定，则默认为 HDD。
-                               注意：当FE配置项 `enable_strict_storage_medium_check` 为 `True` 时，若集群中没有设置对应的存储介质时，建表语句会报错 `Failed to find enough host in all backends with storage medium is SSD|HDD`. 
-       storage_cooldown_time： 当设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
-                               默认存放 30 天。
-                               格式为："yyyy-MM-dd HH:mm:ss"
-       storage_cold_medium:    用于指定该分区的冷数据存储介质，当前支持 HDD、S3。默认为 HDD。
-       remote_storage_resource:远端存储资源名称，需要与 storage_cold_medium 参数搭配使用。
-       replication_num:        指定分区的副本数。默认为 3。
-       replication_allocation:     按照资源标签来指定副本分布。
+       storage_medium：                于指定该分区的初始存储介质，可选择 SSD 或 HDD。默认初始存储介质可通过fe的配置文件 `fe.conf` 中指定 `default_storage_medium=xxx`，如果没有指定，则默认为 HDD。
+                                       注意：当FE配置项 `enable_strict_storage_medium_check` 为 `True` 时，若集群中没有设置对应的存储介质时，建表语句会报错 `Failed to find enough host in all backends with storage medium is SSD|HDD`. 
+       storage_cooldown_time：         设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
+                                       默认存放 30 天。
+                                       格式为："yyyy-MM-dd HH:mm:ss"
+       remote_storage_resource:        远端存储资源名称，需要与 remote_storage_cooldown_time 参数搭配使用。
+       remote_storage_cooldown_time:   与 remote_storage_resource 搭配使用。表示该分区在本地存储的到期时间。
+                                       默认不过期。如果与 storage_cooldown_time 搭配使用必须晚于该时间。
+                                       格式为："yyyy-MM-dd HH:mm:ss"
+       replication_num:                指定分区的副本数。默认为 3。
+       replication_allocation:         按照资源标签来指定副本分布。
     
        当表为单分区表时，这些属性为表的属性。
            当表为两级分区时，这些属性为附属于每一个分区。
@@ -448,9 +450,9 @@ under the License.
     DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
     PROPERTIES(
     "storage_medium" = "SSD",
-    "storage_cold_medium" = "S3",
+    "storage_cooldown_time" = "2015-06-04 00:00:00",
     "remote_storage_resource" = "remote_s3",
-    "storage_cooldown_time" = "2015-06-04 00:00:00"
+    "remote_storage_cooldown_time" = "2015-12-04 00:00:00"
     );
    ```
 

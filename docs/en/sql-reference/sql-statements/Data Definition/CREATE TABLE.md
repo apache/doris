@@ -296,23 +296,25 @@ Syntax:
         ```
         PROPERTIES (
             "storage_medium" = "[SSD|HDD]",
-            ["storage_cold_medium" = "[HDD|S3]"],
-            ["remote_storage_resource" = "xxx"],
             ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
+            ["remote_storage_resource" = "xxx"],
+            ["remote_storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
             ["replication_num" = "3"],
             ["replication_allocation" = "xxx"]
             )
         ```
     
-        storage_medium:         SSD or HDD, The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD.
-                                Note: when FE configuration 'enable_strict_storage_medium_check' is' True ', if the corresponding storage medium is not set in the cluster, the construction clause 'Failed to find enough host in all backends with storage medium is SSD|HDD'.
-        storage_cooldown_time:  If storage_medium is SSD, data will be automatically moved to HDD   when timeout.
-                                Default is 30 days.
-                                Format: "yyyy-MM-dd HH:mm:ss"
-        storage_cold_medium:    Used to specify the cold data storage medium for this partition, currently supports HDD and S3. Default is HDD.
-        remote_storage_resource:The remote storage resource name, which needs to be used in conjunction with the storage_cold_medium parameter.
-        replication_num:        Replication number of a partition. Default is 3.
-        replication_allocation:     Specify the distribution of replicas according to the resource tag.
+        storage_medium:                SSD or HDD, The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD.
+                                       Note: when FE configuration 'enable_strict_storage_medium_check' is' True ', if the corresponding storage medium is not set in the cluster, the construction clause 'Failed to find enough host in all backends with storage medium is SSD|HDD'.
+        storage_cooldown_time:         If storage_medium is SSD, data will be automatically moved to HDD   when timeout.
+                                       Default is 30 days.
+                                       Format: "yyyy-MM-dd HH:mm:ss"
+        remote_storage_resource:       The remote storage resource name, which needs to be used in conjunction with the storage_cold_medium parameter.
+        remote_storage_cooldown_time:  Used in conjunction with remote_storage_resource. Indicates the expiration time of the partition stored locally.
+                                       Does not expire by default. Must be later than storage_cooldown_time if used with it.
+                                       The format is: "yyyy-MM-dd HH:mm:ss"
+        replication_num:               Replication number of a partition. Default is 3.
+        replication_allocation:        Specify the distribution of replicas according to the resource tag.
 
         If table is not range partitions. This property takes on Table level. Or it will takes on   Partition level.
         User can specify different properties for different partition by `ADD PARTITION` or     `MODIFY PARTITION` statements.
@@ -425,9 +427,9 @@ Syntax:
     DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
     PROPERTIES(
     "storage_medium" = "SSD",
-    "storage_cold_medium" = "S3",
+    "storage_cooldown_time" = "2015-06-04 00:00:00",
     "remote_storage_resource" = "remote_s3",
-    "storage_cooldown_time" = "2015-06-04 00:00:00"
+    "remote_storage_cooldown_time" = "2015-12-04 00:00:00"
     );
    ```
 
