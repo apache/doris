@@ -28,11 +28,7 @@ struct StPoint {
     static const size_t NUM_ARGS = 2;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 2);
-        auto return_type = block.get_data_type(result);
-        if (return_type->is_nullable()) {
-            return_type =
-                    reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
-        }
+        auto return_type = remove_nullable(block.get_data_type(result));
 
         auto column_x =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -77,11 +73,7 @@ struct StAsText {
     static const size_t NUM_ARGS = 1;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = block.get_data_type(result);
-        if (return_type->is_nullable()) {
-            return_type =
-                    reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
-        }
+        auto return_type = remove_nullable(block.get_data_type(result));
 
         auto input = block.get_by_position(arguments[0]).column;
 
@@ -115,11 +107,7 @@ struct StX {
     static const size_t NUM_ARGS = 1;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = block.get_data_type(result);
-        if (return_type->is_nullable()) {
-            return_type =
-                    reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
-        }
+        auto return_type = remove_nullable(block.get_data_type(result));
 
         auto input = block.get_by_position(arguments[0]).column;
 
@@ -153,11 +141,7 @@ struct StY {
     static const size_t NUM_ARGS = 1;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = block.get_data_type(result);
-        if (return_type->is_nullable()) {
-            return_type =
-                    reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
-        }
+        auto return_type = remove_nullable(block.get_data_type(result));
 
         auto input = block.get_by_position(arguments[0]).column;
 
@@ -191,11 +175,7 @@ struct StDistanceSphere {
     static const size_t NUM_ARGS = 4;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 4);
-        auto return_type = block.get_data_type(result);
-        if (return_type->is_nullable()) {
-            return_type =
-                    reinterpret_cast<const DataTypeNullable*>(return_type.get())->get_nested_type();
-        }
+        auto return_type = remove_nullable(block.get_data_type(result));
 
         auto x_lng = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto x_lat = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
