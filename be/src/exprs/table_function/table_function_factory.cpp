@@ -22,16 +22,9 @@
 #include "exprs/table_function/explode_json_array.h"
 #include "exprs/table_function/explode_split.h"
 #include "exprs/table_function/table_function.h"
-<<<<<<< HEAD
+#include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_bitmap.h"
 #include "vec/exprs/table_function/vexplode_json_array.h"
-=======
-#include "vec/exprs/table_function/vexplode.h"
-<<<<<<< HEAD
->>>>>>> add codes for explode table function
-=======
-#include "vec/exprs/table_function/vexplode_json_array.h"
->>>>>>> add codes for explode table function
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
 
@@ -56,6 +49,12 @@ struct TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {
     }
 };
 
+template <>
+struct TableFunctionCreator<vectorized::VExplodeTableFunction> {
+    bool is_outer;
+    TableFunction* operator()() { return new vectorized::VExplodeTableFunction(is_outer); }
+};
+
 inline auto ExplodeJsonArrayIntCreator =
         TableFunctionCreator<ExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::INT};
 inline auto ExplodeJsonArrayDoubleCreator =
@@ -72,6 +71,9 @@ inline auto VExplodeJsonArrayDoubleCreator =
 inline auto VExplodeJsonArrayStringCreator =
         TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {
                 ExplodeJsonArrayType::STRING};
+
+inline auto VExplodeCreator = TableFunctionCreator<vectorized::VExplodeTableFunction> {false};
+inline auto VExplodeOuterCreator = TableFunctionCreator<vectorized::VExplodeTableFunction> {true};
 
 //{fn_name,is_vectorized}->table_function_creator
 const std::unordered_map<std::pair<std::string, bool>, std::function<TableFunction*()>>
@@ -90,10 +92,8 @@ const std::unordered_map<std::pair<std::string, bool>, std::function<TableFuncti
                 {{"explode_json_array_string", true}, VExplodeJsonArrayStringCreator},
                 {{"explode_bitmap", true},
                  TableFunctionCreator<vectorized::VExplodeBitmapTableFunction>()},
-                {{"explode", true}, TableFunctionCreator<vectorized::VExplodeTableFunction>()},
-                {{"explode_outer", true},
-                 TableFunctionCreator<
-                         vectorized::VExplodeOuterTableFunction>()}}; // namespace doris
+                {{"explode", true}, VExplodeCreator},
+                {{"explode_outer", true}, VExplodeOuterCreator}}; // namespace doris
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name, bool is_vectorized,
                                     ObjectPool* pool, TableFunction** fn) {

@@ -21,6 +21,15 @@
 
 namespace doris::vectorized {
 
+VExplodeTableFunction::VExplodeTableFunction(bool is_outer) {
+    _is_outer = is_outer;
+    if (_is_outer) {
+        _fn_name = "vexplode_outer";
+    } else {
+        _fn_name = "vexplode";
+    }
+}
+
 Status VExplodeTableFunction::process_init(vectorized::Block* block) {
     CHECK(_vexpr_context->root()->children().size() == 1)
             << "VExplodeTableFunction must be have 1 children but have "

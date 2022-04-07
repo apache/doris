@@ -97,6 +97,7 @@ bool VTableFunctionNode::_is_inner_and_empty() {
         // if any table function is not outer and has empty result, go to next child row
         if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
             return true;
+        }
     }
     return false;
 }
