@@ -1,0 +1,88 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.statistics;
+
+import com.google.common.base.Preconditions;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PlanNode;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class ScanStatsDerive extends BaseStatsDerive {
+    // Currently, due to the structure of doris,
+    // the selected materialized view is not determined when calculating the statistical information of scan,
+    // so baseIndex is used for calculation when generating Planner.
+
+    // The tmpRowCount here is the temporary number of rows.
+    private long tmpRowCount;
+    private Map<Long, Long> slotIdToDataSize;
+    private Map<Long, Long> slotIdToNdv;
+
+    @Override
+    public ScanStatsDerive init(PlanNode node) {
+        Preconditions.checkState(node instanceof OlapScanNode);
+        super.init(node);
+        tmpRowCount = ((OlapScanNode)node).getTmpRowCount();
+        buildColumnToStats((OlapScanNode)node);
+        return this;
+    }
+
+    @Override
+    public StatsDeriveResult deriveStats() {
+        /**
+         * Compute InAccurate cardinality before mv selector and tablet pruning.
+         * - Accurate statistical information relies on the selector of materialized views and bucket reduction.
+         * - However, Those both processes occur after the reorder algorithm is completed.
+         * - When Join reorder is turned on, the cardinality must be calculated before the reorder algorithm.
+         * - So only an inaccurate cardinality can be calculated here.
+         */
+        cardinality = tmpRowCount;
+        applyConjunctsSelectivity();
+        capCardinalityAtLimit();
+        return new StatsDeriveResult(cardinality, tmpRowCount, slotIdToDataSize, slotIdToNdv);
+    }
+
+    public void buildColumnToStats(OlapScanNode node) {
+        slotIdToDataSize = new HashMap<>();
+        slotIdToNdv = new HashMap<>();
+        for (SlotDescriptor slot : node.getTupleDesc().getSlots()) {
+            if (slot.getParent() != null
+                    && slot.getParent().getTable() != null
+                    && slot.getColumn() != null) {
+                long tableId = slot.getParent().getTable().getId();
+                String columnName = slot.getColumn().getName();
+                /*TODO:Implement the getStatistics interface
+                //now there is nothing in statistics, need to wait for collection finished
+                if (Catalog.getCurrentCatalog()
+                        .getStatisticsManager()
+                        .getStatistics()
+                        .getColumnStats(tableId) != null) {
+                    ndv = Catalog.getCurrentCatalog()
+                            .getStatisticsManager()
+                            .getStatistics()
+                            .getColumnStats(tableId).get(columnName).getNdv();
+                    slotIdToNdv.put(slot.getId(), ndv);
+                //same as slotIdToDataSize
+                }
+                 */
+            }
+        }
+    }
+}

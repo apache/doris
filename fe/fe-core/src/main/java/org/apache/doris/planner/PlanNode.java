@@ -177,7 +177,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.planNodeName = VectorizedUtil.isVectorized() ?
                 "V" + planNodeName : planNodeName;
         this.numInstances = 1;
-        this.nodeType = nodeType;
+        this.nodeType = node.getNodeType();
     }
 
     public enum NodeType {
