@@ -329,7 +329,8 @@ private:
 };
 
 // Override the << operator, it is used during LOG(INFO) << "xxxx" << status;
-std::ostream & operator << (std::ostream & ostr, const Status & param)
+// Add inline here to dedup many includes
+inline std::ostream & operator << (std::ostream & ostr, const Status & param)
 {
     return ostr << param.to_string();
 }
