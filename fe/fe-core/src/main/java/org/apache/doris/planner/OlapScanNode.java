@@ -169,6 +169,8 @@ public class OlapScanNode extends ScanNode {
         setCanTurnOnPreAggr(false);
     }
 
+    public long getTotalTabletsNum() { return totalTabletsNum; }
+
     public boolean getForceOpenPreAgg() {
         return forceOpenPreAgg;
     }
