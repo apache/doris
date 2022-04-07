@@ -1484,10 +1484,9 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
 }
 
 Status TaskWorkerPool::_get_tablet_info(const TTabletId tablet_id,
-                                             const TSchemaHash schema_hash, int64_t signature,
-                                             TTabletInfo* tablet_info) {
+                                        const TSchemaHash schema_hash, int64_t signature,
+                                        TTabletInfo* tablet_info) {
     Status status = Status::OK();
-
     tablet_info->__set_tablet_id(tablet_id);
     tablet_info->__set_schema_hash(schema_hash);
     OLAPStatus olap_status =
@@ -1520,8 +1519,7 @@ void TaskWorkerPool::_move_dir_thread_callback() {
         LOG(INFO) << "get move dir task, signature:" << agent_task_req.signature
                   << ", job id:" << move_dir_req.job_id;
         Status status =
-                _move_dir(move_dir_req.tablet_id, move_dir_req.schema_hash, move_dir_req.src,
-                          move_dir_req.job_id, true /* TODO */);
+                _move_dir(move_dir_req.tablet_id, move_dir_req.src, move_dir_req.job_id, true /* TODO */);
 
         if (!status.ok()) {
             LOG(WARNING) << "failed to move dir: " << move_dir_req.src
@@ -1546,8 +1544,7 @@ void TaskWorkerPool::_move_dir_thread_callback() {
     }
 }
 
-Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                                      const std::string& src, int64_t job_id, bool overwrite) {
+Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id, bool overwrite) {
     TabletSharedPtr tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {

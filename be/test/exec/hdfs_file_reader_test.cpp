@@ -29,6 +29,7 @@ TEST_F(HdfsFileReaderTest, test_connect_fail) {
     hdfsParams.fs_name = "hdfs://127.0.0.1:8888"; // An invalid address
     HdfsFileReader hdfs_file_reader(hdfsParams, "/user/foo/test.data", 0);
     Status status = hdfs_file_reader.open();
+    hdfs_file_reader.close();
     std::string msg = status.get_error_msg();
     ASSERT_TRUE(msg.find("Connection refused") >= 0);
 }

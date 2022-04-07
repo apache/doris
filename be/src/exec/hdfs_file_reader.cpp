@@ -65,6 +65,7 @@ Status HdfsFileReader::connect() {
         }
     }
     _hdfs_fs = hdfsBuilderConnect(hdfs_builder);
+    hdfsFreeBuilder(hdfs_builder);
     if (_hdfs_fs == nullptr) {
         std::stringstream ss;
         ss << "connect to hdfs failed. namenode address:" << _namenode
