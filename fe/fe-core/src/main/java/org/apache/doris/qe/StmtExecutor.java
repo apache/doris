@@ -49,6 +49,15 @@ import org.apache.doris.analysis.TransactionStmt;
 import org.apache.doris.analysis.UnlockTablesStmt;
 import org.apache.doris.analysis.UnsupportedStmt;
 import org.apache.doris.analysis.UseStmt;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.Subquery;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.Predicate;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -75,6 +84,8 @@ import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.Reference;
+import org.apache.doris.common.Pair;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -632,6 +643,224 @@ public class StmtExecutor implements ProfileWriter {
         redirectStatus = parsedStmt.getRedirectStatus();
     }
 
+    /**
+     * TPCH q17:
+     * select
+     *     sum(l_extendedprice) / 7.0 as avg_yearly
+     * from
+     *     lineitem,
+     *     part
+     * where
+     *     p_partkey = l_partkey
+     *     and p_brand = 'Brand#23'
+     *     and p_container = 'MED BOX'
+     *     and l_quantity < (
+     *         select
+     *             0.2 * avg(l_quantity)
+     *         from
+     *             lineitem
+     *         where
+     *             l_partkey = p_partkey
+     *     );
+     *
+     * after pushPredicateToSubquery(), the scan rows of lineitem in subquery will much less than old q17
+     * as well as the less row count for group node
+     *
+     * TPCH Q17(converted):
+     * select
+     *     sum(l_extendedprice) / 7.0 as avg_yearly
+     * from
+     *     lineitem,
+     *     part p1
+     * where
+     *     p_partkey = l_partkey
+     *     and p_brand = 'Brand#23'
+     *     and p_container = 'MED BOX'
+     *     and l_quantity < (
+     *         select
+     *             0.2 * avg(l_quantity)
+     *         from
+     *             lineitem,
+     *             part p2
+     *         where
+     *             l_partkey = p1.p_partkey
+     *             and p2.p_partkey = l_partkey
+     *             and p2.p_brand = 'Brand#23'
+     *             and p2.p_container = 'MED BOX'
+     *     );
+     */
+    private void pushPredicateToSubquery() throws UserException {
+        // only support 1-layer subqueries, we don't look for predicate in subquery's subquery etc...
+        // TODO: although we might push some predicate to subquery to minimize the original scan row count
+        // TODO: it will also introduce a new table and a new join node, which results more rows to scan, filter and join.
+        // TODO: in TPCH Q2 and Q17, the pushed table is relatively small, so get better performance after pushing.
+        // TODO: But normally, a CBO optimizer is needed to decide if the pushing is worth.
+        // TODO: At last, if table spool optimizer is implemented, we can always push the predicates.
+        if (parsedStmt instanceof SelectStmt) {
+            SelectStmt stmt = (SelectStmt) parsedStmt;
+            if (stmt.getTableRefs().size() < 2 || stmt.getWhereClause() == null) {
+                // no need to push predicate if table refs count is 1 or no where clause
+                return;
+            }
+            List<Expr> conjuncts = stmt.getWhereClause().getConjuncts();
+            List<Subquery> subqueries = findSubqueryInConjuncts(conjuncts);
+            for (Subquery query : subqueries) {
+                QueryStmt queryStmt = query.getStatement();
+                if (queryStmt instanceof SelectStmt) {
+                    SelectStmt selectStmt = (SelectStmt) queryStmt;
+                    Pair<SlotRef, SlotRef> correlatedSlotRefs = findAndModifyCorrelatedSlotsInSubquery(selectStmt);
+                    if (correlatedSlotRefs != null) {
+                        String tmpTableSuffix = "_" + UUID.randomUUID().toString();
+                        List<Expr> predicates = findSingleColumnPredicateToPush(conjuncts, correlatedSlotRefs.first, tmpTableSuffix);
+                        if (!predicates.isEmpty()) {
+                            // add a new tableRef in subquery
+                            TableName tableNameInSchema = new TableName(correlatedSlotRefs.first.getTableName().getDb(), correlatedSlotRefs.first.getTable().getName());
+                            TableRef tableRef = new TableRef(tableNameInSchema, correlatedSlotRefs.first.getTableName().getTbl() + tmpTableSuffix);
+
+                            List<TableRef> newTableRefs = selectStmt.getTableRefs();
+                            newTableRefs.add(tableRef);
+
+                            predicates.add(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                                    new SlotRef(new TableName(null, correlatedSlotRefs.first.getTableName().getTbl() + tmpTableSuffix),
+                                            correlatedSlotRefs.first.getColumnName()), correlatedSlotRefs.second));
+                            predicates.add(selectStmt.getWhereClause());
+                            selectStmt.setWhereClause(convertConjunctsToAndCompoundPredicate(predicates));
+
+                            Analyzer analyzer = new Analyzer(selectStmt.getAnalyzer().getParentAnalyzer());
+                            analyzer.setIsSubquery();
+                            selectStmt.reset();
+                            selectStmt.analyze(analyzer);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
+        List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
+        while (targetConjuncts.size() > 1) {
+            List<Expr> newTargetConjuncts = Lists.newArrayList();
+            for (int i = 0; i < targetConjuncts.size(); i += 2) {
+                Expr expr = i + 1 < targetConjuncts.size() ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
+                        targetConjuncts.get(i + 1)) : targetConjuncts.get(i);
+                newTargetConjuncts.add(expr);
+            }
+            targetConjuncts = newTargetConjuncts;
+        }
+        return targetConjuncts.get(0);
+    }
+
+    private List<Expr> findSingleColumnPredicateToPush(List<Expr> conjuncts, SlotRef slotRef, String tmpTableSuffix) {
+        List<Expr> predicates = Lists.newArrayList();
+        for (Expr conj : conjuncts) {
+            if (conj instanceof Predicate) {
+                Predicate pred = (Predicate) conj;
+                Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
+                Reference<Integer> idxRef = new Reference<Integer>();
+                if (pred.isSingleColumnPredicate(slotRefRef, idxRef)
+                        && slotRefRef.getRef().getDesc().getParent().getId() == slotRef.getDesc().getParent().getId()) {
+                    Predicate newPredicate = (Predicate) pred.clone();
+                    TableName newName = new TableName(null, slotRef.getTableName().getTbl() + tmpTableSuffix);
+                    newPredicate.setChild(idxRef.getRef(), new SlotRef(newName, slotRefRef.getRef().getColumnName()));
+                    newPredicate.reset();
+                    predicates.add(newPredicate);
+                }
+            }
+        }
+        return predicates;
+    }
+
+    private Pair<SlotRef, SlotRef> findAndModifyCorrelatedSlotsInSubquery(SelectStmt selectStmt) {
+        // only handle the case where the subquery has only one correated equal join predicate
+        // in TPCH q17, it's l_partkey ( innerRef ) = p_partkey ( outerRef ) in subquery
+        Expr whereClause = selectStmt.getWhereClause();
+        if (whereClause == null) {
+            return null;
+        }
+        List<TupleId> tupleIds = selectStmt.getTableRefIds();
+        List<Expr> conjuncts = whereClause.getConjuncts();
+        int matchCount = 0;
+        SlotRef innerRef = null;
+        SlotRef outerRef = null;
+        SlotRef tmpRef = null;
+        for (Expr conj : conjuncts) {
+            if (conj instanceof BinaryPredicate) {
+                BinaryPredicate predicate = (BinaryPredicate) conj;
+                if (predicate.isEqJoinConjunct() && predicate.getChild(0) instanceof SlotRef && predicate.getChild(1) instanceof SlotRef) {
+                    for (Expr expr : predicate.getChildren()) {
+                        SlotRef slotRef = (SlotRef) expr;
+                        if (tupleIds.contains(slotRef.getDesc().getParent().getId())) {
+                            tmpRef = slotRef;
+                        } else {
+                            outerRef = slotRef;
+                            ++matchCount;
+                        }
+                        if (outerRef != null && innerRef == null) {
+                            innerRef = tmpRef;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (matchCount == 1) {
+            // for simplicity, we only handle the case that:
+            // 1. only 1 outer slot ref is used in scalar subquery's correlatedPredicates's operator
+            // 2. there is no same tableRef in subquery as outerRef's tableRef
+            List<TableRef> tableRefs = selectStmt.getTableRefs();
+            long outerTableId = outerRef.getTable().getId();
+            for (TableRef tableRef : tableRefs) {
+                if (tableRef.getTable().getId() == outerTableId) {
+                    return null;
+                }
+            }
+
+            // make sure outer table have alias
+            TupleDescriptor outerTupleDescriptor = outerRef.getDesc().getParent();
+            if (!outerTupleDescriptor.hasExplicitAlias()) {
+                String alias = UUID.randomUUID().toString();
+                // set outer table's alias
+                outerTupleDescriptor.getRef().setAlias(alias);
+                // set the tuple descriptor's alias
+                outerTupleDescriptor.setAliases(new String[]{alias}, true);
+                // update tuple descriptor's alias in parent analyzer
+                selectStmt.getAnalyzer().getParentAnalyzer().setTupleDescriptorAlias(outerTupleDescriptor, alias);
+            }
+
+            // make sure all outer table slots' have an alias table name
+            List<SlotRef> slotRefs = Lists.newArrayList();
+            Expr.collectList(conjuncts, SlotRef.class, slotRefs);
+            TupleDescriptor slotTupleDescriptor;
+            for (SlotRef slotRef : slotRefs) {
+                slotTupleDescriptor = slotRef.getDesc().getParent();
+                if (slotTupleDescriptor.getId() == outerTupleDescriptor.getId() && slotRef.getOriginTableName() == null) {
+                    slotRef.setTblName(new TableName(null, outerTupleDescriptor.getAlias()));
+                }
+            }
+
+            return new Pair<>(outerRef, innerRef);
+        } else {
+            return null;
+        }
+    }
+
+    private List<Subquery> findSubqueryInConjuncts(List<Expr> conjuncts) {
+        List<Subquery> subqueries = Lists.newArrayList();
+        for (Expr conj : conjuncts) {
+            if (conj instanceof Predicate) {
+                Predicate predicate = (Predicate) conj;
+                for (Expr child : predicate.getChildren()) {
+                    if (child instanceof Subquery) {
+                        Subquery subquery = (Subquery) child;
+                        subqueries.add(subquery);
+                    }
+                }
+            }
+        }
+        return subqueries;
+    }
+
     private void analyzeAndGenerateQueryPlan(TQueryOptions tQueryOptions) throws UserException {
         parsedStmt.analyze(analyzer);
         if (parsedStmt instanceof QueryStmt || parsedStmt instanceof InsertStmt) {
@@ -649,6 +878,9 @@ public class StmtExecutor implements ProfileWriter {
             parsedStmt.rewriteExprs(rewriter);
             reAnalyze = rewriter.changed();
             if (analyzer.containSubquery()) {
+                if (context.getSessionVariable().enablePushPredicateToSubquery) {
+                    pushPredicateToSubquery();
+                }
                 parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
                 reAnalyze = true;
             }

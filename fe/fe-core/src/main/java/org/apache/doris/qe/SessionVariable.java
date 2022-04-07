@@ -178,6 +178,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PROJECTION = "enable_projection";
 
+    public static final String ENABLE_PUSH_PREDICATE_TO_SUBQUERY = "enable_push_predicate_to_subquery";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -433,6 +435,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_PUSH_PREDICATE_TO_SUBQUERY)
+    public boolean enablePushPredicateToSubquery = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -902,6 +907,14 @@ public class SessionVariable implements Serializable, Writable {
         return enableProjection;
     }
 
+    public boolean isEnablePushPredicateToSubquery() {
+        return enablePushPredicateToSubquery;
+    }
+
+    public void setEnablePushPredicateToSubquery(boolean enablePushPredicateToSubquery) {
+        this.enablePushPredicateToSubquery = enablePushPredicateToSubquery;
+    }
+    
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {

@@ -196,6 +196,11 @@ public class TableRef implements ParseNode, Writable {
         }
     }
 
+    public void setAlias(String alias) {
+        aliases_ = new String[]{alias};
+        hasExplicitAlias_ = true;
+    }
+    
     public PartitionNames getPartitionNames() {
         return partitionNames;
     }

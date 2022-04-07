@@ -538,6 +538,10 @@ public class Analyzer {
         return result;
     }
 
+    public void setTupleDescriptorAlias(TupleDescriptor tupleDescriptor, String alias) {
+        tupleByAlias.put(alias, tupleDescriptor);
+    }
+    
     public List<TupleId> getAllTupleIds() {
         return new ArrayList<>(tableRefMap_.keySet());
     }
