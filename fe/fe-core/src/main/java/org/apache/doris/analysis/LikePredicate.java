@@ -84,6 +84,11 @@ public class LikePredicate extends Predicate {
     }
 
     @Override
+    public boolean isNotNullPred() {
+        return true;
+    }
+
+    @Override
     public Expr clone() {
         return new LikePredicate(this);
     }

@@ -85,7 +85,7 @@ public class StmtRewriter {
             throws AnalysisException {
         SelectStmt result = stmt;
         // Rewrite all the subqueries in the FROM clause.
-        for (TableRef tblRef: result.fromClause_) {
+        for (TableRef tblRef: result.fromClause) {
             if (!(tblRef instanceof InlineViewRef)) continue;
             InlineViewRef inlineViewRef = (InlineViewRef)tblRef;
             QueryStmt rewrittenQueryStmt = rewriteQueryStatement(inlineViewRef.getViewStmt(),
@@ -392,7 +392,7 @@ public class StmtRewriter {
     private static void rewriteWhereClauseSubqueries(
             SelectStmt stmt, Analyzer analyzer)
             throws AnalysisException {
-        int numTableRefs = stmt.fromClause_.size();
+        int numTableRefs = stmt.fromClause.size();
         ArrayList<Expr> exprsWithSubqueries = Lists.newArrayList();
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
         // Check if all the conjuncts in the WHERE clause that contain subqueries
@@ -602,9 +602,9 @@ public class StmtRewriter {
         } catch (UserException e) {
             throw new AnalysisException(e.getMessage());
         }
-        inlineView.setLeftTblRef(stmt.fromClause_.get(stmt.fromClause_.size() - 1));
+        inlineView.setLeftTblRef(stmt.fromClause.get(stmt.fromClause.size() - 1));
 
-        stmt.fromClause_.add(inlineView);
+        stmt.fromClause.add(inlineView);
         JoinOperator joinOp = JoinOperator.LEFT_SEMI_JOIN;
 
         // Create a join conjunct from the expr that contains a subquery.
@@ -771,7 +771,7 @@ public class StmtRewriter {
      * replacing an unqualified star item.
      */
     private static void replaceUnqualifiedStarItems(SelectStmt stmt, int tableIdx) {
-        Preconditions.checkState(tableIdx < stmt.fromClause_.size());
+        Preconditions.checkState(tableIdx < stmt.fromClause.size());
         ArrayList<SelectListItem> newItems = Lists.newArrayList();
         for (int i = 0; i < stmt.selectList.getItems().size(); ++i) {
             SelectListItem item = stmt.selectList.getItems().get(i);
@@ -782,7 +782,7 @@ public class StmtRewriter {
             // '*' needs to be replaced by tbl1.*,...,tbln.*, where
             // tbl1,...,tbln are the visible tableRefs in stmt.
             for (int j = 0; j < tableIdx; ++j) {
-                TableRef tableRef = stmt.fromClause_.get(j);
+                TableRef tableRef = stmt.fromClause.get(j);
                 if (tableRef.getJoinOp() == JoinOperator.LEFT_SEMI_JOIN ||
                         tableRef.getJoinOp() == JoinOperator.LEFT_ANTI_JOIN) {
                     continue;

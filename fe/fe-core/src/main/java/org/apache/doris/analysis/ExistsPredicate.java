@@ -28,10 +28,12 @@ import com.google.common.base.Preconditions;
  */
 public class ExistsPredicate extends Predicate {
     private static final Logger LOG = LoggerFactory.getLogger(
-        ExistsPredicate.class);
+            ExistsPredicate.class);
     private boolean notExists = false;
 
-    public boolean isNotExists() { return notExists; }
+    public boolean isNotExists() {
+        return notExists;
+    }
 
     public ExistsPredicate(Subquery subquery, boolean notExists) {
         Preconditions.checkNotNull(subquery);
@@ -56,7 +58,14 @@ public class ExistsPredicate extends Predicate {
     }
 
     @Override
-    public Expr clone() { return new ExistsPredicate(this); }
+    public boolean isNotNullPred() {
+        return true;
+    }
+
+    @Override
+    public Expr clone() {
+        return new ExistsPredicate(this);
+    }
 
     public String toSqlImpl() {
         StringBuilder strBuilder = new StringBuilder();
@@ -74,4 +83,3 @@ public class ExistsPredicate extends Predicate {
         return 31 * super.hashCode() + Boolean.hashCode(notExists);
     }
 }
-

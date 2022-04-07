@@ -724,7 +724,7 @@ public class SetOperationStmt extends QueryStmt {
             }
             // union statement support const expr, so not need to equal
             if (operation != Operation.UNION && queryStmt instanceof SelectStmt
-                    && ((SelectStmt) queryStmt).fromClause_.isEmpty()) {
+                    && ((SelectStmt) queryStmt).fromClause.isEmpty()) {
                 // equal select 1 to select * from (select 1) __DORIS_DUAL__ , because when using select 1 it will be
                 // transformed to a union node, select 1 is a literal, it doesn't have a tuple but will produce a slot,
                 // this will cause be core dump
@@ -742,7 +742,7 @@ public class SetOperationStmt extends QueryStmt {
                                 .set(i, new SelectListItem(item.getExpr(), col + "_" + count.toString()));
                     }
                 }
-                ((SelectStmt) queryStmt).fromClause_.add(new InlineViewRef("__DORIS_DUAL__", inlineQuery));
+                ((SelectStmt) queryStmt).fromClause.add(new InlineViewRef("__DORIS_DUAL__", inlineQuery));
                 List<SelectListItem> slist = ((SelectStmt) queryStmt).selectList.getItems();
                 slist.clear();
                 slist.add(SelectListItem.createStarItem(null));

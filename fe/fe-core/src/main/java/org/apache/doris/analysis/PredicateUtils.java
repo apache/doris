@@ -24,8 +24,8 @@ import com.google.common.collect.Lists;
 
 public class PredicateUtils {
     /**
-     * Split predicates in disjunctive form recursively, i.e., split the input expression
-     * if the root node of the expression tree is `or` predicate.
+     * Split predicates in disjunctive form recursively, i.e., split the input
+     * expression, if the root node of the expression tree is `or` predicate.
      *
      * Some examples:
      * a or b -> a, b
@@ -50,6 +50,48 @@ public class PredicateUtils {
             splitDisjunctivePredicates(expr.getChild(1), result);
         } else {
             result.add(expr);
+        }
+    }
+
+    /**
+     * Split predicates in conjunctive form recursively, i.e., split the input
+     * expression, if the root node of the expression tree is `and` predicate.
+     *
+     * Some examples:
+     * a and b -> a, b
+     * a and b and c -> a, b, c
+     * (a or b) and (c or d) -> (a or b), (c or d)
+     * (a and b) or c -> (a and b) or c
+     * a -> a
+     */
+    public static List<Expr> flatAnd(Expr expr) {
+        ArrayList<Expr> result = Lists.newArrayList();
+        if (expr == null) {
+            return result;
+        }
+
+        flatAnd(expr, result);
+        return result;
+    }
+
+    private static void flatAnd(Expr expr, List<Expr> result) {
+        if (expr instanceof CompoundPredicate && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.AND) {
+            flatAnd(expr.getChild(0), result);
+            flatAnd(expr.getChild(1), result);
+        } else {
+            result.add(expr);
+        }
+    }
+
+    public static boolean existOr(Expr expr) {
+        if (expr == null) {
+            return false;
+        }
+
+        if (expr instanceof CompoundPredicate && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
+            return true;
+        } else {
+            return existOr(expr.getChild(0)) || existOr(expr.getChild(1));
         }
     }
 }
