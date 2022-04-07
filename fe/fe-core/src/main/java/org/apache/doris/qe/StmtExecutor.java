@@ -90,6 +90,8 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.common.Reference;
+import org.apache.doris.common.Pair;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
