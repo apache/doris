@@ -423,11 +423,11 @@ public class RoutineLoadManager implements Writable {
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
 
             // 1. Find if the given BE id has available slots
-            if (previousBeId != -1L) {
+            if (previousBeId != -1L && beIdsInCluster.contains(previousBeId)) {
                 // get the previousBackend info
                 Backend previousBackend = Catalog.getCurrentSystemInfo().getBackend(previousBeId);
-                // check previousBackend is in cluster && alive && load available
-                if (beIdsInCluster.contains(previousBeId) && previousBackend.isLoadAvailable()) {
+                // check previousBackend is not null && load available
+                if (previousBackend != null && previousBackend.isLoadAvailable()) {
                     int idleTaskNum = 0;
                     if (!beIdToMaxConcurrentTasks.containsKey(previousBeId)) {
                         idleTaskNum = 0;
