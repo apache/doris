@@ -157,6 +157,8 @@ public:
               _month(0), // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
+    // The data format of DATE/DATETIME is different in storage layer and execute layer.
+    // So we should use diffrent creator to get data from value.
     static VecDateTimeValue create_from_olap_date(uint64_t value) {
         VecDateTimeValue date;
         date.from_olap_date(value);
