@@ -252,9 +252,6 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
     for (int i = 0; i < _num_rows; ++i) {
         TupleRow* row = get_row(i);
         for (size_t j = 0; j < tuple_descs.size(); ++j) {
-            int64_t old_offset = offset;
-            offset = align_tuple_offset(offset);
-            tuple_data += offset - old_offset;
             auto desc = tuple_descs[j];
             if (row->get_tuple(j) == nullptr) {
                 // NULLs are encoded as -1
@@ -262,11 +259,21 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
                 mutable_new_tuple_offsets->Add(-1);
                 continue;
             }
+
+            int64_t old_offset = offset;
+            offset = align_tuple_offset(offset);
+            tuple_data += offset - old_offset;
+
             // Record offset before creating copy (which increments offset and tuple_data)
             mutable_tuple_offsets->Add((int32_t)offset);
             mutable_new_tuple_offsets->Add(offset);
             row->get_tuple(j)->deep_copy(*desc, &tuple_data, &offset, /* convert_ptrs */ true);
+<<<<<<< HEAD
             CHECK_GE(offset, 0);
+=======
+            CHECK_LE(offset, size) << "offset: " << offset << " vs. size: " << size;
+            CHECK_GE(offset, 0) << "offset: " << offset << " vs. size: " << size;
+>>>>>>> handle trailing null when aligning tuple offset
         }
     }
     CHECK_EQ(offset, tuple_byte_size)
