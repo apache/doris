@@ -328,6 +328,12 @@ private:
     };
 };
 
+// Override the << operator, it is used during LOG(INFO) << "xxxx" << status;
+std::ostream & operator << (std::ostream & ostr, const Status & param)
+{
+    return ostr << param.to_string();
+}
+
 // some generally useful macros
 #define RETURN_IF_ERROR(stmt)            \
     do {                                 \
