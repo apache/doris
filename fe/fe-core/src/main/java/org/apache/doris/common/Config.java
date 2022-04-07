@@ -18,7 +18,6 @@
 package org.apache.doris.common;
 
 import org.apache.doris.PaloFe;
-import org.apache.doris.http.HttpServer;
 
 public class Config extends ConfigBase {
 
