@@ -2113,6 +2113,9 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("1 | 10 | 1 | 1 | 1"));
     }
 
+    /**
+     * for issue #8856
+    */
     @Test
     public void testOutJoinWithOnFalse() throws Exception {
         connectContext.setDatabase("default_cluster:test");
