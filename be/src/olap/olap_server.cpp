@@ -399,8 +399,16 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             for (const auto& tablet : tablets_compaction) {
                 Status st = _submit_compaction_task(tablet, compaction_type);
                 if (!st.ok()) {
-                    LOG(WARNING) << "failed to submit compaction task for tablet: " << tablet->tablet_id()
-                        << ", err: " << st.get_error_msg();
+                    if (st.precise_code() == OLAP_ERR_BE_NO_SUITABLE_VERSION ||
+                        st.precise_code() == OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
+                        LOG(INFO) << "no suitable version for "
+                                  << (compaction_type == BASE_COMPACTION ? "base compaction"
+                                                                         : "cumulative compaction")
+                                  << " of tablet " << tablet->tablet_id();
+                    } else {
+                        LOG(WARNING) << "failed to submit compaction task for tablet: "
+                                     << tablet->tablet_id() << ", err: " << st.get_error_msg();
+                    }
                 }
             }
             interval = config::generate_compaction_tasks_min_interval_ms;
@@ -579,10 +587,13 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet, Compaction
         tablet->reset_compaction(compaction_type);
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         if (!st.ok()) {
-            return Status::InternalError(strings::Substitute(
-                        "failed to prepare compaction task and calculate permits, tablet_id=$0, compaction_type=$1, "
-                        "permit=$2, current_permit=$3, status=$4",
-                        tablet->tablet_id(), compaction_type, permits, _permit_limiter.usage(), st.get_error_msg()));
+            return Status::InternalError(
+                    strings::Substitute("failed to prepare compaction task and calculate permits, "
+                                        "tablet_id=$0, compaction_type=$1, "
+                                        "permit=$2, current_permit=$3, status=$4",
+                                        tablet->tablet_id(), compaction_type, permits,
+                                        _permit_limiter.usage(), st.get_error_msg()),
+                    st.precise_code());
         }
         return st;
     }
