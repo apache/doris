@@ -1335,7 +1335,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
             }
             *permits = 0;
-            return Status::InternalError(fmt::format("prepare compaction with err: {}", res));
+            return Status::InternalError(fmt::format("prepare compaction with err: {}", res), res);
         }
         compaction_rowsets = _cumulative_compaction->get_input_rowsets();
     } else {
@@ -1360,7 +1360,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
             }
             *permits = 0;
-            return Status::InternalError(fmt::format("prepare compaction with err: {}", res));
+            return Status::InternalError(fmt::format("prepare compaction with err: {}", res), res);
         }
         compaction_rowsets = _base_compaction->get_input_rowsets();
     }
