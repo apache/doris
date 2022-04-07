@@ -142,8 +142,8 @@ public class CastExpr extends Expr {
             return true;
         }
 
-        // Disable casting operation of hll/bitmap
-        if (fromType.isBitmapType() || fromType.isHllType() || toType.isHllType() || toType.isBitmapType()) {
+        // Disable casting operation of hll/bitmap/quantile_state
+        if (fromType.isObjectStored() || toType.isObjectStored()) {
             return true;
         }
         // Disable no-op casting

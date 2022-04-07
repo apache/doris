@@ -248,7 +248,6 @@ public enum PrimitiveType {
         builder.put(VARCHAR, DECIMALV2);
         builder.put(VARCHAR, VARCHAR);
         builder.put(VARCHAR, STRING);
-        builder.put(VARCHAR, QUANTILE_STATE);
 
         // Varchar
         builder.put(STRING, BOOLEAN);
@@ -264,7 +263,6 @@ public enum PrimitiveType {
         builder.put(STRING, DECIMALV2);
         builder.put(STRING, VARCHAR);
         builder.put(STRING, STRING);
-        builder.put(STRING, QUANTILE_STATE);
 
         // DecimalV2
         builder.put(DECIMALV2, BOOLEAN);
@@ -287,8 +285,6 @@ public enum PrimitiveType {
         
         // QUANTILE_STATE
         builder.put(QUANTILE_STATE, QUANTILE_STATE);
-        builder.put(QUANTILE_STATE, VARCHAR);
-        builder.put(QUANTILE_STATE, STRING);
 
         //TIME
         builder.put(TIME, TIME);
