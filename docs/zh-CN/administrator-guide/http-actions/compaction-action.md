@@ -56,7 +56,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/run_status
 ### 指定 tablet 的 compaction 状态
 
 ```
-curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&schema_hash=yyyy
+curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx
 ```
 
 若 tablet 不存在，返回 JSON 格式的错误：
@@ -113,13 +113,13 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
 ### 示例
 
 ```
-curl -X GET http://192.168.10.24:8040/api/compaction/show?tablet_id=10015\&schema_hash=1294206575
+curl -X GET http://192.168.10.24:8040/api/compaction/show?tablet_id=10015
 ```
 
 ## 手动触发 Compaction
 
 ```
-curl -X POST http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy\&compact_type=cumulative
+curl -X POST http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx&compact_type=cumulative
 ```
 
 当前仅能执行一个手动compaction任务，其中compact_type取值为base或cumulative
@@ -158,13 +158,13 @@ curl -X POST http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&sc
 ### 示例
 
 ```
-curl -X POST http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema_hash=1294206575\&compact_type=cumulative
+curl -X POST http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&compact_type=cumulative
 ```
 
 ## 手动 Compaction 执行状态
 
 ```
-curl -X GET http://be_host:webserver_port/api/compaction/run_status?tablet_id=xxxx\&schema_hash=yyyy
+curl -X GET http://be_host:webserver_port/api/compaction/run_status?tablet_id=xxxx
 ```
 
 若 tablet 不存在，返回 JSON 格式：
@@ -209,4 +209,4 @@ curl -X GET http://be_host:webserver_port/api/compaction/run_status?tablet_id=xx
 ### 示例
 
 ```
-curl -X GET http://192.168.10.24:8040/api/compaction/run_status?tablet_id=10015\&schema_hash=1294206575
+curl -X GET http://192.168.10.24:8040/api/compaction/run_status?tablet_id=10015
