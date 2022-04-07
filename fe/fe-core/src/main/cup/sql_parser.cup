@@ -4009,6 +4009,11 @@ select_sublist ::=
         list.addItem(item);
         RESULT = list;
     :}
+    | select_sublist:list COMMA STAR
+    {:
+        list.addItem(SelectListItem.createStarItem(null));
+        RESULT = list;
+    :}
     | select_sublist:list COMMA STAR exclude_list:excludeList
     {:
         list.addItem(SelectListItem.createStarItem(null));
@@ -4016,6 +4021,13 @@ select_sublist ::=
         RESULT = list;
     :}
     // why not use "STAR COMMA select_sublist",for we analyze from left to right
+    | STAR COMMA select_list_item:item
+    {:
+        SelectList list = new SelectList();
+        list.addItem(SelectListItem.createStarItem(null));
+        list.addItem(item);
+        RESULT = list;
+    :}
     | STAR exclude_list:excludeList COMMA select_list_item:item
     {:
         SelectList list = new SelectList();
