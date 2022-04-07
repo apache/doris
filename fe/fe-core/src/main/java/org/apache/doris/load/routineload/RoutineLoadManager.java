@@ -434,7 +434,7 @@ public class RoutineLoadManager implements Writable {
                     } else if (beIdToConcurrentTasks.containsKey(previousBeId)) {
                         idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId) - beIdToConcurrentTasks.get(previousBeId);
                     } else {
-                        idleTaskNum = Config.max_routine_load_task_num_per_be;
+                        idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
                     }
                     if (idleTaskNum > 0) {
                         return previousBeId;
