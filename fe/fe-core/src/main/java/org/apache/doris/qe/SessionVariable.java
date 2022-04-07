@@ -195,6 +195,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER =
             "enable_remove_no_conjuncts_runtime_filter_policy";
 
+    public static final String ENABLE_PUSH_PREDICATE_TO_SUBQUERY = "enable_push_predicate_to_subquery";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -485,6 +487,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_REMOVE_NO_CONJUNCTS_RUNTIME_FILTER)
     public boolean enableRemoveNoConjunctsRuntimeFilterPolicy = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_PUSH_PREDICATE_TO_SUBQUERY)
+    public boolean enablePushPredicateToSubquery = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -1010,6 +1015,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableRemoveNoConjunctsRuntimeFilterPolicy = enableRemoveNoConjunctsRuntimeFilterPolicy;
     }
 
+    public boolean isEnablePushPredicateToSubquery() {
+        return enablePushPredicateToSubquery;
+    }
+
+    public void setEnablePushPredicateToSubquery(boolean enablePushPredicateToSubquery) {
+        this.enablePushPredicateToSubquery = enablePushPredicateToSubquery;
+    }
+    
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
