@@ -23,6 +23,7 @@
 #include <string>
 
 #include "exec/schema_scanner.h"
+#include "exprs/table_function/table_function.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "testutil/function_utils.h"
