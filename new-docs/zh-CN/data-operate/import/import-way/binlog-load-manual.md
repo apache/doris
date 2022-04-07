@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Broker Load",
+    "title": "Binlog Load",
     "language": "zh-CN"
 }
 ---
