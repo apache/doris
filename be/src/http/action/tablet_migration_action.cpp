@@ -187,9 +187,9 @@ Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
 Status TabletMigrationAction::_check_migrate_request(int64_t tablet_id, int32_t schema_hash,
                                                      string dest_disk, TabletSharedPtr& tablet,
                                                      DataDir** dest_store) {
-    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
+        LOG(WARNING) << "no tablet for tablet_id:" << tablet_id;
         return Status::NotFound("Tablet not found");
     }
 

@@ -408,7 +408,6 @@ static const std::string END_ROWSET_ID = "end_rowset_id";
 static const std::string CONVERTED_FLAG = "true";
 static const std::string TABLET_CONVERT_FINISHED = "tablet_convert_finished";
 const std::string TABLET_ID_KEY = "tablet_id";
-const std::string TABLET_SCHEMA_HASH_KEY = "schema_hash";
 const std::string ENABLE_BYTE_TO_BASE64 = "byte_to_base64";
 const std::string TABLET_ID_PREFIX = "t_";
 const std::string ROWSET_ID_PREFIX = "s_";

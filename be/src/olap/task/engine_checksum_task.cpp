@@ -50,7 +50,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id, _schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id);
     if (nullptr == tablet.get()) {
         OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]", _tablet_id,
                          _schema_hash);

@@ -104,7 +104,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
-    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
+    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     ASSERT_TRUE(tablet != nullptr);
     // check dir exist
     bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
@@ -118,7 +118,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
 
-    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
+    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, false);
     ASSERT_TRUE(drop_st == OLAP_SUCCESS);
     tablet.reset();
     OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
@@ -163,7 +163,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
 
-    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
+    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     ASSERT_TRUE(tablet != nullptr);
     // check dir exist
     bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
@@ -173,7 +173,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
     ASSERT_TRUE(check_meta_st == OLAP_SUCCESS);
 
-    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
+    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, false);
     ASSERT_TRUE(drop_st == OLAP_SUCCESS);
     tablet.reset();
     OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
@@ -203,21 +203,21 @@ TEST_F(TabletMgrTest, DropTablet) {
     data_dirs.push_back(_data_dir);
     OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_SUCCESS);
-    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
+    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
     ASSERT_TRUE(tablet != nullptr);
 
     // drop unexist tablet will be success
-    OLAPStatus drop_st = _tablet_mgr->drop_tablet(1121, 4444, false);
+    OLAPStatus drop_st = _tablet_mgr->drop_tablet(1121, false);
     ASSERT_TRUE(drop_st == OLAP_SUCCESS);
-    tablet = _tablet_mgr->get_tablet(111, 3333);
+    tablet = _tablet_mgr->get_tablet(111);
     ASSERT_TRUE(tablet != nullptr);
 
     // drop exist tablet will be success
-    drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
+    drop_st = _tablet_mgr->drop_tablet(111, false);
     ASSERT_TRUE(drop_st == OLAP_SUCCESS);
-    tablet = _tablet_mgr->get_tablet(111, 3333);
+    tablet = _tablet_mgr->get_tablet(111);
     ASSERT_TRUE(tablet == nullptr);
-    tablet = _tablet_mgr->get_tablet(111, 3333, true);
+    tablet = _tablet_mgr->get_tablet(111, true);
     ASSERT_TRUE(tablet != nullptr);
 
     // check dir exist
@@ -229,7 +229,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     // because tablet ptr referenced it
     OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
     ASSERT_TRUE(trash_st == OLAP_SUCCESS);
-    tablet = _tablet_mgr->get_tablet(111, 3333, true);
+    tablet = _tablet_mgr->get_tablet(111, true);
     ASSERT_TRUE(tablet != nullptr);
     dir_exist = FileUtils::check_exist(tablet_path);
     ASSERT_TRUE(dir_exist);
@@ -238,7 +238,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     tablet.reset();
     trash_st = _tablet_mgr->start_trash_sweep();
     ASSERT_TRUE(trash_st == OLAP_SUCCESS);
-    tablet = _tablet_mgr->get_tablet(111, 3333, true);
+    tablet = _tablet_mgr->get_tablet(111, true);
     ASSERT_TRUE(tablet == nullptr);
     dir_exist = FileUtils::check_exist(tablet_path);
     ASSERT_TRUE(!dir_exist);

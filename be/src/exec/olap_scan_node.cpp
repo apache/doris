@@ -775,8 +775,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
         auto tablet_id = scan_range->tablet_id;
         int32_t schema_hash = strtoul(scan_range->schema_hash.c_str(), nullptr, 10);
         std::string err;
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                tablet_id, schema_hash, true, &err);
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
         if (tablet == nullptr) {
             std::stringstream ss;
             ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
