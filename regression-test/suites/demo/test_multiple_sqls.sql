@@ -5,7 +5,7 @@ select 200;
 -- third tag is test_multiple_sqls_3
 select 300;
 
-/* empty sql will be skip */
+/* empty sql will be skipped */
 ;
 ;
 ;
