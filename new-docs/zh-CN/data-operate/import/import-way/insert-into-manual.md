@@ -60,7 +60,7 @@ Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果
 
    1. Insert 执行成功并可见：
 
-      ```
+      ```sql
       mysql> insert into tbl1 select * from tbl2;
       Query OK, 4 rows affected (0.38 sec)
       {'label':'insert_8510c568-9eda-4173-9e36-6adc7d35291c', 'status':'visible', 'txnId':'4005'}
@@ -141,7 +141,7 @@ Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果
 
 当执行完一个 insert 操作后，可以在同一 session 连接中执行 `SHOW LAST INSERT`。该命令会返回最近一次insert 操作的结果，如：
 
-```
+```sql
 mysql> show last insert\G
 *************************** 1. row ***************************
     TransactionId: 64067
@@ -250,3 +250,7 @@ bj_store_sales schema:
   ```SHOW LOAD WARNINGS ON "http://ip:port/api/_load_error_log?file=__shard_13/error_log_insert_stmt_d2cac0a0a16d482d-9041c949a4b71605_d2cac0a0a16d482d_9041c949a4b71605";```
 
   错误的原因通常如：源数据列长度超过目的数据列长度、列类型不匹配、分区不匹配、列顺序不匹配等等。
+
+## 更多帮助
+
+关于 **insert into** 使用的更多详细语法，请参阅 [insert](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP INSERT` 获取更多帮助信息。

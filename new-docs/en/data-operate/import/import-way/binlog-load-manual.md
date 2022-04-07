@@ -392,7 +392,8 @@ The detailed syntax of creating a SyncJob can be viewd in `help create sync job`
 
 ### Show Job Status
 
-Specific commands and examples for showing job status can be found in `help show sync job;` command.
+
+Specific commands and examples for viewing job status can be viewed through the [SHOW SYNC JOB](../../../sql-manual/sql-reference-v2/show/SHOW-SYNC-JOB.html) command.
 
 The parameters in the result set have the following meanings:
 
@@ -443,6 +444,10 @@ The parameters in the result set have the following meanings:
 Users can control the status of jobs through `stop/pause/resume` commands.
 
 You can use `HELP STOP SYNC JOB;`, `HELP PAUSE SYNC JOB`; And `HELP RESUME SYNC JOB;` commands to view help and examples.
+
+## Case Combat
+
+[How to use Apache Doris Binlog Load and examples](https://doris.apache.org/zh-CN/article/articles/doris-binlog-load.html)
 
 ## Related Parameters
 
@@ -514,4 +519,4 @@ The following configuration belongs to the system level configuration of SyncJob
 
 ## More Help
 
-For more detailed syntax used by **BinLog Load**, You can enter `HELP BINLOG` in the Mysql client command line to get more help information.
+For more detailed syntax and best practices used by Binlog Load, see [Binlog Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BINLOG- LOAD.html) command manual, you can also enter `HELP BINLOG` in the MySql client command line for more help information.

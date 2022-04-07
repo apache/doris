@@ -71,24 +71,24 @@ Stream load 中，Doris 会选定一个节点作为 Coordinator 节点。该节�
 
 ### 创建导入
 
-Stream load 通过 HTTP 协议提交和传输数据。这里通过 `curl` 命令展示如何提交导入。
+Stream Load 通过 HTTP 协议提交和传输数据。这里通过 `curl` 命令展示如何提交导入。
 
 用户也可以通过其他 HTTP client 进行操作。
 
-```text
+```shell
 curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load
 
-Header 中支持属性见下面的 ‘导入任务参数’ 说明 
-格式为: -H "key1:value1"
+# Header 中支持属性见下面的 ‘导入任务参数’ 说明 
+# 格式为: -H "key1:value1"
 ```
 
 示例：
 
-```text
+```shell
 curl --location-trusted -u root -T date -H "label:123" http://abc.com:8030/api/test/date/_stream_load
 ```
 
-创建导入的详细语法帮助执行 `HELP STREAM LOAD` 查看, 下面主要介绍创建 Stream load 的部分参数意义。
+创建导入的详细语法帮助执行 `HELP STREAM LOAD` 查看, 下面主要介绍创建 Stream Load 的部分参数意义。
 
 **签名参数**
 
@@ -98,7 +98,7 @@ curl --location-trusted -u root -T date -H "label:123" http://abc.com:8030/api/t
 
 **导入任务参数**
 
-Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的参数均设置在 Header 中。下面主要介绍了 Stream load 导入任务参数的部分参数意义。
+Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的参数均设置在 Header 中。下面主要介绍了 Stream Load 导入任务参数的部分参数意义。
 
 - label
 
@@ -170,7 +170,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 - strict_mode
 
-  Stream load 导入可以开启 strict mode 模式。开启方式为在 HEADER 中声明 `strict_mode=true` 。默认的 strict mode 为关闭。
+  Stream Load 导入可以开启 strict mode 模式。开启方式为在 HEADER 中声明 `strict_mode=true` 。默认的 strict mode 为关闭。
 
   strict mode 模式的意思是：对于导入过程中的列类型转换进行严格过滤。严格过滤的策略如下：
 
@@ -186,53 +186,27 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   1. 用户可以调用如下接口对stream load事务触发commit操作：
 
-  ```text
+  ```shell
   curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://fe_host:http_port/api/{db}/_stream_load_2pc
   ```
 
   或
 
-  ```text
+  ```shell
   curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://be_host:webserver_port/api/{db}/_stream_load_2pc
   ```
 
   1. 用户可以调用如下接口对stream load事务触发abort操作：
 
-  ```text
+  ```shell
   curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://fe_host:http_port/api/{db}/_stream_load_2pc
   ```
 
   或
 
-  ```text
+  ```shell
   curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://be_host:webserver_port/api/{db}/_stream_load_2pc
   ```
-
-**strict mode 与 source data 的导入关系**
-
-这里以列类型为 TinyInt 来举例
-
-> 注：当表中的列允许导入空值时
-
-| source data | source data example | string to int | strict_mode   | result                 |
-| ----------- | ------------------- | ------------- | ------------- | ---------------------- |
-| 空值        | \N                  | N/A           | true or false | NULL                   |
-| not null    | aaa or 2000         | NULL          | true          | invalid data(filtered) |
-| not null    | aaa                 | NULL          | false         | NULL                   |
-| not null    | 1                   | 1             | true or false | correct data           |
-
-这里以列类型为 Decimal(1,0) 举例
-
-> 注：当表中的列允许导入空值时
-
-| source data | source data example | string to int | strict_mode   | result                 |
-| ----------- | ------------------- | ------------- | ------------- | ---------------------- |
-| 空值        | \N                  | N/A           | true or false | NULL                   |
-| not null    | aaa                 | NULL          | true          | invalid data(filtered) |
-| not null    | aaa                 | NULL          | false         | NULL                   |
-| not null    | 1 or 10             | 1             | true or false | correct data           |
-
-> 注意：10 虽然是一个超过范围的值，但是因为其类型符合 decimal的要求，所以 strict mode对其不产生影响。10 最后会在其他 ETL 处理流程中被过滤。但不会被 strict mode 过滤。
 
 ### 返回结果
 
@@ -312,7 +286,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 ### 取消导入
 
-用户无法手动取消 Stream load，Stream load 在超时或者导入错误后会被系统自动取消。
+用户无法手动取消 Stream Load，Stream Load 在超时或者导入错误后会被系统自动取消。
 
 ## 相关系统配置
 
@@ -336,7 +310,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 ### 应用场景
 
-使用 Stream load 的最合适场景就是原始文件在内存中，或者在磁盘中。其次，由于 Stream load 是一种同步的导入方式，所以用户如果希望用同步方式获取导入结果，也可以使用这种导入。
+使用 Stream load 的最合适场景就是原始文件在内存中或者在磁盘中。其次，由于 Stream load 是一种同步的导入方式，所以用户如果希望用同步方式获取导入结果，也可以使用这种导入。
 
 ### 数据量
 
@@ -378,7 +352,7 @@ timeout = 1000s 等于 10G / 10M/s
 
 - step3：创建导入任务
 
-  ```text
+  ```shell
   curl --location-trusted -u user:password -T /home/store_sales -H "label:abc" http://abc.com:8000/api/bj_sales/store_sales/_stream_load
   ```
 
@@ -417,4 +391,5 @@ timeout = 1000s 等于 10G / 10M/s
      ```
 ## 更多帮助
 
-关于**Stream Load** 使用的更多详细语法，可以在Mysql客户端命令行下输入 `HELP STREAM LOAD` 获取更多帮助信息。
+关于 Stream Load 使用的更多详细语法及最佳实践，请参阅 [Stream Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP STREAM LOAD` 获取更多帮助信息。
+

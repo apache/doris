@@ -44,7 +44,7 @@ under the License.
 
 ## 开始导入
 
-导入方式和Broker Load 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
+导入方式和[Broker Load](broker-load-manual.html) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
 
 ```text
     WITH S3
@@ -58,7 +58,7 @@ under the License.
 
 完整示例如下
 
-```text
+```sql
     LOAD LABEL example_db.exmpale_label_1
     (
         DATA INFILE("s3://your_bucket_name/your_file.txt")
@@ -93,5 +93,5 @@ S3 SDK 默认使用 virtual-hosted style 方式。但某些对象存储系统可
   )
 ```
 
-## 更多帮助
+
 

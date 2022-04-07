@@ -1,9 +1,8 @@
 ---
 {
-    "title": "Binlog Load",
+    "title": "Broker Load",
     "language": "zh-CN"
 }
-
 ---
 
 <!-- 
@@ -38,7 +37,7 @@ Binlog Load提供了一种使Doris增量同步用户在Mysql数据库的对数�
 
 ## 基本原理
 
-Binlog Load需要依赖canal作为中间媒介，让canal伪造成一个从节点去获取Mysql主节点上的Binlog并解析，再由Doris去获取Canal上解析好的数据，主要涉及Mysql端、Canal端以及Doris端，总体数据流向如下：
+当前版本设计中，Binlog Load需要依赖canal作为中间媒介，让canal伪造成一个从节点去获取Mysql主节点上的Binlog并解析，再由Doris去获取Canal上解析好的数据，主要涉及Mysql端、Canal端以及Doris端，总体数据流向如下：
 
 ```text
 +---------------------------------------------+
@@ -118,24 +117,23 @@ log-bin = mysql-bin # 开启 binlog
 binlog-format=ROW # 选择 ROW 模式
 ```
 
-
 ### Mysql端说明
 
 在Mysql上，Binlog命名格式为mysql-bin.000001、mysql-bin.000002... ，满足一定条件时mysql会去自动切分Binlog日志：
 
-1. mysql重启了；
-2. 客户端输入命令flush logs；
-3. binlog文件大小超过1G；
+1. mysql重启了
+2. 客户端输入命令flush logs
+3. binlog文件大小超过1G
 
 要定位Binlog的最新的消费位置，可以通过binlog文件名和position(偏移量)。
 
 例如，各个从节点上会保存当前消费到的binlog位置，方便随时断开连接、重新连接和继续消费。
 
 ```text
----------------------                                ---------------------
+---------------------                                ------------------
 |       Slave       |              read              |      Master       |
 | FileName/Position | <<<--------------------------- |    Binlog Files   |
----------------------                                ---------------------
+---------------------                                ------------------
 ```
 
 对于主节点来说，它只负责写入Binlog，多个从节点可以同时连接到一台主节点上，消费Binlog日志的不同部分，互相之间不会影响。
@@ -149,9 +147,9 @@ row-based格式:       Binlog会记录主节点的每一行所有列的数据的
 
 第一种格式只写入了执行的sql语句，虽然日志量会很少，但是有下列缺点
 
-1. 没有保存每一行实际的数据；
-2. 在主节点上执行的UDF、随机、时间函数会在从节点上结果不一致；
-3. limit语句执行顺序可能不一致；
+1. 没有保存每一行实际的数据
+2. 在主节点上执行的UDF、随机、时间函数会在从节点上结果不一致
+3. limit语句执行顺序可能不一致
 
 因此我们需要选择第二种格式，才能从Binlog日志中解析出每一行数据。
 
@@ -210,7 +208,7 @@ enforce-gtid-consistency=1 // 强制gtid和事务的一致性
 
 在GTID模式下，由于GTID的全局有效性，从节点将不再需要通过保存文件名和偏移量来定位主节点上的Binlog位置，而通过数据本身就可以定位了。在进行数据同步中，从节点会跳过执行任意被识别为已执行的GTID事务。
 
-GTID的表现形式为一对坐标, `source_id`标识出主节点，`transaction_id`表示此事务在主节点上执行的顺序(最大2<sup>63</sup>-1)。
+GTID的表现形式为一对坐标, `source_id`标识出主节点，`transaction_id`表示此事务在主节点上执行的顺序(最大263-1)。
 
 ```text
 GTID = source_id:transaction_id
@@ -224,7 +222,7 @@ GTID = source_id:transaction_id
 
 ## 配置Canal端
 
-canal是属于阿里巴巴otter项目下的一个子项目，主要用途是基于 MySQL 数据库增量日志解析，提供增量数据订阅和消费，用于解决跨机房同步的业务场景，建议使用canal 1.1.5及以上版本，[下载地址](https://github.com/alibaba/canal/releases)，下载完成后，请按以下步骤完成部署。
+canal是属于阿里巴巴otter项目下的一个子项目，主要用途是基于 MySQL 数据库增量日志解析，提供增量数据订阅和消费，用于解决跨机房同步的业务场景，建议使用canal 1.1.5及以上版本，[下载地址 (opens new window)](https://github.com/alibaba/canal/releases)，下载完成后，请按以下步骤完成部署。
 
 1. 解压canal deployer
 
@@ -232,7 +230,7 @@ canal是属于阿里巴巴otter项目下的一个子项目，主要用途是基�
 
 3. 修改instance配置文件（可拷贝conf/example/instance.properties）
 
-   ```shell
+   ```text
    vim conf/{your destination}/instance.properties
    ```
 
@@ -248,13 +246,13 @@ canal是属于阿里巴巴otter项目下的一个子项目，主要用途是基�
 
 4. 启动
 
-   ```shell
+   ```text
    sh bin/startup.sh
    ```
 
 5. 验证启动成功
 
-   ```shell
+   ```text
    cat logs/{your destination}/{your destination}.log
    ```
 
@@ -329,7 +327,7 @@ canal client调用get命令时，canal server会产生数据batch发送给client
 
 当数据消费失败时，client会返回rollback通知消费失败，store会将get指针重置左移到ack指针位置，使下一次client获取的数据能再次从ack指针处开始。
 
-和Mysql中的从节点一样，canal也需要去保存client最新消费到的位置。canal中所有元数据(如GTID、Binlog位置)都是由MetaManager去管理的，目前元数据默认以json格式持久化在instance根目录下的meta.dat文件内。
+和Mysql中的从节点一样，canal也需要去保存client最新消费到的位置。canal中所有元数据(如GTID、Binlog位置)都是由MetaManager去管理的，目前元数据默认以json格式持久化在instance根目录下的meta.dat文件内
 
 ## 基本操作
 
@@ -339,11 +337,11 @@ canal client调用get命令时，canal server会产生数据batch发送给client
 
 Binlog Load只能支持Unique类型的目标表，且必须激活目标表的Batch Delete功能。
 
-开启Batch Delete的方法可以参考`HELP ALTER TABLE`中的批量删除功能。
+开启Batch Delete的方法可以参考[ALTER TABLE PROPERTY](sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.html)中的批量删除功能。
 
 示例：
 
-```sql
+```text
 -- create target table
 CREATE TABLE `test1` (
   `a` int(11) NOT NULL COMMENT "",
@@ -359,7 +357,7 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 
 ### 创建同步作业
 
-创建数据同步作业的的详细语法可以连接到 Doris 后，执行 [HELP CREATE SYNC JOB](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-SYNC-JOB.html); 来查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
+创建数据同步作业的的详细语法可以连接到 Doris 后，[CREATE SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-SYNC-JOB.html) 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
 
 - job_name
 
@@ -387,7 +385,7 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 
 ### 查看作业状态
 
-查看作业状态的具体命令和示例可以通过 `HELP SHOW SYNC JOB;` 命令查看。
+查看作业状态的具体命令和示例可以通过 [SHOW SYNC JOB](../../../sql-manual/sql-reference-v2/show/SHOW-SYNC-JOB.html) 命令查看。
 
 返回结果集的参数意义如下：
 
@@ -429,7 +427,11 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 
 ### 控制作业
 
-用户可以通过 STOP/PAUSE/RESUME 三个命令来控制作业的停止，暂停和恢复。可以通过`HELP STOP SYNC JOB`; `HELP PAUSE SYNC JOB`; 以及 `HELP RESUME SYNC JOB`; 三个命令查看帮助和示例。
+用户可以通过 STOP/PAUSE/RESUME 三个命令来控制作业的停止，暂停和恢复。可以通过 [STOP SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.html) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.html); 以及 [RESUME SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.html); 
+
+## 案例实战
+
+[Apache Doris Binlog Load使用方法及示例](https://doris.apache.org/zh-CN/article/articles/doris-binlog-load.html)
 
 ## 相关参数
 
@@ -499,9 +501,8 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 
 4. 为什么数据同步时浮点类型的数据精度在Mysql端和Doris端不一样？
 
-   Doris本身浮点类型的精度与Mysql不一样。可以选择用Decimal类型代替。
+   Doris本身浮点类型的精度与Mysql不一样。可以选择用Decimal类型代替
 
 ## 更多帮助
 
-关于 **Binlog Load** 使用的更多详细语法，可以在Mysql客户端命令行下输入 `HELP BINLOG` 获取更多帮助信息。
-
+关于 Binlog Load 使用的更多详细语法及最佳实践，请参阅 [Binlog Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BINLOG-LOAD.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BINLOG` 获取更多帮助信息。

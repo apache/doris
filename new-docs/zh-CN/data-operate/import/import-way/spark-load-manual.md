@@ -35,12 +35,6 @@ Spark load 是一种异步导入方式，用户需要通过 MySQL 协议创建 S
 - 源数据在 Spark 可以访问的存储系统中，如 HDFS。
 - 数据量在 几十 GB 到 TB 级别。
 
-## 名词解释
-
-1. Spark ETL：在导入流程中主要负责数据的 ETL 工作，包括全局字典构建（BITMAP类型）、分区、排序、聚合等。
-2. Broker：Broker 为一个独立的无状态进程。封装了文件系统接口，提供 Doris 读取远端存储系统中文件的能力。
-3. 全局字典： 保存了数据从原始值到编码值映射的数据结构，原始值可以是任意数据类型，而编码后的值为整型；全局字典主要应用于精确去重预计算的场景。
-
 ## 基本原理
 
 ### 基本流程
@@ -109,7 +103,7 @@ Spark load 任务的执行主要分为以下5个阶段。
 
 ## Hive Bitmap UDF
 
-Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。详见 [hive-bitmap-udf](../../ecosystem/external-table/hive-bitmap-udf.html) 文档。
+Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。详见 [hive-bitmap-udf](../../../ecosystem/external-table/hive-bitmap-udf.html) 文档。
 
 ## 基本操作
 
@@ -118,8 +112,6 @@ Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。详见 [hive
 Spark作为一种外部计算资源在Doris中用来完成ETL工作，未来可能还有其他的外部资源会加入到Doris中使用，如Spark/GPU用于查询，HDFS/S3用于外部存储，MapReduce用于ETL等，因此我们引入resource management来管理Doris使用的这些外部资源。
 
 提交 Spark 导入任务之前，需要配置执行 ETL 任务的 Spark 集群。
-
-语法：
 
 ```sql
 -- create spark resource
@@ -417,15 +409,15 @@ PROPERTIES
 
 **Label**
 
-导入任务的标识。每个导入任务，都有一个在单 database 内部唯一的 Label。具体规则与 `Broker Load` 一致。
+导入任务的标识。每个导入任务，都有一个在单 database 内部唯一的 Label。具体规则与 [`Broker Load`](broker-load-manual.html) 一致。
 
 **数据描述类参数**
 
-目前支持的数据源有CSV和hive table。其他规则与 `Broker Load` 一致。
+目前支持的数据源有CSV和hive table。其他规则与 [`Broker Load`](broker-load-manual.html) 一致。
 
 **导入作业参数**
 
-导入作业参数主要指的是 Spark load 创建导入语句中的属于 `opt_properties`部分的参数。导入作业参数是作用于整个导入作业的。规则与 `Broker Load` 一致。
+导入作业参数主要指的是 Spark load 创建导入语句中的属于 `opt_properties`部分的参数。导入作业参数是作用于整个导入作业的。规则与 [`Broker Load`](broker-load-manual.html) 一致。
 
 **Spark资源参数**
 
@@ -455,7 +447,7 @@ WITH RESOURCE 'spark0'
 
 ### 查看导入
 
-Spark load 导入方式同 Broker load 一样都是异步的，所以用户必须将创建导入的 Label 记录，并且在**查看导入命令中使用 Label 来查看导入结果**。查看导入命令在所有导入方式中是通用的，具体语法可执行 `HELP SHOW LOAD` 查看。
+Spark Load 导入方式同 Broker load 一样都是异步的，所以用户必须将创建导入的 Label 记录，并且在**查看导入命令中使用 Label 来查看导入结果**。查看导入命令在所有导入方式中是通用的，具体语法可执行 `HELP SHOW LOAD` 查看。
 
 示例：
 
@@ -479,7 +471,7 @@ LoadFinishTime: 2019-07-27 11:50:16
     JobDetails: {"ScannedRows":28133395,"TaskNumber":1,"FileNumber":1,"FileSize":200000}
 ```
 
-返回结果集中参数意义可以参考 Broker load。不同点如下：
+返回结果集中参数意义可以参考 [Broker Load](broker-load-manual.html)。不同点如下：
 
 - State
 
@@ -523,7 +515,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ### 取消导入
 
-当 Spark load 作业状态不为 CANCELLED 或 FINISHED 时，可以被用户手动取消。取消时需要指定待取消导入任务的 Label 。取消导入命令语法可执行 `HELP CANCEL LOAD`查看。
+当 Spark Load 作业状态不为 CANCELLED 或 FINISHED 时，可以被用户手动取消。取消时需要指定待取消导入任务的 Label 。取消导入命令语法可执行 `HELP CANCEL LOAD`查看。
 
 ## 相关系统配置
 
@@ -563,15 +555,15 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ### 应用场景
 
-使用 Spark load 最适合的场景就是原始数据在文件系统（HDFS）中，数据量在 几十 GB 到 TB 级别。小数据量还是建议使用 Stream load 或者 Broker load。
+使用 Spark Load 最适合的场景就是原始数据在文件系统（HDFS）中，数据量在 几十 GB 到 TB 级别。小数据量还是建议使用 [Stream Load](stream-load-manual.html) 或者 [Broker Load](broker-load-manual.html)。
 
 ## 常见问题
 
-- 使用Spark load时没有在spark客户端的spark-env.sh配置`HADOOP_CONF_DIR`环境变量。
+- 使用Spark Load时没有在spark客户端的spark-env.sh配置`HADOOP_CONF_DIR`环境变量。
 
 如果`HADOOP_CONF_DIR`环境变量没有设置，会报 `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment.` 错误。
 
-- 使用Spark load时`spark_home_default_dir`配置项没有指定spark客户端根目录。
+- 使用Spark Load时`spark_home_default_dir`配置项没有指定spark客户端根目录。
 
 提交Spark job时用到spark-submit命令，如果`spark_home_default_dir`设置错误，会报 `Cannot run program "xxx/bin/spark-submit": error=2, No such file or directory` 错误。
 
