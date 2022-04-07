@@ -14,13 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+package org.apache.doris.httpv2;
 
-package org.apache.doris.http.meta;
+public class IllegalArgException extends Exception {
+  private static final long serialVersionUID = 3344697787301861667L;
 
-import org.apache.doris.common.DdlException;
+  public IllegalArgException() {
+    super("");
+  }
 
-public class InvalidClientException extends DdlException {
-    public InvalidClientException(String msg) {
-        super(msg);
-    }
+  public IllegalArgException(String msg) {
+    super(msg);
+  }
+
+  public IllegalArgException(String msg, Throwable cause) {
+    super(msg, cause);
+  }
 }
