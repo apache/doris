@@ -65,7 +65,7 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 2. 修改测试用的 FE 的配置文件 fe.conf，将所有端口设置为**与线上不同**。
 3. 在 fe.conf 添加配置：cluster_id=123456
 4. 在 fe.conf 添加配置：metadata\_failure_recovery=true
-5. 拷贝线上环境 Master FE 的元数据目录 palo-meta 到测试环境
+5. 拷贝线上环境 Master FE 的元数据目录 doris-meta 到测试环境
 6. 将拷贝到测试环境中的 doris-meta/image/VERSION 文件中的 cluster_id 修改为 123456（即与第3步中相同）
 7. 在测试环境中，运行 sh bin/start_fe.sh 启动 FE
 8. 通过 FE 日志 fe.log 观察是否启动成功。
