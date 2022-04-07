@@ -37,9 +37,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/*
-For unified management of statistics job,
-including job addition, cancellation, scheduling, etc.
+/**
+ * For unified management of statistics job,
+ * including job addition, cancellation, scheduling, etc.
  */
 public class StatisticsJobManager {
     private static final Logger LOG = LogManager.getLogger(StatisticsJobManager.class);
@@ -58,17 +58,20 @@ public class StatisticsJobManager {
         StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
 
         // step2: check restrict
-        this.checkRestrict(statisticsJob.getDbId(), statisticsJob.relatedTableId());
+        this.checkRestrict(analyzeStmt.getDb(), statisticsJob.getTblIds());
 
         // step3: create it
         this.createStatisticsJob(statisticsJob);
     }
 
     public void createStatisticsJob(StatisticsJob statisticsJob) throws DdlException {
+        // assign the id when the job is ready to run
+        statisticsJob.setId(Catalog.getCurrentCatalog().getNextId());
         this.idToStatisticsJob.put(statisticsJob.getId(), statisticsJob);
         try {
             Catalog.getCurrentCatalog().getStatisticsJobScheduler().addPendingJob(statisticsJob);
         } catch (IllegalStateException e) {
+            LOG.info("The pending statistics job is full. Please submit it again later.");
             throw new DdlException("The pending statistics job is full, Please submit it again later.");
         }
     }
@@ -79,9 +82,7 @@ public class StatisticsJobManager {
      * - Rule2: The unfinished statistics job could not more then Config.max_statistics_job_num
      * - Rule3: The job for external table is not supported
      */
-    private synchronized void checkRestrict(long dbId, Set<Long> tableIds) throws AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
-
+    private synchronized void checkRestrict(Database db, Set<Long> tableIds) throws AnalysisException {
         // check table type
         for (Long tableId : tableIds) {
             Table table = db.getTableOrAnalysisException(tableId);
@@ -93,16 +94,15 @@ public class StatisticsJobManager {
         int unfinishedJobs = 0;
 
         // check table unfinished job
-        for (Map.Entry<Long, StatisticsJob> jobEntry : this.idToStatisticsJob.entrySet()) {
-            StatisticsJob statisticsJob = jobEntry.getValue();
+        for (StatisticsJob statisticsJob : this.idToStatisticsJob.values()) {
             StatisticsJob.JobState jobState = statisticsJob.getJobState();
-            List<Long> tableIdList = statisticsJob.getTableIds();
+            Set<Long> tblIds = statisticsJob.getTblIds();
             if (jobState == StatisticsJob.JobState.PENDING
                     || jobState == StatisticsJob.JobState.SCHEDULING
                     || jobState == StatisticsJob.JobState.RUNNING) {
                 for (Long tableId : tableIds) {
-                    if (tableIdList.contains(tableId)) {
-                        throw new AnalysisException("The table(id=" + tableId + ") have two unfinished statistics jobs");
+                    if (tblIds.contains(tableId)) {
+                        throw new AnalysisException("The table(id=" + tableId + ") have unfinished statistics jobs");
                     }
                 }
                 unfinishedJobs++;
@@ -111,7 +111,8 @@ public class StatisticsJobManager {
 
         // check the number of unfinished tasks
         if (unfinishedJobs > Config.cbo_max_statistics_job_num) {
-            throw new AnalysisException("The unfinished statistics job could not more then cbo_max_statistics_job_num");
+            throw new AnalysisException("The unfinished statistics job could not more than cbo_max_statistics_job_num: " +
+                    Config.cbo_max_statistics_job_num);
         }
     }
 
@@ -134,6 +135,7 @@ public class StatisticsJobManager {
                     task.setFinishTime(System.currentTimeMillis());
                     task.setTaskState(StatisticsTask.TaskState.FINISHED);
                 } else {
+                    LOG.info("The statistics task(id=" + taskId + ") is failed, cause by: " + exception.getMessage());
                     task.setTaskState(StatisticsTask.TaskState.FAILED);
                     statisticsJob.setJobState(StatisticsJob.JobState.FAILED);
                 }

@@ -32,6 +32,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.clearspring.analytics.util.Lists;
+import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -134,6 +135,27 @@ public class StatisticsManager {
         return row;
     }
 
+    public void alterTableStatistics(StatisticsTaskResult taskResult) throws AnalysisException {
+        StatsCategoryDesc categoryDesc = taskResult.getCategoryDesc();
+        validateTableAndColumn(categoryDesc);
+        long tblId = categoryDesc.getTableId();
+        Map<String, String> statsNameToValue = taskResult.getStatsNameToValue();
+        this.statistics.updateTableStats(tblId, statsNameToValue);
+    }
+
+    public void alterColumnStatistics(StatisticsTaskResult taskResult) throws AnalysisException {
+        StatsCategoryDesc categoryDesc = taskResult.getCategoryDesc();
+        validateTableAndColumn(categoryDesc);
+        long dbId = categoryDesc.getDbId();
+        long tblId = categoryDesc.getTableId();
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+        Table table = db.getTableOrAnalysisException(tblId);
+        String columnName = categoryDesc.getColumnName();
+        Type columnType = table.getColumn(columnName).getType();
+        Map<String, String> statsNameToValue = taskResult.getStatsNameToValue();
+        this.statistics.updateColumnStats(tblId, columnName, columnType, statsNameToValue);
+    }
+
     private Table validateTableName(TableName dbTableName) throws AnalysisException {
         String dbName = dbTableName.getDb();
         String tableName = dbTableName.getTbl();
@@ -142,22 +164,18 @@ public class StatisticsManager {
         return db.getTableOrAnalysisException(tableName);
     }
 
-    public void alterTableStatistics(StatisticsTaskResult taskResult) throws AnalysisException {
-        StatsGranularityDesc desc = taskResult.getGranularityDesc();
-        long tableId = desc.getTableId();
-        Map<String, String> statsNameToValue = taskResult.getStatsNameToValue();
-        this.statistics.updateTableStats(tableId, statsNameToValue);
-    }
-
-    public void alterColumnStatistics(StatisticsTaskResult taskResult) throws AnalysisException {
-        StatsCategoryDesc categoryDesc = taskResult.getCategoryDesc();
+    private void validateTableAndColumn(StatsCategoryDesc categoryDesc) throws AnalysisException {
         long dbId = categoryDesc.getDbId();
-        long tableId = categoryDesc.getTableId();
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
-        Table table = db.getTableOrAnalysisException(tableId);
+        long tblId = categoryDesc.getTableId();
         String columnName = categoryDesc.getColumnName();
-        Type columnType = table.getColumn(columnName).getType();
-        Map<String, String> statsNameToValue = taskResult.getStatsNameToValue();
-        this.statistics.updateColumnStats(tableId, columnName, columnType, statsNameToValue);
+
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+        Table table = db.getTableOrAnalysisException(tblId);
+        if (!Strings.isNullOrEmpty(columnName)) {
+            Column column = table.getColumn(columnName);
+            if (column == null) {
+                throw new AnalysisException("Column " + columnName + " does not exist in table " + table.getName());
+            }
+        }
     }
 }

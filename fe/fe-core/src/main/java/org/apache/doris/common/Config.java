@@ -1635,7 +1635,7 @@ public class Config extends ConfigBase {
      * the timeout of a statistics task
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int cbo_statistics_task_timeout = 60;
+    public static int cbo_statistics_task_timeout_sec = 60;
     /*
      * the concurrency of statistics task
      */

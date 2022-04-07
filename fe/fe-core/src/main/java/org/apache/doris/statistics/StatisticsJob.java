@@ -18,27 +18,19 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.common.UserException;
 
 import com.clearspring.analytics.util.Lists;
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
 
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/*
-Used to store statistics job info,
-including job status, progress, etc.
+/***
+ * Used to store statistics job info,
+ * including job status, progress, etc.
  */
 public class StatisticsJob {
     private static final Logger LOG = LogManager.getLogger(StatisticsJob.class);
@@ -48,11 +40,11 @@ public class StatisticsJob {
         SCHEDULING,
         RUNNING,
         FINISHED,
-        CANCELLED,
-        FAILED
+        FAILED,
+        CANCELLED
     }
 
-    private final long id = Catalog.getCurrentCatalog().getNextId();
+    private long id = -1;
 
     /**
      * to be collected database stats.
@@ -62,7 +54,7 @@ public class StatisticsJob {
     /**
      * to be collected table stats.
      */
-    private final List<Long> tableIds;
+    private final Set<Long> tblIds;
 
     /**
      * to be collected column stats.
@@ -79,16 +71,16 @@ public class StatisticsJob {
     private JobState jobState = JobState.PENDING;
 
     private final long createTime = System.currentTimeMillis();
-    private long scheduleTime = -1L;
+    private long startTime = -1L;
     private long finishTime = -1L;
     private int progress = 0;
 
     public StatisticsJob(Long dbId,
-                         List<Long> tableIdList,
+                         Set<Long> tblIds,
                          Map<Long, List<String>> tableIdToColumnName,
                          Map<String, String> properties) {
         this.dbId = dbId;
-        this.tableIds = tableIdList;
+        this.tblIds = tblIds;
         this.tableIdToColumnName = tableIdToColumnName;
         this.properties = properties;
     }
@@ -97,12 +89,16 @@ public class StatisticsJob {
         return this.id;
     }
 
+    public void setId(long id) {
+        this.id = id;
+    }
+
     public long getDbId() {
         return this.dbId;
     }
 
-    public List<Long> getTableIds() {
-        return this.tableIds;
+    public Set<Long> getTblIds() {
+        return this.tblIds;
     }
 
     public Map<Long, List<String>> getTableIdToColumnName() {
@@ -133,12 +129,12 @@ public class StatisticsJob {
         return this.createTime;
     }
 
-    public long getScheduleTime() {
-        return this.scheduleTime;
+    public long getStartTime() {
+        return this.startTime;
     }
 
-    public void setScheduleTime(long scheduleTime) {
-        this.scheduleTime = scheduleTime;
+    public void setStartTime(long startTime) {
+        this.startTime = startTime;
     }
 
     public long getFinishTime() {
@@ -163,42 +159,11 @@ public class StatisticsJob {
      * tableId: [t1]
      * tableIdToColumnName <t1, [c1,c2,c3]>
      */
-    public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt analyzeStmt) throws UserException {
-        List<Long> tableIdList = Lists.newArrayList();
-        Map<Long, List<String>> tableIdToColumnName = Maps.newHashMap();
-        List<String> columnNames = analyzeStmt.getColumnNames();
-
-        String dbName = analyzeStmt.getDbName();
-        String tblName = analyzeStmt.getTblName();
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
-
-        if (Strings.isNullOrEmpty(tblName)) {
-            List<Table> tables = db.getTables();
-            for (Table table : tables) {
-                long tableId = table.getId();
-                tableIdList.add(tableId);
-                List<String> colNames = Lists.newArrayList();
-                List<Column> baseSchema = table.getBaseSchema();
-                baseSchema.stream().map(Column::getName).forEach(colNames::add);
-                tableIdToColumnName.put(tableId, colNames);
-            }
-        } else {
-            Table table = db.getOlapTableOrDdlException(tblName);
-            tableIdList.add(table.getId());
-            tableIdToColumnName.put(table.getId(), columnNames);
-        }
-
-        return new StatisticsJob(
-                db.getId(),
-                tableIdList,
-                tableIdToColumnName,
-                analyzeStmt.getProperties());
-    }
-
-    public Set<Long> relatedTableId() {
-        Set<Long> relatedTableId = Sets.newHashSet();
-        relatedTableId.addAll(this.tableIds);
-        relatedTableId.addAll(this.tableIdToColumnName.keySet());
-        return relatedTableId;
+    public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt analyzeStmt) {
+        long dbId = analyzeStmt.getDb().getId();
+        Map<Long, List<String>> tableIdToColumnName = analyzeStmt.getTableIdToColumnName();
+        Set<Long> tblIds = tableIdToColumnName.keySet();
+        Map<String, String> properties = analyzeStmt.getProperties();
+        return new StatisticsJob(dbId, tblIds, tableIdToColumnName, properties);
     }
 }

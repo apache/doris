@@ -17,8 +17,6 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Catalog;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -40,23 +38,22 @@ public class StatisticsTask implements Callable<StatisticsTaskResult> {
     protected static final Logger LOG = LogManager.getLogger(StatisticsTask.class);
 
     public enum TaskState {
-        CREATED,
+        PENDING,
         RUNNING,
         FINISHED,
         FAILED
     }
 
-    protected long id = Catalog.getCurrentCatalog().getNextId();
-
+    protected long id = -1;
     protected long jobId;
     protected StatsGranularityDesc granularityDesc;
     protected StatsCategoryDesc categoryDesc;
     protected List<StatsType> statsTypeList;
-    protected TaskState taskState = TaskState.CREATED;
+    protected TaskState taskState = TaskState.PENDING;
 
     protected final long createTime = System.currentTimeMillis();
-    protected long scheduleTime;
-    protected long finishTime;
+    protected long startTime = -1L;
+    protected long finishTime = -1L;
 
     public StatisticsTask(long jobId,
                           StatsGranularityDesc granularityDesc,
@@ -70,6 +67,10 @@ public class StatisticsTask implements Callable<StatisticsTaskResult> {
 
     public long getId() {
         return this.id;
+    }
+
+    public void setId(long id) {
+        this.id = id;
     }
 
     public long getJobId() {
@@ -100,12 +101,12 @@ public class StatisticsTask implements Callable<StatisticsTaskResult> {
         return this.createTime;
     }
 
-    public long getScheduleTime() {
-        return this.scheduleTime;
+    public long getStartTime() {
+        return this.startTime;
     }
 
-    public void setScheduleTime(long scheduleTime) {
-        this.scheduleTime = scheduleTime;
+    public void setStartTime(long startTime) {
+        this.startTime = startTime;
     }
 
     public long getFinishTime() {

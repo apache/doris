@@ -69,18 +69,24 @@ public class StatisticsTaskScheduler extends MasterDaemon {
             int taskSize = 0;
             for (StatisticsTask task : tasks) {
                 this.queue.remove();
+                // handle task result for each job
                 if (taskSize > 0 && jobId != task.getJobId()) {
                     handleTaskResult(jobId, taskMap);
                     taskMap.clear();
                     taskSize = 0;
                 }
+                // assign the id when the task is ready to run
+                task.setId(Catalog.getCurrentCatalog().getNextId());
+                task.setStartTime(System.currentTimeMillis());
+                task.setTaskState(StatisticsTask.TaskState.RUNNING);
                 Future<StatisticsTaskResult> future = executor.submit(task);
-                task.setScheduleTime(System.currentTimeMillis());
                 long taskId = task.getId();
                 taskMap.put(taskId, future);
+                // update job state
                 jobId = task.getJobId();
                 StatisticsJob statisticsJob = statisticsJobs.get(jobId);
                 if (statisticsJob.getJobState() == JobState.SCHEDULING) {
+                    statisticsJob.setStartTime(System.currentTimeMillis());
                     statisticsJob.setJobState(JobState.RUNNING);
                 }
                 taskSize++;
@@ -115,7 +121,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
         StatisticsJobManager jobManager = Catalog.getCurrentCatalog().getStatisticsJobManager();
 
         Map<String, String> properties = jobManager.getIdToStatisticsJob().get(jobId).getProperties();
-        int timeout = Integer.parseInt(properties.get("cbo_statistics_task_timeout"));
+        int timeout = Integer.parseInt(properties.get("cbo_statistics_task_timeout_sec"));
 
         for (Map.Entry<Long, Future<StatisticsTaskResult>> entry : taskMap.entrySet()) {
             Exception exception = null;
