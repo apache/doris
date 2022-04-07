@@ -102,6 +102,18 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    /**
+     * Reset properties to correct values.
+     * @return this for chained
+     */
+    public TableProperty resetPropertiesForRestore() {
+        if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
+            properties.put(DynamicPartitionProperty.ENABLE, "false");
+            executeBuildDynamicProperty();
+        }
+        return this;
+    }
+
     public TableProperty buildDynamicProperty() throws DdlException {
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)
                 && Boolean.valueOf(properties.get(DynamicPartitionProperty.ENABLE))
