@@ -161,7 +161,8 @@ public class PropertyAnalyzer {
         }
 
         Preconditions.checkNotNull(storageMedium);
-        return new DataProperty(storageMedium, coolDownTimeStamp);
+        // TODO test
+        return new DataProperty(storageMedium, coolDownTimeStamp, TStorageMedium.S3, "test", 0);
     }
     
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {

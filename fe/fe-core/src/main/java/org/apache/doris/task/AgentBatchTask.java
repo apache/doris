@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TReleaseSnapshotRequest;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
+import org.apache.doris.thrift.TStorageMigrationReqV2;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
 import org.apache.doris.thrift.TUploadReq;
@@ -370,6 +371,16 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setCompactionReq(request);
+                return tAgentTaskRequest;
+            }
+            case STORAGE_MEDIUM_MIGRATE_V2: {
+                StorageMediaMigrationV2Task migrationV2Task = (StorageMediaMigrationV2Task) task;
+                TStorageMigrationReqV2 request = migrationV2Task.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setStorageMigrationReqV2(request);
+                tAgentTaskRequest.setResourceInfo(migrationV2Task.getResourceInfo());
                 return tAgentTaskRequest;
             }
             default:

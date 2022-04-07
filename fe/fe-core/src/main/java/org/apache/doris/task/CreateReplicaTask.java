@@ -22,14 +22,17 @@ import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TOlapTableIndex;
+import org.apache.doris.thrift.TS3StorageParam;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageParam;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletSchema;
 import org.apache.doris.thrift.TTabletType;
@@ -265,6 +268,22 @@ public class CreateReplicaTask extends AgentTask {
         }
 
         createTabletReq.setTabletType(tabletType);
+        if (storageMedium == TStorageMedium.S3) {
+            TStorageParam storageParam = new TStorageParam();
+            TS3StorageParam s3StorageParam = new TS3StorageParam();
+            s3StorageParam.setS3Endpoint(Config.default_remote_storage_s3_endpoint);
+            s3StorageParam.setS3Region(Config.default_remote_storage_s3_region);
+            s3StorageParam.setS3Ak(Config.default_remote_storage_s3_ak);
+            s3StorageParam.setS3Sk(Config.default_remote_storage_s3_sk);
+            s3StorageParam.setS3MaxConn(Config.default_remote_storage_s3_max_conn);
+            s3StorageParam.setS3RequestTimeoutMs(Config.default_remote_storage_s3_request_timeout_ms);
+            s3StorageParam.setS3ConnTimeoutMs(Config.default_remote_storage_s3_conn_timeout_ms);
+            s3StorageParam.setRootPath(Config.default_remote_storage_s3_root_path);
+            storageParam.setS3StorageParam(s3StorageParam);
+            storageParam.setStorageMedium(storageMedium);
+            storageParam.setStorageName(Config.default_remote_storage_name);
+            createTabletReq.setStorageParam(storageParam);
+        }
         return createTabletReq;
     }
 }

@@ -22,6 +22,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TStorageMedium;
+
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -37,6 +38,26 @@ public class DataProperty implements Writable {
     private TStorageMedium storageMedium;
     @SerializedName(value =  "cooldownTimeMs")
     private long cooldownTimeMs;
+    @SerializedName(value =  "remoteColdStorageMedium")
+    private TStorageMedium remoteColdStorageMedium;
+    @SerializedName(value =  "remoteStorageName")
+    private String remoteStorageName;
+    @SerializedName(value =  "remoteCooldownTimeMs")
+    private long remoteCooldownTimeMs;
+
+    public enum MigrationState {
+        NONE, RUNNING
+    }
+
+    MigrationState migrationState = MigrationState.NONE;
+
+    public MigrationState getMigrationState() {
+        return migrationState;
+    }
+
+    public void setMigrationState(MigrationState migrationState) {
+        this.migrationState = migrationState;
+    }
 
     private DataProperty() {
         // for persist
@@ -50,10 +71,17 @@ public class DataProperty implements Writable {
         } else {
             this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         }
+        this.remoteColdStorageMedium = TStorageMedium.HDD;
+        this.remoteStorageName = "";
+        this.remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
     }
 
-    public DataProperty(TStorageMedium medium, long cooldown) {
+    public DataProperty(TStorageMedium medium, long cooldown, TStorageMedium remoteColdStorageMedium,
+                        String remoteStorageName, long remoteCooldownTimeMs) {
         this.storageMedium = medium;
+        this.remoteCooldownTimeMs = remoteCooldownTimeMs;
+        this.remoteColdStorageMedium = remoteColdStorageMedium;
+        this.remoteStorageName = remoteStorageName;
         this.cooldownTimeMs = cooldown;
     }
 
@@ -63,6 +91,18 @@ public class DataProperty implements Writable {
 
     public long getCooldownTimeMs() {
         return cooldownTimeMs;
+    }
+
+    public TStorageMedium getRemoteColdStorageMedium() {
+        return remoteColdStorageMedium;
+    }
+
+    public String getRemoteStorageName() {
+        return remoteStorageName;
+    }
+
+    public long getRemoteCooldownTimeMs() {
+        return remoteCooldownTimeMs;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
@@ -75,11 +115,17 @@ public class DataProperty implements Writable {
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, storageMedium.name());
         out.writeLong(cooldownTimeMs);
+        Text.writeString(out, remoteColdStorageMedium.name());
+        Text.writeString(out, remoteStorageName);
+        out.writeLong(remoteCooldownTimeMs);
     }
 
     public void readFields(DataInput in) throws IOException {
         storageMedium = TStorageMedium.valueOf(Text.readString(in));
         cooldownTimeMs = in.readLong();
+        remoteColdStorageMedium = TStorageMedium.valueOf(Text.readString(in));
+        remoteStorageName = Text.readString(in);
+        remoteCooldownTimeMs = in.readLong();
     }
 
     @Override
@@ -95,7 +141,9 @@ public class DataProperty implements Writable {
         DataProperty other = (DataProperty) obj;
 
         return this.storageMedium == other.storageMedium
-                && this.cooldownTimeMs == other.cooldownTimeMs;
+                && this.cooldownTimeMs == other.cooldownTimeMs
+                && this.remoteStorageName == other.remoteStorageName
+                && this.remoteCooldownTimeMs == other.remoteCooldownTimeMs;
     }
 
     @Override
@@ -103,6 +151,8 @@ public class DataProperty implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
         sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("].");
+        sb.append("Remote storage name[").append(this.remoteStorageName).append("]. ");
+        sb.append("Remote cool down[").append(TimeUtils.longToTimeString(remoteCooldownTimeMs)).append("].");
         return sb.toString();
     }
 }

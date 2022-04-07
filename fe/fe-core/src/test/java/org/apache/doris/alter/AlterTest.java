@@ -387,13 +387,16 @@ public class AlterTest {
         stmt = "alter table test.tbl4 modify partition (p2, p3, p4) set ('storage_medium' = 'HDD')";
         DateLiteral dateLiteral = new DateLiteral("9999-12-31 00:00:00", Type.DATETIME);
         long coolDownTimeMs = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-        DataProperty oldDataProperty = new DataProperty(TStorageMedium.SSD, coolDownTimeMs);
+        DataProperty oldDataProperty = new DataProperty(
+                TStorageMedium.SSD, coolDownTimeMs, TStorageMedium.HDD, "", DataProperty.MAX_COOLDOWN_TIME_MS);
         partitionList = Lists.newArrayList(p2, p3, p4);
         for (Partition partition : partitionList) {
             Assert.assertEquals(oldDataProperty, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
         }
         alterTable(stmt, false);
-        DataProperty newDataProperty = new DataProperty(TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS);
+        DataProperty newDataProperty = new DataProperty(
+                TStorageMedium.HDD, DataProperty.MAX_COOLDOWN_TIME_MS, TStorageMedium.HDD,
+                "", DataProperty.MAX_COOLDOWN_TIME_MS);
         for (Partition partition : partitionList) {
             Assert.assertEquals(newDataProperty, tbl4.getPartitionInfo().getDataProperty(partition.getId()));
         }

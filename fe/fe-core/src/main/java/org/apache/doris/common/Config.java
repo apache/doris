@@ -784,6 +784,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int alter_table_timeout_second = 86400; // 1day
     /**
+     * Maximal timeout of migration request. Set long enough to fit your table data size.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int migration_timeout_second = 86400; // 1day
+    /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
      */
@@ -1547,6 +1552,16 @@ public class Config extends ConfigBase {
     public static int default_schema_change_scheduler_interval_millisecond = 500;
 
     /*
+     * The job scheduling interval of the migration handler.
+     * The user should not set this parameter.
+     * This parameter is currently only used in the regression test environment to appropriately
+     * reduce the running speed of the schema change job to test the correctness of the system
+     * in the case of multiple tasks in parallel.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int default_migration_scheduler_interval_millisecond = 500;
+
+    /*
      * If set to true, the thrift structure of query plan will be sent to BE in compact mode.
      * This will significantly reduce the size of rpc data, which can reduce the chance of rpc timeout.
      * But this may slightly decrease the concurrency of queries, because compress and decompress cost more CPU.
@@ -1657,5 +1672,32 @@ public class Config extends ConfigBase {
      * */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = false;
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static String default_remote_storage_name = "local";
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static String default_remote_storage_s3_ak = "";
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static String default_remote_storage_s3_sk = "";
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static String default_remote_storage_s3_endpoint = "";
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static String default_remote_storage_s3_region = "";
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static int default_remote_storage_s3_max_conn = 50;
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static int default_remote_storage_s3_request_timeout_ms = 3000;
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static int default_remote_storage_s3_conn_timeout_ms = 1000;
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static String default_remote_storage_s3_root_path = "";
 
 }

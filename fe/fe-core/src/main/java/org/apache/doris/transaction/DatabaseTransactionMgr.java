@@ -490,7 +490,9 @@ public class DatabaseTransactionMgr {
                     }
                 }
 
-                if (table.getState() == OlapTable.OlapTableState.ROLLUP || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
+                if (table.getState() == OlapTable.OlapTableState.ROLLUP
+                        || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE
+                        || table.getState() == OlapTable.OlapTableState.MIGRATION) {
                     /*
                      * This is just a optimization that do our best to not let publish version tasks
                      * timeout if table is under rollup or schema change. Because with a short

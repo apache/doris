@@ -25,18 +25,24 @@ import org.junit.Test;
 public class DataPropertyTest {
 
     @Test
-    public void tesCooldownTimeMs() throws Exception {
+    public void testCooldownTimeMs() throws Exception {
         Config.default_storage_medium = "ssd";
         DataProperty dataProperty = DataProperty.DEFAULT_DATA_PROPERTY;
         Assert.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
+        Assert.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getRemoteCooldownTimeMs());
 
         dataProperty = new DataProperty(TStorageMedium.SSD);
         Assert.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
+        Assert.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getRemoteCooldownTimeMs());
 
-        dataProperty = new DataProperty(TStorageMedium.SSD, System.currentTimeMillis() + 24 * 3600 * 1000L);
-        Assert.assertEquals(System.currentTimeMillis() + 24 * 3600 * 1000L, dataProperty.getCooldownTimeMs());
+        long curTime = System.currentTimeMillis();
+        dataProperty = new DataProperty(TStorageMedium.SSD, curTime + 24 * 3600 * 1000L, TStorageMedium.HDD,
+                "", curTime + 30 * 3600 * 1000L);
+        Assert.assertEquals(curTime + 24 * 3600 * 1000L, dataProperty.getCooldownTimeMs());
+        Assert.assertEquals(curTime + 30 * 3600 * 1000L, dataProperty.getRemoteCooldownTimeMs());
 
         dataProperty = new DataProperty(TStorageMedium.HDD);
         Assert.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
+        Assert.assertEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getRemoteCooldownTimeMs());
     }
 }

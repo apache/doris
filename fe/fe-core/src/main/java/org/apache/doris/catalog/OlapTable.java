@@ -100,7 +100,8 @@ public class OlapTable extends Table {
          * change back to SCHEMA_CHANGE or ROLLUP after table is stable, and continue doing alter operation.
          * This state is a in-memory state and no need to persist.
          */
-        WAITING_STABLE
+        WAITING_STABLE,
+        MIGRATION
     }
 
     private volatile OlapTableState state;
@@ -1257,7 +1258,8 @@ public class OlapTable extends Table {
                 // set storage medium to HDD for backup job, because we want that the backuped table
                 // can be able to restored to another Doris cluster without SSD disk.
                 // But for other operation such as truncate table, keep the origin storage medium.
-                copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
+                copied.getPartitionInfo().setDataProperty(
+                        partition.getId(), new DataProperty(TStorageMedium.HDD));
             }
             for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
                 idx.setState(IndexState.NORMAL);

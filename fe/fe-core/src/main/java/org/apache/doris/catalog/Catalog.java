@@ -22,6 +22,7 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.alter.MaterializedViewHandler;
+import org.apache.doris.alter.MigrationHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
@@ -5017,6 +5018,10 @@ public class Catalog {
 
     public MaterializedViewHandler getRollupHandler() {
         return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
+    }
+
+    public MigrationHandler getMigrationHandler() {
+        return (MigrationHandler) this.alter.getMigrationHandler();
     }
 
     public SystemHandler getClusterHandler() {
