@@ -134,6 +134,7 @@ public class OlapScanNode extends ScanNode {
     private int selectedPartitionNum = 0;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
+    private long tmpRowCount = 0;
 
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
@@ -197,6 +198,11 @@ public class OlapScanNode extends ScanNode {
     // only used for UT
     public void setSelectedPartitionIds(Collection<Long> selectedPartitionIds) {
         this.selectedPartitionIds = selectedPartitionIds;
+    }
+
+    @Override
+    public NodeType getNodeType() {
+        return NodeType.OLAP_SCAN_NODE;
     }
 
     /**
@@ -338,16 +344,8 @@ public class OlapScanNode extends ScanNode {
         computePartitionInfo();
         computeTupleState(analyzer);
 
-        /**
-         * Compute InAccurate cardinality before mv selector and tablet pruning.
-         * - Accurate statistical information relies on the selector of materialized views and bucket reduction.
-         * - However, Those both processes occur after the reorder algorithm is completed.
-         * - When Join reorder is turned on, the cardinality must be calculated before the reorder algorithm.
-         * - So only an inaccurate cardinality can be calculated here.
-         */
-        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            computeInaccurateCardinality();
-        }
+        // compute for incorrect cardinality
+        computeTmpRowCount();
     }
 
     @Override
@@ -411,16 +409,18 @@ public class OlapScanNode extends ScanNode {
      * 2. Apply conjunct
      * 3. Apply limit
      */
-    private void computeInaccurateCardinality() {
+    private void computeTmpRowCount() {
         // step1: Calculate how many rows were scanned
-        cardinality = 0;
+        tmpRowCount = 0;
         for (long selectedPartitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(selectedPartitionId);
             final MaterializedIndex baseIndex = partition.getBaseIndex();
-            cardinality += baseIndex.getRowCount();
+            tmpRowCount += baseIndex.getRowCount();
         }
-        applyConjunctsSelectivity();
-        capCardinalityAtLimit();
+    }
+
+    public long getTmpRowCount() {
+        return tmpRowCount;
     }
 
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
@@ -563,7 +563,17 @@ public class OlapScanNode extends ScanNode {
 
             result.add(scanRangeLocations);
         }
+
         // FIXME(dhc): we use cardinality here to simulate ndv
+        // update statsDeriveResult for real statistics
+        statsDeriveResult.setRowCount(cardinality);
+        for (Map.Entry<Long, Long> entry : statsDeriveResult.getColumnToNdv().entrySet()) {
+            if (entry.getValue() > 0) {
+                cardinality = Math.min(cardinality, entry.getValue());
+            }
+        }
+        statsDeriveResult.setCardinality(cardinality);
+
         if (tablets.size() == 0) {
             desc.setCardinality(0);
         } else {
