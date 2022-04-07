@@ -160,3 +160,7 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 * File spliting will ensure that a row of data is stored in a single file. Therefore, the size of the file is not strictly equal to `max_file_size`.
 * For functions whose output is invisible characters, such as BITMAP and HLL types, the output is `\N`, which is NULL.
 * At present, the output type of some geo functions, such as `ST_Point` is VARCHAR, but the actual output value is an encoded binary character. Currently these functions will output garbled characters. For geo functions, use `ST_AsText` for output.
+
+## More Help
+
+For more detailed syntax and best practices for using OUTFILE, please refer to the [OUTFILE](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/OUTFILE.html) command manual, you can also More help information can be obtained by typing `HELP OUTFILE` at the command line of the MySql client.

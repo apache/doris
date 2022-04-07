@@ -154,3 +154,7 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 * 文件切分会保证一行数据完整的存储在单一文件中。因此文件的大小并不严格等于 `max_file_size`。
 * 对于部分输出为非可见字符的函数，如 BITMAP、HLL 类型，输出为 `\N`，即 NULL。
 * 目前部分地理信息函数，如 `ST_Point` 的输出类型为 VARCHAR，但实际输出值为经过编码的二进制字符。当前这些函数会输出乱码。对于地理函数，请使用 `ST_AsText` 进行输出。
+
+## 更多帮助
+
+关于 OUTFILE 使用的更多详细语法及最佳实践，请参阅 [OUTFILE](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/OUTFILE.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP OUTFILE` 获取更多帮助信息。

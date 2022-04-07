@@ -101,7 +101,7 @@ For detailed usage of Export, please refer to [SHOW EXPORT](../../sql-manual/sql
 
 Export's detailed commands can be passed through `HELP EXPORT;` Examples are as follows:
 
-```
+```sql
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
 [WHERE [expr]]
@@ -131,24 +131,18 @@ WITH BROKER "hdfs"
 
 After submitting a job, the job status can be imported by querying the   [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html)  command. The results are as follows:
 
-```
-mysql> SHOW EXPORT;
-     JobId: 14008
-     Label: mylabel
-     State: FINISHED
-  Progress: 100%
-  TaskInfo: {"partitions":["*"],"exec mem limit":2147483648,"column separator":",","line delimiter":"\n","tablet num":1,"broker":"hdfs","coord num":1,"db":"default_cluster:db1","tbl":"tbl3"}
-      Path: bos://bj-test-cmy/export/
-CreateTime: 2019-06-25 17:08:24
- StartTime: 2019-06-25 17:08:28
-FinishTime: 2019-06-25 17:08:34
-   Timeout: 3600
-  ErrorMsg: N/A
+```sql
+mysql> show EXPORT;
++----------+----------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------+---------------------+---------------------+---------------------+---------+----------+
+| JobId    | State    | Progress | TaskInfo                                                                                                                                                                                                                                            | Path                                            | CreateTime          | StartTime           | FinishTime          | Timeout | ErrorMsg |
++----------+----------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------+---------------------+---------------------+---------------------+---------+----------+
+| 14008    | FINISHED | 100%     | {"partitions":["*"],"exec mem limit":2147483648,"column separator":",","line delimiter":"\n","tablet num":1,"broker":"hdfs","coord num":1,"db":"default_cluster:db1","tbl":"tbl3"}                 											       | bos://bj-test-cmy/export/                       | 2019-06-25 17:08:24 | 2019-06-25 17:08:28 | 2019-06-25 17:08:34 | 3600    | NULL     |
++----------+----------+----------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-------------------------------------------------+---------------------+---------------------+---------------------+---------+----------+
+1 row in set (0.01 sec)
 ```
 
 
 * JobId: The unique ID of the job
-* Label: Job identifier
 * State: Job status:
 	* PENDING: Jobs to be Scheduled
 	* EXPORTING: Data Export

@@ -617,7 +617,8 @@ module.exports = [
                   "INSERT",
                   "UPDATE",
                 ],
-              },             
+              },
+              "OUTFILE"             
             ],
           },
           {
