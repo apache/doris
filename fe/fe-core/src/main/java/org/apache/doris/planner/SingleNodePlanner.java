@@ -1713,6 +1713,7 @@ public class SingleNodePlanner {
                 break;
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode) {
+            PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
             scanNode.setSortColumn(tblRef.getSortColumn());
         }
 
