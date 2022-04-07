@@ -58,13 +58,13 @@ Browse the document, you can deepen your understanding of Doris, can also help y
 
 If you are interested in improving the quality of documents, whether it is revising the address of a page, correcting a link, and writing a better introductory document, we are very welcome!
 
-Most of our documents are written in markdown format, and you can modify and submit document changes directly through `docs/` in [GitHub](https://github.com/apache/incubator-doris). If you submit code changes, you can refer to [Pull Request](./pull-request.md).
+Most of our documents are written in markdown format, and you can modify and submit document changes directly through `docs/` in [GitHub](https://github.com/apache/incubator-doris). If you submit code changes, you can refer to [Pull Request](./docs/en/community/how-to-contribute/pull-request.md).
 
 ## If a Bug or problem is found
 
 If a Bug or problem is found, you can directly raise a new Issue through GitHub's [Issues](https://github.com/apache/incubator-doris/issues/new/choose), and we will have someone deal with it regularly.
 
-You can also fix it yourself by reading the analysis code (of course, it's better to talk to us before that, maybe someone has fixed the same problem) and submit a [Pull Request](./pull-request.md).
+You can also fix it yourself by reading the analysis code (of course, it's better to talk to us before that, maybe someone has fixed the same problem) and submit a [Pull Request](./docs/en/community/how-to-contribute/pull-request.md).
 
 ## Modify the code and submit PR (Pull Request)
 
@@ -72,4 +72,4 @@ You can download the code, compile and install it, deploy and run it for a try (
 
 Whether it's fixing Bugs or adding Features, we're all very welcome. If you want to submit code to Doris, you need to create a new branch for your submitted code from the fork code library on GitHub to your project space, add the source project upstream, and submit PR.
 
-About how to submit a PR refer to [Pull Request](./pull-request.md).
+About how to submit a PR refer to [Pull Request](./docs/en/community/how-to-contribute/pull-request.md).
