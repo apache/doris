@@ -338,14 +338,12 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
     std::unordered_set<std::string> disk_set;
     for (auto& scan_range : _scan_ranges) {
         auto tablet_id = scan_range->tablet_id;
-        int32_t schema_hash = strtoul(scan_range->schema_hash.c_str(), nullptr, 10);
         std::string err;
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                tablet_id, schema_hash, true, &err);
+                tablet_id, true, &err);
         if (tablet == nullptr) {
             std::stringstream ss;
-            ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
-               << ", reason: " << err;
+            ss << "failed to get tablet: " << tablet_id << ", reason: " << err;
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }

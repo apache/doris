@@ -41,28 +41,23 @@ const static std::string HEADER_JSON = "application/json";
 Status MetaAction::_handle_header(HttpRequest* req, std::string* json_meta) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
-    std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);
     std::string req_enable_base64 = req->param(ENABLE_BYTE_TO_BASE64);
     uint64_t tablet_id = 0;
-    uint32_t schema_hash = 0;
     bool enable_byte_to_base64 = false;
     if (std::strcmp(req_enable_base64.c_str(), "true") == 0) {
         enable_byte_to_base64 = true;
     }
     try {
         tablet_id = std::stoull(req_tablet_id);
-        schema_hash = std::stoul(req_schema_hash);
     } catch (const std::exception& e) {
         LOG(WARNING) << "invalid argument.tablet_id:" << req_tablet_id
-                     << ", schema_hash:" << req_schema_hash
                      << ", enable_byte_to_base64: " << req_enable_base64;
         return Status::InternalError(strings::Substitute("convert failed, $0", e.what()));
     }
 
-    TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
+        LOG(WARNING) << "no tablet for tablet_id:" << tablet_id;
         return Status::InternalError("no tablet exist");
     }
     TabletMetaSharedPtr tablet_meta(new TabletMeta());

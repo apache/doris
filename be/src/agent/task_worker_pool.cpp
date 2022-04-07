@@ -378,8 +378,7 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         } else {
             ++_s_report_version;
             // get path hash of the created tablet
-            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                    create_tablet_req.tablet_id, create_tablet_req.tablet_schema.schema_hash);
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(create_tablet_req.tablet_id);
             DCHECK(tablet != nullptr);
             TTabletInfo tablet_info;
             tablet_info.tablet_id = tablet->table_id();
@@ -433,7 +432,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         TStatus task_status;
         string err;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, false, &err);
+                drop_tablet_req.tablet_id, false, &err);
         if (dropped_tablet != nullptr) {
             OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
                     drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
@@ -824,7 +823,7 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
 
         for (auto tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                    tablet_meta_info.tablet_id, tablet_meta_info.schema_hash);
+                    tablet_meta_info.tablet_id);
             if (tablet == nullptr) {
                 LOG(WARNING) << "could not find tablet when update partition id"
                              << " tablet_id=" << tablet_meta_info.tablet_id
@@ -977,11 +976,9 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
 OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& req,
                                                   TabletSharedPtr& tablet, DataDir** dest_store) {
     int64_t tablet_id = req.tablet_id;
-    int32_t schema_hash = req.schema_hash;
-    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        LOG(WARNING) << "can't find tablet. tablet_id= " << tablet_id
-                     << " schema_hash=" << schema_hash;
+        LOG(WARNING) << "can't find tablet. tablet_id= " << tablet_id;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -1552,10 +1549,9 @@ void TaskWorkerPool::_move_dir_thread_callback() {
 Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
                                       const std::string& src, int64_t job_id, bool overwrite) {
     TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id
-                  << ", schema hash:" << schema_hash;
+        LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id;
         return Status::InvalidArgument("Could not find tablet");
     }
 
