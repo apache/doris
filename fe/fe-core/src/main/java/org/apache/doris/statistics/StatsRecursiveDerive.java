@@ -31,13 +31,6 @@ public class StatsRecursiveDerive {
     private static class Inner {
         private static final StatsRecursiveDerive INSTANCE = new StatsRecursiveDerive();
     }
-
-    /**
-     * Recursively complete the derivation of statistics for this node and all its children
-     * @param node
-     * This parameter is an input and output parameter,
-     * which will store the derivation result of statistical information in the corresponding node
-     */
     public void statsRecursiveDerive(PlanNode node) throws UserException {
         if (node.getStatsDeriveResult() != null) {
             return;
