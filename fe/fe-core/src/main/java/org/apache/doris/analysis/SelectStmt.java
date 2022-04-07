@@ -877,7 +877,7 @@ public class SelectStmt extends QueryStmt {
         } else {
             expandStar(analyzer, tblName, excludedColLabels);
         }
-        return excludedIndex;
+        return excludedIndex - 1;
     }
 
     /**
