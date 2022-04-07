@@ -358,7 +358,7 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
-if (USE_LLD)
+if (USE_LLD AND NOT MAKE_TEST)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
 endif ()
 
@@ -691,10 +691,6 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
 set(BUILD_SHARED_LIBS OFF)
 
 if (${MAKE_TEST} STREQUAL "ON")
-    if (USE_LLD)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fuse-ld=lld")
-    endif ()
-
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
     SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
     add_definitions(-DBE_TEST)
