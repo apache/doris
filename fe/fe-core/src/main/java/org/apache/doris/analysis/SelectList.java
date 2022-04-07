@@ -69,6 +69,10 @@ public class SelectList {
         items.add(item);
     }
 
+    public void addItems(SelectList addedItems) {
+        items.addAll(addedItems.getItems());
+    }
+
     public boolean isDistinct() {
         return isDistinct;
     }

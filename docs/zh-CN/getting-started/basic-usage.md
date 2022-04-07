@@ -339,6 +339,16 @@ MySQL> SELECT * FROM table1 LIMIT 3;
 +--------+----------+----------+------+
 3 rows in set (0.01 sec)
 
+MySQL> SELECT * exclude (username, citycode) FROM table1 LIMIT 3;
++--------+------+
+| siteid | pv   |
++--------+------+
+|      2 |    2 |
+|      5 |    3 |
+|      3 |    2 |
++--------+----------+------+
+3 rows in set (0.01 sec)
+
 MySQL> SELECT * FROM table1 ORDER BY citycode;
 +--------+----------+----------+------+
 | siteid | citycode | username | pv   |
@@ -352,7 +362,7 @@ MySQL> SELECT * FROM table1 ORDER BY citycode;
 5 rows in set (0.01 sec)
 ```
 
-### 3.3 Join 查询
+### 3.2 Join 查询
 
 示例:
 
@@ -366,7 +376,7 @@ MySQL> SELECT SUM(table1.pv) FROM table1 JOIN table2 WHERE table1.siteid = table
 1 row in set (0.20 sec)
 ```
 
-### 3.4 子查询
+### 3.3 子查询
 
 示例:
 

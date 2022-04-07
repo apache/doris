@@ -341,8 +341,8 @@ nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
 nonterminal Boolean backup_exclude_or_not;
 nonterminal RestoreStmt restore_stmt;
 
-nonterminal SelectList select_clause, select_list, select_sublist;
-nonterminal SelectListItem select_list_item, star_expr;
+nonterminal SelectList select_clause, select_list, select_sublist, exclude_list, exclude_sublist;
+nonterminal SelectListItem select_list_item, star_expr, exclude_list_item;
 nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr, expr_or_default;
 nonterminal Expr set_expr_or_default;
 nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
@@ -3994,6 +3994,13 @@ select_list ::=
         list.addItem(SelectListItem.createStarItem(null));
         RESULT = list;
     :}
+    | STAR exclude_list:excludeList
+    {:
+        SelectList list = new SelectList();
+        list.addItem(SelectListItem.createStarItem(null));
+        list.addItems(excludeList);
+        RESULT = list;
+    :}
     ;
 
 select_sublist ::=
@@ -4002,16 +4009,18 @@ select_sublist ::=
         list.addItem(item);
         RESULT = list;
     :}
-    | select_sublist:list COMMA STAR
+    | select_sublist:list COMMA STAR exclude_list:excludeList
     {:
         list.addItem(SelectListItem.createStarItem(null));
+        list.addItems(excludeList);
         RESULT = list;
     :}
     // why not use "STAR COMMA select_sublist",for we analyze from left to right
-    | STAR COMMA select_list_item:item
+    | STAR exclude_list:excludeList COMMA select_list_item:item
     {:
         SelectList list = new SelectList();
         list.addItem(SelectListItem.createStarItem(null));
+        list.addItems(excludeList);
         list.addItem(item);
         RESULT = list;
     :}
@@ -4054,6 +4063,34 @@ select_alias ::=
     | STRING_LITERAL:l
     {:
         RESULT = l;
+    :}
+    ;
+
+exclude_list ::=
+    KW_EXCLUDE LPAREN exclude_sublist:list RPAREN
+    {:
+        RESULT = list;
+    :}
+    ;
+    
+exclude_sublist ::=
+    exclude_sublist:list COMMA exclude_list_item:item
+    {:
+        list.addItem(item);
+        RESULT = list;
+    :}
+    | exclude_list_item:item
+    {:
+        SelectList list = new SelectList();
+        list.addItem(item);
+        RESULT = list;
+    :}
+    ;
+
+exclude_list_item ::=
+    expr:expr
+    {:
+        RESULT = SelectListItem.createExcludedItem(expr, true);
     :}
     ;
 

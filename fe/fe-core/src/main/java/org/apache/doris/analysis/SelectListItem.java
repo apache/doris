@@ -24,6 +24,7 @@ public class SelectListItem {
     // for "[name.]*"
     private final TableName tblName;
     private final boolean isStar;
+    private final boolean isExcludedFromStar;
     private String alias;
 
     public SelectListItem(Expr expr, String alias) {
@@ -33,6 +34,16 @@ public class SelectListItem {
         this.alias = alias;
         this.tblName = null;
         this.isStar = false;
+        this.isExcludedFromStar = false;
+    }
+
+    private SelectListItem(Expr expr, Boolean isExcludedFromStar) {
+        super();
+        Preconditions.checkNotNull(expr);
+        this.expr = expr;
+        this.tblName = null;
+        this.isStar = false;
+        this.isExcludedFromStar = isExcludedFromStar;
     }
 
     private SelectListItem(TableName tblName) {
@@ -40,6 +51,7 @@ public class SelectListItem {
         this.expr = null;
         this.tblName = tblName;
         this.isStar = true;
+        this.isExcludedFromStar = false;
     }
 
     protected SelectListItem(SelectListItem other) {
@@ -50,6 +62,7 @@ public class SelectListItem {
         }
         tblName = other.tblName;
         isStar = other.isStar;
+        isExcludedFromStar = other.isExcludedFromStar;
         alias = other.alias;
     }
 
@@ -63,8 +76,17 @@ public class SelectListItem {
         return new SelectListItem(tblName);
     }
 
+    // select list item corresponding to "[exclude (item1[, item2, ...])]"
+    static public SelectListItem createExcludedItem(Expr expr, Boolean isExcludedFromStar) {
+        return new SelectListItem(expr, isExcludedFromStar);
+    }
+
     public boolean isStar() {
         return isStar;
+    }
+
+    public boolean isExcludedFromStar() {
+        return isExcludedFromStar;
     }
 
     public TableName getTblName() {
