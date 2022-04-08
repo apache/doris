@@ -358,6 +358,18 @@ public class BackupJob extends AbstractJob {
         taskProgress.clear();
         taskErrMsg.clear();
         AgentBatchTask batchTask = new AgentBatchTask();
+
+        // remove table which has no partition
+        tableRefs = tableRefs.stream().filter(tableRef -> {
+            String tblName = tableRef.getName().getTbl();
+            Table tbl = db.getTableNullable(tblName);
+            if (tbl != null && tbl.getType() == TableType.OLAP) {
+                OlapTable olapTable = (OlapTable) tbl;
+                return !olapTable.getAllPartitions().isEmpty();
+            }
+            return true;
+        }).collect(Collectors.toList());
+
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
             Table tbl = db.getTableNullable(tblName);
