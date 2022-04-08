@@ -120,14 +120,14 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(tablet.getCheckedVersion());
                         tabletInfo.add(replica.getVersionCount());
                         tabletInfo.add(replica.getPathHash());
-                        String metaUrl = String.format("http://%s:%d/api/meta/header/%d/%d",
+                        String metaUrl = String.format("http://%s:%d/api/meta/header/%d",
                                 backendMap.get(replica.getBackendId()).getHost(),
                                 backendMap.get(replica.getBackendId()).getHttpPort(),
                                 tabletId,
                                 replica.getSchemaHash());
                         tabletInfo.add(metaUrl);
                         String compactionUrl = String.format(
-                                "http://%s:%d/api/compaction/show?tablet_id=%d&schema_hash=%d",
+                                "http://%s:%d/api/compaction/show?tablet_id=%d",
                                 backendMap.get(replica.getBackendId()).getHost(),
                                 backendMap.get(replica.getBackendId()).getHttpPort(),
                                 tabletId,

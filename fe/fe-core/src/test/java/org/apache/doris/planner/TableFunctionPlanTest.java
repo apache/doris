@@ -184,11 +184,11 @@ public class TableFunctionPlanTest {
     public void errorParam() throws Exception {
         String sql = "explain select k1, e1 from db1.tbl1 lateral view explode_split(k2) tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(explainString.contains(FunctionCallExpr.UNKNOWN_TABLE_FUNCTION_MSG));
+        Assert.assertTrue(explainString.contains("No matching function with signature: explode_split(varchar(1))"));
 
         sql = "explain select k1, e1 from db1.tbl1 lateral view explode_split(k1) tmp as e1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(explainString.contains(FunctionCallExpr.UNKNOWN_TABLE_FUNCTION_MSG));
+        Assert.assertTrue(explainString.contains("No matching function with signature: explode_split(int(11))"));
     }
 
     /* Case2 table function in where stmt
@@ -526,5 +526,16 @@ public class TableFunctionPlanTest {
         String sql = "select k1,e1 from db1.v2 lateral view explode_split(k3,',') tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         Assert.assertTrue(!explainString.contains("Unknown column 'e1' in 'table list'"));
+    }
+
+
+    // The 'k1' column in 'd' view should be materialized
+    // Fix #8850
+    @Test
+    public void testLateralViewWithInlineViewBug() throws Exception {
+        String sql = "with d as (select k1+k1 as k1 from db1.table_for_view ) "
+                + "select k1 from d lateral view explode_split(k1,',') tmp as e1;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        Assert.assertTrue(!explainString.contains("Unexpected exception: org.apache.doris.analysis.FunctionCallExpr cannot be cast to org.apache.doris.analysis.SlotRef"));
     }
 }

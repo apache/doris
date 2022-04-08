@@ -402,7 +402,7 @@ public:
         return tracker == nullptr ? false : true;
     }
 
-    std::string id() { return _id; }
+    int64_t id() { return _id; }
 
     std::string debug_string() {
         std::stringstream msg;
@@ -467,7 +467,7 @@ private:
 
     std::string _label;
 
-    std::string _id;
+    int64_t _id;
 
     std::shared_ptr<MemTracker> _parent; // The parent of this tracker.
 

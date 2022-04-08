@@ -120,7 +120,10 @@ public:
         LOG(FATAL) << "get_permutation not supported in ColumnDictionary";
     }
 
-    void reserve(size_t n) override { _codes.reserve(n); }
+    void reserve(size_t n) override {
+        _reserve_size = n;
+        _codes.reserve(n);
+    }
 
     const char* get_family_name() const override { return "ColumnDictionary"; }
 
@@ -259,15 +262,15 @@ public:
 
     bool is_dict_code_converted() const { return _dict_code_converted; }
 
-    ColumnPtr convert_to_predicate_column_if_dictionary() override {
+    MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
         auto res = vectorized::PredicateColumnType<StringValue>::create();
-        size_t size = _codes.size();
-        res->reserve(size);
-        for (size_t i = 0; i < size; ++i) {
+        res->reserve(_reserve_size);
+        for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);
             auto value = _dict.get_value(code);
             res->insert_data(value.ptr, value.len);
         }
+        clear();
         _dict.clear();
         return res;
     }
@@ -365,6 +368,7 @@ public:
     };
 
 private:
+    size_t _reserve_size;
     bool _dict_inited = false;
     bool _dict_sorted = false;
     bool _dict_code_converted = false;

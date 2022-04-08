@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
 
@@ -28,12 +29,14 @@ import org.apache.doris.common.util.UnitTestUtil;
 
 import com.google.common.collect.Lists;
 
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 public class OlapTableTest {
 
@@ -73,4 +76,43 @@ public class OlapTableTest {
         
     }
 
+    @Test
+    public void testResetPropertiesForRestore() {
+        // restore with other key
+        String otherKey = "other_key";
+        String otherValue = "other_value";
+
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(otherKey, otherValue);
+        TableProperty tableProperty = new TableProperty(properties);
+
+        OlapTable olapTable = new OlapTable();
+        olapTable.setTableProperty(tableProperty);
+
+        olapTable.resetPropertiesForRestore();
+        Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
+        Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+
+        // restore with dynamic partition keys
+        properties = Maps.newHashMap();
+        properties.put(DynamicPartitionProperty.ENABLE, "true");
+        properties.put(DynamicPartitionProperty.TIME_UNIT, "HOUR");
+        properties.put(DynamicPartitionProperty.TIME_ZONE, "Asia/Shanghai");
+        properties.put(DynamicPartitionProperty.START, "-2147483648");
+        properties.put(DynamicPartitionProperty.END, "3");
+        properties.put(DynamicPartitionProperty.PREFIX, "dynamic");
+        properties.put(DynamicPartitionProperty.BUCKETS, "10");
+        properties.put(DynamicPartitionProperty.REPLICATION_NUM, "3");
+        properties.put(DynamicPartitionProperty.CREATE_HISTORY_PARTITION, "false");
+
+        tableProperty = new TableProperty(properties);
+        olapTable.setTableProperty(tableProperty);
+        olapTable.resetPropertiesForRestore();
+
+        Map<String, String> expectedProperties = Maps.newHashMap(properties);
+        expectedProperties.put(DynamicPartitionProperty.ENABLE, "false");
+        Assert.assertEquals(expectedProperties, olapTable.getTableProperty().getProperties());
+        Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
+        Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
+    }
 }

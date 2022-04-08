@@ -19,6 +19,7 @@
 
 #include "olap/tuple_reader.h"
 #include "olap/row.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -34,6 +35,7 @@ EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_h
 }
 
 OLAPStatus EngineChecksumTask::execute() {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
     OLAPStatus res = _compute_checksum();
     return res;
 } // execute
@@ -50,7 +52,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id, _schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id);
     if (nullptr == tablet.get()) {
         OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]", _tablet_id,
                          _schema_hash);

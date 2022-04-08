@@ -20,6 +20,7 @@
 #include "olap/lru_cache.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/tablets_channel.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -42,6 +43,7 @@ LoadChannel::~LoadChannel() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t index_id = params.index_id();
     std::shared_ptr<TabletsChannel> channel;
     {
@@ -66,6 +68,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
 
 Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
                               PTabletWriterAddBatchResult* response) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
@@ -152,6 +155,7 @@ bool LoadChannel::is_finished() {
 }
 
 Status LoadChannel::cancel() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     for (auto& it : _tablets_channels) {
         it.second->cancel();

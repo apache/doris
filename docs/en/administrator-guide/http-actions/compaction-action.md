@@ -56,7 +56,7 @@ This structure represents the id of the tablet that is performing the compaction
 ### Specify the compaction status of the tablet
 
 ```
-curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&schema_hash=yyyy
+curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx
 ```
 
 If the tablet does not exist, an error in JSON format is returned:
@@ -113,13 +113,13 @@ Explanation of results:
 ### Examples
 
 ```
-curl -X GET http://192.168.10.24:8040/api/compaction/show?tablet_id=10015\&schema_hash=1294206575
+curl -X GET http://192.168.10.24:8040/api/compaction/show?tablet_id=10015
 ```
 
 ## Manually trigger Compaction
 
 ```
-curl -X POST http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&schema_hash=yyyy\&compact_type=cumulative
+curl -X POST http://be_host:webserver_port/api/compaction/run?tablet_id=xxxx\&compact_type=cumulative
 ```
 
 The only one manual compaction task that can be performed at a moment, and the value range of compact_type is base or cumulative
@@ -159,13 +159,13 @@ Explanation of results:
 ### Examples
 
 ```
-curl -X POST http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&schema_hash=1294206575\&compact_type=cumulative
+curl -X POST http://192.168.10.24:8040/api/compaction/run?tablet_id=10015\&compact_type=cumulative
 ```
 
 ## Manual Compaction execution status
 
 ```
-curl -X GET http://be_host:webserver_port/api/compaction/run_status?tablet_id=xxxx\&schema_hash=yyyy
+curl -X GET http://be_host:webserver_port/api/compaction/run_status?tablet_id=xxxx
 ```
 If the tablet does not exist, an error in JSON format is returned:
 
@@ -184,7 +184,6 @@ If the tablet exists and the tablet is not running, JSON format is returned:
     "run_status" : false,
     "msg" : "this tablet_id is not running",
     "tablet_id" : 11308,
-    "schema_hash" : 700967178,
     "compact_type" : ""
 }
 ```
@@ -197,7 +196,6 @@ If the tablet exists and the tablet is running, JSON format is returned:
     "run_status" : true,
     "msg" : "this tablet_id is running",
     "tablet_id" : 11308,
-    "schema_hash" : 700967178,
     "compact_type" : "cumulative"
 }
 ```
@@ -209,5 +207,5 @@ Explanation of results:
 ### Examples
 
 ```
-curl -X GET http://192.168.10.24:8040/api/compaction/run_status?tablet_id=10015\&schema_hash=1294206575
+curl -X GET http://192.168.10.24:8040/api/compaction/run_status?tablet_id=10015
 

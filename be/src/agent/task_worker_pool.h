@@ -203,10 +203,9 @@ private:
     void _handle_report(TReportRequest& request, ReportType type);
 
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                                 int64_t signature, TTabletInfo* tablet_info);
+                            int64_t signature, TTabletInfo* tablet_info);
 
-    Status _move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                          const std::string& src, int64_t job_id, bool overwrite);
+    Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id, bool overwrite);
 
     OLAPStatus _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
                                       DataDir** dest_store);
