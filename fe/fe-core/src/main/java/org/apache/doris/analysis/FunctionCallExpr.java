@@ -89,8 +89,6 @@ public class FunctionCallExpr extends Expr {
 
     private boolean isRewrote = false;
 
-    public static final String UNKNOWN_TABLE_FUNCTION_MSG = "This table function not supported now";
-
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
     }
@@ -808,7 +806,7 @@ public class FunctionCallExpr extends Expr {
                 fn = getTableFunction(fnName.getFunction(), childTypes,
                         Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                 if (fn == null) {
-                    throw new AnalysisException(UNKNOWN_TABLE_FUNCTION_MSG);
+                    throw new AnalysisException(getFunctionNotFoundError(argTypes));
                 }
             } else {
                 // now first find function in built-in functions

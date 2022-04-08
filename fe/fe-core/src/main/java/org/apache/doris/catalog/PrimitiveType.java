@@ -247,8 +247,6 @@ public enum PrimitiveType {
         builder.put(VARCHAR, DECIMALV2);
         builder.put(VARCHAR, VARCHAR);
         builder.put(VARCHAR, STRING);
-        builder.put(VARCHAR, HLL);
-        builder.put(VARCHAR, BITMAP);
 
         // Varchar
         builder.put(STRING, BOOLEAN);
@@ -264,8 +262,6 @@ public enum PrimitiveType {
         builder.put(STRING, DECIMALV2);
         builder.put(STRING, VARCHAR);
         builder.put(STRING, STRING);
-        builder.put(STRING, HLL);
-        builder.put(STRING, BITMAP);
 
         // DecimalV2
         builder.put(DECIMALV2, BOOLEAN);
@@ -282,13 +278,9 @@ public enum PrimitiveType {
 
         // HLL
         builder.put(HLL, HLL);
-        builder.put(HLL, VARCHAR);
-        builder.put(HLL, STRING);
 
         // BITMAP
         builder.put(BITMAP, BITMAP);
-        builder.put(BITMAP, VARCHAR);
-        builder.put(BITMAP, STRING);
 
         //TIME
         builder.put(TIME, TIME);

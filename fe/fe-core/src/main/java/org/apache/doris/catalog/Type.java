@@ -209,6 +209,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.BITMAP);
     }
 
+    public boolean isObjectStored() {
+        return isHllType() || isBitmapType();
+    }
+
     public boolean isScalarType() {
         return this instanceof ScalarType;
     }
