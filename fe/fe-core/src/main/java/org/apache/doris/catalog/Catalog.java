@@ -6096,7 +6096,7 @@ public class Catalog {
         idToDb.remove(infoSchemaDb.getId());
     }
 
-    public void replayDropCluster(ClusterInfo info) {
+    public void replayDropCluster(ClusterInfo info) throws DdlException {
         tryLock(true);
         try {
             unprotectDropCluster(info, true/* is replay */);
