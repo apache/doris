@@ -31,6 +31,8 @@ suite("load") {
     }
 
     sql """ insert into test_join values(1),(2),(3),(4),(5) """
+    sql """ ALTER TABLE test_bucket_shuffle_join ADD PARTITION p202112 
+            VALUES LESS THAN ("2022-01-01 00:00:00") DISTRIBUTED BY HASH(id) BUCKETS 2;"""
     sql """ insert into test_bucket_shuffle_join values(1, "2021-12-01 00:00:00"),
         (2, "2021-12-01 00:00:00"), (3, "2021-12-01 00:00:00")"""
 }
