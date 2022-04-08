@@ -339,14 +339,14 @@ MySQL> SELECT * FROM table1 LIMIT 3;
 +--------+----------+----------+------+
 3 rows in set (0.01 sec)
 
-MySQL> SELECT * exclude (username, citycode) FROM table1 LIMIT 3;
+MySQL> SELECT * except (username, citycode) FROM table1 LIMIT 3;
 +--------+------+
 | siteid | pv   |
 +--------+------+
 |      2 |    2 |
 |      5 |    3 |
 |      3 |    2 |
-+--------+----------+------+
++--------+------+
 3 rows in set (0.01 sec)
 
 MySQL> SELECT * FROM table1 ORDER BY citycode;

@@ -24,7 +24,7 @@ public class SelectListItem {
     // for "[name.]*"
     private final TableName tblName;
     private final boolean isStar;
-    private final boolean isExcludedFromStar;
+    private final boolean isExceptedFromStar;
     private String alias;
 
     public SelectListItem(Expr expr, String alias) {
@@ -34,16 +34,16 @@ public class SelectListItem {
         this.alias = alias;
         this.tblName = null;
         this.isStar = false;
-        this.isExcludedFromStar = false;
+        this.isExceptedFromStar = false;
     }
 
-    private SelectListItem(Expr expr, Boolean isExcludedFromStar) {
+    private SelectListItem(Expr expr, Boolean isExceptedFromStar) {
         super();
         Preconditions.checkNotNull(expr);
         this.expr = expr;
         this.tblName = null;
         this.isStar = false;
-        this.isExcludedFromStar = isExcludedFromStar;
+        this.isExceptedFromStar = isExceptedFromStar;
     }
 
     private SelectListItem(TableName tblName) {
@@ -51,7 +51,7 @@ public class SelectListItem {
         this.expr = null;
         this.tblName = tblName;
         this.isStar = true;
-        this.isExcludedFromStar = false;
+        this.isExceptedFromStar = false;
     }
 
     protected SelectListItem(SelectListItem other) {
@@ -62,7 +62,7 @@ public class SelectListItem {
         }
         tblName = other.tblName;
         isStar = other.isStar;
-        isExcludedFromStar = other.isExcludedFromStar;
+        isExceptedFromStar = other.isExceptedFromStar;
         alias = other.alias;
     }
 
@@ -77,16 +77,16 @@ public class SelectListItem {
     }
 
     // select list item corresponding to "[exclude (item1[, item2, ...])]"
-    static public SelectListItem createExcludedItem(Expr expr, Boolean isExcludedFromStar) {
-        return new SelectListItem(expr, isExcludedFromStar);
+    static public SelectListItem createExceptedItem(Expr expr, Boolean isExceptedFromStar) {
+        return new SelectListItem(expr, isExceptedFromStar);
     }
 
     public boolean isStar() {
         return isStar;
     }
 
-    public boolean isExcludedFromStar() {
-        return isExcludedFromStar;
+    public boolean isExceptedFromStar() {
+        return isExceptedFromStar;
     }
 
     public TableName getTblName() {

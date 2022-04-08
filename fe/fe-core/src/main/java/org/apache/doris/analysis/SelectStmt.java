@@ -860,30 +860,30 @@ public class SelectStmt extends QueryStmt {
 
     private int resolveStar(int starPosition) throws AnalysisException {
         // find out excluded list
-        int excludedIndex = starPosition + 1;
-        for (; excludedIndex < selectList.getItems().size(); excludedIndex++) {
-            if (!selectList.getItems().get(excludedIndex).isExcludedFromStar()) {
+        int exceptedIndex = starPosition + 1;
+        for (; exceptedIndex < selectList.getItems().size(); exceptedIndex++) {
+            if (!selectList.getItems().get(exceptedIndex).isExceptedFromStar()) {
                 break;
             }
         }
-        List<String> excludedColLabels = selectList.getItems().subList(starPosition + 1, excludedIndex)
+        List<String> exceptedColLabels = selectList.getItems().subList(starPosition + 1, exceptedIndex)
                 .stream()
                 .map(SelectListItem::toColumnLabel)
                 .collect(Collectors.toList());
         // expand star [exclude excludedList]
         TableName tblName = selectList.getItems().get(starPosition).getTblName();
         if (tblName == null) {
-            expandStar(analyzer, excludedColLabels);
+            expandStar(analyzer, exceptedColLabels);
         } else {
-            expandStar(analyzer, tblName, excludedColLabels);
+            expandStar(analyzer, tblName, exceptedColLabels);
         }
-        return excludedIndex - 1;
+        return exceptedIndex - 1;
     }
 
     /**
      * Expand "*" select list item.
      */
-    private void expandStar(Analyzer analyzer, List<String> excludedColLabels) throws AnalysisException {
+    private void expandStar(Analyzer analyzer, List<String> exceptedColLabels) throws AnalysisException {
         if (fromClause_.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
@@ -894,11 +894,11 @@ public class SelectStmt extends QueryStmt {
             }
             expandStar(new TableName(tableRef.getAliasAsName().getDb(),
                             tableRef.getAliasAsName().getTbl()),
-                    tableRef.getDesc(), excludedColLabels);
+                    tableRef.getDesc(), exceptedColLabels);
 
             if (tableRef.lateralViewRefs != null) {
                 for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
-                    expandStar(lateralViewRef.getName(), lateralViewRef.getDesc(), excludedColLabels);
+                    expandStar(lateralViewRef.getName(), lateralViewRef.getDesc(), exceptedColLabels);
                 }
             }
         }
@@ -907,13 +907,13 @@ public class SelectStmt extends QueryStmt {
     /**
      * Expand "<tbl>.*" select list item.
      */
-    private void expandStar(Analyzer analyzer, TableName tblName, List<String> excludedColLabels) throws AnalysisException {
+    private void expandStar(Analyzer analyzer, TableName tblName, List<String> exceptedColLabels) throws AnalysisException {
         Collection<TupleDescriptor> descs = analyzer.getDescriptor(tblName);
         if (descs == null || descs.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, tblName.getTbl(), tblName.getDb());
         }
         for (TupleDescriptor desc : descs) {
-            expandStar(tblName, desc, excludedColLabels);
+            expandStar(tblName, desc, exceptedColLabels);
         }
     }
 
@@ -921,9 +921,9 @@ public class SelectStmt extends QueryStmt {
      * Expand "*" for a particular tuple descriptor by appending
      * refs for each column to selectListExprs.
      */
-    private void expandStar(TableName tblName, TupleDescriptor desc, List<String> excludedColLabels) {
+    private void expandStar(TableName tblName, TupleDescriptor desc, List<String> exceptedColLabels) {
         for (Column col : desc.getTable().getBaseSchema()) {
-            if (excludedColLabels.contains(col.getName())) {
+            if (exceptedColLabels.contains(col.getName())) {
                 continue;
             }
             resultExprs.add(new SlotRef(tblName, col.getName()));
@@ -1389,7 +1389,7 @@ public class SelectStmt extends QueryStmt {
 
         // select clause
         for (SelectListItem item : selectList.getItems()) {
-            if (item.isStar() || item.isExcludedFromStar()) {
+            if (item.isStar() || item.isExceptedFromStar()) {
                 continue;
             }
             // register expr id
@@ -1504,7 +1504,7 @@ public class SelectStmt extends QueryStmt {
         // subquery
         List<Subquery> subqueryExprs = Lists.newArrayList();
         for (SelectListItem item : selectList.getItems()) {
-            if (item.isStar() || item.isExcludedFromStar()) {
+            if (item.isStar() || item.isExceptedFromStar()) {
                 continue;
             }
             item.setExpr(rewrittenExprMap.get(item.getExpr().getId().toString()));

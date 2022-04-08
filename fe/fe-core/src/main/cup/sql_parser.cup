@@ -341,8 +341,8 @@ nonterminal AbstractBackupTableRefClause opt_backup_table_ref_list;
 nonterminal Boolean backup_exclude_or_not;
 nonterminal RestoreStmt restore_stmt;
 
-nonterminal SelectList select_clause, select_list, select_sublist, exclude_list, exclude_sublist;
-nonterminal SelectListItem select_list_item, star_expr, exclude_list_item;
+nonterminal SelectList select_clause, select_list, select_sublist, except_list, except_sublist;
+nonterminal SelectListItem select_list_item, star_expr, except_list_item;
 nonterminal Expr expr, non_pred_expr, arithmetic_expr, timestamp_arithmetic_expr, expr_or_default;
 nonterminal Expr set_expr_or_default;
 nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
@@ -544,6 +544,7 @@ precedence left KW_LIKE, KW_REGEXP;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
+precedence left KW_EXCEPT;
 precedence left BITAND, BITOR, BITXOR;
 precedence left KW_PIPE;
 precedence left BITNOT;
@@ -3994,11 +3995,11 @@ select_list ::=
         list.addItem(SelectListItem.createStarItem(null));
         RESULT = list;
     :}
-    | STAR exclude_list:excludeList
+    | STAR except_list:exceptList
     {:
         SelectList list = new SelectList();
         list.addItem(SelectListItem.createStarItem(null));
-        list.addItems(excludeList);
+        list.addItems(exceptList);
         RESULT = list;
     :}
     ;
@@ -4014,10 +4015,10 @@ select_sublist ::=
         list.addItem(SelectListItem.createStarItem(null));
         RESULT = list;
     :}
-    | select_sublist:list COMMA STAR exclude_list:excludeList
+    | select_sublist:list COMMA STAR except_list:exceptList
     {:
         list.addItem(SelectListItem.createStarItem(null));
-        list.addItems(excludeList);
+        list.addItems(exceptList);
         RESULT = list;
     :}
     // why not use "STAR COMMA select_sublist",for we analyze from left to right
@@ -4028,11 +4029,11 @@ select_sublist ::=
         list.addItem(item);
         RESULT = list;
     :}
-    | STAR exclude_list:excludeList COMMA select_list_item:item
+    | STAR except_list:exceptList COMMA select_list_item:item
     {:
         SelectList list = new SelectList();
         list.addItem(SelectListItem.createStarItem(null));
-        list.addItems(excludeList);
+        list.addItems(exceptList);
         list.addItem(item);
         RESULT = list;
     :}
@@ -4078,20 +4079,20 @@ select_alias ::=
     :}
     ;
 
-exclude_list ::=
-    KW_EXCLUDE LPAREN exclude_sublist:list RPAREN
+except_list ::=
+    KW_EXCEPT LPAREN except_sublist:list RPAREN
     {:
         RESULT = list;
     :}
     ;
     
-exclude_sublist ::=
-    exclude_sublist:list COMMA exclude_list_item:item
+except_sublist ::=
+    except_sublist:list COMMA except_list_item:item
     {:
         list.addItem(item);
         RESULT = list;
     :}
-    | exclude_list_item:item
+    | except_list_item:item
     {:
         SelectList list = new SelectList();
         list.addItem(item);
@@ -4099,10 +4100,10 @@ exclude_sublist ::=
     :}
     ;
 
-exclude_list_item ::=
+except_list_item ::=
     expr:expr
     {:
-        RESULT = SelectListItem.createExcludedItem(expr, true);
+        RESULT = SelectListItem.createExceptedItem(expr, true);
     :}
     ;
 
