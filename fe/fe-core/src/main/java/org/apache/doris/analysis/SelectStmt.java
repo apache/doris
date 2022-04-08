@@ -1710,6 +1710,73 @@ public class SelectStmt extends QueryStmt {
         return strBuilder.toString();
     }
 
+    @Override
+    public String toDigest() {
+        StringBuilder strBuilder = new StringBuilder();
+        if (withClause_ != null) {
+            strBuilder.append(withClause_.toDigest());
+            strBuilder.append(" ");
+        }
+
+        // Select list
+        strBuilder.append("SELECT ");
+        if (selectList.isDistinct()) {
+            strBuilder.append("DISTINCT ");
+        }
+        for (int i = 0; i < resultExprs.size(); ++i) {
+            if (i != 0) {
+                strBuilder.append(", ");
+            }
+            if (needToSql) {
+                strBuilder.append(originalExpr.get(i).toDigest());
+            } else {
+                strBuilder.append(resultExprs.get(i).toDigest());
+            }
+            strBuilder.append(" AS ").append(SqlUtils.getIdentSql(colLabels.get(i)));
+        }
+
+        // From clause
+        if (!fromClause_.isEmpty()) {
+            strBuilder.append(fromClause_.toDigest());
+        }
+
+        // Where clause
+        if (whereClause != null) {
+            strBuilder.append(" WHERE ");
+            strBuilder.append(whereClause.toDigest());
+        }
+        // Group By clause
+        if (groupByClause != null) {
+            strBuilder.append(" GROUP BY ");
+            strBuilder.append(groupByClause.toSql());
+        }
+        // Having clause
+        if (havingClause != null) {
+            strBuilder.append(" HAVING ");
+            strBuilder.append(havingClause.toDigest());
+        }
+        // Order By clause
+        if (orderByElements != null) {
+            strBuilder.append(" ORDER BY ");
+            for (int i = 0; i < orderByElements.size(); ++i) {
+                strBuilder.append(orderByElements.get(i).getExpr().toDigest());
+                if (sortInfo != null) {
+                    strBuilder.append((sortInfo.getIsAscOrder().get(i)) ? " ASC" : " DESC");
+                }
+                strBuilder.append((i + 1 != orderByElements.size()) ? ", " : "");
+            }
+        }
+        // Limit clause.
+        if (hasLimitClause()) {
+            strBuilder.append(limitElement.toDigest());
+        }
+
+        if (hasOutFileClause()) {
+            strBuilder.append(outFileClause.toDigest());
+        }
+        return strBuilder.toString();
+    }
+
     /**
      * If the select statement has a sort/top that is evaluated, then the sort tuple
      * is materialized. Else, if there is aggregation then the aggregate tuple id is

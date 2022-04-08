@@ -130,6 +130,24 @@ public class CaseExpr extends Expr {
     }
 
     @Override
+    public String toDigestImpl() {
+        StringBuilder sb = new StringBuilder("CASE");
+        int childIdx = 0;
+        if (hasCaseExpr) {
+            sb.append(" ").append(children.get(childIdx++).toDigest());
+        }
+        while (childIdx + 2 <= children.size()) {
+            sb.append(" WHEN ").append(children.get(childIdx++).toDigest());
+            sb.append(" THEN ").append(children.get(childIdx++).toDigest());
+        }
+        if (hasElseExpr) {
+            sb.append(" ELSE ").append(children.get(children.size() - 1).toDigest());
+        }
+        sb.append(" END");
+        return sb.toString();
+    }
+
+    @Override
     public boolean isVectorized() {
         return false;
     }

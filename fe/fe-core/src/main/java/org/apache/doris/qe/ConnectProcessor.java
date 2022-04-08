@@ -53,7 +53,6 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -135,6 +134,7 @@ public class ConnectProcessor {
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
             }
             ctx.getAuditEventBuilder().setIsQuery(true);
+            ctx.getAuditEventBuilder().setSqlHash(ctx.getSqlHash());
             ctx.getQueryDetail().setEventTime(endTime);
             ctx.getQueryDetail().setEndTime(endTime);
             ctx.getQueryDetail().setLatency(elapseMs);
@@ -181,16 +181,12 @@ public class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_CHARACTER_SET, "Unsupported character set(UTF-8)");
             return;
         }
-        String sqlHash = DigestUtils.md5Hex(originStmt);
-        ctx.setSqlHash(sqlHash);
-
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
                 .setTimestamp(System.currentTimeMillis())
                 .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
                 .setUser(ctx.getQualifiedUser())
-                .setDb(ctx.getDatabase())
-                .setSqlHash(ctx.getSqlHash());
+                .setDb(ctx.getDatabase());
 
         // execute this query.
         StatementBase parsedStmt = null;

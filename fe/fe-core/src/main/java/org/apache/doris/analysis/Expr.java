@@ -874,11 +874,19 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
     }
 
+    public String toDigest() {
+        return (printSqlInParens) ? "(" + toDigestImpl() + ")" : toDigestImpl();
+    }
+
     /**
      * Returns a SQL string representing this expr. Subclasses should override this method
      * instead of toSql() to ensure that parenthesis are properly added around the toSql().
      */
     protected abstract String toSqlImpl();
+
+    protected String toDigestImpl() {
+        return toSqlImpl();
+    }
 
     public String toMySql() {
         return toSql();
@@ -951,6 +959,14 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     //                      ((SlotRef) this).getDesc().getParent().getId());
     //        }
     //    }
+
+    public List<String> childrenToDigest() {
+        List<String> childrenDigestList = Lists.newArrayList();
+        for (Expr child : children) {
+            childrenDigestList.add(child.toDigest());
+        }
+        return childrenDigestList;
+    }
 
     public static com.google.common.base.Predicate<Expr> isAggregatePredicate() {
         return IS_AGGREGATE_PREDICATE;
