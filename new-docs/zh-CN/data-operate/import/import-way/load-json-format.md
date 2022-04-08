@@ -1,8 +1,9 @@
 ---
 {
-    "title": "JSON格式数据导入",
-    "language": "zh-CN"
+"title": "JSON格式数据导入",
+"language": "zh-CN"
 }
+
 ---
 
 <!-- 
@@ -37,7 +38,7 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行JSON格�
 
 暂不支持其他方式的 JSON 格式数据导入。
 
-## 支持的Json格式
+## 支持的 Json 格式
 
 当前前仅支持以下两种 Json 格式：
 
@@ -209,7 +210,7 @@ Json Path 用于指定如何对 JSON 格式中的数据进行抽取，而 Column
 
 表结构：
 
-```json
+```
 k2 int, k1 int
 ```
 
@@ -267,7 +268,7 @@ curl -v --location-trusted -u root: -H "format: json" -H "jsonpaths: [\"$.k2\", 
 
 示例数据如下：
 
-```text
+```json
 [
     {"k1": 1, "k2": "a"},
     {"k1": 2},
@@ -317,50 +318,6 @@ curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: tru
 curl -v --location-trusted -u root: -H "format: json" -H "strip_outer_array: true" -H "jsonpaths: [\"$.k1\", \"$.k2\"]" -H "columns: k1, tmp_k2, k2 = ifnull(tmp_k2, 'x')" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
 ```
 
-## LargetInt与Decimal
-
-Doris支持LargeInt与Decimal等数据范围更大，数据精度更高的数据类型。但是由于Doris使用的Rapid Json库对于数字类型能够解析的最大范围为Int64与Double，这导致了通过Json导入LargeInt或Decimal时可能会出现：精度丢失，数据转换出错等问题。
-
-示例数据如下：
-
-```text
-[
-    {"k1": 1, "k2":9999999999999.999999 }
-]
-```
-
-导入k2列类型为`Decimal(16, 9)`，数据为:`9999999999999.999999`。在进行Json导入时，由于Double转换的精度丢失导致了导入的数据为：`10000000000000.0002`，引发了导入出错。
-
-为了解决这个问题，Doris在导入时提供了 `num_as_string`的开关。Doris在解析Json数据时会将数字类型转为字符串，然后在确保不会出现精度丢失的情况下进行导入。
-
-```bash
-curl -v --location-trusted -u root: -H "format: json" -H "num_as_string: true" -T example.json http://127.0.0.1:8030/api/db1/tbl1/_stream_load
-```
-
-但是开启这个开关会引起一些意想不到的副作用。Doris 当前暂不支持复合类型，如 Array、Map 等。所以当匹配到一个非基本类型时，Doris 会将该类型转换为 Json 格式的字符串，而`num_as_string`会同样将复合类型的数字转换为字符串，举个例子：
-
-Json 数据为：
-
-```
-{ "id": 123, "city" : { "name" : "beijing", "city_id" : 1 }}
-```
-
-不开启`num_as_string`时，导入的city列的数据为:
-
-```
-{ "name" : "beijing", "city_id" : 1 }
-```
-
-而开启了`num_as_string`时，导入的city列的数据为:
-
-```
-{ "name" : "beijing", "city_id" : "1" }
-```
-
-注意，这里导致了复合类型原先为1的数字类型的city_id被作为字符串列处理并添加上了引号，与原始数据相比，产生了变化。
-
-所以用在使用Json导入时，要尽量避免LargeInt与Decimal与复合类型的同时导入。如果无法避免，则需要充分了解开启`num_as_string`后对复合类型导入的**副作用**。
-
 ## 应用示例
 
 ### Stream Load
@@ -381,29 +338,29 @@ code    INT     NULL
    {"id": 100, "city": "beijing", "code" : 1}
    ```
 
-   - 不指定 Json Path
+    - 不指定 Json Path
 
-     ```bash
-     curl --location-trusted -u user:passwd -H "format: json" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
-     ```
+      ```bash
+      curl --location-trusted -u user:passwd -H "format: json" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+      ```
 
-     导入结果：
+      导入结果：
 
-     ```text
-     100     beijing     1
-     ```
+      ```text
+      100     beijing     1
+      ```
 
-   - 指定 Json Path
+    - 指定 Json Path
 
-     ```bash
-     curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
-     ```
+      ```bash
+      curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+      ```
 
-     导入结果：
+      导入结果：
 
-     ```text
-     100     beijing     1
-     ```
+      ```text
+      100     beijing     1
+      ```
 
 2. 导入单行数据2
 
@@ -411,17 +368,17 @@ code    INT     NULL
    {"id": 100, "content": {"city": "beijing", "code" : 1}}
    ```
 
-   - 指定 Json Path
+    - 指定 Json Path
 
-     ```bash
-     curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.content.city\",\"$.content.code\"]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
-     ```
+      ```bash
+      curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.content.city\",\"$.content.code\"]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+      ```
 
-     导入结果：
+      导入结果：
 
-     ```text
-     100     beijing     1
-     ```
+      ```text
+      100     beijing     1
+      ```
 
 3. 导入多行数据
 
@@ -442,22 +399,22 @@ code    INT     NULL
    ]
    ```
 
-   - 指定 Json Path
+    - 指定 Json Path
 
-     ```bash
-     curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -H "strip_outer_array: true" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
-     ```
+      ```bash
+      curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -H "strip_outer_array: true" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+      ```
 
-     导入结果：
+      导入结果：
 
-     ```text
-     100     beijing                     1
-     101     shanghai                    NULL
-     102     tianjin                     3
-     103     chongqing                   4
-     104     ["zhejiang","guangzhou"]    5
-     105     {"order1":["guangzhou"]}    6
-     ```
+      ```text
+      100     beijing                     1
+      101     shanghai                    NULL
+      102     tianjin                     3
+      103     chongqing                   4
+      104     ["zhejiang","guangzhou"]    5
+      105     {"order1":["guangzhou"]}    6
+      ```
 
 4. 对导入数据进行转换
 
@@ -482,5 +439,4 @@ code    INT     NULL
 
 Routine Load 对 Json 数据的处理原理和 Stream Load 相同。在此不再赘述。
 
-对于 Kafka 数据源，每个 Massage 中的内容被视作一个完整的 Json 数据。如果一个 Massage 中是以 Array 格式的表示的多行数据，则会导入多行，而 Kafka 的 offset 只会增加 1。而如果一个 Array 格式的 Json 表示多行数据，但是因为 Json 格式错误导致解析 Json 失败，则错误行只会增加 1（因为解析失败，实际上 Doris 无法判断其中包含多少行数据，只能按一行错误数据记录）。
-
+对于 Kafka 数据源，每个 Massage 中的内容被视作一个完整的 Json 数据。如果一个 Massage 中是以 Array 格式的表示的多行数据，则会导入多行，而 Kafka 的 offset 只会增加 1。而如果一个 Array 格式的 Json 表示多行数据，但是因为 Json 格式错误导致解析 Json 失败，则错误行只会增加 1（因为解析失败，实际上 Doris 无法判断其中包含多少行数据，只能按一行错误数据记录）

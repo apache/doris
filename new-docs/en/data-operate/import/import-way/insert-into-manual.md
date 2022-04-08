@@ -39,7 +39,28 @@ The second command is for Demo only, not in a test or production environment.
 
 The Insert Into command needs to be submitted through MySQL protocol. Creating an import request returns the import result synchronously.
 
-For specific syntax, refer to [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) related documents
+The following are examples of the use of two Insert Intos:
+
+```sql
+INSERT INTO tbl2 WITH LABEL label1 SELECT * FROM tbl3;
+INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
+```
+
+> Note: When you need to use `CTE(Common Table Expressions)` as the query part in an insert operation, you must specify the `WITH LABEL` and column list parts. Example:
+>
+> ```sql
+> INSERT INTO tbl1 WITH LABEL label1
+> WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+> SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+> 
+> 
+> INSERT INTO tbl1 (k1)
+> WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+> SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+> ```
+
+For specific parameter description, you can refer to [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) command or execute `HELP INSERT ` to see its help documentation for better use of this import method.
+
 
 Insert Into itself is a SQL command, and the return result is divided into the following types according to the different execution results:
 

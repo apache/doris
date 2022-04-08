@@ -39,15 +39,35 @@ Insert Into 语句的使用方式和 MySQL 等数据库中 Insert Into 语句的
 
 Insert Into 命令需要通过 MySQL 协议提交，创建导入请求会同步返回导入结果。
 
-具体语法参考[INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html)相关文档
+以下是两个Insert Into的使用示例：
 
-Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果的不同，分为以下几种：
+```sql
+INSERT INTO tbl2 WITH LABEL label1 SELECT * FROM tbl3;
+INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
+```
+
+> 注意：当需要使用 `CTE(Common Table Expressions)` 作为 insert 操作中的查询部分时，必须指定 `WITH LABEL` 和 column list 部分。示例：
+>
+> ```sql
+> INSERT INTO tbl1 WITH LABEL label1
+> WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+> SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+> 
+> 
+> INSERT INTO tbl1 (k1)
+> WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+> SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+> ```
+
+具体的参数说明，你可以参照 [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令或者执行`HELP INSERT` 来查看其帮助文档以便更好的使用这种导入方式。
+
+Insert Into 本身就是一个 SQL 命令，其**返回结果**会根据执行结果的不同，分为以下几种：
 
 1. 结果集为空
 
    如果 insert 对应 select 语句的结果集为空，则返回如下：
 
-   ```
+   ```sql
    mysql> insert into tbl1 select * from empty_tbl;
    Query OK, 0 rows affected (0.02 sec)
    ```
@@ -253,4 +273,4 @@ bj_store_sales schema:
 
 ## 更多帮助
 
-关于 **insert into** 使用的更多详细语法，请参阅 [insert](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP INSERT` 获取更多帮助信息。
+关于 **Insert Into** 使用的更多详细语法，请参阅 [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP INSERT` 获取更多帮助信息。
