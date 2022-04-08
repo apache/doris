@@ -40,7 +40,6 @@ module.exports = [
     initialOpenGroupIndex: -1,
     children: [
       "install-deploy",
-      "docker-install",
       {
         title: "Compile",
         directoryPath: "source-install/",
@@ -97,7 +96,6 @@ module.exports = [
               "external-storage-load",
               "kafka-load",
               "external-table-load",
-              "rdbms-load",
               "jdbc-load",
               "load-atomicity",
               "load-data-convert",
@@ -171,6 +169,8 @@ module.exports = [
           "partition-cache"
         ],
       },
+      "broker",
+      "resource",
       "orthogonal-bitmap-manual",
       "variables",
       "time-zone",
@@ -567,6 +567,7 @@ module.exports = [
                   "CREATE-TABLE-LIKE",
                   "CREATE-TABLE",
                   "CREATE-VIEW",
+                  "CREATE-EXTERNAL-TABLE",
                 ],
               },
               {
@@ -605,6 +606,10 @@ module.exports = [
                   "RESUME-ROUTINE-LOAD",
                   "STOP-ROUTINE-LOAD",
                   "STREAM-LOAD",
+                  "PAUSE-SYNC-JOB",
+                  "RESUME-SYNC-JOB",
+                  "STOP-SYNC-JOB",
+                  "CREATE-SYNC-JOB",
                 ],
               },
               {
@@ -616,7 +621,8 @@ module.exports = [
                   "INSERT",
                   "UPDATE",
                 ],
-              },             
+              },
+              "OUTFILE"             
             ],
           },
           {

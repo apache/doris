@@ -22,6 +22,8 @@
 #include "exprs/table_function/explode_json_array.h"
 #include "exprs/table_function/explode_split.h"
 #include "exprs/table_function/table_function.h"
+#include "vec/exprs/table_function/vexplode_bitmap.h"
+#include "vec/exprs/table_function/vexplode_json_array.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
 
@@ -35,7 +37,15 @@ struct TableFunctionCreator {
 template <>
 struct TableFunctionCreator<ExplodeJsonArrayTableFunction> {
     ExplodeJsonArrayType type;
-    TableFunction* operator()() { return new ExplodeJsonArrayTableFunction(type); }
+    TableFunction* operator()() const { return new ExplodeJsonArrayTableFunction(type); }
+};
+
+template <>
+struct TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {
+    ExplodeJsonArrayType type;
+    TableFunction* operator()() const {
+        return new vectorized::VExplodeJsonArrayTableFunction(type);
+    }
 };
 
 inline auto ExplodeJsonArrayIntCreator =
@@ -45,18 +55,33 @@ inline auto ExplodeJsonArrayDoubleCreator =
 inline auto ExplodeJsonArrayStringCreator =
         TableFunctionCreator<ExplodeJsonArrayTableFunction> {ExplodeJsonArrayType::STRING};
 
+inline auto VExplodeJsonArrayIntCreator =
+        TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {
+                ExplodeJsonArrayType::INT};
+inline auto VExplodeJsonArrayDoubleCreator =
+        TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {
+                ExplodeJsonArrayType::DOUBLE};
+inline auto VExplodeJsonArrayStringCreator =
+        TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {
+                ExplodeJsonArrayType::STRING};
+
 //{fn_name,is_vectorized}->table_function_creator
 const std::unordered_map<std::pair<std::string, bool>, std::function<TableFunction*()>>
         TableFunctionFactory::_function_map {
-                {{"explode_split", false}, TableFunctionCreator<ExplodeSplitTableFunction>()},
-                {{"explode_bitmap", false}, TableFunctionCreator<ExplodeBitmapTableFunction>()},
+                {{"explode_split", false}, TableFunctionCreator<ExplodeSplitTableFunction> {}},
+                {{"explode_bitmap", false}, TableFunctionCreator<ExplodeBitmapTableFunction> {}},
                 {{"explode_json_array_int", false}, ExplodeJsonArrayIntCreator},
                 {{"explode_json_array_double", false}, ExplodeJsonArrayDoubleCreator},
                 {{"explode_json_array_string", false}, ExplodeJsonArrayStringCreator},
                 {{"explode_split", true},
                  TableFunctionCreator<vectorized::VExplodeSplitTableFunction>()},
                 {{"explode_numbers", true},
-                 TableFunctionCreator<vectorized::VExplodeNumbersTableFunction>()}};
+                 TableFunctionCreator<vectorized::VExplodeNumbersTableFunction>()},
+                {{"explode_json_array_int", true}, VExplodeJsonArrayIntCreator},
+                {{"explode_json_array_double", true}, VExplodeJsonArrayDoubleCreator},
+                {{"explode_json_array_string", true}, VExplodeJsonArrayStringCreator},
+                {{"explode_bitmap", true},
+                 TableFunctionCreator<vectorized::VExplodeBitmapTableFunction>()}};
 
 Status TableFunctionFactory::get_fn(const std::string& fn_name, bool is_vectorized,
                                     ObjectPool* pool, TableFunction** fn) {

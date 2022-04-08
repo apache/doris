@@ -46,7 +46,7 @@ public class AggregateTest {
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
         String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME + " (empid int, name varchar, " +
-                "deptno int, salary int, commission int) "
+                "deptno int, salary int, commission int, time DATETIME) "
                 + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
     }
@@ -91,6 +91,95 @@ public class AggregateTest {
                 Assert.fail("should be query, no exception");
             }
         } while (false);
+    }
+
+    @Test
+    public void testWindowFunnelAnalysisException() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+
+        // normal.
+        {
+            String query = "select empid, window_funnel(1, 'default', time, empid = 1, empid = 2) from " +
+                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+        }
+
+        // less argument.
+        do {
+            String query = "select empid, window_funnel(1, 'default', time) from " +
+                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("function must have at least four params"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while(false);
+
+        // argument with wrong type.
+        do {
+            String query = "select empid, window_funnel('xx', 'default', time, empid = 1) from " +
+                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("The window params of window_funnel function must be integer"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while(false);
+
+        do {
+            String query = "select empid, window_funnel(1, 1, time, empid = 1) from " +
+                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("The mode params of window_funnel function must be integer"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while(false);
+
+
+        do {
+            String query = "select empid, window_funnel(1, '1', empid, '1') from " +
+                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("The 3rd param of window_funnel function must be DATE or DATETIME"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while(false);
+
+        do {
+            String query = "select empid, window_funnel(1, '1', time, '1') from " +
+                           DB_NAME + "." + TABLE_NAME + " group by empid";
+            try {
+                UtFrameUtils.parseAndAnalyzeStmt(query, ctx);
+            } catch (AnalysisException e) {
+                Assert.assertTrue(e.getMessage().contains("The 4th and subsequent params of window_funnel function must be boolean"));
+                break;
+            } catch (Exception e) {
+                Assert.fail("must be AnalysisException.");
+            }
+            Assert.fail("must be AnalysisException.");
+        } while(false);
     }
 
     @AfterClass

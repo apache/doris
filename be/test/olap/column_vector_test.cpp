@@ -42,7 +42,7 @@ private:
 };
 
 template <FieldType type>
-void test_read_write_scalar_column_vector(std::shared_ptr<const TypeInfo> type_info, const uint8_t* src_data,
+void test_read_write_scalar_column_vector(const TypeInfo* type_info, const uint8_t* src_data,
                                           size_t data_size) {
     using Type = typename TypeTraits<type>::CppType;
     Type* src = (Type*)src_data;
@@ -72,7 +72,7 @@ void test_read_write_scalar_column_vector(std::shared_ptr<const TypeInfo> type_i
 }
 
 template <FieldType item_type>
-void test_read_write_array_column_vector(std::shared_ptr<const TypeInfo> array_type_info, size_t array_size,
+void test_read_write_array_column_vector(const TypeInfo* array_type_info, size_t array_size,
                                          CollectionValue* result) {
     DCHECK(array_size > 1);
 
@@ -145,8 +145,8 @@ TEST_F(ColumnVectorTest, scalar_column_vector_test) {
         for (int i = 0; i < size; ++i) {
             val[i] = i;
         }
-        auto ti = get_scalar_type_info(OLAP_FIELD_TYPE_TINYINT);
-        test_read_write_scalar_column_vector<OLAP_FIELD_TYPE_TINYINT>(ti, val, size);
+        const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>();
+        test_read_write_scalar_column_vector<OLAP_FIELD_TYPE_TINYINT>(type_info, val, size);
         delete[] val;
     }
     {
@@ -155,7 +155,7 @@ TEST_F(ColumnVectorTest, scalar_column_vector_test) {
         for (int i = 0; i < size; ++i) {
             set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, i, (char*)&char_vals[i], &_pool, 8);
         }
-        auto ti = get_scalar_type_info(OLAP_FIELD_TYPE_CHAR);
+        const auto* ti = get_scalar_type_info<OLAP_FIELD_TYPE_CHAR>();
         test_read_write_scalar_column_vector<OLAP_FIELD_TYPE_CHAR>(ti, (uint8_t*)char_vals, size);
         delete[] char_vals;
     }
@@ -179,7 +179,7 @@ TEST_F(ColumnVectorTest, array_column_vector_test) {
                 array_val[array_index].set_length(3);
             }
         }
-        auto type_info = ArrayTypeInfoResolver::instance()->get_type_info(OLAP_FIELD_TYPE_TINYINT);
+        const auto* type_info = get_collection_type_info<OLAP_FIELD_TYPE_TINYINT>();
         test_read_write_array_column_vector<OLAP_FIELD_TYPE_TINYINT>(type_info, num_array,
                                                                      array_val);
 

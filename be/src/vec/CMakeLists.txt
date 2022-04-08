@@ -20,6 +20,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/vec")
 
 set(VEC_FILES
+  aggregate_functions/aggregate_function_window_funnel.cpp
   aggregate_functions/aggregate_function_avg.cpp
   aggregate_functions/aggregate_function_count.cpp
   aggregate_functions/aggregate_function_distinct.cpp
@@ -48,6 +49,7 @@ set(VEC_FILES
   columns/columns_common.cpp
   common/demangle.cpp
   common/exception.cpp
+  common/mremap.cpp
   common/pod_array.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp
@@ -111,9 +113,11 @@ set(VEC_FILES
   exprs/vinfo_func.cpp
   exprs/table_function/vexplode_split.cpp
   exprs/table_function/vexplode_numbers.cpp
+  exprs/table_function/vexplode_bitmap.cpp
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp
+  exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
   functions/function_bitmap_variadic.cpp
@@ -137,6 +141,7 @@ set(VEC_FILES
   functions/comparison_equal_for_null.cpp
   functions/function_json.cpp
   functions/function_datetime_floor_ceil.cpp
+  functions/functions_geo.cpp
   functions/hll_cardinality.cpp
   functions/hll_empty.cpp
   functions/hll_hash.cpp

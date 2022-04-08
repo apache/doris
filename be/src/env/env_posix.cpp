@@ -223,49 +223,6 @@ static Status do_writev_at(int fd, const string& filename, uint64_t offset, cons
     return Status::OK();
 }
 
-class PosixSequentialFile : public SequentialFile {
-public:
-    PosixSequentialFile(string fname, FILE* f) : _filename(std::move(fname)), _file(f) {}
-
-    ~PosixSequentialFile() override {
-        int err;
-        RETRY_ON_EINTR(err, fclose(_file));
-        if (PREDICT_FALSE(err != 0)) {
-            LOG(WARNING) << "Failed to close " << _filename
-                         << ", msg=" << errno_to_string(ferror(_file));
-        }
-    }
-
-    Status read(Slice* result) override {
-        size_t r;
-        STREAM_RETRY_ON_EINTR(r, _file, fread_unlocked(result->data, 1, result->size, _file));
-        if (r < result->size) {
-            if (feof(_file)) {
-                // We leave status as ok if we hit the end of the file.
-                // We need to adjust the slice size.
-                result->truncate(r);
-            } else {
-                // A partial read with an error: return a non-ok status.
-                return io_error(_filename, ferror(_file));
-            }
-        }
-        return Status::OK();
-    }
-
-    Status skip(uint64_t n) override {
-        if (fseek(_file, n, SEEK_CUR)) {
-            return io_error(_filename, errno);
-        }
-        return Status::OK();
-    }
-
-    const string& filename() const override { return _filename; }
-
-private:
-    const std::string _filename;
-    FILE* const _file;
-};
-
 class PosixRandomAccessFile : public RandomAccessFile {
 public:
     PosixRandomAccessFile(std::string filename, int fd) : _filename(std::move(filename)), _fd(fd) {}
@@ -527,16 +484,6 @@ private:
     const bool _sync_on_close = false;
     bool _closed = false;
 };
-
-Status PosixEnv::new_sequential_file(const string& fname, std::unique_ptr<SequentialFile>* result) {
-    FILE* f;
-    POINTER_RETRY_ON_EINTR(f, fopen(fname.c_str(), "r"));
-    if (f == nullptr) {
-        return io_error(fname, errno);
-    }
-    result->reset(new PosixSequentialFile(fname, f));
-    return Status::OK();
-}
 
 // get a RandomAccessFile pointer without file cache
 Status PosixEnv::new_random_access_file(const std::string& fname,

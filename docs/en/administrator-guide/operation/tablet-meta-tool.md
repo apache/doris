@@ -50,7 +50,7 @@ Access BE's HTTP interface to obtain the corresponding Tablet Meta information:
 
 api:
 
-`http://{host}:{port}/api/meta/header/{tablet_id}/{schema_hash}`
+`http://{host}:{port}/api/meta/header/{tablet_id}`
 
 
 > Host: be Hostname
@@ -58,12 +58,10 @@ api:
 > port: BE's HTTP port
 >
 > tablet id: tablet id
->
-> schema hash: tablet schema hash
 
 Give an example:
 
-`http://be_host:8040/api/meta/header/14156/2458238340`
+`http://be_host:8040/api/meta/header/14156`
 
 If the final query is successful, the Tablet Meta will be returned as json.
 

@@ -40,7 +40,8 @@ class MemTable {
 public:
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             KeysType keys_type, RowsetWriter* rowset_writer);
+             KeysType keys_type, RowsetWriter* rowset_writer,
+             const std::shared_ptr<MemTracker>& parent_tracker);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }

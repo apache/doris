@@ -37,7 +37,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/thread_context.h"
 #include "util/defer_op.h"
 
 using std::deque;
@@ -49,9 +48,6 @@ using std::stringstream;
 using std::vector;
 
 namespace doris {
-
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(schema_change_mem_consumption, MetricUnit::BYTES, "",
-                                   mem_consumption, Labels({{"type", "schema_change"}}));
 
 class RowBlockSorter {
 public:
@@ -591,7 +587,7 @@ OLAPStatus RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t 
                         const Field* ref_field = read_helper.column_schema(ref_column);
                         char* ref_value = read_helper.cell_ptr(ref_column);
                         OLAPStatus st = write_helper.convert_from(i, ref_value,
-                                                                  ref_field->type_info().get(), mem_pool);
+                                                                  ref_field->type_info(), mem_pool);
                         if (st != OLAPStatus::OLAP_SUCCESS) {
                             LOG(WARNING)
                                     << "the column type which was altered from was unsupported."
@@ -1386,23 +1382,16 @@ bool SchemaChangeWithSorting::_external_sorting(vector<RowsetSharedPtr>& src_row
     return true;
 }
 
-SchemaChangeHandler::SchemaChangeHandler()
-        : _mem_tracker(MemTracker::create_tracker(-1, "SchemaChangeHandler", StorageEngine::instance()->schema_change_mem_tracker())) {
-    REGISTER_HOOK_METRIC(schema_change_mem_consumption,
-                         [this]() { return _mem_tracker->consumption(); });
-}
+SchemaChangeHandler::SchemaChangeHandler() {}
 
-SchemaChangeHandler::~SchemaChangeHandler() {
-    DEREGISTER_HOOK_METRIC(schema_change_mem_consumption);
-}
+SchemaChangeHandler::~SchemaChangeHandler() {}
 
 OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& request) {
     LOG(INFO) << "begin to do request alter tablet: base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << request.alter_version;
 
-    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.base_tablet_id, request.base_schema_hash);
+    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
     if (base_tablet == nullptr) {
         LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
         return OLAP_ERR_TABLE_NOT_FOUND;
@@ -1427,21 +1416,17 @@ OLAPStatus SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2&
 // Should delete the old code after upgrade finished.
 OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2& request) {
     OLAPStatus res = OLAP_SUCCESS;
-    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.base_tablet_id, request.base_schema_hash);
+    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
     if (base_tablet == nullptr) {
-        LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id
-                     << ", base_schema_hash=" << request.base_schema_hash;
+        LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
     // new tablet has to exist
-    TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.new_tablet_id, request.new_schema_hash);
+    TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.new_tablet_id);
     if (new_tablet == nullptr) {
         LOG(WARNING) << "fail to find new tablet."
-                     << " new_tablet=" << request.new_tablet_id
-                     << ", new_schema_hash=" << request.new_schema_hash;
+                     << " new_tablet=" << request.new_tablet_id;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -1501,13 +1486,6 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         // for schema change, seek_columns is the same to return_columns
         reader_context.seek_columns = &return_columns;
         reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
-
-        // TODO(zxy) switch to tls mem tracker
-        auto mem_tracker = MemTracker::create_tracker(
-                -1,
-                "AlterTablet:" + std::to_string(base_tablet->tablet_id()) + "-" +
-                        std::to_string(new_tablet->tablet_id()),
-                _mem_tracker, MemTrackerLevel::TASK);
 
         do {
             // get history data to be converted and it will check if there is hold in base tablet

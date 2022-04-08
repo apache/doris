@@ -134,6 +134,7 @@ Status SegmentIterator::_init(bool is_vec) {
     RETURN_IF_ERROR(_get_row_ranges_by_column_conditions());
     if (is_vec) {
         _vec_init_lazy_materialization();
+        _vec_init_char_column_id();
     } else {
         _init_lazy_materialization();
     }
@@ -707,6 +708,17 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     }
 }
 
+void SegmentIterator::_vec_init_char_column_id() {
+    for (size_t i = 0; i < _schema.num_column_ids(); i++) {
+        auto cid = _schema.column_id(i);
+        auto column_desc = _schema.column(cid);
+
+        if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
+            _char_type_idx.emplace_back(i);
+        }
+    }
+}
+
 Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
                                       vectorized::MutableColumns& column_block, size_t nrows) {
     for (auto cid : column_ids) {
@@ -720,8 +732,6 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
 
 void SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
-    _char_type_idx.clear();
-
     bool is_block_mem_reuse = block->mem_reuse();
     if (is_block_mem_reuse) {
         block->clear_column_data(_schema.num_column_ids());
@@ -738,11 +748,7 @@ void SegmentIterator::_init_current_block(
         auto cid = _schema.column_id(i);
         auto column_desc = _schema.column(cid);
 
-        if (column_desc->type() == OLAP_FIELD_TYPE_CHAR) {
-            _char_type_idx.emplace_back(i);
-        }
-
-        if (_is_pred_column[cid]) { //todo(wb) maybe we can relase it after output block
+        if (_is_pred_column[cid]) { //todo(wb) maybe we can release it after output block
             current_columns[cid]->clear();
         } else { // non-predicate column
             if (is_block_mem_reuse) {

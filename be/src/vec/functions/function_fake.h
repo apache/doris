@@ -47,6 +47,34 @@ struct FunctionExplodeNumbersImpl {
     }
 };
 
+struct FunctionExplodeJsonArrayIntImpl {
+    static constexpr auto name = "explode_json_array_int";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+};
+
+struct FunctionExplodeJsonArrayStringImpl {
+    static constexpr auto name = "explode_json_array_string";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeString>();
+    }
+};
+
+struct FunctionExplodeJsonArrayDoubleImpl {
+    static constexpr auto name = "explode_json_array_double";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeFloat64>();
+    }
+};
+
+struct FunctionExplodeBitmapImpl {
+    static constexpr auto name = "explode_bitmap";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+};
+
 //FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
 template <typename Impl>
 class FunctionFake : public IFunction {

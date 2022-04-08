@@ -30,9 +30,10 @@
 #include "util/doris_metrics.h"
 
 template <typename T>
-using SubMap = phmap::parallel_flat_hash_map<
+using StubMap = phmap::parallel_flat_hash_map<
         std::string, std::shared_ptr<T>, std::hash<std::string>, std::equal_to<std::string>,
         std::allocator<std::pair<const std::string, std::shared_ptr<T>>>, 8, std::mutex>;
+
 namespace doris {
 
 template <class T>
@@ -63,10 +64,12 @@ public:
     }
 
     inline std::shared_ptr<T> get_client(const std::string& host_port) {
-        auto stub_ptr = _stub_map.find(host_port);
-        if (LIKELY(stub_ptr != _stub_map.end())) {
-            return stub_ptr->second;
+        std::shared_ptr<T> stub_ptr;
+        auto get_value = [&stub_ptr](typename StubMap<T>::mapped_type& v) { stub_ptr = v; };
+        if(LIKELY(_stub_map.if_contains(host_port, get_value))) {
+            return stub_ptr;
         }
+
         // new one stub and insert into map
         brpc::ChannelOptions options;
         if constexpr (std::is_same_v<T, PFunctionService_Stub>) {
@@ -85,7 +88,9 @@ public:
         }
         auto stub = std::make_shared<T>(channel.release(),
                                         google::protobuf::Service::STUB_OWNS_CHANNEL);
-        _stub_map[host_port] = stub;
+        _stub_map.try_emplace_l(host_port,
+                                [&stub](typename StubMap<T>::mapped_type& v) { stub = v; },
+                                stub);
         return stub;
     }
 
@@ -149,7 +154,7 @@ public:
     }
 
 private:
-    SubMap<T> _stub_map;
+    StubMap<T> _stub_map;
 };
 
 using InternalServiceClientCache = BrpcClientCache<PBackendService_Stub>;

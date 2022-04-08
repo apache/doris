@@ -731,7 +731,6 @@ public class Analyzer {
             result.setMultiRef(true);
             return result;
         }
-
         result = addSlotDescriptor(tupleDescriptor);
         Column col = new Column(colName, type);
         result.setColumn(col);

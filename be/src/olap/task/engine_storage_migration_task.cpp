@@ -168,10 +168,9 @@ OLAPStatus EngineStorageMigrationTask::_reload_tablet(
     // if old tablet finished schema change, then the schema change status of the new tablet is DONE
     // else the schema change status of the new tablet is FAILED
     TabletSharedPtr new_tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (new_tablet == nullptr) {
-        LOG(WARNING) << "tablet not found. tablet_id=" << tablet_id
-                        << " schema_hash=" << schema_hash;
+        LOG(WARNING) << "tablet not found. tablet_id=" << tablet_id;
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
     return res;
