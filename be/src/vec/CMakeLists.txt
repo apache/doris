@@ -49,6 +49,7 @@ set(VEC_FILES
   columns/columns_common.cpp
   common/demangle.cpp
   common/exception.cpp
+  common/mremap.cpp
   common/pod_array.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp
