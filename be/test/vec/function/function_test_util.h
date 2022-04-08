@@ -23,6 +23,7 @@
 #include <string>
 
 #include "exec/schema_scanner.h"
+#include "exprs/table_function/table_function.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "testutil/function_utils.h"
@@ -37,6 +38,7 @@
 
 namespace doris::vectorized {
 
+using InputDataSet = std::vector<std::vector<std::any>>; // without result
 using DataSet = std::vector<std::pair<std::vector<std::any>, std::any>>;
 using InputTypeSet = std::vector<std::any>;
 
@@ -80,10 +82,9 @@ using UTDataTypeDescs = std::vector<UTDataTypeDesc>;
 
 } // namespace ut_type
 
-size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t index,
-                               doris_udf::FunctionContext::TypeDesc& desc,
-                               DataTypePtr& type) {
-    if(index < 0 || index >= input_types.size()) {
+size_t type_index_to_data_type(const InputTypeSet& input_types, size_t index,
+                               doris_udf::FunctionContext::TypeDesc& desc, DataTypePtr& type) {
+    if (index < 0 || index >= input_types.size()) {
         return -1;
     }
 
@@ -156,10 +157,11 @@ size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t 
         return 0;
     }
 }
-bool parse_ut_data_type(const std::vector<std::any>& input_types, ut_type::UTDataTypeDescs& descs) {
+
+bool parse_ut_data_type(const InputTypeSet& input_types, ut_type::UTDataTypeDescs& descs) {
     descs.clear();
     descs.reserve(input_types.size());
-    for (size_t i = 0; i < input_types.size(); ) {
+    for (size_t i = 0; i < input_types.size();) {
         ut_type::UTDataTypeDesc desc;
         if (input_types[i].type() == typeid(Consted)) {
             desc.is_const = true;
@@ -178,11 +180,193 @@ bool parse_ut_data_type(const std::vector<std::any>& input_types, ut_type::UTDat
     return true;
 }
 
+bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any& cell) {
+    if (cell.type() == typeid(Null)) {
+        column->insert_data(nullptr, 0);
+        return true;
+    }
+
+    WhichDataType type(type_ptr);
+    if (type.is_string()) {
+        auto str = std::any_cast<ut_type::STRING>(cell);
+        column->insert_data(str.c_str(), str.size());
+    } else if (type.idx == TypeIndex::BitMap) {
+        BitmapValue* bitmap = std::any_cast<BitmapValue*>(cell);
+        column->insert_data((char*)bitmap, sizeof(BitmapValue));
+    } else if (type.is_int8()) {
+        auto value = std::any_cast<ut_type::TINYINT>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_int16()) {
+        auto value = std::any_cast<ut_type::SMALLINT>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_int32()) {
+        auto value = std::any_cast<ut_type::INT>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_int64()) {
+        auto value = std::any_cast<ut_type::BIGINT>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_int128()) {
+        auto value = std::any_cast<ut_type::LARGEINT>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_float64()) {
+        auto value = std::any_cast<ut_type::DOUBLE>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_float64()) {
+        auto value = std::any_cast<ut_type::DOUBLE>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_decimal128()) {
+        auto value = std::any_cast<Decimal<Int128>>(cell);
+        column->insert_data(reinterpret_cast<char*>(&value), 0);
+    } else if (type.is_date_time()) {
+        static std::string date_time_format("%Y-%m-%d %H:%i:%s");
+        auto datetime_str = std::any_cast<std::string>(cell);
+        VecDateTimeValue v;
+        v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
+                               datetime_str.c_str(), datetime_str.size());
+        v.to_datetime();
+        column->insert_data(reinterpret_cast<char*>(&v), 0);
+    } else if (type.is_date()) {
+        static std::string date_time_format("%Y-%m-%d");
+        auto datetime_str = std::any_cast<std::string>(cell);
+        VecDateTimeValue v;
+        v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
+                               datetime_str.c_str(), datetime_str.size());
+        v.cast_to_date();
+        column->insert_data(reinterpret_cast<char*>(&v), 0);
+    } else if (type.is_array()) {
+        auto v = std::any_cast<Array>(cell);
+        column->insert(v);
+    } else {
+        LOG(WARNING) << "dataset not supported for TypeIndex:" << (int)type.idx;
+        return false;
+    }
+    return true;
+}
+
+Block* create_block_from_inputset(const InputTypeSet& input_types, const InputDataSet& input_set) {
+    // 1.0 create data type
+    ut_type::UTDataTypeDescs descs;
+    if (!parse_ut_data_type(input_types, descs)) {
+        return nullptr;
+    }
+
+    // 1.1 insert data and create block
+    auto row_size = input_set.size();
+    std::unique_ptr<Block> block(new Block());
+    for (size_t i = 0; i < descs.size(); ++i) {
+        auto& desc = descs[i];
+        auto column = desc.data_type->create_column();
+        column->reserve(row_size);
+
+        auto type_ptr = desc.data_type->is_nullable()
+                                ? ((DataTypeNullable*)(desc.data_type.get()))->get_nested_type()
+                                : desc.data_type;
+        WhichDataType type(type_ptr);
+
+        for (int j = 0; j < row_size; j++) {
+            if (!insert_cell(column, type_ptr, input_set[j][i])) {
+                return nullptr;
+            }
+        }
+
+        if (desc.is_const) {
+            column = ColumnConst::create(std::move(column), row_size);
+        }
+        block->insert({std::move(column), desc.data_type, desc.col_name});
+    }
+    return block.release();
+}
+
+Block* process_table_function(TableFunction* fn, Block* input_block,
+                              const InputTypeSet& output_types) {
+    // pasrse output data types
+    ut_type::UTDataTypeDescs descs;
+    if (!parse_ut_data_type(output_types, descs)) {
+        return nullptr;
+    }
+    if (descs.size() != 1) {
+        LOG(WARNING) << "Now table function test only support return one column";
+        return nullptr;
+    }
+
+    // process table function init
+    if (fn->process_init(input_block) != Status::OK()) {
+        LOG(WARNING) << "TableFunction process_init failed";
+        return nullptr;
+    }
+
+    // prepare output column
+    vectorized::MutableColumnPtr column = descs[0].data_type->create_column();
+
+    // process table function for all rows
+    for (size_t row = 0; row < input_block->rows(); ++row) {
+        if (fn->process_row(row) != Status::OK()) {
+            LOG(WARNING) << "TableFunction process_row failed";
+            return nullptr;
+        }
+
+        // consider outer
+        if (!fn->is_outer() && fn->current_empty()) {
+            continue;
+        }
+
+        bool tmp_eos = false;
+        do {
+            void* cell = nullptr;
+            int64_t cell_len = 0;
+            if (fn->get_value(&cell) != Status::OK() ||
+                fn->get_value_length(&cell_len) != Status::OK()) {
+                LOG(WARNING) << "TableFunction get_value or get_value_length failed";
+                return nullptr;
+            }
+
+            // copy data from input block
+            if (cell == nullptr) {
+                column->insert_default();
+            } else {
+                column->insert_data(reinterpret_cast<char*>(cell), cell_len);
+            }
+
+            fn->forward(&tmp_eos);
+        } while (!tmp_eos);
+    }
+
+    std::unique_ptr<Block> output_block(new Block());
+    output_block->insert({std::move(column), descs[0].data_type, descs[0].col_name});
+    return output_block.release();
+}
+
+void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types,
+                              const InputDataSet& input_set, const InputTypeSet& output_types,
+                              const InputDataSet& output_set) {
+    std::unique_ptr<Block> input_block(create_block_from_inputset(input_types, input_set));
+    ASSERT_TRUE(input_block != nullptr);
+
+    std::unique_ptr<Block> expect_output_block(
+            create_block_from_inputset(output_types, output_set));
+    ASSERT_TRUE(expect_output_block != nullptr);
+
+    std::unique_ptr<Block> real_output_block(
+            process_table_function(fn, input_block.get(), output_types));
+    ASSERT_TRUE(real_output_block != nullptr);
+
+    // compare real_output_block with expect_output_block
+    ASSERT_EQ(expect_output_block->columns(), real_output_block->columns());
+    ASSERT_EQ(expect_output_block->rows(), real_output_block->rows());
+    for (size_t col = 0; col < expect_output_block->columns(); ++col) {
+        auto left_col = expect_output_block->get_by_position(col).column;
+        auto right_col = real_output_block->get_by_position(col).column;
+        for (size_t row = 0; row < expect_output_block->rows(); ++row) {
+            ASSERT_EQ(left_col->compare_at(row, row, *right_col, 0), 0);
+        }
+    }
+}
+
 // Null values are represented by Null()
 // The type of the constant column is represented as follows: Consted {TypeIndex::String}
 // A DataSet with a constant column can only have one row of data
 template <typename ReturnType, bool nullable = false>
-void check_function(const std::string& func_name, const std::vector<std::any>& input_types,
+void check_function(const std::string& func_name, const InputTypeSet& input_types,
                     const DataSet& data_set) {
     // 1.0 create data type
     ut_type::UTDataTypeDescs descs;
@@ -196,69 +380,12 @@ void check_function(const std::string& func_name, const std::vector<std::any>& i
         auto column = desc.data_type->create_column();
         column->reserve(row_size);
 
-        auto type_ptr = desc.data_type->is_nullable() ?
-             ((DataTypeNullable*)(desc.data_type.get()))->get_nested_type() : desc.data_type;
-        WhichDataType type(type_ptr);
+        auto type_ptr = desc.data_type->is_nullable()
+                                ? ((DataTypeNullable*)(desc.data_type.get()))->get_nested_type()
+                                : desc.data_type;
 
         for (int j = 0; j < row_size; j++) {
-            if (data_set[j].first[i].type() == typeid(Null)) {
-                column->insert_data(nullptr, 0);
-                continue;
-            }
-
-            if (type.is_string()) {
-                auto str = std::any_cast<ut_type::STRING>(data_set[j].first[i]);
-                column->insert_data(str.c_str(), str.size());
-            }  else if (type.idx == TypeIndex::BitMap) {
-                BitmapValue* bitmap = std::any_cast<BitmapValue*>(data_set[j].first[i]);
-                column->insert_data((char*)bitmap, sizeof(BitmapValue));
-            } else if (type.is_int8()) {
-                auto value = std::any_cast<ut_type::TINYINT>(data_set[j].first[i]);
-                column->insert_data(reinterpret_cast<char*>(&value), 0);
-            } else if (type.is_int16()) {
-                auto value = std::any_cast<ut_type::SMALLINT>(data_set[j].first[i]);
-                column->insert_data(reinterpret_cast<char*>(&value), 0);
-            } else if (type.is_int32()) {
-                auto value = std::any_cast<ut_type::INT>(data_set[j].first[i]);
-                column->insert_data(reinterpret_cast<char*>(&value), 0);
-            } else if (type.is_int64()) {
-                auto value = std::any_cast<ut_type::BIGINT>(data_set[j].first[i]);
-                column->insert_data(reinterpret_cast<char*>(&value), 0);
-            } else if (type.is_int128()) {
-                auto value = std::any_cast<ut_type::LARGEINT>(data_set[j].first[i]);
-                column->insert_data(reinterpret_cast<char*>(&value), 0);
-            } else if (type.is_float64()) {
-                auto value = std::any_cast<ut_type::DOUBLE>(data_set[j].first[i]);
-                column->insert_data(reinterpret_cast<char*>(&value), 0);
-            } else if (type.is_float64()) {
-                auto value = std::any_cast<ut_type::DOUBLE>(data_set[j].first[i]);
-                column->insert_data(reinterpret_cast<char*>(&value), 0);
-            } else if (type.is_decimal128()) {
-                auto value = std::any_cast<Decimal<Int128>>(data_set[j].first[i]);
-                column->insert_data(reinterpret_cast<char*>(&value), 0);
-            } else if (type.is_date_time()) {
-                static std::string date_time_format("%Y-%m-%d %H:%i:%s");
-                auto datetime_str = std::any_cast<std::string>(data_set[j].first[i]);
-                VecDateTimeValue v;
-                v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
-                                       datetime_str.c_str(), datetime_str.size());
-                v.to_datetime();
-                column->insert_data(reinterpret_cast<char*>(&v), 0);
-            } else if (type.is_date()) {
-                static std::string date_time_format("%Y-%m-%d");
-                auto datetime_str = std::any_cast<std::string>(data_set[j].first[i]);
-                VecDateTimeValue v;
-                v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
-                                       datetime_str.c_str(), datetime_str.size());
-                v.cast_to_date();
-                column->insert_data(reinterpret_cast<char*>(&v), 0);
-            } else if (type.is_array()) {
-                auto v = std::any_cast<Array>(data_set[j].first[i]);
-                column->insert(v);
-            } else {
-                LOG(WARNING) << "dataset not supported for TypeIndex:" << (int)type.idx;
-                ASSERT_TRUE(false);
-            }
+            ASSERT_TRUE(insert_cell(column, type_ptr, data_set[j].first[i]));
         }
 
         if (desc.is_const) {
@@ -277,7 +404,8 @@ void check_function(const std::string& func_name, const std::vector<std::any>& i
         arguments.push_back(i);
         arg_types.push_back(desc.type_desc);
         if (desc.is_const) {
-            constant_col_ptrs.push_back(std::make_shared<ColumnPtrWrapper>(block.get_by_position(i).column));
+            constant_col_ptrs.push_back(
+                    std::make_shared<ColumnPtrWrapper>(block.get_by_position(i).column));
             constant_cols.push_back(constant_col_ptrs.back().get());
         } else {
             constant_cols.push_back(nullptr);
@@ -287,7 +415,8 @@ void check_function(const std::string& func_name, const std::vector<std::any>& i
     // 2. execute function
     auto return_type = nullable ? make_nullable(std::make_shared<ReturnType>())
                                 : std::make_shared<ReturnType>();
-    auto func = SimpleFunctionFactory::instance().get_function(func_name, block.get_columns_with_type_and_name(), return_type);
+    auto func = SimpleFunctionFactory::instance().get_function(
+            func_name, block.get_columns_with_type_and_name(), return_type);
     ASSERT_TRUE(func != nullptr);
 
     doris_udf::FunctionContext::TypeDesc fn_ctx_return;
