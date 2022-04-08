@@ -240,13 +240,15 @@ public class FunctionCallExpr extends Expr {
         StringBuilder sb = new StringBuilder();
         sb.append("(");
 
+        int len = 0;
         if (params.isStar()) {
             sb.append("*");
+        } else {
+            len = params.exprs().size();
         }
         if (params.isDistinct()) {
             sb.append("DISTINCT ");
         }
-        int len = params.exprs().size();
         List<String> result = Lists.newArrayList();
         if (fnName.getFunction().equalsIgnoreCase("json_array") ||
                 fnName.getFunction().equalsIgnoreCase("json_object")) {
