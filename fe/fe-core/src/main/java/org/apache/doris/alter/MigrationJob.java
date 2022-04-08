@@ -573,7 +573,7 @@ public class MigrationJob extends AlterJobV2 {
 
     private void cancelInternal() {
         // clear tasks if has
-        AgentTaskQueue.removeBatchTask(migrationBatchTask, TTaskType.ALTER);
+        AgentTaskQueue.removeBatchTask(migrationBatchTask, TTaskType.STORAGE_MEDIUM_MIGRATE_V2);
         // remove all shadow indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
         Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
