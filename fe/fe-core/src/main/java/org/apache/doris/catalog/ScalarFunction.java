@@ -285,16 +285,22 @@ public class ScalarFunction extends Function {
 
     public static ScalarFunction createVecBuiltinOperator(
             String name, String symbol, ArrayList<Type> argTypes, Type retType, NullableMode nullableMode) {
-        return createVecBuiltin(name, symbol, argTypes, false, retType, false, nullableMode);
+        return createVecBuiltin(name, null, symbol, null, argTypes, false, retType, false, nullableMode);
     }
 
     //TODO: This method should not be here, move to other place in the future
-    public static ScalarFunction createVecBuiltin(
-            String name, String symbol, ArrayList<Type> argTypes,
-            boolean hasVarArgs, Type retType, boolean userVisible, NullableMode nullableMode) {
-        ScalarFunction fn = new ScalarFunction(
-                new FunctionName(name), argTypes, retType, hasVarArgs, userVisible, true);
+    public static ScalarFunction createVecBuiltin(String name, String prepareFnSymbolBName, String symbol,
+            String closeFnSymbolName, ArrayList<Type> argTypes, boolean hasVarArgs, Type retType, boolean userVisible,
+            NullableMode nullableMode) {
+        ScalarFunction fn = new ScalarFunction(new FunctionName(name), argTypes, retType, hasVarArgs, userVisible,
+                true);
+        if (prepareFnSymbolBName != null) {
+            fn.prepareFnSymbol = prepareFnSymbolBName;
+        }
         fn.symbolName = symbol;
+        if (closeFnSymbolName != null) {
+            fn.closeFnSymbol = closeFnSymbolName;
+        }
         fn.nullableMode = nullableMode;
         return fn;
     }
