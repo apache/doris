@@ -1,9 +1,8 @@
 ---
 {
-    "title": "Doris BE开发调试环境 -- vscode",
-    "language": "zh-CN"
+  "title": "Doris BE开发调试环境 -- vscode",
+  "language": "zh-CN"
 }
-
 ---
 
 <!-- 
@@ -17,7 +16,7 @@ with the License.  You may obtain a copy of the License at
 
   http://www.apache.org/licenses/LICENSE-2.0
 
-Unless required by applicable law or agreed to in writing,
+Unless required by applicable law or agreed to in writing, 
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
 KIND, either express or implied.  See the License for the
@@ -202,7 +201,7 @@ mkdir -p /soft/be/storage
 }
 ```
 
-配置中 **"request": "attach"，   "processId":PID**，这两个配置是重点： 分别设置 gdb 的调试模式为 attach，附加进程的processId，否则会失败。如何查找进程id，可以在命令行中输入以下命令：
+配置中 **"request": "attach"，   "processId": PID**，这两个配置是重点： 分别设置 gdb 的调试模式为 attach，附加进程的processId，否则会失败。如何查找进程id，可以在命令行中输入以下命令：
 
 ```
 ps -ef | grep palo*
@@ -280,4 +279,3 @@ ps -ef | grep palo*
    下面就可以开始你的 Doris DEBUG 之旅了
 
 ![](/images/image-20210618091006146.png)
-
