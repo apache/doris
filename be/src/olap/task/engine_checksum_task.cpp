@@ -19,6 +19,7 @@
 
 #include "olap/tuple_reader.h"
 #include "olap/row.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -34,6 +35,7 @@ EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_h
 }
 
 OLAPStatus EngineChecksumTask::execute() {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
     OLAPStatus res = _compute_checksum();
     return res;
 } // execute
