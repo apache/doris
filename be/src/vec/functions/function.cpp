@@ -91,7 +91,7 @@ struct NullPresence {
     bool has_null_constant = false;
 };
 
-NullPresence getNullPresense(const Block& block, const ColumnNumbers& args) {
+NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
     NullPresence res;
 
     for (const auto& arg : args) {
@@ -104,7 +104,7 @@ NullPresence getNullPresense(const Block& block, const ColumnNumbers& args) {
     return res;
 }
 
-[[maybe_unused]] NullPresence getNullPresense(const ColumnsWithTypeAndName& args) {
+[[maybe_unused]] NullPresence get_null_presence(const ColumnsWithTypeAndName& args) {
     NullPresence res;
 
     for (const auto& elem : args) {
@@ -207,7 +207,7 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         return Status::OK();
     }
 
-    NullPresence null_presence = getNullPresense(block, args);
+    NullPresence null_presence = get_null_presence(block, args);
 
     if (null_presence.has_null_constant) {
         block.get_by_position(result).column =
@@ -287,7 +287,7 @@ DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
     check_number_of_arguments(arguments.size());
 
     if (!arguments.empty() && use_default_implementation_for_nulls()) {
-        NullPresence null_presence = getNullPresense(arguments);
+        NullPresence null_presence = get_null_presence(arguments);
 
         if (null_presence.has_null_constant) {
             return make_nullable(std::make_shared<DataTypeNothing>());
