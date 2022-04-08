@@ -546,9 +546,6 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR && scalarType.isStringType()) {
             return true;
         }
-        if (type == PrimitiveType.HLL && scalarType.isStringType()) {
-            return true;
-        }
         if (isDecimalV2() && scalarType.isWildcardDecimal()) {
             Preconditions.checkState(!isWildcardDecimal());
             return true;
@@ -678,6 +675,15 @@ public class ScalarType extends Type {
         if (t1IsHLL || t2IsHLL) {
             if (t1IsHLL && t2IsHLL) {
                 return createHllType();
+            }
+            return INVALID;
+        }
+
+        boolean t1IsBitMap = t1.type == PrimitiveType.BITMAP;
+        boolean t2IsBitMap = t2.type == PrimitiveType.BITMAP;
+        if (t1IsBitMap || t2IsBitMap) {
+            if (t1IsBitMap && t2IsBitMap) {
+                return BITMAP;
             }
             return INVALID;
         }

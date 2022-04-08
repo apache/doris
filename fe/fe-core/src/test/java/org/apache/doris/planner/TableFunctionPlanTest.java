@@ -184,11 +184,11 @@ public class TableFunctionPlanTest {
     public void errorParam() throws Exception {
         String sql = "explain select k1, e1 from db1.tbl1 lateral view explode_split(k2) tmp as e1;";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(explainString.contains(FunctionCallExpr.UNKNOWN_TABLE_FUNCTION_MSG));
+        Assert.assertTrue(explainString.contains("No matching function with signature: explode_split(varchar(1))"));
 
         sql = "explain select k1, e1 from db1.tbl1 lateral view explode_split(k1) tmp as e1;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
-        Assert.assertTrue(explainString.contains(FunctionCallExpr.UNKNOWN_TABLE_FUNCTION_MSG));
+        Assert.assertTrue(explainString.contains("No matching function with signature: explode_split(int(11))"));
     }
 
     /* Case2 table function in where stmt

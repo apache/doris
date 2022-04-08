@@ -476,18 +476,6 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | `id2`"));
         Assert.assertTrue(explainString.contains("0:OlapScanNode"));
 
-        queryStr = "explain insert into test.bitmap_table select id, to_bitmap(id2) from test.bitmap_table_2;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | to_bitmap(CAST(`id2` AS CHARACTER))"));
-        Assert.assertTrue(explainString.contains("0:OlapScanNode"));
-
-        queryStr = "explain insert into test.bitmap_table select id, bitmap_hash(id2) from test.bitmap_table_2;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | bitmap_hash(CAST(`id2` AS CHARACTER))"));
-        Assert.assertTrue(explainString.contains("0:OlapScanNode"));
-
         queryStr = "explain insert into test.bitmap_table select id, id from test.bitmap_table_2;";
         String errorMsg = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(errorMsg.contains("bitmap column require the function return type is BITMAP"));
@@ -615,6 +603,25 @@ public class QueryPlanTest {
         sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
         List<StatementBase> stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(2, stmts.size());
+
+        // disable cast hll/bitmap to string
+        testHLLQueryPlan(
+                "select cast(id2 as varchar) from test.hll_table;",
+                "Invalid type cast of `id2` from HLL to VARCHAR(*)"
+        );
+        testBitmapQueryPlan(
+                "select cast(id2 as varchar) from test.bitmap_table;",
+                "Invalid type cast of `id2` from BITMAP to VARCHAR(*)"
+        );
+        // disable implicit cast hll/bitmap to string
+        testHLLQueryPlan(
+                "select length(id2) from test.hll_table;",
+                "No matching function with signature: length(hll)"
+        );
+        testBitmapQueryPlan(
+                "select length(id2) from test.bitmap_table;",
+                "No matching function with signature: length(bitmap)"
+        );
     }
 
     @Test

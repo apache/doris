@@ -134,23 +134,29 @@ public class CastExpr extends Expr {
         return targetTypeDef;
     }
 
+    private static boolean disableRegisterCastingFunction(Type fromType, Type toType) {
+        // Disable casting from boolean to decimal or datetime or date
+        if (fromType.isBoolean() &&
+                (toType.equals(Type.DECIMALV2) ||
+                        toType.equals(Type.DATETIME) || toType.equals(Type.DATE))) {
+            return true;
+        }
+
+        // Disable casting operation of hll/bitmap/quantile_state
+        if (fromType.isObjectStored() || toType.isObjectStored()) {
+            return true;
+        }
+        // Disable no-op casting
+        return fromType.equals(toType);
+    }
+
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type fromType : Type.getSupportedTypes()) {
             if (fromType.isNull()) {
                 continue;
             }
             for (Type toType : Type.getSupportedTypes()) {
-                if (toType.isNull()) {
-                    continue;
-                }
-                // Disable casting from boolean to decimal or datetime or date
-                if (fromType.isBoolean() &&
-                        (toType.equals(Type.DECIMALV2) ||
-                                toType.equals(Type.DATETIME) || toType.equals(Type.DATE))) {
-                    continue;
-                }
-                // Disable no-op casts
-                if (fromType.equals(toType)) {
+                if (toType.isNull() || disableRegisterCastingFunction(fromType, toType)) {
                     continue;
                 }
                 String beClass = toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
