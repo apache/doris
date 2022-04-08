@@ -159,7 +159,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _tablet_type(b._tablet_type),
           _tablet_state(b._tablet_state),
           _schema(b._schema),
-          _maxVersion(b._maxVersion),
+          _max_version(b._max_version),
           _rs_metas(b._rs_metas),
           _stale_rs_metas(b._stale_rs_metas),
           _del_pred_array(b._del_pred_array),
@@ -389,8 +389,8 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         if (rs_meta->has_delete_predicate()) {
             add_delete_predicate(rs_meta->delete_predicate(), rs_meta->version().first);
         }
-        _maxVersion =
-                (_maxVersion.second < rs_meta->end_version() ? rs_meta->version() : _maxVersion);
+        _max_version =
+                (_max_version.second < rs_meta->end_version() ? rs_meta->version() : _max_version);
         _rs_metas.push_back(std::move(rs_meta));
     }
 
@@ -469,16 +469,16 @@ void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) 
 }
 
 void TabletMeta::update_max_version() {
-    _maxVersion = {-1, 0};
+    _max_version = {-1, 0};
     for (auto& rs_meta : _rs_metas) {
-        if (rs_meta->end_version() > _maxVersion.second) {
-            _maxVersion = rs_meta->version();
+        if (rs_meta->end_version() > _max_version.second) {
+            _max_version = rs_meta->version();
         }
     }
 }
 
 Version TabletMeta::max_version() const {
-    return _maxVersion;
+    return _max_version;
 }
 
 Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
@@ -496,7 +496,7 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
         }
     }
 
-    _maxVersion = (_maxVersion.second < rs_meta->end_version() ? rs_meta->version() : _maxVersion);
+    _max_version = (_max_version.second < rs_meta->end_version() ? rs_meta->version() : _max_version);
     _rs_metas.push_back(rs_meta);
     if (rs_meta->has_delete_predicate()) {
         add_delete_predicate(rs_meta->delete_predicate(), rs_meta->version().first);
@@ -508,14 +508,14 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
 void TabletMeta::delete_rs_meta_by_version(const Version& version,
                                            std::vector<RowsetMetaSharedPtr>* deleted_rs_metas) {
     auto it = _rs_metas.begin();
-    bool need_update_ = false;
+    bool _need_update = false;
     while (it != _rs_metas.end()) {
         if ((*it)->version() == version) {
             if (deleted_rs_metas != nullptr) {
                 deleted_rs_metas->push_back(*it);
             }
-            if ((*it)->end_version() == _maxVersion.second) {
-                need_update_ = true;
+            if ((*it)->end_version() == _max_version.second) {
+                _need_update = true;
             }
             _rs_metas.erase(it);
             return;
@@ -523,7 +523,7 @@ void TabletMeta::delete_rs_meta_by_version(const Version& version,
             ++it;
         }
     }
-    if(need_update_){
+    if(_need_update){
         update_max_version();
     }
 }
@@ -551,10 +551,10 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
         // put to_delete rowsets in _stale_rs_metas.
         _stale_rs_metas.insert(_stale_rs_metas.end(), to_delete.begin(), to_delete.end());
     }
-    // before insert to_add, update _maxVersion
+    // before insert to_add, update _max_version
     for (auto& rs_meta : to_add) {
-        _maxVersion =
-                (_maxVersion.second < rs_meta->end_version() ? rs_meta->version() : _maxVersion);
+        _max_version =
+                (_max_version.second < rs_meta->end_version() ? rs_meta->version() : _max_version);
     }
     // put to_add rowsets in _rs_metas.
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());

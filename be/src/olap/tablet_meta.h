@@ -199,8 +199,8 @@ private:
     // the reference of _schema may use in tablet, so here need keep
     // the lifetime of tablemeta and _schema is same with tablet
     std::shared_ptr<TabletSchema> _schema;
-    // _maxVersion record _rs_metas's max endVersion Version
-    Version _maxVersion = {-1, 0};
+    // _max_version record _rs_metas's max endVersion Version
+    Version _max_version = {-1, 0};
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     // This variable _stale_rs_metas is used to record these rowsets‘ meta which are be compacted.
     // These stale rowsets meta are been removed when rowsets' pathVersion is expired,
