@@ -15,18 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/function_fake.h"
+#pragma once
+
+#include "exprs/table_function/explode_bitmap.h"
+#include "exprs/table_function/table_function.h"
+#include "util/bitmap_value.h"
+#include "vec/columns/column.h"
 
 namespace doris::vectorized {
 
-void register_function_fake(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionFake<FunctionEsqueryImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeSplitImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeNumbersImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayDoubleImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayIntImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayStringImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeBitmapImpl>>();
-}
+class VExplodeBitmapTableFunction : public ExplodeBitmapTableFunction {
+public:
+    VExplodeBitmapTableFunction();
+
+    Status process_init(vectorized::Block* block) override;
+    Status process_row(size_t row_idx) override;
+    Status process_close() override;
+    Status get_value_length(int64_t* length) override;
+
+private:
+    ColumnPtr _value_column;
+};
 
 } // namespace doris::vectorized
