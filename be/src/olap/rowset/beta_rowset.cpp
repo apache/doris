@@ -148,7 +148,7 @@ OLAPStatus BetaRowset::copy_files_to(const std::string& dir, RowsetId new_rowset
             LOG(WARNING) << "file check exist error: " << dst_path_desc.filepath;
             return OLAP_ERR_OS_ERROR;
         }
-        FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, new_rowset_id, i);
+        FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
         if (!Env::Default()->copy_path(src_path_desc.filepath, dst_path_desc.filepath).ok()) {
             LOG(WARNING) << "fail to copy file. from=" << src_path_desc.filepath << ", to="
                     << dst_path_desc.filepath << ", errno=" << Errno::no();
@@ -179,7 +179,7 @@ OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc, RowsetId ne
             LOG(WARNING) << "file check exist error: " << dst_path_desc.remote_path;
             return OLAP_ERR_OS_ERROR;
         }
-        FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, new_rowset_id, i);
+        FilePathDesc src_path_desc = segment_file_path(_rowset_path_desc, rowset_id(), i);
 
         if (!storage_backend->upload(src_path_desc.filepath, dst_path_desc.remote_path).ok()) {
             LOG(WARNING) << "fail to upload file. from=" << src_path_desc.filepath << ", to="

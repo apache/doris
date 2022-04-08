@@ -44,6 +44,7 @@
 #include "olap/task/engine_clone_task.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/engine_storage_migration_task.h"
+#include "olap/task/engine_storage_migration_task_v2.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
@@ -204,6 +205,11 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::SUBMIT_TABLE_COMPACTION:
         _worker_count = 1;
         cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback,
+                             this);
+        break;
+    case TaskWorkerType::STORAGE_MEDIUM_MIGRATE_V2:
+        _worker_count = 1;
+        cb = std::bind<void>(&TaskWorkerPool::_storage_medium_migrate_v2_worker_thread_callback,
                              this);
         break;
     default:
@@ -1673,6 +1679,128 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
             _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
         }
     }
+}
+
+void TaskWorkerPool::_storage_medium_migrate_v2_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        {
+            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            while (_is_work && _tasks.empty()) {
+                _worker_thread_condition_variable.wait();
+            }
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            _tasks.pop_front();
+        }
+        int64_t signature = agent_task_req.signature;
+        LOG(INFO) << "get migration table v2 task, signature: " << agent_task_req.signature;
+        bool is_task_timeout = false;
+        if (agent_task_req.__isset.recv_time) {
+            int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
+            if (time_elapsed > config::report_task_interval_seconds * 20) {
+                LOG(INFO) << "task elapsed " << time_elapsed
+                          << " seconds since it is inserted to queue, it is timeout";
+                is_task_timeout = true;
+            }
+        }
+        if (!is_task_timeout) {
+            TFinishTaskRequest finish_task_request;
+            TTaskType::type task_type = agent_task_req.task_type;
+            switch (task_type) {
+                case TTaskType::STORAGE_MEDIUM_MIGRATE_V2:
+                    _storage_medium_migrate_v2(agent_task_req, signature, task_type, &finish_task_request);
+                    break;
+                default:
+                    // pass
+                    break;
+            }
+            _finish_task(finish_task_request);
+        }
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+    }
+}
+
+void TaskWorkerPool::_storage_medium_migrate_v2(const TAgentTaskRequest& agent_task_req, int64_t signature,
+        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request) {
+    Status status = Status::OK();
+    TStatus task_status;
+    std::vector<string> error_msgs;
+
+    string process_name;
+    switch (task_type) {
+        case TTaskType::STORAGE_MEDIUM_MIGRATE_V2:
+            process_name = "StorageMediumMigrationV2";
+            break;
+        default:
+            std::string task_name;
+            EnumToString(TTaskType, task_type, task_name);
+            LOG(WARNING) << "Storage medium migration v2 type invalid. type: " << task_name
+                         << ", signature: " << signature;
+            status = Status::NotSupported("Storage medium migration v2 type invalid");
+            break;
+    }
+
+    // Check last storage medium migration v2 status, if failed delete tablet file
+    // Do not need to adjust delete success or not
+    // Because if delete failed task will failed
+    TTabletId new_tablet_id;
+    TSchemaHash new_schema_hash = 0;
+    if (status.ok()) {
+        new_tablet_id = agent_task_req.storage_migration_req_v2.new_tablet_id;
+        new_schema_hash = agent_task_req.storage_migration_req_v2.new_schema_hash;
+        EngineStorageMigrationTaskV2 engine_task(agent_task_req.storage_migration_req_v2);
+        OLAPStatus sc_status = _env->storage_engine()->execute_task(&engine_task);
+        if (sc_status != OLAP_SUCCESS) {
+            if (sc_status == OLAP_ERR_DATA_QUALITY_ERR) {
+                error_msgs.push_back("The data quality does not satisfy, please check your data. ");
+            }
+            status = Status::DataQualityError("The data quality does not satisfy");
+        } else {
+            status = Status::OK();
+        }
+    }
+
+    if (status.ok()) {
+        ++_s_report_version;
+        LOG(INFO) << process_name << " finished. signature: " << signature;
+    }
+
+    // Return result to fe
+    finish_task_request->__set_backend(_backend);
+    finish_task_request->__set_report_version(_s_report_version);
+    finish_task_request->__set_task_type(task_type);
+    finish_task_request->__set_signature(signature);
+
+    std::vector<TTabletInfo> finish_tablet_infos;
+    if (status.ok()) {
+        TTabletInfo tablet_info;
+        status = _get_tablet_info(new_tablet_id, new_schema_hash, signature, &tablet_info);
+
+        if (!status.ok()) {
+            LOG(WARNING) << process_name << " success, but get new tablet info failed."
+                         << "tablet_id: " << new_tablet_id << ", schema_hash: " << new_schema_hash
+                         << ", signature: " << signature;
+        } else {
+            finish_tablet_infos.push_back(tablet_info);
+        }
+    }
+
+    if (status.ok()) {
+        finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
+        LOG(INFO) << process_name << " success. signature: " << signature;
+        error_msgs.push_back(process_name + " success");
+    } else {
+        LOG(WARNING) << process_name << " failed. signature: " << signature;
+        error_msgs.push_back(process_name + " failed");
+        error_msgs.push_back("status: " + status.to_string());
+    }
+    task_status.__set_status_code(status.code());
+    task_status.__set_error_msgs(error_msgs);
+    finish_task_request->__set_task_status(task_status);
 }
 
 } // namespace doris

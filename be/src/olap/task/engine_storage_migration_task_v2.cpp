@@ -24,17 +24,17 @@ namespace doris {
 
 using std::to_string;
 
-EngineStorageMigrationTask::EngineStorageMigrationTask(const TStorageMigrationReqV2& request)
+EngineStorageMigrationTaskV2::EngineStorageMigrationTaskV2(const TStorageMigrationReqV2& request)
         : _storage_migration_req(request) {
     _mem_tracker = MemTracker::create_tracker(
             config::memory_limitation_per_thread_for_storage_migration_bytes,
-            fmt::format("EngineStorageMigrationTask: {}-{}",
+            fmt::format("EngineStorageMigrationTaskV2: {}-{}",
                         std::to_string(_storage_migration_req.base_tablet_id),
                         std::to_string(_storage_migration_req.new_tablet_id)),
             StorageEngine::instance()->storage_migration_mem_tracker(), MemTrackerLevel::TASK);
 }
 
-OLAPStatus EngineStorageMigrationTask::execute() {
+OLAPStatus EngineStorageMigrationTaskV2::execute() {
     DorisMetrics::instance()->storage_migrate_v2_requests_total->increment(1);
     StorageMigrationV2Handler* storage_migration_v2_handler = StorageMigrationV2Handler::instance();
     OLAPStatus res = storage_migration_v2_handler->process_storage_migration_v2(_storage_migration_req);
