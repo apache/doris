@@ -79,8 +79,10 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间"
 )
 AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
-... /* 省略 Partition 和 Distribution 信息 */
-；
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
 ```
 
 可以看到，这是一个典型的用户信息和访问行为的事实表。
@@ -265,8 +267,10 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `register_time` DATETIME COMMENT "用户注册时间"
 )
 UNIQUE KEY(`user_id`, `username`)
-... /* 省略 Partition 和 Distribution 信息 */
-；
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
 ```
 
 而这个表结构，完全同等于以下使用聚合模型描述的表结构：
@@ -297,8 +301,10 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `register_time` DATETIME REPLACE COMMENT "用户注册时间"
 )
 AGGREGATE KEY(`user_id`, `username`)
-... /* 省略 Partition 和 Distribution 信息 */
-；
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
 ```
 
 即 Unique 模型完全可以用聚合模型中的 REPLACE 方式替代。其内部的实现方式和数据存储方式也完全一样。这里不再继续举例说明。
@@ -329,8 +335,10 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `op_time` DATETIME COMMENT "处理时间"
 )
 DUPLICATE KEY(`timestamp`, `type`)
-... /* 省略 Partition 和 Distribution 信息 */
-；
+DISTRIBUTED BY HASH(`type`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
 ```
 
 这种数据模型区别于 Aggregate 和 Unique 模型。数据完全按照导入文件中的数据进行存储，不会有任何聚合。即使两行数据完全相同，也都会保留。 而在建表语句中指定的 DUPLICATE KEY，只是用来指明底层数据按照那些列进行排序。（更贴切的名称应该为 “Sorted Column”，这里取名 “DUPLICATE KEY” 只是用以明确表示所用的数据模型。关于 “Sorted Column”的更多解释，可以参阅[前缀索引]()）。在 DUPLICATE KEY 的选择上，我们建议适当的选择前 2-4 列就可以。

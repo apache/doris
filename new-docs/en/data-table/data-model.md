@@ -79,8 +79,10 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
     `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "user min dwell time"
 )
 AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
-... /* ignore Partition and Distribution */
-;
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
 ```
 
 As you can see, this is a typical fact table of user information and access behavior.
@@ -262,8 +264,10 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 `register_time` DATETIME COMMENT "29992;" 25143;"27880;" 20876;"26102;" 38388;"
 )
 Unique Key (`user_id`, `username`)
-... /* ignore Partition and Distribution  */
-;
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
 ```
 
 This table structure is exactly the same as the following table structure described by the aggregation model:
@@ -293,8 +297,10 @@ CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 `register_time` DATETIME REPLACE COMMENT "29992;" 25143;"27880;" 20876;"26102;"
 )
 AGGREGATE KEY(`user_id`, `username`)
-... /* ignore Partition and Distribution */
-;
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
 ```
 
 That is to say, Uniq model can be completely replaced by REPLACE in aggregation model. Its internal implementation and data storage are exactly the same. No further examples will be given here.
@@ -316,16 +322,18 @@ The TABLE statement is as follows:
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-`timestamp` DATETIME NOT NULL COMMENT "日志时间",
-`type` INT NOT NULL COMMENT "日志类型",
-"Error"\\\\\\\\\\\\\
-`error_msg` VARCHAR(1024) COMMENT "错误详细信息",
-`op_id` BIGINT COMMENT "负责人id",
-OP `op `time ` DATETIME COMMENT "22788;" 29702;"26102;" 388;"
+    `timestamp` DATETIME NOT NULL COMMENT "日志时间",
+    `type` INT NOT NULL COMMENT "日志类型",
+    `error_code` INT COMMENT "错误码",
+    `error_msg` VARCHAR(1024) COMMENT "错误详细信息",
+    `op_id` BIGINT COMMENT "负责人id",
+    `op_time` DATETIME COMMENT "处理时间"
 )
 DUPLICATE KEY(`timestamp`, `type`)
-... /* ignore Partition and Distribution  */
-;
+DISTRIBUTED BY HASH(`type`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
 ```
 
 This data model is different from Aggregate and Uniq models. Data is stored entirely in accordance with the data in the imported file, without any aggregation. Even if the two rows of data are identical, they will be retained.
