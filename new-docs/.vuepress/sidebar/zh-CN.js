@@ -40,7 +40,6 @@ module.exports = [
     initialOpenGroupIndex: -1,
     children: [
       "install-deploy",
-      "docker-install",
       {
         title: "源码编译",
         directoryPath: "source-install/",
@@ -624,7 +623,8 @@ module.exports = [
                   "INSERT",
                   "UPDATE",
                 ],
-              },             
+              },
+              "OUTFILE"             
             ],
           },
           {
