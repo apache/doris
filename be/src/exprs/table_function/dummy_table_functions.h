@@ -45,5 +45,9 @@ public:
                                                           const doris_udf::StringVal& str);
     static doris_udf::IntVal explode_numbers(doris_udf::FunctionContext* context,
                                              const doris_udf::IntVal& value);
+    static doris_udf::AnyVal explode(doris_udf::FunctionContext* context,
+                                     const doris_udf::CollectionVal& value);
+    static doris_udf::AnyVal explode_outer(doris_udf::FunctionContext* context,
+                                           const doris_udf::CollectionVal& value);
 };
 } // namespace doris
