@@ -50,7 +50,7 @@ meta\_tool 工具存放在 BE 的 lib/ 目录下。
 
 api：
 
-`http://{host}:{port}/api/meta/header/{tablet_id}/{schema_hash}`
+`http://{host}:{port}/api/meta/header/{tablet_id}`
 
 
 > host: BE 的 hostname
@@ -58,12 +58,10 @@ api：
 > port: BE 的 http 端口
 > 
 > tablet_id: tablet id
-> 
-> schema_hash: tablet 的 schema hash
 
 举例：
     
-`http://be_host:8040/api/meta/header/14156/2458238340`
+`http://be_host:8040/api/meta/header/14156`
 
 最终查询成功的话，会将 Tablet Meta 以 json 形式返回。
 

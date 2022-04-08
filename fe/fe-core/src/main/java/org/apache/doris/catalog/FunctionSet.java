@@ -1210,10 +1210,12 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
             vecFns = Lists.newArrayList();
             vectorizedFunctions.put(fn.functionName(), vecFns);
         }
-        ScalarFunction scalarFunction = (ScalarFunction)fn;
-        vecFns.add(ScalarFunction.createVecBuiltin(scalarFunction.functionName(), scalarFunction.getSymbolName(),
-                Lists.newArrayList(scalarFunction.getArgs()), scalarFunction.hasVarArgs(),
-                scalarFunction.getReturnType(), scalarFunction.isUserVisible(), scalarFunction.getNullableMode()));
+        ScalarFunction scalarFunction = (ScalarFunction) fn;
+        vecFns.add(ScalarFunction.createVecBuiltin(scalarFunction.functionName(), scalarFunction.getPrepareFnSymbol(),
+                        scalarFunction.getSymbolName(), scalarFunction.getCloseFnSymbol(),
+                        Lists.newArrayList(scalarFunction.getArgs()), scalarFunction.hasVarArgs(),
+                        scalarFunction.getReturnType(), scalarFunction.isUserVisible(),
+                        scalarFunction.getNullableMode()));
     }
 
 
@@ -2374,6 +2376,8 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
     public static final String EXPLODE_JSON_ARRAY_DOUBLE = "explode_json_array_double";
     public static final String EXPLODE_JSON_ARRAY_STRING = "explode_json_array_string";
     public static final String EXPLODE_NUMBERS = "explode_numbers";
+    public static final String EXPLODE = "explode";
+    public static final String EXPLODE_OUTER = "explode_outer";
 
     private void initTableFunction() {
         List<Function> explodeSplits = Lists.newArrayList();
@@ -2423,5 +2427,31 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 "_ZN5doris19DummyTableFunctions22explode_numbersEPN9doris_udf15FunctionContextERKNS1_9IntValE",
                 null, null, true));
         tableFunctions.put(EXPLODE_NUMBERS, explodeNumbers);
+
+        List<Function> explodes = Lists.newArrayList();
+        explodes.add(ScalarFunction.createBuiltin(
+                EXPLODE, Type.INT, Function.NullableMode.ALWAYS_NULLABLE,
+                Lists.newArrayList(new ArrayType(Type.INT)), false,
+                "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE",
+                null, null, true));
+        explodes.add(ScalarFunction.createBuiltin(
+                EXPLODE, Type.VARCHAR, Function.NullableMode.ALWAYS_NULLABLE,
+                Lists.newArrayList(new ArrayType(Type.VARCHAR)), false,
+                "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE, explodes);
+
+        List<Function> explodeOuters = Lists.newArrayList();
+        explodeOuters.add(ScalarFunction.createBuiltin(
+                EXPLODE_OUTER, Type.INT, Function.NullableMode.ALWAYS_NULLABLE,
+                Lists.newArrayList(new ArrayType(Type.INT)), false,
+                "_ZN5doris19DummyTableFunctions13explode_outerEPN9doris_udf15FunctionContextERKNS1_13CollectionValE",
+                null, null, true));
+        explodeOuters.add(ScalarFunction.createBuiltin(
+                EXPLODE_OUTER, Type.VARCHAR, Function.NullableMode.ALWAYS_NULLABLE,
+                Lists.newArrayList(new ArrayType(Type.VARCHAR)), false,
+                "_ZN5doris19DummyTableFunctions13explode_outerEPN9doris_udf15FunctionContextERKNS1_13CollectionValE",
+                null, null, true));
+        tableFunctions.put(EXPLODE_OUTER, explodeOuters);
     }
 }

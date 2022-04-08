@@ -33,13 +33,12 @@ public:
 
     virtual Status forward(bool* eos) override;
 
-private:
+protected:
     void _reset_iterator();
 
-private:
     // Read from tuple row.
     // if _cur_bitmap_owned is true, need to delete it when deconstruction
-    BitmapValue* _cur_bitmap = nullptr;
+    const BitmapValue* _cur_bitmap = nullptr;
     bool _cur_bitmap_owned = false;
     // iterator of _cur_bitmap
     BitmapValueIterator* _cur_iter = nullptr;

@@ -19,7 +19,6 @@
 
 #include "util/doris_metrics.h"
 #include "util/trace.h"
-#include "runtime/thread_context.h"
 
 namespace doris {
 

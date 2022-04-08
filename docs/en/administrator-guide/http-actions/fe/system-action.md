@@ -66,7 +66,7 @@ Take `/dbs/10003/10054/partitions/10053/10055` as an example:
 			"LstFailedTime": "\\N",
 			"LstFailedVersion": "-1",
 			"MetaUrl": "URL",
-			"__hrefPaths": ["http://192.168.100.100:8030/rest/v1/system?path=/dbs/10003/10054/partitions/10053/10055/10056", "http://192.168.100.100:8043/api/meta/header/10056/1294206575", "http://192.168.100.100:8043/api/compaction/show?tablet_id=10056&schema_hash=1294206575"],
+			"__hrefPaths": ["http://192.168.100.100:8030/rest/v1/system?path=/dbs/10003/10054/partitions/10053/10055/10056", "http://192.168.100.100:8043/api/meta/header/10056", "http://192.168.100.100:8043/api/compaction/show?tablet_id=10056"],
 			"CheckVersionHash": "-1",
 			"ReplicaId": "10057",
 			"VersionHash": "4611804212003004639",
