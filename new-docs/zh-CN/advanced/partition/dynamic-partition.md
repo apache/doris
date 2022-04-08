@@ -444,7 +444,6 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
   关闭动态分区功能后，Doris 将不再自动管理分区，需要用户手动通过 `ALTER TABLE` 的方式创建或删除分区。
 
-  关闭动态分区功能后，Doris 将不再自动管理分区，需要用户手动通过 `ALTER TABLE` 的方式创建或删除分区。
 
 ## 常见问题
 
@@ -453,3 +452,7 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
    由于动态分区的总开关，也就是 FE 的配置 `dynamic_partition_enable` 为 false，导致无法创建动态分区表。
 
    这时候请修改 FE 的配置文件，增加一行 `dynamic_partition_enable=true`，并重启 FE。或者执行命令 ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") 将动态分区开关打开即可。
+
+## 更多帮助
+
+关于动态分区使用的更多详细语法及最佳实践，请参阅 [SHOW DYNAMIC PARTITION](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-DYNAMIC-PARTITION.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP ALTER TABLE` 获取更多帮助信息。

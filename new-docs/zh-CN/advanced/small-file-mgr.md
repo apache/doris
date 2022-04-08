@@ -126,3 +126,9 @@ Examples:
 2. BE 配置
 
    - `small_file_dir`：用于存放从 FE 下载的文件的路径，默认为 BE 运行目录的 `lib/small_files/` 目录下。
+
+
+
+## 更多帮助
+
+关于文件管理器使用的更多详细语法及最佳实践，请参阅 [CREATE FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.html) 、[DROP FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.html) 和 [SHOW FILE](../sql-manual/sql-reference-v2/Show-Statements/SHOW-FILE.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP CREATE FILE` 、`HELP DROP FILE`和`HELP SHOW FILE`  获取更多帮助信息。

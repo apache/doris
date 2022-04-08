@@ -168,12 +168,10 @@ module.exports = [
         directoryPath: "cache/",
         initialOpenGroupIndex: -1,
         children: [
-          "partition-cache",
-          "query-cache"
+          "partition-cache"
         ],
       },
       "orthogonal-bitmap-manual",
-      "orthogonal-hll-manual",
       "variables",
       "time-zone",
       "small-file-mgr"

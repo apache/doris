@@ -71,7 +71,7 @@ under the License.
 
 ## 创建作业
 
-创建 Schema Change 的具体语法可以查看帮助 [HELP ALTER TABLE]() 中 Schema Change 部分的说明。
+创建 Schema Change 的具体语法可以查看帮助 [ALTER TABLE COLUMN](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md) 中 Schema Change 部分的说明。
 
 Schema Change 的创建是一个异步过程，作业提交成功后，用户需要通过 `SHOW ALTER TABLE COLUMN` 命令来查看作业进度。
 
@@ -79,7 +79,9 @@ Schema Change 的创建是一个异步过程，作业提交成功后，用户需
 
 `SHOW ALTER TABLE COLUMN` 可以查看当前正在执行或已经完成的 Schema Change 作业。当一次 Schema Change 作业涉及到多个 Index 时，该命令会显示多行，每行对应一个 Index。举例如下：
 
-```text
+```sql
+mysql> SHOW ALTER TABLE COLUMN\G;
+*************************** 1. row ***************************
         JobId: 20021
     TableName: tbl1
    CreateTime: 2019-08-05 23:03:13
@@ -90,9 +92,10 @@ OriginIndexId: 20017
 SchemaVersion: 2:792557838
 TransactionId: 10023
         State: FINISHED
-          Msg:
-     Progress: N/A
+          Msg: 
+     Progress: NULL
       Timeout: 86400
+1 row in set (0.00 sec)
 ```
 
 - JobId：每个 Schema Change 作业的唯一 ID。
@@ -242,3 +245,6 @@ ADD COLUMN k5 INT default "1" to rollup2;
 
 - `alter_tablet_worker_count`：在 BE 端用于执行历史数据转换的线程数。默认为 3。如果希望加快 Schema Change 作业的速度，可以适当调大这个参数后重启 BE。但过多的转换线程可能会导致 IO 压力增加，影响其他操作。该线程和 Rollup 作业共用。
 
+## 更多帮助
+
+关于Schema Change使用的更多详细语法及最佳实践，请参阅 [ALTER TABLE COLUMN](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP ALTER TABLE COLUMN`  获取更多帮助信息。

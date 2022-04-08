@@ -68,14 +68,16 @@ The basic process of executing a Schema Change is to generate a copy of the inde
 Before starting the conversion of historical data, Doris will obtain a latest transaction ID. And wait for all import transactions before this Transaction ID to complete. This Transaction ID becomes a watershed. This means that Doris guarantees that all import tasks after the watershed will generate data for both the original Index and the new Index. In this way, when the historical data conversion is completed, the data in the new Index can be guaranteed to be complete.
 ## Create Job
 
-The specific syntax for creating a Schema Change can be found in the description of the Schema Change section in the help `HELP ALTER TABLE`.
+The specific syntax for creating a Schema Change can be found in the help [ALTER TABLE COLUMN](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md) for the description of the Schema Change section .
 
 The creation of Schema Change is an asynchronous process. After the job is submitted successfully, the user needs to view the job progress through the `SHOW ALTER TABLE COLUMN` command.
 ## View Job
 
 `SHOW ALTER TABLE COLUMN` You can view the Schema Change jobs that are currently executing or completed. When multiple indexes are involved in a Schema Change job, the command displays multiple lines, each corresponding to an index. For example:
 
-```
+```sql
+mysql> SHOW ALTER TABLE COLUMN\G;
+*************************** 1. row ***************************
         JobId: 20021
     TableName: tbl1
    CreateTime: 2019-08-05 23:03:13
@@ -86,9 +88,10 @@ OriginIndexId: 20017
 SchemaVersion: 2:792557838
 TransactionId: 10023
         State: FINISHED
-          Msg:
-     Progress: N/A
+          Msg: 
+     Progress: NULL
       Timeout: 86400
+1 row in set (0.00 sec)
 ```
 
 * JobId: A unique ID for each Schema Change job.
@@ -103,9 +106,9 @@ TransactionId: 10023
 * State: The phase of the operation.
     * PENDING: The job is waiting in the queue to be scheduled.
     * WAITING_TXN: Wait for the import task before the watershed transaction ID to complete.
-    * RUNNING: Historical data conversion.
-    * FINISHED: The operation was successful.
-    * CANCELLED: The job failed.
+        * RUNNING: Historical data conversion.
+        * FINISHED: The operation was successful.
+            * CANCELLED: The job failed.
 * Msg: If the job fails, a failure message is displayed here.
 * Progress: operation progress. Progress is displayed only in the RUNNING state. Progress is displayed in M ​​/ N. Where N is the total number of copies involved in the Schema Change. M is the number of copies of historical data conversion completed.
 * Timeout: Job timeout time. Unit of second.
@@ -191,13 +194,13 @@ At the same time, columns that already exist in the Base table are not allowed t
      If you modify the column `k1 INT SUM NULL DEFAULT" 1 "` as type BIGINT, you need to execute the following command:
     
     ```ALTER TABLE tbl1 MODIFY COLUMN `k1` BIGINT SUM NULL DEFAULT "1"; ```
-    
+
    Note that in addition to the new column types, such as the aggregation mode, Nullable attributes, and default values must be completed according to the original information.
     
 * Modifying column names, aggregation types, nullable attributes, default values, and column comments is not supported.
 
 ## FAQ
-    
+
 * the execution speed of Schema Change
 
     At present, the execution speed of Schema Change is estimated to be about 10MB / s according to the worst efficiency. To be conservative, users can set the timeout for jobs based on this rate.
@@ -229,3 +232,10 @@ At the same time, columns that already exist in the Base table are not allowed t
 ### BE Configurations
 
 * `alter_tablet_worker_count`: Number of threads used to perform historical data conversion on the BE side. The default is 3. If you want to speed up the Schema Change job, you can increase this parameter appropriately and restart the BE. But too many conversion threads can cause increased IO pressure and affect other operations. This thread is shared with the Rollup job.
+
+
+
+## More Help
+
+For more detailed syntax and best practices used by Schema Change, see [ALTER TABLE COLUMN](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md ) command manual, you can also enter `HELP ALTER TABLE COLUMN` in the MySql client command line for more help information.
+

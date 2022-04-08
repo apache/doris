@@ -126,3 +126,7 @@ Because the file meta-information and content are stored in FE memory. So by def
 2. BE configuration
 
 * `Small_file_dir`: The path used to store files downloaded from FE by default is in the `lib/small_files/` directory of the BE runtime directory.
+
+## More Help
+
+For more detailed syntax and best practices used by the file manager, see [CREATE FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.html), [DROP FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.html) and [SHOW FILE](../sql-manual/sql-reference-v2 /Show-Statements/SHOW-FILE.md) command manual, you can also enter `HELP CREATE FILE`, `HELP DROP FILE` and `HELP SHOW FILE` in the MySql client command line to get more help information.
