@@ -85,6 +85,7 @@ Status RuntimeFilterMgr::regist_filter(const RuntimeFilterRole role, const TRunt
                                        const TQueryOptions& options, int node_id) {
     DCHECK((role == RuntimeFilterRole::CONSUMER && node_id >= 0) ||
            role != RuntimeFilterRole::CONSUMER);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_tracker);
     int32_t key = desc.filter_id;
 
     std::map<int32_t, RuntimeFilterMgrVal>* filter_map = nullptr;
@@ -112,6 +113,7 @@ Status RuntimeFilterMgr::regist_filter(const RuntimeFilterRole role, const TRunt
 }
 
 Status RuntimeFilterMgr::update_filter(const PPublishFilterRequest* request, const char* data) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_tracker);
     UpdateRuntimeFilterParams params;
     params.request = request;
     params.data = data;
@@ -156,7 +158,8 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     // LOG(INFO) << "entity filter id:" << filter_id;
     cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, _fragment_instance_id);
     cntVal->tracker = MemTracker::create_tracker(
-            -1, thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->label() + ":FilterID:" + filter_id);
+            -1, thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->label() + ":FilterID:" + filter_id,
+            thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker());
     _filter_map.emplace(filter_id, cntVal);
     return Status::OK();
 }
@@ -166,8 +169,8 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
                                                 const TQueryOptions& query_options) {
     _query_id = query_id;
     _fragment_instance_id = fragment_instance_id;
-    // TODO(zxy) used after
     _mem_tracker = MemTracker::create_tracker(-1, "RuntimeFilterMergeControllerEntity", nullptr);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     for (auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
         int filter_id = filterid_to_desc.first;
         const auto& target_iter = runtime_filter_params.rid_to_target_param.find(filter_id);
@@ -186,6 +189,7 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
 // merge data
 Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* request,
                                                  const char* data) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::shared_ptr<RuntimeFilterCntlVal> cntVal;
     int merged_size = 0;
     {
@@ -197,6 +201,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             return Status::InvalidArgument("unknown filter id");
         }
         cntVal = iter->second;
+        SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(cntVal->tracker);
         MergeRuntimeFilterParams params;
         params.data = data;
         params.request = request;

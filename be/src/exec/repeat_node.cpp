@@ -44,6 +44,7 @@ RepeatNode::~RepeatNode() {}
 Status RepeatNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     _runtime_state = state;
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_tuple_desc == nullptr) {
@@ -55,6 +56,7 @@ Status RepeatNode::prepare(RuntimeState* state) {
 
 Status RepeatNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(child(0)->open(state));
@@ -163,6 +165,7 @@ Status RepeatNode::get_repeated_batch(RowBatch* child_row_batch, int repeat_id_i
 
 Status RepeatNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     DCHECK(_repeat_id_idx >= 0);
     for (const std::vector<int64_t>& v : _grouping_list) {
