@@ -26,9 +26,32 @@ under the License.
 
 ## SHOW-CREATE-FUNCTION
 
+### Name
+
+SHOW CREATE FUNCTION
+
 ### Description
 
+该语句用于展示用户自定义函数的创建语句
+
+语法：
+
+```sql
+SHOW CREATE FUNTION function_name(arg_type [, ...]) [FROM db_name]];
+```
+
+说明：
+          1. `function_name`: 要展示的函数名称
+          2. `arg_type`: 要展示的函数的参数列表
+          3. 如果不指定 db_name，使用当前默认 db
+
 ### Example
+
+1. 展示默认db下指定函数的创建语句
+   
+    ```sql
+    SHOW CREATE FUNCTION my_add(INT, INT)
+    ```
 
 ### Keywords
 

@@ -26,9 +26,27 @@ under the License.
 
 ## SHOW-ROUTINE-LOAD-TASK
 
+### Name
+
+SHOW ROUTINE LOAD TASK
+
 ### Description
 
+This statement is used to display Routine Load job running TASK task information
+
+grammar:
+
+```sql
+SHOW ROUTINE LOAD TASK WHERE JobName=[routine_job_name]
+````
+
 ### Example
+
+1. Display the subtask information of the routine import task named test1.
+
+    ```sql
+    SHOW ROUTINE LOAD TASK WHERE JobName = "test1";
+    ````
 
 ### Keywords
 

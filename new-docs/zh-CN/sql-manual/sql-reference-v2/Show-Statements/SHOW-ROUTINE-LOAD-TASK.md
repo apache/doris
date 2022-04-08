@@ -26,9 +26,27 @@ under the License.
 
 ## SHOW-ROUTINE-LOAD-TASK
 
+### Name
+
+SHOW ROUTINE LOAD TASK
+
 ### Description
 
+该语句用于展示 Routine Load 作业运行 TASK 任务信息
+
+语法：
+
+```sql
+SHOW ROUTINE LOAD TASK WHERE JobName=[routine_job_name]
+```
+
 ### Example
+
+1. 展示名为 test1 的例行导入任务的子任务信息。
+
+    ```sql
+    SHOW ROUTINE LOAD TASK WHERE JobName = "test1";
+    ```
 
 ### Keywords
 
