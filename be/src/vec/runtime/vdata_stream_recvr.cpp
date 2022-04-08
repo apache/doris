@@ -19,6 +19,7 @@
 
 #include "gen_cpp/data.pb.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "util/uid_util.h"
 
 #include "vec/core/block.h"
@@ -261,6 +262,7 @@ VDataStreamRecvr::VDataStreamRecvr(
     _mem_tracker =
             MemTracker::create_tracker(-1, "VDataStreamRecvr:" + print_id(_fragment_instance_id),
                                        nullptr, MemTrackerLevel::VERBOSE, _profile);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     _block_mem_tracker = MemTracker::create_virtual_tracker(
             -1, "VDataStreamRecvr:block:" + print_id(_fragment_instance_id), _mem_tracker);
 
@@ -293,6 +295,7 @@ Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& orderin
                                        const std::vector<bool>& nulls_first, size_t batch_size,
                                        int64_t limit, size_t offset) {
     DCHECK(_is_merging);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::vector<BlockSupplier> child_block_suppliers;
     // Create the merger that will a single stream of sorted rows.
     _merger.reset(new VSortedRunMerger(ordering_expr, is_asc_order, nulls_first, batch_size, limit,
@@ -308,16 +311,19 @@ Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& orderin
 
 void VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
                                  int64_t packet_seq, ::google::protobuf::Closure** done) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(block, use_move);
 }
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
     if (!_is_merging) {
         Block* res = nullptr;
         RETURN_IF_ERROR(_sender_queues[0]->get_batch(&res));

@@ -85,6 +85,8 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(compaction_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "compaction"}}));
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(schema_change_mem_consumption, MetricUnit::BYTES, "",
+                                   mem_consumption, Labels({{"type", "schema_change"}}));
 
 StorageEngine* StorageEngine::_s_instance = nullptr;
 
@@ -142,11 +144,14 @@ StorageEngine::StorageEngine(const EngineOptions& options)
     REGISTER_HOOK_METRIC(compaction_mem_consumption, [this]() {
         return _compaction_mem_tracker->consumption();
     });
+    REGISTER_HOOK_METRIC(schema_change_mem_consumption,
+                         [this]() { return _schema_change_mem_tracker->consumption(); });
 }
 
 StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     DEREGISTER_HOOK_METRIC(compaction_mem_consumption);
+    DEREGISTER_HOOK_METRIC(schema_change_mem_consumption);
     _clear();
 
     if (_compaction_thread_pool) {
