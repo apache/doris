@@ -1,9 +1,8 @@
 ---
 {
-"title": "JSON格式数据导入",
-"language": "zh-CN"
+    "title": "JSON格式数据导入",
+    "language": "zh-CN"
 }
-
 ---
 
 <!-- 
@@ -338,29 +337,29 @@ code    INT     NULL
    {"id": 100, "city": "beijing", "code" : 1}
    ```
 
-    - 不指定 Json Path
+   - 不指定 Json Path
 
-      ```bash
-      curl --location-trusted -u user:passwd -H "format: json" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
-      ```
+     ```bash
+     curl --location-trusted -u user:passwd -H "format: json" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+     ```
 
-      导入结果：
+     导入结果：
 
-      ```text
-      100     beijing     1
-      ```
+     ```text
+     100     beijing     1
+     ```
 
-    - 指定 Json Path
+   - 指定 Json Path
 
-      ```bash
-      curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
-      ```
+     ```bash
+     curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+     ```
 
-      导入结果：
+     导入结果：
 
-      ```text
-      100     beijing     1
-      ```
+     ```text
+     100     beijing     1
+     ```
 
 2. 导入单行数据2
 
@@ -368,17 +367,17 @@ code    INT     NULL
    {"id": 100, "content": {"city": "beijing", "code" : 1}}
    ```
 
-    - 指定 Json Path
+   - 指定 Json Path
 
-      ```bash
-      curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.content.city\",\"$.content.code\"]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
-      ```
+     ```bash
+     curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.content.city\",\"$.content.code\"]" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+     ```
 
-      导入结果：
+     导入结果：
 
-      ```text
-      100     beijing     1
-      ```
+     ```text
+     100     beijing     1
+     ```
 
 3. 导入多行数据
 
@@ -399,22 +398,22 @@ code    INT     NULL
    ]
    ```
 
-    - 指定 Json Path
+   - 指定 Json Path
 
-      ```bash
-      curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -H "strip_outer_array: true" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
-      ```
+     ```bash
+     curl --location-trusted -u user:passwd -H "format: json" -H "jsonpaths: [\"$.id\",\"$.city\",\"$.code\"]" -H "strip_outer_array: true" -T data.json http://localhost:8030/api/db1/tbl1/_stream_load
+     ```
 
-      导入结果：
+     导入结果：
 
-      ```text
-      100     beijing                     1
-      101     shanghai                    NULL
-      102     tianjin                     3
-      103     chongqing                   4
-      104     ["zhejiang","guangzhou"]    5
-      105     {"order1":["guangzhou"]}    6
-      ```
+     ```text
+     100     beijing                     1
+     101     shanghai                    NULL
+     102     tianjin                     3
+     103     chongqing                   4
+     104     ["zhejiang","guangzhou"]    5
+     105     {"order1":["guangzhou"]}    6
+     ```
 
 4. 对导入数据进行转换
 
