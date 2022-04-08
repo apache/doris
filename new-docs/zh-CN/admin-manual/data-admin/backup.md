@@ -54,28 +54,75 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
 
 ## 开始备份
 
-1. 全量备份 example_db 下的表 example_tbl 到仓库 example_repo 中：
+1. 创建一个hdfs的远程仓库example_repo：
+
+   ```sql
+   CREATE REPOSITORY `example_repo`
+   WITH BROKER `hdfs_broker`
+   ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+   PROPERTIES
+   (
+      "username" = "user",
+      "password" = "password"
+   );
+   ```
+
+2. 全量备份 example_db 下的表 example_tbl 到仓库 example_repo 中：
 
    ```sql
    BACKUP SNAPSHOT example_db.snapshot_label1
-       TO example_repo
-       ON (example_tbl)
-       PROPERTIES ("type" = "full");
+   TO example_repo
+   ON (example_tbl)
+   PROPERTIES ("type" = "full");
    ```
 
-2. 全量备份 example_db 下，表 example_tbl 的 p1, p2 分区，以及表 example_tbl2 到仓库 example_repo 中：
+3. 全量备份 example_db 下，表 example_tbl 的 p1, p2 分区，以及表 example_tbl2 到仓库 example_repo 中：
 
    ```sql
    BACKUP SNAPSHOT example_db.snapshot_label2
-       TO example_repo
-       ON 
-       (
-           example_tbl PARTITION (p1,p2),
-           example_tbl2
-       );
+   TO example_repo
+   ON 
+   (
+      example_tbl PARTITION (p1,p2),
+      example_tbl2
+   );
    ```
 
-BACKUP的详细用法可参考 [这里](../../sql-manual/sql-reference-v2/Show-Statements/BACKUP.html)。
+4. 查看最近 backup 作业的执行情况：
+
+   ```sql
+   mysql> show BACKUP\G;
+   *************************** 1. row ***************************
+                  JobId: 17891847
+           SnapshotName: snapshot_label1
+                 DbName: example_db
+                  State: FINISHED
+             BackupObjs: [default_cluster:example_db.example_tbl]
+             CreateTime: 2022-04-08 15:52:29
+   SnapshotFinishedTime: 2022-04-08 15:52:32
+     UploadFinishedTime: 2022-04-08 15:52:38
+           FinishedTime: 2022-04-08 15:52:44
+        UnfinishedTasks: 
+               Progress: 
+             TaskErrMsg: 
+                 Status: [OK]
+                Timeout: 86400
+   1 row in set (0.01 sec)
+   ```
+
+5. 查看远端仓库中已存在的备份
+
+   ```sql
+   mysql> SHOW SNAPSHOT ON example_repo WHERE SNAPSHOT = "snapshot_label1";
+   +-----------------+---------------------+--------+
+   | Snapshot        | Timestamp           | Status |
+   +-----------------+---------------------+--------+
+   | snapshot_label1 | 2022-04-08-15-52-29 | OK     |
+   +-----------------+---------------------+--------+
+   1 row in set (0.15 sec)
+   ```
+
+BACKUP的更多用法可参考 [这里](../../sql-manual/sql-reference-v2/Show-Statements/BACKUP.html)。
 
 ## 最佳实践
 

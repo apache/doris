@@ -55,20 +55,20 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
 ## 开始恢复
 
 1. 从 example_repo 中恢复备份 snapshot_1 中的表 backup_tbl 到数据库 example_db1，时间版本为 "2018-05-04-16-45-08"。恢复为 1 个副本：
-    
+   
     ```sql
     RESTORE SNAPSHOT example_db1.`snapshot_1`
     FROM `example_repo`
     ON ( `backup_tbl` )
     PROPERTIES
     (
-        "backup_timestamp"="2018-05-04-16-45-08",
+        "backup_timestamp"="2022-04-08-15-52-29",
         "replication_num" = "1"
     );
     ```
     
 2. 从 example_repo 中恢复备份 snapshot_2 中的表 backup_tbl 的分区 p1,p2，以及表 backup_tbl2 到数据库 example_db1，并重命名为 new_tbl，时间版本为 "2018-05-04-17-11-01"。默认恢复为 3 个副本：
-    
+   
     ```sql
     RESTORE SNAPSHOT example_db1.`snapshot_2`
     FROM `example_repo`
@@ -79,11 +79,54 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
     )
     PROPERTIES
     (
-        "backup_timestamp"="2018-05-04-17-11-01"
+        "backup_timestamp"="2022-04-08-15-55-43"
     );
     ```
 
-RESTORE的详细用法可参考 [这里](../../sql-manual/sql-reference-v2/Show-Statements/RESTORE.html)。
+3. 查看 restore 作业的执行情况:
+
+   ```sql
+   mysql> SHOW RESTORE\G;
+   *************************** 1. row ***************************
+                  JobId: 17891851
+                  Label: snapshot_label1
+              Timestamp: 2022-04-08-15-52-29
+                 DbName: default_cluster:example_db1
+                  State: FINISHED
+              AllowLoad: false
+         ReplicationNum: 3
+            RestoreObjs: {
+     "name": "snapshot_label1",
+     "database": "example_db",
+     "backup_time": 1649404349050,
+     "content": "ALL",
+     "olap_table_list": [
+       {
+         "name": "backup_tbl",
+         "partition_names": [
+           "p1",
+           "p2"
+         ]
+       }
+     ],
+     "view_list": [],
+     "odbc_table_list": [],
+     "odbc_resource_list": []
+   }
+             CreateTime: 2022-04-08 15:59:01
+       MetaPreparedTime: 2022-04-08 15:59:02
+   SnapshotFinishedTime: 2022-04-08 15:59:05
+   DownloadFinishedTime: 2022-04-08 15:59:12
+           FinishedTime: 2022-04-08 15:59:18
+        UnfinishedTasks: 
+               Progress: 
+             TaskErrMsg: 
+                 Status: [OK]
+                Timeout: 86400
+   1 row in set (0.01 sec)
+   ```
+
+RESTORE的更多用法可参考 [这里](../../sql-manual/sql-reference-v2/Show-Statements/RESTORE.html)。
 
 ## 相关命令
 

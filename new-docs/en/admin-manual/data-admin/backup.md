@@ -54,25 +54,72 @@ ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
 
 ## Start Backup
 
+1. Create a hdfs remote warehouse example_repo:
+
+   ```sql
+   CREATE REPOSITORY `example_repo`
+   WITH BROKER `hdfs_broker`
+   ON LOCATION "hdfs://hadoop-name-node:54310/path/to/repo/"
+   PROPERTIES
+   (
+      "username" = "user",
+      "password" = "password"
+   );
+   ```
+
 1. Full backup of table example_tbl under example_db to warehouse example_repo:
 
    ```sql
    BACKUP SNAPSHOT example_db.snapshot_label1
-       TO example_repo
-       ON (example_tbl)
-       PROPERTIES ("type" = "full");
+   TO example_repo
+   ON (example_tbl)
+   PROPERTIES ("type" = "full");
    ```
 
 2. Under the full backup example_db, the p1, p2 partitions of the table example_tbl, and the table example_tbl2 to the warehouse example_repo:
 
    ```sql
    BACKUP SNAPSHOT example_db.snapshot_label2
-       TO example_repo
-       ON 
-       (
-           example_tbl PARTITION (p1,p2),
-           example_tbl2
-       );
+   TO example_repo
+   ON 
+   (
+      example_tbl PARTITION (p1,p2),
+      example_tbl2
+   );
+   ```
+
+4. View the execution of the most recent backup job:
+
+   ```sql
+   mysql> show BACKUP\G;
+   *************************** 1. row ***************************
+                  JobId: 17891847
+           SnapshotName: snapshot_label1
+                 DbName: example_db
+                  State: FINISHED
+             BackupObjs: [default_cluster:example_db.example_tbl]
+             CreateTime: 2022-04-08 15:52:29
+   SnapshotFinishedTime: 2022-04-08 15:52:32
+     UploadFinishedTime: 2022-04-08 15:52:38
+           FinishedTime: 2022-04-08 15:52:44
+        UnfinishedTasks: 
+               Progress: 
+             TaskErrMsg: 
+                 Status: [OK]
+                Timeout: 86400
+   1 row in set (0.01 sec)
+   ```
+
+5. View existing backups in remote repositories:
+
+   ```sql
+   mysql> SHOW SNAPSHOT ON example_repo WHERE SNAPSHOT = "snapshot_label1";
+   +-----------------+---------------------+--------+
+   | Snapshot        | Timestamp           | Status |
+   +-----------------+---------------------+--------+
+   | snapshot_label1 | 2022-04-08-15-52-29 | OK     |
+   +-----------------+---------------------+--------+
+   1 row in set (0.15 sec)
    ```
 
 For the detailed usage of BACKUP, please refer to [here](../../sql-manual/sql-reference-v2/Show-Statements/BACKUP.html).
