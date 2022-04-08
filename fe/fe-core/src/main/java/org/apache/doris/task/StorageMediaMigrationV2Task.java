@@ -17,11 +17,8 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.thrift.TStorageMigrationReqV2;
 import org.apache.doris.thrift.TTaskType;
-
-import java.util.Map;
 
 /*
  * This task is used for migration replica process
@@ -41,7 +38,7 @@ public class StorageMediaMigrationV2Task extends AgentTask {
                                        long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
                                        long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
                                        long version, long jobId) {
-        super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
+        super(null, backendId, TTaskType.STORAGE_MEDIUM_MIGRATE_V2, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;
         this.newReplicaId = newReplicaId;

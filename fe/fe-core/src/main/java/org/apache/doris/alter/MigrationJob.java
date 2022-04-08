@@ -518,7 +518,8 @@ public class MigrationJob extends AlterJobV2 {
                     Catalog.getCurrentInvertedIndex().deleteTablet(originTablet.getId());
                 }
             }
-            TStorageMedium remoteColdStorageMedium = tbl.getPartitionInfo().getDataProperty(partition.getId()).getRemoteColdStorageMedium();
+            TStorageMedium remoteColdStorageMedium = tbl.getPartitionInfo()
+                    .getDataProperty(partition.getId()).getRemoteColdStorageMedium();
             tbl.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(remoteColdStorageMedium));
         }
 

@@ -266,7 +266,7 @@ public class MigrationHandler extends AlterHandler {
                         Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:"
                                 + partitionId + ", db: " + dbId + ", tbl: " + tableId);
                         if (dataProperty.getStorageMedium() != dataProperty.getRemoteColdStorageMedium()
-                                && dataProperty.getCooldownTimeMs() < currentTimeMs
+                                && dataProperty.getRemoteCooldownTimeMs() < currentTimeMs
                                 && dataProperty.getMigrationState() == DataProperty.MigrationState.NONE) {
                             if (!changedPartitionsMap.containsKey(dbId)) {
                                 changedPartitionsMap.put(dbId, new HashMap<>());
