@@ -28,6 +28,7 @@
 
 namespace doris {
 
+class DataDir;
 class MemTracker;
 class RowBlock;
 class RowCursor;
@@ -53,7 +54,7 @@ struct SegmentWriterOptions {
 class SegmentWriter {
 public:
     explicit SegmentWriter(fs::WritableBlock* block, uint32_t segment_id,
-                           const TabletSchema* tablet_schema, const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent = nullptr);
+                           const TabletSchema* tablet_schema, DataDir* data_dir, const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent = nullptr);
     ~SegmentWriter();
 
     Status init(uint32_t write_mbytes_per_sec);
@@ -83,6 +84,7 @@ private:
 private:
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;
+    DataDir* _data_dir;
     SegmentWriterOptions _opts;
 
     // Not owned. owned by RowsetWriter

@@ -226,6 +226,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
         context.tablet_id = cur_tablet->tablet_id();
         context.partition_id = _request.partition_id;
         context.tablet_schema_hash = cur_tablet->schema_hash();
+        context.data_dir = cur_tablet->data_dir();
         context.rowset_type = StorageEngine::instance()->default_rowset_type();
         if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
             context.rowset_type = BETA_ROWSET;
@@ -412,6 +413,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         context.tablet_id = cur_tablet->tablet_id();
         context.partition_id = _request.partition_id;
         context.tablet_schema_hash = cur_tablet->schema_hash();
+        context.data_dir = cur_tablet->data_dir();
         context.rowset_type = StorageEngine::instance()->default_rowset_type();
         if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
             context.rowset_type = BETA_ROWSET;

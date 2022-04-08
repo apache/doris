@@ -1333,11 +1333,15 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         OLAPStatus res = _cumulative_compaction->prepare_compact();
         if (res != OLAP_SUCCESS) {
             set_last_cumu_compaction_failure_time(UnixMillis());
+            *permits = 0;
             if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
+                return Status::InternalError(fmt::format("prepare cumulative compaction with err: {}", res));
             }
-            *permits = 0;
-            return Status::InternalError(fmt::format("prepare compaction with err: {}", res));
+            // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
+            // print too much useless logs.
+            // And because we set permits to 0, so even if we return OK here, nothing will be done.
+            return Status::OK();
         }
         compaction_rowsets = _cumulative_compaction->get_input_rowsets();
     } else {
@@ -1358,11 +1362,15 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         OLAPStatus res = _base_compaction->prepare_compact();
         if (res != OLAP_SUCCESS) {
             set_last_base_compaction_failure_time(UnixMillis());
+            *permits = 0;
             if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
+                return Status::InternalError(fmt::format("prepare base compaction with err: {}", res));
             }
-            *permits = 0;
-            return Status::InternalError(fmt::format("prepare compaction with err: {}", res));
+            // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
+            // print too much useless logs.
+            // And because we set permits to 0, so even if we return OK here, nothing will be done.
+            return Status::OK();
         }
         compaction_rowsets = _base_compaction->get_input_rowsets();
     }

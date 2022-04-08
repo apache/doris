@@ -19,6 +19,7 @@
 
 #include "common/logging.h" // LOG
 #include "env/env.h"        // Env
+#include "olap/data_dir.h"
 #include "olap/fs/block_manager.h"
 #include "olap/row.h"                             // ContiguousRow
 #include "olap/row_cursor.h"                      // RowCursor
@@ -37,8 +38,10 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(fs::WritableBlock* wblock, uint32_t segment_id,
-                             const TabletSchema* tablet_schema, const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent)
-        : _segment_id(segment_id), _tablet_schema(tablet_schema), _opts(opts), _wblock(wblock), _mem_tracker(MemTracker::CreateTracker(
+                             const TabletSchema* tablet_schema, DataDir* data_dir,
+                             const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent)
+        : _segment_id(segment_id), _tablet_schema(tablet_schema), _data_dir(data_dir),
+          _opts(opts), _wblock(wblock), _mem_tracker(MemTracker::CreateTracker(
                 -1, "Segment-" + std::to_string(segment_id), parent, false)) {
     CHECK_NOTNULL(_wblock);
 }
@@ -134,6 +137,10 @@ uint64_t SegmentWriter::estimate_segment_size() {
 }
 
 Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+    // check disk capacity
+    if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t) estimate_segment_size())) {
+        return Status::InternalError(fmt::format("disk {} exceed capacity limit.", _data_dir->path_hash()));
+    }
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
