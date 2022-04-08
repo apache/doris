@@ -1310,9 +1310,9 @@ create_stmt ::=
     {:
         RESULT = new CreateRepositoryStmt(isReadOnly, repoName, storage);
     :}
-    | KW_CREATE KW_ROLE ident:role
+    | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role
     {:
-        RESULT = new CreateRoleStmt(role);
+        RESULT = new CreateRoleStmt(ifNotExists, role);
     :}
     | KW_CREATE KW_FILE STRING_LITERAL:fileName opt_db:db KW_PROPERTIES LPAREN key_value_map:properties RPAREN
     {:
@@ -2010,9 +2010,9 @@ drop_stmt ::=
         RESULT = new DropTableStmt(ifExists, name, force);
     :}
     /* User */
-    | KW_DROP KW_USER user_identity:userId
+    | KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
     {:
-        RESULT = new DropUserStmt(userId);
+        RESULT = new DropUserStmt(ifExists, userId);
     :}
     /* View */
     | KW_DROP KW_VIEW opt_if_exists:ifExists table_name:name
@@ -2023,9 +2023,9 @@ drop_stmt ::=
     {:
         RESULT = new DropRepositoryStmt(repoName);
     :}
-    | KW_DROP KW_ROLE ident:role
+    | KW_DROP KW_ROLE opt_if_exists:ifExists ident:role
     {:
-        RESULT = new DropRoleStmt(role);
+        RESULT = new DropRoleStmt(ifExists, role);
     :}
     | KW_DROP KW_FILE STRING_LITERAL:fileName opt_db:dbName KW_PROPERTIES LPAREN key_value_map:properties RPAREN
     {:
