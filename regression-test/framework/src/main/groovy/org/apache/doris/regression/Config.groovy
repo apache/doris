@@ -24,6 +24,7 @@ import com.google.common.collect.Maps
 import org.apache.commons.cli.CommandLine
 import org.apache.doris.regression.util.FileUtils
 import org.apache.doris.regression.util.JdbcUtils
+import org.apache.doris.regression.util.Metaholder
 
 import java.sql.Connection
 import java.sql.DriverManager
@@ -273,10 +274,11 @@ class Config {
     void tryCreateDbIfNotExist() {
         // connect without specify default db
         try {
+            Metaholder holder = new Metaholder();
             String sql = "CREATE DATABASE IF NOT EXISTS ${defaultDb}"
             log.info("Try to create db, sql: ${sql}".toString())
             getConnection().withCloseable { conn ->
-                JdbcUtils.executeToList(conn, sql)
+                JdbcUtils.executeToList(conn, sql, holder)
             }
         } catch (Throwable t) {
             throw new IllegalStateException("Create database failed, jdbcUrl: ${jdbcUrl}", t)

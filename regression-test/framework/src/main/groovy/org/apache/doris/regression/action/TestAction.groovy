@@ -24,6 +24,7 @@ import groovy.util.logging.Slf4j
 import org.apache.commons.io.LineIterator
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
+import org.apache.doris.regression.util.Metaholder
 import org.apache.http.HttpStatus
 import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.client.methods.RequestBuilder
@@ -94,10 +95,10 @@ class TestAction implements SuiteAction {
                             if (row instanceof List) {
                                 return OutputUtils.toCsvString(row as List)
                             } else {
-                                return OutputUtils.columnToCsvString(row)
+                                return OutputUtils.toCsvString(row as Object)
                             }
                         },
-                            { List<Object> row -> OutputUtils.toCsvString(row) }, "Check failed")
+                            { List<Object> row -> OutputUtils.toCsvString(row) }, "Check failed", result.holder.meta)
                     if (errorMsg != null) {
                         throw new IllegalStateException(errorMsg)
                     }
@@ -109,7 +110,7 @@ class TestAction implements SuiteAction {
                         String errMsg = OutputUtils.checkOutput(csvIt, result.result.iterator(),
                                 { List<String> row -> OutputUtils.toCsvString(row as List<Object>) },
                                 { List<Object> row -> OutputUtils.toCsvString(row) },
-                                "Check failed compare to")
+                                "Check failed compare to", result.holder.meta)
                         if (errMsg != null) {
                             throw new IllegalStateException(errMsg)
                         }
@@ -136,7 +137,8 @@ class TestAction implements SuiteAction {
                         if (!file.exists()) {
                             log.warn("Result file not exists: ${file}".toString())
                         }
-                        log.warn("Compare to local file: ${file}".toString())
+
+                        log.info("Compare to local file: ${file}".toString())
                         file.newInputStream().withCloseable { inputStream ->
                             checkFunc(inputStream)
                         }
@@ -150,11 +152,13 @@ class TestAction implements SuiteAction {
 
     ActionResult doRun(Connection conn) {
         List<List<Object>> result = null
+        Metaholder holder = new Metaholder();
         Throwable ex = null
+
         long startTime = System.currentTimeMillis()
         try {
             log.info("Execute ${isOrder ? "order_" : ""}sql:\n${sql}".toString())
-            result = JdbcUtils.executeToList(conn, sql)
+            result = JdbcUtils.executeToList(conn, sql, holder)
             if (isOrder) {
                 result = DataUtils.sortByToString(result)
             }
@@ -162,7 +166,8 @@ class TestAction implements SuiteAction {
             ex = t
         }
         long endTime = System.currentTimeMillis()
-        return new ActionResult(result, ex, startTime, endTime)
+
+        return new ActionResult(result, ex, startTime, endTime, holder)
     }
 
     void sql(String sql) {
@@ -234,12 +239,14 @@ class TestAction implements SuiteAction {
         Throwable exception
         long startTime
         long endTime
+        Metaholder holder
 
-        ActionResult(List<List<Object>> result, Throwable exception, long startTime, long endTime) {
+        ActionResult(List<List<Object>> result, Throwable exception, long startTime, long endTime, Metaholder holder) {
             this.result = result
             this.exception = exception
             this.startTime = startTime
             this.endTime = endTime
+            this.holder = holder
         }
     }
 }

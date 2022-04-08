@@ -18,37 +18,40 @@
 package org.apache.doris.regression.util
 
 import com.google.common.collect.ImmutableList
+import org.apache.doris.regression.util.Metaholder
 
 import java.sql.Connection
 import java.sql.ResultSet
+import java.sql.ResultSetMetaData
 
 class JdbcUtils {
-    static List<List<Object>> executeToList(Connection conn, String sql) {
+    static List<List<Object>> executeToList(Connection conn, String sql, Metaholder holder) {
         conn.prepareStatement(sql).withCloseable { stmt ->
             boolean hasResultSet = stmt.execute()
             if (!hasResultSet) {
                 return ImmutableList.of(ImmutableList.of(stmt.getUpdateCount()))
             } else {
-                toList(stmt.resultSet)
+                toList(stmt.resultSet, holder)
             }
         }
     }
 
-    static List<List<Object>> executorToStringList(Connection conn, String sql) {
+    static List<List<Object>> executeToStringList(Connection conn, String sql, Metaholder holder) {
         conn.prepareStatement(sql).withCloseable { stmt ->
             boolean hasResultSet = stmt.execute()
             if (!hasResultSet) {
                 return ImmutableList.of(ImmutableList.of(stmt.getUpdateCount()))
             } else {
-                toStringList(stmt.resultSet)
+                toStringList(stmt.resultSet, holder)
             }
         }
     }
 
-    static List<List<Object>> toList(ResultSet resultSet) {
+    static List<List<Object>> toList(ResultSet resultSet, Metaholder holder) {
         resultSet.withCloseable {
+            holder.meta = resultSet.metaData
             List<List<Object>> rows = new ArrayList<>()
-            def columnCount = resultSet.metaData.columnCount
+            def columnCount = holder.meta.columnCount
             while (resultSet.next()) {
                 def row = new ArrayList<>()
                 for (int i = 1; i <= columnCount; ++i) {
@@ -60,10 +63,11 @@ class JdbcUtils {
         }
     }
 
-    static List<List<Object>> toStringList(ResultSet resultSet) {
+    static List<List<Object>> toStringList(ResultSet resultSet, Metaholder holder) {
         resultSet.withCloseable {
+            holder.meta = resultSet.metaData
             List<List<Object>> rows = new ArrayList<>()
-            def columnCount = resultSet.metaData.columnCount
+            def columnCount = holder.meta.columnCount
             while (resultSet.next()) {
                 def row = new ArrayList<>()
                 for (int i = 1; i <= columnCount; ++i) {

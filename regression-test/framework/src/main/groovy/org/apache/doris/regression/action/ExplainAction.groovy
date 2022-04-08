@@ -21,6 +21,7 @@ import groovy.transform.stc.ClosureParams
 import groovy.transform.stc.FromString
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
+import org.apache.doris.regression.util.Metaholder
 import groovy.util.logging.Slf4j
 
 import java.util.stream.Collectors
@@ -112,13 +113,15 @@ class ExplainAction implements SuiteAction {
         log.info("Execute sql:\n${explainSql}".toString())
         long startTime = System.currentTimeMillis()
         String explainString = null
+        Metaholder holder = new Metaholder();
         try {
-            explainString = JdbcUtils.executeToList(context.getConnection(), explainSql).stream()
+            
+            explainString = JdbcUtils.executeToList(context.getConnection(), explainSql, holder).stream()
                     .map({row -> row.get(0).toString()})
                     .collect(Collectors.joining("\n"))
-            return new ActionResult(explainString, null, startTime, System.currentTimeMillis())
+            return new ActionResult(explainString, null, startTime, System.currentTimeMillis(), holder)
         } catch (Throwable t) {
-            return new ActionResult(explainString, t, startTime, System.currentTimeMillis())
+            return new ActionResult(explainString, t, startTime, System.currentTimeMillis(), holder)
         }
     }
 
@@ -127,12 +130,14 @@ class ExplainAction implements SuiteAction {
         Throwable exception
         long startTime
         long endTime
+        Metaholder holder
 
-        ActionResult(String result, Throwable exception, long startTime, long endTime) {
+        ActionResult(String result, Throwable exception, long startTime, long endTime, Metaholder holder) {
             this.result = result
             this.exception = exception
             this.startTime = startTime
             this.endTime = endTime
+            this.holder = holder
         }
     }
 }

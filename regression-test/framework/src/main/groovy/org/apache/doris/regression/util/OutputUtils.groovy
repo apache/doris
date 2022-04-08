@@ -25,13 +25,22 @@ import org.apache.commons.csv.CSVRecord
 import org.apache.commons.io.LineIterator
 
 import java.util.function.Function
+import java.sql.ResultSetMetaData
 
 @CompileStatic
 class OutputUtils {
-    static String columnToCsvString(Object column) {
+    private static List<String> castList(Object obj) {
+        List<String> result = new ArrayList<String>();
+        for (Object o: (List<Object>) obj) {
+            result.add(toCsvString(o));
+        }
+        return result;
+    }
+
+    static String toCsvString(Object cell) {
         StringWriter writer = new StringWriter()
         def printer = new CSVPrinter(new PrintWriter(writer), CSVFormat.MYSQL)
-        printer.print(column)
+        printer.print(cell)
         return writer.toString()
     }
 
@@ -44,9 +53,36 @@ class OutputUtils {
         return writer.toString()
     }
 
+    static String checkCell(String info, int line, String expect_cell, String real_cell, String data_type) {
+        if(data_type == "FLOAT" || data_type == "DOUBLE") {
+            double expect_double = Double.parseDouble(expect_cell)
+            double real_double = Double.parseDouble(real_cell)
+
+            double real_relative_error = Math.abs(expect_double - real_double) / real_double
+            double expect_relative_error = 1e-10
+
+            if(expect_relative_error < real_relative_error) {
+                return "${info}, line ${line}, ${data_type} result mismatch.\nExpect cell is: ${expect_cell}\nBut real is: ${real_cell}\nrelative error is: ${real_relative_error}, bigger than ${expect_relative_error}"
+            }
+        } else if(data_type == "DATE" || data_type =="DATETIME") {
+            expect_cell = expect_cell.replace("T", " ")
+            real_cell = real_cell.replace("T", " ")
+
+            if(!expect_cell.equals(real_cell)) {
+                return "${info}, line ${line}, ${data_type} result mismatch.\nExpect cell is: ${expect_cell}\nBut real is: ${real_cell}"
+            }
+        } else {
+            if(!expect_cell.equals(real_cell)) {
+                return "${info}, line ${line}, ${data_type} result mismatch.\nExpect cell is: ${expect_cell}\nBut real is: ${real_cell}"
+            }
+        }
+
+        return null
+    }
+
     static <T1, T2> String checkOutput(Iterator<T1> expect, Iterator<T2> real,
                                        Function<T1, String> transform1, Function<T2, String> transform2,
-                                       String info) {
+                                       String info, ResultSetMetaData meta) {
         int line = 1
         while (true) {
             if (expect.hasNext() && !real.hasNext()) {
@@ -59,11 +95,32 @@ class OutputUtils {
                 break
             }
 
-            def expectCsvString = transform1.apply(expect.next())
-            def realCsvString = transform2.apply(real.next())
-            if (!expectCsvString.equals(realCsvString)) {
-                return "${info}, line ${line} mismatch.\nExpect line is: ${expectCsvString}\nBut real is   : ${realCsvString}"
+            def expectRaw = expect.next()
+            def realRaw = real.next()
+
+            if (expectRaw instanceof List && meta != null) {
+                List<String> expectList = castList(expectRaw)
+                List<String> realList = castList(realRaw)
+
+                def columnCount = meta.columnCount
+                for (int i = 1; i <= columnCount; i++) {
+                    String expect_cell = toCsvString(expectList[i - 1])
+                    String real_cell = toCsvString(realList[i - 1])
+                    String data_type = meta.getColumnTypeName(i)
+
+                    def res = checkCell(info, line, expect_cell, real_cell, data_type)
+                    if(res != null) {
+                        return res
+                    }
+                }
+            } else {
+                def expectCsvString = transform1.apply(expectRaw)
+                def realCsvString = transform2.apply(realRaw)
+                if (!expectCsvString.equals(realCsvString)) {
+                    return "${info}, line ${line} mismatch.\nExpect line is: ${expectCsvString}\nBut real is: ${realCsvString}"
+                }
             }
+
             line++
         }
     }
