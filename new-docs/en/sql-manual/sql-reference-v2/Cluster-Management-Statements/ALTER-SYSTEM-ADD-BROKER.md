@@ -1,8 +1,9 @@
 ---
 {
-    "title": "ALTER-SYSTEM-DROP-OBSERVER",
+    "title": "ALTER-SYSTEM-ADD-BROKER",
     "language": "en"
 }
+
 ---
 
 <!--
@@ -24,38 +25,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ALTER-SYSTEM-DROP-OBSERVER
+## ALTER-SYSTEM-ADD-BROKER
 
 ### Name
 
-ALTER SYSTEM DROP OBSERVER
+ALTER SYSTEM ADD BROKER
 
 ### Description
 
-The change statement is to increase the node of the OBSERVER role of FRONTEND, (only for administrators!)
+This statement is used to add a BROKER node. (Administrator only!)
 
 grammar:
 
 ```sql
-ALTER SYSTEM DROP OBSERVER "follower_host:edit_log_port"
+ALTER SYSTEM ADD BROKER broker_name "broker_host1:broker_ipc_port1","broker_host2:broker_ipc_port2",...;
 ````
-
-illustrate:
-
-1. host can be a hostname or an ip address
-2. edit_log_port : edit_log_port in its configuration file fe.conf
 
 ### Example
 
-1. Add a FOLLOWER node
+1. Add two brokers
 
     ```sql
-    ALTER SYSTEM DROP OBSERVER "host_ip:9010"
+     ALTER SYSTEM ADD BROKER "host1:port", "host2:port";
     ````
 
 ### Keywords
 
-    ALTER, SYSTEM, DROP, OBSERVER
+    ALTER, SYSTEM, ADD, FOLLOWER
 
 ### Best Practice
 
