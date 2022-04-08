@@ -155,8 +155,8 @@ private:
         uint8_t length_low : 8;
         char blob[];
 
-        inline uint16_t length() const { return (((uint16_t)length_msb) << 8) | length_low; }
-        inline void set_length(uint16_t length) {
+        uint16_t length() const { return (((uint16_t)length_msb) << 8) | length_low; }
+        void set_length(uint16_t length) {
             length_msb = (length >> 8) & 0x01;
             length_low = length & 0xff;
         }
@@ -169,8 +169,8 @@ private:
         uint8_t patch_length : 5, gap_width : 3;
 
         char blob[];
-        inline uint16_t length() const { return (((uint16_t)length_msb) << 8) | length_low; }
-        inline void set_length(uint16_t length) {
+        uint16_t length() const { return (((uint16_t)length_msb) << 8) | length_low; }
+        void set_length(uint16_t length) {
             length_msb = (length >> 8) & 0x01;
             length_low = length & 0xff;
         }
@@ -181,8 +181,8 @@ private:
         uint8_t length_low : 8;
         char blob[];
 
-        inline uint16_t length() const { return (((uint16_t)length_msb) << 8) | length_low; }
-        inline void set_length(uint16_t length) {
+        uint16_t length() const { return (((uint16_t)length_msb) << 8) | length_low; }
+        void set_length(uint16_t length) {
             length_msb = (length >> 8) & 0x01;
             length_low = length & 0xff;
         }
