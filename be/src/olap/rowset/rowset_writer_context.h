@@ -66,6 +66,11 @@ struct RowsetWriterContext {
     // the default is set to INT32_MAX to avoid overflow issue when casting from uint32_t to int.
     // test cases can change this value to control flush timing
     uint32_t max_rows_per_segment = INT32_MAX;
+    // not owned, point to the data dir of this rowset
+    // for checking disk capacity when write data to disk.
+    // ATTN: not support for RowsetConvertor.
+    // (because it hard to refactor, and RowsetConvertor will be deprecated in future)
+    DataDir* data_dir = nullptr;
 };
 
 } // namespace doris

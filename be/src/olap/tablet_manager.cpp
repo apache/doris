@@ -1095,6 +1095,7 @@ OLAPStatus TabletManager::_create_initial_rowset_unlocked(const TCreateTabletReq
             context.tablet_id = tablet->tablet_id();
             context.partition_id = tablet->partition_id();
             context.tablet_schema_hash = tablet->schema_hash();
+            context.data_dir = tablet->data_dir();
             if (!request.__isset.storage_format ||
                 request.storage_format == TStorageFormat::DEFAULT) {
                 context.rowset_type = StorageEngine::instance()->default_rowset_type();

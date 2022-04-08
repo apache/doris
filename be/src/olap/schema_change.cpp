@@ -1329,6 +1329,7 @@ bool SchemaChangeWithSorting::_internal_sorting(const std::vector<RowBlock*>& ro
     context.rowset_type = new_rowset_type;
     context.path_desc = new_tablet->tablet_path_desc();
     context.tablet_schema = &(new_tablet->tablet_schema());
+    context.data_dir = new_tablet->data_dir();
     context.rowset_state = VISIBLE;
     context.version = version;
     context.segments_overlap = segments_overlap;
@@ -1711,6 +1712,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tabl
     writer_context.tablet_id = new_tablet->tablet_id();
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
+    writer_context.data_dir = new_tablet->data_dir();
     writer_context.rowset_type = (*base_rowset)->rowset_meta()->rowset_type();
     if (new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         writer_context.rowset_type = BETA_ROWSET;
@@ -1854,6 +1856,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.tablet_id = new_tablet->tablet_id();
         writer_context.partition_id = new_tablet->partition_id();
         writer_context.tablet_schema_hash = new_tablet->schema_hash();
+        writer_context.data_dir = new_tablet->data_dir();
         // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
         writer_context.rowset_type = rs_reader->rowset()->rowset_meta()->rowset_type();
         if (sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
