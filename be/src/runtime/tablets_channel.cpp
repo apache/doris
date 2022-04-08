@@ -23,6 +23,7 @@
 #include "olap/memtable.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -50,6 +51,7 @@ TabletsChannel::~TabletsChannel() {
 }
 
 Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kOpened) {
         // Normal case, already open by other sender
@@ -77,6 +79,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         PTabletWriterAddBatchResult* response) {
     DCHECK(request.tablet_ids_size() == request.row_batch().num_rows());
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t cur_seq;
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -202,6 +205,7 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
 }
 
 Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         // TabletsChannel is closed without LoadChannel's lock,
@@ -301,6 +305,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
 }
 
 Status TabletsChannel::cancel() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         return _close_status;

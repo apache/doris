@@ -333,6 +333,7 @@ private:
     // Count the memory consumption of all SchemaChange tasks.
     std::shared_ptr<MemTracker> _schema_change_mem_tracker;
     // Count the memory consumption of all EngineCloneTask.
+    // Note: Memory that does not contain make/release snapshots.
     std::shared_ptr<MemTracker> _clone_mem_tracker;
     // Count the memory consumption of all EngineBatchLoadTask.
     std::shared_ptr<MemTracker> _batch_load_mem_tracker;

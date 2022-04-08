@@ -103,7 +103,6 @@ private:
     Mutex _snapshot_mutex;
     uint64_t _snapshot_base_id;
 
-    // TODO(zxy) used after
     std::shared_ptr<MemTracker> _mem_tracker = nullptr;
 }; // SnapshotManager
 

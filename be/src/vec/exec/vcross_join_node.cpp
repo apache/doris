@@ -23,7 +23,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {
@@ -34,6 +33,7 @@ VCrossJoinNode::VCrossJoinNode(ObjectPool* pool, const TPlanNode& tnode, const D
 Status VCrossJoinNode::prepare(RuntimeState* state) {
     DCHECK(_join_op == TJoinOp::CROSS_JOIN);
     RETURN_IF_ERROR(VBlockingJoinNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     _block_mem_tracker = MemTracker::create_virtual_tracker(-1, "VCrossJoinNode:Block", mem_tracker());
 
     _num_existing_columns = child(0)->row_desc().num_materialized_slots();
@@ -90,8 +90,9 @@ void VCrossJoinNode::init_get_next(int left_batch_row) {
 
 Status VCrossJoinNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     RETURN_IF_CANCELLED(state);
-    *eos = false;
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    *eos = false;
 
     if (_eos) {
         *eos = true;

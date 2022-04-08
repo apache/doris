@@ -22,6 +22,7 @@
 #include "olap/memtable.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -56,6 +57,7 @@ OLAPStatus FlushToken::wait() {
 }
 
 void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable, int64_t submit_task_time) {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::LOAD, memtable->mem_tracker());
     _stats.flush_wait_time_ns += (MonotonicNanos() - submit_task_time);
     SCOPED_CLEANUP({ memtable.reset(); });
     // If previous flush has failed, return directly

@@ -37,6 +37,7 @@
 #include "olap/tablet.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
+#include "runtime/thread_context.h"
 
 using apache::thrift::ThriftDebugString;
 using std::list;
@@ -60,6 +61,7 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
 EngineBatchLoadTask::~EngineBatchLoadTask() {}
 
 OLAPStatus EngineBatchLoadTask::execute() {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
     Status status = Status::OK();
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE ||
         _push_req.push_type == TPushType::LOAD_V2) {

@@ -60,6 +60,7 @@ Status OlapScanner::prepare(
         const std::vector<TCondition>& filters,
         const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                 bloom_filters) {
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader->set_batch_size(
@@ -119,6 +120,7 @@ Status OlapScanner::prepare(
 
 Status OlapScanner::open() {
     SCOPED_TIMER(_parent->_reader_init_timer);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     if (_conjunct_ctxs.size() > _parent->_direct_conjunct_size) {
         _use_pushdown_conjuncts = true;
@@ -274,6 +276,7 @@ Status OlapScanner::_init_return_columns() {
 }
 
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
     // 2. Allocate Row's Tuple buf
     uint8_t* tuple_buf =
             batch->tuple_data_pool()->allocate(state->batch_size() * _tuple_desc->byte_size());
