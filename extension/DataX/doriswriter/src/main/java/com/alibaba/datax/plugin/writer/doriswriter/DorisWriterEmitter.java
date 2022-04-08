@@ -53,6 +53,7 @@ import java.net.URL;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 // Used to load batch of rows to Doris using stream load
 public class DorisWriterEmitter {
@@ -181,7 +182,7 @@ public class DorisWriterEmitter {
             final HttpPut httpPut = new HttpPut(loadUrl);
             final List<String> cols = this.keys.getColumns();
             if (null != cols && !cols.isEmpty()) {
-                httpPut.setHeader("columns", String.join(",", cols));
+                httpPut.setHeader("columns", String.join(",", cols.stream().map(item -> String.format("`%s`", item.trim().replace("`", ""))).collect(Collectors.toList())));
             }
 
             // put loadProps to http header
