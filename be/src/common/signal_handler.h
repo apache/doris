@@ -31,7 +31,6 @@
 //
 // Implementation of InstallFailureSignalHandler().
 
-#define BOOST_STACKTRACE_USE_BACKTRACE
 #include <boost/stacktrace.hpp>
 #include <glog/logging.h>
 #include <gutil/macros.h>
