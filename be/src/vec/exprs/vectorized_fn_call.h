@@ -39,6 +39,14 @@ public:
     virtual std::string debug_string() const override;
     static std::string debug_string(const std::vector<VectorizedFnCall*>& exprs);
 
+#ifdef DORIS_ENABLE_JIT
+    virtual bool is_compilable() const override;
+
+    FunctionBasePtr get_function() const {
+        return _function;
+    }
+#endif
+
 private:
     FunctionBasePtr _function;
     std::string _expr_name;

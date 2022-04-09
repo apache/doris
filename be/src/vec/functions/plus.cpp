@@ -45,6 +45,15 @@ struct PlusImpl {
     static inline bool apply(A a, B b, Result& c) {
         return common::add_overflow(static_cast<Result>(a), b, c);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = true;
+
+    static inline llvm::Value* compile(llvm::IRBuilder<>& b, llvm::Value* left, llvm::Value* right, bool) {
+        return left->getType()->isIntegerTy() ? b.CreateAdd(left, right) : b.CreateFAdd(left, right);
+    }
+#endif
+
 };
 
 struct NamePlus {

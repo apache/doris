@@ -26,6 +26,13 @@
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 
+#ifdef DORIS_ENABLE_JIT
+namespace llvm {
+class Value;
+class IRBuilderBase;
+}
+#endif
+
 namespace doris::vectorized {
 
 class Arena;
@@ -132,6 +139,32 @@ public:
 
     const DataTypes& get_argument_types() const { return argument_types; }
     const Array& get_parameters() const { return parameters; }
+
+#ifdef DORIS_ENABLE_JIT
+    void compile_create(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_ptr) const {
+      DCHECK(false && "should not be here");
+      __builtin_unreachable();
+    }
+
+    void compile_add(llvm::IRBuilderBase& builder,
+                    llvm::Value* aggregate_data_ptr,
+                    const DataTypes& arguments_types,
+                    const std::vector<llvm::Value *>&
+                    argument_values) const {
+      DCHECK(false && "should not be here");
+      __builtin_unreachable();
+    }
+
+    void compile_merge(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_dst_ptr, llvm::Value* aggregate_data_src_ptr) const {
+      DCHECK(false && "should not be here");
+      __builtin_unreachable();
+    }
+
+    [[noreturn ]] llvm::Value* compile_get_result(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_ptr) const {
+      DCHECK(false && "should not be here");
+      __builtin_unreachable();
+    }
+#endif
 
 protected:
     DataTypes argument_types;

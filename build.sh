@@ -47,6 +47,7 @@ Usage: $0 <options>
      --spark-dpp        build Spark DPP application
      --hive-udf         build Hive UDF library for Spark Load
      --java-udf         build Java UDF library
+     --llvm-jit         build with LLVM JIT
      --clean            clean and build target
      -j                 build Backend parallel
 
@@ -107,6 +108,7 @@ OPTS=$(getopt \
   -l 'spark-dpp' \
   -l 'java-udf' \
   -l 'hive-udf' \
+  -l 'llvm-jit' \
   -l 'clean' \
   -l 'help' \
   -o 'hj:' \
@@ -126,7 +128,8 @@ BUILD_META_TOOL=OFF
 BUILD_SPARK_DPP=0
 BUILD_JAVA_UDF=0
 BUILD_HIVE_UDF=0
-CLEAN=0
+BUILD_LLVM_JIT=off
+CLEAN=
 HELP=0
 PARAMETER_COUNT=$#
 PARAMETER_FLAG=0
@@ -150,6 +153,7 @@ else
             --spark-dpp) BUILD_SPARK_DPP=1 ; shift ;;
             --java-udf) BUILD_JAVA_UDF=1 BUILD_FE=1 BUILD_SPARK_DPP=1 ; shift ;;
             --hive-udf) BUILD_HIVE_UDF=1 ; shift ;;
+            --llvm-jit) BUILD_LLVM_JIT=ON ; shift ;;
             --clean) CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;
@@ -167,6 +171,8 @@ else
         BUILD_SPARK_DPP=1
         BUILD_JAVA_UDF=1
         BUILD_HIVE_UDF=1
+        BUILD_LLVM_JIT="OFF"
+        BUILD_META_TOOL="OFF"
         CLEAN=0
     fi
 fi
@@ -221,6 +227,7 @@ echo "Get params:
     BUILD_SPARK_DPP     -- $BUILD_SPARK_DPP
     BUILD_JAVA_UDF      -- $BUILD_JAVA_UDF
     BUILD_HIVE_UDF      -- $BUILD_HIVE_UDF
+    BUILD_LLVM_JIT      -- $BUILD_LLVM_JIT
     PARALLEL            -- $PARALLEL
     CLEAN               -- $CLEAN
     WITH_MYSQL          -- $WITH_MYSQL
@@ -288,6 +295,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DBUILD_META_TOOL=${BUILD_META_TOOL} \
             -DUSE_LLD=${USE_LLD} \
             -DBUILD_JAVA_UDF=${BUILD_JAVA_UDF} \
+            -DDORIS_ENABLE_JIT="${BUILD_LLVM_JIT}" \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../

@@ -303,6 +303,10 @@ public:
     // Returns the counter for the total elapsed time.
     Counter* total_time_counter() { return &_counter_total_time; }
 
+#ifdef DORIS_ENABLE_JIT
+    Counter* expr_compile_time_counter() { return _expr_compile_time; }
+#endif
+
     // Prints the counters in a name: value format.
     // Does not hold locks when it makes any function calls.
     void pretty_print(std::ostream* s, const std::string& prefix = "") const;
@@ -432,6 +436,10 @@ private:
     using EventSequenceMap = std::map<std::string, EventSequence*>;
     EventSequenceMap _event_sequence_map;
     mutable std::mutex _event_sequences_lock;
+
+#ifdef DORIS_ENABLE_JIT
+    Counter* _expr_compile_time;
+#endif
 
     Counter _counter_total_time;
     // Time spent in just in this profile (i.e. not the children) as a fraction

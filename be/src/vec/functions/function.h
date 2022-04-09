@@ -28,6 +28,15 @@
 #include "vec/core/names.h"
 #include "vec/data_types/data_type.h"
 
+#ifdef DORIS_ENABLE_JIT
+namespace llvm
+{
+    class LLVMContext;
+    class Value;
+    class IRBuilderBase;
+}
+#endif
+
 namespace doris::vectorized {
 
 class Field;
@@ -36,6 +45,10 @@ class Field;
 template <typename T>
 auto has_variadic_argument_types(T&& arg) -> decltype(T::get_variadic_argument_types()) {};
 void has_variadic_argument_types(...);
+
+#ifdef DORIS_ENABLE_JIT
+using Values = std::vector<llvm::Value*>;
+#endif
 
 /// The simplest executable object.
 /// Motivation:
@@ -50,6 +63,13 @@ public:
 
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                            size_t result, size_t input_rows_count, bool dry_run) = 0;
+
+#ifdef DORIS_ENABLE_JIT
+    virtual Status compile(llvm::IRBuilderBase& builder, const DataTypes& arguments, Values values, llvm::Value**) const {
+        return Status::RuntimeError("PreparedFunctionImpl compiling is not supported");
+    }
+#endif
+
 };
 
 using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
@@ -141,6 +161,16 @@ public:
         return prepare(context, block, arguments, result)
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    virtual bool is_compilable() const {
+        return false;
+    }
+
+    virtual Status compile(llvm::IRBuilderBase& builder, Values values, llvm::Value**) const {
+        return Status::RuntimeError(fmt::format("{} is not jit-compilable", get_name()));
+    }
+#endif
 
     /// Do cleaning work when function is finished, i.e., release state variables in the
     /// `FunctionContext` which are registered in `prepare` phase.
@@ -421,12 +451,27 @@ public:
         __builtin_unreachable();
     }
 
+#ifdef DORIS_ENABLE_JIT
+    virtual bool is_compilable(const DataTypes& arguments) const;
+
+    virtual Status compile(llvm::IRBuilderBase& builder, const DataTypes& arguments, Values values, llvm::Value**) const override;
+#endif
+
 protected:
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& /*arguments*/,
                                const DataTypePtr& /*return_type*/) const final {
         LOG(FATAL) << "build_impl is not implemented for IFunction";
         return {};
     }
+
+#ifdef DORIS_ENABLE_JIT
+    virtual Status compile_impl(llvm::IRBuilderBase &, const DataTypes &, Values, llvm::Value**) const {
+        return Status::RuntimeError(fmt::format("{} is not JIT-compilable", get_name()));
+    }
+
+    virtual bool is_compilable_impl(const DataTypes &) const { return false; }
+#endif
+
 };
 
 /// Wrappers over IFunction.
@@ -437,6 +482,12 @@ public:
             : function(std::move(function_)) {}
 
     String get_name() const override { return function->get_name(); }
+
+#ifdef DORIS_ENABLE_JIT
+    virtual Status compile(llvm::IRBuilderBase& builder, const DataTypes& arguments, Values values, llvm::Value** result) const override {
+        return function->compile(builder, arguments, values, result);
+    }
+#endif
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -521,6 +572,16 @@ public:
                                                            const Field& right) const override {
         return function->get_monotonicity_for_range(type, left, right);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    virtual bool is_compilable() const override {
+        return function->is_compilable(arguments);
+    }
+
+    virtual Status compile(llvm::IRBuilderBase& builder, Values values, llvm::Value** result) const {
+        return function->compile(builder, get_argument_types(), values, result);
+    }
+#endif
 
 private:
     std::shared_ptr<IFunction> function;

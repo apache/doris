@@ -39,6 +39,10 @@ public:
     virtual std::string debug_string() const override;
     virtual bool is_constant() const override { return false; }
 
+#ifdef DORIS_ENABLE_JIT
+    virtual bool is_compilable() const override { return true; };
+#endif
+
 private:
     FunctionPtr _function;
     int _slot_id;

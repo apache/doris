@@ -217,6 +217,14 @@ Status VExpr::prepare(const std::vector<VExprContext*>& ctxs, RuntimeState* stat
                       const RowDescriptor& row_desc, const std::shared_ptr<MemTracker>& tracker) {
     for (int i = 0; i < ctxs.size(); ++i) {
         RETURN_IF_ERROR(ctxs[i]->prepare(state, row_desc, tracker));
+
+#ifdef DORIS_ENABLE_JIT
+        if (state->codegen_level() > 0 && ctxs[i]->root()->is_compilable()) {
+            LOG(INFO) << "codegen is enabled and function is compilable, compiling it.";
+            SCOPED_TIMER(state->runtime_profile()->expr_compile_time_counter());
+            ctxs[i]->root()->compile_functions(0);
+        }
+#endif
     }
     return Status::OK();
 }

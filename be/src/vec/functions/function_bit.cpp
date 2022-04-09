@@ -38,6 +38,11 @@ struct BitAndImpl {
     static inline Result apply(A a, B b) {
         return static_cast<Result>(a) & static_cast<Result>(b);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 
 struct NameBitNot {
@@ -49,6 +54,11 @@ struct BitNotImpl {
     using ResultType = typename NumberTraits::ResultOfBitNot<A>::Type;
 
     static inline ResultType apply(A a) { return ~static_cast<ResultType>(a); }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 
 struct NameBitOr {
@@ -63,6 +73,11 @@ struct BitOrImpl {
     static inline Result apply(A a, B b) {
         return static_cast<Result>(a) | static_cast<Result>(b);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 
 struct NameBitXor {
@@ -77,6 +92,11 @@ struct BitXorImpl {
     static inline Result apply(A a, B b) {
         return static_cast<Result>(a) ^ static_cast<Result>(b);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 
 struct NameBitLength {
@@ -99,6 +119,11 @@ struct BitLengthImpl {
         }
         return Status::OK();
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 
 using FunctionBitAnd = FunctionBinaryArithmetic<BitAndImpl, NameBitAnd>;

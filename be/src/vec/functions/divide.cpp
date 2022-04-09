@@ -42,6 +42,16 @@ struct DivideFloatingImpl {
         null_map[index] = b == 0;
         return static_cast<Result>(a) / (b + (b == 0));
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = true;
+    
+    static inline llvm::Value* compile(llvm::IRBuilder<> & b, llvm::Value* left, llvm::Value* right, bool) {
+        if (left->getType()->isIntegerTy())
+            return nullptr;
+        return b.CreateFDiv(left, right);
+    }
+#endif
 };
 
 struct NameDivide {

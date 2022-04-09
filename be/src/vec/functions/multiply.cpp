@@ -43,6 +43,15 @@ struct MultiplyImpl {
     static inline bool apply(A a, B b, Result& c) {
         return common::mul_overflow(static_cast<Result>(a), b, c);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = true;
+
+    static inline llvm::Value* compile(llvm::IRBuilder<>& b, llvm::Value* left, llvm::Value* right, bool) {
+        return left->getType()->isIntegerTy() ? b.CreateMul(left, right) : b.CreateFMul(left, right);
+    }
+#endif
+
 };
 
 struct NameMultiply {

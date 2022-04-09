@@ -159,6 +159,11 @@ struct LogImpl {
         return static_cast<Float64>(std::log(static_cast<Float64>(b)) /
                                       std::log(static_cast<Float64>(a)));
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 using FunctionLog = FunctionBinaryArithmeticToNullType<LogImpl, LogName>;
 
@@ -355,6 +360,11 @@ struct PowImpl {
         /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
         return std::pow((double)a, (double) b);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 struct PowName {
     static constexpr auto name = "pow";
@@ -372,6 +382,11 @@ struct TruncateImpl {
         return static_cast<Float64>(my_double_round(
                 static_cast<Float64>(a), static_cast<Int32>(b), false, true));
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 struct TruncateName {
     static constexpr auto name = "truncate";
@@ -396,6 +411,11 @@ struct RoundTwoImpl {
         return static_cast<Float64>(my_double_round(
                 static_cast<Float64>(a), static_cast<Int32>(b), false, false));
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 using FunctionRoundTwo = FunctionBinaryArithmetic<RoundTwoImpl, RoundName>;
 

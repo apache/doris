@@ -50,6 +50,7 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
           _counter_total_time(TUnit::TIME_NS, 0),
           _local_time_percent(0) {
     _counter_map["TotalTime"] = &_counter_total_time;
+    _expr_compile_time = ADD_TIMER(this, "ExprCompileTime");
 }
 
 RuntimeProfile::~RuntimeProfile() = default;

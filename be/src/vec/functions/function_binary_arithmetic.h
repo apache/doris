@@ -36,6 +36,12 @@
 #include "vec/functions/int_div.h"
 #include "vec/utils/util.hpp"
 
+#ifdef DORIS_ENABLE_JIT
+#include "vec/data_types/native.h"
+
+#include <llvm/IR/IRBuilder.h>
+#endif
+
 namespace doris::vectorized {
 
 /** Arithmetic operations: +, -, *,
@@ -494,6 +500,55 @@ class FunctionBinaryArithmetic : public IFunction {
 
         return which0.is_aggregate_function() && which1.is_aggregate_function();
     }
+
+#ifdef DORIS_ENABLE_JIT
+protected:
+    virtual bool is_compilable_impl(const DataTypes& arguments) const override {
+        if (arguments.size() != 2) {
+            return false;
+        }
+
+        return cast_both_types(arguments[0].get(), arguments[1].get(), [&](const auto & left, const auto & right) {
+            using LeftDataType = std::decay_t<decltype(left)>;
+            using RightDataType = std::decay_t<decltype(right)>;
+            if constexpr (std::is_same_v<DataTypeString, LeftDataType> || std::is_same_v<DataTypeString, RightDataType>)
+                return false;
+            else {
+                using ResultDataType = typename BinaryOperationTraits<Op, LeftDataType, RightDataType>::ResultDataType;
+                using OpSpec = Op<typename LeftDataType::FieldType, typename RightDataType::FieldType>;
+                return !std::is_same_v<ResultDataType, InvalidType> && !IsDataTypeDecimal<ResultDataType> && OpSpec::compilable;
+            }
+        });
+    }
+
+    virtual Status compile_impl(llvm::IRBuilderBase& builder, const DataTypes& types, Values values, llvm::Value** result) const override {
+        assert(2 == types.size() && 2 == values.size());
+
+        *result = nullptr;
+        cast_both_types(types[0].get(), types[1].get(), [&](const auto & left, const auto & right) {
+            using LeftDataType = std::decay_t<decltype(left)>;
+            using RightDataType = std::decay_t<decltype(right)>;
+            if constexpr (!std::is_same_v<DataTypeString, LeftDataType> && !std::is_same_v<DataTypeString, RightDataType>) {
+                using ResultDataType = typename BinaryOperationTraits<Op, LeftDataType, RightDataType>::ResultDataType;
+                using OpSpec = Op<typename LeftDataType::FieldType, typename RightDataType::FieldType>;
+                if constexpr (!std::is_same_v<ResultDataType, InvalidType> && !IsDataTypeDecimal<ResultDataType> && OpSpec::compilable) {
+                    auto & b = static_cast<llvm::IRBuilder<>&>(builder);
+                    auto type = std::make_shared<ResultDataType>();
+                    auto * lval = native_cast(b, types[0], values[0], type);
+                    auto * rval = native_cast(b, types[1], values[1], type);
+                    *result = OpSpec::compile(b, lval, rval, std::is_signed_v<typename ResultDataType::FieldType>);
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        if (*result)
+            return Status::OK();
+        else
+            return Status::RuntimeError("build failed");
+    }
+#endif
 
 public:
     static constexpr auto name = Name::name;

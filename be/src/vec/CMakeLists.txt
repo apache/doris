@@ -173,6 +173,9 @@ set(VEC_FILES
   functions/function_convert_tz.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
+  jit/compile_dag.cpp
+  jit/expression_jit.cpp
+  jit/compile_function.cpp
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp

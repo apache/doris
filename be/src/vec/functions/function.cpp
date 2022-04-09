@@ -31,6 +31,11 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/utils/util.hpp"
+#include "vec/data_types/native.h"
+
+#ifdef DORIS_ENABLE_JIT
+#include <llvm/IR/IRBuilder.h>
+#endif
 
 namespace doris::vectorized {
 
@@ -328,4 +333,72 @@ DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& a
 
     return get_return_type_without_low_cardinality(arguments);
 }
+
+#ifdef DORIS_ENABLE_JIT
+static std::optional<DataTypes> remove_nullables(const DataTypes& types) {
+    for (const auto & type : types) {
+        if (!typeid_cast<const DataTypeNullable *>(type.get()))
+            continue;
+        DataTypes filtered;
+        for (const auto & sub_type : types)
+            filtered.emplace_back(remove_nullable(sub_type));
+        return filtered;
+    }
+    return {};
+}
+
+bool IFunction::is_compilable(const DataTypes& arguments) const {
+    if (use_default_implementation_for_nulls()) {
+        if (auto denulled = remove_nullables(arguments)) {
+            return is_compilable_impl(*denulled);
+        }
+    }
+    return is_compilable_impl(arguments);
+}
+
+Status IFunction::compile(llvm::IRBuilderBase& builder, const DataTypes& arguments, Values values, llvm::Value** result) const {
+    auto denulled_arguments = remove_nullables(arguments);
+    if (use_default_implementation_for_nulls() && denulled_arguments) {
+        auto & b = static_cast<llvm::IRBuilder<>&>(builder);
+
+        std::vector<llvm::Value*> unwrapped_values;
+        std::vector<llvm::Value*> is_null_values;
+
+        unwrapped_values.reserve(arguments.size());
+        is_null_values.reserve(arguments.size());
+
+        for (size_t i = 0; i < arguments.size(); ++i) {
+            auto * value = values[i];
+
+            WhichDataType data_type(arguments[i]);
+            if (data_type.is_nullable()) {
+                unwrapped_values.emplace_back(b.CreateExtractValue(value, {0}));
+                is_null_values.emplace_back(b.CreateExtractValue(value, {1}));
+            }
+            else {
+                unwrapped_values.emplace_back(value);
+            }
+        }
+
+        auto status = compile_impl(builder, *denulled_arguments, unwrapped_values, result);
+        if (!status.ok())
+            return status;
+
+        auto * nullable_structure_type = to_native_type(b, make_nullable(get_return_type_impl(*denulled_arguments)));
+        auto * nullable_structure_value = llvm::Constant::getNullValue(nullable_structure_type);
+
+        auto * nullable_structure_with_result_value = b.CreateInsertValue(nullable_structure_value, *result, {0});
+        auto * nullable_structure_result_null = b.CreateExtractValue(nullable_structure_with_result_value, {1});
+
+        for (auto * is_null_value : is_null_values)
+            nullable_structure_result_null = b.CreateOr(nullable_structure_result_null, is_null_value);
+
+        *result = b.CreateInsertValue(nullable_structure_with_result_value, nullable_structure_result_null, {1});
+        return Status::OK();
+    }
+
+    return compile_impl(builder, arguments, std::move(values), result);
+}
+#endif
+
 } // namespace doris::vectorized

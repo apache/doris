@@ -54,6 +54,11 @@ struct ModuloImpl {
         null_map[index] = b == DecimalV2Value(0);
         return a % (b + DecimalV2Value(b == DecimalV2Value(0)));
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 
 template <typename A, typename B>
@@ -81,6 +86,11 @@ struct PModuloImpl {
         return (a % (b + DecimalV2Value(b == DecimalV2Value(0))) + b) %
                (b + DecimalV2Value(b == DecimalV2Value(0)));
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 
 template <typename A, typename B>

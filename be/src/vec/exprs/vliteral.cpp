@@ -132,4 +132,11 @@ Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* r
     *result_column_id = res;
     return Status::OK();
 }
+
+#ifdef DORIS_ENABLE_JIT
+bool VLiteral::is_compilable() const {
+    return true;
+}
+#endif
+
 } // namespace doris::vectorized

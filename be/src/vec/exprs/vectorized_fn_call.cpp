@@ -29,6 +29,14 @@
 #include "vec/functions/function_rpc.h"
 #include "vec/functions/simple_function_factory.h"
 
+#ifdef DORIS_ENABLE_JIT
+#include "vec/data_types/native.h"
+
+#include <llvm/IR/IRBuilder.h>
+
+#include "jit/jit.h"
+#endif
+
 namespace doris::vectorized {
 
 VectorizedFnCall::VectorizedFnCall(const doris::TExprNode& node) : VExpr(node) {}
@@ -93,8 +101,14 @@ doris::Status VectorizedFnCall::execute(VExprContext* context, doris::vectorized
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
-    RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
-                                       num_columns_without_result, block->rows(), false));
+#ifdef DORIS_ENABLE_JIT
+    if (_is_function_compiled)
+        RETURN_IF_ERROR(_prepared_compiled_function->execute(context->fn_context(_fn_context_index), *block, arguments,
+                                                             num_columns_without_result, block->rows(), false));
+    else
+#endif
+        RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
+                                           num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
     return Status::OK();
 }
@@ -102,6 +116,19 @@ doris::Status VectorizedFnCall::execute(VExprContext* context, doris::vectorized
 const std::string& VectorizedFnCall::expr_name() const {
     return _expr_name;
 }
+
+#ifdef DORIS_ENABLE_JIT
+bool VectorizedFnCall::is_compilable() const {
+    if (!_function->is_compilable())
+        return false;
+    for (const auto& child : _children) {
+        if (!child->is_compilable())
+            return false;
+    }
+
+    return true;
+}
+#endif
 
 std::string VectorizedFnCall::debug_string() const {
     std::stringstream out;

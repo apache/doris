@@ -326,6 +326,56 @@ set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64
 add_library(breakpad STATIC IMPORTED)
 set_target_properties(breakpad PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbreakpad_client.a)
 
+if (DORIS_ENABLE_JIT STREQUAL "ON")
+    find_package(LLVM REQUIRED CONFIG PATHS ${THIRDPARTY_DIR}/lib64/cmake)
+
+    add_library(llvm_libs INTERFACE)
+    set (REQUIRED_LLVM_LIBRARIES
+        LLVMExecutionEngine
+        LLVMRuntimeDyld
+        LLVMAsmPrinter
+        LLVMDebugInfoDWARF
+        LLVMGlobalISel
+        LLVMSelectionDAG
+        LLVMMCDisassembler
+        LLVMPasses
+        LLVMCodeGen
+        LLVMipo
+        LLVMBitWriter
+        LLVMInstrumentation
+        LLVMScalarOpts
+        LLVMAggressiveInstCombine
+        LLVMInstCombine
+        LLVMVectorize
+        LLVMTransformUtils
+        LLVMTarget
+        LLVMAnalysis
+        LLVMProfileData
+        LLVMObject
+        LLVMBitReader
+        LLVMCore
+        LLVMRemarks
+        LLVMBitstreamReader
+        LLVMMCParser
+        LLVMMC
+        LLVMBinaryFormat
+        LLVMDebugInfoCodeView
+        LLVMSupport
+        LLVMDemangle
+    )
+
+    if (ARCH_AMD64)
+        list(APPEND REQUIRED_LLVM_LIBRARIES LLVMX86Info LLVMX86Desc LLVMX86CodeGen)
+    elseif (ARCH_AARCH64)
+        list(APPEND REQUIRED_LLVM_LIBRARIES LLVMAArch64Info LLVMAArch64Desc LLVMAArch64CodeGen)
+    endif ()
+
+target_link_libraries (llvm_libs INTERFACE ${REQUIRED_LLVM_LIBRARIES})
+
+add_definitions("-DDORIS_ENABLE_JIT")
+
+endif()
+
 if (ARCH_AMD64)
     # libhdfs3 only support x86 or amd64
     add_library(hdfs3 STATIC IMPORTED)
@@ -512,6 +562,12 @@ set(AWS_LIBS
     aws-c-mqtt
     aws-sdk-s3-crt)
 
+if (DORIS_ENABLE_JIT STREQUAL "ON")
+    set(JIT JIT)
+else()
+    set(JIT "")
+endif()
+
 # Set Doris libraries
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
@@ -531,6 +587,7 @@ set(DORIS_LINK_LIBS
     DorisGen
     Webserver
     Geo
+    ${JIT}
     Vec
     ${WL_END_GROUP}
 )
@@ -585,6 +642,13 @@ set(COMMON_THIRDPARTY
     librdkafka_cpp
     librdkafka
 )
+
+if (DORIS_ENABLE_JIT STREQUAL "ON")
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        llvm_libs
+    )
+endif()
 
 if (${MAKE_TEST} STREQUAL "ON")
     set(COMMON_THIRDPARTY
@@ -702,6 +766,11 @@ add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
 add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
+
+if (DORIS_ENABLE_JIT STREQUAL "ON")
+    add_subdirectory(${SRC_DIR}/jit)
+endif()
+
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)

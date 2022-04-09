@@ -41,6 +41,14 @@ public:
         return pool->add(new VLiteral(*this));
     }
 
+#ifdef DORIS_ENABLE_JIT
+    virtual bool is_compilable() const override;
+
+    MutableColumnPtr get_mutable_column() const {
+        return _column_ptr->clone_resized(1);
+    }
+#endif
+
 protected:
     ColumnPtr _column_ptr;
     std::string _expr_name;

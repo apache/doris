@@ -34,6 +34,11 @@ struct DivideIntegralImpl {
         null_map[index] = b == 0;
         return a / (b + null_map[index]);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    static constexpr bool compilable = false;
+#endif
+
 };
 
 } // namespace doris::vectorized
