@@ -147,4 +147,28 @@ public class DistributedPlannerTest {
         plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (PARTITIONED)"));
     }
+
+    @Test
+    public void testBroadcastJoinCostThreshold() throws Exception {
+        String sql = "explain select * from db1.tbl1 join db1.tbl2 on tbl1.k1 = tbl2.k3";
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        stmtExecutor.execute();
+        Planner planner = stmtExecutor.planner();
+        List<PlanFragment> fragments = planner.getFragments();
+        String plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
+        Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (BROADCAST)"));
+
+        double originThreshold = ctx.getSessionVariable().autoBroadcastJoinThreshold;
+        try {
+            ctx.getSessionVariable().autoBroadcastJoinThreshold = -1.0;
+            stmtExecutor = new StmtExecutor(ctx, sql);
+            stmtExecutor.execute();
+            planner = stmtExecutor.planner();
+            fragments = planner.getFragments();
+            plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
+            Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (PARTITIONED)"));
+        } finally {
+            ctx.getSessionVariable().autoBroadcastJoinThreshold = originThreshold;
+        }
+    }
 }
