@@ -222,8 +222,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
    Range分区除了上述我们看到的单列分区，也支持**多列分区**，示例如下：
 
-   ~~~text
-   ```
+   ```text
    PARTITION BY RANGE(`date`, `id`)
    (
        PARTITION `p201701_1000` VALUES LESS THAN ("2017-02-01", "1000"),
@@ -254,9 +253,6 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    * 2017-04-01, 1000    --> 无法导入
    * 2017-05-01, 1000    --> 无法导入
    ```
-   ~~~
-
-   
 
    **List 分区**
 
@@ -293,8 +289,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
    List分区也支持**多列分区**，示例如下：
 
-   ~~~text
-   ```
+   ```text
    PARTITION BY LIST(`id`, `city`)
    (
        PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
@@ -322,7 +317,6 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    * 1, Tianjin     ---> 无法导入
    * 4, Beijing     ---> 无法导入
    ```
-   ~~~
 
 2. **Bucket**
 

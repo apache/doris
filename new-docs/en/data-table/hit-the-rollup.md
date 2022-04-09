@@ -46,36 +46,36 @@ Example 1: Get the total consumption per user
 
 Following [Data Model Aggregate Model](data-model.html#Aggregate Model) in the **Aggregate Model** section, the Base table structure is as follows:
 
-| ColumnName      | Type         | AggregationType | Comment                                |
-| --------------- | ------------ | --------------- | -------------------------------------- |
-| user_id         | LARGEINT     |                 | user id                                |
-| date            | DATE         |                 | date of data filling                   |
-| Time stamp      | DATETIME     |                 | Data filling time, accurate to seconds |
-| City            | VARCHAR (20) |                 | User City                              |
-| age             | SMALLINT     |                 | User age                               |
-| sex             | TINYINT      |                 | User gender                            |
-| Last_visit_date | DATETIME     | REPLACE         | Last user access time                  |
-| Cost            | BIGINT       | SUM             | Total User Consumption                 |
-| max dwell time  | INT          | MAX             | Maximum user residence time            |
-| min dwell time  | INT          | MIN             | User minimum residence time            |
+| ColumnName        | Type         | AggregationType | Comment                                |
+|-------------------| ------------ | --------------- | -------------------------------------- |
+| user\_id          | LARGEINT     |                 | user id                                |
+| date              | DATE         |                 | date of data filling                   |
+| timestamp         | DATETIME     |                 | Data filling time, accurate to seconds |
+| city              | VARCHAR (20) |                 | User City                              |
+| age               | SMALLINT     |                 | User age                               |
+| sex               | TINYINT      |                 | User gender                            |
+| last\_visit\_date | DATETIME     | REPLACE         | Last user access time                  |
+| cost              | BIGINT       | SUM             | Total User Consumption                 |
+| max\_dwell\_time  | INT          | MAX             | Maximum user residence time            |
+| min\_dwell\_time  | INT          | MIN             | User minimum residence time            |
 
 The data stored are as follows:
 
-| user_id | date       | timestamp           | city      | age  | sex  | last\_visit\_date   | cost | max\_dwell\_time | min\_dwell\_time |
-| ------- | ---------- | ------------------- | --------- | ---- | ---- | ------------------- | ---- | ---------------- | ---------------- |
-| 10000   | 2017-10-01 | 2017-10-01 08:00:05 | Beijing   | 20   | 0    | 2017-10-01 06:00    | 20   | 10               | 10               |
-| 10000   | 2017-10-01 | 2017-10-01 09:00:05 | Beijing   | 20   | 0    | 2017-10-01 07:00    | 15   | 2                | 2                |
-| 10001   | 2017-10-01 | 2017-10-01 18:12:10 | Beijing   | 30   | 1    | 2017-10-01 17:05:45 | 2    | 22               | 22               |
-| 10002   | 2017-10-02 | 2017-10-02 13:10:00 | Shanghai  | 20   | 1    | 2017-10-02 12:59:12 | 200  | 5                | 5                |
-| 10003   | 2017-10-02 | 2017-10-02 13:15:00 | Guangzhou | 32   | 0    | 2017-10-02 11:20:00 | 30   | 11               | 11               |
-| 10004   | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen  | 35   | 0    | 2017-10-01 10:00:15 | 100  | 3                | 3                |
-| 10004   | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen  | 35   | 0    | 2017-10-03 10:20:22 | 11   | 6                | 6                |
+| user\_id | date       | timestamp           | city      | age  | sex  | last\_visit\_date   | cost | max\_dwell\_time | min\_dwell\_time |
+|----------| ---------- | ------------------- | --------- | ---- | ---- | ------------------- | ---- | ---------------- | ---------------- |
+| 10000    | 2017-10-01 | 2017-10-01 08:00:05 | Beijing   | 20   | 0    | 2017-10-01 06:00    | 20   | 10               | 10               |
+| 10000    | 2017-10-01 | 2017-10-01 09:00:05 | Beijing   | 20   | 0    | 2017-10-01 07:00    | 15   | 2                | 2                |
+| 10001    | 2017-10-01 | 2017-10-01 18:12:10 | Beijing   | 30   | 1    | 2017-10-01 17:05:45 | 2    | 22               | 22               |
+| 10002    | 2017-10-02 | 2017-10-02 13:10:00 | Shanghai  | 20   | 1    | 2017-10-02 12:59:12 | 200  | 5                | 5                |
+| 10003    | 2017-10-02 | 2017-10-02 13:15:00 | Guangzhou | 32   | 0    | 2017-10-02 11:20:00 | 30   | 11               | 11               |
+| 10004    | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen  | 35   | 0    | 2017-10-01 10:00:15 | 100  | 3                | 3                |
+| 10004    | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen  | 35   | 0    | 2017-10-03 10:20:22 | 11   | 6                | 6                |
 
 On this basis, we create a ROLLUP:
 
 | ColumnName |
-| ---------- |
-| user_id    |
+|------------|
+| user\_id   |
 | cost       |
 
 The ROLLUP contains only two columns: user_id and cost. After the creation, the data stored in the ROLLUP is as follows:
@@ -98,13 +98,13 @@ Doris automatically hits the ROLLUP table, thus completing the aggregated query 
 
 Follow example 1. Based on the Base table, we create a ROLLUP:
 
-| ColumnName     | Type         | AggregationType | Comment                     |
-| -------------- | ------------ | --------------- | --------------------------- |
-| City           | VARCHAR (20) |                 | User City                   |
-| age            | SMALLINT     |                 | User age                    |
-| Cost           | BIGINT       | SUM             | Total User Consumption      |
-| max dwell time | INT          | MAX             | Maximum user residence time |
-| min dwell time | INT          | MIN             | User minimum residence time |
+| ColumnName       | Type         | AggregationType | Comment                     |
+|------------------| ------------ | --------------- | --------------------------- |
+| city             | VARCHAR (20) |                 | User City                   |
+| age              | SMALLINT     |                 | User age                    |
+| cost             | BIGINT       | SUM             | Total User Consumption      |
+| max\_dwell\_time | INT          | MAX             | Maximum user residence time |
+| min\_dwell\_time | INT          | MIN             | User minimum residence time |
 
 After the creation, the data stored in the ROLLUP is as follows:
 
@@ -343,7 +343,9 @@ There are K9 and K1 conditions. The first column of rollup_index1 and rollup_ind
 
 Finally, look at a query that can be hit by more than one Rollup:
 
-`Select * from test where K4 < 1000 and K5 = 80 and K6 = 10000;`
+```sql
+SELECT * FROM test WHERE K4 < 1000 AND K5 = 80 AND K6 = 10000;
+```
 
 There are three conditions: k4, K5 and k6. The first three columns of rollup_index3 and rollup_index4 contain these three columns respectively. So the prefix index length matched by them is the same. Both can be selected. The current default strategy is to select a rollup created earlier. Here is rollup_index3.
 

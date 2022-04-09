@@ -132,8 +132,8 @@ When defining columns, you can refer to the following suggestions:
 
 1. The Key column must precede all Value columns.
 2. Try to choose the type of integer. Because integer type calculations and lookups are much more efficient than strings.
-3. For the selection principle of integer types of different lengths, follow ** enough to **.
-4. For lengths of type VARCHAR and STRING, follow ** is sufficient.
+3. For the selection principle of integer types of different lengths, follow **enough to**.
+4. For lengths of type VARCHAR and STRING, follow **enough to**.
 5. The total byte length of all columns (including Key and Value) cannot exceed 100KB.
 
 ### Partitioning and Bucket
@@ -181,7 +181,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
             p201705: [2017-04-01, 2017-06-01)
             ```
             
-            > Note that the partition range of p201702 and p201705 has not changed, and there is a hole between the two partitions: [2017-03-01, 2017-04-01). That is, if the imported data range is within this hole, it cannot be imported.
+            > Note: that the partition range of p201702 and p201705 has not changed, and there is a hole between the two partitions: [2017-03-01, 2017-04-01). That is, if the imported data range is within this hole, it cannot be imported.
             
         * Continue to delete partition p201702, the partition results are as follows:
         
@@ -217,8 +217,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
 
     In addition to the single-column partitioning we have seen above, Range partition also supports **multi-column partitioning**, examples are as follows:
 
-    ~~~text
-    ```
+   ```text
     PARTITION BY RANGE(`date`, `id`)
     (
         PARTITION `p201701_1000` VALUES LESS THAN ("2017-02-01", "1000"),
@@ -249,9 +248,6 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     * 2017-04-01, 1000  --> Unable to import
     * 2017-05-01, 1000  --> Unable to import
     ```
-    ~~~
-
-    
 
     #### List Partition
 
@@ -286,8 +282,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
 
     List partition also supports **multi-column partition**, examples are as follows:
 
-    ~~~text
-    ```
+    ```text
     PARTITION BY LIST(`id`, `city`)
     (
         PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
@@ -315,7 +310,6 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     * 1, Tianjin  ---> Unable to import
     * 4, Beijing  ---> Unable to import
     ```
-    ~~~
 
 2. Bucket
 

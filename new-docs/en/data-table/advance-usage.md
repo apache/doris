@@ -28,7 +28,7 @@ under the License.
 
 Here we introduce some of Doris's advanced features.
 
-## Table  Structural Change
+## Table Structural Change
 
 Schema of the table can be modified using the [ALTER TABLE COLUMN](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.html) command, including the following modifications:
 
