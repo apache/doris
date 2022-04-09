@@ -1,9 +1,7 @@
----
-{
+## {
     "title": "update",
     "language": "en"
 }
----
 
 <!--
 Licensed to the Apache Software Foundation (ASF) under one
@@ -26,68 +24,17 @@ under the License.
 
 # Update
 
-If we need to modify or update the data in Doris, we can use the UPDATE command.
+This article mainly describes how to use the UPDATE command to operate if we need to modify or update the data in Doris. The data update is limited to the version of Doris and can only be used in Doris **Version 0.15.x +**.
 
 ## Applicable scenarios
 
-+ To modify the value of a row that meets certain conditions.
-+ Point updates, small updates, where the rows to be updated are preferably a very small part of the entire table.
-+ Only could be used in Unique table
-
-## Explanation of terms
-
-1. Unique model: A data model in the Doris system. When the user imports rows with the same Key, the Value of the latter overrides the existing Value, in the same sense as Unique in Mysql.
++ Modify its value for rows that meet certain conditions;
++ Point update, small range update, the row to be updated is preferably a very small part of the entire table;
++ The update command can only be executed on a table with a Unique data model.
 
 ## Fundamentals
 
 Use the query engine's own where filtering logic to filter the rows that need to be updated from the table to be updated. Then use the Unique model's own Value column replacement logic to change the rows to be updated and reinsert them into the table. This enables row-level updates.
-
-### Example
-
-Suppose there is an order table in Doris, where order id is the Key column, order status, and order amount are the Value columns. The data state is as follows.
-
-| order id | order amount | order status |
-|--|--|--|
-| 1 | 100| Pending Payment |
-
-At this time, after the user clicks the payment, Doris system needs to change the order id to '1' order status to 'pending shipment', you need to use the Update function.
-
-```
-UPDATE order SET order status='To be shipped' WHERE order id=1;
-```
-
-After the user executes the UPDATE command, the system performs the following three steps.
-
-+ Step 1: Read the rows that satisfy WHERE order id=1
-        (1, 100, 'pending payment')
-+ Step 2: Change the order status of the row from 'Pending Payment' to 'Pending Shipping'
-        (1, 100, 'Pending shipment')
-+ Step 3: Insert the updated row back into the table to achieve the updated effect.
-        | order id | order amount | order status |
-        | ---| ---| ---|
-        | 1 | 100| Pending Payment |
-        | 1 | 100 | Pending shipments |
-        Since the table order is a UNIQUE model, the rows with the same Key, after which the latter will take effect, so the final effect is as follows.
-        | order id | order amount | order status |
-        |--|--|--|
-        | 1 | 100 | Pending shipments |
-
-## Basic operations
-
-### UPDATE syntax
-
-```UPDATE table_name SET value=xxx WHERE condition;```
-
-+ ``table_name``: the table to be updated, must be a UNIQUE model table to update.
-
-+ value=xxx: The column to be updated, the left side of the equation must be the value column of the table. The right side of the equation can be a constant or an expression transformation of a column in a table.
-        For example, if value = 1, then the value of the column to be updated will be 1.
-        For example, if value = value + 1, the value of the column to be updated is incremented by 1.
-
-+ condition: Only rows that satisfy the condition will be updated. condition must be an expression that results in a Boolean type.
-        For example, if k1 = 1, only rows with a k1 column value of 1 will be updated.
-        For example, if k1 = k2, only rows with the same value in column k1 as in column k2 will be updated.
-        No support for unfilled condition, i.e., no support for full table updates.
 
 ### Synchronization
 
@@ -121,6 +68,48 @@ Since Doris currently supports row updates and uses a two-step read-and-write op
 
 Therefore, when using Doris, you must be careful to control the concurrency of Update statements and other DML statements on the *user side itself*.
 
-## Version
+## Usage example
 
-Doris Version 0.15.x +
+Suppose there is an order table in Doris, where the order id is the Key column, the order status and the order amount are the Value column. The data status is as follows:
+
+| order id | order amount | order status    |
+| -------- | ------------ | --------------- |
+| 1        | 100          | Pending Payment |
+
+```sql
++----------+--------------+--------------+
+| order_id | order_amount | order_status |
++----------+--------------+--------------+
+| 1        |          100 | 待付款       |
++----------+--------------+--------------+
+1 row in set (0.01 sec)
+```
+
+At this time, after the user clicks to pay, the Doris system needs to change the status of the order with the order id '1' to 'Pending Shipping', and the Update function needs to be used.
+
+```sql
+mysql> UPDATE test_order SET order_status = 'Pending Shipping' WHERE order_id = 1;
+Query OK, 1 row affected (0.11 sec)
+{'label':'update_20ae22daf0354fe0-b5aceeaaddc666c5', 'status':'VISIBLE', 'txnId':'33', 'queryId':'20ae22daf0354fe0-b5aceeaaddc666c5'}
+```
+
+The result after the update is as follows
+
+```sql
++----------+--------------+------------------+
+| order_id | order_amount | order_status     |
++----------+--------------+------------------+
+| 1        |          100 | Pending Shipping |
++----------+--------------+------------------+
+1 row in set (0.01 sec)
+```
+
+After the user executes the UPDATE command, the system performs the following three steps.
+
+- Step 1: Read the rows that satisfy WHERE order id=1 (1, 100, 'pending payment')
+- Step 2: Change the order status of the row from 'Pending Payment' to 'Pending Shipping' (1, 100, 'Pending shipment')
+- Step 3: Insert the updated row back into the table to achieve the updated effect. | order id | order amount | order status | | ---| ---| ---| | 1 | 100| Pending Payment | | 1 | 100 | Pending shipments | Since the table order is a UNIQUE model, the rows with the same Key, after which the latter will take effect, so the final effect is as follows. | order id | order amount | order status | |--|--|--| | 1 | 100 | Pending shipments |
+
+## More Help
+
+For more detailed syntax used by **data update**, please refer to the [update](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/UPDATE.html) command manual , you can also enter `HELP UPDATE` in the Mysql client command line to get more help information.
