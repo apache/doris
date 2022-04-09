@@ -86,11 +86,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.doris.common.util.PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_COOL_DOWN_TIME;
-import static org.apache.doris.common.util.PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE;
-import static org.apache.doris.common.util.PropertyAnalyzer.PROPERTIES_STORAGE_COOL_DOWN_TIME;
-import static org.apache.doris.common.util.PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM;
-
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
 
@@ -682,14 +677,14 @@ public class Alter {
             DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
             // 4.2 combine the old properties with new ones
             Map<String, String> newProperties = new HashMap<>();
-            newProperties.put(PROPERTIES_STORAGE_MEDIUM, dataProperty.getStorageMedium().name());
+            newProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, dataProperty.getStorageMedium().name());
             DateLiteral dateLiteral = new DateLiteral(dataProperty.getCoolDownTimeMs(),
                     TimeUtils.getTimeZone(), Type.DATETIME);
-            newProperties.put(PROPERTIES_STORAGE_COOL_DOWN_TIME, dateLiteral.getStringValue());
-            newProperties.put(PROPERTIES_REMOTE_STORAGE_RESOURCE, dataProperty.getRemoteStorageResourceName());
+            newProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOL_DOWN_TIME, dateLiteral.getStringValue());
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE, dataProperty.getRemoteStorageResourceName());
             DateLiteral dateLiteral1 = new DateLiteral(dataProperty.getRemoteCoolDownTimeMs(),
                     TimeUtils.getTimeZone(), Type.DATETIME);
-            newProperties.put(PROPERTIES_REMOTE_STORAGE_COOL_DOWN_TIME, dateLiteral1.getStringValue());
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_COOL_DOWN_TIME, dateLiteral1.getStringValue());
             newProperties.putAll(properties);
             // 4.3 analyze new properties
             DataProperty newDataProperty = PropertyAnalyzer.analyzeDataProperty(newProperties, null);
