@@ -26,9 +26,25 @@ under the License.
 
 ## STOP-ROUTINE-LOAD
 
+### Name
+
+STOP ROUTINE LOAD
+
 ### Description
 
+用户停止一个 Routine Load 作业。被停止的作业无法再重新运行。
+
+```sql
+STOP ROUTINE LOAD FOR job_name;
+```
+
 ### Example
+
+1. 停止名称为 test1 的例行导入作业。
+
+   ```sql
+   STOP ROUTINE LOAD FOR test1;
+   ```
 
 ### Keywords
 
