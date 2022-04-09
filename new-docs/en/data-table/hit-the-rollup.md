@@ -78,7 +78,7 @@ On this basis, we create a ROLLUP:
 | user\_id   |
 | cost       |
 
-The ROLLUP contains only two columns: user_id and cost. After the creation, the data stored in the ROLLUP is as follows:
+The ROLLUP contains only two columns: user\_id and cost. After the creation, the data stored in the ROLLUP is as follows:
 
 | user\_id | cost |
 | -------- | ---- |

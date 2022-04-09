@@ -181,7 +181,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
             p201705: [2017-04-01, 2017-06-01)
             ```
             
-            > Note: that the partition range of p201702 and p201705 has not changed, and there is a hole between the two partitions: [2017-03-01, 2017-04-01). That is, if the imported data range is within this hole, it cannot be imported.
+            > Note that the partition range of p201702 and p201705 has not changed, and there is a hole between the two partitions: [2017-03-01, 2017-04-01). That is, if the imported data range is within this hole, it cannot be imported.
             
         * Continue to delete partition p201702, the partition results are as follows:
         
