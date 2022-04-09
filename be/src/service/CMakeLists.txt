@@ -44,7 +44,7 @@ if (${MAKE_TEST} STREQUAL "OFF")
     install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
     install(TARGETS palo_be DESTINATION ${OUTPUT_DIR}/lib/)
 
-    if (${STRIP_DEBUG_INFO} STREQUAL "ON")
+    if ("${STRIP_DEBUG_INFO}" STREQUAL "ON")
         add_custom_command(TARGET palo_be POST_BUILD
             COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:palo_be> $<TARGET_FILE:palo_be>.dbg
             COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:palo_be>
