@@ -36,7 +36,7 @@ In Doris, data is logically described in the form of a table.
 
 A table includes rows (rows) and columns (columns). Row is a row of data for the user. Column is used to describe different fields in a row of data.
 
-Column can be divided into two broad categories: Key and Value. From a business perspective, Key and Value can correspond to dimension columns and metric columns, respectively. From the perspective of the aggregation model, the same row of Key columns will be aggregated into one row. The way the Value column is aggregated is specified by the user when the table is built. For an introduction to more aggregation models, see the [Doris Data Model](./data-model-rollup.md).
+Column can be divided into two broad categories: Key and Value. From a business perspective, Key and Value can correspond to dimension columns and metric columns, respectively. From the perspective of the aggregation model, the same row of Key columns will be aggregated into one row. The way the Value column is aggregated is specified by the user when the table is built. For an introduction to more aggregation models, see the [Doris Data Model](./data-model.html).
 
 ### Tablet & Partition
 
@@ -50,13 +50,11 @@ Several Partitions form a Table. Partition can be thought of as the smallest log
 
 We use a table-building operation to illustrate Doris' data partitioning.
 
-Doris's built-in table is a synchronous command. If the command returns successfully, it means that the table is built successfully.
-
-See more help with `HELP CREATE TABLE;`.
+Doris's table creation is a synchronous command. The result is returned after the SQL execution is completed. If the command returns successfully, it means that the table creation is successful. For specific table creation syntax, please refer to [CREATE TABLE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html), or you can view more details through `HELP CREATE TABLE;` Much help.See more help with `HELP CREATE TABLE;`.
 
 This section introduces Doris's approach to building tables with an example.
 
-```
+```sql
 -- Range Partition
 
 CREATE TABLE IF NOT EXISTS example_db.expamle_range_tbl
@@ -124,7 +122,7 @@ PROPERTIES
 
 ### Column Definition
 
-Here we only use the AGGREGATE KEY data model as an example. See the [Doris Data Model](./data-model-rollup.md) for more data models.
+Here we only use the AGGREGATE KEY data model as an example. See the [Doris Data Model](./data-model.html) for more data models.
 
 The basic type of column can be viewed by executing `HELP CREATE TABLE;` in mysql-client.
 
@@ -134,11 +132,11 @@ When defining columns, you can refer to the following suggestions:
 
 1. The Key column must precede all Value columns.
 2. Try to choose the type of integer. Because integer type calculations and lookups are much more efficient than strings.
-3. For the selection principle of integer types of different lengths, follow ** enough to **.
-4. For lengths of type VARCHAR and STRING, follow ** is sufficient.
+3. For the selection principle of integer types of different lengths, follow **enough to**.
+4. For lengths of type VARCHAR and STRING, follow **enough to**.
 5. The total byte length of all columns (including Key and Value) cannot exceed 100KB.
 
-### Partitioning and binning
+### Partitioning and Bucket
 
 Doris supports two levels of data partitioning. The first layer is Partition, which supports Range and List partitioning. The second layer is the Bucket (Tablet), which only supports Hash partitioning.
 
@@ -150,11 +148,14 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     * Regardless of the type of partition column, double quotes are required when writing partition values.
     * There is no theoretical limit on the number of partitions.
     * When you do not use Partition to build a table, the system will automatically generate a Partition with the same name as the table name. This Partition is not visible to the user and cannot be modified.
-    
+    * **Do not add partitions with overlapping ranges** when creating partitions.
+
     #### Range Partition
 
     * Partition columns are usually time columns for easy management of old and new data.
+
     * Partition supports only the upper bound by `VALUES LESS THAN (...)`, the system will use the upper bound of the previous partition as the lower bound of the partition, and generate a left closed right open interval. Passing, also supports specifying the upper and lower bounds by `VALUES [...)`, and generating a left closed right open interval.
+
     * It is easier to understand by specifying `VALUES [...)`. Here is an example of the change in partition range when adding or deleting partitions using the `VALUES LESS THAN (...)` statement:
         * As in the `example_range_tbl` example above, when the table is built, the following 3 partitions are automatically generated:
             ```
@@ -162,8 +163,9 @@ It is also possible to use only one layer of partitioning. When using a layer pa
             P201702: [2017-02-01, 2017-03-01)
             P201703: [2017-03-01, 2017-04-01)
             ```
+            
         * When we add a partition p201705 VALUES LESS THAN ("2017-06-01"), the partition results are as follows:
-
+        
             ```
             P201701: [MIN_VALUE, 2017-02-01)
             P201702: [2017-02-01, 2017-03-01)
@@ -186,11 +188,12 @@ It is also possible to use only one layer of partitioning. When using a layer pa
             ```
             p201701: [MIN_VALUE, 2017-02-01)
             p201705: [2017-04-01, 2017-06-01)
-            The void range becomes: [2017-02-01, 2017-04-01)
             ```
             
-        * Now add a partition p201702new VALUES LESS THAN ("2017-03-01"), the partition results are as follows:
+            > The void range becomes: [2017-02-01, 2017-04-01)
             
+        * Now add a partition p201702new VALUES LESS THAN ("2017-03-01"), the partition results are as follows:
+          
             ```
             p201701: [MIN_VALUE, 2017-02-01)
             p201702new: [2017-02-01, 2017-03-01)
@@ -200,7 +203,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
             > You can see that the hole size is reduced to: [2017-03-01, 2017-04-01)
             
         * Now delete partition p201701 and add partition p201612 VALUES LESS THAN ("2017-01-01"), the partition result is as follows:
-
+        
             ```
             p201612: [MIN_VALUE, 2017-01-01)
             p201702new: [2017-02-01, 2017-03-01)
@@ -209,9 +212,42 @@ It is also possible to use only one layer of partitioning. When using a layer pa
             
             > A new void appeared: [2017-01-01, 2017-02-01)
         
+
     In summary, the deletion of a partition does not change the scope of an existing partition. There may be holes in deleting partitions. When a partition is added by the `VALUES LESS THAN` statement, the lower bound of the partition immediately follows the upper bound of the previous partition.
+
+    In addition to the single-column partitioning we have seen above, Range partition also supports **multi-column partitioning**, examples are as follows:
+
+   ```text
+    PARTITION BY RANGE(`date`, `id`)
+    (
+        PARTITION `p201701_1000` VALUES LESS THAN ("2017-02-01", "1000"),
+        PARTITION `p201702_2000` VALUES LESS THAN ("2017-03-01", "2000"),
+        PARTITION `p201703_all` VALUES LESS THAN ("2017-04-01")
+    )
+    ```
     
-    You cannot add partitions with overlapping ranges.
+    In the above example, we specify `date` (DATE type) and `id` (INT type) as partition columns. The resulting partitions in the above example are as follows:
+    
+    ```
+    *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
+    *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
+    *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
+    ```
+    
+    Note that the last partition user defaults only the partition value of the `date` column, so the partition value of the `id` column will be filled with `MIN_VALUE` by default. When the user inserts data, the partition column values ​​are compared in order, and the corresponding partition is finally obtained. Examples are as follows:
+    
+    ```
+    * Data --> Partition
+    * 2017-01-01, 200   --> p201701_1000
+    * 2017-01-01, 2000  --> p201701_1000
+    * 2017-02-01, 100   --> p201701_1000
+    * 2017-02-01, 2000  --> p201702_2000
+    * 2017-02-15, 5000  --> p201702_2000
+    * 2017-03-01, 2000  --> p201703_all
+    * 2017-03-10, 1     --> p201703_all
+    * 2017-04-01, 1000  --> Unable to import
+    * 2017-05-01, 1000  --> Unable to import
+    ```
 
     #### List Partition
 
@@ -244,7 +280,36 @@ It is also possible to use only one layer of partitioning. When using a layer pa
             p_uk: ("London")
             ```
 
-    You cannot add partitions with overlapping ranges.
+    List partition also supports **multi-column partition**, examples are as follows:
+
+    ```text
+    PARTITION BY LIST(`id`, `city`)
+    (
+        PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
+        PARTITION `p2_city` VALUES IN (("2", "Beijing"), ("2", "Shanghai")),
+        PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai"))
+    )
+    ```
+    
+    In the above example, we specify `id`(INT type) and `city`(VARCHAR type) as partition columns. The above example ends up with the following partitions.
+    
+    ```
+    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
+    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
+    ```
+    
+    When the user inserts data, the partition column values will be compared sequentially in order to finally get the corresponding partition. An example is as follows.
+    
+    ```
+    * Data ---> Partition
+    * 1, Beijing  ---> p1_city
+    * 1, Shanghai ---> p1_city
+    * 2, Shanghai ---> p2_city
+    * 3, Beijing  ---> p3_city
+    * 1, Tianjin  ---> Unable to import
+    * 4, Beijing  ---> Unable to import
+    ```
 
 2. Bucket
 
@@ -267,96 +332,27 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     * Once the number of Buckets for a Partition is specified, it cannot be changed. Therefore, when determining the number of Buckets, you need to consider the expansion of the cluster in advance. For example, there are currently only 3 hosts, and each host has 1 disk. If the number of Buckets is only set to 3 or less, then even if you add more machines later, you can't increase the concurrency.
     * Give some examples: Suppose there are 10 BEs, one for each BE disk. If the total size of a table is 500MB, you can consider 4-8 shards. 5GB: 8-16. 50GB: 32. 500GB: Recommended partitions, each partition is about 50GB in size, with 16-32 shards per partition. 5TB: Recommended partitions, each with a size of around 50GB and 16-32 shards per partition.
     
-    > Note: The amount of data in the table can be viewed by the `show data` command. The result is divided by the number of copies, which is the amount of data in the table.
+    > Note: The amount of data in the table can be viewed by the `[show data](../sql-manual/sql-reference-v2/Show-Statements/SHOW-DATA.html)` command. The result is divided by the number of copies, which is the amount of data in the table.
     
-#### Multi-column partition
 
-Doris supports specifying multiple columns as partition columns, examples are as follows:
+#### Compound Partitions vs Single Partitions
 
-##### Range Partition
+Compound Partitions
 
-    ```
-    PARTITION BY RANGE(`date`, `id`)
-    (
-        PARTITION `p201701_1000` VALUES LESS THAN ("2017-02-01", "1000"),
-        PARTITION `p201702_2000` VALUES LESS THAN ("2017-03-01", "2000"),
-        PARTITION `p201703_all` VALUES LESS THAN ("2017-04-01")
-    )
-    ```
+- The first level is called Partition, which is partition. Users can specify a dimension column as a partition column (currently only columns of integer and time types are supported), and specify the value range of each partition.
+- The second level is called Distribution, which means bucketing. Users can specify one or more dimension columns and the number of buckets to perform HASH distribution on the data.
 
-    In the above example, we specify `date` (DATE type) and `id` (INT type) as partition columns. The resulting partitions in the above example are as follows:
+Composite partitions are recommended for the following scenarios
 
-    ```
-    *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
-    *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
-    *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
-    ```
+- There is a time dimension or similar dimension with ordered values, which can be used as a partition column. Partition granularity can be evaluated based on import frequency, partition data volume, etc.
+- Deletion of historical data: If there is a need to delete historical data (for example, only keep the data of the last N days). With composite partitions, this can be achieved by removing historical partitions. Data deletion is also possible by sending a DELETE statement within the specified partition.
+- Solve the problem of data skew: each partition can specify the number of buckets individually. For example, partitioning by day, when the amount of data per day varies greatly, you can reasonably divide the data in different partitions by specifying the number of buckets for the partition. It is recommended to select a column with a large degree of discrimination for the bucketing column.
 
-    Note that the last partition user defaults only the partition value of the `date` column, so the partition value of the `id` column will be filled with `MIN_VALUE` by default. When the user inserts data, the partition column values ​​are compared in order, and the corresponding partition is finally obtained. Examples are as follows:
-
-    ```
-    * Data --> Partition
-    * 2017-01-01, 200   --> p201701_1000
-    * 2017-01-01, 2000  --> p201701_1000
-    * 2017-02-01, 100   --> p201701_1000
-    * 2017-02-01, 2000  --> p201702_2000
-    * 2017-02-15, 5000  --> p201702_2000
-    * 2017-03-01, 2000  --> p201703_all
-    * 2017-03-10, 1     --> p201703_all
-    * 2017-04-01, 1000  --> Unable to import
-    * 2017-05-01, 1000  --> Unable to import
-    ```
-
-##### List Partition
-
-    ```
-    PARTITION BY LIST(`id`, `city`)
-    (
-        PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
-        PARTITION `p2_city` VALUES IN (("2", "Beijing"), ("2", "Shanghai")),
-        PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai"))
-    )
-    ```
-
-    In the above example, we specify `id`(INT type) and `city`(VARCHAR type) as partition columns. The above example ends up with the following partitions.
-
-    ```
-    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
-    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
-    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
-    ```
-
-    When the user inserts data, the partition column values will be compared sequentially in order to finally get the corresponding partition. An example is as follows.
-
-    ```
-    * Data ---> Partition
-    * 1, Beijing  ---> p1_city
-    * 1, Shanghai ---> p1_city
-    * 2, Shanghai ---> p2_city
-    * 3, Beijing  ---> p3_city
-    * 1, Tianjin  ---> Unable to import
-    * 4, Beijing  ---> Unable to import
-    ```
+The user can also use a single partition without using composite partitions. Then the data is only distributed in HASH.
 
 ### PROPERTIES
 
-In the last PROPERTIES of the table statement, you can specify the following two parameters:
-
-Replication_num
-
-    * The number of copies per tablet. The default is 3, it is recommended to keep the default. In the build statement, the number of Tablet copies in all Partitions is uniformly specified. When you add a new partition, you can individually specify the number of copies of the tablet in the new partition.
-    * The number of copies can be modified at runtime. It is strongly recommended to keep odd numbers.
-    * The maximum number of copies depends on the number of independent IPs in the cluster (note that it is not the number of BEs). The principle of replica distribution in Doris is that the copies of the same Tablet are not allowed to be distributed on the same physical machine, and the physical machine is identified as IP. Therefore, even if 3 or more BE instances are deployed on the same physical machine, if the BEs have the same IP, you can only set the number of copies to 1.
-    * For some small, and infrequently updated dimension tables, consider setting more copies. In this way, when joining queries, there is a greater probability of local data join.
-
-2. storage_medium & storage\_cooldown\_time
-
-    * The BE data storage directory can be explicitly specified as SSD or HDD (differentiated by .SSD or .HDD suffix). When you build a table, you can uniformly specify the media for all Partition initial storage. Note that the suffix is ​​to explicitly specify the disk media without checking to see if it matches the actual media type.
-    * The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD. If specified as an SSD, the data is initially stored on the SSD.
-    * If storage\_cooldown\_time is not specified, the data is automatically migrated from the SSD to the HDD after 30 days by default. If storage\_cooldown\_time is specified, the data will not migrate until the storage_cooldown_time time is reached.
-    * Note that when storage_medium is specified, if FE parameter 'enable_strict_storage_medium_check' is' False 'this parameter is simply a' do your best 'setting. Even if SSD storage media is not set up within the cluster, no errors are reported, and it is automatically stored in the available data directory.
-      Similarly, if the SSD media is not accessible and space is insufficient, it is possible to initially store data directly on other available media. When the data is due to be migrated to an HDD, the migration may also fail (but will try again and again) if the HDD medium is not accessible and space is insufficient.
-      If FE parameter 'enable_strict_storage_medium_check' is' True ', then 'Failed to find enough host in all Backends with storage medium is SSD' will be reported when SSD storage medium is not set in the cluster.
+In the last PROPERTIES of the table building statement, for the relevant parameters that can be set in PROPERTIES, we can check [CREATE TABLE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE .html) for a detailed introduction.
 
 ### ENGINE
 
@@ -396,3 +392,7 @@ In this example, the type of ENGINE is olap, the default ENGINE type. In Doris, 
     Doris's table creation command is a synchronous command. The timeout of this command is currently set to be relatively simple, ie (tablet num * replication num) seconds. If you create more data fragments and have fragment creation failed, it may cause an error to be returned after waiting for a long timeout.
 
     Under normal circumstances, the statement will return in a few seconds or ten seconds. If it is more than one minute, it is recommended to cancel this operation directly and go to the FE or BE log to view the related errors.
+
+## More help
+
+For more detailed instructions on data partitioning, we can refer to the [CREATE TABLE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) command manual, and also You can enter `HELP CREATE TABLE;` under the Mysql client to get more help information.
