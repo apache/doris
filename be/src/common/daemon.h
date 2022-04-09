@@ -38,10 +38,10 @@ public:
     // performed until after this method returns.
     void init(int argc, char** argv, const std::vector<StorePath>& paths);
 
-    // Start background threads
+    // Start background threads.
     void start();
 
-    // Stop background threads
+    // Stop background threads.
     void stop();
 
 private:

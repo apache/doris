@@ -16,26 +16,23 @@
 namespace doris {
 
 class Status {
-    enum { 
+    enum {
         // If the error and log returned by the query are truncated, the status to string may be too long.
         STATE_CAPACITY = 2048,
         HEADER_LEN = 7,
         MESSAGE_LEN = STATE_CAPACITY - HEADER_LEN
     };
+
 public:
     Status() : _length(0) {}
 
-    // copy c'tor makes copy of error detail so Status can be returned by value
-    Status(const Status& rhs) {
-        *this = rhs;
-    }
+    // Copy c'tor makes copy of error detail so Status can be returned by value.
+    Status(const Status& rhs) { *this = rhs; }
 
-    // move c'tor
-    Status(Status&& rhs) {
-        *this = rhs;
-    }
+    // Move c'tor.
+    Status(Status&& rhs) { *this = rhs; }
 
-    // same as copy c'tor
+    // Same as copy c'tor.
     Status& operator=(const Status& rhs) {
         if (rhs._length) {
             memcpy(_state, rhs._state, rhs._length + Status::HEADER_LEN);
@@ -45,7 +42,7 @@ public:
         return *this;
     }
 
-    // move assign
+    // Move assign.
     Status& operator=(Status&& rhs) {
         this->operator=(rhs);
         return *this;
@@ -162,22 +159,22 @@ public:
     bool is_already_exist() const { return code() == TStatusCode::ALREADY_EXIST; }
     bool is_io_error() const { return code() == TStatusCode::IO_ERROR; }
 
-    /// @return @c true iff the status indicates Uninitialized.
+    // Return true iff the status indicates Uninitialized.
     bool is_uninitialized() const { return code() == TStatusCode::UNINITIALIZED; }
 
-    // @return @c true iff the status indicates an Aborted error.
+    // Return true iff the status indicates an Aborted error.
     bool is_aborted() const { return code() == TStatusCode::ABORTED; }
 
-    /// @return @c true iff the status indicates an InvalidArgument error.
+    // Return true iff the status indicates an InvalidArgument error.
     bool is_invalid_argument() const { return code() == TStatusCode::INVALID_ARGUMENT; }
 
-    // @return @c true iff the status indicates ServiceUnavailable.
+    // Return true iff the status indicates ServiceUnavailable.
     bool is_service_unavailable() const { return code() == TStatusCode::SERVICE_UNAVAILABLE; }
 
     bool is_data_quality_error() const { return code() == TStatusCode::DATA_QUALITY_ERROR; }
 
-    // Convert into TStatus. Call this if 'status_container' contains an optional
-    // TStatus field named 'status'. This also sets __isset.status.
+    // Convert into 'TStatus'. Call this if 'status_container' contains an optional
+    // TStatus field named 'status'. This also sets '__isset.status'.
     template <typename T>
     void set_t_status(T* status_container) const {
         to_thrift(&status_container->status);
@@ -194,56 +191,38 @@ public:
         return std::string(msg.data, msg.size);
     }
 
-    /// @return A string representation of this status suitable for printing.
-    ///   Returns the string "OK" for success.
+    // Return a string representation of this status suitable for printing.
     std::string to_string() const;
 
-    /// @return A string representation of the status code, without the message
-    ///   text or sub code information.
+    // Return a string representation of the  status code, without the message text or sub code
+    // information.
     std::string code_as_string() const;
 
-    // This is similar to to_string, except that it does not include
+    // This is similar to  `to_string`, except that it does not include
     // the stringified error code or sub code.
     //
-    // @note The returned Slice is only valid as long as this Status object
-    //   remains live and unchanged.
-    //
-    // @return The message portion of the Status. For @c OK statuses,
-    //   this returns an empty string.
+    // NOTE: the returned slice is only valid as long as this Status object remains live and unchanged.
     Slice message() const;
 
     TStatusCode::type code() const {
         return ok() ? TStatusCode::OK : static_cast<TStatusCode::type>(_code);
     }
 
-    int16_t precise_code() const {
-        return ok() ? 0 : _precise_code;
-    }
+    int16_t precise_code() const { return ok() ? 0 : _precise_code; }
 
-    /// Clone this status and add the specified prefix to the message.
-    ///
-    /// If this status is OK, then an OK status will be returned.
-    ///
-    /// @param [in] msg
-    ///   The message to prepend.
-    /// @return A new Status object with the same state plus an additional
-    ///   leading message.
+    // Clone this status and add the specified prefix to the message. If this status is OK,
+    // then an OK status will be returned.
     Status clone_and_prepend(const Slice& msg) const;
 
-    /// Clone this status and add the specified suffix to the message.
-    ///
-    /// If this status is OK, then an OK status will be returned.
-    ///
-    /// @param [in] msg
-    ///   The message to append.
-    /// @return A new Status object with the same state plus an additional
-    ///   trailing message.
+    // Clone this status and add the specified suffix to the message. If this status is OK,
+    // then an OK status will be returned.
     Status clone_and_append(const Slice& msg) const;
 
     operator bool() const { return this->ok(); }
 
 private:
-    void assemble_state(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2) {
+    void assemble_state(TStatusCode::type code, const Slice& msg, int16_t precise_code,
+                        const Slice& msg2) {
         DCHECK(code != TStatusCode::OK);
         uint32_t len1 = msg.size;
         uint32_t len2 = msg2.size;
@@ -267,13 +246,13 @@ private:
         _precise_code = precise_code;
 
         // copy msg
-        char* result =  _state + HEADER_LEN;
+        char* result = _state + HEADER_LEN;
         uint32_t len = std::min<uint32_t>(len1, MESSAGE_LEN);
         memcpy(result, msg.data, len);
 
         // copy msg2
         if (len2 > 0 && len < MESSAGE_LEN - 2) {
-            result[len++] = ':'; 
+            result[len++] = ':';
             result[len++] = ' ';
             memcpy(&result[len], msg2.data, std::min<uint32_t>(len2, MESSAGE_LEN - len));
         }
@@ -294,15 +273,15 @@ private:
         char _state[STATE_CAPACITY];
 
         struct {
-            int64_t _length : 32;       // message length
-            int64_t _code : 8;          
+            int64_t _length : 32; // message length
+            int64_t _code : 8;
             int64_t _precise_code : 16;
-            int64_t _message : 8;       // save message since here
+            int64_t _message : 8; // save message since here
         };
     };
 };
 
-// some generally useful macros
+// Some generally useful macros.
 #define RETURN_IF_ERROR(stmt)            \
     do {                                 \
         const Status& _status_ = (stmt); \
@@ -329,7 +308,7 @@ private:
         }                                          \
     } while (false)
 
-/// @brief Emit a warning if @c to_call returns a bad status.
+// Emit a warning if `to_call` returns a bad status.
 #define WARN_IF_ERROR(to_call, warning_prefix)                          \
     do {                                                                \
         const Status& _s = (to_call);                                   \
@@ -356,6 +335,7 @@ private:
         }                                                                      \
     } while (false);
 } // namespace doris
+
 #ifdef WARN_UNUSED_RESULT
 #undef WARN_UNUSED_RESULT
 #endif

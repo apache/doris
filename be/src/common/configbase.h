@@ -19,12 +19,11 @@
 #define DORIS_BE_SRC_COMMON_CONFIGBASE_H
 
 #include <cstdint>
-
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
-#include <functional>
 
 namespace doris {
 class Status;
@@ -60,12 +59,11 @@ public:
         Field field(ftype, fname, fstorage, fdefval, fvalmutable);
         _s_field_map->insert(std::make_pair(std::string(fname), field));
     }
-
 };
 
 // RegisterConfValidator class is used to store validator function of registered config fields in
-// Register::_s_field_map.
-// If any validator return false when BE bootstart, the bootstart will be terminated.
+// `Register::_s_field_map`.
+// If any validator return false when BE bootstrap, the bootstrap will be terminated.
 // If validator return false when use http API to update some config, the config will not
 // be modified and the API will return failure.
 class RegisterConfValidator {
@@ -78,7 +76,7 @@ public:
         if (_s_field_validator == nullptr) {
             _s_field_validator = new std::map<std::string, std::function<bool()>>();
         }
-        // register validator to _s_field_validator
+        // Register validator to `_s_field_validator`.
         _s_field_validator->insert(std::make_pair(std::string(fname), validator));
     }
 };
@@ -90,10 +88,10 @@ public:
 
 #define DECLARE_FIELD(FIELD_TYPE, FIELD_NAME) extern FIELD_TYPE FIELD_NAME;
 
-#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)                                            \
-    static auto validator_##FIELD_NAME = VALIDATOR;                                        \
-    static RegisterConfValidator reg_validator_##FIELD_NAME(#FIELD_NAME,                   \
-            []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
+#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)              \
+    static auto validator_##FIELD_NAME = VALIDATOR;          \
+    static RegisterConfValidator reg_validator_##FIELD_NAME( \
+            #FIELD_NAME, []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
 
 #define DECLARE_VALIDATOR(FIELD_NAME) ;
 
@@ -158,14 +156,14 @@ public:
 
     void set_force(const std::string& key, const std::string& val);
 
-    // dump props to conf file
+    // Dump props to conf file.
     bool dump(const std::string& conffile);
 
 private:
     std::map<std::string, std::string> file_conf_map;
 };
 
-// full configurations.
+// Full configurations.
 extern std::map<std::string, std::string>* full_conf_map;
 
 extern std::mutex custom_conf_lock;

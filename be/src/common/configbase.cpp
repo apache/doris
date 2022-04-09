@@ -68,7 +68,7 @@ void splitkv(const std::string& s, std::string& k, std::string& v) {
     }
 }
 
-// replace env variables
+// Replace env variables.
 bool replaceenv(std::string& s) {
     std::size_t pos = 0;
     std::size_t start = 0;
@@ -183,14 +183,14 @@ bool convert(const std::string& value, T& retval) {
     return strtox(valstr, retval);
 }
 
-// load conf file
+// Load conf file.
 bool Properties::load(const char* conf_file, bool must_exist) {
-    // if conf_file is null, use the empty props
+    // If conf_file is null, use the empty props.
     if (conf_file == nullptr) {
         return true;
     }
 
-    // open the conf file
+    // Open the conf file.
     std::ifstream input(conf_file);
     if (!input.is_open()) {
         if (must_exist) {
@@ -200,33 +200,33 @@ bool Properties::load(const char* conf_file, bool must_exist) {
         return true;
     }
 
-    // load properties
+    // Load properties.
     std::string line;
     std::string key;
     std::string value;
     line.reserve(512);
     while (input) {
-        // read one line at a time
+        // Read one line at a time.
         std::getline(input, line);
 
-        // remove left and right spaces
+        // Remove left and right spaces.
         trim(line);
 
-        // ignore comments
+        // Ignore comments.
         if (line.empty() || line[0] == '#') {
             continue;
         }
 
-        // read key and value
+        // Read key and value.
         splitkv(line, key, value);
         trim(key);
         trim(value);
 
-        // insert into file_conf_map
+        // Insert into `file_conf_map`.
         file_conf_map[key] = value;
     }
 
-    // close the conf file
+    // Close the conf file.
     input.close();
 
     return true;
@@ -238,7 +238,7 @@ bool Properties::get_or_default(const char* key, const char* defstr, T& retval, 
     std::string valstr;
     if (it == file_conf_map.end()) {
         if (defstr == nullptr) {
-            // Not found in conf map, and no default value need to be set, just return
+            // Not found in conf map, and no default value need to be set, just return.
             *is_retval_set = false;
             return true;
         } else {
@@ -324,19 +324,18 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
         continue;                                                                                             \
     }
 
-// init conf fields
+// Init conf fields.
 bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_to_default) {
     Properties props;
-    // load properties file
+    // Load properties file.
     if (!props.load(conf_file, must_exist)) {
         return false;
     }
-    // fill full_conf_map ?
     if (fill_conf_map && full_conf_map == nullptr) {
         full_conf_map = new std::map<std::string, std::string>();
     }
 
-    // set conf fields
+    // Set conf fields.
     for (const auto& it : *Register::_s_field_map) {
         SET_FIELD(it.second, bool, fill_conf_map, set_to_default);
         SET_FIELD(it.second, int16_t, fill_conf_map, set_to_default);
@@ -383,10 +382,10 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         return Status::OK();                                                                            \
     }
 
-// write config to be_custom.conf
-// the caller need to make sure that the given config is valid
+// Write config to `be_custom.conf`.
+// The caller need to make sure that the given config is valid.
 bool persist_config(const std::string& field, const std::string& value) {
-    // lock to make sure only one thread can modify the be_custom.conf
+    // Lock to make sure only one thread can modify the `be_custom.conf`.
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
     static const string conffile = string(getenv("DORIS_HOME")) + "/conf/be_custom.conf";
