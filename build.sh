@@ -305,9 +305,6 @@ if [ "${BUILD_DOCS}" = "ON" ] ; then
 fi
 
 function build_ui() {
-    # check NPM env here, not in env.sh.
-    # Because UI should be considered a non-essential component at runtime.
-    # Only when the compilation is required, check the relevant compilation environment.
     NPM=npm
     if ! ${NPM} --version; then
         echo "Error: npm is not found"

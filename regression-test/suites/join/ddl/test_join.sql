@@ -3,7 +3,7 @@ CREATE TABLE test_join (
 ) ENGINE=OLAP
 UNIQUE KEY(`k1`)
 COMMENT "olap"
-DISTRIBUTED BY HASH(`k1`) BUCKETS 20
+DISTRIBUTED BY HASH(`k1`) BUCKETS 10
 PROPERTIES (
 "in_memory" = "false",
 "storage_format" = "V2",

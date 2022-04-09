@@ -235,6 +235,7 @@ public class CoordinatorTest extends Coordinator {
         }
 
         Deencapsulation.setField(olapScanNode, "bucketSeq2locations", bucketseq2localtion);
+        Deencapsulation.setField(olapScanNode, "totalTabletsNum", 66);
         olapScanNode.setFragment(new PlanFragment(planFragmentId, olapScanNode,
                 new DataPartition(TPartitionType.UNPARTITIONED)));
 
@@ -357,6 +358,7 @@ public class CoordinatorTest extends Coordinator {
         }
 
         Deencapsulation.setField(olapScanNode, "bucketSeq2locations", bucketseq2localtion);
+        Deencapsulation.setField(olapScanNode, "totalTabletsNum", 66);
         olapScanNode.setFragment(new PlanFragment(planFragmentId, olapScanNode,
                 new DataPartition(TPartitionType.UNPARTITIONED)));
 
