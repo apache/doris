@@ -33,17 +33,6 @@ The Binlog Load feature enables Doris to incrementally synchronize update operat
 * Filter query
 * Temporarily incompatible with DDL statements
 
-## Glossary
-* FE: Frontend, the front-end node of Doris. Responsible for metadata management and request access.
-* BE: Backend, the backend node of Doris. Responsible for query execution and data storage.
-* Canal: Alibaba's open source MySQL binlog parsing tool. Support incremental data subscription & consumption.
-* Batch: A batch of data sent by canal to the client with a globally unique self-incrementing ID.
-* SyncJob: A data synchronization job submitted by the user.
-* Receiver: Responsible for subscribing to and receiving data from canal.
-* Consumer: Responsible for distributing the data received by the Receiver to each channel.
-* Channel: The channel that receives the data distributed by Consumer, it creates tasks for sending data, and controls the begining, committing and aborting of transaction in one table.
-* Task: Task created by channel, sends data to Be when executing.
-
 ## Principle
 In the design of phase one, Binlog Load needs to rely on canal as an intermediate medium, so that canal can be pretended to be a slave node to get and parse the binlog on the MySQL master node, and then Doris can get the parsed data on the canal. This process mainly involves mysql, canal and Doris. The overall data flow is as follows:
 
@@ -159,6 +148,7 @@ Binlog log supports two main formats (in addition to mixed based mode):
 
 	Binlog will record the data change information of each row and all columns of the master node, and the slave node will copy and execute the change of each row to the local node.
 	
+
 The first format only writes the executed SQL statements. Although the log volume will be small, it has the following disadvantages:
 
 1. The actual data of each row is not recorded
@@ -276,7 +266,7 @@ After downloading, please follow the steps below to complete the deployment.
 	2013-02-05 22:50:45.810 [main] INFO  c.a.otter.canal.instance.spring.CanalInstanceWithSpring - start successful....
 	```
 	
-### Principle Description
+### Canal End Description
 
 By faking its own MySQL dump protocol, canal disguises itself as a slave node, get and parses the binlog of the master node.
 
@@ -402,7 +392,8 @@ The detailed syntax of creating a SyncJob can be viewd in `help create sync job`
 
 ### Show Job Status
 
-Specific commands and examples for showing job status can be found in `help show sync job;` command.
+
+Specific commands and examples for viewing job status can be viewed through the [SHOW SYNC JOB](../../../sql-manual/sql-reference-v2/show/SHOW-SYNC-JOB.html) command.
 
 The parameters in the result set have the following meanings:
 
@@ -454,6 +445,10 @@ Users can control the status of jobs through `stop/pause/resume` commands.
 
 You can use `HELP STOP SYNC JOB;`, `HELP PAUSE SYNC JOB`; And `HELP RESUME SYNC JOB;` commands to view help and examples.
 
+## Case Combat
+
+[How to use Apache Doris Binlog Load and examples](https://doris.apache.org/zh-CN/article/articles/doris-binlog-load.html)
+
 ## Related Parameters
 
 ### Canal configuration
@@ -474,7 +469,7 @@ You can use `HELP STOP SYNC JOB;`, `HELP PAUSE SYNC JOB`; And `HELP RESUME SYNC 
 
 	The default space occupied by an event at the canal end, default value is 1024 bytes. This value multiplied by `canal.instance.memory.buffer.size` is equal to the maximum space of the store. For example, if the queue length of the store is 16384, the space of the store is 16MB. However, the actual size of an event is not actually equal to this value, but is determined by the number of rows of data in the event and the length of each row of data. For example, the insert event of a table with only two columns is only 30 bytes, but the delete event may reach thousands of bytes. This is because the number of rows of delete event is usually more than that of insert event.
 
- 
+
 ### Fe configuration
 
 The following configuration belongs to the system level configuration of SyncJob. The configuration value can be modified in configuration file fe.conf.
@@ -508,7 +503,7 @@ The following configuration belongs to the system level configuration of SyncJob
 1. Will modifying the table structure affect data synchronization?
 
 	Yes. The SyncJob cannot prohibit `alter table` operation. 
-When the table's schema changes, if the column mapping cannot match, the job may be suspended incorrectly. It is recommended to reduce such problems by explicitly specifying the column mapping relationship in the data synchronization job, or by adding nullable columns or columns with default values.
+	When the table's schema changes, if the column mapping cannot match, the job may be suspended incorrectly. It is recommended to reduce such problems by explicitly specifying the column mapping relationship in the data synchronization job, or by adding nullable columns or columns with default values.
 	
 2. Will the SyncJob continue to run after the database is deleted?
 
@@ -521,3 +516,7 @@ When the table's schema changes, if the column mapping cannot match, the job may
 4. Why is the precision of floating-point type different between MySQL and Doris during data synchronization?	
 
 	The precision of Doris floating-point type is different from that of MySQL. You can choose to use decimal type instead.
+
+## More Help
+
+For more detailed syntax and best practices used by Binlog Load, see [Binlog Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BINLOG- LOAD.html) command manual, you can also enter `HELP BINLOG` in the MySql client command line for more help information.
