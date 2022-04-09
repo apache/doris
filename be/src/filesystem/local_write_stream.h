@@ -17,20 +17,20 @@
 
 #pragma once
 
-#include "common/status.h"
+#include "filesystem/write_stream.h"
 
 namespace doris {
 
-// IOContext is used for optimizations during IO request
-// It may contains following things:
-//      merge_read, query_read
-//      read or write mode
-//      read write params for example, THdfsParams
-class IOContext {
+class LocalWriteStream : public WriteStream {
 public:
-    IOContext() = default;
+    LocalWriteStream() = default;
+    ~LocalWriteStream() override = default;
 
-    virtual ~IOContext() = default;
+    Status read(char* to, size_t n, size_t* read_n) override;
+
+    Status sync() override;
+
+    Status close() override;
 };
 
 } // namespace doris

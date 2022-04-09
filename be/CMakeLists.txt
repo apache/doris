@@ -520,6 +520,7 @@ set(DORIS_LINK_LIBS
     Env
     Exec
     Exprs
+    FileSystem
     Gutil
     Olap
     Rowset
@@ -698,6 +699,7 @@ add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/env)
 add_subdirectory(${SRC_DIR}/exec)
 add_subdirectory(${SRC_DIR}/exprs)
+add_subdirectory(${SRC_DIR}/filesystem)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
 add_subdirectory(${SRC_DIR}/gutil)

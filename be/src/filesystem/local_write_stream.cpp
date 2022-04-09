@@ -15,22 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include "filesystem/local_write_stream.h"
 
 #include "common/status.h"
 
 namespace doris {
 
-// IOContext is used for optimizations during IO request
-// It may contains following things:
-//      merge_read, query_read
-//      read or write mode
-//      read write params for example, THdfsParams
-class IOContext {
-public:
-    IOContext() = default;
+Status LocalWriteStream::read(char* to, size_t n, size_t* read_n) {
+    return Status::OK();
+}
 
-    virtual ~IOContext() = default;
-};
+Status LocalWriteStream::sync() {
+    return Status::OK();
+}
+
+Status LocalWriteStream::close() {
+    return Status::OK();
+}
 
 } // namespace doris

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include "common/status.h"
 
 namespace doris {
@@ -26,16 +24,18 @@ namespace doris {
 // The implementations may contains buffers or local caches
 class WriteStream {
 public:
-    virtual WriteStream() = default;
+    WriteStream() = default;
     virtual ~WriteStream() = default;
 
     // Appends multiple slices of data referenced by 'data' to the stream.
     //
     // Does not guarantee durability of 'data'; close() must be called for all
     // outstanding data to reach the disk.
-    virtual Status write(const Slice* data, size_t data_cnt) = 0;
+    virtual Status read(char* to, size_t n, size_t* read_n) = 0;
+
+    virtual Status sync() = 0;
 
     virtual Status close() = 0;
 };
 
-} // end namespace doris
+} // namespace doris

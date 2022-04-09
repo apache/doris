@@ -17,26 +17,22 @@
 
 #pragma once
 
-#include <stdint.h>
-#include <memory>
-
 #include "common/status.h"
-#include "util/slice.h"
 
 namespace doris {
 
 class ReadStream {
 public:
-    virtual ReadStream() = default;
+    ReadStream() = default;
     virtual ~ReadStream() = default;
 
     // Read content to 'slice.data', 'slice.size' is the max size of this buffer.
     // Return ok when read success, and 'bytes_read' is set to size of read content
     // If reach to end of file, the eof is set to true. meanwhile 'bytes_read'
     // is set to zero.
-    virtual Status read(Slice& slice, int64_t* bytes_read, bool* eof) = 0;
+    virtual Status read(char* to, size_t n, size_t* read_n) = 0;
 
-    // Move current position to 
+    // Move current position to.
     virtual Status seek(int64_t position) = 0;
 
     virtual Status tell(int64_t* position) = 0;
