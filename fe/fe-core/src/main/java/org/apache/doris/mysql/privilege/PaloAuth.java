@@ -588,7 +588,7 @@ public class PaloAuth implements Writable {
             // 2. check if user already exist
             if (userPrivTable.doesUserExist(userIdent)) {
                 if (ignoreIfExists) {
-                    LOG.debug("user exists, ignored to create user: {}, is replay: {}", userIdent, isReplay);
+                    LOG.info("user exists, ignored to create user: {}, is replay: {}", userIdent, isReplay);
                     return;
                 }
                 throw new DdlException("User " + userIdent + " already exist");
