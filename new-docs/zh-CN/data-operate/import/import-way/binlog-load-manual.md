@@ -429,9 +429,31 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 
 用户可以通过 STOP/PAUSE/RESUME 三个命令来控制作业的停止，暂停和恢复。可以通过 [STOP SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.html) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.html); 以及 [RESUME SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.html); 
 
-### 案例实战
+## 案例实战
 
 [Apache Doris Binlog Load使用方法及示例](https://doris.apache.org/zh-CN/article/articles/doris-binlog-load.html)
+
+## 相关参数
+
+### CANAL配置
+
+下面配置属于canal端的配置，主要通过修改 conf 目录下的 canal.properties 调整配置值。
+
+- `canal.ip`
+
+  canal server的ip地址
+
+- `canal.port`
+
+  canal server的端口
+
+- `canal.instance.memory.buffer.size`
+
+  canal端的store环形队列的队列长度，必须设为2的幂次方，默认长度16384。此值等于canal端能缓存event数量的最大值，也直接决定了Doris端一个事务内所能容纳的最大event数量。建议将它改的足够大，防止Doris端一个事务内能容纳的数据量上限太小，导致提交事务太过频繁造成数据的版本堆积。
+
+- `canal.instance.memory.buffer.memunit`
+
+  canal端默认一个event所占的空间，默认空间为1024 bytes。此值乘上store环形队列的队列长度等于store的空间最大值，比如store队列长度为16384，则store的空间为16MB。但是，一个event的实际大小并不等于此值，而是由这个event内有多少行数据和每行数据的长度决定的，比如一张只有两列的表的insert event只有30字节，但delete event可能达到数千字节，这是因为通常delete event的行数比insert event多。
 
 ### FE配置
 
@@ -481,3 +503,6 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 
    Doris本身浮点类型的精度与Mysql不一样。可以选择用Decimal类型代替
 
+## 更多帮助
+
+关于 Binlog Load 使用的更多详细语法及最佳实践，请参阅 [Binlog Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BINLOG-LOAD.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BINLOG` 获取更多帮助信息。

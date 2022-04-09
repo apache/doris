@@ -39,15 +39,35 @@ Insert Into 语句的使用方式和 MySQL 等数据库中 Insert Into 语句的
 
 Insert Into 命令需要通过 MySQL 协议提交，创建导入请求会同步返回导入结果。
 
-具体语法参考[INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html)相关文档
+以下是两个Insert Into的使用示例：
 
-Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果的不同，分为以下几种：
+```sql
+INSERT INTO tbl2 WITH LABEL label1 SELECT * FROM tbl3;
+INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
+```
+
+> 注意：当需要使用 `CTE(Common Table Expressions)` 作为 insert 操作中的查询部分时，必须指定 `WITH LABEL` 和 column list 部分。示例：
+>
+> ```sql
+> INSERT INTO tbl1 WITH LABEL label1
+> WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+> SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+> 
+> 
+> INSERT INTO tbl1 (k1)
+> WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+> SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+> ```
+
+具体的参数说明，你可以参照 [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令或者执行`HELP INSERT` 来查看其帮助文档以便更好的使用这种导入方式。
+
+Insert Into 本身就是一个 SQL 命令，其**返回结果**会根据执行结果的不同，分为以下几种：
 
 1. 结果集为空
 
    如果 insert 对应 select 语句的结果集为空，则返回如下：
 
-   ```
+   ```sql
    mysql> insert into tbl1 select * from empty_tbl;
    Query OK, 0 rows affected (0.02 sec)
    ```
@@ -60,7 +80,7 @@ Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果
 
    1. Insert 执行成功并可见：
 
-      ```
+      ```sql
       mysql> insert into tbl1 select * from tbl2;
       Query OK, 4 rows affected (0.38 sec)
       {'label':'insert_8510c568-9eda-4173-9e36-6adc7d35291c', 'status':'visible', 'txnId':'4005'}
@@ -141,7 +161,7 @@ Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果
 
 当执行完一个 insert 操作后，可以在同一 session 连接中执行 `SHOW LAST INSERT`。该命令会返回最近一次insert 操作的结果，如：
 
-```
+```sql
 mysql> show last insert\G
 *************************** 1. row ***************************
     TransactionId: 64067
@@ -250,3 +270,7 @@ bj_store_sales schema:
   ```SHOW LOAD WARNINGS ON "http://ip:port/api/_load_error_log?file=__shard_13/error_log_insert_stmt_d2cac0a0a16d482d-9041c949a4b71605_d2cac0a0a16d482d_9041c949a4b71605";```
 
   错误的原因通常如：源数据列长度超过目的数据列长度、列类型不匹配、分区不匹配、列顺序不匹配等等。
+
+## 更多帮助
+
+关于 **Insert Into** 使用的更多详细语法，请参阅 [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP INSERT` 获取更多帮助信息。
