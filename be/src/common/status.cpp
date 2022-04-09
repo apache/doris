@@ -10,26 +10,32 @@ namespace doris {
 
 Status::Status(const TStatus& s) {
     if (s.status_code != TStatusCode::OK) {
+        // It is ok to set precise code == 1 here, because we do not know the precise code
+        // just from thrift's TStatus
         if (s.error_msgs.empty()) {
             assemble_state(s.status_code, Slice(), 1, Slice());
         } else {
             assemble_state(s.status_code, s.error_msgs[0], 1, Slice());
         }
     } else {
-        set_ok();
+        _length = 0;
     }
 }
 
+// TODO yiguolei, maybe should init PStatus's precise code because OLAPInternal Error may 
+// tranfer precise code during BRPC
 Status::Status(const PStatus& s) {
     TStatusCode::type code = (TStatusCode::type)s.status_code();
     if (code != TStatusCode::OK) {
+        // It is ok to set precise code == 1 here, because we do not know the precise code
+        // just from thrift's TStatus
         if (s.error_msgs_size() == 0) {
             assemble_state(code, Slice(), 1, Slice());
         } else {
             assemble_state(code, s.error_msgs(0), 1, Slice());
         }
     } else {
-        set_ok();
+        _length = 0;
     }
 }
 
@@ -152,7 +158,7 @@ Slice Status::message() const {
         return Slice();
     }
 
-    return Slice(_state + HEADER_LEN, _length);
+    return Slice(_state + HEADER_LEN, _length - HEADER_LEN);
 }
 
 Status Status::clone_and_prepend(const Slice& msg) const {
