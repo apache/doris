@@ -219,54 +219,10 @@ std::string FileResultWriter::_file_format_to_name() {
     }
 }
 std::string FileResultWriter::gen_types() {
-    std::string types = "";
+    std::string types = ""; 
     int num_columns = _output_expr_ctxs.size();
     for (int i = 0; i < num_columns; ++i) {
-        switch (_output_expr_ctxs[i]->root()->type().type) {
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-            types += "TINYINT";
-            break;
-        case TYPE_SMALLINT:
-            types += "SMALLINT";
-            break;
-        case TYPE_INT:
-            types += "INT";
-            break;
-        case TYPE_BIGINT:
-            types += "BIGINT";
-            break;
-        case TYPE_LARGEINT:
-            types += "LARGEINT";
-            break;
-        case TYPE_FLOAT: {
-            types += "FLOAT";
-            break;
-        }
-        case TYPE_DOUBLE: {
-            types += "DOUBLE";
-            break;
-        }
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-            types += "DATE";
-            break;
-        case TYPE_VARCHAR:
-        case TYPE_CHAR:
-        case TYPE_STRING:
-            types += "VARCHAR(*)";
-            break;
-        case TYPE_DECIMALV2: {
-            types += "DECIMAL";
-            break;
-        }
-        case TYPE_OBJECT:
-        case TYPE_HLL:
-            types += "HLL";
-            break;
-        default:
-            types += "";
-        }
+        types += type_to_string(_output_expr_ctxs[i]->root()->type().type);
         if (i < num_columns - 1) {
             types += _file_opts->column_separator;
         }
