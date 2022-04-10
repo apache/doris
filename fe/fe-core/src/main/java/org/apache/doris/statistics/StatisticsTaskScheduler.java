@@ -124,7 +124,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
         int timeout = Integer.parseInt(properties.get("cbo_statistics_task_timeout_sec"));
 
         for (Map.Entry<Long, Future<StatisticsTaskResult>> entry : taskMap.entrySet()) {
-            Exception exception = null;
+            String errorMsg = "";
             long taskId = entry.getKey();
             Future<StatisticsTaskResult> future = entry.getValue();
             try {
@@ -138,12 +138,21 @@ public class StatisticsTaskScheduler extends MasterDaemon {
                     // update column statistics
                     statsManager.alterColumnStatistics(taskResult);
                 }
-            } catch (InterruptedException | ExecutionException | TimeoutException | AnalysisException e) {
-                exception = e;
-                LOG.info("Failed to execute this turn of statistics tasks");
+            } catch (TimeoutException e) {
+                errorMsg = "The statistics task was timeout";
+                LOG.info("{}, jobId: {}, e: {}", errorMsg, jobId, e);
+            } catch (AnalysisException e) {
+                errorMsg = "Failed to update statistics. " + e;
+                LOG.info("{}, jobId: {}, e: {}", errorMsg, jobId, e);
+            } catch (ExecutionException e) {
+                errorMsg = "Failed to execute statistics task";
+                LOG.info("{}, jobId: {}, e: {}", errorMsg, jobId, e);
+            } catch (InterruptedException e) {
+                errorMsg = "The statistics task was interrupted";
+                LOG.info("{}, jobId: {}, e: {}", errorMsg, jobId, e);
             }
             // update the job info
-            jobManager.alterStatisticsJobInfo(jobId, taskId, exception);
+            jobManager.alterStatisticsJobInfo(jobId, taskId, errorMsg);
         }
     }
 }

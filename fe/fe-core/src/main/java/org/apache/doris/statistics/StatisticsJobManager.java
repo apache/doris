@@ -28,6 +28,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
@@ -53,19 +54,19 @@ public class StatisticsJobManager {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     public void readLock() {
-        lock.readLock().lock();
+        this.lock.readLock().lock();
     }
 
     public void readUnlock() {
-        lock.readLock().unlock();
+        this.lock.readLock().unlock();
     }
 
     private void writeLock() {
-        lock.writeLock().lock();
+        this.lock.writeLock().lock();
     }
 
     private void writeUnlock() {
-        lock.writeLock().unlock();
+        this.lock.writeLock().unlock();
     }
 
     public Map<Long, StatisticsJob> getIdToStatisticsJob() {
@@ -138,7 +139,7 @@ public class StatisticsJobManager {
         }
     }
 
-    public void alterStatisticsJobInfo(Long jobId, Long taskId, Exception exception) {
+    public void alterStatisticsJobInfo(Long jobId, Long taskId, String errorMsg)  {
         StatisticsJob statisticsJob = this.idToStatisticsJob.get(jobId);
         if (statisticsJob == null) {
             return;
@@ -148,7 +149,7 @@ public class StatisticsJobManager {
             List<StatisticsTask> tasks = statisticsJob.getTasks();
             for (StatisticsTask task : tasks) {
                 if (taskId == task.getId()) {
-                    if (exception == null) {
+                    if (Strings.isNullOrEmpty(errorMsg)) {
                         int progress = statisticsJob.getProgress() + 1;
                         statisticsJob.setProgress(progress);
                         if (progress == statisticsJob.getTasks().size()) {
@@ -158,9 +159,8 @@ public class StatisticsJobManager {
                         task.setFinishTime(System.currentTimeMillis());
                         task.setTaskState(StatisticsTask.TaskState.FINISHED);
                     } else {
-                        LOG.info("The statistics task(id=" + taskId + ") is failed, cause by: " + exception.getMessage());
+                        statisticsJob.getErrorMsgs().add(errorMsg);
                         task.setTaskState(StatisticsTask.TaskState.FAILED);
-                        statisticsJob.getErrorMsgs().add(exception.getMessage());
                         statisticsJob.setJobState(StatisticsJob.JobState.FAILED);
                     }
                     return;
