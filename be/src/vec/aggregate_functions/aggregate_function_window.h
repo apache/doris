@@ -368,7 +368,6 @@ struct WindowFunctionNthData : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
         int64_t offset = columns[1]->get64(partition_start);
-        this->check_default(columns[2]);
         if (this->has_set_value()) {
             return;
         }
@@ -380,11 +379,7 @@ struct WindowFunctionNthData : Data {
         frame_end = std::min<int64_t>(frame_end, partition_end);
 
         if (this->frame_start + offset > frame_end) {
-            if (this->defualt_is_null()) {
-                this->set_is_null();
-            } else {
-                this->set_value_from_default();
-            }
+            this->set_is_null();
             return;
         }
         this->set_value(columns, this->frame_start + offset - 1);

@@ -2337,7 +2337,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     null, null, null, true));
 
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
-                     "nth_value", Lists.newArrayList(t, Type.BIGINT, t), t, t,
+                     "nth_value", Lists.newArrayList(t, Type.BIGINT), t, t,
                      null, null, null, null, null, true));
 
             // lead() and lag() the default offset and the default value should be
