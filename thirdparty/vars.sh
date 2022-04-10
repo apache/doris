@@ -377,6 +377,12 @@ LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
 LIBBACKTRACE_SOURCE=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e
 LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
 
+# llvm
+LLVM_DOWNLOAD="https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.0/llvm-14.0.0.src.tar.xz"
+LLVM_NAME="llvm-14.0.0.src.tar.xz"
+LLVM_SOURCE="llvm-14.0.0.src"
+LLVM_MD5SUM="91ad90cc054593ce95230f4b2118c9d1"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
 OPENSSL
@@ -430,4 +436,5 @@ BENCHMARK
 BREAKPAD
 XSIMD
 SIMDJSON
-LIBBACKTRACE"
+LIBBACKTRACE
+LLVM"
