@@ -36,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * For unified management of statistics job,
@@ -49,6 +50,24 @@ public class StatisticsJobManager {
      */
     private final Map<Long, StatisticsJob> idToStatisticsJob = Maps.newConcurrentMap();
 
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+
     public Map<Long, StatisticsJob> getIdToStatisticsJob() {
         return this.idToStatisticsJob;
     }
@@ -56,12 +75,15 @@ public class StatisticsJobManager {
     public void createStatisticsJob(AnalyzeStmt analyzeStmt) throws UserException {
         // step1: init statistics job by analyzeStmt
         StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
-
-        // step2: check restrict
-        this.checkRestrict(analyzeStmt.getDb(), statisticsJob.getTblIds());
-
-        // step3: create it
-        this.createStatisticsJob(statisticsJob);
+        writeLock();
+        try {
+            // step2: check restrict
+            this.checkRestrict(analyzeStmt.getDb(), statisticsJob.getTblIds());
+            // step3: create it
+            this.createStatisticsJob(statisticsJob);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void createStatisticsJob(StatisticsJob statisticsJob) throws DdlException {
@@ -82,12 +104,12 @@ public class StatisticsJobManager {
      * - Rule2: The unfinished statistics job could not more then Config.max_statistics_job_num
      * - Rule3: The job for external table is not supported
      */
-    private synchronized void checkRestrict(Database db, Set<Long> tableIds) throws AnalysisException {
+    private void checkRestrict(Database db, Set<Long> tableIds) throws AnalysisException {
         // check table type
         for (Long tableId : tableIds) {
             Table table = db.getTableOrAnalysisException(tableId);
             if (table.getType() != Table.TableType.OLAP) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, db.getFullName(),table.getName(), "ANALYZE");
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, db.getFullName(), table.getName(), "ANALYZE");
             }
         }
 
@@ -121,26 +143,31 @@ public class StatisticsJobManager {
         if (statisticsJob == null) {
             return;
         }
-
-        List<StatisticsTask> tasks = statisticsJob.getTasks();
-        for (StatisticsTask task : tasks) {
-            if (taskId == task.getId()) {
-                if (exception == null) {
-                    int progress = statisticsJob.getProgress() + 1;
-                    statisticsJob.setProgress(progress);
-                    if (progress == statisticsJob.getTasks().size()) {
-                        statisticsJob.setFinishTime(System.currentTimeMillis());
-                        statisticsJob.setJobState(StatisticsJob.JobState.FINISHED);
+        writeLock();
+        try {
+            List<StatisticsTask> tasks = statisticsJob.getTasks();
+            for (StatisticsTask task : tasks) {
+                if (taskId == task.getId()) {
+                    if (exception == null) {
+                        int progress = statisticsJob.getProgress() + 1;
+                        statisticsJob.setProgress(progress);
+                        if (progress == statisticsJob.getTasks().size()) {
+                            statisticsJob.setFinishTime(System.currentTimeMillis());
+                            statisticsJob.setJobState(StatisticsJob.JobState.FINISHED);
+                        }
+                        task.setFinishTime(System.currentTimeMillis());
+                        task.setTaskState(StatisticsTask.TaskState.FINISHED);
+                    } else {
+                        LOG.info("The statistics task(id=" + taskId + ") is failed, cause by: " + exception.getMessage());
+                        task.setTaskState(StatisticsTask.TaskState.FAILED);
+                        statisticsJob.getErrorMsgs().add(exception.getMessage());
+                        statisticsJob.setJobState(StatisticsJob.JobState.FAILED);
                     }
-                    task.setFinishTime(System.currentTimeMillis());
-                    task.setTaskState(StatisticsTask.TaskState.FINISHED);
-                } else {
-                    LOG.info("The statistics task(id=" + taskId + ") is failed, cause by: " + exception.getMessage());
-                    task.setTaskState(StatisticsTask.TaskState.FAILED);
-                    statisticsJob.setJobState(StatisticsJob.JobState.FAILED);
+                    return;
                 }
-                return;
             }
+        } finally {
+            writeUnlock();
         }
     }
 }

@@ -69,6 +69,7 @@ public class StatisticsJob {
     private List<StatisticsTask> tasks = Lists.newArrayList();
 
     private JobState jobState = JobState.PENDING;
+    private final List<String> errorMsgs  = Lists.newArrayList();
 
     private final long createTime = System.currentTimeMillis();
     private long startTime = -1L;
@@ -115,6 +116,10 @@ public class StatisticsJob {
 
     public void setTasks(List<StatisticsTask> tasks) {
         this.tasks = tasks;
+    }
+
+    public List<String> getErrorMsgs() {
+        return errorMsgs;
     }
 
     public JobState getJobState() {
