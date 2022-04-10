@@ -84,7 +84,7 @@ public:
         MULTI_THREADS       // 1 or more threads allowed in the pool
     };
 
-    inline const std::string TYPE_STRING(TaskWorkerType type) {
+    const std::string TYPE_STRING(TaskWorkerType type) {
         switch (type) {
         case CREATE_TABLE:
             return "CREATE_TABLE";
@@ -139,7 +139,7 @@ public:
         }
     }
 
-    inline const std::string TYPE_STRING(ReportType type) {
+    const std::string TYPE_STRING(ReportType type) {
         switch (type) {
         case TASK:
             return "TASK";

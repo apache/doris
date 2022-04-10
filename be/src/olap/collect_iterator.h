@@ -171,8 +171,8 @@ private:
         ~Level1Iterator();
 
     private:
-        inline OLAPStatus _merge_next(const RowCursor** row, bool* delete_flag);
-        inline OLAPStatus _normal_next(const RowCursor** row, bool* delete_flag);
+        OLAPStatus _merge_next(const RowCursor** row, bool* delete_flag);
+        OLAPStatus _normal_next(const RowCursor** row, bool* delete_flag);
 
         // Each LevelIterator corresponds to a rowset reader,
         // it will be cleared after '_heap' has been initilized when '_merge == true'.

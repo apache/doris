@@ -162,30 +162,30 @@ struct TypeDescriptor {
 
     void to_protobuf(PTypeDesc* ptype) const;
 
-    inline bool is_string_type() const {
+    bool is_string_type() const {
         return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL ||
                type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
     }
 
-    inline bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
+    bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
 
-    inline bool is_decimal_type() const { return (type == TYPE_DECIMALV2); }
+    bool is_decimal_type() const { return (type == TYPE_DECIMALV2); }
 
-    inline bool is_datetime_type() const { return type == TYPE_DATETIME; }
+    bool is_datetime_type() const { return type == TYPE_DATETIME; }
 
-    inline bool is_var_len_string_type() const {
+    bool is_var_len_string_type() const {
         return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR ||
                type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
     }
 
-    inline bool is_complex_type() const {
+    bool is_complex_type() const {
         return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
     }
 
-    inline bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
+    bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
 
     /// Returns the byte size of this type.  Returns 0 for variable length types.
-    inline int get_byte_size() const {
+    int get_byte_size() const {
         switch (type) {
         case TYPE_ARRAY:
         case TYPE_MAP:
@@ -226,7 +226,7 @@ struct TypeDescriptor {
     }
 
     /// Returns the size of a slot for this type.
-    inline int get_slot_size() const {
+    int get_slot_size() const {
         switch (type) {
         case TYPE_CHAR:
         case TYPE_VARCHAR:

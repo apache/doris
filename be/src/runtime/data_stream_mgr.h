@@ -129,7 +129,7 @@ private:
     // Remove receiver block for fragment_instance_id/node_id from the map.
     Status deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 
-    inline uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
+    uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 };
 
 } // namespace doris

@@ -34,14 +34,14 @@ public:
 
     ~BufferBuilder() {}
 
-    inline void append(const void* buffer, int len) {
+    void append(const void* buffer, int len) {
         DCHECK_LE(_size + len, _capacity);
         memcpy(_buffer + _size, buffer, len);
         _size += len;
     }
 
     template <typename T>
-    inline void append(const T& v) {
+    void append(const T& v) {
         append(&v, sizeof(T));
     }
 

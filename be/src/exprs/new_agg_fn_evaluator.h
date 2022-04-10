@@ -231,8 +231,8 @@ private:
     NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, bool is_clone);
 
     /// Return the intermediate type of the aggregate function.
-    inline const SlotDescriptor& intermediate_slot_desc() const;
-    inline const TypeDescriptor& intermediate_type() const;
+    const SlotDescriptor& intermediate_slot_desc() const;
+    const TypeDescriptor& intermediate_type() const;
 
     /// The interpreted path for the UDA's Update() function. It sets up the arguments to
     /// call 'fn' is either the 'update_fn_' or 'merge_fn_' of agg_fn_, depending on whether
@@ -245,7 +245,7 @@ private:
     void Update(const TupleRow* row, Tuple* dst, void* fn);
 
     /// Writes the result in src into dst pointed to by dst_slot_desc
-    inline void SetDstSlot(const doris_udf::AnyVal* src, const SlotDescriptor& dst_slot_desc,
+    void SetDstSlot(const doris_udf::AnyVal* src, const SlotDescriptor& dst_slot_desc,
                            Tuple* dst);
 
     /// Sets up the arguments to call 'fn'. This converts from the agg-expr signature,

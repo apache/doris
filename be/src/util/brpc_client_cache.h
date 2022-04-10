@@ -42,28 +42,28 @@ public:
     BrpcClientCache();
     virtual ~BrpcClientCache();
 
-    inline std::shared_ptr<T> get_client(const butil::EndPoint& endpoint) {
+    std::shared_ptr<T> get_client(const butil::EndPoint& endpoint) {
         return get_client(butil::endpoint2str(endpoint).c_str());
     }
 
 #ifdef BE_TEST
-    virtual inline std::shared_ptr<T> get_client(const TNetworkAddress& taddr) {
+    virtual std::shared_ptr<T> get_client(const TNetworkAddress& taddr) {
         std::string host_port = fmt::format("{}:{}", taddr.hostname, taddr.port);
         return get_client(host_port);
     }
 #else
-    inline std::shared_ptr<T> get_client(const TNetworkAddress& taddr) {
+    std::shared_ptr<T> get_client(const TNetworkAddress& taddr) {
         std::string host_port = fmt::format("{}:{}", taddr.hostname, taddr.port);
         return get_client(host_port);
     }
 #endif
 
-    inline std::shared_ptr<T> get_client(const std::string& host, int port) {
+    std::shared_ptr<T> get_client(const std::string& host, int port) {
         std::string host_port = fmt::format("{}:{}", host, port);
         return get_client(host_port);
     }
 
-    inline std::shared_ptr<T> get_client(const std::string& host_port) {
+    std::shared_ptr<T> get_client(const std::string& host_port) {
         std::shared_ptr<T> stub_ptr;
         auto get_value = [&stub_ptr](typename StubMap<T>::mapped_type& v) { stub_ptr = v; };
         if(LIKELY(_stub_map.if_contains(host_port, get_value))) {
@@ -94,36 +94,36 @@ public:
         return stub;
     }
 
-    inline size_t size() { return _stub_map.size(); }
+    size_t size() { return _stub_map.size(); }
 
-    inline void clear() { _stub_map.clear(); }
+    void clear() { _stub_map.clear(); }
 
-    inline size_t erase(const std::string& host_port) { return _stub_map.erase(host_port); }
+    size_t erase(const std::string& host_port) { return _stub_map.erase(host_port); }
 
     size_t erase(const std::string& host, int port) {
         std::string host_port = fmt::format("{}:{}", host, port);
         return erase(host_port);
     }
 
-    inline size_t erase(const butil::EndPoint& endpoint) {
+    size_t erase(const butil::EndPoint& endpoint) {
         return _stub_map.erase(butil::endpoint2str(endpoint).c_str());
     }
 
-    inline bool exist(const std::string& host_port) {
+    bool exist(const std::string& host_port) {
         return _stub_map.find(host_port) != _stub_map.end();
     }
 
-    inline void get_all(std::vector<std::string>* endpoints) {
+    void get_all(std::vector<std::string>* endpoints) {
         for (auto it = _stub_map.begin(); it != _stub_map.end(); ++it) {
             endpoints->emplace_back(it->first.c_str());
         }
     }
 
-    inline bool available(std::shared_ptr<T> stub, const butil::EndPoint& endpoint) {
+    bool available(std::shared_ptr<T> stub, const butil::EndPoint& endpoint) {
         return available(stub, butil::endpoint2str(endpoint).c_str());
     }
 
-    inline bool available(std::shared_ptr<T> stub, const std::string& host_port) {
+    bool available(std::shared_ptr<T> stub, const std::string& host_port) {
         if (!stub) {
             LOG(WARNING) << "stub is null to: " << host_port;
             return false;
@@ -148,7 +148,7 @@ public:
         }
     }
 
-    inline bool available(std::shared_ptr<T> stub, const std::string& host, int port) {
+    bool available(std::shared_ptr<T> stub, const std::string& host, int port) {
         std::string host_port = fmt::format("{}:{}", host, port);
         return available(stub, host_port);
     }

@@ -84,29 +84,29 @@ public:
 
 class ScalarTypeInfo : public TypeInfo {
 public:
-    inline bool equal(const void* left, const void* right) const override {
+    bool equal(const void* left, const void* right) const override {
         return _equal(left, right);
     }
 
-    inline int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
+    int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
-    inline void shallow_copy(void* dest, const void* src) const override {
+    void shallow_copy(void* dest, const void* src) const override {
         _shallow_copy(dest, src);
     }
 
-    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
+    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
         _deep_copy(dest, src, mem_pool);
     }
 
     // See `copy_row_in_memtable()` in olap/row.h, will be removed in the future.
     // It is same with `deep_copy()` for all type except for HLL and OBJECT type.
-    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
+    void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
         _copy_object(dest, src, mem_pool);
     }
 
-    inline void direct_copy(void* dest, const void* src) const override { _direct_copy(dest, src); }
+    void direct_copy(void* dest, const void* src) const override { _direct_copy(dest, src); }
 
-    inline void direct_copy_may_cut(void* dest, const void* src) const override {
+    void direct_copy_may_cut(void* dest, const void* src) const override {
         _direct_copy_may_cut(dest, src);
     }
 
@@ -122,15 +122,15 @@ public:
 
     std::string to_string(const void* src) const override { return _to_string(src); }
 
-    inline void set_to_max(void* buf) const override { _set_to_max(buf); }
-    inline void set_to_min(void* buf) const override { _set_to_min(buf); }
+    void set_to_max(void* buf) const override { _set_to_max(buf); }
+    void set_to_min(void* buf) const override { _set_to_min(buf); }
 
-    inline uint32_t hash_code(const void* data, uint32_t seed) const override {
+    uint32_t hash_code(const void* data, uint32_t seed) const override {
         return _hash_code(data, seed);
     }
-    inline const size_t size() const override { return _size; }
+    const size_t size() const override { return _size; }
 
-    inline FieldType type() const override { return _field_type; }
+    FieldType type() const override { return _field_type; }
 
     template <typename TypeTraitsClass>
     ScalarTypeInfo(TypeTraitsClass t)
@@ -181,7 +181,7 @@ public:
     explicit ArrayTypeInfo(const TypeInfo* item_type_info)
             : _item_type_info(item_type_info), _item_size(item_type_info->size()) {}
     ~ArrayTypeInfo() = default;
-    inline bool equal(const void* left, const void* right) const override {
+    bool equal(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const CollectionValue*>(left);
         auto r_value = reinterpret_cast<const CollectionValue*>(right);
         if (l_value->length() != r_value->length()) {
@@ -216,7 +216,7 @@ public:
         return true;
     }
 
-    inline int cmp(const void* left, const void* right) const override {
+    int cmp(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const CollectionValue*>(left);
         auto r_value = reinterpret_cast<const CollectionValue*>(right);
         size_t l_length = l_value->length();
@@ -261,13 +261,13 @@ public:
         }
     }
 
-    inline void shallow_copy(void* dest, const void* src) const override {
+    void shallow_copy(void* dest, const void* src) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
         dest_value->shallow_copy(src_value);
     }
 
-    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
+    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
@@ -300,18 +300,18 @@ public:
         }
     }
 
-    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
+    void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
         deep_copy(dest, src, mem_pool);
     }
 
-    inline void direct_copy(void* dest, const void* src) const override {
+    void direct_copy(void* dest, const void* src) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         // NOTICE: The address pointed by null_signs of the dest_value can NOT be modified here.
         auto base = reinterpret_cast<uint8_t*>(dest_value->mutable_null_signs());
         direct_copy(&base, dest, src);
     }
 
-    inline void direct_copy(uint8_t** base, void* dest, const void* src) const {
+    void direct_copy(uint8_t** base, void* dest, const void* src) const {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
@@ -351,7 +351,7 @@ public:
         }
     }
 
-    inline void direct_copy_may_cut(void* dest, const void* src) const override {
+    void direct_copy_may_cut(void* dest, const void* src) const override {
         direct_copy(dest, src);
     }
 
@@ -380,15 +380,15 @@ public:
         return result;
     }
 
-    inline void set_to_max(void* buf) const override {
+    void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
     }
 
-    inline void set_to_min(void* buf) const override {
+    void set_to_min(void* buf) const override {
         DCHECK(false) << "set_to_min of list is not implemented.";
     }
 
-    inline uint32_t hash_code(const void* data, uint32_t seed) const override {
+    uint32_t hash_code(const void* data, uint32_t seed) const override {
         auto value = reinterpret_cast<const CollectionValue*>(data);
         auto len = value->length();
         uint32_t result = HashUtil::hash(&len, sizeof(len), seed);
@@ -403,11 +403,11 @@ public:
         return result;
     }
 
-    inline const size_t size() const override { return sizeof(CollectionValue); }
+    const size_t size() const override { return sizeof(CollectionValue); }
 
-    inline FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
+    FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 
-    inline const TypeInfo* item_type_info() const { return _item_type_info; }
+    const TypeInfo* item_type_info() const { return _item_type_info; }
 
 private:
     const TypeInfo* _item_type_info;
