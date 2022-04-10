@@ -420,7 +420,6 @@ public class MasterImpl {
     private void checkReplica(TTabletInfo tTabletInfo, TabletMeta tabletMeta)
             throws MetaNotFoundException {
         long tabletId = tTabletInfo.getTabletId();
-        int schemaHash = tTabletInfo.getSchemaHash();
         // during finishing stage, index's schema hash switched, when old schema hash finished
         // current index hash != old schema hash and alter job's new schema hash != old schema hash
         // the check replica will failed
@@ -429,11 +428,6 @@ public class MasterImpl {
         if (tabletMeta == null || tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
             // rollup may be dropped
             throw new MetaNotFoundException("tablet " + tabletId + " does not exist");
-        }
-        if (!tabletMeta.containsSchemaHash(schemaHash)) {
-            throw new MetaNotFoundException("tablet[" + tabletId
-                    + "] schemaHash is not equal to index's switchSchemaHash. "
-                    + tabletMeta.toString()+ " vs. " + schemaHash);
         }
     }
     
@@ -654,17 +648,6 @@ public class MasterImpl {
                 return null;
             }
             return null;
-        }
-
-        int currentSchemaHash = olapTable.getSchemaHashByIndexId(pushIndexId);
-        if (schemaHash != currentSchemaHash) {
-            if (pushState == PartitionState.SCHEMA_CHANGE) {
-                // Alter job is always null, so that not deal with it
-            } else {
-                // this should not happen. observe(cmy)
-                throw new MetaNotFoundException("Diff tablet[" + tabletId + "] schemaHash. index[" + pushIndexId + "]: "
-                        + currentSchemaHash + " vs. " + schemaHash);
-            }
         }
 
         MaterializedIndex materializedIndex = partition.getIndex(pushIndexId);
