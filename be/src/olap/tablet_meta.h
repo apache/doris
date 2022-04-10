@@ -108,36 +108,36 @@ public:
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
     uint32_t mem_size() const;
 
-    inline TabletTypePB tablet_type() const { return _tablet_type; }
-    inline TabletUid tablet_uid() const;
-    inline int64_t table_id() const;
-    inline int64_t partition_id() const;
-    inline int64_t tablet_id() const;
-    inline int32_t schema_hash() const;
-    inline int16_t shard_id() const;
-    inline void set_shard_id(int32_t shard_id);
-    inline int64_t creation_time() const;
-    inline void set_creation_time(int64_t creation_time);
-    inline int64_t cumulative_layer_point() const;
-    inline void set_cumulative_layer_point(int64_t new_point);
+    TabletTypePB tablet_type() const { return _tablet_type; }
+    TabletUid tablet_uid() const;
+    int64_t table_id() const;
+    int64_t partition_id() const;
+    int64_t tablet_id() const;
+     int32_t schema_hash() const;
+     int16_t shard_id() const;
+     void set_shard_id(int32_t shard_id);
+     int64_t creation_time() const;
+     void set_creation_time(int64_t creation_time);
+     int64_t cumulative_layer_point() const;
+     void set_cumulative_layer_point(int64_t new_point);
 
-    inline size_t num_rows() const;
+    size_t num_rows() const;
     // disk space occupied by tablet
-    inline size_t tablet_footprint() const;
-    inline size_t version_count() const;
+    size_t tablet_footprint() const;
+    size_t version_count() const;
     Version max_version() const;
 
-    inline TabletState tablet_state() const;
-    inline void set_tablet_state(TabletState state);
+    TabletState tablet_state() const;
+    void set_tablet_state(TabletState state);
 
-    inline bool in_restore_mode() const;
-    inline void set_in_restore_mode(bool in_restore_mode);
+    bool in_restore_mode() const;
+    void set_in_restore_mode(bool in_restore_mode);
 
-    inline const TabletSchema& tablet_schema() const;
+    const TabletSchema& tablet_schema() const;
 
-    inline TabletSchema* mutable_tablet_schema();
+    TabletSchema* mutable_tablet_schema();
 
-    inline const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
+    const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
     OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
@@ -148,7 +148,7 @@ public:
                          bool same_version = false);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
 
-    inline const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
+    const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
@@ -171,7 +171,7 @@ public:
     // used for after tablet cloned to clear stale rowset
     void clear_stale_rowset() { _stale_rs_metas.clear(); }
 
-    inline bool all_beta() const;
+    bool all_beta() const;
 
     std::string remote_storage_name() const {
         return _remote_storage_name;

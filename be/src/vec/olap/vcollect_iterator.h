@@ -157,11 +157,11 @@ private:
         ~Level1Iterator();
 
     private:
-        inline OLAPStatus _merge_next(IteratorRowRef* ref);
+        OLAPStatus _merge_next(IteratorRowRef* ref);
 
-        inline OLAPStatus _normal_next(IteratorRowRef* ref);
+        OLAPStatus _normal_next(IteratorRowRef* ref);
 
-        inline OLAPStatus _normal_next(Block* block);
+        OLAPStatus _normal_next(Block* block);
 
         // Each LevelIterator corresponds to a rowset reader,
         // it will be cleared after '_heap' has been initialized when '_merge == true'.
