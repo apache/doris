@@ -409,30 +409,30 @@ public:
 
     /// Templated equality functions. These assume the input values are not nullptr.
     template <typename T>
-    static inline bool equals(const PrimitiveType& type, const T& x, const T& y) {
+    static bool equals(const PrimitiveType& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
     /// Templated equality functions. These assume the input values are not nullptr.
     template <typename T>
-    static inline bool equals(const T& x, const T& y) {
+    static bool equals(const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
     template <typename T>
-    static inline bool equals(const TypeDescriptor& type, const T& x, const T& y) {
+    static bool equals(const TypeDescriptor& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
     template <typename T>
-    static inline bool equals(const FunctionContext::TypeDesc& type, const T& x, const T& y) {
+    static bool equals(const FunctionContext::TypeDesc& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
 private:
     /// Implementations of Equals().
     template <typename T>
-    static inline bool equals_internal(const T& x, const T& y);
+    static bool equals_internal(const T& x, const T& y);
 };
 
 template <typename T>

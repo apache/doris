@@ -1368,7 +1368,7 @@ public:
 
     static void destroy(const StringVal& dst) { delete (MultiDistinctStringCountState*)dst.ptr; }
 
-    inline void update(StringValue* sv) { _set.insert(sv); }
+    void update(StringValue* sv) { _set.insert(sv); }
 
     StringVal serialize(FunctionContext* ctx) {
         // calculate total serialize buffer length

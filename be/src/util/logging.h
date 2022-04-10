@@ -122,12 +122,12 @@ public:
         return *this;
     }
 
-    inline TaggableLogger& tag(const std::string& key, const std::string& value) {
+    TaggableLogger& tag(const std::string& key, const std::string& value) {
         _tags = new Tags(key, value, _tags);
         return *this;
     }
 
-    inline TaggableLogger& tag(const std::string& key, std::string&& value) {
+    TaggableLogger& tag(const std::string& key, std::string&& value) {
         _tags = new Tags(key, std::move(value), _tags);
         return *this;
     }

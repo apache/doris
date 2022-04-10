@@ -64,14 +64,14 @@ public:
 
     // 从数据流中读取一个字节,内部指针后移
     // 如果数据流结束, 返回OLAP_ERR_COLUMN_STREAM_EOF
-    inline OLAPStatus read(char* byte);
+    OLAPStatus read(char* byte);
 
     // 从数据流读入一段数据
     // Input:
     //     buffer - 存储读入的数据
     //     buf_size - 输入时给出buffer的大小,返回时给出实际读取的字节数
     // 如果数据流结束, 返回OLAP_ERR_COLUMN_STREAM_EOF
-    inline OLAPStatus read(char* buffer, uint64_t* buf_size);
+    OLAPStatus read(char* buffer, uint64_t* buf_size);
 
     // 设置读取的位置
     OLAPStatus seek(PositionProvider* position);

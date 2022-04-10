@@ -67,14 +67,14 @@ public:
     // 目前只考虑定长，因此在函数可以分配内存资源。
     void init(const RowBlockInfo& block_info);
 
-    inline void get_row(uint32_t row_index, RowCursor* cursor) const {
+    void get_row(uint32_t row_index, RowCursor* cursor) const {
         cursor->attach(_mem_buf + row_index * _mem_row_bytes);
     }
 
     // TODO(yingchun): why not use _pos directly?
 
     template <typename RowType>
-    inline void set_row(uint32_t row_index, const RowType& row) const {
+    void set_row(uint32_t row_index, const RowType& row) const {
         memcpy(_mem_buf + row_index * _mem_row_bytes, row.row_ptr(), _mem_row_bytes);
     }
 
@@ -88,7 +88,7 @@ public:
 
     // Return field pointer, this pointer point to the nullbyte before the field
     // layout is nullbyte|Field
-    inline char* field_ptr(size_t row, size_t col) const {
+    char* field_ptr(size_t row, size_t col) const {
         return _mem_buf + _mem_row_bytes * row + _field_offset_in_memory[col];
     }
 

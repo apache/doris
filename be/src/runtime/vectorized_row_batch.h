@@ -85,7 +85,7 @@ public:
         _size = size;
     }
 
-    inline int num_rows() { return _size; }
+    int num_rows() { return _size; }
 
     bool selected_in_use() const { return _selected_in_use; }
 
@@ -93,7 +93,7 @@ public:
 
     uint16_t* selected() const { return _selected; }
 
-    inline void clear() {
+    void clear() {
         _size = 0;
         _selected_in_use = false;
         _limit = _capacity;

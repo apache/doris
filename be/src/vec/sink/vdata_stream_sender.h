@@ -233,7 +233,7 @@ public:
     void ch_roll_pb_block();
 
 private:
-    inline Status _wait_last_brpc() {
+    Status _wait_last_brpc() {
         if (_closure == nullptr) return Status::OK();
         auto cntl = &_closure->cntl;
         auto call_id = _closure->cntl.call_id();

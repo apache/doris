@@ -52,7 +52,7 @@ public:
     void reset();
 
     template <typename CellType>
-    inline void add(const CellType& cell) {
+    void add(const CellType& cell) {
         if (_ignored) {
             return;
         }

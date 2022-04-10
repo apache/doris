@@ -33,9 +33,9 @@ class RunLengthIntegerReader {
 public:
     explicit RunLengthIntegerReader(ReadOnlyFileStream* input, bool is_singed);
     ~RunLengthIntegerReader() {}
-    inline bool has_next() const { return _used != _num_literals || !_input->eof(); }
+    bool has_next() const { return _used != _num_literals || !_input->eof(); }
     // 获取下一条数据, 如果没有更多的数据了, 返回OLAP_ERR_DATA_EOF
-    inline OLAPStatus next(int64_t* value) {
+    OLAPStatus next(int64_t* value) {
         OLAPStatus res = OLAP_SUCCESS;
 
         if (OLAP_UNLIKELY(_used == _num_literals)) {

@@ -156,7 +156,7 @@ public:
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) { return rowset_meta()->to_rowset_pb(rs_meta); }
     const RowsetMetaPB& get_rowset_pb() { return rowset_meta()->get_rowset_pb(); }
-    inline KeysType keys_type() { return _schema->keys_type(); }
+    KeysType keys_type() { return _schema->keys_type(); }
 
     // remove all files in this rowset
     // TODO should we rename the method to remove_files() to be more specific?

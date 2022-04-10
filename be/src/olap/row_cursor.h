@@ -66,7 +66,7 @@ public:
     RowCursorCell cell(uint32_t cid) const { return RowCursorCell(nullable_cell_ptr(cid)); }
 
     // RowCursor received a continuous buf
-    inline void attach(char* buf) { _fixed_buf = buf; }
+    void attach(char* buf) { _fixed_buf = buf; }
 
     // Output the index of a column to buf
     void write_index_by_index(size_t index, char* index_ptr) const {
@@ -106,7 +106,7 @@ public:
 
     const size_t get_index_size(size_t index) const { return column_schema(index)->index_size(); }
 
-    inline bool is_delete() const {
+    bool is_delete() const {
         auto sign_idx = _schema->delete_sign_idx();
         if (sign_idx < 0) {
             return false;
@@ -118,11 +118,11 @@ public:
     OLAPStatus build_max_key();
     OLAPStatus build_min_key();
 
-    inline char* get_buf() const { return _fixed_buf; }
+    char* get_buf() const { return _fixed_buf; }
 
     // this two functions is used in unit test
-    inline size_t get_fixed_len() const { return _fixed_len; }
-    inline size_t get_variable_len() const { return _variable_len; }
+    size_t get_fixed_len() const { return _fixed_len; }
+    size_t get_variable_len() const { return _variable_len; }
 
     // Get column nullable pointer with column id
     // TODO(zc): make this return const char*
@@ -131,11 +131,11 @@ public:
 
     bool is_null(size_t index) const { return *reinterpret_cast<bool*>(nullable_cell_ptr(index)); }
 
-    inline void set_null(size_t index) const {
+    void set_null(size_t index) const {
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true;
     }
 
-    inline void set_not_null(size_t index) const {
+    void set_not_null(size_t index) const {
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = false;
     }
 
@@ -153,7 +153,7 @@ private:
                      const std::vector<uint32_t>& columns);
     // common init function
     OLAPStatus _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
-    inline OLAPStatus _alloc_buf();
+    OLAPStatus _alloc_buf();
 
     OLAPStatus _init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys);
 

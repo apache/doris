@@ -129,7 +129,7 @@ public:
 
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
-    inline bool is_empty() const { return _num_rows == 0; }
+    bool is_empty() const { return _num_rows == 0; }
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,

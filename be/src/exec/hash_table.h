@@ -194,7 +194,7 @@ public:
     // just the build row addresses.
     std::string debug_string(bool skip_empty, const RowDescriptor* build_desc);
 
-    inline std::pair<int64_t, int64_t> minmax_node();
+    std::pair<int64_t, int64_t> minmax_node();
 
     // Load factor that will trigger growing the hash table on insert.  This is
     // defined as the number of non-empty buckets / total_buckets

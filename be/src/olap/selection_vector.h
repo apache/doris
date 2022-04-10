@@ -44,7 +44,7 @@ public:
 
     // Return true if any rows are selected, or false
     // This is equivalent to (count_selected() > 0), but faster.
-    inline bool any_selected() const;
+    bool any_selected() const;
 
     bool is_row_selected(size_t row) const {
         DCHECK_LT(row, _n_rows);

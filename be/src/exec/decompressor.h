@@ -157,30 +157,30 @@ private:
     enum LzoChecksum { CHECK_NONE, CHECK_CRC32, CHECK_ADLER };
 
 private:
-    inline uint8_t* get_uint8(uint8_t* ptr, uint8_t* value) {
+    uint8_t* get_uint8(uint8_t* ptr, uint8_t* value) {
         *value = *ptr;
         return ptr + sizeof(uint8_t);
     }
 
-    inline uint8_t* get_uint16(uint8_t* ptr, uint16_t* value) {
+    uint8_t* get_uint16(uint8_t* ptr, uint16_t* value) {
         *value = *ptr << 8 | *(ptr + 1);
         return ptr + sizeof(uint16_t);
     }
 
-    inline uint8_t* get_uint32(uint8_t* ptr, uint32_t* value) {
+    uint8_t* get_uint32(uint8_t* ptr, uint32_t* value) {
         *value = (*ptr << 24) | (*(ptr + 1) << 16) | (*(ptr + 2) << 8) | *(ptr + 3);
         return ptr + sizeof(uint32_t);
     }
 
-    inline LzoChecksum header_type(int flags) {
+    LzoChecksum header_type(int flags) {
         return (flags & F_H_CRC32) ? CHECK_CRC32 : CHECK_ADLER;
     }
 
-    inline LzoChecksum input_type(int flags) {
+    LzoChecksum input_type(int flags) {
         return (flags & F_CRC32_C) ? CHECK_CRC32 : (flags & F_ADLER32_C) ? CHECK_ADLER : CHECK_NONE;
     }
 
-    inline LzoChecksum output_type(int flags) {
+    LzoChecksum output_type(int flags) {
         return (flags & F_CRC32_D) ? CHECK_CRC32 : (flags & F_ADLER32_D) ? CHECK_ADLER : CHECK_NONE;
     }
 

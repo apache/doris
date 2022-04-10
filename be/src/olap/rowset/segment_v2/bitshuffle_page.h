@@ -331,7 +331,7 @@ public:
     Status next_batch(size_t* n, ColumnBlockView* dst) override { return next_batch<true>(n, dst); }
 
     template <bool forward_index>
-    inline Status next_batch(size_t* n, ColumnBlockView* dst) {
+    Status next_batch(size_t* n, ColumnBlockView* dst) {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;

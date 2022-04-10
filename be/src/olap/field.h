@@ -59,31 +59,31 @@ public:
 
     virtual ~Field() = default;
 
-    inline size_t size() const { return _type_info->size(); }
-    inline int32_t length() const { return _length; }
-    inline size_t field_size() const { return size() + 1; }
-    inline size_t index_size() const { return _index_size; }
-    inline const std::string& name() const { return _name; }
+    size_t size() const { return _type_info->size(); }
+    int32_t length() const { return _length; }
+    size_t field_size() const { return size() + 1; }
+    size_t index_size() const { return _index_size; }
+    const std::string& name() const { return _name; }
 
-    virtual inline void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
-    virtual inline void set_to_zone_map_max(char* buf) const { set_to_max(buf); }
+    virtual void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
+    virtual void set_to_zone_map_max(char* buf) const { set_to_max(buf); }
 
-    virtual inline void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
-    virtual inline void set_to_zone_map_min(char* buf) const { set_to_min(buf); }
+    virtual void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
+    virtual void set_to_zone_map_min(char* buf) const { set_to_min(buf); }
 
     void set_long_text_buf(char** buf) { _long_text_buf = buf; }
 
     // This function allocate memory from pool, other than allocate_memory
     // reserve memory from continuous memory.
-    virtual inline char* allocate_value(MemPool* pool) const {
+    virtual char* allocate_value(MemPool* pool) const {
         return (char*)pool->allocate(_type_info->size());
     }
 
-    virtual inline char* allocate_zone_map_value(MemPool* pool) const {
+    virtual char* allocate_zone_map_value(MemPool* pool) const {
         return allocate_value(pool);
     }
 
-    inline void agg_update(RowCursorCell* dest, const RowCursorCell& src,
+    void agg_update(RowCursorCell* dest, const RowCursorCell& src,
                            MemPool* mem_pool = nullptr) const {
         if (type() == OLAP_FIELD_TYPE_STRING && mem_pool == nullptr && !src.is_null()) {
             auto dst_slice = reinterpret_cast<Slice*>(dest->mutable_cell_ptr());
@@ -96,7 +96,7 @@ public:
         _agg_info->update(dest, src, mem_pool);
     }
 
-    inline void agg_finalize(RowCursorCell* dst, MemPool* mem_pool) const {
+    void agg_finalize(RowCursorCell* dst, MemPool* mem_pool) const {
         _agg_info->finalize(dst, mem_pool);
     }
 
@@ -172,7 +172,7 @@ public:
     // Used to compare short key index. Because short key will truncate
     // a varchar column, this function will handle in this condition.
     template <typename LhsCellType, typename RhsCellType>
-    inline int index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const;
+    int index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const;
 
     // Copy source cell's content to destination cell directly.
     // For string type, this function assume that destination has
@@ -224,18 +224,18 @@ public:
     }
 
     // deep copy field content from `src` to `dst` without null-byte
-    inline void deep_copy_content(char* dst, const char* src, MemPool* mem_pool) const {
+    void deep_copy_content(char* dst, const char* src, MemPool* mem_pool) const {
         _type_info->deep_copy(dst, src, mem_pool);
     }
 
     // shallow copy field content from `src` to `dst` without null-byte.
     // for string like type, shallow copy only copies Slice, not the actual data pointed by slice.
-    inline void shallow_copy_content(char* dst, const char* src) const {
+    void shallow_copy_content(char* dst, const char* src) const {
         _type_info->shallow_copy(dst, src);
     }
 
     //convert and copy field from src to desc
-    inline OLAPStatus convert_from(char* dest, const char* src, const TypeInfo* src_type,
+    OLAPStatus convert_from(char* dest, const char* src, const TypeInfo* src_type,
                                    MemPool* mem_pool) const {
         return _type_info->convert_from(dest, src, src_type, mem_pool, get_variable_len());
     }
@@ -246,7 +246,7 @@ public:
 
     // used by init scan key stored in string format
     // value_string should end with '\0'
-    inline OLAPStatus from_string(char* buf, const std::string& value_string) const {
+    OLAPStatus from_string(char* buf, const std::string& value_string) const {
         if (type() == OLAP_FIELD_TYPE_STRING && !value_string.empty()) {
             auto slice = reinterpret_cast<Slice*>(buf);
             if (slice->size < value_string.size()) {
@@ -260,7 +260,7 @@ public:
 
     //  convert inner value to string
     //  performance is not considered, only for debug use
-    inline std::string to_string(const char* src) const { return _type_info->to_string(src); }
+    std::string to_string(const char* src) const { return _type_info->to_string(src); }
 
     template <typename CellType>
     std::string debug_string(const CellType& cell) const {

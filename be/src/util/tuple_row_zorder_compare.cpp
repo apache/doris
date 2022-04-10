@@ -151,14 +151,14 @@ namespace doris {
     }
 
     template<typename U, typename T>
-    U inline TupleRowZOrderComparator::get_shared_int_representation(const T val, U mask) const {
+    U TupleRowZOrderComparator::get_shared_int_representation(const T val, U mask) const {
         uint64_t shift_size = static_cast<uint64_t>(
                 std::max(static_cast<int64_t>((sizeof(U) - sizeof(T)) * 8), (int64_t) 0));
         return (static_cast<U>(val) << shift_size) ^ mask;
     }
 
     template<typename U, typename T>
-    U inline TupleRowZOrderComparator::get_shared_float_representation(const void *val, U mask) const {
+    U TupleRowZOrderComparator::get_shared_float_representation(const void *val, U mask) const {
         int64_t tmp;
         T floating_value = *reinterpret_cast<const T *>(val);
         memcpy(&tmp, &floating_value, sizeof(T));
@@ -175,7 +175,7 @@ namespace doris {
     }
 
     template<typename U>
-    U inline TupleRowZOrderComparator::get_shared_string_representation(const char *char_ptr,
+    U TupleRowZOrderComparator::get_shared_string_representation(const char *char_ptr,
                                               int length) const {
         int len = length < sizeof(U) ? length : sizeof(U);
         if (len == 0) return 0;

@@ -56,7 +56,7 @@ public:
     virtual bool is_bound(std::vector<TupleId>* tuple_ids) const override;
     virtual int get_slot_ids(std::vector<SlotId>* slot_ids) const override;
     SlotId slot_id() const { return _slot_id; }
-    inline NullIndicatorOffset null_indicator_offset() const { return _null_indicator_offset; }
+    NullIndicatorOffset null_indicator_offset() const { return _null_indicator_offset; }
 
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*) override;

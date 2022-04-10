@@ -376,9 +376,9 @@ private:
     struct Page {
         Page() : num_rows(0), retrieved_buffer(true) {}
 
-        inline int len() const { return handle.len(); }
-        inline bool is_pinned() const { return handle.is_pinned(); }
-        inline int pin_count() const { return handle.pin_count(); }
+        int len() const { return handle.len(); }
+        bool is_pinned() const { return handle.is_pinned(); }
+        int pin_count() const { return handle.pin_count(); }
         Status GetBuffer(const BufferPool::BufferHandle** buffer) {
             RETURN_IF_ERROR(handle.GetBuffer(buffer));
             retrieved_buffer = true;

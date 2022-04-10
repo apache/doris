@@ -81,14 +81,14 @@ struct HistogramStat {
     void add(const uint64_t& value);
     void merge(const HistogramStat& other);
 
-    inline uint64_t min() const { return _min.load(std::memory_order_relaxed); }
-    inline uint64_t max() const { return _max.load(std::memory_order_relaxed); }
-    inline uint64_t num() const { return _num.load(std::memory_order_relaxed); }
-    inline uint64_t sum() const { return _sum.load(std::memory_order_relaxed); }
-    inline uint64_t sum_squares() const {
+    uint64_t min() const { return _min.load(std::memory_order_relaxed); }
+    uint64_t max() const { return _max.load(std::memory_order_relaxed); }
+    uint64_t num() const { return _num.load(std::memory_order_relaxed); }
+    uint64_t sum() const { return _sum.load(std::memory_order_relaxed); }
+    uint64_t sum_squares() const {
         return _sum_squares.load(std::memory_order_relaxed);
     }
-    inline uint64_t bucket_at(size_t b) const {
+    uint64_t bucket_at(size_t b) const {
         return _buckets[b].load(std::memory_order_relaxed);
     }
 

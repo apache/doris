@@ -49,7 +49,7 @@ struct CacheStat {
     uint32 read_count;
     CacheStat() { init(); }
 
-    inline long cache_time_second() {
+    long cache_time_second() {
         struct timeval tv;
         gettimeofday(&tv, nullptr);
         return tv.tv_sec;

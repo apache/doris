@@ -71,15 +71,15 @@ public:
 
     Centroid(Value mean, Weight weight) : _mean(mean), _weight(weight) {}
 
-    inline Value mean() const noexcept { return _mean; }
+    Value mean() const noexcept { return _mean; }
 
-    inline Weight weight() const noexcept { return _weight; }
+    Weight weight() const noexcept { return _weight; }
 
-    inline Value& mean() noexcept { return _mean; }
+    Value& mean() noexcept { return _mean; }
 
-    inline Weight& weight() noexcept { return _weight; }
+    Weight& weight() noexcept { return _weight; }
 
-    inline void add(const Centroid& c) {
+    void add(const Centroid& c) {
         DCHECK_GT(c._weight, 0);
         if (_weight != 0.0) {
             _weight += c._weight;
@@ -210,7 +210,7 @@ public:
     }
 
     // merge in another t-digest
-    inline void merge(const TDigest* other) {
+    void merge(const TDigest* other) {
         std::vector<const TDigest*> others {other};
         add(others.cbegin(), others.cend());
     }
@@ -223,7 +223,7 @@ public:
 
     Index maxProcessed() const { return _max_processed; }
 
-    inline void add(std::vector<const TDigest*> digests) { add(digests.cbegin(), digests.cend()); }
+    void add(std::vector<const TDigest*> digests) { add(digests.cbegin(), digests.cend()); }
 
     // merge in a vector of tdigests in the most efficient manner possible
     // in constant space
@@ -415,11 +415,11 @@ public:
 
     void add(Value x) { add(x, 1); }
 
-    inline void compress() { process(); }
+    void compress() { process(); }
 
     // add a single centroid to the unprocessed vector, processing previously unprocessed sorted if our limit has
     // been reached.
-    inline bool add(Value x, Weight w) {
+    bool add(Value x, Weight w) {
         if (std::isnan(x)) {
             return false;
         }
@@ -429,7 +429,7 @@ public:
         return true;
     }
 
-    inline void add(std::vector<Centroid>::const_iterator iter,
+    void add(std::vector<Centroid>::const_iterator iter,
                     std::vector<Centroid>::const_iterator end) {
         while (iter != end) {
             const size_t diff = std::distance(iter, end);
@@ -561,10 +561,10 @@ private:
     std::vector<Weight> _cumulative;
 
     // return mean of i-th centroid
-    inline Value mean(int i) const noexcept { return _processed[i].mean(); }
+    Value mean(int i) const noexcept { return _processed[i].mean(); }
 
     // return weight of i-th centroid
-    inline Weight weight(int i) const noexcept { return _processed[i].weight(); }
+    Weight weight(int i) const noexcept { return _processed[i].weight(); }
 
     // append all unprocessed centroids into current unprocessed vector
     void mergeUnprocessed(const std::vector<const TDigest*>& tdigests) {
@@ -622,7 +622,7 @@ private:
         }
     }
 
-    inline void processIfNecessary() {
+    void processIfNecessary() {
         if (isDirty()) {
             process();
         }
@@ -644,7 +644,7 @@ private:
 
     // merges _unprocessed centroids and _processed centroids together and processes them
     // when complete, _unprocessed will be empty and _processed will have at most _max_processed centroids
-    inline void process() {
+    void process() {
         CentroidComparator cc;
         RadixSort<TDigestRadixSortTraits>::executeLSD(_unprocessed.data(), _unprocessed.size());
         auto count = _unprocessed.size();
@@ -682,7 +682,7 @@ private:
         updateCumulative();
     }
 
-    inline int checkWeights() { return checkWeights(_processed, _processed_weight); }
+    int checkWeights() { return checkWeights(_processed, _processed_weight); }
 
     size_t checkWeights(const std::vector<Centroid>& sorted, Value total) {
         size_t badWeight = 0;
@@ -728,11 +728,11 @@ private:
     * @param q The quantile scale value to be mapped.
     * @return The centroid scale value corresponding to q.
     */
-    inline Value integratedLocation(Value q) const {
+    Value integratedLocation(Value q) const {
         return _compression * (std::asin(2.0 * q - 1.0) + M_PI / 2) / M_PI;
     }
 
-    inline Value integratedQ(Value k) const {
+    Value integratedQ(Value k) const {
         return (std::sin(std::min(k, _compression) * M_PI / _compression - M_PI / 2) + 1) / 2;
     }
 

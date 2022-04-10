@@ -52,7 +52,7 @@ struct DiskIoMgr::DiskQueue {
     std::list<RequestContext*> request_contexts;
 
     // Enqueue the request context to the disk queue.  The DiskQueue lock must not be taken.
-    inline void enqueue_context(RequestContext* worker) {
+    void enqueue_context(RequestContext* worker) {
         {
             std::unique_lock<std::mutex> disk_lock(lock);
             // Check that the reader is not already on the queue

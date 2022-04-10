@@ -58,11 +58,11 @@ public:
     template <typename U>
     U get_shared_representation(const void* val, FieldType type) const;
     template <typename U, typename T>
-    U inline get_shared_int_representation(const T val, U mask) const;
+    U get_shared_int_representation(const T val, U mask) const;
     template <typename U, typename T>
-    U inline get_shared_float_representation(const void* val, U mask) const;
+    U get_shared_float_representation(const void* val, U mask) const;
     template <typename U>
-    U inline get_shared_string_representation(const char* char_ptr, int length) const;
+    U get_shared_string_representation(const char* char_ptr, int length) const;
     virtual int operator()(const char* lhs, const char* rhs) const;
     int get_type_byte_size(FieldType type) const;
 };

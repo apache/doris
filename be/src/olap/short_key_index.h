@@ -191,7 +191,7 @@ public:
         return _ordinal - other._ordinal;
     }
 
-    inline bool valid() const;
+    bool valid() const;
 
     Slice operator*() const;
 

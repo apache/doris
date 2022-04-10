@@ -70,9 +70,9 @@ public:
     // The old interface is still preserved, maybe it will be used?
     static StorageByteBuffer* mmap(FileHandler* handler, uint64_t offset, int prot, int flags);
 
-    inline uint64_t capacity() const { return _capacity; }
+    uint64_t capacity() const { return _capacity; }
 
-    inline uint64_t position() const { return _position; }
+    uint64_t position() const { return _position; }
     // Set the position of the internal pointer
     // If the new position is greater than or equal to limit, return OLAP_ERR_INPUT_PARAMETER_ERROR
     OLAPStatus set_position(uint64_t new_position) {
@@ -84,7 +84,7 @@ public:
         }
     }
 
-    inline uint64_t limit() const { return _limit; }
+    uint64_t limit() const { return _limit; }
     //set new limit
     //If limit is greater than capacity, return OLAP_ERR_INPUT_PARAMETER_ERROR
     //If position is greater than the new limit, set position equal to limit
@@ -102,7 +102,7 @@ public:
         return OLAP_SUCCESS;
     }
 
-    inline uint64_t remaining() const { return _limit - _position; }
+    uint64_t remaining() const { return _limit - _position; }
 
     // Set limit to current position
     // set position to 0
@@ -116,7 +116,7 @@ public:
     // The following three read functions are inline optimized
 
     // Read one byte of data, increase position after completion
-    inline OLAPStatus get(char* result) {
+    OLAPStatus get(char* result) {
         if (OLAP_LIKELY(_position < _limit)) {
             *result = _array[_position++];
             return OLAP_SUCCESS;
@@ -126,7 +126,7 @@ public:
     }
 
     // Read one byte of data at the specified location
-    inline OLAPStatus get(uint64_t index, char* result) {
+    OLAPStatus get(uint64_t index, char* result) {
         if (OLAP_LIKELY(index < _limit)) {
             *result = _array[index];
             return OLAP_SUCCESS;
@@ -136,7 +136,7 @@ public:
     }
 
     // Read a piece of data of length length to dst, and increase the position after completion
-    inline OLAPStatus get(char* dst, uint64_t dst_size, uint64_t length) {
+    OLAPStatus get(char* dst, uint64_t dst_size, uint64_t length) {
         // Not enough data to read
         if (OLAP_UNLIKELY(length > remaining())) {
             return OLAP_ERR_OUT_OF_BOUND;
@@ -153,7 +153,7 @@ public:
     }
 
     // Read dst_size long data to dst
-    inline OLAPStatus get(char* dst, uint64_t dst_size) { return get(dst, dst_size, dst_size); }
+    OLAPStatus get(char* dst, uint64_t dst_size) { return get(dst, dst_size, dst_size); }
 
     // Write a byte, increment position when done
     // If position >= limit before writing, return OLAP_ERR_BUFFER_OVERFLOW

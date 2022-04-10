@@ -146,8 +146,8 @@ public:
     // Indicate which type of this value : int type;
     static const size_t DATETIME_SIZE = 16;
 
-    inline void update_mem_limlits(int len);
-    inline void update_mem_trackers(bool is_filter, bool is_add_buckets, int len);
+    void update_mem_limlits(int len);
+    void update_mem_trackers(bool is_filter, bool is_add_buckets, int len);
     bool count_distinct_data_filter(TupleRow* row, Tuple* dst);
     bool sum_distinct_data_filter(TupleRow* row, Tuple* dst);
     bool is_multi_distinct() { return _is_multi_distinct; }

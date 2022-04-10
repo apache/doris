@@ -140,27 +140,27 @@ public:
     // delete all files (*.idx; *.dat)
     bool delete_all_files();
 
-    inline Version version() const { return _version; }
-    inline void set_version(Version version) { _version = version; }
+    Version version() const { return _version; }
+    void set_version(Version version) { _version = version; }
 
-    inline bool is_pending() const { return _is_pending; }
-    inline void set_pending_finished() { _is_pending = false; }
+    bool is_pending() const { return _is_pending; }
+    void set_pending_finished() { _is_pending = false; }
 
-    inline TPartitionId partition_id() const { return _partition_id; }
-    inline TTransactionId transaction_id() const { return _txn_id; }
+    TPartitionId partition_id() const { return _partition_id; }
+    TTransactionId transaction_id() const { return _txn_id; }
 
-    inline bool delete_flag() const { return _delete_flag; }
+    bool delete_flag() const { return _delete_flag; }
 
-    inline int32_t segment_group_id() const { return _segment_group_id; }
-    inline void set_segment_group_id(int32_t segment_group_id) {
+    int32_t segment_group_id() const { return _segment_group_id; }
+    void set_segment_group_id(int32_t segment_group_id) {
         _segment_group_id = segment_group_id;
     }
 
-    inline PUniqueId load_id() const { return _load_id; }
-    inline void set_load_id(const PUniqueId& load_id) { _load_id = load_id; }
+    PUniqueId load_id() const { return _load_id; }
+    void set_load_id(const PUniqueId& load_id) { _load_id = load_id; }
 
-    inline int32_t num_segments() const { return _num_segments; }
-    inline void set_num_segments(int32_t num_segments) { _num_segments = num_segments; }
+    int32_t num_segments() const { return _num_segments; }
+    void set_num_segments(int32_t num_segments) { _num_segments = num_segments; }
 
     size_t index_size() const { return _index.index_size(); }
 
@@ -191,11 +191,11 @@ public:
         return _index.get_row_block_position(pos, rbp);
     }
 
-    inline const FileHeader<ColumnDataHeaderMessage>* get_seg_pb(uint32_t seg_id) const {
+    const FileHeader<ColumnDataHeaderMessage>* get_seg_pb(uint32_t seg_id) const {
         return &(_seg_pb_map.at(seg_id));
     }
 
-    inline bool get_null_supported(uint32_t seg_id) { return _index.get_null_supported(seg_id); }
+    bool get_null_supported(uint32_t seg_id) { return _index.get_null_supported(seg_id); }
 
     std::string construct_index_file_path(const std::string& snapshot_path,
                                           int32_t segment_id) const;

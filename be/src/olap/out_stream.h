@@ -47,7 +47,7 @@ public:
     ~OutStream();
 
     // Output a byte to the stream
-    inline OLAPStatus write(char byte) {
+    OLAPStatus write(char byte) {
         OLAPStatus res = OLAP_SUCCESS;
         if (_current == nullptr) {
             res = _create_new_input_buffer();

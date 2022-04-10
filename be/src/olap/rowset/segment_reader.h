@@ -127,11 +127,11 @@ private:
 
     // Determine whether the current column needs to be read
     // When _include_columns is empty, return true directly
-    inline bool _is_column_included(ColumnId column_unique_id) {
+    bool _is_column_included(ColumnId column_unique_id) {
         return _include_columns.count(column_unique_id) != 0;
     }
 
-    inline bool _is_bf_column_included(ColumnId column_unique_id) {
+    bool _is_bf_column_included(ColumnId column_unique_id) {
         return _include_bf_columns.count(column_unique_id) != 0;
     }
 
@@ -189,13 +189,13 @@ private:
     OLAPStatus _reset_readers();
 
     // Get the current table-level schema.
-    inline const TabletSchema& tablet_schema() { return _segment_group->get_tablet_schema(); }
+    const TabletSchema& tablet_schema() { return _segment_group->get_tablet_schema(); }
 
-    inline const ColumnDataHeaderMessage& _header_message() { return _file_header->message(); }
+    const ColumnDataHeaderMessage& _header_message() { return _file_header->message(); }
 
     OLAPStatus _init_include_blocks(uint32_t first_block, uint32_t last_block);
 
-    inline const int32_t _get_included_row_index_stream_num() {
+    const int32_t _get_included_row_index_stream_num() {
         int32_t included_row_index_stream_num = 0;
         for (int32_t i = 0; i < _header_message().stream_info_size(); ++i) {
             const StreamInfoMessage& message = _header_message().stream_info(i);

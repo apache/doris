@@ -99,13 +99,13 @@ private:
     DISALLOW_COPY_AND_ASSIGN(FreeList);
 
     /// Compare function that orders by memory address.
-    inline static bool SortCompare(const BufferHandle& b1, const BufferHandle& b2) {
+    static bool SortCompare(const BufferHandle& b1, const BufferHandle& b2) {
         return b1.data() < b2.data();
     }
 
     /// Compare function that orders by memory address. Needs to be inverse of SortCompare()
     /// because C++ provides a max-heap.
-    inline static bool HeapCompare(const BufferHandle& b1, const BufferHandle& b2) {
+    static bool HeapCompare(const BufferHandle& b1, const BufferHandle& b2) {
         return SortCompare(b2, b1);
     }
 

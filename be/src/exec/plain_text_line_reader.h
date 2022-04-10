@@ -41,11 +41,11 @@ public:
 private:
     bool update_eof();
 
-    inline size_t output_buf_read_remaining() const { return _output_buf_limit - _output_buf_pos; }
+    size_t output_buf_read_remaining() const { return _output_buf_limit - _output_buf_pos; }
 
-    inline size_t input_buf_read_remaining() const { return _input_buf_limit - _input_buf_pos; }
+    size_t input_buf_read_remaining() const { return _input_buf_limit - _input_buf_pos; }
 
-    inline bool done() { return _file_eof && output_buf_read_remaining() == 0; }
+    bool done() { return _file_eof && output_buf_read_remaining() == 0; }
 
     // find line delimiter from 'start' to 'start' + len,
     // return line delimiter pos if found, otherwise return nullptr.

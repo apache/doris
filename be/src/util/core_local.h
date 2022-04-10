@@ -122,15 +122,15 @@ public:
         CoreLocalValueController<T>::instance()->reclaim_id(_id);
     }
 
-    inline size_t size() const { return _size; }
-    inline T* access() const {
+    size_t size() const { return _size; }
+    T* access() const {
         size_t cpu_id = sched_getcpu();
         if (cpu_id >= _size) {
             cpu_id &= _size - 1;
         }
         return access_at_core(cpu_id);
     }
-    inline T* access_at_core(size_t core_idx) const { return _values[core_idx]; }
+    T* access_at_core(size_t core_idx) const { return _values[core_idx]; }
 
 private:
     int _id = -1;

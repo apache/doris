@@ -59,7 +59,7 @@ public:
            const std::string& cumulative_compaction_type = "");
 
     OLAPStatus init();
-    inline bool init_succeeded();
+    bool init_succeeded();
 
     bool is_used();
 
@@ -71,29 +71,29 @@ public:
     OLAPStatus revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                   const std::vector<Version>& versions_to_delete);
 
-    inline const int64_t cumulative_layer_point() const;
-    inline void set_cumulative_layer_point(int64_t new_point);
+    const int64_t cumulative_layer_point() const;
+    void set_cumulative_layer_point(int64_t new_point);
 
-    inline size_t tablet_footprint(); // disk space occupied by tablet
-    inline size_t num_rows();
-    inline int version_count() const;
-    inline Version max_version() const;
-    inline CumulativeCompactionPolicy* cumulative_compaction_policy();
+    size_t tablet_footprint(); // disk space occupied by tablet
+    size_t num_rows();
+    int version_count() const;
+    Version max_version() const;
+    CumulativeCompactionPolicy* cumulative_compaction_policy();
 
     // properties encapsulated in TabletSchema
-    inline KeysType keys_type() const;
-    inline SortType sort_type() const;
-    inline size_t sort_col_num() const;
-    inline size_t num_columns() const;
-    inline size_t num_null_columns() const;
-    inline size_t num_key_columns() const;
-    inline size_t num_short_key_columns() const;
-    inline size_t num_rows_per_row_block() const;
-    inline CompressKind compress_kind() const;
-    inline double bloom_filter_fpp() const;
-    inline size_t next_unique_id() const;
-    inline size_t row_size() const;
-    inline int32_t field_index(const std::string& field_name) const;
+    KeysType keys_type() const;
+    SortType sort_type() const;
+    size_t sort_col_num() const;
+    size_t num_columns() const;
+    size_t num_null_columns() const;
+    size_t num_key_columns() const;
+    size_t num_short_key_columns() const;
+    size_t num_rows_per_row_block() const;
+    CompressKind compress_kind() const;
+    double bloom_filter_fpp() const;
+    size_t next_unique_id() const;
+    size_t row_size() const;
+    int32_t field_index(const std::string& field_name) const;
 
     // operation in rowsets
     OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
@@ -140,14 +140,14 @@ public:
     bool version_for_load_deletion(const Version& version);
 
     // meta lock
-    inline std::shared_mutex& get_header_lock() { return _meta_lock; }
-    inline std::mutex& get_push_lock() { return _ingest_lock; }
-    inline std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
-    inline std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
+    std::shared_mutex& get_header_lock() { return _meta_lock; }
+    std::mutex& get_push_lock() { return _ingest_lock; }
+    std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
+    std::mutex& get_cumulative_compaction_lock() { return _cumulative_compaction_lock; }
 
-    inline std::shared_mutex& get_migration_lock() { return _migration_lock; }
+    std::shared_mutex& get_migration_lock() { return _migration_lock; }
 
-    inline std::mutex& get_schema_change_lock() { return _schema_change_lock; }
+    std::mutex& get_schema_change_lock() { return _schema_change_lock; }
 
     // operation for compaction
     bool can_do_compaction(size_t path_hash, CompactionType compaction_type);
@@ -206,12 +206,12 @@ public:
 
     void calculate_cumulative_point();
     // TODO(ygl):
-    inline bool is_primary_replica() { return false; }
+    bool is_primary_replica() { return false; }
 
     // TODO(ygl):
     // eco mode means power saving in new energy car
     // eco mode also means save money in palo
-    inline bool in_eco_mode() { return false; }
+    bool in_eco_mode() { return false; }
 
     // return true if the checkpoint is actually done
     bool do_tablet_meta_checkpoint();
@@ -250,7 +250,7 @@ public:
         return _cumulative_compaction_policy;
     }
 
-    inline bool all_beta() const {
+    bool all_beta() const {
         ReadLock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
     }

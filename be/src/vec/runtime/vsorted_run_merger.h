@@ -83,7 +83,7 @@ protected:
 
 private:
     void next_heap(SortCursor& current);
-    inline bool has_next_block(SortCursor& current);
+    bool has_next_block(SortCursor& current);
 };
 
 }
