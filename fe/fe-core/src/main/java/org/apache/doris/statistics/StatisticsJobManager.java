@@ -35,6 +35,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * For unified management of statistics job,
@@ -48,6 +49,24 @@ public class StatisticsJobManager {
      */
     private final Map<Long, StatisticsJob> idToStatisticsJob = Maps.newConcurrentMap();
 
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+
     public Map<Long, StatisticsJob> getIdToStatisticsJob() {
         return this.idToStatisticsJob;
     }
@@ -55,12 +74,15 @@ public class StatisticsJobManager {
     public void createStatisticsJob(AnalyzeStmt analyzeStmt) throws UserException {
         // step1: init statistics job by analyzeStmt
         StatisticsJob statisticsJob = StatisticsJob.fromAnalyzeStmt(analyzeStmt);
-
-        // step2: check restrict
-        this.checkRestrict(analyzeStmt.getDb(), statisticsJob.getTblIds());
-
-        // step3: create it
-        this.createStatisticsJob(statisticsJob);
+        writeLock();
+        try {
+            // step2: check restrict
+            this.checkRestrict(analyzeStmt.getDb(), statisticsJob.getTblIds());
+            // step3: create it
+            this.createStatisticsJob(statisticsJob);
+        } finally {
+            writeUnlock();
+        }
     }
 
     public void createStatisticsJob(StatisticsJob statisticsJob) throws DdlException {
@@ -81,12 +103,12 @@ public class StatisticsJobManager {
      * - Rule2: The unfinished statistics job could not more then Config.max_statistics_job_num
      * - Rule3: The job for external table is not supported
      */
-    private synchronized void checkRestrict(Database db, Set<Long> tableIds) throws AnalysisException {
+    private void checkRestrict(Database db, Set<Long> tableIds) throws AnalysisException {
         // check table type
         for (Long tableId : tableIds) {
             Table table = db.getTableOrAnalysisException(tableId);
             if (table.getType() != Table.TableType.OLAP) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, db.getFullName(),table.getName(), "ANALYZE");
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, db.getFullName(), table.getName(), "ANALYZE");
             }
         }
 
