@@ -84,7 +84,7 @@ public:
         _locked = false;
     }
 
-    inline bool own_lock() const { return _locked; }
+    bool own_lock() const { return _locked; }
 
 private:
     Mutex* _mutex;

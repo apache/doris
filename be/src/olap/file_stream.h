@@ -62,7 +62,7 @@ public:
 
     ~ReadOnlyFileStream() { SAFE_DELETE(_compressed_helper); }
 
-    inline OLAPStatus init() {
+    OLAPStatus init() {
         _compressed_helper = StorageByteBuffer::create(_compress_buffer_size);
         if (nullptr == _compressed_helper) {
             OLAP_LOG_WARNING("fail to create compressed buffer");
@@ -73,20 +73,20 @@ public:
         return OLAP_SUCCESS;
     }
 
-    inline void reset(uint64_t offset, uint64_t length) { _file_cursor.reset(offset, length); }
+    void reset(uint64_t offset, uint64_t length) { _file_cursor.reset(offset, length); }
 
     // 从数据流中读取一个字节,内部指针后移
     // 如果数据流结束, 返回OLAP_ERR_COLUMN_STREAM_EOF
-    inline OLAPStatus read(char* byte);
+    OLAPStatus read(char* byte);
 
     // 从数据流读入一段数据
     // Input:
     //     buffer - 存储读入的数据
     //     buf_size - 输入时给出buffer的大小,返回时给出实际读取的字节数
     // 如果数据流结束, 返回OLAP_ERR_COLUMN_STREAM_EOF
-    inline OLAPStatus read(char* buffer, uint64_t* buf_size);
+    OLAPStatus read(char* buffer, uint64_t* buf_size);
 
-    inline OLAPStatus read_all(char* buffer, uint64_t* buf_size);
+    OLAPStatus read_all(char* buffer, uint64_t* buf_size);
     // 设置读取的位置
     OLAPStatus seek(PositionProvider* position);
 
@@ -109,7 +109,7 @@ public:
 
     size_t get_buffer_size() { return _compress_buffer_size; }
 
-    inline void get_buf(char** buf, uint32_t* remaining_bytes) {
+    void get_buf(char** buf, uint32_t* remaining_bytes) {
         if (UNLIKELY(_uncompressed == nullptr)) {
             *buf = nullptr;
             *remaining_bytes = 0;
@@ -119,11 +119,11 @@ public:
         }
     }
 
-    inline void get_position(uint32_t* position) { *position = _uncompressed->position(); }
+    void get_position(uint32_t* position) { *position = _uncompressed->position(); }
 
-    inline void set_position(uint32_t pos) { _uncompressed->set_position(pos); }
+    void set_position(uint32_t pos) { _uncompressed->set_position(pos); }
 
-    inline int remaining() {
+    int remaining() {
         if (_uncompressed == nullptr) {
             return 0;
         }
@@ -167,7 +167,7 @@ private:
 
         size_t length() { return _length; }
 
-        inline bool eof() { return _used == _length; }
+        bool eof() { return _used == _length; }
 
         OLAPStatus seek(size_t offset) {
             if (offset > _length) {

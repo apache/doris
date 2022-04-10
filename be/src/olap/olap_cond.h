@@ -132,7 +132,7 @@ public:
         return false;
     }
 
-    inline bool is_key() const { return _is_key; }
+    bool is_key() const { return _is_key; }
 
     const std::vector<Cond*>& conds() const { return _conds; }
 

@@ -106,13 +106,13 @@ public:
     // Return a string that contains the copy of the referenced data.
     std::string to_string() const { return std::string(_data, _size); }
 
-    inline bool operator==(const CacheKey& other) const {
+    bool operator==(const CacheKey& other) const {
         return ((size() == other.size()) && (memcmp(data(), other.data(), size()) == 0));
     }
 
-    inline bool operator!=(const CacheKey& other) const { return !(*this == other); }
+    bool operator!=(const CacheKey& other) const { return !(*this == other); }
 
-    inline int compare(const CacheKey& b) const {
+    int compare(const CacheKey& b) const {
         const size_t min_len = (_size < b._size) ? _size : b._size;
         int r = memcmp(_data, b._data, min_len);
         if (r == 0) {
@@ -379,7 +379,7 @@ private:
     void update_cache_metrics() const;
 
 private:
-    static inline uint32_t _hash_slice(const CacheKey& s);
+    static uint32_t _hash_slice(const CacheKey& s);
     static uint32_t _shard(uint32_t hash);
 
     std::string _name;
