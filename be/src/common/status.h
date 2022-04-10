@@ -4,8 +4,12 @@
 
 #pragma once
 
+#include <iostream>
 #include <string>
 #include <vector>
+
+#include <boost/stacktrace.hpp>
+#include <glog/logging.h>
 
 #include "common/compiler_util.h"
 #include "common/logging.h"
@@ -38,7 +42,7 @@ public:
     // same as copy c'tor
     Status& operator=(const Status& rhs) {
         if (rhs._length) {
-            memcpy(_state, rhs._state, rhs._length + Status::HEADER_LEN);
+            memcpy(_state, rhs._state, rhs._length);
         } else {
             _length = 0;
         }
@@ -151,8 +155,18 @@ public:
         return Status(TStatusCode::DATA_QUALITY_ERROR, msg, precise_code, msg2);
     }
 
+    // A wrapper for OLAPStatus
+    //      Precise code is for OLAPStatus's enum value
+    //      All Status Error is treated as Internal Error 
+    static Status OLAPInternalError(int16_t precise_code, const Slice& msg = Slice()) {
+        #ifdef PRINT_ALL_ERR_STATUS_STACKTRACE
+        LOG(WARNING) << "Error occurred, error code = " << precise_code << ", with message: " << msg
+                     << "\n" << boost::stacktrace::stacktrace();
+        #endif
+        return Status(TStatusCode::INTERNAL_ERROR, Slice(), precise_code, msg);
+    }
+
     bool ok() const { return _length == 0; }
-    void set_ok() { _length = 0; }
 
     bool is_cancelled() const { return code() == TStatusCode::CANCELLED; }
     bool is_mem_limit_exceeded() const { return code() == TStatusCode::MEM_LIMIT_EXCEEDED; }
@@ -240,7 +254,16 @@ public:
     ///   trailing message.
     Status clone_and_append(const Slice& msg) const;
 
+    // if(!status) or if (status) will use this operator
     operator bool() const { return this->ok(); }
+
+    // Used like if (res == Status::OK())
+    // if the state is ok, then both code and precise code is not initialized properly, so that should check ok state
+    // ignore error messages during comparison
+    bool operator == (const Status& st) { return ok() ? st.ok() : code() == st.code() && precise_code() == st.precise_code(); }
+
+    // Used like if (res != Status::OK())
+    bool operator != (const Status& st) { return ok() ? !st.ok() : code() != st.code() || precise_code() != st.precise_code(); }
 
 private:
     void assemble_state(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2) {
@@ -262,7 +285,7 @@ private:
             size = MESSAGE_LEN;
         }
 
-        _length = size;
+        _length = size + HEADER_LEN;
         _code = (char)code;
         _precise_code = precise_code;
 
@@ -294,13 +317,23 @@ private:
         char _state[STATE_CAPACITY];
 
         struct {
-            int64_t _length : 32;       // message length
+            // Message length == HEADER(7 bytes) + message size
+            // Sometimes error message is empty, so that we could not use length==0 to indicate
+            // whether there is error happens
+            int64_t _length : 32;      
             int64_t _code : 8;          
             int64_t _precise_code : 16;
             int64_t _message : 8;       // save message since here
         };
     };
 };
+
+// Override the << operator, it is used during LOG(INFO) << "xxxx" << status;
+// Add inline here to dedup many includes
+inline std::ostream & operator << (std::ostream & ostr, const Status & param)
+{
+    return ostr << param.to_string();
+}
 
 // some generally useful macros
 #define RETURN_IF_ERROR(stmt)            \

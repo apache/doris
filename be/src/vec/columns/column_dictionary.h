@@ -284,12 +284,12 @@ public:
             _inverted_index.reserve(n);
         }
 
-        inline void insert_value(StringValue& value) {
+        void insert_value(StringValue& value) {
             _dict_data.push_back_without_reserve(value);
             _inverted_index[value] = _inverted_index.size();
         }
 
-        inline int32_t find_code(const StringValue& value) const {
+        int32_t find_code(const StringValue& value) const {
             auto it = _inverted_index.find(value);
             if (it != _inverted_index.end()) {
                 return it->second;
@@ -314,7 +314,7 @@ public:
         //  so upper_bound is the code 0 of b, then evaluate code < 0 and returns empty
         // If the predicate is col <= 'a' and upper_bound-1 is -1,
         //  then evaluate code <= -1 and returns empty
-        inline int32_t find_code_by_bound(const StringValue& value, bool greater, bool eq) const {
+        int32_t find_code_by_bound(const StringValue& value, bool greater, bool eq) const {
             auto code = find_code(value);
             if (code >= 0) {
                 return code;
@@ -324,7 +324,7 @@ public:
             return greater ? bound - greater + eq : bound - eq;
         }
 
-        inline phmap::flat_hash_set<int32_t> find_codes(
+        phmap::flat_hash_set<int32_t> find_codes(
                 const phmap::flat_hash_set<StringValue>& values) const {
             phmap::flat_hash_set<int32_t> code_set;
             for (const auto& value : values) {
@@ -336,7 +336,7 @@ public:
             return code_set;
         }
 
-        inline StringValue& get_value(T code) { return _dict_data[code]; }
+        StringValue& get_value(T code) { return _dict_data[code]; }
 
         void clear() {
             _dict_data.clear();
@@ -353,7 +353,7 @@ public:
             }
         }
 
-        inline T convert_code(const T& code) const { return _code_convert_map.find(code)->second; }
+        T convert_code(const T& code) const { return _code_convert_map.find(code)->second; }
 
         size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
 

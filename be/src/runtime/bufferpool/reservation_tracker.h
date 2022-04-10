@@ -173,7 +173,7 @@ public:
 
 private:
     /// Returns the amount of 'reservation_' that is unused.
-    inline int64_t unused_reservation() const {
+    int64_t unused_reservation() const {
         return reservation_ - used_reservation_ - child_reservations_;
     }
 

@@ -159,7 +159,7 @@ protected:
 
         bool is_local() { return _is_local; }
 
-        inline Status _wait_last_brpc() {
+        Status _wait_last_brpc() {
             if (_closure == nullptr) return Status::OK();
             auto cntl = &_closure->cntl;
             brpc::Join(cntl->call_id());

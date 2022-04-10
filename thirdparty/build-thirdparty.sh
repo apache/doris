@@ -956,6 +956,30 @@ build_simdjson() {
     cp -r $TP_SOURCE_DIR/$SIMDJSON_SOURCE/include/* $TP_INCLUDE_DIR/
 }
 
+# llvm
+build_llvm() {
+    check_if_source_exist $LLVM_SOURCE
+    cd $TP_SOURCE_DIR/$LLVM_SOURCE
+
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    CXX_FLAGS="-O3" \
+    C_FLAGS="-O3" \
+    $CMAKE_CMD -DLLVM_INCLUDE_BENCHMARKS=OFF \
+               -DLLVM_TARGETS_TO_BUILD="X86;AArch64" \
+               -DLLVM_ENABLE_TERMINFO=OFF \
+               -DLLVM_INCLUDE_TOOLS=OFF \
+               -DLLVM_INCLUDE_UTILS=OFF \
+               -DLLVM_INCLUDE_TESTS=OFF \
+               -DLLVM_USE_FOLDERS=OFF \
+               -DLLVM_ENABLE_LIBEDIT=OFF \
+               -DLLVM_ENABLE_LIBPFM=OFF \
+               -DLLVM_ENABLE_RTTI=ON \
+               -DCMAKE_BUILD_TYPE=Release \
+               -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
+    make -j $PARALLEL && make install
+}
+
+build_llvm
 build_libunixodbc
 build_openssl
 build_libevent

@@ -130,7 +130,7 @@ public:
             : vec(in[in.size() - N]->get_data()), next(in) {}
 
     /// Returns a combination of values in the i-th row of all columns stored in the constructor.
-    inline ResultValueType apply(const size_t i) const {
+    ResultValueType apply(const size_t i) const {
         const auto& a = vec[i];
         if constexpr (Op::is_saturable())
             return Op::is_saturated_value(a) ? a : Op::apply(a, next.apply(i));
@@ -150,7 +150,7 @@ class AssociativeApplierImpl<Op, 1> {
 public:
     AssociativeApplierImpl(const UInt8ColumnPtrs& in) : vec(in[in.size() - 1]->get_data()) {}
 
-    inline ResultValueType apply(const size_t i) const { return vec[i]; }
+    ResultValueType apply(const size_t i) const { return vec[i]; }
 
 private:
     const UInt8Container& vec;
@@ -207,7 +207,7 @@ public:
             : val_getter{ValueGetterBuilder::build(in[in.size() - N])}, next{in} {}
 
     /// Returns a combination of values in the i-th row of all columns stored in the constructor.
-    inline ResultValueType apply(const size_t i) const {
+    ResultValueType apply(const size_t i) const {
         const auto a = val_getter(i);
         if constexpr (Op::is_saturable())
             return Op::is_saturated_value(a) ? a : Op::apply(a, next.apply(i));

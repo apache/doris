@@ -108,7 +108,7 @@ public:
         _mem_tracker_labels[_temp_tracker_id] = mem_tracker->label();
     }
 
-    inline ConsumeErrCallBackInfo update_consume_err_cb(const std::string& cancel_msg,
+    ConsumeErrCallBackInfo update_consume_err_cb(const std::string& cancel_msg,
                                                         bool cancel_task, ERRCALLBACK cb_func) {
         _temp_consume_err_cb = _consume_err_cb;
         _consume_err_cb.cancel_msg = cancel_msg;
@@ -117,7 +117,7 @@ public:
         return _temp_consume_err_cb;
     }
 
-    inline void update_consume_err_cb(const ConsumeErrCallBackInfo& consume_err_cb) {
+    void update_consume_err_cb(const ConsumeErrCallBackInfo& consume_err_cb) {
         _consume_err_cb = consume_err_cb;
     }
 

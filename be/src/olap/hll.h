@@ -280,7 +280,7 @@ private:
     void _convert_explicit_to_register();
 
     // update one hash value into this registers
-    inline void _update_registers(uint64_t hash_value) {
+    void _update_registers(uint64_t hash_value) {
         // Use the lower bits to index into the number of streams and then
         // find the first 1 bit after the index bits.
         int idx = hash_value % HLL_REGISTERS_COUNT;

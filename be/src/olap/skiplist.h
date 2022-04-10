@@ -132,7 +132,7 @@ private:
     // values are ok.
     std::atomic<int> max_height_; // Height of the entire list
 
-    inline int GetMaxHeight() const { return max_height_.load(std::memory_order_relaxed); }
+    int GetMaxHeight() const { return max_height_.load(std::memory_order_relaxed); }
 
     // Read/written only by Insert().
     Random rnd_;
