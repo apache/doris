@@ -61,6 +61,14 @@ See [Compilation](https://doris.incubator.apache.org/installing/compilation-with
 
 See [Basic Usage](https://doris.incubator.apache.org/getting-started/basic-usage.html)
 
+## Doris Connector
+
+Doris provides support for Spark/Flink to read data stored in Doris through Connector, and also supports to write data to Doris through Connector.
+
+[apache/incubator-doris-flink-connector](https://github.com/apache/incubator-doris-flink-connector)
+
+[apache/incubator-doris-spark-connector](https://github.com/apache/incubator-doris-spark-connector)
+
 ## Report issues or submit pull request
 
 If you find any bugs, feel free to file a [GitHub issue](https://github.com/apache/incubator-doris/issues) or fix it by submitting a [pull request](https://github.com/apache/incubator-doris/pulls).
