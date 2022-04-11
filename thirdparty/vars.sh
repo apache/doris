@@ -381,7 +381,7 @@ LIBBACKTRACE_MD5SUM="6c79a8012870a24610c0d9c3621b23fe"
 LLVM_DOWNLOAD="https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.0/llvm-14.0.0.src.tar.xz"
 LLVM_NAME="llvm-14.0.0.src.tar.xz"
 LLVM_SOURCE="llvm-14.0.0.src"
-LLVM_MD5SUM="91ad90cc054593ce95230f4b2118c9d1"
+LLVM_MD5SUM="d41d8cd98f00b204e9800998ecf8427e"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES="LIBEVENT
