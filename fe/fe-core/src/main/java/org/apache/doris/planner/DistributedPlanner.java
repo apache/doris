@@ -356,10 +356,17 @@ public class DistributedPlanner {
             if (node.getInnerRef().isBroadcastJoin()) {
                 // respect user join hint
                 doBroadcast = true;
-            } else if (!node.getInnerRef().isPartitionJoin() && joinCostEvaluation.isBroadcastCostSmaller()
-                    && joinCostEvaluation.constructHashTableSpace()
-                    <= ctx_.getRootAnalyzer().getAutoBroadcastJoinThreshold()) {
-                doBroadcast = true;
+            } else if (!node.getInnerRef().isPartitionJoin() && joinCostEvaluation.isBroadcastCostSmaller()) {
+                int fragmentId = leftChildFragment.getFragmentId().asInt();
+                long spaceUsedByOtherJoinNodes = ctx_.getHashTableSpaceUsedInFragment(fragmentId);
+                long spaceUsedByCurrentNode = joinCostEvaluation.constructHashTableSpace();
+                long SpaceUsedInFragment = spaceUsedByOtherJoinNodes + spaceUsedByCurrentNode;
+                if (SpaceUsedInFragment <= ctx_.getRootAnalyzer().getAutoBroadcastJoinThreshold()) {
+                    ctx_.setHashTableSpaceUsedInFragment(fragmentId, SpaceUsedInFragment);
+                    doBroadcast = true;
+                } else {
+                    doBroadcast = false;
+                }
             } else {
                 doBroadcast = false;
             }

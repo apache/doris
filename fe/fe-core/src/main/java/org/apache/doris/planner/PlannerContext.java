@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.QueryStmt;
@@ -26,6 +27,8 @@ import org.apache.doris.thrift.TQueryOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.Map;
 
 /**
  * Contains the analysis result of a query as well as planning-specific
@@ -49,6 +52,8 @@ public class PlannerContext {
     private final QueryStmt queryStmt_;
     private final StatementBase statement_;
 
+    private final Map<Integer, Long> fragmentIdToHashTableSpaceMap = Maps.newHashMap();
+
     public PlannerContext(Analyzer analyzer, QueryStmt queryStmt, TQueryOptions queryOptions, StatementBase statement) {
         this.analyzer_ = analyzer;
         this.queryStmt_ = queryStmt;
@@ -64,4 +69,11 @@ public class PlannerContext {
     public PlanFragmentId getNextFragmentId() { return fragmentIdGenerator_.getNextId(); }
 
     public boolean isInsert() { return statement_ instanceof InsertStmt; }
+
+    public long getHashTableSpaceUsedInFragment(int fragmentId) {
+        return fragmentIdToHashTableSpaceMap.getOrDefault(fragmentId, 0L);
+    }
+    public void setHashTableSpaceUsedInFragment(int fragmentId, long space) {
+        fragmentIdToHashTableSpaceMap.put(fragmentId, space);
+    }
 }
