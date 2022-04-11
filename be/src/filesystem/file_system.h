@@ -43,7 +43,7 @@ public:
     // Check if the specified file exists and it's a directory.
     virtual Status is_directory(const std::string& path, bool* res) const = 0;
 
-    // Get all files under the *path* directory.
+    // Get all files under the `path` directory.
     // If it's not a directory, return error
     virtual Status list(const std::string& path, std::vector<FileStat>* files) = 0;
 
@@ -58,7 +58,7 @@ public:
     virtual Status delete_file(const std::string& path) = 0;
 
     // Create directory recursively.
-    // If *path* exists, return error
+    // If `path` exists, return error
     virtual Status create_directory(const std::string& path) = 0;
 
     // Open the file for read and return ReadStream object.

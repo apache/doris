@@ -23,8 +23,8 @@ namespace doris {
 
 class LocalReadStream : public ReadStream {
 public:
-    LocalReadStream() = default;
-    ~LocalReadStream() override = default;
+    LocalReadStream(int fd, size_t file_size, size_t buffer_size);
+    ~LocalReadStream() override;
 
     Status read(char* to, size_t n, size_t* read_n) override;
 
@@ -33,6 +33,25 @@ public:
     Status tell(int64_t* position) override;
 
     Status close() override;
+
+private:
+    // Fill the buffer.
+    Status fill();
+
+    bool eof() const { return _file_size == _offset; }
+
+private:
+    int _fd; // shared
+    size_t _file_size;
+    // file offset
+    size_t _offset = 0;
+
+    char* _buffer;
+    size_t _buffer_size;
+    // Buffered begin offset relative to file.
+    size_t _buffer_begin = 0;
+    // Buffered end offset relative to file.
+    size_t _buffer_end = 0;
 };
 
 } // namespace doris

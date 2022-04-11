@@ -17,11 +17,9 @@
 
 #include "filesystem/local_write_stream.h"
 
-#include "common/status.h"
-
 namespace doris {
 
-Status LocalWriteStream::read(char* to, size_t n, size_t* read_n) {
+Status LocalWriteStream::write(const char* from, size_t n) {
     return Status::OK();
 }
 

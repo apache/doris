@@ -21,15 +21,13 @@
 
 namespace doris {
 
+// The implementations may contains buffers or local caches
 class ReadStream {
 public:
     ReadStream() = default;
     virtual ~ReadStream() = default;
 
-    // Read content to 'slice.data', 'slice.size' is the max size of this buffer.
-    // Return ok when read success, and 'bytes_read' is set to size of read content
-    // If reach to end of file, the eof is set to true. meanwhile 'bytes_read'
-    // is set to zero.
+    // `read_n` is set to the number of bytes read.
     virtual Status read(char* to, size_t n, size_t* read_n) = 0;
 
     // Move current position to.
