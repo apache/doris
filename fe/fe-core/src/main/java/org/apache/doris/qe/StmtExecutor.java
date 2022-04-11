@@ -66,6 +66,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -75,6 +76,7 @@ import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -117,7 +119,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.protobuf.ByteString;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -136,6 +137,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
+
+import com.google.protobuf.ByteString;
 
 // Do one COM_QUERY process.
 // first: Parse receive byte array to statement struct.
@@ -192,6 +195,10 @@ public class StmtExecutor implements ProfileWriter {
 
     public void setCoord(Coordinator coord) {
         this.coord = coord;
+    }
+
+    public Analyzer getAnalyzer() {
+        return analyzer;
     }
 
     // At the end of query execution, we begin to add up profile
@@ -566,24 +573,37 @@ public class StmtExecutor implements ProfileWriter {
             }
             // table id in tableList is in ascending order because that table map is a sorted map
             List<Table> tables = Lists.newArrayList(tableMap.values());
-            MetaLockUtils.readLockTables(tables);
-            try {
-                analyzeAndGenerateQueryPlan(tQueryOptions);
-            } catch (MVSelectFailedException e) {
-                /**
-                 * If there is MVSelectFailedException after the first planner, there will be error mv rewritten in query.
-                 * So, the query should be reanalyzed without mv rewritten and planner again.
-                 * Attention: Only error rewritten tuple is forbidden to mv rewrite in the second time.
-                 */
-                resetAnalyzerAndStmt();
-                analyzeAndGenerateQueryPlan(tQueryOptions);
-            } catch (UserException e) {
-                throw e;
-            } catch (Exception e) {
-                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
-                throw new AnalysisException("Unexpected exception: " + e.getMessage());
-            } finally {
-                MetaLockUtils.readUnlockTables(tables);
+            int analyzeTimes = 2;
+            for (int i = 1; i <= analyzeTimes; i++) {
+                MetaLockUtils.readLockTables(tables);
+                try {
+                    analyzeAndGenerateQueryPlan(tQueryOptions);
+                } catch (MVSelectFailedException e) {
+                    /**
+                     * If there is MVSelectFailedException after the first planner, there will be error mv rewritten in query.
+                     * So, the query should be reanalyzed without mv rewritten and planner again.
+                     * Attention: Only error rewritten tuple is forbidden to mv rewrite in the second time.
+                     */
+                    if (i == analyzeTimes) {
+                        throw e;
+                    } else {
+                        resetAnalyzerAndStmt();
+                    }
+                } catch (VecNotImplException e) {
+                    if (i == analyzeTimes) {
+                        throw e;
+                    } else {
+                        resetAnalyzerAndStmt();
+                        VectorizedUtil.switchToQueryNonVec();
+                    }
+                } catch (UserException e) {
+                    throw e;
+                } catch (Exception e) {
+                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                    throw new AnalysisException("Unexpected exception: " + e.getMessage());
+                } finally {
+                    MetaLockUtils.readUnlockTables(tables);
+                }
             }
         } else {
             try {
