@@ -31,9 +31,12 @@ struct StPoint {
     static const size_t NUM_ARGS = 2;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 2);
-        auto return_type = block.get_data_type(result);
-        auto column_x = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        auto column_y = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto return_type = remove_nullable(block.get_data_type(result));
+
+        auto column_x =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto column_y =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
 
         const auto size = column_x->size();
 
@@ -67,14 +70,15 @@ struct StAsWktName {
     static constexpr auto NAME = "st_aswkt";
 };
 
-template<typename FunctionName>
+template <typename FunctionName>
 struct StAsText {
     static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = FunctionName::NAME;
     static const size_t NUM_ARGS = 1;
-    static Status execute(Block& block, const ColumnNumbers& arguments,size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = block.get_data_type(result);
+        auto return_type = remove_nullable(block.get_data_type(result));
+
         auto input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
@@ -106,9 +110,10 @@ struct StX {
     static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_x";
     static const size_t NUM_ARGS = 1;
-    static Status execute(Block& block, const ColumnNumbers& arguments,size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = block.get_data_type(result);
+        auto return_type = remove_nullable(block.get_data_type(result));
+
         auto input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
@@ -140,9 +145,10 @@ struct StY {
     static constexpr auto NEED_CONTEXT = false;
     static constexpr auto NAME = "st_y";
     static const size_t NUM_ARGS = 1;
-    static Status execute(Block& block, const ColumnNumbers& arguments,size_t result) {
+    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 1);
-        auto return_type = block.get_data_type(result);
+        auto return_type = remove_nullable(block.get_data_type(result));
+
         auto input = block.get_by_position(arguments[0]).column;
 
         auto size = input->size();
@@ -176,7 +182,8 @@ struct StDistanceSphere {
     static const size_t NUM_ARGS = 4;
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), 4);
-        auto return_type = block.get_data_type(result);
+        auto return_type = remove_nullable(block.get_data_type(result));
+
         auto x_lng = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto x_lat = block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         auto y_lng = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
@@ -189,16 +196,15 @@ struct StDistanceSphere {
         res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         for (int row = 0; row < size; ++row) {
-            double distance;
+            double distance = 0;
             if (!GeoPoint::ComputeDistance(x_lng->operator[](row).get<Float64>(),
                                            x_lat->operator[](row).get<Float64>(),
                                            y_lng->operator[](row).get<Float64>(),
-                                           y_lat->operator[](row).get<Float64>(),
-                                           &distance)) {
+                                           y_lat->operator[](row).get<Float64>(), &distance)) {
                 res->insert_data(nullptr, 0);
                 continue;
             }
-            res->insert_data(const_cast<const char*>((char*) &distance), 0);
+            res->insert_data(const_cast<const char*>((char*)&distance), 0);
         }
 
         block.replace_by_position(result, std::move(res));
