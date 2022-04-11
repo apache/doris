@@ -92,6 +92,7 @@ jdk_version() {
 }
 
 jvm_arch="amd64"
+MACHINE_TYPE=$(uname -m)
 if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
     jvm_arch="aarch64"
 fi

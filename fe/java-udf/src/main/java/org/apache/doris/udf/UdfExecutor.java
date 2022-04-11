@@ -29,36 +29,18 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
-import sun.misc.Unsafe;
-
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 public class UdfExecutor {
     private static final Logger LOG = Logger.getLogger(UdfExecutor.class);
-    public static final Unsafe UNSAFE;
-
-    static {
-        UNSAFE = (Unsafe) AccessController.doPrivileged(
-                (PrivilegedAction<Object>) () -> {
-                    try {
-                        Field f = Unsafe.class.getDeclaredField("theUnsafe");
-                        f.setAccessible(true);
-                        return f.get(null);
-                    } catch (NoSuchFieldException | IllegalAccessException e) {
-                        throw new Error();
-                    }
-                });
-    }
 
     // By convention, the function in the class must be called evaluate()
     public static final String UDF_FUNCTION_NAME = "evaluate";
@@ -82,16 +64,22 @@ public class UdfExecutor {
     // These buffers are allocated in the BE.
     private final long inputBufferPtrs_;
     private final long inputNullsPtrs_;
+    private final long inputOffsetsPtrs_;
 
     // Output buffer to return non-string values. These buffers are allocated in the BE.
     private final long outputBufferPtr_;
     private final long outputNullPtr_;
+    private final long outputOffsetsPtr_;
+    private final long outputIntermediateStatePtr_;
 
     // Pre-constructed input objects for the UDF. This minimizes object creation overhead
     // as these objects are reused across calls to evaluate().
     private Object[] inputObjects_;
     // inputArgs_[i] is either inputObjects_[i] or null
     private Object[] inputArgs_;
+
+    private long outputOffset_;
+    private long row_idx_;
 
     private final long batch_size_ptr_;
 
@@ -104,7 +92,10 @@ public class UdfExecutor {
         INT("INT", TPrimitiveType.INT, 4),
         BIGINT("BIGINT", TPrimitiveType.BIGINT, 8),
         FLOAT("FLOAT", TPrimitiveType.FLOAT, 4),
-        DOUBLE("DOUBLE", TPrimitiveType.DOUBLE, 8);
+        DOUBLE("DOUBLE", TPrimitiveType.DOUBLE, 8),
+        CHAR("CHAR", TPrimitiveType.CHAR, 0),
+        VARCHAR("VARCHAR", TPrimitiveType.VARCHAR, 0),
+        STRING("STRING", TPrimitiveType.STRING, 0);
 
         private final String description_;
         private final TPrimitiveType thriftType_;
@@ -144,6 +135,10 @@ public class UdfExecutor {
                 return JavaUdfDataType.FLOAT;
             } else if (c == double.class || c == Double.class) {
                 return JavaUdfDataType.DOUBLE;
+            } else if (c == char.class || c == Character.class) {
+                return JavaUdfDataType.CHAR;
+            } else if (c == String.class) {
+                return JavaUdfDataType.STRING;
             }
             return JavaUdfDataType.INVALID_TYPE;
         }
@@ -183,8 +178,15 @@ public class UdfExecutor {
         batch_size_ptr_ = request.batch_size_ptr;
         inputBufferPtrs_ = request.input_buffer_ptrs;
         inputNullsPtrs_ = request.input_nulls_ptrs;
+        inputOffsetsPtrs_ = request.input_offsets_ptrs;
+
         outputBufferPtr_ = request.output_buffer_ptr;
         outputNullPtr_ = request.output_null_ptr;
+        outputOffsetsPtr_ = request.output_offsets_ptr;
+        outputIntermediateStatePtr_ = request.output_intermediate_state_ptr;
+
+        outputOffset_ = 0L;
+        row_idx_ = 0L;
 
         init(jarFile, className, retType, parameterTypes);
     }
@@ -218,21 +220,51 @@ public class UdfExecutor {
      * been serialized to 'input'
      */
     public void evaluate() throws UdfRuntimeException {
+        int batch_size = UdfUtils.UNSAFE.getInt(null, batch_size_ptr_);
         try {
-            int batch_size = UNSAFE.getInt(null, batch_size_ptr_);
-            for (int row = 0; row < batch_size; row++) {
-                allocateInputObjects(row);
+            if (retType_.equals(JavaUdfDataType.STRING) || retType_.equals(JavaUdfDataType.VARCHAR)
+                    || retType_.equals(JavaUdfDataType.CHAR)) {
+                // If this udf return variable-size type (e.g.) String, we have to allocate output
+                // buffer multiple times until buffer size is enough to store output column. So we
+                // always begin with the last evaluated row instead of beginning of this batch.
+                row_idx_ = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr_ + 8);
+                if (row_idx_ == 0) {
+                    outputOffset_ = 0L;
+                }
+            } else {
+                row_idx_ = 0;
+            }
+            for (; row_idx_ < batch_size; row_idx_++) {
+                allocateInputObjects(row_idx_);
                 for (int i = 0; i < argTypes_.length; ++i) {
-                    if (UNSAFE.getByte(null, UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputNullsPtrs_, i)) + row * 1L) == 0) {
+                    // Currently, -1 indicates this column is not nullable. So input argument is
+                    // null iff inputNullsPtrs_ != -1 and nullCol[row_idx] != 0.
+                    if (UdfUtils.UNSAFE.getLong(null,
+                            UdfUtils.getAddressAtOffset(inputNullsPtrs_, i)) == -1 ||
+                            UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
+                                    UdfUtils.getAddressAtOffset(inputNullsPtrs_, i)) + row_idx_) == 0) {
                         inputArgs_[i] = inputObjects_[i];
                     } else {
                         inputArgs_[i] = null;
                     }
                 }
-                storeUdfResult(evaluate(inputArgs_), row);
+                // `storeUdfResult` is called to store udf result to output column. If true
+                // is returned, current value is stored successfully. Otherwise, current result is
+                // not processed successfully (e.g. current output buffer is not large enough) so
+                // we break this loop directly.
+                if (!storeUdfResult(evaluate(inputArgs_), row_idx_)) {
+                    UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr_ + 8, row_idx_);
+                    return;
+                }
             }
         } catch (Exception e) {
+            if (retType_.equals(JavaUdfDataType.STRING)) {
+                UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr_ + 8, batch_size);
+            }
             throw new UdfRuntimeException("UDF::evaluate() ran into a problem.", e);
+        }
+        if (retType_.equals(JavaUdfDataType.STRING)) {
+            UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr_ + 8, row_idx_);
         }
     }
 
@@ -252,42 +284,73 @@ public class UdfExecutor {
     }
 
     // Sets the result object 'obj' into the outputBufferPtr_ and outputNullPtr_
-    private void storeUdfResult(Object obj, int row) throws UdfRuntimeException {
+    private boolean storeUdfResult(Object obj, long row) throws UdfRuntimeException {
         if (obj == null) {
-            UNSAFE.putByte(null, UNSAFE.getLong(null, outputNullPtr_) + row * 1L, (byte) 1);
-            return;
+            assert (UdfUtils.UNSAFE.getLong(null, outputNullPtr_) != -1);
+            UdfUtils.UNSAFE.putByte(null, UdfUtils.UNSAFE.getLong(null, outputNullPtr_) + row, (byte) 1);
+            if (retType_.equals(JavaUdfDataType.STRING)) {
+                long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr_);
+                if (outputOffset_ + 1 > bufferSize) {
+                    return false;
+                }
+                outputOffset_ += 1;
+                UdfUtils.UNSAFE.putChar(null, UdfUtils.UNSAFE.getLong(null, outputBufferPtr_) +
+                        outputOffset_ - 1, UdfUtils.END_OF_STRING);
+                UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr_) +
+                        4L * row, Integer.parseUnsignedInt(String.valueOf(outputOffset_)));
+            }
+            return true;
         }
-        UNSAFE.putByte(UNSAFE.getLong(null, outputNullPtr_) + row * 1L, (byte) 0);
+        if (UdfUtils.UNSAFE.getLong(null, outputNullPtr_) != -1) {
+            UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputNullPtr_) + row, (byte) 0);
+        }
         switch (retType_) {
             case BOOLEAN: {
                 boolean val = (boolean) obj;
-                UNSAFE.putByte(UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), val ? (byte) 1 : 0);
-                return;
+                UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), val ? (byte) 1 : 0);
+                return true;
             }
             case TINYINT: {
-                UNSAFE.putByte(UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (byte) obj);
-                return;
+                UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (byte) obj);
+                return true;
             }
             case SMALLINT: {
-                UNSAFE.putShort(UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (short) obj);
-                return;
+                UdfUtils.UNSAFE.putShort(UdfUtils.UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (short) obj);
+                return true;
             }
             case INT: {
-                UNSAFE.putInt(UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (int) obj);
-                return;
+                UdfUtils.UNSAFE.putInt(UdfUtils.UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (int) obj);
+                return true;
             }
             case BIGINT: {
-                UNSAFE.putLong(UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (long) obj);
-                return;
+                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (long) obj);
+                return true;
             }
             case FLOAT: {
-                UNSAFE.putFloat(UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (float) obj);
-                return;
+                UdfUtils.UNSAFE.putFloat(UdfUtils.UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (float) obj);
+                return true;
             }
             case DOUBLE: {
-                UNSAFE.putDouble(UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (double) obj);
-                return;
+                UdfUtils.UNSAFE.putDouble(UdfUtils.UNSAFE.getLong(null, outputBufferPtr_) + row * retType_.getLen(), (double) obj);
+                return true;
             }
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+                long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr_);
+                byte[] bytes = ((String) obj).getBytes(StandardCharsets.UTF_8);
+                if (outputOffset_ + bytes.length + 1 > bufferSize) {
+                    return false;
+                }
+                outputOffset_ += (bytes.length + 1);
+                UdfUtils.UNSAFE.putChar(UdfUtils.UNSAFE.getLong(null, outputBufferPtr_) +
+                        outputOffset_ - 1, UdfUtils.END_OF_STRING);
+                UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr_) + 4L * row,
+                        Integer.parseUnsignedInt(String.valueOf(outputOffset_)));
+                UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null,
+                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr_) +
+                                outputOffset_ - bytes.length - 1, bytes.length);
+                return true;
             default:
                 throw new UdfRuntimeException("Unsupported return type: " + retType_);
         }
@@ -295,32 +358,47 @@ public class UdfExecutor {
 
     // Preallocate the input objects that will be passed to the underlying UDF.
     // These objects are allocated once and reused across calls to evaluate()
-    private void allocateInputObjects(int row) throws UdfRuntimeException {
+    private void allocateInputObjects(long row) throws UdfRuntimeException {
         inputObjects_ = new Object[argTypes_.length];
         inputArgs_ = new Object[argTypes_.length];
 
         for (int i = 0; i < argTypes_.length; ++i) {
             switch (argTypes_[i]) {
                 case BOOLEAN:
-                    inputObjects_[i] = UNSAFE.getBoolean(null, UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 1L * row);
+                    inputObjects_[i] = UdfUtils.UNSAFE.getBoolean(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + row);
                     break;
                 case TINYINT:
-                    inputObjects_[i] = UNSAFE.getByte(null, UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 1L * row);
+                    inputObjects_[i] = UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + row);
                     break;
                 case SMALLINT:
-                    inputObjects_[i] = UNSAFE.getShort(null, UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 2L * row);
+                    inputObjects_[i] = UdfUtils.UNSAFE.getShort(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 2L * row);
                     break;
                 case INT:
-                    inputObjects_[i] = UNSAFE.getInt(null, UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 4L * row);
+                    inputObjects_[i] = UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 4L * row);
                     break;
                 case BIGINT:
-                    inputObjects_[i] = UNSAFE.getLong(null, UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 8L * row);
+                    inputObjects_[i] = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 8L * row);
                     break;
                 case FLOAT:
-                    inputObjects_[i] = UNSAFE.getFloat(null, UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 4L * row);
+                    inputObjects_[i] = UdfUtils.UNSAFE.getFloat(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 4L * row);
                     break;
                 case DOUBLE:
-                    inputObjects_[i] = UNSAFE.getDouble(null, UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 8L * row);
+                    inputObjects_[i] = UdfUtils.UNSAFE.getDouble(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + 8L * row);
+                    break;
+                case CHAR:
+                case VARCHAR:
+                case STRING:
+                    long offset = Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
+                            UdfUtils.UNSAFE.getLong(null,
+                                    UdfUtils.getAddressAtOffset(inputOffsetsPtrs_, i)) + 4L * row));
+                    long numBytes = row == 0 ? offset - 1 : offset - Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
+                            UdfUtils.UNSAFE.getLong(null,
+                                    UdfUtils.getAddressAtOffset(inputOffsetsPtrs_, i)) + 4L * (row - 1))) - 1;
+                    long base = row == 0 ? UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) :
+                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs_, i)) + offset - numBytes - 1;
+                    byte[] bytes = new byte[(int) numBytes];
+                    UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
+                    inputObjects_[i] = new String(bytes, StandardCharsets.UTF_8);
                     break;
                 default:
                     throw new UdfRuntimeException("Unsupported argument type: " + argTypes_[i]);
