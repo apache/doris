@@ -275,6 +275,7 @@ module.exports = [
           "contribute-udf",
           "native-user-defined-function",
           "remote-user-defined-function",
+          "java-user-defined-function",
         ],
       },
     ],
