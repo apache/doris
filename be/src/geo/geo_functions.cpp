@@ -106,14 +106,6 @@ StringVal GeoFunctions::st_as_wkt(doris_udf::FunctionContext* ctx,
     return result;
 }
 
-struct StConstructState {
-    StConstructState() : is_null(false) {}
-    ~StConstructState() {}
-
-    bool is_null;
-    std::string encoded_buf;
-};
-
 void GeoFunctions::st_from_wkt_close(FunctionContext* ctx,
                                      FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
@@ -228,16 +220,6 @@ doris_udf::StringVal GeoFunctions::st_circle(FunctionContext* ctx, const DoubleV
         return result;
     }
 }
-
-struct StContainsState {
-    StContainsState() : is_null(false), shapes{nullptr, nullptr} {}
-    ~StContainsState() {
-        delete shapes[0];
-        delete shapes[1];
-    }
-    bool is_null;
-    GeoShape* shapes[2];
-};
 
 void GeoFunctions::st_contains_prepare(doris_udf::FunctionContext* ctx,
                                        doris_udf::FunctionContext::FunctionStateScope scope) {
