@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 
@@ -95,25 +96,29 @@ public class OdbcCatalogResource extends Resource {
 
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        // check properties
-        String host = properties.remove(HOST);
-        String port = properties.remove(PORT);
-        String user = properties.remove(USER);
-        String password = properties.remove(PASSWORD);
-        String type = properties.remove(TYPE);
-        String driver = properties.remove(DRIVER);
-
-        if (!properties.isEmpty()) {
-            throw new DdlException("Unknown ODBC catalog resource: " + properties);
-        }
-
         // modify properties
-        replaceIfEffectiveValue(this.configs, HOST, host);
-        replaceIfEffectiveValue(this.configs, PORT, port);
-        replaceIfEffectiveValue(this.configs, USER, user);
-        replaceIfEffectiveValue(this.configs, PASSWORD, password);
-        replaceIfEffectiveValue(this.configs, TYPE, type);
-        replaceIfEffectiveValue(this.configs, DRIVER, driver);
+        replaceIfEffectiveValue(this.configs, HOST, properties.get(HOST));
+        replaceIfEffectiveValue(this.configs, PORT, properties.get(PORT));
+        replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
+        replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
+        replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
+        replaceIfEffectiveValue(this.configs, DRIVER, properties.get(DRIVER));
+    }
+
+    @Override
+    public void checkProperties(Map<String, String> properties) throws AnalysisException {
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+        // check properties
+        copiedProperties.remove(HOST);
+        copiedProperties.remove(PORT);
+        copiedProperties.remove(USER);
+        copiedProperties.remove(PASSWORD);
+        copiedProperties.remove(TYPE);
+        copiedProperties.remove(DRIVER);
+
+        if (!copiedProperties.isEmpty()) {
+            throw new AnalysisException("Unknown ODBC catalog resource properties: " + copiedProperties);
+        }
     }
 
     public String getProperties(String propertiesKey)  {

@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ResourceDesc;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
@@ -299,6 +300,19 @@ public class SparkResource extends Resource {
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
         updateProperties(properties);
+    }
+
+    @Override
+    public void checkProperties(Map<String, String> properties) throws AnalysisException {
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+        copiedProperties.keySet().removeAll(getSparkConfig(properties).keySet());
+        copiedProperties.keySet().removeAll(getBrokerProperties(properties).keySet());
+        copiedProperties.remove(BROKER);
+        copiedProperties.remove(WORKING_DIR);
+
+        if (!copiedProperties.isEmpty()) {
+            throw new AnalysisException("Unknown spark resource properties: " + copiedProperties);
+        }
     }
 
     @Override

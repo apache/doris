@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -56,14 +57,22 @@ public class AlterResourceStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        // check type in properties
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Resource properties can't be null");
         }
 
+        // check type in properties
         if (properties.containsKey(TYPE)) {
             throw new AnalysisException("Can not change resource type.");
         }
+
+        // check resource existence
+        Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
+        if (resource == null) {
+            throw new AnalysisException("Unknown resource: " + resourceName);
+        }
+        // check properties
+        resource.checkProperties(properties);
     }
 
     @Override

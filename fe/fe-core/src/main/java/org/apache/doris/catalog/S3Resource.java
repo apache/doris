@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 
@@ -109,29 +110,33 @@ public class S3Resource extends Resource {
 
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        // check properties
-        String endpoint = properties.remove(S3_ENDPOINT);
-        String region = properties.remove(S3_REGION);
-        String rootPath = properties.remove(S3_ROOT_PATH);
-        String accessKey = properties.remove(S3_ACCESS_KEY);
-        String secretKey = properties.remove(S3_SECRET_KEY);
-        String maxConnections = properties.remove(S3_MAX_CONNECTIONS);
-        String requestTimeoutMs = properties.remove(S3_REQUEST_TIMEOUT_MS);
-        String connectionTimeoutMs = properties.remove(S3_CONNECTION_TIMEOUT_MS);
-
-        if (!properties.isEmpty()) {
-            throw new DdlException("Unknown S3 resource properties: " + properties);
-        }
-
         // modify properties
-        replaceIfEffectiveValue(this.properties, S3_ENDPOINT, endpoint);
-        replaceIfEffectiveValue(this.properties, S3_REGION, region);
-        replaceIfEffectiveValue(this.properties, S3_ROOT_PATH, rootPath);
-        replaceIfEffectiveValue(this.properties, S3_ACCESS_KEY, accessKey);
-        replaceIfEffectiveValue(this.properties, S3_SECRET_KEY, secretKey);
-        replaceIfEffectiveValue(this.properties, S3_MAX_CONNECTIONS, maxConnections);
-        replaceIfEffectiveValue(this.properties, S3_REQUEST_TIMEOUT_MS, requestTimeoutMs);
-        replaceIfEffectiveValue(this.properties, S3_CONNECTION_TIMEOUT_MS, connectionTimeoutMs);
+        replaceIfEffectiveValue(this.properties, S3_ENDPOINT, properties.get(S3_ENDPOINT));
+        replaceIfEffectiveValue(this.properties, S3_REGION, properties.get(S3_REGION));
+        replaceIfEffectiveValue(this.properties, S3_ROOT_PATH, properties.get(S3_ROOT_PATH));
+        replaceIfEffectiveValue(this.properties, S3_ACCESS_KEY, properties.get(S3_ACCESS_KEY));
+        replaceIfEffectiveValue(this.properties, S3_SECRET_KEY, properties.get(S3_SECRET_KEY));
+        replaceIfEffectiveValue(this.properties, S3_MAX_CONNECTIONS, properties.get(S3_MAX_CONNECTIONS));
+        replaceIfEffectiveValue(this.properties, S3_REQUEST_TIMEOUT_MS, properties.get(S3_REQUEST_TIMEOUT_MS));
+        replaceIfEffectiveValue(this.properties, S3_CONNECTION_TIMEOUT_MS, properties.get(S3_CONNECTION_TIMEOUT_MS));
+    }
+
+    @Override
+    public void checkProperties(Map<String, String> properties) throws AnalysisException {
+        // check properties
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+        copiedProperties.remove(S3_ENDPOINT);
+        copiedProperties.remove(S3_REGION);
+        copiedProperties.remove(S3_ROOT_PATH);
+        copiedProperties.remove(S3_ACCESS_KEY);
+        copiedProperties.remove(S3_SECRET_KEY);
+        copiedProperties.remove(S3_MAX_CONNECTIONS);
+        copiedProperties.remove(S3_REQUEST_TIMEOUT_MS);
+        copiedProperties.remove(S3_CONNECTION_TIMEOUT_MS);
+
+        if (!copiedProperties.isEmpty()) {
+            throw new AnalysisException("Unknown S3 resource properties: " + copiedProperties);
+        }
     }
 
     @Override
