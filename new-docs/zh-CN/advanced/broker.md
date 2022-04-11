@@ -191,38 +191,3 @@ WITH BROKER "broker_name"
    ```
 
    关于HDFS集群的配置可以写入hdfs-site.xml文件中，用户使用Broker进程读取HDFS集群的信息时，只需要填写集群的文件路径名和认证信息即可。
-
-#### 百度对象存储 BOS
-
-**（开源版本不支持）**
-
-1. 通过 AK/SK 访问
-
-   - AK/SK：Access Key 和 Secret Key。在百度云安全认证中心可以查看用户的 AK/SK。
-   - Region Endpoint：BOS 所在地区的 Endpoint。
-   - BOS支持的区域及对应 Endpoint 请查看[获取访问域名(opens new window)](https://cloud.baidu.com/doc/BOS/s/Ck1rk80hn#获取访问域名)
-
-   示例如下：
-
-   ```text
-   (
-       "bos_endpoint" = "http://bj.bcebos.com",
-       "bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-       "bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
-   )
-   ```
-
-#### 百度 HDFS/AFS
-
-**（开源版本不支持）**
-
-百度 AFS 和 HDFS 仅支持使用 ugi 的简单认证访问。示例如下：
-
-```text
-(
-    "username" = "user",
-    "password" = "passwd"
-);
-```
-
-其中 user 和 passwd 为 Hadoop 的 UGI 配置。

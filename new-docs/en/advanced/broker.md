@@ -201,37 +201,3 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     ```
    The configuration for accessing the HDFS cluster can be written to the hdfs-site.xml file. When users use the Broker process to read data from the HDFS cluster, they only need to fill in the cluster file path and authentication information.
    
-#### Baidu Object Storage BOS
-
-**(Open source version is not supported)**
-
-1. Access via AK / SK
-
-    * AK/SK: Access Key and Secret Key. You can check the user's AK / SK in Baidu Cloud Security Certification Center.
-    * Region Endpoint: Endpoint of the BOS region.
-    * For the regions supported by BOS and corresponding Endpoints, please see [Get access domain name](https://cloud.baidu.com/doc/BOS/s/Ck1rk80hn#%E8%8E%B7%E5%8F%96%E8%AE %BF%E9%97%AE%E5%9F%9F%E5%90%8D)
-
-    Examples are as follows:
-
-    ```
-    (
-        "bos_endpoint" = "http://bj.bcebos.com",
-        "bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
-    )
-    ```
-
-#### Baidu HDFS/AFS
-
-**（Open source version is not supported）**
-
-Baidu AFS and HDFS only support simple authentication access using UGI. Examples are as follows:
-
-```
-(
-    "username" = "user",
-    "password" = "passwd"
-);
-```
-
-User and passwd are UGI configurations for Hadoop.
