@@ -159,6 +159,8 @@ public:
 
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use diffrent creator to get data from value.
+    // We should use create_from_olap_xxx only at binary data scaned from storage engine and convert to typed data.
+    // At other case, we just use create_from_normal_xxx.
     static VecDateTimeValue create_from_olap_date(uint64_t value) {
         VecDateTimeValue date;
         date.from_olap_date(value);
