@@ -849,6 +849,7 @@ OLAPStatus TabletManager::build_all_report_tablets_info(
             tablet_version_num_hist.add(tablet_ptr->version_count());
             tablets_info->emplace(tablet_id, t_tablet);
             TTabletStat t_tablet_stat;
+            t_tablet_stat.__set_tablet_id(tablet_info.tablet_id);
             t_tablet_stat.__set_data_size(tablet_info.data_size);
             t_tablet_stat.__set_row_num(tablet_info.row_count);
             t_tablet_stat.__set_version_count(tablet_info.version_count);
