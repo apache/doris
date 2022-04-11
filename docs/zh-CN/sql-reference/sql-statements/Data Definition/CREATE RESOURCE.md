@@ -116,14 +116,16 @@ under the License.
     ```
 
     S3 相关参数如下：
-    - s3_endpoint：s3 endpoint
-    - s3_region：s3 region
-    - s3_root_path：s3 根目录
-    - s3_access_key：s3 access key
-    - s3_secret_key：s3 secret key
-    - s3_max_connections：s3 最大连接数量，默认为 50
-    - s3_request_timeout_ms：s3 请求超时时间，单位毫秒，默认为 3000
-    - s3_connection_timeout_ms：s3 连接超时时间，单位毫秒，默认为 1000
+    - 必需参数
+        - s3_endpoint：s3 endpoint
+        - s3_region：s3 region
+        - s3_root_path：s3 根目录
+        - s3_access_key：s3 access key
+        - s3_secret_key：s3 secret key
+    - 可选参数
+        - s3_max_connections：s3 最大连接数量，默认为 50
+        - s3_request_timeout_ms：s3 请求超时时间，单位毫秒，默认为 3000
+        - s3_connection_timeout_ms：s3 连接超时时间，单位毫秒，默认为 1000
 
 ## keyword
 

@@ -4937,7 +4937,7 @@ public class Catalog {
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
                         Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:" + partitionId + ", db: " + dbId + ", tbl: " + tableId);
                         if (dataProperty.getStorageMedium() == TStorageMedium.SSD
-                                && dataProperty.getCoolDownTimeMs() < currentTimeMs) {
+                                && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.
                             // record and change when holding write lock
                             Multimap<Long, Long> multimap = changedPartitionsMap.get(dbId);
@@ -4989,7 +4989,7 @@ public class Catalog {
                         }
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
                         if (dataProperty.getStorageMedium() == TStorageMedium.SSD
-                                && dataProperty.getCoolDownTimeMs() < currentTimeMs) {
+                                && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.
                             partitionInfo.setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
                             storageMediumMap.put(partitionId, TStorageMedium.HDD);

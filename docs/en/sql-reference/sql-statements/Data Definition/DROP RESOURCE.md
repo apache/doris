@@ -33,6 +33,8 @@ under the License.
     Syntax:
         DROP RESOURCE 'resource_name'
 
+    Note: ODBC/S3 resources that are in use cannot be deleted.
+
 ## Example
 
     1. Delete the Spark resource named spark0:

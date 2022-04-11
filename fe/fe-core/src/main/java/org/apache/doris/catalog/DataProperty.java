@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Strings;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -36,18 +35,16 @@ public class DataProperty implements Writable {
     public static final DataProperty DEFAULT_DATA_PROPERTY = new DataProperty(
             "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD
     );
-    public static final long MAX_COOL_DOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
+    public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
 
     @SerializedName(value =  "storageMedium")
     private TStorageMedium storageMedium;
     @SerializedName(value =  "cooldownTimeMs")
-    private long coolDownTimeMs;
+    private long cooldownTimeMs;
     @SerializedName(value = "remoteStorageResourceName")
     private String remoteStorageResourceName;
-    @SerializedName(value = "remoteCoolDownTimeMs")
-    private long remoteCoolDownTimeMs;
-    @SerializedName(value = "remoteStorageMedium")
-    private TStorageMedium remoteStorageMedium;
+    @SerializedName(value = "remoteCooldownTimeMs")
+    private long remoteCooldownTimeMs;
 
     private DataProperty() {
         // for persist
@@ -57,48 +54,36 @@ public class DataProperty implements Writable {
         this.storageMedium = medium;
         if (medium == TStorageMedium.SSD) {
             long currentTimeMs = System.currentTimeMillis();
-            this.coolDownTimeMs = currentTimeMs + Config.storage_cooldown_second * 1000L;
+            this.cooldownTimeMs = currentTimeMs + Config.storage_cooldown_second * 1000L;
         } else {
-            this.coolDownTimeMs = MAX_COOL_DOWN_TIME_MS;
+            this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         }
         this.remoteStorageResourceName = "";
-        this.remoteCoolDownTimeMs = MAX_COOL_DOWN_TIME_MS;
-        this.remoteStorageMedium = TStorageMedium.S3;
+        this.remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
     }
 
-    public DataProperty(TStorageMedium medium, long coolDown,
-                        String remoteStorageResourceName, long remoteCoolDownTimeMs) {
+    public DataProperty(TStorageMedium medium, long cooldown,
+                        String remoteStorageResourceName, long remoteCooldownTimeMs) {
         this.storageMedium = medium;
-        this.coolDownTimeMs = coolDown;
+        this.cooldownTimeMs = cooldown;
         this.remoteStorageResourceName = remoteStorageResourceName;
-        this.remoteCoolDownTimeMs = remoteCoolDownTimeMs;
-        if (Strings.isNullOrEmpty(remoteStorageResourceName)) {
-            this.remoteStorageMedium = TStorageMedium.S3;
-        } else {
-            this.remoteStorageMedium = TStorageMedium.valueOf(
-                    Catalog.getCurrentCatalog().getResourceMgr().getResource(remoteStorageResourceName).getType().name()
-            );
-        }
+        this.remoteCooldownTimeMs = remoteCooldownTimeMs;
     }
 
     public TStorageMedium getStorageMedium() {
         return storageMedium;
     }
 
-    public long getCoolDownTimeMs() {
-        return coolDownTimeMs;
+    public long getCooldownTimeMs() {
+        return cooldownTimeMs;
     }
 
-    public long getRemoteCoolDownTimeMs() {
-        return remoteCoolDownTimeMs;
+    public long getRemoteCooldownTimeMs() {
+        return remoteCooldownTimeMs;
     }
 
     public String getRemoteStorageResourceName() {
         return remoteStorageResourceName;
-    }
-
-    public TStorageMedium getRemoteStorageMedium() {
-        return remoteStorageMedium;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
@@ -119,10 +104,9 @@ public class DataProperty implements Writable {
 
     public void readFields(DataInput in) throws IOException {
         storageMedium = TStorageMedium.valueOf(Text.readString(in));
-        coolDownTimeMs = in.readLong();
+        cooldownTimeMs = in.readLong();
         remoteStorageResourceName = "";
-        remoteCoolDownTimeMs = MAX_COOL_DOWN_TIME_MS;
-        remoteStorageMedium = TStorageMedium.S3;
+        remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
     }
 
     @Override
@@ -138,20 +122,18 @@ public class DataProperty implements Writable {
         DataProperty other = (DataProperty) obj;
 
         return this.storageMedium == other.storageMedium
-                && this.coolDownTimeMs == other.coolDownTimeMs
-                && this.remoteCoolDownTimeMs == other.remoteCoolDownTimeMs
-                && this.remoteStorageResourceName.equals(other.remoteStorageResourceName)
-                && this.remoteStorageMedium == other.remoteStorageMedium;
+                && this.cooldownTimeMs == other.cooldownTimeMs
+                && this.remoteCooldownTimeMs == other.remoteCooldownTimeMs
+                && this.remoteStorageResourceName.equals(other.remoteStorageResourceName);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
-        sb.append("cool down[").append(TimeUtils.longToTimeString(coolDownTimeMs)).append("]. ");
+        sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
         sb.append("remote storage resource name[").append(this.remoteStorageResourceName).append("]. ");
-        sb.append("remote cool down[").append(TimeUtils.longToTimeString(remoteCoolDownTimeMs)).append("]. ");
-        sb.append("remote storage medium[").append(this.remoteStorageMedium).append("].");
+        sb.append("remote cool down[").append(TimeUtils.longToTimeString(remoteCooldownTimeMs)).append("].");
         return sb.toString();
     }
 }

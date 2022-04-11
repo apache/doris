@@ -117,14 +117,16 @@ under the License.
     ````
 
     S3 related parameters are as follows:
-    - s3_endpoint: s3 endpoint
-    - s3_region: s3 region
-    - s3_root_path: s3 root directory
-    - s3_access_key: s3 access key
-    - s3_secret_key: s3 secret key
-    - s3_max_connections: the maximum number of s3 connections, the default is 50
-    - s3_request_timeout_ms: s3 request timeout, in milliseconds, the default is 3000
-    - s3_connection_timeout_ms: s3 connection timeout, in milliseconds, the default is 1000
+    - required
+        - s3_endpoint: s3 endpoint
+        - s3_region: s3 region
+        - s3_root_path: s3 root directory
+        - s3_access_key: s3 access key
+        - s3_secret_key: s3 secret key
+    - optional
+        - s3_max_connections: the maximum number of s3 connections, the default is 50
+        - s3_request_timeout_ms: s3 request timeout, in milliseconds, the default is 3000
+        - s3_connection_timeout_ms: s3 connection timeout, in milliseconds, the default is 1000
 
 
 ## keyword

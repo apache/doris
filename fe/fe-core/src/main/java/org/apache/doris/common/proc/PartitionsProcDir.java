@@ -66,8 +66,8 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("PartitionId").add("PartitionName")
             .add("VisibleVersion").add("VisibleVersionTime")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
-            .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CoolDownTime")
-            .add("RemoteStorageResource").add("RemoteStorageCoolDownTime")
+            .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime")
+            .add("RemoteStorageResource").add("RemoteStorageCooldownTime")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
             .build();
 
@@ -269,9 +269,9 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
                 partitionInfo.add(dataProperty.getStorageMedium().name());
-                partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCoolDownTimeMs()));
+                partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
                 partitionInfo.add(dataProperty.getRemoteStorageResourceName());
-                partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getRemoteCoolDownTimeMs()));
+                partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getRemoteCooldownTimeMs()));
 
                 partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 
