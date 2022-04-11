@@ -157,15 +157,26 @@ public:
               _month(0), // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
+    // only used on function makedate
+    VecDateTimeValue(int year)
+            : _neg(0),
+              _type(TIME_DATETIME),
+              _second(0),
+              _minute(0),
+              _hour(0),
+              _day(1),
+              _month(1),
+              _year(year) {}
+
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use diffrent creator to get data from value.
     // We should use create_from_olap_xxx only at binary data scaned from storage engine and convert to typed data.
-    // At other case, we just use create_from_normal_xxx.
+    // At other case, we just use binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>.
 
     // olap storage layer date data format:
     // 64 bits binary data [year(remaining bits), month(4 bits), day(5 bits)]
     // execute layer date/datetime and olap storage layer datetime data format:
-    // 16 bytes interger data [year(remaining digits), month(2 digits), day(2 digits), hour(2 digits), minute(2 digits) ,second(2 digits)]
+    // 8 bytes interger data [year(remaining digits), month(2 digits), day(2 digits), hour(2 digits), minute(2 digits) ,second(2 digits)]
 
     static VecDateTimeValue create_from_olap_date(uint64_t value) {
         VecDateTimeValue date;
@@ -176,19 +187,6 @@ public:
     static VecDateTimeValue create_from_olap_datetime(uint64_t value) {
         VecDateTimeValue datetime;
         datetime.from_olap_datetime(value);
-        return datetime;
-    }
-
-    static VecDateTimeValue create_from_normal_date(uint64_t value) {
-        VecDateTimeValue date;
-        date.from_date_int64(value);
-        return date;
-    }
-
-    static VecDateTimeValue create_from_normal_datetime(uint64_t value) {
-        VecDateTimeValue datetime;
-        datetime.from_date_int64(value);
-        datetime.to_datetime();
         return datetime;
     }
 
@@ -627,7 +625,7 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
-    // Used to convert to uint64_t
+    // Used to convert to int64_t
     int64_t to_datetime_int64() const;
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;

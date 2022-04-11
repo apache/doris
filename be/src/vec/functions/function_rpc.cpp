@@ -232,14 +232,15 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
             if constexpr (nullable) {
                 if (!column->is_null_at(row_num)) {
                     VecDateTimeValue v =
-                            VecDateTimeValue::create_from_normal_date(column->get_int(row_num));
+                            binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(
+                                    column->get_int(row_num));
                     date_time->set_day(v.day());
                     date_time->set_month(v.month());
                     date_time->set_year(v.year());
                 }
             } else {
-                VecDateTimeValue v =
-                        VecDateTimeValue::create_from_normal_date(column->get_int(row_num));
+                VecDateTimeValue v = binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(
+                        column->get_int(row_num));
                 date_time->set_day(v.day());
                 date_time->set_month(v.month());
                 date_time->set_year(v.year());
@@ -255,7 +256,8 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
             if constexpr (nullable) {
                 if (!column->is_null_at(row_num)) {
                     VecDateTimeValue v =
-                            VecDateTimeValue::create_from_normal_datetime(column->get_int(row_num));
+                            binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(
+                                    column->get_int(row_num));
                     date_time->set_day(v.day());
                     date_time->set_month(v.month());
                     date_time->set_year(v.year());
@@ -264,8 +266,8 @@ void convert_col_to_pvalue(const ColumnPtr& column, const DataTypePtr& data_type
                     date_time->set_second(v.second());
                 }
             } else {
-                VecDateTimeValue v =
-                        VecDateTimeValue::create_from_normal_datetime(column->get_int(row_num));
+                VecDateTimeValue v = binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(
+                        column->get_int(row_num));
                 date_time->set_day(v.day());
                 date_time->set_month(v.month());
                 date_time->set_year(v.year());

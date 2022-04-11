@@ -132,7 +132,8 @@ struct WindowFunnelState {
         write_var_int(events.size(), out);
 
         for (int64_t i = 0; i < events.size(); i++) {
-            int64_t timestamp = events[i].first;
+            int64_t timestamp =
+                    binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(events[i].first);
             int event_idx = events[i].second;
             write_var_int(timestamp, out);
             write_var_int(event_idx, out);
@@ -152,7 +153,8 @@ struct WindowFunnelState {
 
             read_var_int(timestamp, in);
             read_var_int(event_idx, in);
-            VecDateTimeValue time_value = VecDateTimeValue::create_from_normal_datetime(timestamp);
+            VecDateTimeValue time_value =
+                    binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>(timestamp);
             add(time_value, (int)event_idx, max_event_level, window);
         }
     }
