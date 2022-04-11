@@ -1201,10 +1201,12 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
             vecFns = Lists.newArrayList();
             vectorizedFunctions.put(fn.functionName(), vecFns);
         }
-        ScalarFunction scalarFunction = (ScalarFunction)fn;
-        vecFns.add(ScalarFunction.createVecBuiltin(scalarFunction.functionName(), scalarFunction.getSymbolName(),
-                Lists.newArrayList(scalarFunction.getArgs()), scalarFunction.hasVarArgs(),
-                scalarFunction.getReturnType(), scalarFunction.isUserVisible(), scalarFunction.getNullableMode()));
+        ScalarFunction scalarFunction = (ScalarFunction) fn;
+        vecFns.add(ScalarFunction.createVecBuiltin(scalarFunction.functionName(), scalarFunction.getPrepareFnSymbol(),
+                        scalarFunction.getSymbolName(), scalarFunction.getCloseFnSymbol(),
+                        Lists.newArrayList(scalarFunction.getArgs()), scalarFunction.hasVarArgs(),
+                        scalarFunction.getReturnType(), scalarFunction.isUserVisible(),
+                        scalarFunction.getNullableMode()));
     }
 
 
