@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import mockit.Capturing;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
@@ -46,8 +47,9 @@ import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
 
+@SuppressWarnings({"TestMethodWithIncorrectSignature", "ResultOfMethodCallIgnored"})
 public class DistributedPlannerTest {
-    private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
+    private static final String runningDir = "fe/mocked/DistributedPlannerTest/" + UUID.randomUUID() + "/";
     private static ConnectContext ctx;
 
     @BeforeClass
@@ -65,6 +67,16 @@ public class DistributedPlannerTest {
         // create table tbl2
         createTblStmtStr = "create table db1.tbl2(k3 int, k4 varchar(32)) "
                 + "DUPLICATE KEY(k3) distributed by hash(k3) buckets 1 properties('replication_num' = '1');";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        // create table tbl3
+        createTblStmtStr = "create table db1.tbl3(k5 int, k6 varchar(32)) "
+                + "DUPLICATE KEY(k5) distributed by hash(k5) buckets 1 properties('replication_num' = '1');";
+        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        // create table tbl4
+        createTblStmtStr = "create table db1.tbl4(k7 int, k8 varchar(32)) "
+                + "DUPLICATE KEY(k7) distributed by hash(k7) buckets 1 properties('replication_num' = '1');";
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
@@ -150,6 +162,13 @@ public class DistributedPlannerTest {
 
     @Test
     public void testBroadcastJoinCostThreshold() throws Exception {
+        new Expectations() {{
+            joinCostEvaluation.isBroadcastCostSmaller();
+            result = true;
+            joinCostEvaluation.constructHashTableSpace();
+            result = 600000000L;
+        }};
+
         String sql = "explain select * from db1.tbl1 join db1.tbl2 on tbl1.k1 = tbl2.k3";
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
         stmtExecutor.execute();
@@ -170,5 +189,29 @@ public class DistributedPlannerTest {
         } finally {
             ctx.getSessionVariable().autoBroadcastJoinThreshold = originThreshold;
         }
+    }
+
+    @Capturing JoinCostEvaluation joinCostEvaluation;
+
+    @Test
+    public void testMultipleHashNodeInOneFragment() throws Exception {
+        new Expectations() {{
+            joinCostEvaluation.isBroadcastCostSmaller();
+            result = true;
+            joinCostEvaluation.constructHashTableSpace();
+            result = 600000000L;
+        }};
+
+        String sql = "explain select * from db1.tbl1" +
+                " join db1.tbl2 on tbl1.k1 = tbl2.k3" +
+                " join db1.tbl3 on tbl1.k1 = tbl3.k5" +
+                " join db1.tbl4 on tbl1.k1 = tbl4.k7";
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        stmtExecutor.execute();
+        Planner planner = stmtExecutor.planner();
+        List<PlanFragment> fragments = planner.getFragments();
+        String plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
+        Assert.assertEquals(2, StringUtils.countMatches(plan, "INNER JOIN (BROADCAST)"));
+        Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (PARTITIONED)"));
     }
 }
