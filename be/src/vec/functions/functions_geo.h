@@ -42,7 +42,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        return Impl::execute(block, arguments, result);
         if constexpr (Impl::NEED_CONTEXT) {
             return Impl::execute(context, block, arguments, result);
         } else {
