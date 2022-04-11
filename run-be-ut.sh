@@ -176,6 +176,50 @@ done
 
 export DORIS_TEST_BINARY_DIR=${DORIS_TEST_BINARY_DIR}/test/
 
+# prepare jvm if needed
+jdk_version() {
+    local result
+    local java_cmd=$JAVA_HOME/bin/java
+    local IFS=$'\n'
+    # remove \r for Cygwin
+    local lines=$("$java_cmd" -Xms32M -Xmx32M -version 2>&1 | tr '\r' '\n')
+    if [[ -z $java_cmd ]]
+    then
+        result=no_java
+    else
+        for line in $lines; do
+            if [[ (-z $result) && ($line = *"version \""*) ]]
+            then
+                local ver=$(echo $line | sed -e 's/.*version "\(.*\)"\(.*\)/\1/; 1q')
+                # on macOS, sed doesn't support '?'
+                if [[ $ver = "1."* ]]
+                then
+                    result=$(echo $ver | sed -e 's/1\.\([0-9]*\)\(.*\)/\1/; 1q')
+                else
+                    result=$(echo $ver | sed -e 's/\([0-9]*\)\(.*\)/\1/; 1q')
+                fi
+            fi
+        done
+    fi
+    echo "$result"
+}
+
+jvm_arch="amd64"
+MACHINE_TYPE=$(uname -m)
+if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+    jvm_arch="aarch64"
+fi
+java_version=$(jdk_version)
+if [[ $java_version -gt 8 ]]; then
+    export LD_LIBRARY_PATH=$JAVA_HOME/lib/server:$JAVA_HOME/lib:$LD_LIBRARY_PATH
+# JAVA_HOME is jdk
+elif [[ -d "$JAVA_HOME/jre"  ]]; then
+    export LD_LIBRARY_PATH=$JAVA_HOME/jre/lib/$jvm_arch/server:$JAVA_HOME/jre/lib/$jvm_arch:$LD_LIBRARY_PATH
+# JAVA_HOME is jre
+else
+    export LD_LIBRARY_PATH=$JAVA_HOME/lib/$jvm_arch/server:$JAVA_HOME/lib/$jvm_arch:$LD_LIBRARY_PATH
+fi
+
 # prepare gtest output dir
 GTEST_OUTPUT_DIR=${CMAKE_BUILD_DIR}/gtest_output
 rm -rf ${GTEST_OUTPUT_DIR} && mkdir ${GTEST_OUTPUT_DIR}
