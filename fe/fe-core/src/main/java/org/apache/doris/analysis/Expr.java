@@ -884,6 +884,11 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     protected abstract String toSqlImpl();
 
+    /**
+     * !!!!!! Important !!!!!!
+     * Subclasses should override this method if
+     * sql digest should be represented different from tosqlImpl().
+     */
     protected String toDigestImpl() {
         return toSqlImpl();
     }
