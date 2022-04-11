@@ -360,9 +360,9 @@ public class DistributedPlanner {
                 int fragmentId = leftChildFragment.getFragmentId().asInt();
                 long spaceUsedByOtherJoinNodes = ctx_.getHashTableSpaceUsedInFragment(fragmentId);
                 long spaceUsedByCurrentNode = joinCostEvaluation.constructHashTableSpace();
-                long SpaceUsedInFragment = spaceUsedByOtherJoinNodes + spaceUsedByCurrentNode;
-                if (SpaceUsedInFragment <= ctx_.getRootAnalyzer().getAutoBroadcastJoinThreshold()) {
-                    ctx_.setHashTableSpaceUsedInFragment(fragmentId, SpaceUsedInFragment);
+                long spaceUsedInFragment = spaceUsedByOtherJoinNodes + spaceUsedByCurrentNode;
+                if (spaceUsedInFragment <= ctx_.getRootAnalyzer().getAutoBroadcastJoinThreshold()) {
+                    ctx_.setHashTableSpaceUsedInFragment(fragmentId, spaceUsedInFragment);
                     doBroadcast = true;
                 } else {
                     doBroadcast = false;

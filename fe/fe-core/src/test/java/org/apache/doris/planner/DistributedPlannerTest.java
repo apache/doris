@@ -199,6 +199,7 @@ public class DistributedPlannerTest {
             joinCostEvaluation.isBroadcastCostSmaller();
             result = true;
             joinCostEvaluation.constructHashTableSpace();
+            // value that larger than one of third of auto broadcast join threshold in analyzer.
             result = 600000000L;
         }};
 
