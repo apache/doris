@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ALTER-VIEW",
+    "title": "ALTER-TABLE-BITMAP",
     "language": "en"
 }
 ---
@@ -24,46 +24,46 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ALTER-VIEW
+## ALTER-TABLE-BITMAP
 
 ### Name
 
-ALTER VIEW
+ALTER  TABLE  BITMAP
 
 ### Description
 
 ```text
-This statement is used to modify the definition of a view
+This statement is used to perform a bitmap index operation on an existing table.
+
 grammar:
-ALTER VIEW
-     [db_name.]view_name
-     (column1[ COMMENT "col comment"][, column2, ...])
-     AS query_stmt
-    
-illustrate:
-     1. Views are logical, and the data in them will not be stored on physical media. When querying, the view will be used as a subquery in the statement. Therefore, modifying the definition of the view is equivalent to modifying query_stmt.
-     2. query_stmt is any supported SQL
+    ALTER TABLE [database.]table alter_clause;
+
+The alter_clause of bitmap index supports the following modification methods
+1. Create a bitmap index
+    grammar:
+        ADD INDEX [IF NOT EXISTS] index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
+    Notice:
+        1. Currently only supports bitmap index
+        2. BITMAP indexes are only created on a single column
+
+2. Delete the index
+    grammar:
+        DROP INDEX [IF EXISTS] index_name;
 ```
 
 ### Example
 
 ```text
-1. Modify the view example_view on example_db
-
-ALTER VIEW example_db.example_view
-(
-c1 COMMENT "column 1",
-c2 COMMENT "column 2",
-c3 COMMENT "column 3"
-)
-AS SELECT k1, k2, SUM(v1) FROM example_table
-GROUP BY k1, k2
+1. Create a bitmap index for siteid on table1
+    ALTER TABLE table1 ADD INDEX [IF NOT EXISTS] index_name (siteid) [USING BITMAP] COMMENT 'balabala';
+2. Delete the bitmap index of the siteid column on table1
+    ALTER TABLE table1 DROP INDEX [IF EXISTS] index_name;
 ```
 
 ### Keywords
 
 ```text
-ALTER, VIEW
+ALTER, TABLE, BITMAP
 ```
 
 ### Best Practice

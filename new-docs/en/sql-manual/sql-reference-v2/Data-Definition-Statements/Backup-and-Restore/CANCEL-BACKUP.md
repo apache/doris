@@ -26,13 +26,27 @@ under the License.
 
 ## CANCEL-BACKUP
 
+### Name 
+
+CANCEL  BACKUP
+
 ### Description
+
+```text
+This statement is used to cancel an ongoing BACKUP task. Grammar: CANCEL BACKUP FROM db_name;
+```
 
 ### Example
 
+```text
+1.Cancel the BACKUP task under example_db. CANCEL BACKUP FROM example_db;
+```
+
 ### Keywords
 
-    CANCEL, BACKUP
+```text
+teCANCEL, BACKUP
+```
 
 ### Best Practice
 

@@ -26,9 +26,119 @@ under the License.
 
 ## ALTER-TABLE-PROPERTY
 
+### Name
+
+ALTER TABLE PROPERTY
+
 ### Description
 
+```text
+This statement is used to modify the properties of an existing table. This operation is synchronous, and the return of the command indicates the completion of the execution.
+
+grammar:
+    ALTER TABLE [database.]table alter_clause;
+ 
+The alter_clause of property supports the following modification methods
+1. Modify the bloom filter column of the table
+   ALTER TABLE example_db.my_table SET ("bloom_filter_columns"="k1,k2,k3");
+
+   Can also be incorporated into the schema change operation above (note that the syntax for multiple clauses is slightly different)
+   ALTER TABLE example_db.my_table
+   DROP COLUMN col2
+   PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
+
+2. Modify the Colocate property of the table
+
+   ALTER TABLE example_db.my_table set ("colocate_with" = "t1");
+
+3. Change the bucketing method of the table from Hash Distribution to Random Distribution
+
+   ALTER TABLE example_db.my_table set ("distribution_type" = "random");
+
+4. Modify the dynamic partition attribute of the table (support adding dynamic partition attribute to the table without dynamic partition attribute)
+   ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
+   
+   If you need to add dynamic partition attributes to tables without dynamic partition attributes, you need to specify all dynamic partition attributes
+   (Note: adding dynamic partition attributes is not supported for non-partitioned tables)
+   ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition. buckets" = "32");
+
+5. Modify the in_memory attribute of the table
+
+   ALTER TABLE example_db.my_table set ("in_memory" = "true");
+6. Enable batch delete function
+   ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE"
+7. Enable the function of ensuring the import order according to the value of the sequence column
+
+   ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
+   
+8. Change the default number of buckets for the table to 50
+
+   ALTER TABLE example_db.my_table MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 50;
+
+9. Modify table comments
+
+   ALTER TABLE example_db.my_table MODIFY COMMENT "new comment";
+
+10. Modify column comments
+
+   ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
+
+11. Modify the engine type
+
+   ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
+```
+
 ### Example
+
+```text
+1. Modify the bloom filter column of the table
+   ALTER TABLE example_db.my_table SET ("bloom_filter_columns"="k1,k2,k3");
+
+   Can also be incorporated into the schema change operation above (note that the syntax for multiple clauses is slightly different)
+   ALTER TABLE example_db.my_table
+   DROP COLUMN col2
+   PROPERTIES ("bloom_filter_columns"="k1,k2,k3");
+
+2. Modify the Colocate property of the table
+
+   ALTER TABLE example_db.my_table set ("colocate_with" = "t1");
+
+3. Change the bucketing method of the table from Hash Distribution to Random Distribution
+
+   ALTER TABLE example_db.my_table set ("distribution_type" = "random");
+
+4. Modify the dynamic partition attribute of the table (support adding dynamic partition attribute to the table without dynamic partition attribute)
+   ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "false");
+   
+   If you need to add dynamic partition attributes to tables without dynamic partition attributes, you need to specify all dynamic partition attributes
+   (Note: adding dynamic partition attributes is not supported for non-partitioned tables)
+   ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition. buckets" = "32");
+
+5. Modify the in_memory attribute of the table
+
+   ALTER TABLE example_db.my_table set ("in_memory" = "true");
+6. Enable batch delete function
+   ALTER TABLE example_db.my_table ENABLE FEATURE "BATCH_DELETE"
+7. Enable the function of ensuring the import order according to the value of the sequence column
+
+    ALTER TABLE example_db.my_table ENABLE FEATURE "SEQUENCE_LOAD" WITH PROPERTIES ("function_column.sequence_type" = "Date")
+    
+8. Change the default number of buckets for the table to 50
+
+   ALTER TABLE example_db.my_table MODIFY DISTRIBUTION DISTRIBUTED BY HASH(k1) BUCKETS 50;
+
+9. Modify table comments
+
+   ALTER TABLE example_db.my_table MODIFY COMMENT "new comment";
+
+10. Modify column comments
+
+   ALTER TABLE example_db.my_table MODIFY COLUMN k1 COMMENT "k1", MODIFY COLUMN k2 COMMENT "k2";
+
+11. Modify the engine type
+
+   ALTER TABLE example_db.mysql_table MODIFY ENGINE TO odbc PROPERTIES("driver" = "MySQL");
+```
 
 ### Keywords
 
