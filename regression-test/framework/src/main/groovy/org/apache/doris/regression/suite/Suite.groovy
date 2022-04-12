@@ -29,7 +29,6 @@ import org.apache.doris.regression.action.StreamLoadAction
 import org.apache.doris.regression.action.SuiteAction
 import org.apache.doris.regression.action.TestAction
 import org.apache.doris.regression.util.JdbcUtils
-import org.apache.doris.regression.util.Metaholder
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -185,8 +184,7 @@ class Suite implements GroovyInterceptable {
 
     List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
-        Metaholder holder = new Metaholder();
-        def result = JdbcUtils.executeToList(context.getConnection(), sqlStr, holder)
+        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
@@ -265,10 +263,9 @@ class Suite implements GroovyInterceptable {
 
     void quickTest(String tag, String sql, boolean isOrder = false) {
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
-        Metaholder holder = new Metaholder();
 
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
-            def result = JdbcUtils.executeToStringList(context.getConnection(), sql, holder)
+            def (result, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
             if (isOrder) {
                 result = sortByToString(result)
             }
@@ -287,7 +284,7 @@ class Suite implements GroovyInterceptable {
 
             OutputUtils.TagBlockIterator expectCsvResults = context.getOutputIterator().next()
 
-            List<List<Object>> realResults = JdbcUtils.executeToStringList(context.getConnection(), sql, holder)
+            def (realResults, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
             if (isOrder) {
                 realResults = sortByToString(realResults)
             }
@@ -296,7 +293,7 @@ class Suite implements GroovyInterceptable {
                 errorMsg = OutputUtils.checkOutput(expectCsvResults, realResults.iterator(),
                     { row -> OutputUtils.toCsvString(row as List<Object>) },
                     { row ->  OutputUtils.toCsvString(row) },
-                    "Check tag '${tag}' failed", holder.meta)
+                    "Check tag '${tag}' failed", meta)
             } catch (Throwable t) {
                 throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
             }

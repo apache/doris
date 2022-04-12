@@ -21,9 +21,8 @@ import groovy.transform.stc.ClosureParams
 import groovy.transform.stc.FromString
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
-import org.apache.doris.regression.util.Metaholder
 import groovy.util.logging.Slf4j
-
+import java.sql.ResultSetMetaData
 import java.util.stream.Collectors
 
 @Slf4j
@@ -113,15 +112,14 @@ class ExplainAction implements SuiteAction {
         log.info("Execute sql:\n${explainSql}".toString())
         long startTime = System.currentTimeMillis()
         String explainString = null
-        Metaholder holder = new Metaholder();
+        ResultSetMetaData meta = null
         try {
-            
-            explainString = JdbcUtils.executeToList(context.getConnection(), explainSql, holder).stream()
-                    .map({row -> row.get(0).toString()})
-                    .collect(Collectors.joining("\n"))
-            return new ActionResult(explainString, null, startTime, System.currentTimeMillis(), holder)
+            def temp = null
+            (temp, meta) = JdbcUtils.executeToList(context.getConnection(), explainSql)
+            explainString = temp.stream().map({row -> row.get(0).toString()}).collect(Collectors.joining("\n"))
+            return new ActionResult(explainString, null, startTime, System.currentTimeMillis(), meta)
         } catch (Throwable t) {
-            return new ActionResult(explainString, t, startTime, System.currentTimeMillis(), holder)
+            return new ActionResult(explainString, t, startTime, System.currentTimeMillis(), meta)
         }
     }
 
@@ -130,14 +128,14 @@ class ExplainAction implements SuiteAction {
         Throwable exception
         long startTime
         long endTime
-        Metaholder holder
+        ResultSetMetaData meta
 
-        ActionResult(String result, Throwable exception, long startTime, long endTime, Metaholder holder) {
+        ActionResult(String result, Throwable exception, long startTime, long endTime, ResultSetMetaData meta) {
             this.result = result
             this.exception = exception
             this.startTime = startTime
             this.endTime = endTime
-            this.holder = holder
+            this.meta = meta
         }
     }
 }

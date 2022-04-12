@@ -24,7 +24,6 @@ import groovy.util.logging.Slf4j
 import org.apache.commons.io.LineIterator
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
-import org.apache.doris.regression.util.Metaholder
 import org.apache.http.HttpStatus
 import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.client.methods.RequestBuilder
@@ -34,7 +33,7 @@ import org.apache.http.util.EntityUtils
 import javax.swing.text.html.parser.Entity
 import java.nio.charset.StandardCharsets
 import java.sql.Connection
-
+import java.sql.ResultSetMetaData
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
 import org.junit.Assert
@@ -98,7 +97,7 @@ class TestAction implements SuiteAction {
                                 return OutputUtils.toCsvString(row as Object)
                             }
                         },
-                            { List<Object> row -> OutputUtils.toCsvString(row) }, "Check failed", result.holder.meta)
+                            { List<Object> row -> OutputUtils.toCsvString(row) }, "Check failed", result.meta)
                     if (errorMsg != null) {
                         throw new IllegalStateException(errorMsg)
                     }
@@ -110,7 +109,7 @@ class TestAction implements SuiteAction {
                         String errMsg = OutputUtils.checkOutput(csvIt, result.result.iterator(),
                                 { List<String> row -> OutputUtils.toCsvString(row as List<Object>) },
                                 { List<Object> row -> OutputUtils.toCsvString(row) },
-                                "Check failed compare to", result.holder.meta)
+                                "Check failed compare to", result.meta)
                         if (errMsg != null) {
                             throw new IllegalStateException(errMsg)
                         }
@@ -152,13 +151,13 @@ class TestAction implements SuiteAction {
 
     ActionResult doRun(Connection conn) {
         List<List<Object>> result = null
-        Metaholder holder = new Metaholder();
+        ResultSetMetaData meta = null
         Throwable ex = null
 
         long startTime = System.currentTimeMillis()
         try {
             log.info("Execute ${isOrder ? "order_" : ""}sql:\n${sql}".toString())
-            result = JdbcUtils.executeToList(conn, sql, holder)
+            (result, meta) = JdbcUtils.executeToList(conn, sql)
             if (isOrder) {
                 result = DataUtils.sortByToString(result)
             }
@@ -167,7 +166,7 @@ class TestAction implements SuiteAction {
         }
         long endTime = System.currentTimeMillis()
 
-        return new ActionResult(result, ex, startTime, endTime, holder)
+        return new ActionResult(result, ex, startTime, endTime, meta)
     }
 
     void sql(String sql) {
@@ -239,14 +238,14 @@ class TestAction implements SuiteAction {
         Throwable exception
         long startTime
         long endTime
-        Metaholder holder
+        ResultSetMetaData meta
 
-        ActionResult(List<List<Object>> result, Throwable exception, long startTime, long endTime, Metaholder holder) {
+        ActionResult(List<List<Object>> result, Throwable exception, long startTime, long endTime, ResultSetMetaData meta) {
             this.result = result
             this.exception = exception
             this.startTime = startTime
             this.endTime = endTime
-            this.holder = holder
+            this.meta = meta
         }
     }
 }
