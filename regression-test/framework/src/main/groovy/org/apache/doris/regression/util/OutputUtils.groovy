@@ -53,27 +53,27 @@ class OutputUtils {
         return writer.toString()
     }
 
-    static String checkCell(String info, int line, String expect_cell, String real_cell, String data_type) {
-        if(data_type == "FLOAT" || data_type == "DOUBLE") {
-            double expect_double = Double.parseDouble(expect_cell)
-            double real_double = Double.parseDouble(real_cell)
+    static String checkCell(String info, int line, String expectCell, String realCell, String dataType) {
+        if(dataType == "FLOAT" || dataType == "DOUBLE") {
+            double expectDouble = Double.parseDouble(expectCell)
+            double realDouble = Double.parseDouble(realCell)
 
-            double real_relative_error = Math.abs(expect_double - real_double) / real_double
-            double expect_relative_error = 1e-10
+            double realRelativeError = Math.abs(expectDouble - realDouble) / realDouble
+            double expectRelativeError = 1e-10
 
-            if(expect_relative_error < real_relative_error) {
-                return "${info}, line ${line}, ${data_type} result mismatch.\nExpect cell is: ${expect_cell}\nBut real is: ${real_cell}\nrelative error is: ${real_relative_error}, bigger than ${expect_relative_error}"
+            if(expectRelativeError < realRelativeError) {
+                return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell is: ${expectCell}\nBut real is: ${realCell}\nrelative error is: ${realRelativeError}, bigger than ${expectRelativeError}"
             }
-        } else if(data_type == "DATE" || data_type =="DATETIME") {
-            expect_cell = expect_cell.replace("T", " ")
-            real_cell = real_cell.replace("T", " ")
+        } else if(dataType == "DATE" || dataType =="DATETIME") {
+            expectCell = expectCell.replace("T", " ")
+            realCell = realCell.replace("T", " ")
 
-            if(!expect_cell.equals(real_cell)) {
-                return "${info}, line ${line}, ${data_type} result mismatch.\nExpect cell is: ${expect_cell}\nBut real is: ${real_cell}"
+            if(!expectCell.equals(realCell)) {
+                return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell is: ${expectCell}\nBut real is: ${realCell}"
             }
         } else {
-            if(!expect_cell.equals(real_cell)) {
-                return "${info}, line ${line}, ${data_type} result mismatch.\nExpect cell is: ${expect_cell}\nBut real is: ${real_cell}"
+            if(!expectCell.equals(realCell)) {
+                return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell is: ${expectCell}\nBut real is: ${realCell}"
             }
         }
 
@@ -104,11 +104,11 @@ class OutputUtils {
 
                 def columnCount = meta.columnCount
                 for (int i = 1; i <= columnCount; i++) {
-                    String expect_cell = toCsvString(expectList[i - 1])
-                    String real_cell = toCsvString(realList[i - 1])
-                    String data_type = meta.getColumnTypeName(i)
+                    String expectCell = toCsvString(expectList[i - 1])
+                    String realCell = toCsvString(realList[i - 1])
+                    String dataType = meta.getColumnTypeName(i)
 
-                    def res = checkCell(info, line, expect_cell, real_cell, data_type)
+                    def res = checkCell(info, line, expectCell, realCell, dataType)
                     if(res != null) {
                         return res
                     }
