@@ -111,10 +111,9 @@ public class StorageBackend extends StorageDesc implements ParseNode {
     public enum StorageType {
         BROKER("Doris Broker"),
         S3("Amazon S3 Simple Storage Service"),
-        OFS("Tencent CHDFS"),
-        // the following is not used currently
         HDFS("Hadoop Distributed File System"),
-        LOCAL("Local file system");
+        LOCAL("Local file system"),
+        OFS("Tencent CHDFS");
 
         private final String description;
 
