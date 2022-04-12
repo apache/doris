@@ -1611,6 +1611,18 @@ public class Analyzer {
         return globalState.sjClauseByConjunct.containsKey(e.getId());
     }
 
+    public Map<ExprId, TableRef> getFullOuterJoinedConjuncts(){
+        return globalState.fullOuterJoinedConjuncts;
+    }
+
+    public Map<TupleId, TableRef> getFullOuterJoinedTupleIds(){
+        return globalState.fullOuterJoinedTupleIds;
+    }
+
+    public Map<TupleId, TableRef> getOuterJoinedTupleIds(){
+        return globalState.outerJoinedTupleIds;
+    }
+
     public TableRef getFullOuterJoinRef(Expr e) {
         return globalState.fullOuterJoinedConjuncts.get(e.getId());
     }

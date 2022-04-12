@@ -63,6 +63,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 /**
@@ -511,7 +513,7 @@ public class SelectStmt extends QueryStmt {
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
 
-        convertOutJoinToInnerJoin();
+        convertOutJoinToInnerJoin(analyzer);
 
         // Change all outer join tuple to null here after analyze where and from clause
         // all solt desc of join tuple is ready. Before analyze sort info/agg info/analytic info
@@ -617,7 +619,7 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-    private void convertOutJoinToInnerJoin() {
+    private void convertOutJoinToInnerJoin(Analyzer analyzer) {
         // Use HashSet to ensure tableRefs are unique, such as avoid two table A in it;
         HashSet<String> notNullTables = Sets.newHashSet();
 
@@ -630,6 +632,7 @@ public class SelectStmt extends QueryStmt {
             return;
         }
 
+        // Find tables which is in not-null predicate
         for (Expr expr : flatExprs) {
             if (expr instanceof Predicate && ((Predicate) expr).isNotNullPred()) {
                 for (Expr child : expr.getChildren()) {
@@ -650,6 +653,23 @@ public class SelectStmt extends QueryStmt {
         // next table:
         // full outer join -> left outer join
         // right outer join -> inner join
+        UnaryOperator<JoinOperator> convertSelf = joinOp -> {
+            if (joinOp.isFullOuterJoin()) {
+                return JoinOperator.RIGHT_OUTER_JOIN;
+            } else if (joinOp.isLeftOuterJoin()) {
+                return JoinOperator.INNER_JOIN;
+            }
+            return joinOp;
+        };
+        UnaryOperator<JoinOperator> convertNext = joinOp -> {
+            if (joinOp.isFullOuterJoin()) {
+                return JoinOperator.LEFT_OUTER_JOIN;
+            } else if (joinOp.isRightOuterJoin()) {
+                return JoinOperator.INNER_JOIN;
+            }
+            return joinOp;
+        };
+
         for (int i = 0; i < fromClause.size(); i++) {
             if (fromClause == null)
                 return;
@@ -658,22 +678,41 @@ public class SelectStmt extends QueryStmt {
             if (tableRef == null || tableRef.getName() == null)
                 continue;
             if (notNullTables.contains(tableRef.getName().getTbl())) {
-                if (tableRef.getJoinOp() == JoinOperator.FULL_OUTER_JOIN) {
-                    tableRef.setJoinOp(JoinOperator.RIGHT_OUTER_JOIN);
-                } else if (tableRef.getJoinOp() == JoinOperator.LEFT_OUTER_JOIN) {
-                    tableRef.setJoinOp(JoinOperator.INNER_JOIN);
-                }
+                tableRef.setJoinOp(convertSelf.apply(tableRef.getJoinOp()));
 
                 if (i < fromClause.size() - 1) {
                     TableRef nextTableRef = fromClause.get(i + 1);
-                    if (nextTableRef.getJoinOp() == JoinOperator.FULL_OUTER_JOIN) {
-                        nextTableRef.setJoinOp(JoinOperator.LEFT_OUTER_JOIN);
-                    } else if (nextTableRef.getJoinOp() == JoinOperator.RIGHT_OUTER_JOIN) {
-                        nextTableRef.setJoinOp(JoinOperator.INNER_JOIN);
-                    }
+                    nextTableRef.setJoinOp(convertNext.apply(nextTableRef.getJoinOp()));
                 }
             }
         }
+
+        // Clean outerJoinedTupleIds/fullOuterJoinedTupleIds/fullOuterJoinedConjuncts in
+        // globalState.
+        // Make predicate can be pushed down after conversion.
+        ArrayList<ExprId> conjunctIds = Lists.newArrayList();
+        analyzer.getFullOuterJoinedConjuncts().forEach((id, tableRef) -> {
+            if (tableRef != null && tableRef.joinOp.isRightOuterJoin() || tableRef.joinOp.isInnerJoin()
+                    || (tableRef.leftTblRef != null
+                            && (tableRef.leftTblRef.joinOp.isLeftOuterJoin()
+                                    || tableRef.joinOp.isInnerJoin())))
+                conjunctIds.add(id);
+        });
+        conjunctIds.forEach(analyzer.getFullOuterJoinedConjuncts()::remove);
+
+        Consumer<Map<TupleId, TableRef>> remove = (tupleIds) -> {
+            ArrayList<TupleId> ids = Lists.newArrayList();
+            tupleIds.forEach((id, tableRef) -> {
+                if (tableRef != null && tableRef.joinOp.isRightOuterJoin() || tableRef.joinOp.isInnerJoin()
+                        || (tableRef.leftTblRef != null
+                                && (tableRef.leftTblRef.joinOp.isLeftOuterJoin()
+                                        || tableRef.joinOp.isInnerJoin())))
+                    ids.add(id);
+            });
+            ids.forEach(tupleIds::remove);
+        };
+        remove.accept(analyzer.getFullOuterJoinedTupleIds());
+        remove.accept(analyzer.getOuterJoinedTupleIds());
     }
 
     /**
@@ -800,7 +839,7 @@ public class SelectStmt extends QueryStmt {
 
         // New pair of table ref and row count
         for (TableRef tblRef : fromClause) {
-            if (tblRef.getJoinOp() != JoinOperator.INNER_JOIN || tblRef.hasJoinHints()) {
+            if (!tblRef.getJoinOp().isInnerJoin() || tblRef.hasJoinHints()) {
                 // Unsupported reorder outer join
                 return;
             }
