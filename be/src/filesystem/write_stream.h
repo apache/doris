@@ -27,12 +27,13 @@ public:
     WriteStream() = default;
     virtual ~WriteStream() = default;
 
-    // Appends multiple slices of data referenced by 'data' to the stream.
+    // Appends data to the stream.
     //
-    // Does not guarantee durability of 'data'; close() must be called for all
+    // Does not guarantee durability of written data; close() must be called for all
     // outstanding data to reach the disk.
     virtual Status write(const char* from, size_t put_n) = 0;
 
+    // Wait for data to be reliably written. Mainly, call fsync for fd.
     virtual Status sync() = 0;
 
     virtual Status close() = 0;

@@ -23,14 +23,28 @@ namespace doris {
 
 class LocalWriteStream : public WriteStream {
 public:
-    LocalWriteStream() = default;
-    ~LocalWriteStream() override = default;
+    LocalWriteStream(int fd, size_t buffer_size);
+    ~LocalWriteStream() override;
 
     Status write(const char* from, size_t put_n) override;
 
     Status sync() override;
 
     Status close() override;
+
+    // Flush buffer data to file. Mainly, call write for fd.
+    Status flush();
+
+private:
+    size_t buffer_remain() const { return _buffer_size - _buffer_used; }
+
+private:
+    int _fd; // owned
+    bool _dirty = false;
+
+    char* _buffer;
+    size_t _buffer_size;
+    size_t _buffer_used = 0;
 };
 
 } // namespace doris

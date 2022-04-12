@@ -84,8 +84,9 @@ Status LocalReadStream::tell(int64_t* position) {
 
 Status LocalReadStream::close() {
     if (_fd != -1) {
-        _fd = -1;
         delete[] _buffer;
+        _buffer = nullptr;
+        _fd = -1;
     }
     return Status::OK();
 }
