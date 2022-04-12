@@ -39,14 +39,14 @@ TEST_F(BlockBloomFilterTest, Normal) {
     std::unique_ptr<BloomFilter> bf;
     // now CLASSIC_BLOOM_FILTER is not supported
     auto st = BloomFilter::create(CLASSIC_BLOOM_FILTER, &bf);
-    ASSERT_FALSE(st.ok());
-    ASSERT_EQ(nullptr, bf);
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(nullptr, bf);
     st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
-    ASSERT_TRUE(st.ok());
-    ASSERT_NE(nullptr, bf);
+    EXPECT_TRUE(st.ok());
+    EXPECT_NE(nullptr, bf);
     st = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
-    ASSERT_TRUE(st.ok());
-    ASSERT_TRUE(bf->size() > 0);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(bf->size() > 0);
     int num = 1000;
     uint32_t values[1000];
     for (int i = 0; i < num; ++i) {
@@ -58,30 +58,30 @@ TEST_F(BlockBloomFilterTest, Normal) {
     // add nullptr
     bf->add_bytes(nullptr, 1);
     for (int i = 0; i < num; ++i) {
-        ASSERT_TRUE(bf->test_bytes((char*)&values[i], sizeof(uint32_t)));
+        EXPECT_TRUE(bf->test_bytes((char*)&values[i], sizeof(uint32_t)));
     }
     // test nullptr
-    ASSERT_TRUE(bf->test_bytes(nullptr, 1));
+    EXPECT_TRUE(bf->test_bytes(nullptr, 1));
 
     // test read
     std::unique_ptr<BloomFilter> bf2;
     st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf2);
-    ASSERT_TRUE(st.ok());
-    ASSERT_NE(nullptr, bf2);
+    EXPECT_TRUE(st.ok());
+    EXPECT_NE(nullptr, bf2);
     st = bf2->init(bf->data(), bf->size(), HASH_MURMUR3_X64_64);
-    ASSERT_TRUE(st.ok());
-    ASSERT_TRUE(bf2->size() > 0);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(bf2->size() > 0);
     for (int i = 0; i < num; ++i) {
-        ASSERT_TRUE(bf2->test_bytes((char*)&values[i], sizeof(uint32_t)));
+        EXPECT_TRUE(bf2->test_bytes((char*)&values[i], sizeof(uint32_t)));
     }
     // test nullptr
-    ASSERT_TRUE(bf2->test_bytes(nullptr, 1));
+    EXPECT_TRUE(bf2->test_bytes(nullptr, 1));
 
     bf->reset();
     char* data = bf->data();
     // data is reset to 0
     for (int i = 0; i < bf->size(); ++i) {
-        ASSERT_EQ(*data, 0);
+        EXPECT_EQ(*data, 0);
         data++;
     }
 }
@@ -91,19 +91,19 @@ TEST_F(BlockBloomFilterTest, SP) {
     // test write
     std::unique_ptr<BloomFilter> bf;
     auto st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
-    ASSERT_TRUE(st.ok());
-    ASSERT_NE(nullptr, bf);
+    EXPECT_TRUE(st.ok());
+    EXPECT_NE(nullptr, bf);
     st = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
-    ASSERT_TRUE(st.ok());
-    ASSERT_TRUE(bf->size() > 0);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(bf->size() > 0);
 
     std::unique_ptr<BloomFilter> bf2;
     st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf2);
-    ASSERT_TRUE(st.ok());
-    ASSERT_NE(nullptr, bf2);
+    EXPECT_TRUE(st.ok());
+    EXPECT_NE(nullptr, bf2);
     st = bf2->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
-    ASSERT_TRUE(st.ok());
-    ASSERT_TRUE(bf2->size() > 0);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(bf2->size() > 0);
 
     int num = _expected_num;
     int32_t values[num];
@@ -120,8 +120,8 @@ TEST_F(BlockBloomFilterTest, SP) {
 
     // true test
     for (int i = 0; i < num; ++i) {
-        ASSERT_TRUE(bf->test_bytes((char*)&values[i], 4));
-        ASSERT_TRUE(bf2->test_bytes((char*)&values2[i], 4));
+        EXPECT_TRUE(bf->test_bytes((char*)&values[i], 4));
+        EXPECT_TRUE(bf2->test_bytes((char*)&values2[i], 4));
     }
 
     // false test
@@ -140,8 +140,8 @@ TEST_F(BlockBloomFilterTest, SP) {
             false_count2 += bf2->test_bytes((char*)&to_check2, 4);
         }
     }
-    ASSERT_LE((double)false_count1 / (num * 9), _fpp);
-    ASSERT_LE((double)false_count2 / (num * 9), _fpp);
+    EXPECT_LE((double)false_count1 / (num * 9), _fpp);
+    EXPECT_LE((double)false_count2 / (num * 9), _fpp);
 }
 
 // Test for slice
@@ -149,11 +149,11 @@ TEST_F(BlockBloomFilterTest, slice) {
     // test write
     std::unique_ptr<BloomFilter> bf;
     auto st = BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
-    ASSERT_TRUE(st.ok());
-    ASSERT_NE(nullptr, bf);
+    EXPECT_TRUE(st.ok());
+    EXPECT_NE(nullptr, bf);
     st = bf->init(_expected_num, _fpp, HASH_MURMUR3_X64_64);
-    ASSERT_TRUE(st.ok());
-    ASSERT_TRUE(bf->size() > 0);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(bf->size() > 0);
 
     int num = 1024;
     std::string values[1024];
@@ -171,13 +171,8 @@ TEST_F(BlockBloomFilterTest, slice) {
 
     std::string value_not_exist = "char_value_not_exist";
     Slice s = Slice(value_not_exist);
-    ASSERT_FALSE(bf->test_bytes(s.data, s.size));
+    EXPECT_FALSE(bf->test_bytes(s.data, s.size));
 }
 
 } // namespace segment_v2
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

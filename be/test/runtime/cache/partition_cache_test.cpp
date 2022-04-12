@@ -21,7 +21,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/cache/result_cache.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/cpu_info.h"
 #include "util/logging.h"
 
@@ -115,7 +115,7 @@ PCacheStatus PartitionCacheTest::init_batch_data(int sql_num, int part_begin, in
 TEST_F(PartitionCacheTest, update_data) {
     init_default();
     PCacheStatus st = init_batch_data(1, 1, 1, CacheType::SQL_CACHE);
-    ASSERT_TRUE(st == PCacheStatus::CACHE_OK);
+    EXPECT_TRUE(st == PCacheStatus::CACHE_OK);
     LOG(WARNING) << "clear cache";
     clear();
 }
@@ -124,7 +124,7 @@ TEST_F(PartitionCacheTest, update_over_partition) {
     init_default();
     PCacheStatus st = init_batch_data(1, 1, config::query_cache_max_partition_count + 1,
                                       CacheType::PARTITION_CACHE);
-    ASSERT_TRUE(st == PCacheStatus::PARAM_ERROR);
+    EXPECT_TRUE(st == PCacheStatus::PARAM_ERROR);
     clear();
 }
 
@@ -132,7 +132,7 @@ TEST_F(PartitionCacheTest, cache_clear) {
     init_default();
     init_batch_data(1, 1, 1, CacheType::SQL_CACHE);
     _cache->clear(_clear_request, _clear_response);
-    ASSERT_EQ(_cache->get_cache_size(), 0);
+    EXPECT_EQ(_cache->get_cache_size(), 0);
     clear();
 }
 
@@ -149,9 +149,9 @@ TEST_F(PartitionCacheTest, fetch_simple_data) {
     LOG(WARNING) << "begin fetch\n";
     _cache->fetch(_fetch_request, _fetch_result);
     LOG(WARNING) << "finish fetch1\n";
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
-    ASSERT_EQ(_fetch_result->values_size(), 1);
-    ASSERT_EQ(_fetch_result->values(0).rows(0), "0123456789abcdef");
+    EXPECT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
+    EXPECT_EQ(_fetch_result->values_size(), 1);
+    EXPECT_EQ(_fetch_result->values(0).rows(0), "0123456789abcdef");
 
     LOG(WARNING) << "finish fetch2\n";
     clear();
@@ -168,7 +168,7 @@ TEST_F(PartitionCacheTest, fetch_not_sqlid) {
     p1->set_last_version(1);
     p1->set_last_version_time(1);
     _cache->fetch(_fetch_request, _fetch_result);
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::NO_SQL_KEY);
+    EXPECT_TRUE(_fetch_result->status() == PCacheStatus::NO_SQL_KEY);
 
     clear();
 }
@@ -188,8 +188,8 @@ TEST_F(PartitionCacheTest, fetch_range_data) {
     p2->set_last_version_time(3);
     _cache->fetch(_fetch_request, _fetch_result);
 
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
-    ASSERT_EQ(_fetch_result->values_size(), 2);
+    EXPECT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
+    EXPECT_EQ(_fetch_result->values_size(), 2);
 
     clear();
 }
@@ -209,8 +209,8 @@ TEST_F(PartitionCacheTest, fetch_invalid_right_range) {
     p2->set_last_version_time(5);
     _cache->fetch(_fetch_request, _fetch_result);
 
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::NO_PARTITION_KEY);
-    ASSERT_EQ(_fetch_result->values_size(), 0);
+    EXPECT_TRUE(_fetch_result->status() == PCacheStatus::NO_PARTITION_KEY);
+    EXPECT_EQ(_fetch_result->values_size(), 0);
     clear();
 }
 
@@ -225,8 +225,8 @@ TEST_F(PartitionCacheTest, fetch_invalid_left_range) {
     p1->set_last_version_time(0);
     _cache->fetch(_fetch_request, _fetch_result);
 
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::NO_PARTITION_KEY);
-    ASSERT_EQ(_fetch_result->values_size(), 0);
+    EXPECT_TRUE(_fetch_result->status() == PCacheStatus::NO_PARTITION_KEY);
+    EXPECT_EQ(_fetch_result->values_size(), 0);
     clear();
 }
 
@@ -250,8 +250,8 @@ TEST_F(PartitionCacheTest, fetch_invalid_key_range) {
     p3->set_last_version(3);
     p3->set_last_version_time(3);
     _cache->fetch(_fetch_request, _fetch_result);
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::INVALID_KEY_RANGE);
-    ASSERT_EQ(_fetch_result->values_size(), 0);
+    EXPECT_TRUE(_fetch_result->status() == PCacheStatus::INVALID_KEY_RANGE);
+    EXPECT_EQ(_fetch_result->values_size(), 0);
     clear();
 }
 
@@ -269,8 +269,8 @@ TEST_F(PartitionCacheTest, fetch_data_overdue) {
 
     LOG(WARNING) << "fetch_data_overdue:" << _fetch_result->status();
 
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::DATA_OVERDUE);
-    ASSERT_EQ(_fetch_result->values_size(), 0);
+    EXPECT_TRUE(_fetch_result->status() == PCacheStatus::DATA_OVERDUE);
+    EXPECT_EQ(_fetch_result->values_size(), 0);
 
     clear();
 }
@@ -279,7 +279,7 @@ TEST_F(PartitionCacheTest, prune_data) {
     init(1, 1);
     init_batch_data(LOOP_LESS_OR_MORE(10, 129), 1, 1024,
                     CacheType::PARTITION_CACHE);          // 16*1024*128=2M
-    ASSERT_LE(_cache->get_cache_size(), 1 * 1024 * 1024); //cache_size <= 1M
+    EXPECT_LE(_cache->get_cache_size(), 1 * 1024 * 1024); //cache_size <= 1M
     clear();
 }
 
@@ -301,10 +301,10 @@ TEST_F(PartitionCacheTest, fetch_not_continue_partition) {
     p3->set_last_version(1);
     p3->set_last_version_time(1);
     _cache->fetch(_fetch_request, _fetch_result);
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
-    ASSERT_EQ(_fetch_result->values_size(), 2);
-    ASSERT_EQ(_fetch_result->values(0).rows(0), "0123456789abcdef");
-    ASSERT_EQ(_fetch_result->values(1).rows(0), "0123456789abcdef");
+    EXPECT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
+    EXPECT_EQ(_fetch_result->values_size(), 2);
+    EXPECT_EQ(_fetch_result->values(0).rows(0), "0123456789abcdef");
+    EXPECT_EQ(_fetch_result->values(1).rows(0), "0123456789abcdef");
     clear();
 }
 
@@ -317,9 +317,9 @@ TEST_F(PartitionCacheTest, update_sql_cache) {
     p1->set_last_version(1);
     p1->set_last_version_time(1);
     _cache->fetch(_fetch_request, _fetch_result);
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
-    ASSERT_EQ(_fetch_result->values_size(), 1);
-    ASSERT_EQ(_fetch_result->values(0).rows(0), "0123456789abcdef");
+    EXPECT_TRUE(_fetch_result->status() == PCacheStatus::CACHE_OK);
+    EXPECT_EQ(_fetch_result->values_size(), 1);
+    EXPECT_EQ(_fetch_result->values(0).rows(0), "0123456789abcdef");
     // update sql cache and fetch cache again
     init_batch_data(1, 2, 1, CacheType::SQL_CACHE);
     set_sql_key(_fetch_request->mutable_sql_key(), 1, 1);
@@ -328,21 +328,10 @@ TEST_F(PartitionCacheTest, update_sql_cache) {
     p1->set_last_version(1);
     p1->set_last_version_time(1);
     _cache->fetch(_fetch_request, _fetch_result);
-    ASSERT_TRUE(_fetch_result->status() == PCacheStatus::NO_PARTITION_KEY);
+    EXPECT_TRUE(_fetch_result->status() == PCacheStatus::NO_PARTITION_KEY);
     clear();
 }
 
 } // namespace doris
 
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}
 /* vim: set ts=4 sw=4 sts=4 tw=100 */

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "test_util/array_utils.h"
+#include "testutil/array_utils.h"
 
 #include "common/status.h"
 #include "exprs/anyval_util.h"
@@ -25,7 +25,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "udf/udf_internal.h"
-#include "util/array_parser.hpp"
+#include "util/array_parser.h"
 
 namespace doris {
 

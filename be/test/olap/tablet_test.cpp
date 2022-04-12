@@ -190,13 +190,7 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
     }
     _tablet->delete_expired_stale_rowset();
 
-    ASSERT_EQ(0, _tablet->_timestamped_version_tracker._stale_version_path_map.size());
+    EXPECT_EQ(0, _tablet->_timestamped_version_tracker._stale_version_path_map.size());
     _tablet.reset();
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    auto ret = RUN_ALL_TESTS();
-    return ret;
-}

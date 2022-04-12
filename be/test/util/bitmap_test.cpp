@@ -33,47 +33,47 @@ public:
 
 TEST_F(BitMapTest, normal) {
     // bitmap size
-    ASSERT_EQ(0, BitmapSize(0));
-    ASSERT_EQ(1, BitmapSize(1));
-    ASSERT_EQ(1, BitmapSize(8));
-    ASSERT_EQ(2, BitmapSize(9));
+    EXPECT_EQ(0, BitmapSize(0));
+    EXPECT_EQ(1, BitmapSize(1));
+    EXPECT_EQ(1, BitmapSize(8));
+    EXPECT_EQ(2, BitmapSize(9));
 
     // set, test, clear
     uint8_t bitmap[1024];
     memset(bitmap, 0, 1024);
-    ASSERT_FALSE(BitmapTest(bitmap, 123));
+    EXPECT_FALSE(BitmapTest(bitmap, 123));
     BitmapSet(bitmap, 123);
-    ASSERT_TRUE(BitmapTest(bitmap, 123));
+    EXPECT_TRUE(BitmapTest(bitmap, 123));
     BitmapClear(bitmap, 123);
-    ASSERT_FALSE(BitmapTest(bitmap, 123));
+    EXPECT_FALSE(BitmapTest(bitmap, 123));
     BitmapChange(bitmap, 112, true);
-    ASSERT_TRUE(BitmapTest(bitmap, 112));
+    EXPECT_TRUE(BitmapTest(bitmap, 112));
     BitmapChange(bitmap, 112, false);
-    ASSERT_FALSE(BitmapTest(bitmap, 112));
+    EXPECT_FALSE(BitmapTest(bitmap, 112));
 
     // change bits
     BitmapChangeBits(bitmap, 100, 200, true);
     for (int i = 0; i < 200; i++) {
-        ASSERT_TRUE(BitmapTest(bitmap, 100 + i));
+        EXPECT_TRUE(BitmapTest(bitmap, 100 + i));
     }
 
     // Find fist
     bool found = false;
     size_t idx;
     found = BitmapFindFirstSet(bitmap, 0, 1024 * 8, &idx);
-    ASSERT_TRUE(found);
-    ASSERT_EQ(100, idx);
+    EXPECT_TRUE(found);
+    EXPECT_EQ(100, idx);
 
     found = BitmapFindFirstZero(bitmap, 200, 1024 * 8, &idx);
-    ASSERT_TRUE(found);
-    ASSERT_EQ(300, idx);
+    EXPECT_TRUE(found);
+    EXPECT_EQ(300, idx);
 
     found = BitmapFindFirstSet(bitmap, 300, 1024 * 8, &idx);
-    ASSERT_FALSE(found);
+    EXPECT_FALSE(found);
 
     found = BitmapFindFirstZero(bitmap, 300, 1024 * 8, &idx);
-    ASSERT_TRUE(found);
-    ASSERT_EQ(300, idx);
+    EXPECT_TRUE(found);
+    EXPECT_EQ(300, idx);
 }
 
 TEST_F(BitMapTest, iterator) {
@@ -89,50 +89,45 @@ TEST_F(BitMapTest, iterator) {
     }
 
     BitmapIterator iter(bitmap, 1024 * 8);
-    ASSERT_FALSE(iter.done());
+    EXPECT_FALSE(iter.done());
 
     bool value;
     // 0,100 --- false
     auto run = iter.Next(&value);
-    ASSERT_FALSE(value);
-    ASSERT_EQ(100, run);
+    EXPECT_FALSE(value);
+    EXPECT_EQ(100, run);
     // 100,2000 -- true
     run = iter.Next(&value);
-    ASSERT_TRUE(value);
-    ASSERT_EQ(2000 - 100, run);
+    EXPECT_TRUE(value);
+    EXPECT_EQ(2000 - 100, run);
     // 2000,2100 -- false
     run = iter.Next(&value);
-    ASSERT_FALSE(value);
-    ASSERT_EQ(2100 - 2000, run);
+    EXPECT_FALSE(value);
+    EXPECT_EQ(2100 - 2000, run);
     // 2100,3000 -- true
     run = iter.Next(&value);
-    ASSERT_TRUE(value);
-    ASSERT_EQ(3000 - 2100, run);
+    EXPECT_TRUE(value);
+    EXPECT_EQ(3000 - 2100, run);
     // 3000,8*1024 -- false
     run = iter.Next(&value);
-    ASSERT_FALSE(value);
-    ASSERT_EQ(8 * 1024 - 3000, run);
-    ASSERT_TRUE(iter.done());
+    EXPECT_FALSE(value);
+    EXPECT_EQ(8 * 1024 - 3000, run);
+    EXPECT_TRUE(iter.done());
     // seek to 8000
     iter.SeekTo(8000);
     run = iter.Next(&value);
-    ASSERT_FALSE(value);
-    ASSERT_EQ(8 * 1024 - 8000, run);
-    ASSERT_TRUE(iter.done());
+    EXPECT_FALSE(value);
+    EXPECT_EQ(8 * 1024 - 8000, run);
+    EXPECT_TRUE(iter.done());
 
     // with max_run
     iter.SeekTo(200);
     run = iter.Next(&value, 500);
-    ASSERT_TRUE(value);
-    ASSERT_EQ(500, run);
+    EXPECT_TRUE(value);
+    EXPECT_EQ(500, run);
     run = iter.Next(&value);
-    ASSERT_TRUE(value);
-    ASSERT_EQ(2000 - 500 - 200, run);
+    EXPECT_TRUE(value);
+    EXPECT_EQ(2000 - 500 - 200, run);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

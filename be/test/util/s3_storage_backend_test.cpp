@@ -17,10 +17,9 @@
 
 #include "util/s3_storage_backend.h"
 
+#include <aws/core/Aws.h>
 #include <gtest/gtest.h>
 
-
-#include <aws/core/Aws.h>
 #include <boost/lexical_cast.hpp>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_generators.hpp>
@@ -39,6 +38,9 @@ static const std::string ENDPOINT = "http://s3.bj.bcebos.com";
 static const std::string USE_PATH_STYLE = "false";
 static const std::string REGION = "bj";
 static const std::string BUCKET = "s3://cmy-repo/";
+
+#define S3StorageBackendTest DISABLED_S3StorageBackendTest
+
 class S3StorageBackendTest : public testing::Test {
 public:
     S3StorageBackendTest()
@@ -90,106 +92,98 @@ protected:
 
 TEST_F(S3StorageBackendTest, s3_upload) {
     Status status = _s3->upload(_test_file, _s3_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string orig_md5sum;
     FileUtils::md5sum(_test_file, &orig_md5sum);
     status = _s3->download(_s3_base_path + "/Ode_to_the_West_Wind.txt", _test_file + ".download");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string download_md5sum;
     FileUtils::md5sum(_test_file + ".download", &download_md5sum);
-    ASSERT_EQ(orig_md5sum, download_md5sum);
+    EXPECT_EQ(orig_md5sum, download_md5sum);
     status = _s3->upload(_test_file + "_not_found", _s3_base_path + "/Ode_to_the_West_Wind1.txt");
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind1.txt");
-    ASSERT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
 }
 
 TEST_F(S3StorageBackendTest, s3_direct_upload) {
     Status status = _s3->direct_upload(_s3_base_path + "/Ode_to_the_West_Wind.txt", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string orig_md5sum;
     FileUtils::md5sum(_test_file, &orig_md5sum);
     status = _s3->download(_s3_base_path + "/Ode_to_the_West_Wind.txt", _test_file + ".download");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string download_md5sum;
     FileUtils::md5sum(_test_file + ".download", &download_md5sum);
-    ASSERT_EQ(orig_md5sum, download_md5sum);
+    EXPECT_EQ(orig_md5sum, download_md5sum);
 }
 
 TEST_F(S3StorageBackendTest, s3_download) {
     Status status = _s3->upload(_test_file, _s3_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string orig_md5sum;
     FileUtils::md5sum(_test_file, &orig_md5sum);
     status = _s3->download(_s3_base_path + "/Ode_to_the_West_Wind.txt", _test_file + ".download");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string download_md5sum;
     FileUtils::md5sum(_test_file + ".download", &download_md5sum);
-    ASSERT_EQ(orig_md5sum, download_md5sum);
+    EXPECT_EQ(orig_md5sum, download_md5sum);
     status = _s3->download(_s3_base_path + "/Ode_to_the_West_Wind.txt.not_found",
                            _test_file + ".download");
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     status = _s3->download(_s3_base_path + "/Ode_to_the_West_Wind.txt.not_found",
                            "/not_permitted.download");
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 
 TEST_F(S3StorageBackendTest, s3_rename) {
     Status status = _s3->direct_upload(_s3_base_path + "/Ode_to_the_West_Wind.txt", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _s3->rename(_s3_base_path + "/Ode_to_the_West_Wind.txt",
                          _s3_base_path + "/Ode_to_the_West_Wind.txt.new");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind.txt.new");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 }
 
 TEST_F(S3StorageBackendTest, s3_list) {
     Status status = _s3->direct_upload(_s3_base_path + "/Ode_to_the_West_Wind.md5", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _s3->direct_upload(_s3_base_path + "/Ode_to_the_West_Wind1.md5", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _s3->direct_upload(_s3_base_path + "/Ode_to_the_West_Wind2.md5", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::map<std::string, FileStat> files;
     status = _s3->list(_s3_base_path, true, false, &files);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(files.find("Ode_to_the_West_Wind") != files.end());
-    ASSERT_TRUE(files.find("Ode_to_the_West_Wind1") != files.end());
-    ASSERT_TRUE(files.find("Ode_to_the_West_Wind2") != files.end());
-    ASSERT_EQ(3, files.size());
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(files.find("Ode_to_the_West_Wind") != files.end());
+    EXPECT_TRUE(files.find("Ode_to_the_West_Wind1") != files.end());
+    EXPECT_TRUE(files.find("Ode_to_the_West_Wind2") != files.end());
+    EXPECT_EQ(3, files.size());
 }
 
 TEST_F(S3StorageBackendTest, s3_rm) {
     Status status = _s3->direct_upload(_s3_base_path + "/Ode_to_the_West_Wind.txt", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _s3->rm(_s3_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
 }
 
 TEST_F(S3StorageBackendTest, s3_mkdir) {
     Status status = _s3->mkdir(_s3_base_path + "/dir");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _s3->exist(_s3_base_path + "/dir");
-    ASSERT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    int ret = 0;
-    // set ak sk before running it.
-    // ret = RUN_ALL_TESTS();
-    return ret;
-}
