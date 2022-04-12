@@ -204,33 +204,33 @@ private:
 TEST_F(OlapScanNodeTest, NormalUse) {
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = scan_node.open(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(scan_node.set_scanRanges(_scan_ranges).ok());
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(scan_node.set_scanRanges(_scan_ranges).ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _runtime_stat.batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(&_runtime_stat, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         int num = std::min(row_batch.num_rows(), 10);
-        ASSERT_TRUE(num > 0);
+        EXPECT_TRUE(num > 0);
 
         for (int i = 0; i < num; ++i) {
             TupleRow* row = row_batch.get_row(i);
             LOG(WARNING) << "input row: " << print_row(row, scan_node._row_descriptor);
 
             if (0 == i) {
-                ASSERT_EQ("[(-5000 -5000 -5000 1)]", print_row(row, scan_node._row_descriptor));
+                EXPECT_EQ("[(-5000 -5000 -5000 1)]", print_row(row, scan_node._row_descriptor));
             }
         }
 
         eos = true;
     }
 
-    ASSERT_TRUE(scan_node.close(&_runtime_stat).ok());
+    EXPECT_TRUE(scan_node.close(&_runtime_stat).ok());
 }
 
 TEST_F(OlapScanNodeTest, PushDownBinaryPredicate) {
@@ -264,7 +264,7 @@ TEST_F(OlapScanNodeTest, PushDownBinaryPredicate) {
     bin_pre._children.push_back(_obj_pool.add(new IntLiteral(TYPE_INT, &v)));
 
     Status status = bin_pre.prepare(&_runtime_stat, row_desc);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     std::list<Expr*> exprs;
     exprs.push_back(&bin_pre);
@@ -272,30 +272,30 @@ TEST_F(OlapScanNodeTest, PushDownBinaryPredicate) {
     scan_node.push_down_predicate(&_runtime_stat, &exprs);
 
     status = scan_node.prepare(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = scan_node.open(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _runtime_stat.batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(&_runtime_stat, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         int num = std::min(row_batch.num_rows(), 10);
-        ASSERT_TRUE(num > 0);
+        EXPECT_TRUE(num > 0);
 
         for (int i = 0; i < num; ++i) {
             TupleRow* row = row_batch.get_row(i);
             LOG(WARNING) << "input row: " << print_row(row, scan_node._row_descriptor);
-            ASSERT_EQ("[(-5000 -5000 -5000 1)]", print_row(row, scan_node._row_descriptor));
+            EXPECT_EQ("[(-5000 -5000 -5000 1)]", print_row(row, scan_node._row_descriptor));
         }
 
         eos = true;
     }
 
-    ASSERT_TRUE(scan_node.close(&_runtime_stat).ok());
+    EXPECT_TRUE(scan_node.close(&_runtime_stat).ok());
 }
 
 TEST_F(OlapScanNodeTest, PushDownBinaryEqualPredicate) {
@@ -329,7 +329,7 @@ TEST_F(OlapScanNodeTest, PushDownBinaryEqualPredicate) {
     bin_pre._children.push_back(_obj_pool.add(new IntLiteral(TYPE_INT, &v)));
 
     Status status = bin_pre.prepare(&_runtime_stat, row_desc);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     std::list<Expr*> exprs;
     exprs.push_back(&bin_pre);
@@ -337,30 +337,30 @@ TEST_F(OlapScanNodeTest, PushDownBinaryEqualPredicate) {
     scan_node.push_down_predicate(&_runtime_stat, &exprs);
 
     status = scan_node.prepare(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = scan_node.open(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _runtime_stat.batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(&_runtime_stat, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         int num = std::min(row_batch.num_rows(), 10);
-        ASSERT_TRUE(num > 0);
+        EXPECT_TRUE(num > 0);
 
         for (int i = 0; i < num; ++i) {
             TupleRow* row = row_batch.get_row(i);
             LOG(WARNING) << "input row: " << print_row(row, scan_node._row_descriptor);
-            ASSERT_EQ("[(-5000 -5000 -5000 1)]", print_row(row, scan_node._row_descriptor));
+            EXPECT_EQ("[(-5000 -5000 -5000 1)]", print_row(row, scan_node._row_descriptor));
         }
 
         eos = true;
     }
 
-    ASSERT_TRUE(scan_node.close(&_runtime_stat).ok());
+    EXPECT_TRUE(scan_node.close(&_runtime_stat).ok());
 }
 
 TEST_F(OlapScanNodeTest, PushDownInPredicateCase) {
@@ -390,7 +390,7 @@ TEST_F(OlapScanNodeTest, PushDownInPredicateCase) {
     in_pre._children.push_back(_obj_pool.add(new SlotRef(slot_node)));
 
     Status status = in_pre.prepare(&_runtime_stat, row_desc);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     for (int i = -5000; i < -4999; ++i) {
         in_pre.insert(&i);
@@ -402,42 +402,30 @@ TEST_F(OlapScanNodeTest, PushDownInPredicateCase) {
     scan_node.push_down_predicate(&_runtime_stat, &exprs);
 
     status = scan_node.prepare(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = scan_node.open(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _runtime_stat.batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(&_runtime_stat, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         int num = std::min(row_batch.num_rows(), 10);
-        ASSERT_TRUE(num > 0);
+        EXPECT_TRUE(num > 0);
 
         for (int i = 0; i < num; ++i) {
             TupleRow* row = row_batch.get_row(i);
             LOG(WARNING) << "input row: " << print_row(row, scan_node._row_descriptor);
-            ASSERT_EQ("[(-5000 -5000 -5000 1)]", print_row(row, scan_node._row_descriptor));
+            EXPECT_EQ("[(-5000 -5000 -5000 1)]", print_row(row, scan_node._row_descriptor));
         }
 
         eos = true;
     }
 
-    ASSERT_TRUE(scan_node.close(&_runtime_stat).ok());
+    EXPECT_TRUE(scan_node.close(&_runtime_stat).ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::Init();
-    return RUN_ALL_TESTS();
-}

@@ -39,12 +39,12 @@ public:
     virtual void SetUp() {
         if (FileUtils::is_dir(dname)) {
             std::set<std::string> files;
-            ASSERT_TRUE(FileUtils::list_dirs_files(dname, nullptr, &files, Env::Default()).ok());
+            EXPECT_TRUE(FileUtils::list_dirs_files(dname, nullptr, &files, Env::Default()).ok());
             for (const auto& file : files) {
                 Status s = Env::Default()->delete_file(dname + "/" + file);
-                ASSERT_TRUE(s.ok()) << s.to_string();
+                EXPECT_TRUE(s.ok()) << s.to_string();
             }
-            ASSERT_TRUE(Env::Default()->delete_dir(dname).ok());
+            EXPECT_TRUE(Env::Default()->delete_dir(dname).ok());
         }
     }
 };
@@ -62,7 +62,7 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
         fs::CreateBlockOptions opts(fname);
         std::string storage_name;
         Status st = fs::fs_util::block_manager(storage_name)->create_block(opts, &wblock);
-        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_TRUE(st.ok()) << st.to_string();
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
         BloomFilterOptions bf_options;
@@ -76,14 +76,14 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
                 bloom_filter_index_writer->add_nulls(null_count);
             }
             st = bloom_filter_index_writer->flush();
-            ASSERT_TRUE(st.ok());
+            EXPECT_TRUE(st.ok());
             i += 1024;
         }
         st = bloom_filter_index_writer->finish(wblock.get(), index_meta);
-        ASSERT_TRUE(st.ok()) << "writer finish status:" << st.to_string();
-        ASSERT_TRUE(wblock->close().ok());
-        ASSERT_EQ(BLOOM_FILTER_INDEX, index_meta->type());
-        ASSERT_EQ(bf_options.strategy, index_meta->bloom_filter_index().hash_strategy());
+        EXPECT_TRUE(st.ok()) << "writer finish status:" << st.to_string();
+        EXPECT_TRUE(wblock->close().ok());
+        EXPECT_EQ(BLOOM_FILTER_INDEX, index_meta->type());
+        EXPECT_EQ(bf_options.strategy, index_meta->bloom_filter_index().hash_strategy());
     }
 }
 
@@ -95,10 +95,10 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnInde
 
     *reader = new BloomFilterIndexReader(fname, &meta.bloom_filter_index());
     auto st = (*reader)->load(true, false);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     st = (*reader)->new_iterator(iter);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 }
 
 template <FieldType Type>
@@ -118,41 +118,41 @@ void test_bloom_filter_index_reader_writer_template(
         // page 0
         std::unique_ptr<BloomFilter> bf;
         auto st = iter->read_bloom_filter(0, &bf);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         for (int i = 0; i < 1024; ++i) {
             if (is_slice_type) {
                 Slice* value = (Slice*)(val + i);
-                ASSERT_TRUE(bf->test_bytes(value->data, value->size));
+                EXPECT_TRUE(bf->test_bytes(value->data, value->size));
             } else {
-                ASSERT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
+                EXPECT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
             }
         }
 
         // page 1
         st = iter->read_bloom_filter(1, &bf);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         for (int i = 1024; i < 2048; ++i) {
             if (is_slice_type) {
                 Slice* value = (Slice*)(val + i);
-                ASSERT_TRUE(bf->test_bytes(value->data, value->size));
+                EXPECT_TRUE(bf->test_bytes(value->data, value->size));
             } else {
-                ASSERT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
+                EXPECT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
             }
         }
 
         // page 2
         st = iter->read_bloom_filter(2, &bf);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         for (int i = 2048; i < 3071; ++i) {
             if (is_slice_type) {
                 Slice* value = (Slice*)(val + i);
-                ASSERT_TRUE(bf->test_bytes(value->data, value->size));
+                EXPECT_TRUE(bf->test_bytes(value->data, value->size));
             } else {
-                ASSERT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
+                EXPECT_TRUE(bf->test_bytes((char*)&val[i], sizeof(CppType)));
             }
         }
         // test nullptr
-        ASSERT_TRUE(bf->test_bytes(nullptr, 1));
+        EXPECT_TRUE(bf->test_bytes(nullptr, 1));
 
         delete reader;
     }
@@ -290,9 +290,3 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
 
 } // namespace segment_v2
 } // namespace doris
-
-int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 10);
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

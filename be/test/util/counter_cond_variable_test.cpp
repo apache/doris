@@ -44,7 +44,7 @@ void worker() {
     for (int i = 0; i < 10; ++i) {
         {
             std::unique_lock<std::mutex> lock(g_io_mu);
-            std::cout << "worker " << i << std::endl;
+            LOG(INFO) << "worker " << i;
         }
         usleep(100);
         g_cond.dec();
@@ -53,7 +53,7 @@ void worker() {
 
 void waiter() {
     g_cond.block_wait();
-    std::cout << "wait finished" << std::endl;
+    LOG(INFO) << "wait finished";
 }
 
 TEST_F(CounterCondVariableTest, test) {
@@ -76,8 +76,3 @@ TEST_F(CounterCondVariableTest, test) {
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

@@ -14,8 +14,30 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+#
+---
+name: Add Scope Labeler
 
-# where to put generated libraries
-set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/env")
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
 
-ADD_BE_TEST(env_posix_test)
+jobs:
+  process:
+    name: Process
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Assign GitHub labels
+        if: |
+          github.event_name == 'pull_request_target' &&
+            (github.event.action == 'opened' ||
+             github.event.action == 'synchronize')
+        uses: actions/labeler@2.2.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          configuration-path: .github/workflows/labeler/scope-label-conf.yml
+          sync-labels: true

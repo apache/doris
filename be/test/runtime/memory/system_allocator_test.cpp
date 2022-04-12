@@ -28,14 +28,14 @@ void test_normal() {
     config::use_mmap_allocate_chunk = use_mmap;
     {
         auto ptr = SystemAllocator::allocate(4096);
-        ASSERT_NE(nullptr, ptr);
-        ASSERT_EQ(0, (uint64_t)ptr % 4096);
+        EXPECT_NE(nullptr, ptr);
+        EXPECT_EQ(0, (uint64_t)ptr % 4096);
         SystemAllocator::free(ptr, 4096);
     }
     {
         auto ptr = SystemAllocator::allocate(100);
-        ASSERT_NE(nullptr, ptr);
-        ASSERT_EQ(0, (uint64_t)ptr % 4096);
+        EXPECT_NE(nullptr, ptr);
+        EXPECT_EQ(0, (uint64_t)ptr % 4096);
         SystemAllocator::free(ptr, 100);
     }
 }
@@ -46,8 +46,3 @@ TEST(SystemAllocatorTest, TestNormal) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

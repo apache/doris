@@ -121,7 +121,3 @@ TEST(Window_Function_Test, nth_test) {
 }
 } // namespace doris::vectorized
 
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

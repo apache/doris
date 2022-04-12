@@ -96,7 +96,7 @@ int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int nex
         slot_desc.slotType = type;
         slot_desc.columnPos = i;
         // Skip the first 8 bytes These 8 bytes are used to indicate whether the field is a null value
-        slot_desc.byteOffset = i * 16 + 8; 
+        slot_desc.byteOffset = i * 16 + 8;
         slot_desc.nullIndicatorByte = i / 8;
         slot_desc.nullIndicatorBit = i % 8;
         slot_desc.colName = columnNames[i];
@@ -111,7 +111,7 @@ int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int nex
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = TUPLE_ID_SRC;
         //Here 8 bytes in order to handle null values
-        t_tuple_desc.byteSize = COLUMN_NUMBERS * 16 + 8; 
+        t_tuple_desc.byteSize = COLUMN_NUMBERS * 16 + 8;
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;
@@ -121,8 +121,9 @@ int ParquetScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int nex
 }
 
 int ParquetScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    int32_t byteOffset = 8; // Skip the first 8 bytes These 8 bytes are used to indicate whether the field is a null value
-    {                       //log_version
+    int32_t byteOffset =
+            8; // Skip the first 8 bytes These 8 bytes are used to indicate whether the field is a null value
+    {          //log_version
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -424,7 +425,7 @@ TEST_F(ParquetScannerTest, normal) {
     BrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     // set scan range
     std::vector<TScanRangeParams> scan_ranges;
@@ -439,7 +440,7 @@ TEST_F(ParquetScannerTest, normal) {
         range.format_type = TFileFormatType::FORMAT_PARQUET;
         range.splittable = true;
 
-        std::vector<std::string> columns_from_path{"value"};
+        std::vector<std::string> columns_from_path {"value"};
         range.__set_columns_from_path(columns_from_path);
         range.__set_num_of_columns_from_file(19);
 #if 1
@@ -460,28 +461,28 @@ TEST_F(ParquetScannerTest, normal) {
 
     scan_node.set_scan_ranges(scan_ranges);
     status = scan_node.open(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     // Get batch
     RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size());
     bool eof = false;
     for (int i = 0; i < 14; i++) {
         status = scan_node.get_next(&_runtime_state, &batch, &eof);
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(2048, batch.num_rows());
-        ASSERT_FALSE(eof);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(2048, batch.num_rows());
+        EXPECT_FALSE(eof);
         batch.reset();
     }
 
     status = scan_node.get_next(&_runtime_state, &batch, &eof);
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ(1328, batch.num_rows());
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(1328, batch.num_rows());
+    EXPECT_FALSE(eof);
     batch.reset();
     status = scan_node.get_next(&_runtime_state, &batch, &eof);
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ(0, batch.num_rows());
-    ASSERT_TRUE(eof);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(0, batch.num_rows());
+    EXPECT_TRUE(eof);
 
     scan_node.close(&_runtime_state);
     {
@@ -492,9 +493,3 @@ TEST_F(ParquetScannerTest, normal) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

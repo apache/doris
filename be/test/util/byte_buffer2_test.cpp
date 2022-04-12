@@ -30,28 +30,23 @@ public:
 
 TEST_F(ByteBufferTest, normal) {
     auto buf = ByteBuffer::allocate(4);
-    ASSERT_EQ(0, buf->pos);
-    ASSERT_EQ(4, buf->limit);
-    ASSERT_EQ(4, buf->capacity);
+    EXPECT_EQ(0, buf->pos);
+    EXPECT_EQ(4, buf->limit);
+    EXPECT_EQ(4, buf->capacity);
 
     char test[] = {1, 2, 3};
     buf->put_bytes(test, 3);
 
-    ASSERT_EQ(3, buf->pos);
-    ASSERT_EQ(4, buf->limit);
-    ASSERT_EQ(4, buf->capacity);
+    EXPECT_EQ(3, buf->pos);
+    EXPECT_EQ(4, buf->limit);
+    EXPECT_EQ(4, buf->capacity);
 
-    ASSERT_EQ(1, buf->remaining());
+    EXPECT_EQ(1, buf->remaining());
     buf->flip();
-    ASSERT_EQ(0, buf->pos);
-    ASSERT_EQ(3, buf->limit);
-    ASSERT_EQ(4, buf->capacity);
-    ASSERT_EQ(3, buf->remaining());
+    EXPECT_EQ(0, buf->pos);
+    EXPECT_EQ(3, buf->limit);
+    EXPECT_EQ(4, buf->capacity);
+    EXPECT_EQ(3, buf->remaining());
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

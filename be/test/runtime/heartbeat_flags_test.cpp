@@ -27,16 +27,11 @@ private:
 };
 
 TEST_F(HeartbeatFlagsTest, normal) {
-    ASSERT_FALSE(_flags.is_set_default_rowset_type_to_beta());
+    EXPECT_FALSE(_flags.is_set_default_rowset_type_to_beta());
     _flags.update(1);
-    ASSERT_TRUE(_flags.is_set_default_rowset_type_to_beta());
+    EXPECT_TRUE(_flags.is_set_default_rowset_type_to_beta());
     _flags.update(2);
-    ASSERT_FALSE(_flags.is_set_default_rowset_type_to_beta());
+    EXPECT_FALSE(_flags.is_set_default_rowset_type_to_beta());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
