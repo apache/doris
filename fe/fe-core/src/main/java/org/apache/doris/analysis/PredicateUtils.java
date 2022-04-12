@@ -24,8 +24,8 @@ import com.google.common.collect.Lists;
 
 public class PredicateUtils {
     /**
-     * Split predicates in disjunctive form recursively, i.e., split the input
-     * expression, if the root node of the expression tree is `or` predicate.
+     * Split predicates in disjunctive form recursively, i.e., split the input expression
+     * if the root node of the expression tree is `or` predicate.
      *
      * Some examples:
      * a or b -> a, b

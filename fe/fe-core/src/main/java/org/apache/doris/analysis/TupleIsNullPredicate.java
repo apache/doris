@@ -30,10 +30,9 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 /**
- * Internal expr that returns true if all of the given tuples are NULL,
- * otherwise false. Used to make exprs originating from an inline view nullable
- * in an outer join. The given tupleIds must be materialized and nullable at the
- * appropriate PlanNode.
+ * Internal expr that returns true if all of the given tuples are NULL, otherwise false.
+ * Used to make exprs originating from an inline view nullable in an outer join.
+ * The given tupleIds must be materialized and nullable at the appropriate PlanNode.
  */
 public class TupleIsNullPredicate extends Predicate {
 
@@ -62,14 +61,8 @@ public class TupleIsNullPredicate extends Predicate {
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
         for (TupleId tid : tids) {
-            if (tupleIds.contains(tid))
-                return true;
+            if (tupleIds.contains(tid)) return true;
         }
-        return false;
-    }
-
-    @Override
-    public boolean isNotNullPred() {
         return false;
     }
 
@@ -91,6 +84,7 @@ public class TupleIsNullPredicate extends Predicate {
         return tupleIds;
     }
 
+
     @Override
     public boolean equals(Object o) {
         if (!super.equals(o)) {
@@ -108,14 +102,14 @@ public class TupleIsNullPredicate extends Predicate {
      * Makes each input expr nullable, if necessary, by wrapping it as follows:
      * IF(TupleIsNull(tids), NULL, expr)
      * <p>
-     * The given tids must be materialized. The given inputExprs are expected to be
-     * bound by tids once fully substituted against base tables. However, inputExprs
-     * may not yet be fully substituted at this point.
+     * The given tids must be materialized. The given inputExprs are expected to be bound
+     * by tids once fully substituted against base tables. However, inputExprs may not yet
+     * be fully substituted at this point.
      * <p>
      * Returns a new list with the nullable exprs.
      */
     public static List<Expr> wrapExprs(List<Expr> inputExprs,
-            List<TupleId> tids, Analyzer analyzer) throws UserException {
+                                       List<TupleId> tids, Analyzer analyzer) throws UserException {
         // Assert that all tids are materialized.
         for (TupleId tid : tids) {
             TupleDescriptor tupleDesc = analyzer.getTupleDesc(tid);
@@ -144,18 +138,12 @@ public class TupleIsNullPredicate extends Predicate {
         params.add(expr);
         Expr ifExpr = new FunctionCallExpr("if", params);
         ifExpr.analyzeNoThrow(analyzer);
-
-        /*-
-         * The type of function which is different from the type of expr will return
-         * the
-         * incorrect result in query.
-         * Example:
-         *   the type of expr is date
-         *   the type of function is int
-         * So, the upper fragment will receive a int value instead of date while the
-         * result expr is date.
-         * If there is no cast function, the result of query will be incorrect.
-         */
+        // The type of function which is different from the type of expr will return the incorrect result in query.
+        // Example:
+        //   the type of expr is date
+        //   the type of function is int
+        //   So, the upper fragment will receive a int value instead of date while the result expr is date.
+        // If there is no cast function, the result of query will be incorrect.
         if (expr.getType().getPrimitiveType() != ifExpr.getType().getPrimitiveType()) {
             ifExpr = ifExpr.uncheckedCastTo(expr.getType());
         }
@@ -163,9 +151,9 @@ public class TupleIsNullPredicate extends Predicate {
     }
 
     /**
-     * Returns true if the given expr evaluates to a non-NULL value if all its
-     * contained SlotRefs evaluate to NULL, false otherwise. Throws an
-     * InternalException if expr evaluation in the BE failed.
+     * Returns true if the given expr evaluates to a non-NULL value if all its contained
+     * SlotRefs evaluate to NULL, false otherwise.
+     * Throws an InternalException if expr evaluation in the BE failed.
      */
     private static boolean requiresNullWrapping(Expr expr, Analyzer analyzer) {
         return !expr.getType().isNull();
@@ -198,6 +186,11 @@ public class TupleIsNullPredicate extends Predicate {
 
     @Override
     public boolean isNullable() {
+        return false;
+    }
+
+    @Override
+    public boolean isNotNullPred() {
         return false;
     }
 }

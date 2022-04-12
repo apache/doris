@@ -35,9 +35,8 @@ public class IsNullPredicate extends Predicate {
     private static final String IS_NOT_NULL = "is_not_null_pred";
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t : Type.getSupportedTypes()) {
-            if (t.isNull())
-                continue;
+        for (Type t: Type.getSupportedTypes()) {
+            if (t.isNull()) continue;
             String isNullSymbol;
             if (t == Type.BOOLEAN) {
                 isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf10BooleanValE" +
@@ -58,6 +57,7 @@ public class IsNullPredicate extends Predicate {
         }
     }
 
+
     private final boolean isNotNull;
 
     public IsNullPredicate(Expr e, boolean isNotNull) {
@@ -74,11 +74,6 @@ public class IsNullPredicate extends Predicate {
 
     public boolean isNotNull() {
         return isNotNull;
-    }
-
-    @Override
-    public boolean isNotNullPred() {
-        return false;
     }
 
     @Override
@@ -137,7 +132,6 @@ public class IsNullPredicate extends Predicate {
     public boolean isNullable() {
         return false;
     }
-
     /**
      * fix issue 6390
      */
@@ -145,9 +139,14 @@ public class IsNullPredicate extends Predicate {
     public Expr getResultValue() throws AnalysisException {
         recursiveResetChildrenResult();
         final Expr childValue = getChild(0);
-        if (!(childValue instanceof LiteralExpr)) {
+        if(!(childValue instanceof LiteralExpr)) {
             return this;
         }
         return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);
+    }
+
+    @Override
+    public boolean isNotNullPred() {
+        return false;
     }
 }

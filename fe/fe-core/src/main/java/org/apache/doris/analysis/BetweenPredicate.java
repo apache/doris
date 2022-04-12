@@ -32,8 +32,7 @@ public class BetweenPredicate extends Predicate {
 
     private final boolean isNotBetween;
 
-    // First child is the comparison expr which should be in [lowerBound,
-    // upperBound].
+    // First child is the comparison expr which should be in [lowerBound, upperBound].
     public BetweenPredicate(Expr compareExpr, Expr lowerBound, Expr upperBound, boolean isNotBetween) {
         children.add(compareExpr);
         children.add(lowerBound);
@@ -46,17 +45,12 @@ public class BetweenPredicate extends Predicate {
         isNotBetween = other.isNotBetween;
     }
 
-    // @Override
-    // public Expr reset() {
-    // super.reset();
-    // originalChildren = Expr.resetList(originalChildren);
-    // return this;
-    // }
-
-    @Override
-    public boolean isNotNullPred() {
-        return true;
-    }
+//    @Override
+//    public Expr reset() {
+//      super.reset();
+//      originalChildren = Expr.resetList(originalChildren);
+//      return this;
+//    }
 
     @Override
     public Expr clone() {
@@ -84,10 +78,10 @@ public class BetweenPredicate extends Predicate {
         analyzer.castAllToCompatibleType(children);
     }
 
-    @Override
-    public boolean isVectorized() {
-        return false;
-    }
+   @Override
+   public boolean isVectorized() {
+       return false;
+   }
 
     @Override
     protected void toThrift(TExprNode msg) {
@@ -99,16 +93,19 @@ public class BetweenPredicate extends Predicate {
     public String toSqlImpl() {
         String notStr = (isNotBetween) ? "NOT " : "";
         return children.get(0).toSql() + " " + notStr + "BETWEEN " +
-                children.get(1).toSql() + " AND " + children.get(2).toSql();
+          children.get(1).toSql() + " AND " + children.get(2).toSql();
     }
 
     @Override
-    public Expr clone(ExprSubstitutionMap sMap) {
-        return new BetweenPredicate(this);
-    }
+    public Expr clone(ExprSubstitutionMap sMap) { return new BetweenPredicate(this); }
 
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Boolean.hashCode(isNotBetween);
+    }
+
+    @Override
+    public boolean isNotNullPred() {
+        return true;
     }
 }

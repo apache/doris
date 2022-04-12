@@ -84,11 +84,6 @@ public class LikePredicate extends Predicate {
     }
 
     @Override
-    public boolean isNotNullPred() {
-        return true;
-    }
-
-    @Override
     public Expr clone() {
         return new LikePredicate(this);
     }
@@ -150,4 +145,8 @@ public class LikePredicate extends Predicate {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
 
+    @Override
+    public boolean isNotNullPred() {
+        return true;
+    }
 }

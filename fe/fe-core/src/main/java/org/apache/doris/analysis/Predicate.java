@@ -64,7 +64,7 @@ public abstract class Predicate extends Expr {
      * what we want.
      */
     public boolean isSingleColumnPredicate(Reference<SlotRef> slotRefRef,
-            Reference<Integer> idxRef) {
+      Reference<Integer> idxRef) {
         // find slotref
         SlotRef slotRef = null;
         int i = 0;
@@ -120,21 +120,19 @@ public abstract class Predicate extends Expr {
                 // because isSingleColumnPredicate
                 Preconditions.checkState(right != null);
 
-                /*-
-                 * ATTN(cmy): Usually, the BinaryPredicate in the query will be rewritten through ExprRewriteRule,
-                 * and all SingleColumnPredicate will be rewritten as "column on the left and the constant on the right".
-                 * So usually the right child is constant.
-                 *
-                 * But if there is a subquery in where clause, the planner will equal the subquery to join.
-                 * During the equal, some auxiliary BinaryPredicate will be automatically generated,
-                 * and these BinaryPredicates will not go through ExprRewriteRule.
-                 * As a result, these BinaryPredicates may be as "column on the right and the constant on the left".
-                 * Example can be found in QueryPlanTest.java -> testJoinPredicateTransitivityWithSubqueryInWhereClause().
-                 *
-                 * Because our current planner implementation is very error-prone, so when this happens,
-                 * we simply assume that these kind of BinaryPredicates cannot be pushed down,
-                 * to ensure that this change will not affect other query plans.
-                 */
+                // ATTN(cmy): Usually, the BinaryPredicate in the query will be rewritten through ExprRewriteRule,
+                // and all SingleColumnPredicate will be rewritten as "column on the left and the constant on the right".
+                // So usually the right child is constant.
+                //
+                // But if there is a subquery in where clause, the planner will equal the subquery to join.
+                // During the equal, some auxiliary BinaryPredicate will be automatically generated,
+                // and these BinaryPredicates will not go through ExprRewriteRule.
+                // As a result, these BinaryPredicates may be as "column on the right and the constant on the left".
+                // Example can be found in QueryPlanTest.java -> testJoinPredicateTransitivityWithSubqueryInWhereClause().
+                //
+                // Because our current planner implementation is very error-prone, so when this happens,
+                // we simply assume that these kind of BinaryPredicates cannot be pushed down,
+                // to ensure that this change will not affect other query plans.
                 if (!right.isConstant()) {
                     return false;
                 }
@@ -150,6 +148,7 @@ public abstract class Predicate extends Expr {
 
         return false;
     }
+
 
     /**
      * If predicate is of the form "<slotref> = <slotref>", returns both SlotRefs,

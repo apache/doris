@@ -48,7 +48,7 @@ public class InPredicate extends Predicate {
 
     private static final String IN_SET_LOOKUP = "in_set_lookup";
     private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
-    private static final String IN_ITERATE = "in_iterate";
+    private static final String IN_ITERATE= "in_iterate";
     private static final String NOT_IN_ITERATE = "not_in_iterate";
     private final boolean isNotIn;
     private static final String IN = "in";
@@ -57,15 +57,13 @@ public class InPredicate extends Predicate {
     private static final NullLiteral NULL_LITERAL = new NullLiteral();
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t : Type.getSupportedTypes()) {
-            if (t.isNull())
-                continue;
-            // TODO: we do not support codegen for CHAR and the In predicate must be
-            // codegened, because it has variable number of arguments. This will force CHARs
-            // to be cast up to strings; meaning that "in" comparisons will not have CHAR
-            // comparison semantics.
-            if (t.getPrimitiveType() == PrimitiveType.CHAR)
-                continue;
+        for (Type t: Type.getSupportedTypes()) {
+            if (t.isNull()) continue;
+            // TODO we do not support codegen for CHAR and the In predicate must be codegened
+            // because it has variable number of arguments. This will force CHARs to be
+            // cast up to strings; meaning that "in" comparisons will not have CHAR comparison
+            // semantics.
+            if (t.getPrimitiveType() == PrimitiveType.CHAR) continue;
 
             String typeString = Function.getUdfTypeName(t.getPrimitiveType());
 
@@ -135,7 +133,7 @@ public class InPredicate extends Predicate {
     }
 
     public List<Expr> getListChildren() {
-        return children.subList(1, children.size());
+        return  children.subList(1, children.size());
     }
 
     public boolean isNotIn() {
@@ -157,31 +155,29 @@ public class InPredicate extends Predicate {
 
         PrimitiveType type = getChild(0).getType().getPrimitiveType();
 
-        // OpcodeRegistry.BuiltinFunction match =
-        // OpcodeRegistry.instance().getFunctionInfo(
-        // FunctionOperator.FILTER_IN, true, true, type);
-        // Preconditions.checkState(match != null);
-        // Preconditions.checkState(match.getReturnType().equals(Type.BOOLEAN));
-        // this.vectorOpcode = match.opcode;
-        // LOG.info(debugString() + " opcode: " + vectorOpcode);
+//       OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
+//               FunctionOperator.FILTER_IN, true, true, type);
+//       Preconditions.checkState(match != null);
+//       Preconditions.checkState(match.getReturnType().equals(Type.BOOLEAN));
+//       this.vectorOpcode = match.opcode;
+//       LOG.info(debugString() + " opcode: " + vectorOpcode);
     }
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-
+        
         if (contains(Subquery.class)) {
-            // An [NOT] IN predicate with a subquery must contain two children, the second
-            // of
+            // An [NOT] IN predicate with a subquery must contain two children, the second of
             // which is a Subquery.
             if (children.size() != 2 || !(getChild(1) instanceof Subquery)) {
                 throw new AnalysisException("Unsupported IN predicate with a subquery: " +
-                        toSql());
-            }
-            Subquery subquery = (Subquery) getChild(1);
+                    toSql());
+            } 
+            Subquery subquery = (Subquery)getChild(1);
             if (!subquery.returnsScalarColumn()) {
                 throw new AnalysisException("Subquery must return a single column: " +
-                        subquery.toSql());
+                subquery.toSql());
             }
 
             // Ensure that the column in the lhs of the IN predicate and the result of
@@ -205,13 +201,12 @@ public class InPredicate extends Predicate {
             }
         }
         boolean useSetLookup = allConstant;
-        // Only lookup fn_ if all subqueries have been rewritten. If the second child is
-        // a subquery, it will have type ArrayType, which cannot be resolved to a
-        // builtin function and will fail analysis.
-        Type[] argTypes = { getChild(0).type, getChild(1).type };
+        // Only lookup fn_ if all subqueries have been rewritten. If the second child is a
+        // subquery, it will have type ArrayType, which cannot be resolved to a builtin
+        // function and will fail analysis.
+        Type[] argTypes = {getChild(0).type, getChild(1).type};
         if (useSetLookup) {
-            // fn = getBuiltinFunction(analyzer, isNotIn ? NOT_IN_SET_LOOKUP :
-            // IN_SET_LOOKUP,
+            // fn = getBuiltinFunction(analyzer, isNotIn ? NOT_IN_SET_LOOKUP : IN_SET_LOOKUP,
             // argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
         } else {
