@@ -26,9 +26,28 @@ under the License.
 
 ## USE
 
+### Name
+
+USE
+
 ### Description
 
+The USE command allows us to use the database
+
+grammar:
+
+````SQL
+USE <DATABASE_NAME>
+````
+
 ### Example
+
+1. If the demo database exists, try accessing it:
+
+    ```sql
+    mysql> use demo;
+    Database changed
+    ````
 
 ### Keywords
 
