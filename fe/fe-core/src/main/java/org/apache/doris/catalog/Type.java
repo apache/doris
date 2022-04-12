@@ -1164,13 +1164,13 @@ public abstract class Type {
             case SMALLINT:
             case INT:
             case BIGINT:
+            case DATE:
+            case DATETIME:
                 return Type.BIGINT;
             case LARGEINT:
                 return Type.LARGEINT;
             case FLOAT:
             case DOUBLE:
-            case DATE:
-            case DATETIME:
             case TIME:
             case CHAR:
             case VARCHAR:
