@@ -157,17 +157,6 @@ public:
               _month(0), // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
-    // only used on function makedate
-    VecDateTimeValue(int year)
-            : _neg(0),
-              _type(TIME_DATETIME),
-              _second(0),
-              _minute(0),
-              _hour(0),
-              _day(1),
-              _month(1),
-              _year(year) {}
-
     // The data format of DATE/DATETIME is different in storage layer and execute layer.
     // So we should use diffrent creator to get data from value.
     // We should use create_from_olap_xxx only at binary data scaned from storage engine and convert to typed data.

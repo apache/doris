@@ -89,7 +89,8 @@ struct MakeDateImpl {
 
             auto& res_val = *reinterpret_cast<VecDateTimeValue*>(&res[i]);
 
-            VecDateTimeValue ts_value = VecDateTimeValue(l);
+            VecDateTimeValue ts_value = VecDateTimeValue();
+            ts_value.set_time(l, 1, 1, 0, 0, 0);
 
             DateTimeVal ts_val;
             ts_value.to_datetime_val(&ts_val);
