@@ -38,7 +38,7 @@ grammar:
 
 ```sql
 ALTER TABLE [database.]table alter_clause;
-````
+```
 
 The alter_clause of schema change supports the following modification methods:
 
@@ -51,7 +51,7 @@ ADD COLUMN column_name column_type [KEY | agg_type] [DEFAULT "default_value"]
 [AFTER column_name|FIRST]
 [TO rollup_index_name]
 [PROPERTIES ("key"="value", ...)]
-````
+```
 
  Notice:
 
@@ -67,7 +67,7 @@ grammar:
 ADD COLUMN (column_name1 column_type [KEY | agg_type] DEFAULT "default_value", ...)
 [TO rollup_index_name]
 [PROPERTIES ("key"="value", ...)]
-````
+```
 
 Notice:
 
@@ -82,7 +82,7 @@ grammar:
 ```sql
 DROP COLUMN column_name
 [FROM rollup_index_name]
-````
+```
 
 Notice:
 
@@ -98,7 +98,7 @@ MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAUL
 [AFTER column_name|FIRST]
 [FROM rollup_index_name]
 [PROPERTIES ("key"="value", ...)]
-````
+```
 
 Notice:
 
@@ -125,7 +125,7 @@ grammar:
 ORDER BY (column_name1, column_name2, ...)
 [FROM rollup_index_name]
 [PROPERTIES ("key"="value", ...)]
-````
+```
 
 Notice:
 
@@ -140,7 +140,7 @@ Notice:
 ALTER TABLE example_db.my_table
 ADD COLUMN new_col INT KEY DEFAULT "0" AFTER col1
 TO example_rollup_index;
-````
+```
 
 2. Add a value column new_col after col1 of example_rollup_index (non-aggregation model)
 
@@ -148,7 +148,7 @@ TO example_rollup_index;
 ALTER TABLE example_db.my_table
 ADD COLUMN new_col INT DEFAULT "0" AFTER col1
 TO example_rollup_index;
-````
+```
 
 3. Add a key column new_col (aggregation model) after col1 of example_rollup_index
 
@@ -156,7 +156,7 @@ TO example_rollup_index;
 ALTER TABLE example_db.my_table
 ADD COLUMN new_col INT DEFAULT "0" AFTER col1
 TO example_rollup_index;
-````
+```
 
 4. Add a value column new_col SUM aggregation type (aggregation model) after col1 of example_rollup_index
 
@@ -164,7 +164,7 @@ TO example_rollup_index;
 ALTER TABLE example_db.my_table
 ADD COLUMN new_col INT SUM DEFAULT "0" AFTER col1
 TO example_rollup_index;
-````
+```
 
 5. Add multiple columns to example_rollup_index (aggregation model)
 
@@ -172,7 +172,7 @@ TO example_rollup_index;
 ALTER TABLE example_db.my_table
 ADD COLUMN (col1 INT DEFAULT "1", col2 FLOAT SUM DEFAULT "2.3")
 TO example_rollup_index;
-````
+```
 
 6. Remove a column from example_rollup_index
 
@@ -180,14 +180,14 @@ TO example_rollup_index;
 ALTER TABLE example_db.my_table
 DROP COLUMN col2
 FROM example_rollup_index;
-````
+```
 
 7. Modify the type of the key column col1 of the base index to BIGINT and move it to the back of the col2 column.
 
 ```sql
 ALTER TABLE example_db.my_table
 MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
-````
+```
 
 Note: Whether you modify the key column or the value column, you need to declare complete column information
 
@@ -196,7 +196,7 @@ Note: Whether you modify the key column or the value column, you need to declare
 ```sql
 ALTER TABLE example_db.my_table
 MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
-````
+```
 
 9. Reorder the columns in example_rollup_index (set the original column order as: k1,k2,k3,v1,v2)
 
@@ -204,7 +204,7 @@ MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
 ALTER TABLE example_db.my_table
 ORDER BY (k3,k1,k2,v2,v1)
 FROM example_rollup_index;
-````
+```
 
 10. Do Two Actions Simultaneously
 
@@ -212,12 +212,12 @@ FROM example_rollup_index;
 ALTER TABLE example_db.my_table
 ADD COLUMN v2 INT MAX DEFAULT "0" AFTER k2 TO example_rollup_index,
 ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
-````
+```
 
 ### Keywords
 
-````text
+```text
 ALTER, TABLE, COLUMN
-````
+```
 
 ### Best Practice

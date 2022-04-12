@@ -38,7 +38,7 @@ grammar:
 
 ```sql
 CANCEL RESTORE FROM db_name;
-````
+```
 
 Notice:
 
@@ -50,7 +50,7 @@ Notice:
 
 ```sql
 CANCEL RESTORE FROM example_db;
-````
+```
 
 ### Keywords
 

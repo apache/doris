@@ -36,7 +36,7 @@ This statement is used to modify the attributes of the schema of the existing ta
 
 ```sql
 ALTER TABLE [database.]table MODIFY NEW_COLUMN_INFO REPLACE OLD_COLUMN_INFO ;
-````
+```
 
 ### Example
 
@@ -45,13 +45,13 @@ ALTER TABLE [database.]table MODIFY NEW_COLUMN_INFO REPLACE OLD_COLUMN_INFO ;
 ```sql
 ALTER TABLE example_db.my_table
 MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
-````
+```
 
 ### Keywords
 
-````text
+```text
 ALTER, TABLE, REPLACE
-````
+```
 
 ### Best Practice
 

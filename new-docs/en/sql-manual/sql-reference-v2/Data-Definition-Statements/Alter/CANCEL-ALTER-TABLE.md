@@ -41,7 +41,7 @@ grammar:
 ```sql
 CANCEL ALTER TABLE COLUMN
 FROM db_name.table_name
-````
+```
 
 2. Undo the ALTER TABLE ROLLUP operation
 
@@ -50,7 +50,7 @@ grammar:
 ```sql
 CANCEL ALTER TABLE ROLLUP
 FROM db_name.table_name
-````
+```
 
 3. Batch cancel rollup operations based on job id
 
@@ -59,7 +59,7 @@ grammar:
 ```sql
 CANCEL ALTER TABLE ROLLUP
 FROM db_name.table_name (jobid,...)
-````
+```
 
 Notice:
 
@@ -69,9 +69,9 @@ Notice:
 
 grammar:
 
-````
+```
 (To be implemented...)
-````
+```
 
 ### Example
 
@@ -82,7 +82,7 @@ grammar:
 ```sql
 CANCEL ALTER TABLE COLUMN
 FROM example_db.my_table;
-````
+```
 
 1. Undo the ADD ROLLUP operation under my_table.
 
@@ -91,7 +91,7 @@ FROM example_db.my_table;
 ```sql
 CANCEL ALTER TABLE ROLLUP
 FROM example_db.my_table;
-````
+```
 
 1. Undo the ADD ROLLUP operation under my_table according to the job id.
 
@@ -100,7 +100,7 @@ FROM example_db.my_table;
 ```sql
 CANCEL ALTER TABLE ROLLUP
 FROM example_db.my_table(12801,12802);
-````
+```
 
 ### Keywords
 

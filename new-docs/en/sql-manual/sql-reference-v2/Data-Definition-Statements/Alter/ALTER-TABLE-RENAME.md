@@ -38,7 +38,7 @@ grammar:
 
 ```sql
 ALTER TABLE [database.]table alter_clause;
-````
+```
 
 The alter_clause of rename supports modification of the following names
 
@@ -48,7 +48,7 @@ grammar:
 
 ```sql
 RENAME new_table_name;
-````
+```
 
 2. Modify the rollup index name
 
@@ -56,7 +56,7 @@ RENAME new_table_name;
 
 ```sql
 RENAME ROLLUP old_rollup_name new_rollup_name;
-````
+```
 
 3. Modify the partition name
 
@@ -64,7 +64,7 @@ grammar:
 
 ```sql
 RENAME PARTITION old_partition_name new_partition_name;
-````
+```
 
 ### Example
 
@@ -72,25 +72,25 @@ RENAME PARTITION old_partition_name new_partition_name;
 
 ```sql
 ALTER TABLE table1 RENAME table2;
-````
+```
 
 2. Modify the rollup index named rollup1 in the table example_table to rollup2
 
 ```sql
 ALTER TABLE example_table RENAME ROLLUP rollup1 rollup2;
-````
+```
 
 3. Modify the partition named p1 in the table example_table to p2
 
 ```sql
 ALTER TABLE example_table RENAME PARTITION p1 p2;
-````
+```
 
 ### Keywords
 
-````text
+```text
 ALTER, TABLE, RENAME
-````
+```
 
 ### Best Practice
 

@@ -38,7 +38,7 @@ grammar:
 
 ```sql
 ALTER TABLE [database.]table alter_clause;
-````
+```
 
 The alter_clause of bitmap index supports the following modification methods
 
@@ -48,7 +48,7 @@ The alter_clause of bitmap index supports the following modification methods
 
 ```sql
 ADD INDEX [IF NOT EXISTS] index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
-````
+```
 
 Notice:
 
@@ -61,7 +61,7 @@ Syntax:
 
 ```sql
 DROP INDEX [IF EXISTS] index_name;
-````
+```
 
 ### Example
 
@@ -69,18 +69,18 @@ DROP INDEX [IF EXISTS] index_name;
 
 ```sql
 ALTER TABLE table1 ADD INDEX [IF NOT EXISTS] index_name (siteid) [USING BITMAP] COMMENT 'balabala';
-````
+```
 
 2. Delete the bitmap index of the siteid column on table1
 
 ```sql
 ALTER TABLE table1 DROP INDEX [IF EXISTS] index_name;
-````
+```
 
 ### Keywords
 
-````text
+```text
 ALTER, TABLE, BITMAP
-````
+```
 
 ### Best Practice

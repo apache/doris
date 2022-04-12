@@ -44,7 +44,7 @@ FROM `repository_name`
     ...
 )
 PROPERTIES ("key"="value", ...);
-````
+```
 
 illustrate:
 
@@ -73,7 +73,7 @@ PROPERTIES
     "backup_timestamp"="2018-05-04-16-45-08",
     "replication_num" = "1"
 );
-````
+```
 
 2. Restore partitions p1, p2 of table backup_tbl in backup snapshot_2 from example_repo, and table backup_tbl2 to database example_db1, rename it to new_tbl, and the time version is "2018-05-04-17-11-01". The default reverts to 3 replicas:
 
@@ -89,7 +89,7 @@ PROPERTIES
 (
     "backup_timestamp"="2018-05-04-17-11-01"
 );
-````
+```
 
 3. Restore all tables except for table backup_tbl in backup snapshot_3 from example_repo to database example_db1, the time version is "2018-05-04-18-12-18".
 
@@ -101,7 +101,7 @@ PROPERTIES
 (
     "backup_timestamp"="2018-05-04-18-12-18"
 );
-````
+```
 
 ### Keywords
 

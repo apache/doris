@@ -38,7 +38,7 @@ grammar:
 
 ```sql
 DROP REPOSITORY `repo_name`;
-````
+```
 
 illustrate:
 
@@ -50,7 +50,7 @@ illustrate:
 
 ```sql
 DROP REPOSITORY `bos_repo`;
-````
+```
 
 ### Keywords
 

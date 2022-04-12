@@ -40,7 +40,7 @@ grammar:
 
 ```sql
 RECOVER DATABASE db_name;
-````
+```
 
    1) restore table
    2) restore partition
@@ -56,19 +56,19 @@ illustrate:
 
 ```sql
 RECOVER DATABASE example_db;
-````
+```
 
 2. Restore the table named example_tbl
 
 ```sql
 RECOVER TABLE example_db.example_tbl;
-````
+```
 
 3. Restore the partition named p1 in table example_tbl
 
 ```sql
 RECOVER PARTITION p1 FROM example_tbl;
-````
+```
 
 ### Keywords
 

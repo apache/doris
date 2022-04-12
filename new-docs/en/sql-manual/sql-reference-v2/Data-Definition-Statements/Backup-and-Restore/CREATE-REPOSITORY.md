@@ -41,7 +41,7 @@ CREATE [READ ONLY] REPOSITORY `repo_name`
 WITH [BROKER `broker_name`|S3]
 ON LOCATION `repo_location`
 PROPERTIES ("key"="value", ...);
-````
+```
 
 illustrate:
 
@@ -63,7 +63,7 @@ PROPERTIES
     "bos_accesskey" = "bos_accesskey",
     "bos_secret_accesskey"="bos_secret_accesskey"
 );
-````
+```
 
 2. Create the same repository as Example 1, but with read-only properties:
 
@@ -77,7 +77,7 @@ PROPERTIES
     "bos_accesskey" = "bos_accesskey",
     "bos_secret_accesskey"="bos_accesskey"
 );
-````
+```
 
 3. Create a warehouse named hdfs_repo, rely on Baidu hdfs broker "hdfs_broker", the data root directory is: hdfs://hadoop-name-node:54310/path/to/repo/
 
@@ -90,7 +90,7 @@ PROPERTIES
     "username" = "user",
     "password" = "password"
 );
-````
+```
 
 4. Create a repository named s3_repo to link cloud storage directly without going through the broker.
 
@@ -105,7 +105,7 @@ PROPERTIES
     "AWS_SECRET_KEY"="AWS_SECRET_KEY",
     "AWS_REGION" = "REGION"
 );
-````
+```
 
 ### Keywords
 

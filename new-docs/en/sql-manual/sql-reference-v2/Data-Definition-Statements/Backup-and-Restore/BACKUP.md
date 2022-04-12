@@ -44,7 +44,7 @@ TO `repository_name`
     ...
 )
 PROPERTIES ("key"="value", ...);
-````
+```
 
 illustrate:
 
@@ -64,7 +64,7 @@ BACKUP SNAPSHOT example_db.snapshot_label1
 TO example_repo
 ON (example_tbl)
 PROPERTIES ("type" = "full");
-````
+```
 
 2. Under the full backup example_db, the p1, p2 partitions of the table example_tbl, and the table example_tbl2 to the warehouse example_repo:
 
@@ -76,7 +76,7 @@ ON
     example_tbl PARTITION (p1,p2),
     example_tbl2
 );
-````
+```
 
 3. Full backup of all tables except table example_tbl under example_db to warehouse example_repo:
 
@@ -84,13 +84,13 @@ ON
 BACKUP SNAPSHOT example_db.snapshot_label3
 TO example_repo
 EXCLUDE (example_tbl);
-````
+```
 
 ### Keywords
 
-````text
+```text
 BACKUP
-````
+```
 
 ### Best Practice
 

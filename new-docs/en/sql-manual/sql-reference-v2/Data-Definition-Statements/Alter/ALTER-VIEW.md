@@ -41,7 +41,7 @@ ALTER VIEW
 [db_name.]view_name
 (column1[ COMMENT "col comment"][, column2, ...])
 AS query_stmt
-````
+```
 
 illustrate:
 
@@ -61,13 +61,13 @@ c3 COMMENT "column 3"
 )
 AS SELECT k1, k2, SUM(v1) FROM example_table
 GROUP BY k1, k2
-````
+```
 
 ### Keywords
 
-````text
+```text
 ALTER, VIEW
-````
+```
 
 ### Best Practice
 

@@ -38,7 +38,7 @@ grammar:
 
 ```sql
 CANCEL BACKUP FROM db_name;
-````
+```
 
 ### Example
 
@@ -46,7 +46,7 @@ CANCEL BACKUP FROM db_name;
 
 ```sql
 CANCEL BACKUP FROM example_db;
-````
+```
 
 ### Keywords
 

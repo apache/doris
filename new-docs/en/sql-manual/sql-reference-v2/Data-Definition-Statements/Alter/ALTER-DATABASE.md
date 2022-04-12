@@ -38,19 +38,19 @@ This statement is used to set properties of the specified database. (administrat
 
 ```sql
 ALTER DATABASE db_name SET DATA QUOTA quota;
-````
+```
 
 2) Rename the database
 
 ```sql
 ALTER DATABASE db_name RENAME new_db_name;
-````
+```
 
 3) Set the quota for the number of copies of the database
 
 ```sql
 ALTER DATABASE db_name SET REPLICA QUOTA quota;
-````
+```
 
 illustrate:
     After renaming the database, use the REVOKE and GRANT commands to modify the appropriate user permissions, if necessary.
@@ -68,25 +68,25 @@ ALTER DATABASE example_db SET DATA QUOTA 10T;
 ALTER DATABASE example_db SET DATA QUOTA 100G;
 
 ALTER DATABASE example_db SET DATA QUOTA 200M;
-````
+```
 
 2. Rename the database example_db to example_db2
 
 ```sql
 ALTER DATABASE example_db RENAME example_db2;
-````
+```
 
 3. Set the quota for the number of copies of the specified database
 
 ```sql
 ALTER DATABASE example_db SET REPLICA QUOTA 102400;
-````
+```
 
 ### Keywords
 
-````text
+```text
 ALTER,DATABASE,RENAME
-````
+```
 
 ### Best Practice
 
