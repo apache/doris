@@ -95,6 +95,7 @@ enum TTypeNodeType {
 enum TStorageBackendType {
     BROKER,
     S3,
+    OFS,
     HDFS,
     LOCAL
 }
