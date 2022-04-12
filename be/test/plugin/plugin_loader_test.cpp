@@ -20,7 +20,7 @@
 #include <gtest/gtest.h>
 
 #include "plugin/plugin.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -71,22 +71,22 @@ TEST_F(PluginLoaderTest, normal) {
     DynamicPluginLoader plugin_loader("PluginExample", PLUGIN_TYPE_STORAGE,
                                       _path + "/plugin_test/source/test.zip",
                                       "libplugin_example.so", _path + "/plugin_test/target");
-    ASSERT_TRUE(plugin_loader.install().ok());
+    EXPECT_TRUE(plugin_loader.install().ok());
 
-    ASSERT_TRUE(FileUtils::is_dir(_path + "/plugin_test/target/PluginExample"));
-    ASSERT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/PluginExample/"));
+    EXPECT_TRUE(FileUtils::is_dir(_path + "/plugin_test/target/PluginExample"));
+    EXPECT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/PluginExample/"));
 
     std::shared_ptr<Plugin> plugin = plugin_loader.plugin();
 
-    ASSERT_EQ(3, plugin->flags);
-    ASSERT_EQ(1, plugin->init(nullptr));
-    ASSERT_EQ(2, plugin->close(nullptr));
+    EXPECT_EQ(3, plugin->flags);
+    EXPECT_EQ(1, plugin->init(nullptr));
+    EXPECT_EQ(2, plugin->close(nullptr));
 
-    ASSERT_TRUE(plugin->flags & PLUGIN_NOT_DYNAMIC_UNINSTALL);
-    ASSERT_FALSE(plugin_loader.uninstall().ok());
+    EXPECT_TRUE(plugin->flags & PLUGIN_NOT_DYNAMIC_UNINSTALL);
+    EXPECT_FALSE(plugin_loader.uninstall().ok());
 
-    ASSERT_TRUE(FileUtils::is_dir(_path + "/plugin_test/target/PluginExample"));
-    ASSERT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/PluginExample/"));
+    EXPECT_TRUE(FileUtils::is_dir(_path + "/plugin_test/target/PluginExample"));
+    EXPECT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/PluginExample/"));
 
     FileUtils::remove_all(_path + "/plugin_test/target");
 }
@@ -97,20 +97,15 @@ TEST_F(PluginLoaderTest, builtin) {
     };
 
     BuiltinPluginLoader plugin_loader("test", PLUGIN_TYPE_AUDIT, &demoPlugin);
-    ASSERT_TRUE(plugin_loader.install().ok());
+    EXPECT_TRUE(plugin_loader.install().ok());
 
     std::shared_ptr<Plugin> plugin = plugin_loader.plugin();
-    ASSERT_EQ(PLUGIN_DEFAULT_FLAG, plugin->flags);
+    EXPECT_EQ(PLUGIN_DEFAULT_FLAG, plugin->flags);
 
-    ASSERT_NE(nullptr, plugin->handler);
-    ASSERT_EQ("test", ((DemoPluginHandler*)plugin->handler)->hello("test"));
+    EXPECT_NE(nullptr, plugin->handler);
+    EXPECT_EQ("test", ((DemoPluginHandler*)plugin->handler)->hello("test"));
 
-    ASSERT_TRUE(plugin_loader.uninstall().ok());
+    EXPECT_TRUE(plugin_loader.uninstall().ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

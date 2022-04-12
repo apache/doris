@@ -73,9 +73,9 @@ TEST_F(FragmentMgrTest, Normal) {
     params.params.fragment_instance_id = TUniqueId();
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
-    ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
+    EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
     // Duplicated
-    ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
+    EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
 }
 
 TEST_F(FragmentMgrTest, AddNormal) {
@@ -85,7 +85,7 @@ TEST_F(FragmentMgrTest, AddNormal) {
         params.params.fragment_instance_id = TUniqueId();
         params.params.fragment_instance_id.__set_hi(100 + i);
         params.params.fragment_instance_id.__set_lo(200);
-        ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
+        EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
     }
 }
 
@@ -95,9 +95,9 @@ TEST_F(FragmentMgrTest, CancelNormal) {
     params.params.fragment_instance_id = TUniqueId();
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
-    ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
+    EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
     // Cancel after add
-    ASSERT_TRUE(mgr.cancel(params.params.fragment_instance_id).ok());
+    EXPECT_TRUE(mgr.cancel(params.params.fragment_instance_id).ok());
 }
 
 TEST_F(FragmentMgrTest, CancelWithoutAdd) {
@@ -106,7 +106,7 @@ TEST_F(FragmentMgrTest, CancelWithoutAdd) {
     params.params.fragment_instance_id = TUniqueId();
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
-    ASSERT_TRUE(mgr.cancel(params.params.fragment_instance_id).ok());
+    EXPECT_TRUE(mgr.cancel(params.params.fragment_instance_id).ok());
 }
 
 TEST_F(FragmentMgrTest, PrepareFailed) {
@@ -116,7 +116,7 @@ TEST_F(FragmentMgrTest, PrepareFailed) {
     params.params.fragment_instance_id = TUniqueId();
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
-    ASSERT_FALSE(mgr.exec_plan_fragment(params).ok());
+    EXPECT_FALSE(mgr.exec_plan_fragment(params).ok());
 }
 
 TEST_F(FragmentMgrTest, OfferPoolFailed) {
@@ -129,7 +129,7 @@ TEST_F(FragmentMgrTest, OfferPoolFailed) {
     params.params.fragment_instance_id = TUniqueId();
     params.params.fragment_instance_id.__set_hi(100);
     params.params.fragment_instance_id.__set_lo(200);
-    ASSERT_TRUE(mgr.exec_plan_fragment(params).ok());
+    EXPECT_TRUE(mgr.exec_plan_fragment(params).ok());
 
     // the first plan open will cost 50ms, so the next 3 plans will be aborted.
     for (int i = 1; i < 4; ++i) {
@@ -137,14 +137,8 @@ TEST_F(FragmentMgrTest, OfferPoolFailed) {
         params.params.fragment_instance_id = TUniqueId();
         params.params.fragment_instance_id.__set_hi(100 + i);
         params.params.fragment_instance_id.__set_lo(200);
-        ASSERT_FALSE(mgr.exec_plan_fragment(params).ok());
+        EXPECT_FALSE(mgr.exec_plan_fragment(params).ok());
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

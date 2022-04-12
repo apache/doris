@@ -66,6 +66,7 @@ TestEnv::~TestEnv() {
     SAFE_DELETE(_exec_env->_scan_thread_pool);
     SAFE_DELETE(_exec_env->_disk_io_mgr);
     SAFE_DELETE(_exec_env->_thread_mgr);
+    SAFE_DELETE(_exec_env->_task_pool_mem_tracker_registry);
 
     if (_engine == StorageEngine::_s_instance) {
         // the engine instance is created by this test env

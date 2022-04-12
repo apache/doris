@@ -24,9 +24,9 @@
 
 namespace doris {
 
-class PlainTextLineReaderTest : public testing::Test {
+class PlainTextLineReaderGzipTest : public testing::Test {
 public:
-    PlainTextLineReaderTest() : _profile("TestProfile") {}
+    PlainTextLineReaderGzipTest() : _profile("TestProfile") {}
 
 protected:
     virtual void SetUp() {}
@@ -36,15 +36,15 @@ private:
     RuntimeProfile _profile;
 };
 
-TEST_F(PlainTextLineReaderTest, gzip_normal_use) {
+TEST_F(PlainTextLineReaderGzipTest, gzip_normal_use) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/test_file.csv.gz",
                                 0);
     auto st = file_reader.open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, "\n", 1);
     const uint8_t* ptr;
@@ -53,50 +53,50 @@ TEST_F(PlainTextLineReaderTest, gzip_normal_use) {
 
     // 1,2
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(3, size);
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(3, size);
+    EXPECT_FALSE(eof);
     LOG(INFO) << std::string((const char*)ptr, size);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(0, size);
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(0, size);
+    EXPECT_FALSE(eof);
 
     // 1,2,3,4
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(7, size);
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(7, size);
+    EXPECT_FALSE(eof);
     LOG(INFO) << std::string((const char*)ptr, size);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_FALSE(eof);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_FALSE(eof);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_TRUE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(eof);
     delete decompressor;
 }
 
-TEST_F(PlainTextLineReaderTest, uncompressed_no_newline) {
+TEST_F(PlainTextLineReaderGzipTest, uncompressed_no_newline) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/no_newline.csv.gz",
                                 0);
     auto st = file_reader.open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, -1, "\n", 1);
     const uint8_t* ptr;
@@ -105,154 +105,154 @@ TEST_F(PlainTextLineReaderTest, uncompressed_no_newline) {
 
     // 1,2,3
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(5, size);
-    ASSERT_STREQ("1,2,3", std::string((char*)ptr, size).c_str());
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(5, size);
+    EXPECT_STREQ("1,2,3", std::string((char*)ptr, size).c_str());
+    EXPECT_FALSE(eof);
 
     // 4,5
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(3, size);
-    ASSERT_STREQ("4,5", std::string((char*)ptr, size).c_str());
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(3, size);
+    EXPECT_STREQ("4,5", std::string((char*)ptr, size).c_str());
+    EXPECT_FALSE(eof);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_TRUE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(eof);
     delete decompressor;
 }
 
-TEST_F(PlainTextLineReaderTest, gzip_test_limit) {
+TEST_F(PlainTextLineReaderGzipTest, gzip_test_limit) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 8, "\n", 1);
     const uint8_t* ptr;
     size_t size;
     bool eof;
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(5, size);
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(5, size);
+    EXPECT_FALSE(eof);
     LOG(INFO) << std::string((const char*)ptr, size);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_FALSE(eof);
-    ASSERT_EQ(0, size);
+    EXPECT_TRUE(st.ok());
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(0, size);
 
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(5, size);
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(5, size);
+    EXPECT_FALSE(eof);
     LOG(INFO) << std::string((const char*)ptr, size);
 
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     delete decompressor;
 }
 
-TEST_F(PlainTextLineReaderTest, gzip_test_limit2) {
+TEST_F(PlainTextLineReaderGzipTest, gzip_test_limit2) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 6, "\n", 1);
     const uint8_t* ptr;
     size_t size;
     bool eof;
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(5, size);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(5, size);
     LOG(INFO) << std::string((const char*)ptr, size);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_FALSE(eof);
     delete decompressor;
 }
 
-TEST_F(PlainTextLineReaderTest, gzip_test_limit3) {
+TEST_F(PlainTextLineReaderGzipTest, gzip_test_limit3) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, "\n", 1);
     const uint8_t* ptr;
     size_t size;
     bool eof;
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(5, size);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(5, size);
     LOG(INFO) << std::string((const char*)ptr, size);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_FALSE(eof);
-    ASSERT_EQ(0, size);
+    EXPECT_TRUE(st.ok());
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(0, size);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     delete decompressor;
 }
 
-TEST_F(PlainTextLineReaderTest, gzip_test_limit4) {
+TEST_F(PlainTextLineReaderGzipTest, gzip_test_limit4) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 7, "\n", 1);
     const uint8_t* ptr;
     size_t size;
     bool eof;
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(5, size);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(5, size);
     LOG(INFO) << std::string((const char*)ptr, size);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_FALSE(eof);
-    ASSERT_EQ(0, size);
+    EXPECT_TRUE(st.ok());
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(0, size);
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     delete decompressor;
 }
 
-TEST_F(PlainTextLineReaderTest, gzip_test_limit5) {
+TEST_F(PlainTextLineReaderGzipTest, gzip_test_limit5) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     PlainTextLineReader line_reader(&_profile, &file_reader, decompressor, 0, "\n", 1);
     const uint8_t* ptr;
@@ -261,19 +261,8 @@ TEST_F(PlainTextLineReaderTest, gzip_test_limit5) {
 
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     delete decompressor;
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    // doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

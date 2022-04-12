@@ -22,7 +22,7 @@
 #include "olap/memory/mem_tablet_scan.h"
 #include "olap/memory/write_txn.h"
 #include "olap/tablet_meta.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 
 namespace doris {
 namespace memory {
@@ -40,7 +40,7 @@ TEST(MemTablet, writescan) {
     const int num_update = LOOP_LESS_OR_MORE(10, 10000);
     const int update_time = 3;
     scoped_refptr<Schema> sc;
-    ASSERT_TRUE(Schema::create("id int,uv int,pv int,city tinyint null", &sc).ok());
+    EXPECT_TRUE(Schema::create("id int,uv int,pv int,city tinyint null", &sc).ok());
     std::unordered_map<uint32_t, uint32_t> col_idx_to_unique_id;
     std::vector<TColumn> columns(sc->num_columns());
     for (size_t i = 0; i < sc->num_columns(); i++) {
@@ -54,7 +54,7 @@ TEST(MemTablet, writescan) {
         } else if (cs->type() == ColumnType::OLAP_FIELD_TYPE_TINYINT) {
             tct.__set_type(TPrimitiveType::TINYINT);
         } else {
-            ASSERT_TRUE(false);
+            EXPECT_TRUE(false);
         }
         c.__set_column_type(tct);
         c.__set_is_allow_null(cs->is_nullable());
@@ -70,9 +70,9 @@ TEST(MemTablet, writescan) {
     TabletMetaSharedPtr tablet_meta(
             new TabletMeta(1, 1, 1, 1, 1, tschema, static_cast<uint32_t>(sc->cid_size()),
                            col_idx_to_unique_id, TabletUid(1, 1), TTabletType::TABLET_TYPE_MEMORY,
-                           TStorageMedium::HDD,  TCompressionType::LZ4));
+                           TStorageMedium::HDD, TCompressionType::LZ4));
     std::shared_ptr<MemTablet> tablet = MemTablet::create_tablet_from_meta(tablet_meta, nullptr);
-    ASSERT_TRUE(tablet->init().ok());
+    EXPECT_TRUE(tablet->init().ok());
 
     uint64_t cur_version = 0;
     std::vector<TData> alldata(num_insert);
@@ -146,7 +146,7 @@ TEST(MemTablet, writescan) {
         double t0 = GetMonoTimeSecondsAsDouble();
         std::unique_ptr<ScanSpec> scanspec(new ScanSpec({"pv"}, cur_version));
         std::unique_ptr<MemTabletScan> scan;
-        ASSERT_TRUE(tablet->scan(&scanspec, &scan).ok());
+        EXPECT_TRUE(tablet->scan(&scanspec, &scan).ok());
         const RowBlock* rblock = nullptr;
         while (true) {
             EXPECT_TRUE(scan->next_block(&rblock).ok());
@@ -164,7 +164,7 @@ TEST(MemTablet, writescan) {
     {
         std::unique_ptr<ScanSpec> scanspec(new ScanSpec({"pv"}, cur_version));
         std::unique_ptr<MemTabletScan> scan;
-        ASSERT_TRUE(tablet->scan(&scanspec, &scan).ok());
+        EXPECT_TRUE(tablet->scan(&scanspec, &scan).ok());
         size_t curidx = 0;
         while (true) {
             const RowBlock* rblock = nullptr;
@@ -187,8 +187,3 @@ TEST(MemTablet, writescan) {
 
 } // namespace memory
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

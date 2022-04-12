@@ -55,16 +55,16 @@ void test_single_slice(segment_v2::CompressionTypePB type) {
         {
             Slice compressed_slice(compressed);
             st = codec->compress(orig, &compressed_slice);
-            ASSERT_TRUE(st.ok());
+            EXPECT_TRUE(st.ok());
 
             std::string uncompressed;
             uncompressed.resize(size);
             {
                 Slice uncompressed_slice(uncompressed);
                 st = codec->decompress(compressed_slice, &uncompressed_slice);
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
 
-                ASSERT_STREQ(orig.c_str(), uncompressed.c_str());
+                EXPECT_STREQ(orig.c_str(), uncompressed.c_str());
             }
             // buffer not enough for decompress
             // snappy has no return value if given buffer is not enough
@@ -75,14 +75,14 @@ void test_single_slice(segment_v2::CompressionTypePB type) {
                 Slice uncompressed_slice(uncompressed);
                 uncompressed_slice.size -= 1;
                 st = codec->decompress(compressed_slice, &uncompressed_slice);
-                ASSERT_FALSE(st.ok());
+                EXPECT_FALSE(st.ok());
             }
             // corrupt compressed data
             if (type != segment_v2::CompressionTypePB::SNAPPY) {
                 Slice uncompressed_slice(uncompressed);
                 compressed_slice.size -= 1;
                 st = codec->decompress(compressed_slice, &uncompressed_slice);
-                ASSERT_FALSE(st.ok());
+                EXPECT_FALSE(st.ok());
                 compressed_slice.size += 1;
             }
         }
@@ -91,7 +91,7 @@ void test_single_slice(segment_v2::CompressionTypePB type) {
             Slice compressed_slice(compressed);
             compressed_slice.size = 1;
             st = codec->compress(orig, &compressed_slice);
-            ASSERT_FALSE(st.ok());
+            EXPECT_FALSE(st.ok());
         }
     }
 }
@@ -129,7 +129,7 @@ void test_multi_slices(segment_v2::CompressionTypePB type) {
     {
         Slice compressed_slice(compressed);
         st = codec->compress(orig_slices, &compressed_slice);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
 
         std::string uncompressed;
         uncompressed.resize(total_size);
@@ -137,9 +137,9 @@ void test_multi_slices(segment_v2::CompressionTypePB type) {
         {
             Slice uncompressed_slice(uncompressed);
             st = codec->decompress(compressed_slice, &uncompressed_slice);
-            ASSERT_TRUE(st.ok());
+            EXPECT_TRUE(st.ok());
 
-            ASSERT_STREQ(orig.c_str(), uncompressed.c_str());
+            EXPECT_STREQ(orig.c_str(), uncompressed.c_str());
         }
     }
 
@@ -148,7 +148,7 @@ void test_multi_slices(segment_v2::CompressionTypePB type) {
         Slice compressed_slice(compressed);
         compressed_slice.size = 10;
         st = codec->compress(orig, &compressed_slice);
-        ASSERT_FALSE(st.ok());
+        EXPECT_FALSE(st.ok());
     }
 }
 
@@ -161,8 +161,3 @@ TEST_F(BlockCompressionTest, multi) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

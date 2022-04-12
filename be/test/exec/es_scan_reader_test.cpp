@@ -208,7 +208,7 @@ public:
         mock_es_server->register_handler(DELETE, "/_search/scroll", &rest_clear_scroll_action);
         mock_es_server->start();
         real_port = mock_es_server->get_real_port();
-        ASSERT_NE(0, real_port);
+        EXPECT_NE(0, real_port);
     }
 
     static void TearDownTestCase() { delete mock_es_server; }
@@ -231,22 +231,17 @@ TEST_F(MockESServerTest, workflow) {
                                                                  docvalue_context, &doc_value_mode);
     ESScanReader reader(target, props, doc_value_mode);
     auto st = reader.open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     bool eos = false;
     std::unique_ptr<ScrollParser> parser = nullptr;
     while (!eos) {
         st = reader.get_next(&eos, parser);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         if (eos) {
             break;
         }
     }
     auto cst = reader.close();
-    ASSERT_TRUE(cst.ok());
+    EXPECT_TRUE(cst.ok());
 }
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

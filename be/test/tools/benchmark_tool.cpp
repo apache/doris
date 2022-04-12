@@ -52,7 +52,7 @@
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/debug_util.h"
 #include "util/file_utils.h"
 
@@ -619,7 +619,6 @@ private:
 };
 
 } //namespace doris
-
 int main(int argc, char** argv) {
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);

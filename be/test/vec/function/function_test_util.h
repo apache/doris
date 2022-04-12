@@ -40,16 +40,7 @@ namespace doris::vectorized {
 using DataSet = std::vector<std::pair<std::vector<std::any>, std::any>>;
 using InputTypeSet = std::vector<std::any>;
 
-int64_t str_to_data_time(std::string datetime_str, bool data_time = true) {
-    VecDateTimeValue v;
-    v.from_date_str(datetime_str.c_str(), datetime_str.size());
-    if (data_time) { //bool data_time only to simplifly means data_time or data to cast, just use in time-functions uint test
-        v.to_datetime();
-    } else {
-        v.cast_to_date();
-    }
-    return binary_cast<VecDateTimeValue, Int64>(v);
-}
+int64_t str_to_data_time(std::string datetime_str, bool data_time = true);
 
 namespace ut_type {
 using TINYINT = int8_t;
@@ -298,7 +289,7 @@ void check_function(const std::string& func_name, const std::vector<std::any>& i
                                                      is_const, row_size);
             arg_type.type = doris_udf::FunctionContext::TYPE_DATE;
         } else {
-            ASSERT_TRUE(false);
+            EXPECT_TRUE(false);
             arg_type.type = doris_udf::FunctionContext::INVALID_TYPE;
         }
         arguments.push_back(i);
@@ -318,7 +309,7 @@ void check_function(const std::string& func_name, const std::vector<std::any>& i
     auto return_type = nullable ? make_nullable(std::make_shared<ReturnType>())
                                 : std::make_shared<ReturnType>();
     auto func = SimpleFunctionFactory::instance().get_function(func_name, ctn, return_type);
-    ASSERT_TRUE(func != nullptr);
+    EXPECT_TRUE(func != nullptr);
 
     doris_udf::FunctionContext::TypeDesc fn_ctx_return;
     if (std::is_same_v<ReturnType, DataTypeUInt8>) {
@@ -349,7 +340,7 @@ void check_function(const std::string& func_name, const std::vector<std::any>& i
 
     // 3. check the result of function
     ColumnPtr column = block.get_columns()[result];
-    ASSERT_TRUE(column != nullptr);
+    EXPECT_TRUE(column != nullptr);
 
     for (int i = 0; i < row_size; ++i) {
         auto check_column_data = [&]() {
@@ -360,12 +351,12 @@ void check_function(const std::string& func_name, const std::vector<std::any>& i
             const auto& expect_data =
                     std::any_cast<typename ReturnType::FieldType>(data_set[i].second);
 
-            ASSERT_EQ(column_data, expect_data);
+            EXPECT_EQ(column_data, expect_data);
         };
 
         if constexpr (nullable) {
             bool is_null = data_set[i].second.type() == typeid(Null);
-            ASSERT_EQ(column->is_null_at(i), is_null);
+            EXPECT_EQ(column->is_null_at(i), is_null);
             if (!is_null) check_column_data();
         } else {
             check_column_data();

@@ -176,19 +176,3 @@ void DataSplitTest::init_desc_tbl() {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    // 覆盖be.conf中的配置
-    doris::config::storage_root_path = "./test_run/mini_load";
-    doris::FileUtils::create_dir(doris::config::storage_root_path);
-    doris::touch_all_singleton();
-
-    doris::CpuInfo::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

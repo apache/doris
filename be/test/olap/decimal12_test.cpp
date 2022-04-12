@@ -27,52 +27,47 @@ TEST(FieldInfoTest, Add) {
     decimal12_t a = {a_integer, a_fraction};
     decimal12_t b = {1, 0};
     a += b;
-    ASSERT_EQ(a_integer + 1, a.integer);
-    ASSERT_EQ(a_fraction, a.fraction);
+    EXPECT_EQ(a_integer + 1, a.integer);
+    EXPECT_EQ(a_fraction, a.fraction);
 
     a.integer = -9223372036854775807L;
     a.fraction = -1;
     b.integer = 0;
     a += b;
-    ASSERT_EQ(-9223372036854775807L, a.integer);
-    ASSERT_EQ(-1, a.fraction);
+    EXPECT_EQ(-9223372036854775807L, a.integer);
+    EXPECT_EQ(-1, a.fraction);
 
     a.integer = -1;
     a.fraction = 0;
     b.integer = -7;
     b.fraction = 0;
     a += b;
-    ASSERT_EQ(-8, a.integer);
-    ASSERT_EQ(0, a.fraction);
+    EXPECT_EQ(-8, a.integer);
+    EXPECT_EQ(0, a.fraction);
 
     a.integer = 0;
     a.fraction = -1;
     b.integer = 0;
     b.fraction = -2;
     a += b;
-    ASSERT_EQ(0, a.integer);
-    ASSERT_EQ(-3, a.fraction);
+    EXPECT_EQ(0, a.integer);
+    EXPECT_EQ(-3, a.fraction);
 
     a.integer = 0;
     a.fraction = -999999999;
     b.integer = 0;
     b.fraction = -1;
     a += b;
-    ASSERT_EQ(-1, a.integer);
-    ASSERT_EQ(0, a.fraction);
+    EXPECT_EQ(-1, a.integer);
+    EXPECT_EQ(0, a.fraction);
 
     a.integer = -8;
     a.fraction = 0;
     b.integer = 2;
     b.fraction = 0;
     a += b;
-    ASSERT_EQ(-6, a.integer);
-    ASSERT_EQ(0, a.fraction);
+    EXPECT_EQ(-6, a.integer);
+    EXPECT_EQ(0, a.fraction);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

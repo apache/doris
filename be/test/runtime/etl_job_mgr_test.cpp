@@ -57,26 +57,26 @@ TEST_F(EtlJobMgrTest, NormalCase) {
     req.params.params.fragment_instance_id = id;
 
     // make it running
-    ASSERT_TRUE(mgr.start_job(req).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::RUNNING, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_job(req).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::RUNNING, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // make it finishing
     EtlJobResult job_result;
     job_result.file_map["abc"] = 100L;
-    ASSERT_TRUE(mgr.finish_job(id, Status::OK(), job_result).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::FINISHED, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
-    ASSERT_EQ(1, res.file_map.size());
-    ASSERT_EQ(100, res.file_map["abc"]);
+    EXPECT_TRUE(mgr.finish_job(id, Status::OK(), job_result).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::FINISHED, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_EQ(1, res.file_map.size());
+    EXPECT_EQ(100, res.file_map["abc"]);
 
     // erase it
-    ASSERT_TRUE(mgr.erase_job(del_req).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::CANCELLED, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.erase_job(del_req).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::CANCELLED, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
 TEST_F(EtlJobMgrTest, DuplicateCase) {
@@ -90,16 +90,16 @@ TEST_F(EtlJobMgrTest, DuplicateCase) {
     req.params.params.fragment_instance_id = id;
 
     // make it running
-    ASSERT_TRUE(mgr.start_job(req).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::RUNNING, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_job(req).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::RUNNING, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // Put it twice
-    ASSERT_TRUE(mgr.start_job(req).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::RUNNING, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_job(req).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::RUNNING, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
 TEST_F(EtlJobMgrTest, RunAfterSuccess) {
@@ -115,28 +115,28 @@ TEST_F(EtlJobMgrTest, RunAfterSuccess) {
     req.params.params.fragment_instance_id = id;
 
     // make it running
-    ASSERT_TRUE(mgr.start_job(req).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::RUNNING, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_job(req).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::RUNNING, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // make it finishing
     EtlJobResult job_result;
     job_result.file_map["abc"] = 100L;
-    ASSERT_TRUE(mgr.finish_job(id, Status::OK(), job_result).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::FINISHED, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
-    ASSERT_EQ(1, res.file_map.size());
-    ASSERT_EQ(100, res.file_map["abc"]);
+    EXPECT_TRUE(mgr.finish_job(id, Status::OK(), job_result).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::FINISHED, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_EQ(1, res.file_map.size());
+    EXPECT_EQ(100, res.file_map["abc"]);
 
     // Put it twice
-    ASSERT_TRUE(mgr.start_job(req).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::FINISHED, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
-    ASSERT_EQ(1, res.file_map.size());
-    ASSERT_EQ(100, res.file_map["abc"]);
+    EXPECT_TRUE(mgr.start_job(req).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::FINISHED, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_EQ(1, res.file_map.size());
+    EXPECT_EQ(100, res.file_map["abc"]);
 }
 
 TEST_F(EtlJobMgrTest, RunAfterFail) {
@@ -150,24 +150,24 @@ TEST_F(EtlJobMgrTest, RunAfterFail) {
     req.params.params.fragment_instance_id = id;
 
     // make it running
-    ASSERT_TRUE(mgr.start_job(req).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::RUNNING, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_job(req).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::RUNNING, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // make it finishing
     EtlJobResult job_result;
     job_result.debug_path = "abc";
-    ASSERT_TRUE(mgr.finish_job(id, Status::ThriftRpcError("Thrift rpc error"), job_result).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::CANCELLED, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.finish_job(id, Status::ThriftRpcError("Thrift rpc error"), job_result).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::CANCELLED, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // Put it twice
-    ASSERT_TRUE(mgr.start_job(req).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::RUNNING, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_job(req).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::RUNNING, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
 TEST_F(EtlJobMgrTest, CancelJob) {
@@ -181,24 +181,24 @@ TEST_F(EtlJobMgrTest, CancelJob) {
     req.params.params.fragment_instance_id = id;
 
     // make it running
-    ASSERT_TRUE(mgr.start_job(req).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::RUNNING, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_job(req).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::RUNNING, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // make it finishing
     EtlJobResult job_result;
     job_result.debug_path = "abc";
-    ASSERT_TRUE(mgr.cancel_job(id).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::CANCELLED, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.cancel_job(id).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::CANCELLED, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 
     // Put it twice
-    ASSERT_TRUE(mgr.start_job(req).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::RUNNING, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_TRUE(mgr.start_job(req).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::RUNNING, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
 TEST_F(EtlJobMgrTest, FinishUnknownJob) {
@@ -212,21 +212,10 @@ TEST_F(EtlJobMgrTest, FinishUnknownJob) {
     // make it finishing
     EtlJobResult job_result;
     job_result.debug_path = "abc";
-    ASSERT_FALSE(mgr.finish_job(id, Status::ThriftRpcError("Thrift rpc error"), job_result).ok());
-    ASSERT_TRUE(mgr.get_job_state(id, &res).ok());
-    ASSERT_EQ(TEtlState::CANCELLED, res.etl_state);
-    ASSERT_EQ(TStatusCode::OK, res.status.status_code);
+    EXPECT_FALSE(mgr.finish_job(id, Status::ThriftRpcError("Thrift rpc error"), job_result).ok());
+    EXPECT_TRUE(mgr.get_job_state(id, &res).ok());
+    EXPECT_EQ(TEtlState::CANCELLED, res.etl_state);
+    EXPECT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::CpuInfo::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

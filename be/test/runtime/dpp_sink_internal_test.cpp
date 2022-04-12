@@ -67,8 +67,8 @@ TEST_F(DppSinkInternalTest, PartitionInfoNormal) {
 
     PartitionInfo info;
 
-    ASSERT_TRUE(PartitionInfo::from_thrift(&pool, t_partition, &info).ok());
-    ASSERT_TRUE(info.prepare(nullptr, RowDescriptor()).ok());
+    EXPECT_TRUE(PartitionInfo::from_thrift(&pool, t_partition, &info).ok());
+    EXPECT_TRUE(info.prepare(nullptr, RowDescriptor()).ok());
 }
 
 TEST_F(DppSinkInternalTest, ZeroBucket) {
@@ -90,12 +90,7 @@ TEST_F(DppSinkInternalTest, ZeroBucket) {
 
     PartitionInfo info;
 
-    ASSERT_FALSE(PartitionInfo::from_thrift(&pool, t_partition, &info).ok());
+    EXPECT_FALSE(PartitionInfo::from_thrift(&pool, t_partition, &info).ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

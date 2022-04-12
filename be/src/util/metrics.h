@@ -162,6 +162,8 @@ public:
 
     void increment(const T& delta) { __sync_fetch_and_add(_value.access(), delta); }
 
+    void reset() { _value.reset(); }
+
     rj::Value to_json_value(rj::Document::AllocatorType& allocator) const override {
         return rj::Value(value());
     }

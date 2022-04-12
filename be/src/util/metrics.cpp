@@ -251,7 +251,9 @@ Metric* MetricEntity::get_metric(const std::string& name, const std::string& gro
 
 void MetricEntity::register_hook(const std::string& name, const std::function<void()>& hook) {
     std::lock_guard<SpinLock> l(_lock);
+#ifndef BE_TEST
     DCHECK(_hooks.find(name) == _hooks.end()) << "hook is already exist! " << _name << ":" << name;
+#endif
     _hooks.emplace(name, hook);
 }
 

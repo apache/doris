@@ -28,7 +28,7 @@ TEST(ScopedCleanup, TestCleanup) {
         auto cleanup = MakeScopedCleanup([&]() { var = saved; });
         var = 42;
     }
-    ASSERT_EQ(0, var);
+    EXPECT_EQ(0, var);
 }
 
 TEST(ScopedCleanup, TestCleanupMacro) {
@@ -38,7 +38,7 @@ TEST(ScopedCleanup, TestCleanupMacro) {
         SCOPED_CLEANUP({ var = saved; });
         var = 42;
     }
-    ASSERT_EQ(0, var);
+    EXPECT_EQ(0, var);
 }
 
 TEST(ScopedCleanup, TestCancelCleanup) {
@@ -49,12 +49,7 @@ TEST(ScopedCleanup, TestCancelCleanup) {
         var = 42;
         cleanup.cancel();
     }
-    ASSERT_EQ(42, var);
+    EXPECT_EQ(42, var);
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

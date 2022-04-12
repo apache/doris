@@ -147,7 +147,7 @@ TEST(MathFunctionTest, ln_test) {
                         {{-2.0}, Null()},
                         {{100.0}, 4.6051701859880918},
                         {{1000.0}, 6.9077552789821368}};
-    
+
     check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
@@ -170,9 +170,11 @@ TEST(MathFunctionTest, log10_test) {
 
     InputTypeSet input_types = {TypeIndex::Float64};
 
-    DataSet data_set = {
-            {{1.0}, 0.0}, {{0.5}, -0.3010299956639812},
-            {{100.0}, 2.0}, {{-1.0}, Null()}, {{1000.0}, 3.0}};
+    DataSet data_set = {{{1.0}, 0.0},
+                        {{0.5}, -0.3010299956639812},
+                        {{100.0}, 2.0},
+                        {{-1.0}, Null()},
+                        {{1000.0}, 3.0}};
 
     check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
@@ -182,12 +184,9 @@ TEST(MathFunctionTest, log_test) {
 
     InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
 
-    DataSet data_set = {{{10.0, 1.0}, 0.0},
-                        {{10.0, 100.0}, 2.0},
-                        {{0.1, 5.0}, -0.69897000433601886},
-                        {{-2.0, 5.0}, Null()},
-                        {{2.0, -5.0}, Null()},
-                        {{2.0, 0.5}, -1.0}};
+    DataSet data_set = {
+            {{10.0, 1.0}, 0.0},    {{10.0, 100.0}, 2.0},  {{0.1, 5.0}, -0.69897000433601886},
+            {{-2.0, 5.0}, Null()}, {{2.0, -5.0}, Null()}, {{2.0, 0.5}, -1.0}};
 
     check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
@@ -389,8 +388,8 @@ TEST(MathFunctionTest, least_test) {
 
     InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
 
-    DataSet data_set = {{{3, 2}, 2}, {{3, 3}, 3}, {{Null(), -2}, Null()},
-                            {{193, -2}, -2},   {{193, -1}, -1}};
+    DataSet data_set = {
+            {{3, 2}, 2}, {{3, 3}, 3}, {{Null(), -2}, Null()}, {{193, -2}, -2}, {{193, -1}, -1}};
 
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
@@ -400,8 +399,8 @@ TEST(MathFunctionTest, greatest_test) {
 
     InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
 
-    DataSet data_set = {{{3, 2}, 3}, {{3, 3}, 3}, {{Null(), -2}, Null()},
-                            {{193, -2}, 193},   {{193, -1}, 193}};
+    DataSet data_set = {
+            {{3, 2}, 3}, {{3, 3}, 3}, {{Null(), -2}, Null()}, {{193, -2}, 193}, {{193, -1}, 193}};
 
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
@@ -519,8 +518,3 @@ TEST(MathFunctionTest, money_format_test) {
 }
 
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

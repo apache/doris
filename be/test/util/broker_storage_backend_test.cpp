@@ -37,6 +37,8 @@ static const std::string SK = "SK";
 static const std::string ENDPOINT = "http://bj.bcebos.com";
 static const std::string BUCKET = "bos://yang-repo/";
 static const std::string BROKER_IP = "127.0.0.1";
+
+#define StorageBackendTest DISABLED_StorageBackendTest
 class StorageBackendTest : public testing::Test {
 public:
     StorageBackendTest()
@@ -88,109 +90,100 @@ protected:
 
 TEST_F(StorageBackendTest, broker_upload) {
     Status status = _broker->upload(_test_file, _broker_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string orig_md5sum;
     FileUtils::md5sum(_test_file, &orig_md5sum);
     status = _broker->download(_broker_base_path + "/Ode_to_the_West_Wind.txt",
                                _test_file + ".download");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string download_md5sum;
     FileUtils::md5sum(_test_file + ".download", &download_md5sum);
-    ASSERT_EQ(orig_md5sum, download_md5sum);
+    EXPECT_EQ(orig_md5sum, download_md5sum);
     status = _broker->upload(_test_file + "_not_found",
                              _broker_base_path + "/Ode_to_the_West_Wind1.txt");
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind1.txt");
-    ASSERT_EQ(TStatusCode::NOT_FOUND, status.code());
+    EXPECT_EQ(TStatusCode::NOT_FOUND, status.code());
 }
 
 TEST_F(StorageBackendTest, broker_direct_upload) {
     Status status =
             _broker->direct_upload(_broker_base_path + "/Ode_to_the_West_Wind.txt", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string orig_md5sum;
     FileUtils::md5sum(_test_file, &orig_md5sum);
     status = _broker->download(_broker_base_path + "/Ode_to_the_West_Wind.txt",
                                _test_file + ".download");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string download_md5sum;
     FileUtils::md5sum(_test_file + ".download", &download_md5sum);
-    ASSERT_EQ(orig_md5sum, download_md5sum);
+    EXPECT_EQ(orig_md5sum, download_md5sum);
 }
 
 TEST_F(StorageBackendTest, broker_download) {
     Status status = _broker->upload(_test_file, _broker_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string orig_md5sum;
     FileUtils::md5sum(_test_file, &orig_md5sum);
     status = _broker->download(_broker_base_path + "/Ode_to_the_West_Wind.txt",
                                _test_file + ".download");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::string download_md5sum;
     FileUtils::md5sum(_test_file + ".download", &download_md5sum);
-    ASSERT_EQ(orig_md5sum, download_md5sum);
+    EXPECT_EQ(orig_md5sum, download_md5sum);
     status = _broker->download(_broker_base_path + "/Ode_to_the_West_Wind.txt.not_found",
                                _test_file + ".download");
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     status = _broker->download(_broker_base_path + "/Ode_to_the_West_Wind.txt.not_found",
                                "/not_permitted.download");
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 
 TEST_F(StorageBackendTest, broker_rename) {
     Status status =
             _broker->direct_upload(_broker_base_path + "/Ode_to_the_West_Wind.txt", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _broker->rename(_broker_base_path + "/Ode_to_the_West_Wind.txt",
                              _broker_base_path + "/Ode_to_the_West_Wind.txt.new");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     // rm by broker old file may exist for a few moment
     // status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind.txt");
-    // ASSERT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    // EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
     status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind.txt.new");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 }
 
 TEST_F(StorageBackendTest, broker_list) {
     Status status =
             _broker->direct_upload(_broker_base_path + "/Ode_to_the_West_Wind.md5", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _broker->direct_upload(_broker_base_path + "/Ode_to_the_West_Wind1.md5", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _broker->direct_upload(_broker_base_path + "/Ode_to_the_West_Wind2.md5", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::map<std::string, FileStat> files;
     status = _broker->list(_broker_base_path, true, false, &files);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(files.find("Ode_to_the_West_Wind") != files.end());
-    ASSERT_TRUE(files.find("Ode_to_the_West_Wind1") != files.end());
-    ASSERT_TRUE(files.find("Ode_to_the_West_Wind2") != files.end());
-    ASSERT_EQ(3, files.size());
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(files.find("Ode_to_the_West_Wind") != files.end());
+    EXPECT_TRUE(files.find("Ode_to_the_West_Wind1") != files.end());
+    EXPECT_TRUE(files.find("Ode_to_the_West_Wind2") != files.end());
+    EXPECT_EQ(3, files.size());
 }
 
 TEST_F(StorageBackendTest, broker_rm) {
     Status status =
             _broker->direct_upload(_broker_base_path + "/Ode_to_the_West_Wind.txt", _content);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _broker->rm(_broker_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = _broker->exist(_broker_base_path + "/Ode_to_the_West_Wind.txt");
-    ASSERT_TRUE(status.code() == TStatusCode::NOT_FOUND);
+    EXPECT_TRUE(status.code() == TStatusCode::NOT_FOUND);
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    int ret = 0;
-    // ak sk is secret
-    // ret = RUN_ALL_TESTS();
-    return ret;
-}

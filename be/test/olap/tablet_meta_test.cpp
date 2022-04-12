@@ -40,12 +40,7 @@ TEST(TabletMetaTest, SaveAndParse) {
     TabletMeta new_tablet_meta;
     new_tablet_meta.create_from_file(meta_path);
 
-    ASSERT_EQ(old_tablet_meta, new_tablet_meta);
+    EXPECT_EQ(old_tablet_meta, new_tablet_meta);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

@@ -21,7 +21,7 @@
 
 #include "olap/memory/column_reader.h"
 #include "olap/memory/column_writer.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 
 namespace doris {
 namespace memory {
@@ -38,22 +38,22 @@ struct ColumnTest {
         ColumnSchema cs(1, "col", CT, false, false);
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
-        ASSERT_TRUE(c->create_writer(&writer).ok());
+        EXPECT_TRUE(c->create_writer(&writer).ok());
         std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
             EXPECT_TRUE(writer->insert((uint32_t)i, &values[i]).ok());
         }
         scoped_refptr<Column> newc;
-        ASSERT_TRUE(writer->finalize(2).ok());
-        ASSERT_TRUE(writer->get_new_column(&newc).ok());
+        EXPECT_TRUE(writer->finalize(2).ok());
+        EXPECT_TRUE(writer->get_new_column(&newc).ok());
         // The less `InsertCount` won't make COW performed，
         // expect the new column object only when inserting more。
         if (AllowSlowTests()) {
             EXPECT_TRUE(c.get() != newc.get());
         }
         std::unique_ptr<ColumnReader> readc;
-        ASSERT_TRUE(newc->create_reader(2, &readc).ok());
+        EXPECT_TRUE(newc->create_reader(2, &readc).ok());
         for (uint32_t i = 0; i < values.size(); i++) {
             CppType value = *reinterpret_cast<const CppType*>(readc->get(i));
             EXPECT_EQ(value, values[i]);
@@ -64,7 +64,7 @@ struct ColumnTest {
         ColumnSchema cs(1, "col", CT, true, false);
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
-        ASSERT_TRUE(c->create_writer(&writer).ok());
+        EXPECT_TRUE(c->create_writer(&writer).ok());
         std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
@@ -76,13 +76,13 @@ struct ColumnTest {
             }
         }
         scoped_refptr<Column> newc;
-        ASSERT_TRUE(writer->finalize(2).ok());
-        ASSERT_TRUE(writer->get_new_column(&newc).ok());
+        EXPECT_TRUE(writer->finalize(2).ok());
+        EXPECT_TRUE(writer->get_new_column(&newc).ok());
         if (AllowSlowTests()) {
             EXPECT_TRUE(c.get() != newc.get());
         }
         std::unique_ptr<ColumnReader> readc;
-        ASSERT_TRUE(newc->create_reader(2, &readc).ok());
+        EXPECT_TRUE(newc->create_reader(2, &readc).ok());
         for (uint32_t i = 0; i < values.size(); i++) {
             if (is_null(values[i])) {
                 EXPECT_TRUE(readc->get(i) == nullptr);
@@ -100,18 +100,18 @@ struct ColumnTest {
         ColumnSchema cs(1, "col", CT, false, false);
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
-        ASSERT_TRUE(c->create_writer(&writer).ok());
+        EXPECT_TRUE(c->create_writer(&writer).ok());
         std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
             EXPECT_TRUE(writer->insert((uint32_t)i, &values[i]).ok());
         }
-        ASSERT_TRUE(writer->finalize(++version).ok());
-        ASSERT_TRUE(writer->get_new_column(&c).ok());
+        EXPECT_TRUE(writer->finalize(++version).ok());
+        EXPECT_TRUE(writer->get_new_column(&c).ok());
         writer.reset();
         scoped_refptr<Column> oldc = c;
         for (size_t u = 0; u < UpdateTime; u++) {
-            ASSERT_TRUE(c->create_writer(&writer).ok());
+            EXPECT_TRUE(c->create_writer(&writer).ok());
             std::vector<uint32_t> update_idxs;
             for (size_t i = 0; i < UpdateCount; i++) {
                 uint32_t idx = rand() % values.size();
@@ -120,12 +120,12 @@ struct ColumnTest {
                 EXPECT_TRUE(writer->update(idx, &values[idx]).ok());
                 update_idxs.push_back(idx);
             }
-            ASSERT_TRUE(writer->finalize(++version).ok());
-            ASSERT_TRUE(writer->get_new_column(&c).ok());
+            EXPECT_TRUE(writer->finalize(++version).ok());
+            EXPECT_TRUE(writer->get_new_column(&c).ok());
             //DLOG(INFO) << Format("update %zu writer: %s", u, writer->to_string().c_str());
             writer.reset();
             std::unique_ptr<ColumnReader> readc;
-            ASSERT_TRUE(c->create_reader(version, &readc).ok());
+            EXPECT_TRUE(c->create_reader(version, &readc).ok());
             //DLOG(INFO) << Format("read %zu reader: %s", u, readc->to_string().c_str());
             for (uint32_t i : update_idxs) {
                 CppType value = *reinterpret_cast<const CppType*>(readc->get(i));
@@ -133,7 +133,7 @@ struct ColumnTest {
             }
         }
         if (UpdateTime > 64) {
-            ASSERT_TRUE(oldc != c);
+            EXPECT_TRUE(oldc != c);
         }
     }
 
@@ -144,7 +144,7 @@ struct ColumnTest {
         ColumnSchema cs(1, "col", CT, false, false);
         scoped_refptr<Column> c(new Column(cs, CT, 1));
         std::unique_ptr<ColumnWriter> writer;
-        ASSERT_TRUE(c->create_writer(&writer).ok());
+        EXPECT_TRUE(c->create_writer(&writer).ok());
         std::vector<CppType> values(InsertCount, 0);
         for (size_t i = 0; i < values.size(); i++) {
             values[i] = (CppType)rand();
@@ -155,12 +155,12 @@ struct ColumnTest {
                 EXPECT_TRUE(writer->insert((uint32_t)i, &values[i]).ok());
             }
         }
-        ASSERT_TRUE(writer->finalize(++version).ok());
-        ASSERT_TRUE(writer->get_new_column(&c).ok());
+        EXPECT_TRUE(writer->finalize(++version).ok());
+        EXPECT_TRUE(writer->get_new_column(&c).ok());
         writer.reset();
         scoped_refptr<Column> oldc = c;
         for (size_t u = 0; u < UpdateTime; u++) {
-            ASSERT_TRUE(c->create_writer(&writer).ok());
+            EXPECT_TRUE(c->create_writer(&writer).ok());
             std::vector<uint32_t> update_idxs;
             for (size_t i = 0; i < UpdateCount; i++) {
                 uint32_t idx = rand() % values.size();
@@ -173,12 +173,12 @@ struct ColumnTest {
                 }
                 update_idxs.push_back(idx);
             }
-            ASSERT_TRUE(writer->finalize(++version).ok());
-            ASSERT_TRUE(writer->get_new_column(&c).ok());
+            EXPECT_TRUE(writer->finalize(++version).ok());
+            EXPECT_TRUE(writer->get_new_column(&c).ok());
             //DLOG(INFO) << Format("update %zu writer: %s", u, writer->to_string().c_str());
             writer.reset();
             std::unique_ptr<ColumnReader> readc;
-            ASSERT_TRUE(c->create_reader(version, &readc).ok());
+            EXPECT_TRUE(c->create_reader(version, &readc).ok());
             //DLOG(INFO) << Format("read %zu reader: %s", u, readc->to_string().c_str());
             for (uint32_t i : update_idxs) {
                 CppType value = *reinterpret_cast<const CppType*>(readc->get(i));
@@ -191,7 +191,7 @@ struct ColumnTest {
             }
         }
         if (UpdateTime > 64) {
-            ASSERT_TRUE(oldc != c);
+            EXPECT_TRUE(oldc != c);
         }
     }
 
@@ -221,8 +221,3 @@ TEST(Column, update) {
 
 } // namespace memory
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

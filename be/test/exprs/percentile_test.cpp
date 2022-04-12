@@ -46,7 +46,7 @@ TEST_F(PercentileTest, testSample) {
     AggregateFunctions::percentile_init(context, &stringVal2);
     AggregateFunctions::percentile_merge(context, s, &stringVal2);
     DoubleVal v = AggregateFunctions::percentile_finalize(context, stringVal2);
-    ASSERT_EQ(v.val, 1.9);
+    EXPECT_EQ(v.val, 1.9);
     delete futil;
 }
 
@@ -64,7 +64,7 @@ TEST_F(PercentileTest, testNoMerge) {
     AggregateFunctions::percentile_update(context, val2, doubleQ, &stringVal1);
 
     DoubleVal v = AggregateFunctions::percentile_finalize(context, stringVal1);
-    ASSERT_EQ(v.val, 1.9);
+    EXPECT_EQ(v.val, 1.9);
     delete futil;
 }
 
@@ -87,7 +87,7 @@ TEST_F(PercentileTest, testSerialize) {
     AggregateFunctions::percentile_init(context, &stringVal2);
     AggregateFunctions::percentile_merge(context, serialized, &stringVal2);
     DoubleVal v = AggregateFunctions::percentile_finalize(context, stringVal2);
-    ASSERT_DOUBLE_EQ(v.val, 99900.001);
+    EXPECT_DOUBLE_EQ(v.val, 99900.001);
 
     // merge init percentile stringVal3 should not change the correct result
     AggregateFunctions::percentile_init(context, &stringVal);
@@ -106,14 +106,9 @@ TEST_F(PercentileTest, testSerialize) {
     AggregateFunctions::percentile_merge(context, serialized, &stringVal2);
     AggregateFunctions::percentile_merge(context, serialized2, &stringVal2);
     v = AggregateFunctions::percentile_finalize(context, stringVal2);
-    ASSERT_DOUBLE_EQ(v.val, 99900.001);
+    EXPECT_DOUBLE_EQ(v.val, 99900.001);
 
     delete futil;
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

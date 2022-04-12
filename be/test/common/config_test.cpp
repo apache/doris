@@ -45,12 +45,12 @@ TEST_F(ConfigTest, DumpAllConfigs) {
     CONF_Int64s(cfg_std_vector_int64_t, "4294967296123,4294967296234,4294967296345");
     CONF_Strings(cfg_std_vector_std_string, "doris,config,test,string");
 
-    ASSERT_TRUE(config::init(nullptr, true));
+    EXPECT_TRUE(config::init(nullptr, true));
     std::stringstream ss;
     for (const auto& it : *(config::full_conf_map)) {
         ss << it.first << "=" << it.second << std::endl;
     }
-    ASSERT_EQ(
+    EXPECT_EQ(
             "cfg_bool_false=0\ncfg_bool_true=1\ncfg_double=123.456\ncfg_int16_t=2561\ncfg_int32_t="
             "65536123\ncfg_int64_t=4294967296123\ncfg_std_string=doris_config_test_string\ncfg_std_"
             "vector_bool=1, 0, 1\ncfg_std_vector_double=123.456, 123.457, "
@@ -69,72 +69,67 @@ TEST_F(ConfigTest, UpdateConfigs) {
     CONF_mInt64(cfg_int64_t, "4294967296123");
     CONF_String(cfg_std_string, "doris_config_test_string");
 
-    ASSERT_TRUE(config::init(nullptr, true));
+    EXPECT_TRUE(config::init(nullptr, true));
 
     // bool
-    ASSERT_FALSE(cfg_bool);
-    ASSERT_TRUE(config::set_config("cfg_bool", "true").ok());
-    ASSERT_TRUE(cfg_bool);
+    EXPECT_FALSE(cfg_bool);
+    EXPECT_TRUE(config::set_config("cfg_bool", "true").ok());
+    EXPECT_TRUE(cfg_bool);
 
     // double
-    ASSERT_EQ(cfg_double, 123.456);
-    ASSERT_TRUE(config::set_config("cfg_double", "654.321").ok());
-    ASSERT_EQ(cfg_double, 654.321);
+    EXPECT_EQ(cfg_double, 123.456);
+    EXPECT_TRUE(config::set_config("cfg_double", "654.321").ok());
+    EXPECT_EQ(cfg_double, 654.321);
 
     // int16
-    ASSERT_EQ(cfg_int16_t, 2561);
-    ASSERT_TRUE(config::set_config("cfg_int16_t", "2562").ok());
-    ASSERT_EQ(cfg_int16_t, 2562);
+    EXPECT_EQ(cfg_int16_t, 2561);
+    EXPECT_TRUE(config::set_config("cfg_int16_t", "2562").ok());
+    EXPECT_EQ(cfg_int16_t, 2562);
 
     // int32
-    ASSERT_EQ(cfg_int32_t, 65536123);
-    ASSERT_TRUE(config::set_config("cfg_int32_t", "65536124").ok());
-    ASSERT_EQ(cfg_int32_t, 65536124);
+    EXPECT_EQ(cfg_int32_t, 65536123);
+    EXPECT_TRUE(config::set_config("cfg_int32_t", "65536124").ok());
+    EXPECT_EQ(cfg_int32_t, 65536124);
 
     // int64
-    ASSERT_EQ(cfg_int64_t, 4294967296123);
-    ASSERT_TRUE(config::set_config("cfg_int64_t", "4294967296124").ok());
-    ASSERT_EQ(cfg_int64_t, 4294967296124);
+    EXPECT_EQ(cfg_int64_t, 4294967296123);
+    EXPECT_TRUE(config::set_config("cfg_int64_t", "4294967296124").ok());
+    EXPECT_EQ(cfg_int64_t, 4294967296124);
 
     // not exist
     Status s = config::set_config("cfg_not_exist", "123");
-    ASSERT_FALSE(s.ok());
-    ASSERT_EQ(s.to_string(), "Not found: 'cfg_not_exist' is not found");
+    EXPECT_FALSE(s.ok());
+    EXPECT_EQ(s.to_string(), "Not found: 'cfg_not_exist' is not found");
 
     // immutable
-    ASSERT_TRUE(cfg_bool_immutable);
+    EXPECT_TRUE(cfg_bool_immutable);
     s = config::set_config("cfg_bool_immutable", "false");
-    ASSERT_FALSE(s.ok());
-    ASSERT_EQ(s.to_string(), "Not supported: 'cfg_bool_immutable' is not support to modify");
-    ASSERT_TRUE(cfg_bool_immutable);
+    EXPECT_FALSE(s.ok());
+    EXPECT_EQ(s.to_string(), "Not supported: 'cfg_bool_immutable' is not support to modify");
+    EXPECT_TRUE(cfg_bool_immutable);
 
     // convert error
     s = config::set_config("cfg_bool", "falseeee");
-    ASSERT_FALSE(s.ok());
-    ASSERT_EQ(s.to_string(), "Invalid argument: convert 'falseeee' as bool failed");
-    ASSERT_TRUE(cfg_bool);
+    EXPECT_FALSE(s.ok());
+    EXPECT_EQ(s.to_string(), "Invalid argument: convert 'falseeee' as bool failed");
+    EXPECT_TRUE(cfg_bool);
 
     s = config::set_config("cfg_double", "");
-    ASSERT_FALSE(s.ok());
-    ASSERT_EQ(s.to_string(), "Invalid argument: convert '' as double failed");
-    ASSERT_EQ(cfg_double, 654.321);
+    EXPECT_FALSE(s.ok());
+    EXPECT_EQ(s.to_string(), "Invalid argument: convert '' as double failed");
+    EXPECT_EQ(cfg_double, 654.321);
 
     // convert error
     s = config::set_config("cfg_int32_t", "4294967296124");
-    ASSERT_FALSE(s.ok());
-    ASSERT_EQ(s.to_string(), "Invalid argument: convert '4294967296124' as int32_t failed");
-    ASSERT_EQ(cfg_int32_t, 65536124);
+    EXPECT_FALSE(s.ok());
+    EXPECT_EQ(s.to_string(), "Invalid argument: convert '4294967296124' as int32_t failed");
+    EXPECT_EQ(cfg_int32_t, 65536124);
 
     // not support
     s = config::set_config("cfg_std_string", "test");
-    ASSERT_FALSE(s.ok());
-    ASSERT_EQ(s.to_string(), "Not supported: 'cfg_std_string' is not support to modify");
-    ASSERT_EQ(cfg_std_string, "doris_config_test_string");
+    EXPECT_FALSE(s.ok());
+    EXPECT_EQ(s.to_string(), "Not supported: 'cfg_std_string' is not support to modify");
+    EXPECT_EQ(cfg_std_string, "doris_config_test_string");
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

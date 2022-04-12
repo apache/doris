@@ -51,12 +51,12 @@ void CsvScannerTest::init() {
 TEST_F(CsvScannerTest, normal_use) {
     CsvScanner scanner(_file_paths);
     Status status = scanner.open();
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     std::string line_str;
     bool eos = false;
     status = scanner.get_next_row(&line_str, &eos);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     while (!eos) {
         status = scanner.get_next_row(&line_str, &eos);
@@ -64,7 +64,7 @@ TEST_F(CsvScannerTest, normal_use) {
         if (eos) {
             break;
         }
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         LOG(WARNING) << line_str;
     }
@@ -78,23 +78,12 @@ TEST_F(CsvScannerTest, no_exist_files) {
     CsvScanner scanner(no_exist_files);
     Status status = scanner.open();
     // check until 'get_next_row()'
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     std::string line_str;
     bool eos = false;
     status = scanner.get_next_row(&line_str, &eos);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
