@@ -313,7 +313,7 @@ PROPERTIES
 
 Broker imports are asynchronous commands. Successful execution of the above commands only indicates successful submission of tasks. Successful imports need to be checked through `SHOW LOAD;' Such as:
 
-`SHOW LOAD WHERE LABLE = "table1_20170708";`
+`SHOW LOAD WHERE LABEL = "table1_20170708";`
 
 In the return result, FINISHED in the `State` field indicates that the import was successful.
 
