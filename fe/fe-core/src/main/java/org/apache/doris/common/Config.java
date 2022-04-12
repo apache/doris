@@ -349,6 +349,11 @@ public class Config extends ConfigBase {
     @ConfField public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
     /**
+     * Mini load disabled by default
+     */
+    @ConfField public static boolean disable_mini_load = true;
+
+    /**
      * The backlog_num for mysql nio server
      * When you enlarge this backlog_num, you should enlarge the value in
      * the linux /proc/sys/net/core/somaxconn file at the same time

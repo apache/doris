@@ -207,6 +207,10 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 这个是 put 或 post 方法上传文件的最大字节数，默认值：100MB
 
+### **`disable_mini_load`**
+
+是否禁用mini load数据导入方式，默认是：true （禁用）
+
 ### `default_max_filter_ratio`
 
 默认值：0
