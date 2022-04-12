@@ -1068,7 +1068,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         TStreamLoadPutResult result = new TStreamLoadPutResult();
         TStatus status = new TStatus(TStatusCode.OK);
-        result.setStatus(status);
         try {
             result.setParams(streamLoadPutImpl(request));
         } catch (UserException e) {
@@ -1079,8 +1078,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("catch unknown result.", e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
-            return result;
-        }
+        } finally {
+			result.setStatus(status);
+		}
         return result;
     }
 
