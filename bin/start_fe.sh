@@ -27,12 +27,14 @@ OPTS=$(getopt \
     -o '' \
     -l 'daemon' \
     -l 'helper:' \
+    -l 'image' \
     -- "$@")
 
 eval set -- "$OPTS"
 
 RUN_DAEMON=0
 HELPER=
+IMAGE_PATH=
 while true; do
     case "$1" in
     --daemon)
@@ -41,6 +43,10 @@ while true; do
         ;;
     --helper)
         HELPER=$2
+        shift 2
+        ;;
+    --image)
+        IMAGE_PATH=$2
         shift 2
         ;;
     --)
@@ -163,7 +169,9 @@ if [ x"$HELPER" != x"" ]; then
     HELPER="-helper $HELPER"
 fi
 
-if [ ${RUN_DAEMON} -eq 1 ]; then
+if [ ! -z ${IMAGE_PATH} ]; then
+    $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe -i ${IMAGE_PATH}
+elif [ ${RUN_DAEMON} -eq 1 ]; then
     nohup $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 < /dev/null &
 else
     $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" < /dev/null
