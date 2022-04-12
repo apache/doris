@@ -132,6 +132,19 @@ public:
     }
     T* access_at_core(size_t core_idx) const { return _values[core_idx]; }
 
+    inline void reset() {
+        for (int i = 0; i < _size; ++i) {
+            _values[i]->~T();
+        }
+        _values.clear();
+        _values.resize(_size, nullptr);
+        CoreLocalValueController<T>* controller = CoreLocalValueController<T>::instance();
+        for (int i = 0; i < _size; ++i) {
+            void* ptr = controller->allocator(i)->get_or_create(_id);
+            _values[i] = new (ptr) T();
+        }
+    }
+
 private:
     int _id = -1;
     size_t _size = 0;

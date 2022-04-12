@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "service/brpc.h"
 #include "common/object_pool.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/service.h"
 #include "gtest/gtest.h"
 #include "runtime/exec_env.h"
+#include "service/brpc.h"
 #include "testutil/desc_tbl_builder.h"
 #include "util/proto_util.h"
 #include "vec/columns/columns_number.h"
@@ -46,8 +46,8 @@ public:
         st = stream_mgr->transmit_block(request, &done);
         if (!st.ok()) {
             LOG(WARNING) << "transmit_block failed, message=" << st.get_error_msg()
-                << ", fragment_instance_id=" << print_id(request->finst_id())
-                << ", node=" << request->node_id();
+                         << ", fragment_instance_id=" << print_id(request->finst_id())
+                         << ", node=" << request->node_id();
         }
     }
 
@@ -177,16 +177,10 @@ TEST_F(VDataStreamTest, BasicTest) {
     bool eos;
     recv->get_next(&block_2, &eos);
 
-    ASSERT_EQ(block_2.rows(), 1024);
+    EXPECT_EQ(block_2.rows(), 1024);
 
     Status exec_status;
     sender.close(&runtime_stat, exec_status);
     recv->close();
 }
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    doris::CpuInfo::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

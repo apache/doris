@@ -26,7 +26,7 @@
 #include "runtime/datetime_value.h"
 #include "runtime/string_value.h"
 #include "string_functions.h"
-#include "util/array_parser.hpp"
+#include "util/array_parser.h"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
 
