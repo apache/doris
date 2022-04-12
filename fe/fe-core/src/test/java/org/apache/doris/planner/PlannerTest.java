@@ -62,7 +62,8 @@ public class PlannerTest {
         // 3. create table tbl1
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr,
+                ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
         createTblStmtStr = "create table db1.tbl2(k1 int, k2 int sum) "
@@ -271,7 +272,7 @@ public class PlannerTest {
         StmtExecutor stmtExecutor11 = new StmtExecutor(ctx, sql11);
         stmtExecutor11.execute();
         Planner planner11 = stmtExecutor11.planner();
-        SetOperationNode setNode11 = (SetOperationNode)(planner11.getFragments().get(1).getPlanRoot());
+        SetOperationNode setNode11 = (SetOperationNode) (planner11.getFragments().get(1).getPlanRoot());
         Assert.assertEquals(2, setNode11.getMaterializedConstExprLists_().size());
 
         String sql12 = "SELECT a.x \n" +
@@ -283,14 +284,13 @@ public class PlannerTest {
         StmtExecutor stmtExecutor12 = new StmtExecutor(ctx, sql12);
         stmtExecutor12.execute();
         Planner planner12 = stmtExecutor12.planner();
-        SetOperationNode setNode12 = (SetOperationNode)(planner12.getFragments().get(1).getPlanRoot());
+        SetOperationNode setNode12 = (SetOperationNode) (planner12.getFragments().get(1).getPlanRoot());
         Assert.assertEquals(2, setNode12.getMaterializedResultExprLists_().size());
     }
 
     @Test
-    public void testPushDown() throws Exception{
-        String sql1 =
-                "SELECT\n" +
+    public void testPushDown() throws Exception {
+        String sql1 = "SELECT\n" +
                 "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
                 "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n" +
                 "    k4\n" +
@@ -322,25 +322,24 @@ public class PlannerTest {
                 fragments1.get(0).getPlanRoot().conjuncts.get(0).getChild(0).getFn().functionName());
         Assert.assertEquals(3, fragments1.get(0).getPlanRoot().getChild(0).getChild(0).conjuncts.size());
 
-        String sql2 =
-                "SELECT\n" +
-                        "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
-                        "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n" +
-                        "    k4\n" +
-                        "FROM\n" +
-                        "(\n" +
-                        "    SELECT\n" +
-                        "        k1,\n" +
-                        "        k2,\n" +
-                        "        k3,\n" +
-                        "        SUM(k4) AS k4\n" +
-                        "    FROM  db1.tbl1\n" +
-                        "    WHERE k1 = 0\n" +
-                        "        AND k4 = 1\n" +
-                        "        AND k3 = 'foo'\n" +
-                        "    GROUP BY k1, k2, k3\n" +
-                        ") t\n" +
-                        "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
+        String sql2 = "SELECT\n" +
+                "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
+                "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n" +
+                "    k4\n" +
+                "FROM\n" +
+                "(\n" +
+                "    SELECT\n" +
+                "        k1,\n" +
+                "        k2,\n" +
+                "        k3,\n" +
+                "        SUM(k4) AS k4\n" +
+                "    FROM  db1.tbl1\n" +
+                "    WHERE k1 = 0\n" +
+                "        AND k4 = 1\n" +
+                "        AND k3 = 'foo'\n" +
+                "    GROUP BY k1, k2, k3\n" +
+                ") t\n" +
+                "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
         StmtExecutor stmtExecutor2 = new StmtExecutor(ctx, sql2);
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
@@ -381,7 +380,6 @@ public class PlannerTest {
                 "GROUP BY a.k1, a.k3";
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
         stmtExecutor.execute();
-        Assert.assertNotNull(stmtExecutor.planner());
         Planner planner = stmtExecutor.planner();
         List<PlanFragment> fragments = planner.getFragments();
         Assert.assertTrue(fragments.size() > 0);
@@ -398,7 +396,6 @@ public class PlannerTest {
             expr.isBoundByTupleIds(sortNode.getChild(0).tupleIds);
         }
     }
-
 
     @Test
     public void testBigintSlotRefCompareDecimalLiteral() {
@@ -449,4 +446,16 @@ public class PlannerTest {
         UtFrameUtils.parseAndAnalyzeStmt(createTbl1, ctx);
     }
 
+    @Test
+    public void testConvertOuterJoin() throws Exception {
+        String sql1 = "explain select * from db1.tbl1 full join db1.tbl2 on db1.tbl1.k4 = db1.tbl2.k1 where db1.tbl1.k4 > 0 and db1.tbl2.k1 > 0";
+
+        StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
+        stmtExecutor1.execute();
+        Planner planner1 = stmtExecutor1.planner();
+        Assert.assertNotNull(planner1);
+        List<PlanFragment> fragments1 = planner1.getFragments();
+        String plan1 = planner1.getExplainString(fragments1, new ExplainOptions(true, false));
+        Assert.assertEquals(1, StringUtils.countMatches(plan1, "join op: INNER JOIN"));
+    }
 }

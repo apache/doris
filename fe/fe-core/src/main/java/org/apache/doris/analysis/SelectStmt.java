@@ -512,6 +512,7 @@ public class SelectStmt extends QueryStmt {
         }
 
         convertOutJoinToInnerJoin();
+
         // Change all outer join tuple to null here after analyze where and from clause
         // all solt desc of join tuple is ready. Before analyze sort info/agg info/analytic info
         // the solt desc nullable mark must be corrected to make sure BE exec query right.
@@ -617,11 +618,13 @@ public class SelectStmt extends QueryStmt {
     }
 
     private void convertOutJoinToInnerJoin() {
-        if (PredicateUtils.existOr(whereClause))
-            return;
-
         // Use HashSet to ensure tableRefs are unique, such as avoid two table A in it;
         HashSet<String> notNullTables = Sets.newHashSet();
+
+        // TODO[jackwener]: normalize the expr and consider more case
+        // Now, just check all is AND
+        if (PredicateUtils.existOr(whereClause))
+            return;
         List<Expr> flatExprs = PredicateUtils.flatAnd(whereClause);
         if (flatExprs.isEmpty()) {
             return;
@@ -632,7 +635,9 @@ public class SelectStmt extends QueryStmt {
                 for (Expr child : expr.getChildren()) {
                     if (child instanceof SlotRef) {
                         SlotRef slotRef = (SlotRef) child;
-                        notNullTables.add(slotRef.getTableName().getTbl());
+                        if (slotRef.getTableName() != null) {
+                            notNullTables.add(slotRef.getTableName().getTbl());
+                        }
                     }
                 }
             }
@@ -650,6 +655,8 @@ public class SelectStmt extends QueryStmt {
                 return;
 
             TableRef tableRef = fromClause.get(i);
+            if (tableRef == null || tableRef.getName() == null)
+                continue;
             if (notNullTables.contains(tableRef.getName().getTbl())) {
                 if (tableRef.getJoinOp() == JoinOperator.FULL_OUTER_JOIN) {
                     tableRef.setJoinOp(JoinOperator.RIGHT_OUTER_JOIN);
