@@ -32,42 +32,65 @@ ALTER TABLE RENAME
 
 ### Description
 
-```text
 This statement is used to rename certain names of existing table properties. This operation is synchronous, and the return of the command indicates the completion of the execution.
 
 grammar:
-     ALTER TABLE [database.]table alter_clause;
-    
-The alter_clause of rename supports modification of the following names:
+
+```sql
+ALTER TABLE [database.]table alter_clause;
+````
+
+The alter_clause of rename supports modification of the following names
+
 1. Modify the table name
-     grammar:
-         RENAME new_table_name;
-        
+
+grammar:
+
+```sql
+RENAME new_table_name;
+````
+
 2. Modify the rollup index name
-     grammar:
-         RENAME ROLLUP old_rollup_name new_rollup_name;
-        
+
+ grammar:
+
+```sql
+RENAME ROLLUP old_rollup_name new_rollup_name;
+````
+
 3. Modify the partition name
-     grammar:
-         RENAME PARTITION old_partition_name new_partition_name;
-```
+
+grammar:
+
+```sql
+RENAME PARTITION old_partition_name new_partition_name;
+````
 
 ### Example
 
-```text
 1. Modify the table named table1 to table2
-     ALTER TABLE table1 RENAME table2;
-    
+
+```sql
+ALTER TABLE table1 RENAME table2;
+````
+
 2. Modify the rollup index named rollup1 in the table example_table to rollup2
-     ALTER TABLE example_table RENAME ROLLUP rollup1 rollup2;
-    
+
+```sql
+ALTER TABLE example_table RENAME ROLLUP rollup1 rollup2;
+````
+
 3. Modify the partition named p1 in the table example_table to p2
-     ALTER TABLE example_table RENAME PARTITION p1 p2;
-```
+
+```sql
+ALTER TABLE example_table RENAME PARTITION p1 p2;
+````
 
 ### Keywords
 
-    ALTER, TABLE, RENAME
+````text
+ALTER, TABLE, RENAME
+````
 
 ### Best Practice
 

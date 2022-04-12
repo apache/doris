@@ -28,28 +28,32 @@ under the License.
 
 ### Name
 
-CANCEL  RESTORE
+CANCEL RESTORE
 
 ### Description
 
-```text
-This statement is used to cancel an ongoing RESTORE task. Grammar: CANCEL RESTORE FROM db_name;
+This statement is used to cancel an ongoing RESTORE task.
 
-Be careful: When the recovery is abolished around the COMMIT or later stage, the restored tables may be inaccessible. At this point, data recovery can only be done by performing the recovery operation again.
-```
+grammar:
+
+```sql
+CANCEL RESTORE FROM db_name;
+````
+
+Notice:
+
+- When cancellation is around a COMMIT or later stage of recovery, the table being recovered may be rendered inaccessible. At this time, data recovery can only be performed by executing the recovery job again.
 
 ### Example
 
-```text
 1. Cancel the RESTORE task under example_db.
-     CANCEL RESTORE FROM example_db;
-```
+
+```sql
+CANCEL RESTORE FROM example_db;
+````
 
 ### Keywords
 
-```text
-CANCEL, RESTORE
-```
+     CANCEL, RESTORE
 
 ### Best Practice
-

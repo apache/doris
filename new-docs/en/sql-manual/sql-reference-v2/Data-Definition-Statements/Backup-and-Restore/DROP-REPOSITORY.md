@@ -28,29 +28,32 @@ under the License.
 
 ### Name
 
-DROP  REPOSITORY
+DROP REPOSITORY
 
 ### Description
 
-```text
 This statement is used to delete a created repository. Only root or superuser users can delete repositories.
+
 grammar:
-     DROP REPOSITORY `repo_name`;
-        
+
+```sql
+DROP REPOSITORY `repo_name`;
+````
+
 illustrate:
-     1. Deleting a warehouse only deletes the mapping of the warehouse in Palo, and does not delete the actual warehouse data. Once deleted, it can be mapped to the repository again by specifying the same broker and LOCATION.
-```
+
+- Deleting a warehouse just deletes the warehouse's mapping in Palo, not the actual warehouse data. Once deleted, it can be mapped to the repository again by specifying the same broker and LOCATION.
 
 ### Example
 
-```text
 1. Delete the repository named bos_repo:
-     DROP REPOSITORY `bos_repo`;
-```
+
+```sql
+DROP REPOSITORY `bos_repo`;
+````
 
 ### Keywords
 
-    DROP, REPOSITORY
+     DROP, REPOSITORY
 
 ### Best Practice
-

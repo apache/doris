@@ -32,25 +32,25 @@ ALTER TABLE REPLACE
 
 ### Description
 
-```text
-该语句用于对已有 table 的 Schema 的进行属性的修改操作。语法基本类似于 ALTER TABLE CULUMN。
+该语句用于对已有 table 的 Schema 的进行属性的修改操作。语法基本类似于 [ALTER TABLE CULUMN](ALTER-TABLE-COLUMN.html)。
 
-语法：
-    ALTER TABLE [database.]table MODIFY NEW_COLUMN_INFO REPLACE OLD_COLUMN_INFO ;
+```sql
+ALTER TABLE [database.]table MODIFY NEW_COLUMN_INFO REPLACE OLD_COLUMN_INFO ;
 ```
 
 ### Example
 
-```text
 1. 修改 base index 的 val1 列最大长度。原 val1 为 (val1 VARCHAR(32) REPLACE DEFAULT "abc")
-    ALTER TABLE example_db.my_table
-    MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
+
+```sql
+ALTER TABLE example_db.my_table
+MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
 ```
 
 ### Keywords
 
 ```text
-ALTER, TABLE, REPLAC
+ALTER, TABLE, REPLACE
 ```
 
 ### Best Practice
