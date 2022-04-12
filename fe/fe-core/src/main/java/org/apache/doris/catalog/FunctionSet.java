@@ -402,7 +402,25 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 .put(Type.DECIMALV2,
                         "16knuth_var_updateEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValEPNS1_9StringValE")
                 .build();
-
+                
+                                                               
+    private static final Map<Type, String> STDDEV_REMOVE_SYMBOL =
+        ImmutableMap.<Type, String>builder()
+                .put(Type.TINYINT,
+                        "16knuth_var_removeIN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                .put(Type.SMALLINT,
+                        "16knuth_var_removeIN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                .put(Type.INT,
+                        "16knuth_var_removeIN9doris_udf6IntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                .put(Type.BIGINT,
+                        "16knuth_var_removeIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                .put(Type.FLOAT,
+                        "16knuth_var_removeIN9doris_udf8FloatValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                .put(Type.DOUBLE,
+                        "16knuth_var_removeIN9doris_udf9DoubleValEEEvPNS2_15FunctionContextERKT_PNS2_9StringValE")
+                .put(Type.DECIMALV2,
+                        "16knuth_var_removeEPN9doris_udf15FunctionContextERKNS1_12DecimalV2ValEPNS1_9StringValE")
+                .build();                
     private static final Map<Type, String> STDDEV_MERGE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.TINYINT,
@@ -439,6 +457,24 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         "31decimalv2_knuth_stddev_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .build();
 
+    private static final Map<Type, String> STDDEV_GET_VALUE_SYMBOL =
+        ImmutableMap.<Type, String>builder()
+                .put(Type.TINYINT,
+                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.SMALLINT,
+                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.INT,
+                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.BIGINT,
+                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.FLOAT,
+                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.DOUBLE,
+                        "22knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.DECIMALV2,
+                        "32decimalv2_knuth_stddev_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .build();
+
     private static final Map<Type, String> STDDEV_POP_FINALIZE_SYMBOL =
             ImmutableMap.<Type, String>builder()
                     .put(Type.TINYINT,
@@ -457,6 +493,24 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                             "35decimalv2_knuth_stddev_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                     .build();
 
+    private static final Map<Type, String> STDDEV_POP_GET_VALUE_SYMBOL =
+        ImmutableMap.<Type, String>builder()
+                .put(Type.TINYINT,
+                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.SMALLINT,
+                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.INT,
+                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.BIGINT,
+                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.FLOAT,
+                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.DOUBLE,
+                "26knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.DECIMALV2,
+                "36decimalv2_knuth_stddev_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .build(); 
+                  
     private static final Map<Type, String> VAR_FINALIZE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.TINYINT,
@@ -475,6 +529,24 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         "28decimalv2_knuth_var_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .build();
 
+    private static final Map<Type, String> VAR_GET_VALUE_SYMBOL =
+        ImmutableMap.<Type, String>builder()
+                .put(Type.TINYINT,
+                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.SMALLINT,
+                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.INT,
+                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.BIGINT,
+                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.FLOAT,
+                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.DOUBLE,
+                        "19knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.DECIMALV2,
+                        "29decimalv2_knuth_var_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .build(); 
+               
     private static final Map<Type, String> VAR_POP_FINALIZE_SYMBOL =
         ImmutableMap.<Type, String>builder()
                 .put(Type.TINYINT,
@@ -493,6 +565,23 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         "32decimalv2_knuth_var_pop_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE")
                 .build();
 
+    private static final Map<Type, String> VAR_POP_GET_VALUE_SYMBOL =
+        ImmutableMap.<Type, String>builder()
+                .put(Type.TINYINT,
+                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.SMALLINT,
+                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.INT,
+                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.BIGINT,
+                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.FLOAT,
+                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.DOUBLE,
+                        "23knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .put(Type.DECIMALV2,
+                        "33decimalv2_knuth_var_pop_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE")
+                .build();                
     public static final String HLL_HASH = "hll_hash";
     public static final String HLL_UNION = "hll_union";
 
@@ -1688,25 +1777,27 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, prefix + STDDEV_POP_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + STDDEV_POP_FINALIZE_SYMBOL.get(t),
-                        false, false, false));
+                        false, true, false));
+                        
                 addBuiltin(AggregateFunction.createBuiltin("stddev_samp",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), Type.VARCHAR,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, prefix + STDDEV_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + STDDEV_FINALIZE_SYMBOL.get(t),
-                        false, false, false));
+                        false, true, false));
+
                 addBuiltin(AggregateFunction.createBuiltin("stddev_pop",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), Type.VARCHAR,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, prefix + STDDEV_POP_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + STDDEV_POP_FINALIZE_SYMBOL.get(t),
-                        false, false, false));
+                        false, true, false));
 
                 //vec stddev stddev_samp stddev_pop
                 addBuiltin(AggregateFunction.createBuiltin("stddev",
@@ -1714,25 +1805,25 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, null, null,
                         prefix + STDDEV_POP_FINALIZE_SYMBOL.get(t),
-                        false, false, false, true));
+                        false, true, false, true));
                 addBuiltin(AggregateFunction.createBuiltin("stddev_samp",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, null, null,
                         prefix + STDDEV_FINALIZE_SYMBOL.get(t),
-                        false, false, false, true));
+                        false, true, false, true));
                 addBuiltin(AggregateFunction.createBuiltin("stddev_pop",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, null, null,
                         prefix + STDDEV_POP_FINALIZE_SYMBOL.get(t),
-                        false, false, false, true));
+                        false, true, false, true));
                 
                 //vec: variance variance_samp var_samp variance_pop var_pop
                 addBuiltin(AggregateFunction.createBuiltin("variance",
@@ -1740,82 +1831,86 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, null, null,
                         prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
-                        false, false, false, true));
+                        false, true, false, true));
                 addBuiltin(AggregateFunction.createBuiltin("variance_pop",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, null, null,
                         prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
-                        false, false, false, true));
+                        false, true, false, true));
                 addBuiltin(AggregateFunction.createBuiltin("var_pop",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, null, null,
                         prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
-                        false, false, false, true));
+                        false, true, false, true));
                 addBuiltin(AggregateFunction.createBuiltin("variance_samp",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, null, null,
                         prefix + VAR_FINALIZE_SYMBOL.get(t),
-                        false, false, false, true));
+                        false, true, false, true));
                 addBuiltin(AggregateFunction.createBuiltin("var_samp",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), t,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, null, null,
                         prefix + VAR_FINALIZE_SYMBOL.get(t),
-                        false, false, false, true));                        
+                        false, true, false, true));                        
 
                 addBuiltin(AggregateFunction.createBuiltin("variance",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), Type.VARCHAR,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, prefix + VAR_POP_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
-                        false, false, false));
+                        false, true, false));
+
                 addBuiltin(AggregateFunction.createBuiltin("variance_samp",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), Type.VARCHAR,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, prefix + VAR_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + VAR_FINALIZE_SYMBOL.get(t),
-                        false, false, false));
+                        false, true, false));
+
                 addBuiltin(AggregateFunction.createBuiltin("var_samp",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), Type.VARCHAR,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, prefix + VAR_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + VAR_FINALIZE_SYMBOL.get(t),
-                        false, false, false));
+                        false, true, false));
+
                 addBuiltin(AggregateFunction.createBuiltin("variance_pop",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), Type.VARCHAR,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, prefix + VAR_POP_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
-                        false, false, false));
+                        false, true, false));
+
                 addBuiltin(AggregateFunction.createBuiltin("var_pop",
                         Lists.newArrayList(t), STDDEV_RETTYPE_SYMBOL.get(t), Type.VARCHAR,
                         prefix + STDDEV_INIT_SYMBOL.get(t),
                         prefix + STDDEV_UPDATE_SYMBOL.get(t),
                         prefix + STDDEV_MERGE_SYMBOL.get(t),
-                        null,
+                        null, prefix + VAR_POP_GET_VALUE_SYMBOL.get(t), prefix + STDDEV_REMOVE_SYMBOL.get(t),
                         prefix + VAR_POP_FINALIZE_SYMBOL.get(t),
-                        false, false, false));
+                        false, true, false));
             }
         }
 

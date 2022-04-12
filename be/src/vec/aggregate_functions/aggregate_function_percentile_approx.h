@@ -35,6 +35,9 @@ struct PercentileApproxState {
 
     void init(double compression = 10000) {
         if (!init_flag) {
+            if (compression < 2048 || compression > 10000) {
+                compression = 10000;
+            }
             digest.reset(new TDigest(compression));
             init_flag = true;
         }
