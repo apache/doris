@@ -23,4 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/filesystem")
 
 add_library(FileSystem STATIC
     local_file_system.cpp
+    local_read_stream.cpp
+    local_write_stream.cpp
 )

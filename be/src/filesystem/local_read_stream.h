@@ -26,7 +26,7 @@ public:
     LocalReadStream(int fd, size_t file_size, size_t buffer_size);
     ~LocalReadStream() override;
 
-    Status read(char* to, size_t n, size_t* read_n) override;
+    Status read(char* to, size_t req_n, size_t* read_n) override;
 
     Status seek(int64_t position) override;
 
@@ -34,11 +34,11 @@ public:
 
     Status close() override;
 
+    bool eof() const { return _file_size == _offset; }
+
 private:
     // Fill the buffer.
     Status fill();
-
-    bool eof() const { return _file_size == _offset; }
 
 private:
     int _fd; // shared

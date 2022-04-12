@@ -23,7 +23,7 @@ namespace doris {
 
 class LocalFileSystem final : public FileSystem {
 public:
-    LocalFileSystem(std::string path);
+    LocalFileSystem(std::string root_path);
     ~LocalFileSystem() override;
 
     Status exists(const std::string& path, bool* res) const override;
@@ -47,8 +47,7 @@ public:
                       std::unique_ptr<WriteStream>* stream) override;
 
 private:
-    // Root path.
-    std::string _path;
+    std::string _root_path;
 };
 
 } // namespace doris

@@ -32,7 +32,7 @@ LocalReadStream::~LocalReadStream() {
     }
 }
 
-Status LocalReadStream::read(char* to, size_t n, size_t* read_n) {
+Status LocalReadStream::read(char* to, size_t req_n, size_t* read_n) {
     if (eof()) {
         *read_n = 0;
         return Status::OK();
@@ -41,9 +41,9 @@ Status LocalReadStream::read(char* to, size_t n, size_t* read_n) {
     if (_offset >= _buffer_end || _offset < _buffer_begin) {
         // Request length is larger than the capacity of buffer,
         // do not copy data into buffer.
-        if (n > _buffer_size) {
-            int res;
-            RETRY_ON_EINTR(res, ::pread(_fd, to, n, _offset));
+        if (req_n > _buffer_size) {
+            int res = 0;
+            RETRY_ON_EINTR(res, ::pread(_fd, to, req_n, _offset));
             if (-1 == res) {
                 return Status::IOError("Cannot read from file");
             }
@@ -54,15 +54,15 @@ Status LocalReadStream::read(char* to, size_t n, size_t* read_n) {
         RETURN_IF_ERROR(fill());
     }
 
-    size_t copied = std::min(_buffer_end - _offset, n);
+    size_t copied = std::min(_buffer_end - _offset, req_n);
     memcpy(to, _buffer + _offset - _buffer_begin, copied);
 
     _offset += copied;
     *read_n = copied;
 
-    size_t left_n = n - copied;
+    size_t left_n = req_n - copied;
     if (left_n > 0) {
-        size_t read_n1;
+        size_t read_n1 = 0;
         RETURN_IF_ERROR(read(to + copied, left_n, &read_n1));
         *read_n += read_n1;
     }
@@ -91,7 +91,7 @@ Status LocalReadStream::close() {
 }
 
 Status LocalReadStream::fill() {
-    int res;
+    int res = 0;
     RETRY_ON_EINTR(res, ::pread(_fd, _buffer, _buffer_size, _offset));
     if (-1 == res) {
         return Status::IOError("Cannot read from file");

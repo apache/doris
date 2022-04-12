@@ -31,7 +31,7 @@ public:
     //
     // Does not guarantee durability of 'data'; close() must be called for all
     // outstanding data to reach the disk.
-    virtual Status write(const char* from, size_t n) = 0;
+    virtual Status write(const char* from, size_t put_n) = 0;
 
     virtual Status sync() = 0;
 

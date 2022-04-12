@@ -29,31 +29,31 @@ namespace fs = std::filesystem;
 
 namespace doris {
 
-LocalFileSystem::LocalFileSystem(std::string path) : _path(std::move(path)) {}
+LocalFileSystem::LocalFileSystem(std::string root_path) : _root_path(std::move(root_path)) {}
 
 LocalFileSystem::~LocalFileSystem() = default;
 
 Status LocalFileSystem::exists(const std::string& path, bool* res) const {
-    auto fs_path = fs::path(_path) / path;
+    auto fs_path = fs::path(_root_path) / path;
     *res = fs::exists(fs_path);
     return Status::OK();
 }
 
 Status LocalFileSystem::is_file(const std::string& path, bool* res) const {
-    auto fs_path = fs::path(_path) / path;
+    auto fs_path = fs::path(_root_path) / path;
     *res = fs::is_regular_file(fs_path);
     return Status::OK();
 }
 
 Status LocalFileSystem::is_directory(const std::string& path, bool* res) const {
-    auto fs_path = fs::path(_path) / path;
+    auto fs_path = fs::path(_root_path) / path;
     *res = fs::is_directory(fs_path);
     return Status::OK();
 }
 
 Status LocalFileSystem::list(const std::string& path, std::vector<FileStat>* files) {
     files->clear();
-    auto fs_path = fs::path(_path) / path;
+    auto fs_path = fs::path(_root_path) / path;
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator(fs_path, ec)) {
         files->push_back({entry.path().filename(), entry.file_size()});
@@ -66,7 +66,7 @@ Status LocalFileSystem::list(const std::string& path, std::vector<FileStat>* fil
 }
 
 Status LocalFileSystem::delete_directory(const std::string& path) {
-    auto fs_path = fs::path(_path) / path;
+    auto fs_path = fs::path(_root_path) / path;
     if (!fs::exists(fs_path)) {
         return Status::OK();
     }
@@ -83,7 +83,7 @@ Status LocalFileSystem::delete_directory(const std::string& path) {
 }
 
 Status LocalFileSystem::delete_file(const std::string& path) {
-    auto fs_path = fs::path(_path) / path;
+    auto fs_path = fs::path(_root_path) / path;
     if (!fs::exists(fs_path)) {
         return Status::OK();
     }
@@ -100,7 +100,7 @@ Status LocalFileSystem::delete_file(const std::string& path) {
 }
 
 Status LocalFileSystem::create_directory(const std::string& path) {
-    auto fs_path = fs::path(_path) / path;
+    auto fs_path = fs::path(_root_path) / path;
     if (fs::exists(fs_path)) {
         return Status::IOError(fmt::format("{} exists", fs_path.string()));
     }

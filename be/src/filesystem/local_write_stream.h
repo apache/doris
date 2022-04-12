@@ -26,7 +26,7 @@ public:
     LocalWriteStream() = default;
     ~LocalWriteStream() override = default;
 
-    Status write(const char* from, size_t n) override;
+    Status write(const char* from, size_t put_n) override;
 
     Status sync() override;
 

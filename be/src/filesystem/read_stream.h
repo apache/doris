@@ -28,7 +28,7 @@ public:
     virtual ~ReadStream() = default;
 
     // `read_n` is set to the number of bytes read.
-    virtual Status read(char* to, size_t n, size_t* read_n) = 0;
+    virtual Status read(char* to, size_t req_n, size_t* read_n) = 0;
 
     // Move current position to.
     virtual Status seek(int64_t position) = 0;
