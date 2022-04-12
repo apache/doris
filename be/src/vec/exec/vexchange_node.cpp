@@ -19,6 +19,7 @@
 
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 
@@ -48,6 +49,7 @@ Status VExchangeNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status VExchangeNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     DCHECK_GT(_num_senders, 0);
     _sub_plan_query_statistics_recvr.reset(new QueryStatisticsRecvr());
     _stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
@@ -63,6 +65,7 @@ Status VExchangeNode::prepare(RuntimeState* state) {
 }
 Status VExchangeNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
 
     if (_is_merging) {
@@ -80,6 +83,8 @@ Status VExchangeNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
 
 Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(runtime_profile()->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
+    ADD_THREAD_LOCAL_MEM_TRACKER(_stream_recvr->mem_tracker());
     auto status = _stream_recvr->get_next(block, eos);
     if (block != nullptr) {
         if (_num_rows_returned + block->rows() < _limit) {

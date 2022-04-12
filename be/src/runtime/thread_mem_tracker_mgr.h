@@ -65,6 +65,7 @@ public:
         _mem_trackers[0] = MemTracker::get_process_tracker();
         _untracked_mems[0] = 0;
         _tracker_id = 0;
+        _mem_tracker_labels[0] = MemTracker::get_process_tracker()->label();
         start_thread_mem_tracker = true;
     }
     ~ThreadMemTrackerMgr() {
@@ -75,7 +76,8 @@ public:
     void clear_untracked_mems() {
         for (const auto& untracked_mem : _untracked_mems) {
             if (untracked_mem.second != 0) {
-                DCHECK(_mem_trackers[untracked_mem.first]) << ", label: " << _mem_tracker_labels[untracked_mem.first];
+                DCHECK(_mem_trackers[untracked_mem.first])
+                        << ", label: " << _mem_tracker_labels[untracked_mem.first];
                 if (_mem_trackers[untracked_mem.first]) {
                     _mem_trackers[untracked_mem.first]->consume(untracked_mem.second);
                 } else {
@@ -195,7 +197,7 @@ inline int64_t ThreadMemTrackerMgr::update_tracker(const std::shared_ptr<MemTrac
     _untracked_mems[_tracker_id] += _untracked_mem;
     _untracked_mem = 0;
     std::swap(_tracker_id, _temp_tracker_id);
-    DCHECK(_mem_trackers[_tracker_id]);
+    DCHECK(_mem_trackers[_tracker_id]) << ", label: " << _mem_tracker_labels[_tracker_id];
     return _temp_tracker_id; // old tracker_id
 }
 
@@ -204,7 +206,8 @@ inline void ThreadMemTrackerMgr::update_tracker_id(int64_t tracker_id) {
         _untracked_mems[_tracker_id] += _untracked_mem;
         _untracked_mem = 0;
         _tracker_id = tracker_id;
-        DCHECK(_untracked_mems.find(_tracker_id) != _untracked_mems.end());
+        DCHECK(_untracked_mems.find(_tracker_id) != _untracked_mems.end())
+                << ", label: " << _mem_tracker_labels[_tracker_id];
         DCHECK(_mem_trackers[_tracker_id]);
     }
 }
@@ -217,14 +220,14 @@ inline void ThreadMemTrackerMgr::cache_consume(int64_t size) {
     if (_untracked_mem >= config::mem_tracker_consume_min_size_bytes ||
         _untracked_mem <= -config::mem_tracker_consume_min_size_bytes) {
         DCHECK(_untracked_mems.find(_tracker_id) != _untracked_mems.end());
+        // Allocating memory in the Hook command causes the TCMalloc Hook to be entered again, infinite recursion.
+        // Needs to ensure that all memory allocated in mem_tracker.consume/try_consume is freed in time to avoid tracking misses.
         start_thread_mem_tracker = false;
         // When switching to the current tracker last time, the remaining untracked memory.
         if (_untracked_mems[_tracker_id] != 0) {
             _untracked_mem += _untracked_mems[_tracker_id];
             _untracked_mems[_tracker_id] = 0;
         }
-        // Avoid getting stuck in infinite loop if there is memory allocation in noncache_consume.
-        // For example: GC function when try_consume; mem_limit_exceeded.
         noncache_consume();
         start_thread_mem_tracker = true;
     }

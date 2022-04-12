@@ -156,7 +156,7 @@ private:
 // The func provided by pthread and std::thread doesn't help either.
 //
 // So, kudu Class-scoped static thread local implementation was introduced. Solve the above problem by
-// Thread-scopedthread local + Class-scoped thread local.
+// Thread-scoped thread local + Class-scoped thread local.
 //
 // This may look very trick, but it's the best way I can find.
 //
