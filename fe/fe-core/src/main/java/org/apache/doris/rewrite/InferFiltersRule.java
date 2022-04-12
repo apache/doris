@@ -70,16 +70,14 @@ public class InferFiltersRule implements ExprRewriteRule {
         } 
 
         // slotEqSlotExpr: Record existing and infer equivalent connections
-        List<Expr> slotEqSlotExpr =
-                (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getOnSlotEqSlotExpr() : new ArrayList<>();
+        List<Expr> slotEqSlotExpr = analyzer.getOnSlotEqSlotExpr();
 
         // slotEqSlotDeDuplication: De-Duplication for slotEqSlotExpr
         Set<Pair<Expr, Expr>> slotEqSlotDeDuplication =
                 (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getOnSlotEqSlotDeDuplication() : Sets.newHashSet();
 
         // slotToLiteralExpr: Record existing and infer expr which slot and literal are equal
-        List<Expr> slotToLiteralExpr =
-                (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getOnSlotToLiteralExpr() : new ArrayList<>();
+        List<Expr> slotToLiteralExpr = analyzer.getOnSlotToLiteralExpr();
 
         // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr
         Set<Pair<Expr, Expr>> slotToLiteralDeDuplication =
@@ -91,16 +89,14 @@ public class InferFiltersRule implements ExprRewriteRule {
         List<Pair<Expr, Boolean>> newExprWithState = new ArrayList<>();
 
         // isNullExpr: Record existing and infer not null predicate
-        List<Expr> isNullExpr =
-                (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getOnIsNullExpr() : new ArrayList<>();
+        List<Expr> isNullExpr = analyzer.getOnIsNullExpr();
 
         // isNullDeDuplication: De-Duplication for isNullExpr
         Set<Expr> isNullDeDuplication =
                 (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getOnIsNullDeDuplication() : Sets.newHashSet();
 
         // inExpr: Record existing and infer in predicate
-        List<Expr> inExpr =
-                (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) ? analyzer.getInExpr() : new ArrayList<>();
+        List<Expr> inExpr = analyzer.getInExpr();
 
         // inDeDuplication: De-Duplication for inExpr
         Set<Expr> inDeDuplication =

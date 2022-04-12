@@ -422,7 +422,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean disableJoinReorder = false;
 
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
-    private boolean enableInferPredicate = false;
+    private boolean enableInferPredicate = true;
 
     @VariableMgr.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
     public boolean sqlQuoteShowCreate = true;
