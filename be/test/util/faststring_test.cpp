@@ -46,7 +46,7 @@ void RandomString(void* dest, size_t n, doris::Random* rng) {
 TEST_F(FaststringTest, TestShrinkToFit_Empty) {
     faststring s;
     s.shrink_to_fit();
-    ASSERT_EQ(faststring::kInitialCapacity, s.capacity());
+    EXPECT_EQ(faststring::kInitialCapacity, s.capacity());
 }
 
 // Test that, if the string contents is shorter than the initial capacity
@@ -56,7 +56,7 @@ TEST_F(FaststringTest, TestShrinkToFit_SmallerThanInitialCapacity) {
     faststring s;
     s.append("hello");
     s.shrink_to_fit();
-    ASSERT_EQ(faststring::kInitialCapacity, s.capacity());
+    EXPECT_EQ(faststring::kInitialCapacity, s.capacity());
 }
 
 TEST_F(FaststringTest, TestShrinkToFit_Random) {
@@ -71,8 +71,8 @@ TEST_F(FaststringTest, TestShrinkToFit_Random) {
         s.resize(new_size);
         memcpy(s.data(), random_bytes.get(), new_size);
         s.shrink_to_fit();
-        ASSERT_EQ(0, memcmp(s.data(), random_bytes.get(), new_size));
-        ASSERT_EQ(std::max<int>(faststring::kInitialCapacity, new_size), s.capacity());
+        EXPECT_EQ(0, memcmp(s.data(), random_bytes.get(), new_size));
+        EXPECT_EQ(std::max<int>(faststring::kInitialCapacity, new_size), s.capacity());
     }
 }
 
@@ -80,34 +80,34 @@ TEST_F(FaststringTest, TestPushBack) {
     faststring s;
     for (int i = 0; i < faststring::kInitialCapacity * 2; ++i) {
         s.push_back('a');
-        ASSERT_LE(s.size(), s.capacity());
-        ASSERT_EQ(i + 1, s.size());
+        EXPECT_LE(s.size(), s.capacity());
+        EXPECT_EQ(i + 1, s.size());
         if (i + 1 <= faststring::kInitialCapacity) {
-            ASSERT_EQ(s.capacity(), faststring::kInitialCapacity);
+            EXPECT_EQ(s.capacity(), faststring::kInitialCapacity);
         }
     }
 }
 
 TEST_F(FaststringTest, TestAppend_Simple) {
     faststring s;
-    ASSERT_EQ(s.capacity(), faststring::kInitialCapacity);
-    ASSERT_EQ(s.size(), 0);
+    EXPECT_EQ(s.capacity(), faststring::kInitialCapacity);
+    EXPECT_EQ(s.size(), 0);
 
     // append empty string
     s.append("");
-    ASSERT_EQ(s.capacity(), faststring::kInitialCapacity);
-    ASSERT_EQ(s.size(), 0);
+    EXPECT_EQ(s.capacity(), faststring::kInitialCapacity);
+    EXPECT_EQ(s.size(), 0);
 
     // len_ < kInitialCapacity
     s.append("hello");
-    ASSERT_EQ(s.capacity(), faststring::kInitialCapacity);
-    ASSERT_EQ(s.size(), 5);
+    EXPECT_EQ(s.capacity(), faststring::kInitialCapacity);
+    EXPECT_EQ(s.size(), 5);
 
     // len_ > kInitialCapacity
     std::string tmp(faststring::kInitialCapacity, 'a');
     s.append(tmp);
-    ASSERT_GT(s.capacity(), faststring::kInitialCapacity);
-    ASSERT_EQ(s.size(), 5 + faststring::kInitialCapacity);
+    EXPECT_GT(s.capacity(), faststring::kInitialCapacity);
+    EXPECT_EQ(s.size(), 5 + faststring::kInitialCapacity);
 }
 
 TEST_F(FaststringTest, TestAppend_ExponentiallyExpand) {
@@ -120,7 +120,7 @@ TEST_F(FaststringTest, TestAppend_ExponentiallyExpand) {
         std::string tmp2(faststring::kInitialCapacity - 1, 'a');
         s.append(tmp1);
         s.append(tmp2);
-        ASSERT_EQ(s.capacity(), faststring::kInitialCapacity * 3 / 2);
+        EXPECT_EQ(s.capacity(), faststring::kInitialCapacity * 3 / 2);
     }
 
     {
@@ -129,13 +129,8 @@ TEST_F(FaststringTest, TestAppend_ExponentiallyExpand) {
         std::string tmp2(faststring::kInitialCapacity + 1, 'a');
         s.append(tmp1);
         s.append(tmp2);
-        ASSERT_GT(s.capacity(), faststring::kInitialCapacity * 3 / 2);
+        EXPECT_GT(s.capacity(), faststring::kInitialCapacity * 3 / 2);
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

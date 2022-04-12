@@ -31,7 +31,7 @@
 namespace doris::vectorized {
 using namespace ut_type;
 
-TEST(TimestampFunctionsTest, day_of_week_test) {
+TEST(VTimestampFunctionsTest, day_of_week_test) {
     std::string func_name = "dayofweek";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -43,7 +43,7 @@ TEST(TimestampFunctionsTest, day_of_week_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, day_of_month_test) {
+TEST(VTimestampFunctionsTest, day_of_month_test) {
     std::string func_name = "dayofmonth";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -55,7 +55,7 @@ TEST(TimestampFunctionsTest, day_of_month_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, day_of_year_test) {
+TEST(VTimestampFunctionsTest, day_of_year_test) {
     std::string func_name = "dayofyear";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -67,7 +67,7 @@ TEST(TimestampFunctionsTest, day_of_year_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, week_of_year_test) {
+TEST(VTimestampFunctionsTest, week_of_year_test) {
     std::string func_name = "weekofyear";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -79,7 +79,7 @@ TEST(TimestampFunctionsTest, week_of_year_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, year_test) {
+TEST(VTimestampFunctionsTest, year_test) {
     std::string func_name = "year";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -91,7 +91,7 @@ TEST(TimestampFunctionsTest, year_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, quarter_test) {
+TEST(VTimestampFunctionsTest, quarter_test) {
     std::string func_name = "quarter";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -104,7 +104,7 @@ TEST(TimestampFunctionsTest, quarter_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, month_test) {
+TEST(VTimestampFunctionsTest, month_test) {
     std::string func_name = "month";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -117,7 +117,7 @@ TEST(TimestampFunctionsTest, month_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, day_test) {
+TEST(VTimestampFunctionsTest, day_test) {
     std::string func_name = "day";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -130,7 +130,7 @@ TEST(TimestampFunctionsTest, day_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, hour_test) {
+TEST(VTimestampFunctionsTest, hour_test) {
     std::string func_name = "hour";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -143,7 +143,7 @@ TEST(TimestampFunctionsTest, hour_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, minute_test) {
+TEST(VTimestampFunctionsTest, minute_test) {
     std::string func_name = "minute";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -156,7 +156,7 @@ TEST(TimestampFunctionsTest, minute_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, second_test) {
+TEST(VTimestampFunctionsTest, second_test) {
     std::string func_name = "second";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -169,7 +169,7 @@ TEST(TimestampFunctionsTest, second_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, from_unix_test) {
+TEST(VTimestampFunctionsTest, from_unix_test) {
     std::string func_name = "from_unixtime";
 
     InputTypeSet input_types = {TypeIndex::Int32};
@@ -179,7 +179,7 @@ TEST(TimestampFunctionsTest, from_unix_test) {
     check_function<DataTypeString, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, timediff_test) {
+TEST(VTimestampFunctionsTest, timediff_test) {
     std::string func_name = "timediff";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::DateTime};
@@ -193,7 +193,7 @@ TEST(TimestampFunctionsTest, timediff_test) {
     check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, date_format_test) {
+TEST(VTimestampFunctionsTest, date_format_test) {
     std::string func_name = "date_format";
 
     InputTypeSet input_types = {TypeIndex::DateTime, Consted {TypeIndex::String}};
@@ -242,7 +242,7 @@ TEST(TimestampFunctionsTest, date_format_test) {
         check_function<DataTypeString, true>(func_name, input_types, data_set);
     }
 }
-TEST(TimestampFunctionsTest, years_add_test) {
+TEST(VTimestampFunctionsTest, years_add_test) {
     std::string func_name = "years_add";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -257,7 +257,7 @@ TEST(TimestampFunctionsTest, years_add_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, years_sub_test) {
+TEST(VTimestampFunctionsTest, years_sub_test) {
     std::string func_name = "years_sub";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -272,7 +272,7 @@ TEST(TimestampFunctionsTest, years_sub_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, months_add_test) {
+TEST(VTimestampFunctionsTest, months_add_test) {
     std::string func_name = "months_add";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -287,7 +287,7 @@ TEST(TimestampFunctionsTest, months_add_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, months_sub_test) {
+TEST(VTimestampFunctionsTest, months_sub_test) {
     std::string func_name = "months_sub";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -302,7 +302,7 @@ TEST(TimestampFunctionsTest, months_sub_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, days_add_test) {
+TEST(VTimestampFunctionsTest, days_add_test) {
     std::string func_name = "days_add";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -317,7 +317,7 @@ TEST(TimestampFunctionsTest, days_add_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, days_sub_test) {
+TEST(VTimestampFunctionsTest, days_sub_test) {
     std::string func_name = "days_sub";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -332,7 +332,7 @@ TEST(TimestampFunctionsTest, days_sub_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, hours_add_test) {
+TEST(VTimestampFunctionsTest, hours_add_test) {
     std::string func_name = "hours_add";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -347,7 +347,7 @@ TEST(TimestampFunctionsTest, hours_add_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, hours_sub_test) {
+TEST(VTimestampFunctionsTest, hours_sub_test) {
     std::string func_name = "hours_sub";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -362,7 +362,7 @@ TEST(TimestampFunctionsTest, hours_sub_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, minutes_add_test) {
+TEST(VTimestampFunctionsTest, minutes_add_test) {
     std::string func_name = "minutes_add";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -377,7 +377,7 @@ TEST(TimestampFunctionsTest, minutes_add_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, minutes_sub_test) {
+TEST(VTimestampFunctionsTest, minutes_sub_test) {
     std::string func_name = "minutes_sub";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -392,7 +392,7 @@ TEST(TimestampFunctionsTest, minutes_sub_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, seconds_add_test) {
+TEST(VTimestampFunctionsTest, seconds_add_test) {
     std::string func_name = "seconds_add";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -407,7 +407,7 @@ TEST(TimestampFunctionsTest, seconds_add_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, seconds_sub_test) {
+TEST(VTimestampFunctionsTest, seconds_sub_test) {
     std::string func_name = "seconds_sub";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -422,7 +422,7 @@ TEST(TimestampFunctionsTest, seconds_sub_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, weeks_add_test) {
+TEST(VTimestampFunctionsTest, weeks_add_test) {
     std::string func_name = "weeks_add";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -437,7 +437,7 @@ TEST(TimestampFunctionsTest, weeks_add_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, weeks_sub_test) {
+TEST(VTimestampFunctionsTest, weeks_sub_test) {
     std::string func_name = "weeks_sub";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::Int32};
@@ -452,7 +452,7 @@ TEST(TimestampFunctionsTest, weeks_sub_test) {
     check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, to_days_test) {
+TEST(VTimestampFunctionsTest, to_days_test) {
     std::string func_name = "to_days";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -465,7 +465,7 @@ TEST(TimestampFunctionsTest, to_days_test) {
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, date_test) {
+TEST(VTimestampFunctionsTest, date_test) {
     std::string func_name = "date";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
@@ -479,49 +479,45 @@ TEST(TimestampFunctionsTest, date_test) {
     check_function<DataTypeDate, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, week_test) {
+TEST(VTimestampFunctionsTest, week_test) {
     std::string func_name = "week";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
 
-    DataSet data_set = {
-            {{std::string("1989-03-21 06:00:00")}, 12},
-            {{std::string("")}, Null()},
-            {{std::string("9999-12-12 00:00:00")}, 50}};
+    DataSet data_set = {{{std::string("1989-03-21 06:00:00")}, 12},
+                        {{std::string("")}, Null()},
+                        {{std::string("9999-12-12 00:00:00")}, 50}};
 
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 
     InputTypeSet new_input_types = {TypeIndex::Date};
-    DataSet new_data_set = {
-            {{std::string("1989-03-21")}, 12},
-            {{std::string("")}, Null()},
-            {{std::string("9999-12-12")}, 50}};
+    DataSet new_data_set = {{{std::string("1989-03-21")}, 12},
+                            {{std::string("")}, Null()},
+                            {{std::string("9999-12-12")}, 50}};
 
     check_function<DataTypeInt32, true>(func_name, new_input_types, new_data_set);
 }
 
-TEST(TimestampFunctionsTest, yearweek_test) {
+TEST(VTimestampFunctionsTest, yearweek_test) {
     std::string func_name = "yearweek";
 
     InputTypeSet input_types = {TypeIndex::DateTime};
 
-    DataSet data_set = {
-            {{std::string("1989-03-21 06:00:00")}, 198912},
-            {{std::string("")}, Null()},
-            {{std::string("9999-12-12 00:00:00")}, 999950}};
+    DataSet data_set = {{{std::string("1989-03-21 06:00:00")}, 198912},
+                        {{std::string("")}, Null()},
+                        {{std::string("9999-12-12 00:00:00")}, 999950}};
 
     check_function<DataTypeInt32, true>(func_name, input_types, data_set);
 
     InputTypeSet new_input_types = {TypeIndex::Date};
-    DataSet new_data_set = {
-            {{std::string("1989-03-21")}, 198912},
-            {{std::string("")}, Null()},
-            {{std::string("9999-12-12")}, 999950}};
+    DataSet new_data_set = {{{std::string("1989-03-21")}, 198912},
+                            {{std::string("")}, Null()},
+                            {{std::string("9999-12-12")}, 999950}};
 
     check_function<DataTypeInt32, true>(func_name, new_input_types, new_data_set);
 }
 
-TEST(TimestampFunctionsTest, makedate_test) {
+TEST(VTimestampFunctionsTest, makedate_test) {
     std::string func_name = "makedate";
 
     InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
@@ -537,7 +533,7 @@ TEST(TimestampFunctionsTest, makedate_test) {
     check_function<DataTypeDate, true>(func_name, input_types, data_set);
 }
 
-TEST(TimestampFunctionsTest, convert_tz_test) {
+TEST(VTimestampFunctionsTest, convert_tz_test) {
     std::string func_name = "convert_tz";
 
     InputTypeSet input_types = {TypeIndex::DateTime, TypeIndex::String, TypeIndex::String};
@@ -552,8 +548,3 @@ TEST(TimestampFunctionsTest, convert_tz_test) {
     check_function<DataTypeDate, true>(func_name, input_types, data_set);
 }
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

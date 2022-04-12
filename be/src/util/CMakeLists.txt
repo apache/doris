@@ -25,6 +25,7 @@ set(UTIL_FILES
   arrow/row_batch.cpp
   arrow/row_block.cpp
   arrow/utils.cpp
+  array_parser.cpp
   bfd_parser.cpp
   bitmap.cpp
   block_compression.cpp
