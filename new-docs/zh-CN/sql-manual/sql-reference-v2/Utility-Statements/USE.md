@@ -26,9 +26,28 @@ under the License.
 
 ## USE
 
+### Name
+
+USE
+
 ### Description
 
+USE 命令可以让我们来使用数据库
+
+语法：
+
+```SQL
+USE <DATABASE_NAME>
+```
+
 ### Example
+
+1. 如果 demo 数据库存在，尝试存取它：
+
+   ```sql
+   mysql> use demo;
+   Database changed
+   ```
 
 ### Keywords
 
