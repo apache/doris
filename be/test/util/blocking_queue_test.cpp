@@ -29,26 +29,26 @@ namespace doris {
 TEST(BlockingQueueTest, TestBasic) {
     int32_t i;
     BlockingQueue<int32_t> test_queue(5);
-    ASSERT_TRUE(test_queue.blocking_put(1));
-    ASSERT_TRUE(test_queue.blocking_put(2));
-    ASSERT_TRUE(test_queue.blocking_put(3));
-    ASSERT_TRUE(test_queue.blocking_get(&i));
-    ASSERT_EQ(1, i);
-    ASSERT_TRUE(test_queue.blocking_get(&i));
-    ASSERT_EQ(2, i);
-    ASSERT_TRUE(test_queue.blocking_get(&i));
-    ASSERT_EQ(3, i);
+    EXPECT_TRUE(test_queue.blocking_put(1));
+    EXPECT_TRUE(test_queue.blocking_put(2));
+    EXPECT_TRUE(test_queue.blocking_put(3));
+    EXPECT_TRUE(test_queue.blocking_get(&i));
+    EXPECT_EQ(1, i);
+    EXPECT_TRUE(test_queue.blocking_get(&i));
+    EXPECT_EQ(2, i);
+    EXPECT_TRUE(test_queue.blocking_get(&i));
+    EXPECT_EQ(3, i);
 }
 
 TEST(BlockingQueueTest, TestGetFromShutdownQueue) {
     int64_t i;
     BlockingQueue<int64_t> test_queue(2);
-    ASSERT_TRUE(test_queue.blocking_put(123));
+    EXPECT_TRUE(test_queue.blocking_put(123));
     test_queue.shutdown();
-    ASSERT_FALSE(test_queue.blocking_put(456));
-    ASSERT_TRUE(test_queue.blocking_get(&i));
-    ASSERT_EQ(123, i);
-    ASSERT_FALSE(test_queue.blocking_get(&i));
+    EXPECT_FALSE(test_queue.blocking_put(456));
+    EXPECT_TRUE(test_queue.blocking_get(&i));
+    EXPECT_EQ(123, i);
+    EXPECT_FALSE(test_queue.blocking_get(&i));
 }
 
 class MultiThreadTest {
@@ -110,13 +110,13 @@ public:
         std::lock_guard<std::mutex> guard(_lock);
 
         for (int i = 0; i < _nthreads; ++i) {
-            ASSERT_EQ(_iterations, _gotten[i]);
+            EXPECT_EQ(_iterations, _gotten[i]);
         }
 
         // And there were _nthreads * (_iterations + 1)  elements removed, but only
         // _nthreads * _iterations elements added.  So some removers hit the shutdown
         // case.
-        ASSERT_EQ(_iterations, _gotten[-1]);
+        EXPECT_EQ(_iterations, _gotten[-1]);
     }
 
 private:

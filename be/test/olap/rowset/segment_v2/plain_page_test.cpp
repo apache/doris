@@ -55,7 +55,7 @@ public:
 
         size_t n = 1;
         decoder->next_batch(&n, &column_block_view);
-        ASSERT_EQ(1, n);
+        EXPECT_EQ(1, n);
         *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(block.cell_ptr(0));
     }
 
@@ -73,17 +73,17 @@ public:
         //check first value and last value
         CppType first_value;
         page_builder.get_first_value(&first_value);
-        ASSERT_EQ(src[0], first_value);
+        EXPECT_EQ(src[0], first_value);
         CppType last_value;
         page_builder.get_last_value(&last_value);
-        ASSERT_EQ(src[size - 1], last_value);
+        EXPECT_EQ(src[size - 1], last_value);
 
         PageDecoderOptions decoder_options;
         PageDecoderType page_decoder(s.slice(), decoder_options);
         Status status = page_decoder.init();
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
-        ASSERT_EQ(0, page_decoder.current_index());
+        EXPECT_EQ(0, page_decoder.current_index());
 
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
@@ -93,7 +93,7 @@ public:
         ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
         status = page_decoder.next_batch(&size, &column_block_view);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         CppType* decoded = reinterpret_cast<CppType*>(block.data());
         for (uint i = 0; i < size; i++) {
@@ -131,34 +131,34 @@ public:
         PageDecoderType page_decoder(s.slice(), decoder_options);
         Status status = page_decoder.init();
 
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(0, page_decoder.current_index());
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(0, page_decoder.current_index());
 
         size_t index = random() % size;
         CppType seek_value = src[index];
         bool exact_match;
         status = page_decoder.seek_at_or_after_value(&seek_value, &exact_match);
         EXPECT_EQ(index, page_decoder.current_index());
-        ASSERT_TRUE(status.ok());
-        ASSERT_TRUE(exact_match);
+        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(exact_match);
 
         CppType last_value = src[size - 1];
         status = page_decoder.seek_at_or_after_value(&last_value, &exact_match);
         EXPECT_EQ(size - 1, page_decoder.current_index());
-        ASSERT_TRUE(status.ok());
-        ASSERT_TRUE(exact_match);
+        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(exact_match);
 
         CppType first_value = src[0];
         status = page_decoder.seek_at_or_after_value(&first_value, &exact_match);
         EXPECT_EQ(0, page_decoder.current_index());
-        ASSERT_TRUE(status.ok());
-        ASSERT_TRUE(exact_match);
+        EXPECT_TRUE(status.ok());
+        EXPECT_TRUE(exact_match);
 
         if (small_than_smallest != nullptr) {
             status = page_decoder.seek_at_or_after_value(small_than_smallest, &exact_match);
             EXPECT_EQ(0, page_decoder.current_index());
-            ASSERT_TRUE(status.ok());
-            ASSERT_FALSE(exact_match);
+            EXPECT_TRUE(status.ok());
+            EXPECT_FALSE(exact_match);
         }
 
         if (bigger_than_biggest != nullptr) {
@@ -335,8 +335,3 @@ TEST_F(PlainPageTest, TestBoolPlainPageSeekValue) {
 
 } // namespace segment_v2
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

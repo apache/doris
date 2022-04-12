@@ -42,22 +42,22 @@ TEST_F(TestBloomFilter, init_bloom_filter) {
     {
         BloomFilter bf;
         bf.init(1024);
-        ASSERT_EQ(6400, bf.bit_num());
-        ASSERT_EQ(4, bf.hash_function_num());
+        EXPECT_EQ(6400, bf.bit_num());
+        EXPECT_EQ(4, bf.hash_function_num());
     }
 
     {
         BloomFilter bf;
         bf.init(1024, 0.01);
-        ASSERT_EQ(9856, bf.bit_num());
-        ASSERT_EQ(7, bf.hash_function_num());
+        EXPECT_EQ(9856, bf.bit_num());
+        EXPECT_EQ(7, bf.hash_function_num());
     }
 
     {
         BloomFilter bf;
         bf.init(10240, 0.1);
-        ASSERT_EQ(49088, bf.bit_num());
-        ASSERT_EQ(3, bf.hash_function_num());
+        EXPECT_EQ(49088, bf.bit_num());
+        EXPECT_EQ(3, bf.hash_function_num());
     }
 
     {
@@ -67,14 +67,14 @@ TEST_F(TestBloomFilter, init_bloom_filter) {
         uint64_t* data = new uint64_t[data_len];
 
         bf.init(data, data_len, hash_function_num);
-        ASSERT_EQ(6400, bf.bit_num());
-        ASSERT_EQ(4, bf.hash_function_num());
-        ASSERT_EQ(data, bf.bit_set_data());
+        EXPECT_EQ(6400, bf.bit_num());
+        EXPECT_EQ(4, bf.hash_function_num());
+        EXPECT_EQ(data, bf.bit_set_data());
 
         bf.reset();
-        ASSERT_EQ(0, bf.bit_num());
-        ASSERT_EQ(0, bf.hash_function_num());
-        ASSERT_EQ(nullptr, bf.bit_set_data());
+        EXPECT_EQ(0, bf.bit_num());
+        EXPECT_EQ(0, bf.hash_function_num());
+        EXPECT_EQ(nullptr, bf.bit_set_data());
         delete[] data;
     }
 }
@@ -86,23 +86,23 @@ TEST_F(TestBloomFilter, add_and_test_bytes) {
     bf.init(1024);
 
     bf.add_bytes(nullptr, 0);
-    ASSERT_TRUE(bf.test_bytes(nullptr, 0));
+    EXPECT_TRUE(bf.test_bytes(nullptr, 0));
 
     bytes = "hello";
     bf.add_bytes(bytes.c_str(), bytes.size());
-    ASSERT_TRUE(bf.test_bytes(bytes.c_str(), bytes.size()));
+    EXPECT_TRUE(bf.test_bytes(bytes.c_str(), bytes.size()));
 
     bytes = "doris";
     bf.add_bytes(bytes.c_str(), bytes.size());
-    ASSERT_TRUE(bf.test_bytes(bytes.c_str(), bytes.size()));
+    EXPECT_TRUE(bf.test_bytes(bytes.c_str(), bytes.size()));
 
     BloomFilter new_bf;
     new_bf.init(1024);
 
     bytes = "world";
     new_bf.add_bytes(bytes.c_str(), bytes.size());
-    ASSERT_TRUE(bf.merge(new_bf));
-    ASSERT_TRUE(bf.test_bytes(bytes.c_str(), bytes.size()));
+    EXPECT_TRUE(bf.merge(new_bf));
+    EXPECT_TRUE(bf.test_bytes(bytes.c_str(), bytes.size()));
 }
 
 // Print bloom filter buffer and points of specified string
@@ -117,11 +117,11 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
             "bit_num:64 hash_function_num:6 "
             "bit_set:0000100000000000100000010000000000010000001000000000000000000100";
     string buffer = bf.to_string();
-    ASSERT_TRUE(buffer_expect == buffer);
+    EXPECT_TRUE(buffer_expect == buffer);
 
     string points_expect = "4-23-42-61-16-35";
     string points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
-    ASSERT_TRUE(points_expect == points);
+    EXPECT_TRUE(points_expect == points);
 
     bytes = "a";
     points = bf.get_bytes_points_string(bytes.c_str(), bytes.size());
@@ -157,8 +157,3 @@ TEST_F(TestBloomFilter, bloom_filter_info) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

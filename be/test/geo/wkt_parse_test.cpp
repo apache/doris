@@ -36,8 +36,8 @@ TEST_F(WktParseTest, normal) {
 
     GeoShape* shape = nullptr;
     auto status = WktParse::parse_wkt(wkt, strlen(wkt), &shape);
-    ASSERT_EQ(GEO_PARSE_OK, status);
-    ASSERT_NE(nullptr, shape);
+    EXPECT_EQ(GEO_PARSE_OK, status);
+    EXPECT_NE(nullptr, shape);
     LOG(INFO) << "parse result: " << shape->to_string();
     delete shape;
 }
@@ -47,13 +47,8 @@ TEST_F(WktParseTest, invalid_wkt) {
 
     GeoShape* shape = nullptr;
     auto status = WktParse::parse_wkt(wkt, strlen(wkt), &shape);
-    ASSERT_NE(GEO_PARSE_OK, status);
-    ASSERT_EQ(nullptr, shape);
+    EXPECT_NE(GEO_PARSE_OK, status);
+    EXPECT_EQ(nullptr, shape);
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

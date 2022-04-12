@@ -43,8 +43,8 @@ public:
 
         _meta = new OlapMeta(_root_path);
         OLAPStatus s = _meta->init();
-        ASSERT_EQ(OLAP_SUCCESS, s);
-        ASSERT_TRUE(std::filesystem::exists(_root_path + "/meta"));
+        EXPECT_EQ(OLAP_SUCCESS, s);
+        EXPECT_TRUE(std::filesystem::exists(_root_path + "/meta"));
     }
 
     virtual void TearDown() {
@@ -59,7 +59,7 @@ private:
 
 TEST_F(OlapMetaTest, TestGetRootPath) {
     std::string root_path = _meta->get_root_path();
-    ASSERT_EQ("./ut_dir/olap_meta_test", root_path);
+    EXPECT_EQ("./ut_dir/olap_meta_test", root_path);
 }
 
 TEST_F(OlapMetaTest, TestPutAndGet) {
@@ -67,15 +67,15 @@ TEST_F(OlapMetaTest, TestPutAndGet) {
     std::string key = "key";
     std::string value = "value";
     OLAPStatus s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
-    ASSERT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(OLAP_SUCCESS, s);
     std::string value_get;
     s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
-    ASSERT_EQ(OLAP_SUCCESS, s);
-    ASSERT_EQ(value, value_get);
+    EXPECT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(value, value_get);
 
     // abnormal cases
     s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", &value_get);
-    ASSERT_EQ(OLAP_ERR_META_KEY_NOT_FOUND, s);
+    EXPECT_EQ(OLAP_ERR_META_KEY_NOT_FOUND, s);
 }
 
 TEST_F(OlapMetaTest, TestRemove) {
@@ -83,15 +83,15 @@ TEST_F(OlapMetaTest, TestRemove) {
     std::string key = "key";
     std::string value = "value";
     OLAPStatus s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
-    ASSERT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(OLAP_SUCCESS, s);
     std::string value_get;
     s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
-    ASSERT_EQ(OLAP_SUCCESS, s);
-    ASSERT_EQ(value, value_get);
+    EXPECT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(value, value_get);
     s = _meta->remove(META_COLUMN_FAMILY_INDEX, key);
-    ASSERT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(OLAP_SUCCESS, s);
     s = _meta->remove(META_COLUMN_FAMILY_INDEX, "key_not_exist");
-    ASSERT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(OLAP_SUCCESS, s);
 }
 
 TEST_F(OlapMetaTest, TestIterate) {
@@ -103,7 +103,7 @@ TEST_F(OlapMetaTest, TestIterate) {
         std::stringstream ss;
         ss << key << "_" << i;
         s = _meta->put(META_COLUMN_FAMILY_INDEX, ss.str(), value);
-        ASSERT_EQ(OLAP_SUCCESS, s);
+        EXPECT_EQ(OLAP_SUCCESS, s);
     }
     bool error_flag = false;
     s = _meta->iterate(META_COLUMN_FAMILY_INDEX, "hdr_",
@@ -114,13 +114,8 @@ TEST_F(OlapMetaTest, TestIterate) {
                            }
                            return true;
                        });
-    ASSERT_EQ(false, error_flag);
-    ASSERT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(false, error_flag);
+    EXPECT_EQ(OLAP_SUCCESS, s);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

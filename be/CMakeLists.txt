@@ -534,12 +534,6 @@ set(DORIS_LINK_LIBS
     Vec
     ${WL_END_GROUP}
 )
-if (${MAKE_TEST} STREQUAL "ON")
-    set(DORIS_LINK_LIBS
-        ${DORIS_LINK_LIBS}
-        TestUtil
-    )
-endif()
 
 
 # COMMON_THIRDPARTY are thirdparty dependencies that can run on all platform
@@ -685,10 +679,8 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
 # Set libraries for test
 set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
-    Test_util
     gmock
     gtest
-    gtest_main
     ${WL_END_GROUP}
 )
 
@@ -699,7 +691,6 @@ if (${MAKE_TEST} STREQUAL "ON")
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage -DGTEST_USE_OWN_TR1_TUPLE=0")
     SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
     add_definitions(-DBE_TEST)
-    add_subdirectory(${SRC_DIR}/testutil)
 endif ()
 
 add_subdirectory(${SRC_DIR}/agent)
@@ -723,46 +714,8 @@ endif()
 add_subdirectory(${SRC_DIR}/util)
 add_subdirectory(${SRC_DIR}/vec)
 
-# Utility CMake function to make specifying tests and benchmarks less verbose
-FUNCTION(ADD_BE_TEST TEST_NAME)
-    # use argn to add additional files
-    set(ADDITIONAL_FILES ${ARGN})
-    set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
-    # This gets the directory where the test is from (e.g. 'exprs' or 'runtime')
-    get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
-    get_filename_component(TEST_DIR_NAME ${TEST_NAME} PATH)
-    get_filename_component(TEST_FILE_NAME ${TEST_NAME} NAME)
-
-    ADD_EXECUTABLE(${TEST_FILE_NAME} ${TEST_NAME}.cpp ${ADDITIONAL_FILES})
-    TARGET_LINK_LIBRARIES(${TEST_FILE_NAME} ${TEST_LINK_LIBS})
-    SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
-    if (NOT "${TEST_DIR_NAME}" STREQUAL "")
-        SET_TARGET_PROPERTIES(${TEST_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_DIR_NAME}")
-    endif()
-    ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_NAME}")
-ENDFUNCTION()
-
 if (${MAKE_TEST} STREQUAL "ON")
-    add_subdirectory(${TEST_DIR}/test_util)
-    add_subdirectory(${TEST_DIR}/agent)
-    add_subdirectory(${TEST_DIR}/common)
-    add_subdirectory(${TEST_DIR}/env)
-    add_subdirectory(${TEST_DIR}/exec)
-    add_subdirectory(${TEST_DIR}/exprs)
-    add_subdirectory(${TEST_DIR}/geo)
-    add_subdirectory(${TEST_DIR}/gutil)
-    add_subdirectory(${TEST_DIR}/http)
-    add_subdirectory(${TEST_DIR}/olap)
-    add_subdirectory(${TEST_DIR}/runtime)
-    add_subdirectory(${TEST_DIR}/udf)
-    add_subdirectory(${TEST_DIR}/util)
-    add_subdirectory(${TEST_DIR}/vec/core)
-    add_subdirectory(${TEST_DIR}/vec/exec)
-    add_subdirectory(${TEST_DIR}/vec/exprs)
-    add_subdirectory(${TEST_DIR}/vec/function)
-    add_subdirectory(${TEST_DIR}/vec/runtime)
-    add_subdirectory(${TEST_DIR}/vec/aggregate_functions)
-    add_subdirectory(${TEST_DIR}/tools)
+    add_subdirectory(${TEST_DIR})
 endif ()
 
 # Install be

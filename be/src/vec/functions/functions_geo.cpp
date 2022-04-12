@@ -17,8 +17,8 @@
 
 #include "vec/functions/functions_geo.h"
 
-#include "geo/geo_types.h"
 #include "geo/geo_functions.h"
+#include "geo/geo_types.h"
 #include "gutil/strings/substitute.h"
 #include "vec/columns/column_const.h"
 #include "vec/functions/simple_function_factory.h"
@@ -220,12 +220,11 @@ struct StCircle {
                           size_t result) {
         DCHECK_EQ(arguments.size(), 3);
         auto return_type = remove_nullable(block.get_data_type(result));
-        auto center_lng = block.get_by_position(arguments[0])
-                                  .column->convert_to_full_column_if_const();
-        auto center_lat = block.get_by_position(arguments[1])
-                                  .column->convert_to_full_column_if_const();
-        auto radius = block.get_by_position(arguments[2])
-                              .column->convert_to_full_column_if_const();
+        auto center_lng =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        auto center_lat =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        auto radius = block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
 
         const auto size = center_lng->size();
 
@@ -234,7 +233,7 @@ struct StCircle {
         res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
         StConstructState* state =
-                (StConstructState*) context->get_function_state(FunctionContext::FRAGMENT_LOCAL);
+                (StConstructState*)context->get_function_state(FunctionContext::FRAGMENT_LOCAL);
         if (state == nullptr) {
             GeoCircle circle;
             std::string buf;
@@ -270,8 +269,8 @@ struct StCircle {
             return Status::OK();
         }
 
-        if (!context->is_arg_constant(0) || !context->is_arg_constant(1)
-            || !context->is_arg_constant(2)) {
+        if (!context->is_arg_constant(0) || !context->is_arg_constant(1) ||
+            !context->is_arg_constant(2)) {
             return Status::OK();
         }
 
@@ -300,8 +299,8 @@ struct StCircle {
         if (scope != FunctionContext::FRAGMENT_LOCAL) {
             return Status::OK();
         }
-        StConstructState* state = reinterpret_cast<StConstructState*>(
-                context->get_function_state(scope));
+        StConstructState* state =
+                reinterpret_cast<StConstructState*>(context->get_function_state(scope));
         delete state;
         return Status::OK();
     }
@@ -322,16 +321,16 @@ struct StContains {
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         auto res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
-        StContainsState* state = (StContainsState*) context->get_function_state(FunctionContext::FRAGMENT_LOCAL);
+        StContainsState* state =
+                (StContainsState*)context->get_function_state(FunctionContext::FRAGMENT_LOCAL);
         if (state != nullptr && state->is_null) {
             res->insert_data(nullptr, 0);
             block.replace_by_position(result, ColumnConst::create(std::move(res), size));
             return Status::OK();
         }
 
-        StContainsState local_state;
         int i;
-        GeoShape* shapes[2] = {nullptr, nullptr};
+        std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
         for (int row = 0; row < size; ++row) {
             auto lhs_value = shape1->get_data_at(row);
             auto rhs_value = shape2->get_data_at(row);
@@ -340,7 +339,8 @@ struct StContains {
                 if (state != nullptr && state->shapes[i] != nullptr) {
                     shapes[i] = state->shapes[i];
                 } else {
-                    shapes[i] = local_state.shapes[i] = GeoShape::from_encoded(strs[i]->data, strs[i]->size);
+                    shapes[i] = std::shared_ptr<GeoShape>(
+                            GeoShape::from_encoded(strs[i]->data, strs[i]->size));
                     if (shapes[i] == nullptr) {
                         res->insert_data(nullptr, 0);
                         break;
@@ -349,7 +349,7 @@ struct StContains {
             }
 
             if (i == 2) {
-                auto contains_value = shapes[0]->contains(shapes[1]);
+                auto contains_value = shapes[0]->contains(shapes[1].get());
                 res->insert_data(const_cast<const char*>((char*)&contains_value), 0);
             }
         }
@@ -373,7 +373,8 @@ struct StContains {
                 if (str->is_null) {
                     contains_ctx->is_null = true;
                 } else {
-                    contains_ctx->shapes[i] = GeoShape::from_encoded(str->ptr, str->len);
+                    contains_ctx->shapes[i] =
+                            std::shared_ptr<GeoShape>(GeoShape::from_encoded(str->ptr, str->len));
                     if (contains_ctx->shapes[i] == nullptr) {
                         contains_ctx->is_null = true;
                     }
@@ -389,49 +390,49 @@ struct StContains {
         if (scope != FunctionContext::FRAGMENT_LOCAL) {
             return Status::OK();
         }
-        StContainsState* state = reinterpret_cast<StContainsState*>(
-                context->get_function_state(scope));
+        StContainsState* state =
+                reinterpret_cast<StContainsState*>(context->get_function_state(scope));
         delete state;
         return Status::OK();
     }
 };
 
-struct StGeometryFromText{
+struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
 };
 
-struct StGeomFromText{
+struct StGeomFromText {
     static constexpr auto NAME = "st_geomfromtext";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_ANY;
 };
 
-struct StLineFromText{
+struct StLineFromText {
     static constexpr auto NAME = "st_linefromtext";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_LINE_STRING;
 };
 
-struct StLineStringFromText{
+struct StLineStringFromText {
     static constexpr auto NAME = "st_linestringfromtext";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_LINE_STRING;
 };
 
-struct StPolygon{
+struct StPolygon {
     static constexpr auto NAME = "st_polygon";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_POLYGON;
 };
 
-struct StPolyFromText{
+struct StPolyFromText {
     static constexpr auto NAME = "st_polyfromtext";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_POLYGON;
 };
 
-struct StPolygonFromText{
+struct StPolygonFromText {
     static constexpr auto NAME = "st_polygonfromtext";
     static constexpr GeoShapeType shape_type = GEO_SHAPE_POLYGON;
 };
 
-template<typename Impl>
+template <typename Impl>
 struct StGeoFromText {
     static constexpr auto NEED_CONTEXT = true;
     static constexpr auto NAME = Impl::NAME;
@@ -446,13 +447,15 @@ struct StGeoFromText {
         auto null_type = std::reinterpret_pointer_cast<const DataTypeNullable>(return_type);
         auto res = ColumnNullable::create(return_type->create_column(), ColumnUInt8::create());
 
-        StConstructState* state = (StConstructState*) context->get_function_state(FunctionContext::FRAGMENT_LOCAL);
+        StConstructState* state =
+                (StConstructState*)context->get_function_state(FunctionContext::FRAGMENT_LOCAL);
         if (state == nullptr) {
             GeoParseStatus status;
             std::string buf;
             for (int row = 0; row < size; ++row) {
                 auto value = geo->get_data_at(row);
-                std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(value.data, value.size, &status));
+                std::unique_ptr<GeoShape> shape(
+                        GeoShape::from_wkt(value.data, value.size, &status));
                 if (shape == nullptr || status != GEO_PARSE_OK ||
                     (Impl::shape_type != GEO_SHAPE_ANY && shape->type() != Impl::shape_type)) {
                     res->insert_data(nullptr, 0);
@@ -490,8 +493,8 @@ struct StGeoFromText {
             state->is_null = true;
         } else {
             GeoParseStatus status;
-            std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(const_cast<const char*>(
-                (char*)str_value->ptr), str_value->len, &status));
+            std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(
+                    const_cast<const char*>((char*)str_value->ptr), str_value->len, &status));
             if (shape == nullptr ||
                 (Impl::shape_type != GEO_SHAPE_ANY && shape->type() != Impl::shape_type)) {
                 state->is_null = true;
@@ -506,8 +509,8 @@ struct StGeoFromText {
 
     static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            StConstructState* state = reinterpret_cast<StConstructState*>(
-                    context->get_function_state(scope));
+            StConstructState* state =
+                    reinterpret_cast<StConstructState*>(context->get_function_state(scope));
             delete state;
         }
         return Status::OK();

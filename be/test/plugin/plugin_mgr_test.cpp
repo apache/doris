@@ -22,7 +22,7 @@
 #include "plugin/plugin.h"
 #include "plugin/plugin_loader.h"
 #include "string"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 
 namespace doris {
 
@@ -76,21 +76,16 @@ TEST_F(PluginMgrTest, normal) {
     mgr.register_builtin_plugin("demo", PLUGIN_TYPE_AUDIT, &demo_plugin);
 
     std::shared_ptr<Plugin> re;
-    ASSERT_TRUE(mgr.get_plugin("demo", PLUGIN_TYPE_AUDIT, &re).ok());
-    ASSERT_NE(nullptr, re.get());
-    ASSERT_EQ("test", ((DemoPluginHandler*)re->handler)->hello("test"));
+    EXPECT_TRUE(mgr.get_plugin("demo", PLUGIN_TYPE_AUDIT, &re).ok());
+    EXPECT_NE(nullptr, re.get());
+    EXPECT_EQ("test", ((DemoPluginHandler*)re->handler)->hello("test"));
 
-    ASSERT_TRUE(mgr.get_plugin("demo", &re).ok());
-    ASSERT_EQ("test", ((DemoPluginHandler*)re->handler)->hello("test"));
+    EXPECT_TRUE(mgr.get_plugin("demo", &re).ok());
+    EXPECT_EQ("test", ((DemoPluginHandler*)re->handler)->hello("test"));
 
     std::vector<std::shared_ptr<Plugin>> list;
-    ASSERT_TRUE(mgr.get_plugin_list(PLUGIN_TYPE_AUDIT, &list).ok());
-    ASSERT_EQ(1, list.size());
+    EXPECT_TRUE(mgr.get_plugin_list(PLUGIN_TYPE_AUDIT, &list).ok());
+    EXPECT_EQ(1, list.size());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

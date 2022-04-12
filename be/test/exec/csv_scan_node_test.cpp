@@ -244,35 +244,31 @@ TEST_F(CsvScanNodeTest, NormalUse) {
 
     CsvScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     status = scan_node.open(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(_state, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         // int num = std::min(row_batch.num_rows(), 10);
         int num = row_batch.num_rows();
-        std::cout << "num: " << num << std::endl;
-        ASSERT_EQ(num, 6);
+        EXPECT_EQ(num, 6);
 
         for (int i = 0; i < num; ++i) {
             TupleRow* row = row_batch.get_row(i);
-            // LOG(WARNING) << "input row[" << i << "]: " << print_row(row, scan_node._row_descriptor);
-            std::cout << "input row: " << print_row(row, scan_node._row_descriptor) << std::endl;
-
             if (i == 0) {
-                ASSERT_EQ(std::string("[(1 -12345.67891 2015-04-20 abc\0\0)]", 35),
+                EXPECT_EQ(std::string("[(1 -12345.67891 2015-04-20 abc\0\0)]", 35),
                           print_row(row, scan_node._row_descriptor));
             }
         }
     }
 
-    ASSERT_TRUE(scan_node.close(_state).ok());
+    EXPECT_TRUE(scan_node.close(_state).ok());
 }
 
 TEST_F(CsvScanNodeTest, continuousDelim) {
@@ -282,35 +278,31 @@ TEST_F(CsvScanNodeTest, continuousDelim) {
 
     CsvScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     status = scan_node.open(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(_state, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         // int num = std::min(row_batch.num_rows(), 10);
         int num = row_batch.num_rows();
-        std::cout << "num: " << num << std::endl;
-        ASSERT_EQ(num, 1);
+        EXPECT_EQ(num, 1);
 
         for (int i = 0; i < num; ++i) {
             TupleRow* row = row_batch.get_row(i);
-            // LOG(WARNING) << "input row[" << i << "]: " << print_row(row, scan_node._row_descriptor);
-            std::cout << "input row: " << print_row(row, scan_node._row_descriptor) << std::endl;
-
             if (i == 0) {
-                ASSERT_EQ(std::string("[(1 -12345.67891 2015-04-20 \0\0\0\0\0)]", 35),
+                EXPECT_EQ(std::string("[(1 -12345.67891 2015-04-20 \0\0\0\0\0)]", 35),
                           print_row(row, scan_node._row_descriptor));
             }
         }
     }
 
-    ASSERT_TRUE(scan_node.close(_state).ok());
+    EXPECT_TRUE(scan_node.close(_state).ok());
 }
 
 TEST_F(CsvScanNodeTest, wrong_decimal_format_test) {
@@ -320,25 +312,24 @@ TEST_F(CsvScanNodeTest, wrong_decimal_format_test) {
 
     CsvScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     status = scan_node.open(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(_state, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         // int num = std::min(row_batch.num_rows(), 10);
         int num = row_batch.num_rows();
-        std::cout << "num: " << num << std::endl;
-        ASSERT_EQ(0, num);
+        EXPECT_EQ(0, num);
     }
 
     // Failed because reach max_filter_ratio
-    ASSERT_TRUE(!scan_node.close(_state).ok());
+    EXPECT_TRUE(!scan_node.close(_state).ok());
 }
 
 TEST_F(CsvScanNodeTest, fill_fix_len_stringi_test) {
@@ -348,41 +339,38 @@ TEST_F(CsvScanNodeTest, fill_fix_len_stringi_test) {
 
     CsvScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     status = scan_node.open(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(_state, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         // int num = std::min(row_batch.num_rows(), 10);
         int num = row_batch.num_rows();
-        std::cout << "num: " << num << std::endl;
-        ASSERT_TRUE(num > 0);
+        EXPECT_TRUE(num > 0);
 
         // 1,2015-04-20,12345.67891,abcdefg
         for (int i = 0; i < num; ++i) {
             TupleRow* row = row_batch.get_row(i);
             LOG(WARNING) << "input row[" << i << "]: " << print_row(row, scan_node._row_descriptor);
-            std::cout << "input row: " << print_row(row, scan_node._row_descriptor) << std::endl;
 
             if (i == 0) {
-                ASSERT_EQ(std::string("[(1 12345.67891 2015-04-20 ab\0\0\0)]", 34),
+                EXPECT_EQ(std::string("[(1 12345.67891 2015-04-20 ab\0\0\0)]", 34),
                           print_row(row, scan_node._row_descriptor));
                 Tuple* tuple = row->get_tuple(0);
                 StringValue* str_slot =
                         tuple->get_string_slot(_t_desc_table.slotDescriptors[3].byteOffset);
-                std::cout << "str_slot len: " << str_slot->len << std::endl;
-                ASSERT_EQ(5, str_slot->len);
+                EXPECT_EQ(5, str_slot->len);
             }
         }
     }
 
-    ASSERT_TRUE(scan_node.close(_state).ok());
+    EXPECT_TRUE(scan_node.close(_state).ok());
 }
 
 TEST_F(CsvScanNodeTest, wrong_fix_len_string_format_test) {
@@ -392,25 +380,24 @@ TEST_F(CsvScanNodeTest, wrong_fix_len_string_format_test) {
 
     CsvScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     status = scan_node.open(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(_state, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         // int num = std::min(row_batch.num_rows(), 10);
         int num = row_batch.num_rows();
-        std::cout << "num: " << num << std::endl;
-        ASSERT_EQ(0, num);
+        EXPECT_EQ(0, num);
     }
 
     // Failed because reach max_filter_ratio
-    ASSERT_TRUE(!scan_node.close(_state).ok());
+    EXPECT_TRUE(!scan_node.close(_state).ok());
 }
 
 // To be added test case
@@ -420,21 +407,3 @@ TEST_F(CsvScanNodeTest, wrong_fix_len_string_format_test) {
 // 4. max_filter_ratio
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    doris::config::read_size = 8388608;
-    doris::config::min_buffer_size = 1024;
-
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-
-    doris::CpuInfo::init();
-    doris::DiskInfo::init();
-
-    return RUN_ALL_TESTS();
-}

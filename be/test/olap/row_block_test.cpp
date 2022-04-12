@@ -90,7 +90,7 @@ TEST_F(TestRowBlock, init) {
         block_info.row_num = 1024;
         block_info.null_supported = true;
         block.init(block_info);
-        ASSERT_EQ(9 + 17 + 17, block._mem_row_bytes);
+        EXPECT_EQ(9 + 17 + 17, block._mem_row_bytes);
     }
     {
         // has nullbyte
@@ -99,7 +99,7 @@ TEST_F(TestRowBlock, init) {
         block_info.row_num = 1024;
         block_info.null_supported = false;
         block.init(block_info);
-        ASSERT_EQ(9 + 17 + 17, block._mem_row_bytes);
+        EXPECT_EQ(9 + 17 + 17, block._mem_row_bytes);
     }
     {
         RowBlock block(&tablet_schema);
@@ -109,10 +109,10 @@ TEST_F(TestRowBlock, init) {
         block_info.column_ids.push_back(1);
         block.init(block_info);
         // null + sizeof(Slice)
-        ASSERT_EQ(17, block._mem_row_bytes);
-        ASSERT_EQ(std::numeric_limits<size_t>::max(), block._field_offset_in_memory[0]);
-        ASSERT_EQ(0, block._field_offset_in_memory[1]);
-        ASSERT_EQ(std::numeric_limits<size_t>::max(), block._field_offset_in_memory[2]);
+        EXPECT_EQ(17, block._mem_row_bytes);
+        EXPECT_EQ(std::numeric_limits<size_t>::max(), block._field_offset_in_memory[0]);
+        EXPECT_EQ(0, block._field_offset_in_memory[1]);
+        EXPECT_EQ(std::numeric_limits<size_t>::max(), block._field_offset_in_memory[2]);
     }
 }
 
@@ -154,7 +154,7 @@ TEST_F(TestRowBlock, write_and_read) {
         }
     }
     block.finalize(5);
-    ASSERT_EQ(5, block.row_num());
+    EXPECT_EQ(5, block.row_num());
 }
 
 TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
@@ -195,7 +195,7 @@ TEST_F(TestRowBlock, write_and_read_without_nullbyte) {
         }
     }
     block.finalize(5);
-    ASSERT_EQ(5, block.row_num());
+    EXPECT_EQ(5, block.row_num());
 }
 
 TEST_F(TestRowBlock, compress_failed) {
@@ -233,7 +233,7 @@ TEST_F(TestRowBlock, compress_failed) {
         }
     }
     block.finalize(5);
-    ASSERT_EQ(5, block.row_num());
+    EXPECT_EQ(5, block.row_num());
 }
 
 TEST_F(TestRowBlock, decompress_failed) {
@@ -271,7 +271,7 @@ TEST_F(TestRowBlock, decompress_failed) {
         }
     }
     block.finalize(5);
-    ASSERT_EQ(5, block.row_num());
+    EXPECT_EQ(5, block.row_num());
 }
 
 TEST_F(TestRowBlock, clear) {
@@ -284,10 +284,10 @@ TEST_F(TestRowBlock, clear) {
     block.init(block_info);
 
     block.finalize(5);
-    ASSERT_EQ(5, block.row_num());
-    ASSERT_EQ(1024, block.capacity());
+    EXPECT_EQ(5, block.row_num());
+    EXPECT_EQ(1024, block.capacity());
     block.clear();
-    ASSERT_EQ(1024, block.row_num());
+    EXPECT_EQ(1024, block.row_num());
 }
 
 TEST_F(TestRowBlock, pos_limit) {
@@ -300,39 +300,25 @@ TEST_F(TestRowBlock, pos_limit) {
     block.init(block_info);
 
     // assert init value
-    ASSERT_EQ(0, block.pos());
-    ASSERT_EQ(0, block.limit());
-    ASSERT_FALSE(block.has_remaining());
-    ASSERT_EQ(DEL_PARTIAL_SATISFIED, block.block_status());
+    EXPECT_EQ(0, block.pos());
+    EXPECT_EQ(0, block.limit());
+    EXPECT_FALSE(block.has_remaining());
+    EXPECT_EQ(DEL_PARTIAL_SATISFIED, block.block_status());
 
     block.set_limit(100);
-    ASSERT_EQ(100, block.limit());
-    ASSERT_TRUE(block.has_remaining());
-    ASSERT_EQ(100, block.remaining());
+    EXPECT_EQ(100, block.limit());
+    EXPECT_TRUE(block.has_remaining());
+    EXPECT_EQ(100, block.remaining());
 
     block.set_pos(2);
-    ASSERT_TRUE(block.has_remaining());
-    ASSERT_EQ(98, block.remaining());
+    EXPECT_TRUE(block.has_remaining());
+    EXPECT_EQ(98, block.remaining());
 
     block.pos_inc();
-    ASSERT_TRUE(block.has_remaining());
-    ASSERT_EQ(97, block.remaining());
+    EXPECT_TRUE(block.has_remaining());
+    EXPECT_EQ(97, block.remaining());
 
     block.set_block_status(DEL_SATISFIED);
-    ASSERT_EQ(DEL_SATISFIED, block.block_status());
+    EXPECT_EQ(DEL_SATISFIED, block.block_status());
 }
 } // namespace doris
-
-// @brief Test Stub
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    int ret = doris::OLAP_SUCCESS;
-    testing::InitGoogleTest(&argc, argv);
-    ret = RUN_ALL_TESTS();
-    return ret;
-}

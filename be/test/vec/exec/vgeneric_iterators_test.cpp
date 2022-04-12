@@ -49,12 +49,11 @@ Schema create_schema() {
     return schema;
 }
 
-static void create_block(Schema& schema, vectorized::Block& block)
-{
-    for (auto &column_desc : schema.columns()) {
-        ASSERT_TRUE(column_desc);
+static void create_block(Schema& schema, vectorized::Block& block) {
+    for (auto& column_desc : schema.columns()) {
+        EXPECT_TRUE(column_desc);
         auto data_type = Schema::get_data_type_ptr(*column_desc);
-        ASSERT_NE(data_type, nullptr);
+        EXPECT_NE(data_type, nullptr);
         auto column = data_type->create_column();
         vectorized::ColumnWithTypeAndName ctn(std::move(column), data_type, column_desc->name());
         block.insert(ctn);
@@ -67,14 +66,14 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
 
     StorageReadOptions opts;
     auto st = iter->init(opts);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     vectorized::Block block;
     create_block(schema, block);
 
     auto ret = iter->next_batch(&block);
-    ASSERT_TRUE(ret.ok());
-    ASSERT_EQ(block.rows(), 10);
+    EXPECT_TRUE(ret.ok());
+    EXPECT_EQ(block.rows(), 10);
 
     auto c0 = block.get_by_position(0).column;
     auto c1 = block.get_by_position(1).column;
@@ -83,9 +82,9 @@ TEST(VGenericIteratorsTest, AutoIncrement) {
     int row_count = 0;
     size_t rows = block.rows();
     for (size_t i = 0; i < rows; ++i) {
-        ASSERT_EQ(row_count,     (*c0)[i].get<int>());
-        ASSERT_EQ(row_count + 1, (*c1)[i].get<int>());
-        ASSERT_EQ(row_count + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(row_count, (*c0)[i].get<int>());
+        EXPECT_EQ(row_count + 1, (*c1)[i].get<int>());
+        EXPECT_EQ(row_count + 2, (*c2)[i].get<int>());
         row_count++;
     }
 
@@ -103,7 +102,7 @@ TEST(VGenericIteratorsTest, Union) {
     auto iter = vectorized::new_union_iterator(inputs);
     StorageReadOptions opts;
     auto st = iter->init(opts);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     vectorized::Block block;
     create_block(schema, block);
@@ -112,8 +111,8 @@ TEST(VGenericIteratorsTest, Union) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    ASSERT_TRUE(st.is_end_of_file());
-    ASSERT_EQ(block.rows(), 600);
+    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_EQ(block.rows(), 600);
 
     auto c0 = block.get_by_position(0).column;
     auto c1 = block.get_by_position(1).column;
@@ -128,9 +127,9 @@ TEST(VGenericIteratorsTest, Union) {
             base_value -= 100;
         }
 
-        ASSERT_EQ(base_value,     (*c0)[i].get<int>());
-        ASSERT_EQ(base_value + 1, (*c1)[i].get<int>());
-        ASSERT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<int>());
+        EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
         row_count++;
     }
 
@@ -138,7 +137,7 @@ TEST(VGenericIteratorsTest, Union) {
 }
 
 TEST(VGenericIteratorsTest, Merge) {
-    ASSERT_TRUE(1);
+    EXPECT_TRUE(1);
     auto schema = create_schema();
     std::vector<RowwiseIterator*> inputs;
 
@@ -149,7 +148,7 @@ TEST(VGenericIteratorsTest, Merge) {
     auto iter = vectorized::new_merge_iterator(inputs, -1);
     StorageReadOptions opts;
     auto st = iter->init(opts);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     vectorized::Block block;
     create_block(schema, block);
@@ -158,8 +157,8 @@ TEST(VGenericIteratorsTest, Merge) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    ASSERT_TRUE(st.is_end_of_file());
-    ASSERT_EQ(block.rows(), 600);
+    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_EQ(block.rows(), 600);
 
     auto c0 = block.get_by_position(0).column;
     auto c1 = block.get_by_position(1).column;
@@ -177,9 +176,9 @@ TEST(VGenericIteratorsTest, Merge) {
             base_value = row_count - 300;
         }
 
-        ASSERT_EQ(base_value,     (*c0)[i].get<int>());
-        ASSERT_EQ(base_value + 1, (*c1)[i].get<int>());
-        ASSERT_EQ(base_value + 2, (*c2)[i].get<int>());
+        EXPECT_EQ(base_value, (*c0)[i].get<int>());
+        EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
+        EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
         row_count++;
     }
 
@@ -190,14 +189,17 @@ TEST(VGenericIteratorsTest, Merge) {
 class SeqColumnUtIterator : public RowwiseIterator {
 public:
     // Will generate num_rows rows in total
-    SeqColumnUtIterator(const Schema& schema, size_t num_rows, size_t rows_returned, size_t seq_col_idx, size_t seq_col_rows_returned)
-            : _schema(schema), _num_rows(num_rows), _rows_returned(rows_returned), _seq_col_idx(seq_col_idx), _seq_col_rows_returned(seq_col_rows_returned) {}
+    SeqColumnUtIterator(const Schema& schema, size_t num_rows, size_t rows_returned,
+                        size_t seq_col_idx, size_t seq_col_rows_returned)
+            : _schema(schema),
+              _num_rows(num_rows),
+              _rows_returned(rows_returned),
+              _seq_col_idx(seq_col_idx),
+              _seq_col_rows_returned(seq_col_rows_returned) {}
     ~SeqColumnUtIterator() override {}
 
     // NOTE: Currently, this function will ignore StorageReadOptions
-    Status init(const StorageReadOptions& opts) override {
-        return Status::OK();
-    };
+    Status init(const StorageReadOptions& opts) override { return Status::OK(); };
 
     Status next_batch(vectorized::Block* block) override {
         int row_idx = 0;
@@ -210,28 +212,28 @@ public:
                 size_t data_len = 0;
                 const auto* col_schema = _schema.column(j);
                 switch (col_schema->type()) {
-                    case OLAP_FIELD_TYPE_SMALLINT:
-                        *(int16_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
-                        data_len = sizeof(int16_t);
-                        break; 
-                    case OLAP_FIELD_TYPE_INT:
-                        *(int32_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
-                        data_len = sizeof(int32_t);
-                        break;
-                    case OLAP_FIELD_TYPE_BIGINT:
-                        *(int64_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
-                        data_len = sizeof(int64_t);
-                        break;
-                    case OLAP_FIELD_TYPE_FLOAT: 
-                        *(float*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
-                        data_len = sizeof(float);
-                        break;
-                    case OLAP_FIELD_TYPE_DOUBLE: 
-                        *(double*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
-                        data_len = sizeof(double);
-                        break;
-                    default:
-                        break;
+                case OLAP_FIELD_TYPE_SMALLINT:
+                    *(int16_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
+                    data_len = sizeof(int16_t);
+                    break;
+                case OLAP_FIELD_TYPE_INT:
+                    *(int32_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
+                    data_len = sizeof(int32_t);
+                    break;
+                case OLAP_FIELD_TYPE_BIGINT:
+                    *(int64_t*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
+                    data_len = sizeof(int64_t);
+                    break;
+                case OLAP_FIELD_TYPE_FLOAT:
+                    *(float*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
+                    data_len = sizeof(float);
+                    break;
+                case OLAP_FIELD_TYPE_DOUBLE:
+                    *(double*)data = j == _seq_col_idx ? _seq_col_rows_returned : 1;
+                    data_len = sizeof(double);
+                    break;
+                default:
+                    break;
                 }
 
                 vi.insert_data(data, data_len);
@@ -241,9 +243,8 @@ public:
             _seq_col_rows_returned++;
             row_idx++;
         }
-        
-        if (row_idx > 0)
-            return Status::OK();
+
+        if (row_idx > 0) return Status::OK();
         return Status::EndOfFile("End of VAutoIncrementIterator");
     }
 
@@ -257,7 +258,7 @@ public:
 };
 
 TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
-    ASSERT_TRUE(1);
+    EXPECT_TRUE(1);
     auto schema = create_schema();
     std::vector<RowwiseIterator*> inputs;
 
@@ -267,16 +268,17 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     int rows_begin = 0;
     // The same key in each file will only keep one with the largest seq id
     // keep the key columns all the same, but seq column value different
-    // input seg file in Ascending,  expect output seq column in Descending 
+    // input seg file in Ascending,  expect output seq column in Descending
     for (int i = 0; i < seg_iter_num; i++) {
         int seq_id_in_every_file = i;
-        inputs.push_back(new SeqColumnUtIterator(schema, num_rows, rows_begin, seq_column_id, seq_id_in_every_file));
+        inputs.push_back(new SeqColumnUtIterator(schema, num_rows, rows_begin, seq_column_id,
+                                                 seq_id_in_every_file));
     }
 
     auto iter = vectorized::new_merge_iterator(inputs, seq_column_id);
     StorageReadOptions opts;
     auto st = iter->init(opts);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     vectorized::Block block;
     create_block(schema, block);
@@ -285,28 +287,22 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
         st = iter->next_batch(&block);
     } while (st.ok());
 
-    ASSERT_TRUE(st.is_end_of_file());
-    ASSERT_EQ(block.rows(), seg_iter_num);
+    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_EQ(block.rows(), seg_iter_num);
 
     auto col0 = block.get_by_position(0).column;
     auto col1 = block.get_by_position(1).column;
     auto seq_col = block.get_by_position(seq_column_id).column;
 
     for (size_t i = 0; i < seg_iter_num; i++) {
-        size_t expected_value = seg_iter_num - i - 1; // in Descending 
+        size_t expected_value = seg_iter_num - i - 1; // in Descending
         size_t actual_value = (*seq_col)[i].get<int>();
-        ASSERT_EQ(expected_value, actual_value);
+        EXPECT_EQ(expected_value, actual_value);
     }
 
     delete iter;
 }
 
-
 } // namespace vectorized
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

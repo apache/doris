@@ -98,31 +98,25 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
     // submit task
     Status st;
     st = executor.submit_task(task);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     usleep(200);
     k_info.brokers = "127.0.0.1:9092";
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     usleep(200);
     k_info.brokers = "192.0.0.2:9092";
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     usleep(200);
     k_info.brokers = "192.0.0.2:9092";
     task.__set_kafka_load_info(k_info);
     st = executor.submit_task(task);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    doris::CpuInfo::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 
 #include <common/configbase.h>
 #include <libgen.h>

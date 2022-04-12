@@ -26,6 +26,7 @@
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "olap/comparison_predicate.h"
+#include "olap/data_dir.h"
 #include "olap/fs/block_manager.h"
 #include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
@@ -40,9 +41,8 @@
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/file_utils.h"
-
 namespace doris {
 namespace segment_v2 {
 
@@ -74,14 +74,14 @@ class SegmentReaderWriterTest : public ::testing::Test {
 protected:
     void SetUp() override {
         if (FileUtils::check_exist(kSegmentDir)) {
-            ASSERT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
+            EXPECT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
         }
-        ASSERT_TRUE(FileUtils::create_dir(kSegmentDir).ok());
+        EXPECT_TRUE(FileUtils::create_dir(kSegmentDir).ok());
     }
 
     void TearDown() override {
         if (FileUtils::check_exist(kSegmentDir)) {
-            ASSERT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
+            EXPECT_TRUE(FileUtils::remove_all(kSegmentDir).ok());
         }
     }
 
@@ -114,14 +114,16 @@ protected:
         fs::CreateBlockOptions block_opts(filename);
         std::string storage_name;
         Status st = fs::fs_util::block_manager(storage_name)->create_block(block_opts, &wblock);
-        ASSERT_TRUE(st.ok());
-        SegmentWriter writer(wblock.get(), 0, &build_schema, opts);
+        EXPECT_TRUE(st.ok());
+        DataDir data_dir(kSegmentDir);
+        data_dir.init();
+        SegmentWriter writer(wblock.get(), 0, &build_schema, &data_dir, opts);
         st = writer.init(10);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
 
         RowCursor row;
         auto olap_st = row.init(build_schema);
-        ASSERT_EQ(OLAP_SUCCESS, olap_st);
+        EXPECT_EQ(OLAP_SUCCESS, olap_st);
 
         for (size_t rid = 0; rid < nrows; ++rid) {
             for (int cid = 0; cid < build_schema.num_columns(); ++cid) {
@@ -129,19 +131,19 @@ protected:
                 RowCursorCell cell = row.cell(cid);
                 generator(rid, cid, row_block_id, cell);
             }
-            ASSERT_TRUE(writer.append_row(row).ok());
+            EXPECT_TRUE(writer.append_row(row).ok());
         }
 
         uint64_t file_size, index_size;
         st = writer.finalize(&file_size, &index_size);
-        ASSERT_TRUE(st.ok());
-        ASSERT_TRUE(wblock->close().ok());
+        EXPECT_TRUE(st.ok());
+        EXPECT_TRUE(wblock->close().ok());
 
         FilePathDesc path_desc;
         path_desc.filepath = filename;
         st = Segment::open(path_desc, 0, &query_schema, res);
-        ASSERT_TRUE(st.ok());
-        ASSERT_EQ(nrows, (*res)->num_rows());
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(nrows, (*res)->num_rows());
     }
 
 private:
@@ -177,9 +179,9 @@ TEST_F(SegmentReaderWriterTest, normal) {
             while (left > 0) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
-                ASSERT_TRUE(iter->next_batch(&block).ok());
-                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-                ASSERT_EQ(rows_read, block.num_rows());
+                EXPECT_TRUE(iter->next_batch(&block).ok());
+                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
@@ -187,8 +189,8 @@ TEST_F(SegmentReaderWriterTest, normal) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        ASSERT_FALSE(column_block.is_null(i));
-                        ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
+                        EXPECT_FALSE(column_block.is_null(i));
+                        EXPECT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
                     }
                 }
                 rowid += rows_read;
@@ -226,12 +228,12 @@ TEST_F(SegmentReaderWriterTest, normal) {
             segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 100);
-            ASSERT_TRUE(iter->next_batch(&block).ok());
-            ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-            ASSERT_EQ(11, block.num_rows());
+            EXPECT_TRUE(iter->next_batch(&block).ok());
+            EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+            EXPECT_EQ(11, block.num_rows());
             auto column_block = block.column_block(0);
             for (int i = 0; i < 11; ++i) {
-                ASSERT_EQ(100 + i * 10, *(int*)column_block.cell_ptr(i));
+                EXPECT_EQ(100 + i * 10, *(int*)column_block.cell_ptr(i));
             }
         }
         // test seek, key
@@ -252,8 +254,8 @@ TEST_F(SegmentReaderWriterTest, normal) {
             segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 100);
-            ASSERT_TRUE(iter->next_batch(&block).is_end_of_file());
-            ASSERT_EQ(0, block.num_rows());
+            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+            EXPECT_EQ(0, block.num_rows());
         }
         // test seek, key (-2, -1)
         {
@@ -281,8 +283,8 @@ TEST_F(SegmentReaderWriterTest, normal) {
             segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 100);
-            ASSERT_TRUE(iter->next_batch(&block).is_end_of_file());
-            ASSERT_EQ(0, block.num_rows());
+            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+            EXPECT_EQ(0, block.num_rows());
         }
     }
 }
@@ -315,15 +317,15 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
+            EXPECT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
-            ASSERT_TRUE(iter->next_batch(&block).ok());
-            ASSERT_TRUE(iter->is_lazy_materialization_read());
-            ASSERT_EQ(1, block.selected_size());
-            ASSERT_EQ(99, stats.rows_vec_cond_filtered);
+            EXPECT_TRUE(iter->next_batch(&block).ok());
+            EXPECT_TRUE(iter->is_lazy_materialization_read());
+            EXPECT_EQ(1, block.selected_size());
+            EXPECT_EQ(99, stats.rows_vec_cond_filtered);
             auto row = block.row(block.selection_vector()[0]);
-            ASSERT_EQ("[3,30]", row.debug_string());
+            EXPECT_EQ("[3,30]", row.debug_string());
         }
         {
             // lazy disabled when all return columns have predicates:
@@ -339,15 +341,15 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
+            EXPECT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
-            ASSERT_TRUE(iter->next_batch(&block).ok());
-            ASSERT_FALSE(iter->is_lazy_materialization_read());
-            ASSERT_EQ(1, block.selected_size());
-            ASSERT_EQ(99, stats.rows_vec_cond_filtered);
+            EXPECT_TRUE(iter->next_batch(&block).ok());
+            EXPECT_FALSE(iter->is_lazy_materialization_read());
+            EXPECT_EQ(1, block.selected_size());
+            EXPECT_EQ(99, stats.rows_vec_cond_filtered);
             auto row = block.row(block.selection_vector()[0]);
-            ASSERT_EQ("[10,100]", row.debug_string());
+            EXPECT_EQ("[10,100]", row.debug_string());
         }
         {
             // lazy disabled when no predicate:
@@ -359,15 +361,15 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
+            EXPECT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
-            ASSERT_TRUE(iter->next_batch(&block).ok());
-            ASSERT_FALSE(iter->is_lazy_materialization_read());
-            ASSERT_EQ(100, block.selected_size());
+            EXPECT_TRUE(iter->next_batch(&block).ok());
+            EXPECT_FALSE(iter->is_lazy_materialization_read());
+            EXPECT_EQ(100, block.selected_size());
             for (int i = 0; i < block.selected_size(); ++i) {
                 auto row = block.row(block.selection_vector()[i]);
-                ASSERT_EQ(strings::Substitute("[$0]", i * 10), row.debug_string());
+                EXPECT_EQ(strings::Substitute("[$0]", i * 10), row.debug_string());
             }
         }
     }
@@ -377,7 +379,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
         shared_ptr<Segment> segment;
         SegmentWriterOptions write_opts;
         build_segment(write_opts, tablet_schema, tablet_schema, 100, data_gen, &segment);
-        ASSERT_TRUE(column_contains_index(segment->footer().columns(0), BITMAP_INDEX));
+        EXPECT_TRUE(column_contains_index(segment->footer().columns(0), BITMAP_INDEX));
         {
             // lazy disabled when all predicates are removed by bitmap index:
             // select c1, c2 where c2 = 30;
@@ -391,16 +393,16 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
             read_opts.stats = &stats;
 
             std::unique_ptr<RowwiseIterator> iter;
-            ASSERT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
+            EXPECT_TRUE(segment->new_iterator(read_schema, read_opts, &iter).ok());
 
             RowBlockV2 block(read_schema, 1024);
-            ASSERT_TRUE(iter->next_batch(&block).ok());
-            ASSERT_FALSE(iter->is_lazy_materialization_read());
-            ASSERT_EQ(1, block.selected_size());
-            ASSERT_EQ(99, stats.rows_bitmap_index_filtered);
-            ASSERT_EQ(0, stats.rows_vec_cond_filtered);
+            EXPECT_TRUE(iter->next_batch(&block).ok());
+            EXPECT_FALSE(iter->is_lazy_materialization_read());
+            EXPECT_EQ(1, block.selected_size());
+            EXPECT_EQ(99, stats.rows_bitmap_index_filtered);
+            EXPECT_EQ(0, stats.rows_vec_cond_filtered);
             auto row = block.row(block.selection_vector()[0]);
-            ASSERT_EQ("[20,200]", row.debug_string());
+            EXPECT_EQ("[20,200]", row.debug_string());
         }
     }
 }
@@ -446,7 +448,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(&tablet_schema);
-            ASSERT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
@@ -457,8 +459,8 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
 
             RowBlockV2 block(schema, 1);
 
-            ASSERT_TRUE(iter->next_batch(&block).is_end_of_file());
-            ASSERT_EQ(0, block.num_rows());
+            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+            EXPECT_EQ(0, block.num_rows());
         }
         // scan all rows
         {
@@ -469,7 +471,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(&tablet_schema);
-            ASSERT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
@@ -487,9 +489,9 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             while (left > 0) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
-                ASSERT_TRUE(iter->next_batch(&block).ok());
-                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-                ASSERT_EQ(rows_read, block.num_rows());
+                EXPECT_TRUE(iter->next_batch(&block).ok());
+                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
@@ -497,16 +499,16 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        ASSERT_FALSE(column_block.is_null(i));
-                        ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i))
+                        EXPECT_FALSE(column_block.is_null(i));
+                        EXPECT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i))
                                 << "rid:" << rid << ", i:" << i;
                     }
                 }
                 rowid += rows_read;
             }
-            ASSERT_EQ(16 * 1024, rowid);
-            ASSERT_TRUE(iter->next_batch(&block).is_end_of_file());
-            ASSERT_EQ(0, block.num_rows());
+            EXPECT_EQ(16 * 1024, rowid);
+            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+            EXPECT_EQ(0, block.num_rows());
         }
         // test zone map with query predicate an delete predicate
         {
@@ -518,7 +520,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(&tablet_schema);
-            ASSERT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
 
             // the second page read will be pruned by the following delete predicate
             TCondition delete_condition;
@@ -528,7 +530,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             delete_condition.__set_condition_values(vals2);
             std::shared_ptr<Conditions> delete_conditions(new Conditions());
             delete_conditions->set_tablet_schema(&tablet_schema);
-            ASSERT_EQ(OLAP_SUCCESS, delete_conditions->append_condition(delete_condition));
+            EXPECT_EQ(OLAP_SUCCESS, delete_conditions->append_condition(delete_condition));
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
@@ -548,9 +550,9 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
                 auto s = iter->next_batch(&block);
-                ASSERT_TRUE(s.ok()) << s.to_string();
-                ASSERT_EQ(rows_read, block.num_rows());
-                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_TRUE(s.ok()) << s.to_string();
+                EXPECT_EQ(rows_read, block.num_rows());
+                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
                 left -= rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
@@ -558,16 +560,16 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        ASSERT_FALSE(column_block.is_null(i));
-                        ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i))
+                        EXPECT_FALSE(column_block.is_null(i));
+                        EXPECT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i))
                                 << "rid:" << rid << ", i:" << i;
                     }
                 }
                 rowid += rows_read;
             }
-            ASSERT_EQ(16 * 1024, rowid);
-            ASSERT_TRUE(iter->next_batch(&block).is_end_of_file());
-            ASSERT_EQ(0, block.num_rows());
+            EXPECT_EQ(16 * 1024, rowid);
+            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+            EXPECT_EQ(0, block.num_rows());
         }
         // test bloom filter
         {
@@ -581,14 +583,14 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(&tablet_schema);
-            ASSERT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
             read_opts.conditions = conditions.get();
             std::unique_ptr<RowwiseIterator> iter;
             segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
-            ASSERT_TRUE(iter->next_batch(&block).is_end_of_file());
-            ASSERT_EQ(0, block.num_rows());
+            EXPECT_TRUE(iter->next_batch(&block).is_end_of_file());
+            EXPECT_EQ(0, block.num_rows());
         }
     }
 }
@@ -619,14 +621,16 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     fs::CreateBlockOptions wblock_opts(fname);
     std::string storage_name;
     Status st = fs::fs_util::block_manager(storage_name)->create_block(wblock_opts, &wblock);
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    DataDir data_dir(dname);
+    data_dir.init();
+    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), &data_dir, opts);
     st = writer.init(10);
-    ASSERT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(st.ok()) << st.to_string();
 
     RowCursor row;
     auto olap_st = row.init(*tablet_schema);
-    ASSERT_EQ(OLAP_SUCCESS, olap_st);
+    EXPECT_EQ(OLAP_SUCCESS, olap_st);
 
     // 0, 1, 2, 3
     // 10, 11, 12, 13
@@ -645,13 +649,13 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
 
     uint64_t file_size = 0;
     uint64_t index_size;
-    ASSERT_TRUE(writer.finalize(&file_size, &index_size).ok());
-    ASSERT_TRUE(wblock->close().ok());
+    EXPECT_TRUE(writer.finalize(&file_size, &index_size).ok());
+    EXPECT_TRUE(wblock->close().ok());
 
     file_size = std::filesystem::file_size(fname);
     LOG(INFO) << "segment file size is:" << file_size;
 
-    ASSERT_NE(segment_size, 0);
+    EXPECT_NE(segment_size, 0);
 
     FileUtils::remove_all(dname);
 }
@@ -688,9 +692,9 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
             while (left > 0) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
-                ASSERT_TRUE(iter->next_batch(&block).ok());
-                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-                ASSERT_EQ(rows_read, block.num_rows());
+                EXPECT_TRUE(iter->next_batch(&block).ok());
+                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
@@ -699,10 +703,10 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
                         if (cid == 4) {
-                            ASSERT_TRUE(column_block.is_null(i));
+                            EXPECT_TRUE(column_block.is_null(i));
                         } else {
-                            ASSERT_FALSE(column_block.is_null(i));
-                            ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
+                            EXPECT_FALSE(column_block.is_null(i));
+                            EXPECT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
                         }
                     }
                 }
@@ -738,8 +742,8 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
             while (left > 0) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
-                ASSERT_TRUE(iter->next_batch(&block).ok());
-                ASSERT_EQ(rows_read, block.num_rows());
+                EXPECT_TRUE(iter->next_batch(&block).ok());
+                EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
@@ -748,11 +752,11 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
                         if (cid == 4) {
-                            ASSERT_FALSE(column_block.is_null(i));
-                            ASSERT_EQ(10086, *(int*)column_block.cell_ptr(i));
+                            EXPECT_FALSE(column_block.is_null(i));
+                            EXPECT_EQ(10086, *(int*)column_block.cell_ptr(i));
                         } else {
-                            ASSERT_FALSE(column_block.is_null(i));
-                            ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
+                            EXPECT_FALSE(column_block.is_null(i));
+                            EXPECT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
                         }
                     }
                 }
@@ -790,14 +794,16 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     fs::CreateBlockOptions wblock_opts(fname);
     std::string storage_name;
     Status st = fs::fs_util::block_manager(storage_name)->create_block(wblock_opts, &wblock);
-    ASSERT_TRUE(st.ok());
-    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
+    EXPECT_TRUE(st.ok());
+    DataDir data_dir(dname);
+    data_dir.init();
+    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), &data_dir, opts);
     st = writer.init(10);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     RowCursor row;
     auto olap_st = row.init(*tablet_schema);
-    ASSERT_EQ(OLAP_SUCCESS, olap_st);
+    EXPECT_EQ(OLAP_SUCCESS, olap_st);
 
     // 0, 1, 2, 3
     // 10, 11, 12, 13
@@ -812,21 +818,21 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                                      tablet_schema->_cols[j]._length);
         }
         Status status = writer.append_row(row);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
     }
 
     uint64_t file_size = 0;
     uint64_t index_size;
-    ASSERT_TRUE(writer.finalize(&file_size, &index_size).ok());
-    ASSERT_TRUE(wblock->close().ok());
+    EXPECT_TRUE(writer.finalize(&file_size, &index_size).ok());
+    EXPECT_TRUE(wblock->close().ok());
 
     {
         std::shared_ptr<Segment> segment;
         FilePathDesc path_desc;
         path_desc.filepath = fname;
         st = Segment::open(path_desc, 0, tablet_schema.get(), &segment);
-        ASSERT_TRUE(st.ok());
-        ASSERT_EQ(4096, segment->num_rows());
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(4096, segment->num_rows());
         Schema schema(*tablet_schema);
         OlapReaderStatistics stats;
         // scan all rows
@@ -845,9 +851,9 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
                 st = iter->next_batch(&block);
-                ASSERT_TRUE(st.ok());
-                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-                ASSERT_EQ(rows_read, block.num_rows());
+                EXPECT_TRUE(st.ok());
+                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
@@ -855,7 +861,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        ASSERT_FALSE(column_block.is_null(i));
+                        EXPECT_FALSE(column_block.is_null(i));
                         const Slice* actual =
                                 reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
 
@@ -863,7 +869,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                         set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid,
                                                  reinterpret_cast<char*>(&expect), &pool,
                                                  tablet_schema->_cols[j]._length);
-                        ASSERT_EQ(expect.to_string(), actual->to_string());
+                        EXPECT_EQ(expect.to_string(), actual->to_string());
                     }
                 }
                 rowid += rows_read;
@@ -891,8 +897,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
-            ASSERT_TRUE(st.is_end_of_file());
-            ASSERT_EQ(0, block.num_rows());
+            EXPECT_TRUE(st.is_end_of_file());
+            EXPECT_EQ(0, block.num_rows());
         }
 
         // test seek, key (-2, -1)
@@ -924,8 +930,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
             RowBlockV2 block(schema, 100);
             st = iter->next_batch(&block);
-            ASSERT_TRUE(st.is_end_of_file());
-            ASSERT_EQ(0, block.num_rows());
+            EXPECT_TRUE(st.is_end_of_file());
+            EXPECT_EQ(0, block.num_rows());
         }
 
         // test char zone_map query hit;should read whole page
@@ -937,7 +943,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(tablet_schema.get());
-            ASSERT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
@@ -954,9 +960,9 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                 int rows_read = left > 1024 ? 1024 : left;
                 block.clear();
                 st = iter->next_batch(&block);
-                ASSERT_TRUE(st.ok());
-                ASSERT_EQ(DEL_NOT_SATISFIED, block.delete_state());
-                ASSERT_EQ(rows_read, block.num_rows());
+                EXPECT_TRUE(st.ok());
+                EXPECT_EQ(DEL_NOT_SATISFIED, block.delete_state());
+                EXPECT_EQ(rows_read, block.num_rows());
                 left -= rows_read;
 
                 for (int j = 0; j < block.schema()->column_ids().size(); ++j) {
@@ -964,7 +970,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        ASSERT_FALSE(column_block.is_null(i));
+                        EXPECT_FALSE(column_block.is_null(i));
 
                         const Slice* actual =
                                 reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
@@ -972,17 +978,17 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                         set_column_value_by_type(tablet_schema->_cols[j]._type, rid * 10 + cid,
                                                  reinterpret_cast<char*>(&expect), &pool,
                                                  tablet_schema->_cols[j]._length);
-                        ASSERT_EQ(expect.to_string(), actual->to_string())
+                        EXPECT_EQ(expect.to_string(), actual->to_string())
                                 << "rid:" << rid << ", i:" << i;
                         ;
                     }
                 }
                 rowid += rows_read;
             }
-            ASSERT_EQ(4 * 1024, rowid);
+            EXPECT_EQ(4 * 1024, rowid);
             st = iter->next_batch(&block);
-            ASSERT_TRUE(st.is_end_of_file());
-            ASSERT_EQ(0, block.num_rows());
+            EXPECT_TRUE(st.is_end_of_file());
+            EXPECT_EQ(0, block.num_rows());
         }
 
         // test char zone_map query miss;col < -1
@@ -994,7 +1000,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             condition.__set_condition_values(vals);
             std::shared_ptr<Conditions> conditions(new Conditions());
             conditions->set_tablet_schema(tablet_schema.get());
-            ASSERT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
+            EXPECT_EQ(OLAP_SUCCESS, conditions->append_condition(condition));
 
             StorageReadOptions read_opts;
             read_opts.stats = &stats;
@@ -1006,8 +1012,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
             RowBlockV2 block(schema, 1024);
 
             st = iter->next_batch(&block);
-            ASSERT_TRUE(st.is_end_of_file());
-            ASSERT_EQ(0, block.num_rows());
+            EXPECT_TRUE(st.is_end_of_file());
+            EXPECT_EQ(0, block.num_rows());
         }
     }
 
@@ -1022,8 +1028,8 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
     SegmentWriterOptions opts;
     shared_ptr<Segment> segment;
     build_segment(opts, tablet_schema, tablet_schema, 4096, DefaultIntGenerator, &segment);
-    ASSERT_TRUE(column_contains_index(segment->footer().columns(0), BITMAP_INDEX));
-    ASSERT_TRUE(column_contains_index(segment->footer().columns(1), BITMAP_INDEX));
+    EXPECT_TRUE(column_contains_index(segment->footer().columns(0), BITMAP_INDEX));
+    EXPECT_TRUE(column_contains_index(segment->footer().columns(1), BITMAP_INDEX));
 
     {
         Schema schema(tablet_schema);
@@ -1043,9 +1049,9 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
-            ASSERT_TRUE(iter->next_batch(&block).ok());
-            ASSERT_EQ(block.num_rows(), 1);
-            ASSERT_EQ(read_opts.stats->raw_rows_read, 1);
+            EXPECT_TRUE(iter->next_batch(&block).ok());
+            EXPECT_EQ(block.num_rows(), 1);
+            EXPECT_EQ(read_opts.stats->raw_rows_read, 1);
         }
 
         // test where v1=10 and v2=11
@@ -1065,9 +1071,9 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
-            ASSERT_TRUE(iter->next_batch(&block).ok());
-            ASSERT_EQ(block.num_rows(), 1);
-            ASSERT_EQ(read_opts.stats->raw_rows_read, 1);
+            EXPECT_TRUE(iter->next_batch(&block).ok());
+            EXPECT_EQ(block.num_rows(), 1);
+            EXPECT_EQ(read_opts.stats->raw_rows_read, 1);
         }
 
         // test where v1=10 and v2=15
@@ -1087,8 +1093,8 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
-            ASSERT_FALSE(iter->next_batch(&block).ok());
-            ASSERT_EQ(read_opts.stats->raw_rows_read, 0);
+            EXPECT_FALSE(iter->next_batch(&block).ok());
+            EXPECT_EQ(read_opts.stats->raw_rows_read, 0);
         }
 
         // test where v1 in (10,20,1)
@@ -1111,8 +1117,8 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             segment->new_iterator(schema, read_opts, &iter);
 
             RowBlockV2 block(schema, 1024);
-            ASSERT_TRUE(iter->next_batch(&block).ok());
-            ASSERT_EQ(read_opts.stats->raw_rows_read, 2);
+            EXPECT_TRUE(iter->next_batch(&block).ok());
+            EXPECT_EQ(read_opts.stats->raw_rows_read, 2);
         }
 
         // test where v1 not in (10,20)
@@ -1140,7 +1146,7 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
                 block.clear();
                 st = iter->next_batch(&block);
             } while (st.ok());
-            ASSERT_EQ(read_opts.stats->raw_rows_read, 4094);
+            EXPECT_EQ(read_opts.stats->raw_rows_read, 4094);
         }
     }
 }
@@ -1154,20 +1160,14 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
     SegmentWriterOptions opts1;
     shared_ptr<Segment> seg1;
     build_segment(opts1, schema, schema, 100, DefaultIntGenerator, &seg1);
-    ASSERT_TRUE(column_contains_index(seg1->footer().columns(3), BLOOM_FILTER_INDEX));
+    EXPECT_TRUE(column_contains_index(seg1->footer().columns(3), BLOOM_FILTER_INDEX));
 
     // for base segment
     SegmentWriterOptions opts2;
     shared_ptr<Segment> seg2;
     build_segment(opts2, schema, schema, 100, DefaultIntGenerator, &seg2);
-    ASSERT_TRUE(column_contains_index(seg2->footer().columns(3), BLOOM_FILTER_INDEX));
+    EXPECT_TRUE(column_contains_index(seg2->footer().columns(3), BLOOM_FILTER_INDEX));
 }
 
 } // namespace segment_v2
 } // namespace doris
-
-int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 10);
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

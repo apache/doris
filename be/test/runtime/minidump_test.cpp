@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
-
 #include "runtime/minidump.h"
+
+#include <gtest/gtest.h>
 
 #include "common/config.h"
 #include "env/env.h"
@@ -71,11 +71,4 @@ TEST_F(MinidumpTest, testNormal) {
     EXPECT_EQ(5, files.size());
 }
 
-
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

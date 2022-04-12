@@ -18,7 +18,8 @@
 #include "util/counts.h"
 
 #include <gtest/gtest.h>
-#include "test_util/test_util.h"
+
+#include "testutil/test_util.h"
 
 namespace doris {
 
@@ -59,12 +60,7 @@ TEST_F(TCountsTest, TotalTest) {
     counts.merge(&other1);
     // 1 1 1 1 2 5 7 7 9 9 10 19 50 50 50 99 99 100 100 100
     EXPECT_EQ(counts.terminate(0.3).val, 6.4);
-    delete [] writer;
+    delete[] writer;
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

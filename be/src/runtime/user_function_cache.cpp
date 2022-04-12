@@ -17,9 +17,9 @@
 
 #include "runtime/user_function_cache.h"
 
+#include <atomic>
 #include <boost/algorithm/string/classification.hpp> // boost::is_any_of
 #include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::ends_with
-#include <atomic>
 #include <regex>
 #include <vector>
 
@@ -56,11 +56,11 @@ struct UserFunctionCacheEntry {
     std::string lib_file;
 
     // make it atomic variable instead of holding a lock
-    std::atomic<bool> is_loaded{false};
+    std::atomic<bool> is_loaded {false};
 
     // Set to true when this library is not needed.
     // e.g. deleting some unused library to re
-    std::atomic<bool> should_delete_library{false};
+    std::atomic<bool> should_delete_library {false};
 
     // lock to make sure only one can load this cache
     std::mutex load_lock;
@@ -80,7 +80,7 @@ struct UserFunctionCacheEntry {
     LibType type;
 
 private:
-    std::atomic<int> _refs{0};
+    std::atomic<int> _refs {0};
 };
 
 UserFunctionCacheEntry::~UserFunctionCacheEntry() {
@@ -116,7 +116,10 @@ UserFunctionCache* UserFunctionCache::instance() {
 }
 
 Status UserFunctionCache::init(const std::string& lib_dir) {
-    DCHECK(_lib_dir.empty());
+#ifndef BE_TEST
+    // _lib_dir may reuesd bettween unit tests
+    DCHECK(_lib_dir.empty()) << _lib_dir;
+#endif
     _lib_dir = lib_dir;
     // 1. dynamic open current process
     RETURN_IF_ERROR(dynamic_open(nullptr, &_current_process_handle));
@@ -241,8 +244,7 @@ Status UserFunctionCache::get_function_ptr(int64_t fid, const std::string& orig_
 
 Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
                                            const std::string& checksum,
-                                           UserFunctionCacheEntry** output_entry,
-                                           LibType type) {
+                                           UserFunctionCacheEntry** output_entry, LibType type) {
     UserFunctionCacheEntry* entry = nullptr;
     {
         std::lock_guard<std::mutex> l(_cache_lock);
@@ -250,7 +252,8 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
         if (it != _entry_map.end()) {
             entry = it->second;
         } else {
-            entry = new UserFunctionCacheEntry(fid, checksum, _make_lib_file(fid, checksum, type), type);
+            entry = new UserFunctionCacheEntry(fid, checksum, _make_lib_file(fid, checksum, type),
+                                               type);
 
             entry->ref();
             _entry_map.emplace(fid, entry);
@@ -375,11 +378,13 @@ Status UserFunctionCache::_add_to_classpath(UserFunctionCacheEntry* entry) {
     JNIEnv* env;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     jclass class_class_loader = env->FindClass("java/lang/ClassLoader");
-    jmethodID method_get_system_class_loader =
-            env->GetStaticMethodID(class_class_loader, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
-    jobject class_loader = env->CallStaticObjectMethod(class_class_loader, method_get_system_class_loader);
+    jmethodID method_get_system_class_loader = env->GetStaticMethodID(
+            class_class_loader, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
+    jobject class_loader =
+            env->CallStaticObjectMethod(class_class_loader, method_get_system_class_loader);
     jclass class_url_class_loader = env->FindClass("java/net/URLClassLoader");
-    jmethodID method_add_url = env->GetMethodID(class_url_class_loader, "addURL", "(Ljava/net/URL;)V");
+    jmethodID method_add_url =
+            env->GetMethodID(class_url_class_loader, "addURL", "(Ljava/net/URL;)V");
     jclass class_url = env->FindClass("java/net/URL");
     jmethodID url_ctor = env->GetMethodID(class_url, "<init>", "(Ljava/lang/String;)V");
     jobject urlInstance = env->NewObject(class_url, url_ctor, env->NewStringUTF(path.c_str()));
@@ -412,8 +417,8 @@ void UserFunctionCache::release_entry(UserFunctionCacheEntry* entry) {
     }
 }
 
-Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url, const std::string& checksum,
-                                      std::string* libpath) {
+Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
+                                      const std::string& checksum, std::string* libpath) {
     UserFunctionCacheEntry* entry = nullptr;
     RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, &entry, LibType::JAR));
     *libpath = entry->lib_file;

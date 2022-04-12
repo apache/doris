@@ -81,7 +81,7 @@ TEST(ComparisonTest, ComparisonFunctionTest) {
     k2 = 100;
     for (int i = 0; i < 1024; ++i, k1++, k2--) {
         vectorized::ColumnPtr column = block.get_columns()[3];
-        ASSERT_EQ(column->get_bool(i), k1 > k2);
+        EXPECT_EQ(column->get_bool(i), k1 > k2);
     }
 
     // 2. compute the k2 <= k3
@@ -100,7 +100,7 @@ TEST(ComparisonTest, ComparisonFunctionTest) {
     k3 = 7.7;
     for (int i = 0; i < 1024; ++i, k3 += 0.1, k2--) {
         vectorized::ColumnPtr column = block.get_columns()[4];
-        ASSERT_EQ(column->get_bool(i), k2 <= k3);
+        EXPECT_EQ(column->get_bool(i), k2 <= k3);
     }
 
     num_columns_without_result = block.columns();
@@ -119,7 +119,7 @@ TEST(ComparisonTest, ComparisonFunctionTest) {
     k3 = 7.7;
     for (int i = 0; i < 1024; ++i, k1++, k3 += 0.1, k2--) {
         vectorized::ColumnPtr column = block.get_columns()[5];
-        ASSERT_EQ(column->get_bool(i), k1 > k2 and k2 <= k3);
+        EXPECT_EQ(column->get_bool(i), k1 > k2 and k2 <= k3);
     }
 
     num_columns_without_result = block.columns();
@@ -137,13 +137,8 @@ TEST(ComparisonTest, ComparisonFunctionTest) {
     k3 = 7.7;
     for (int i = 0; i < 1024; ++i, k1++, k3 += 0.1, k2--) {
         vectorized::ColumnPtr column = block.get_columns()[6];
-        ASSERT_EQ(column->get_bool(i), k1 > k2 or k2 <= k3);
+        EXPECT_EQ(column->get_bool(i), k1 > k2 or k2 <= k3);
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

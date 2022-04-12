@@ -36,15 +36,10 @@ TEST(DataDirInfo, DataDirInfoLessAvailability) {
     data_dir_infos.push_back(a);
     data_dir_infos.push_back(b);
     std::sort(data_dir_infos.begin(), data_dir_infos.end(), DataDirInfoLessAvailability());
-    ASSERT_EQ(data_dir_infos[0].available, 100);
-    ASSERT_EQ(data_dir_infos[1].available, 200);
-    ASSERT_EQ(data_dir_infos[2].available, 300);
-    ASSERT_EQ(data_dir_infos[3].available, 400);
+    EXPECT_EQ(data_dir_infos[0].available, 100);
+    EXPECT_EQ(data_dir_infos[1].available, 200);
+    EXPECT_EQ(data_dir_infos[2].available, 300);
+    EXPECT_EQ(data_dir_infos[3].available, 400);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

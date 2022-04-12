@@ -39,7 +39,7 @@ TEST(TestMonoTime, TestMonotonicity) {
         next = MonoTime::Now();
         //LOG(INFO) << " next = " << next.ToString();
     } while (!prev.ComesBefore(next));
-    ASSERT_FALSE(next.ComesBefore(prev));
+    EXPECT_FALSE(next.ComesBefore(prev));
     alarm(0);
 }
 
@@ -48,18 +48,18 @@ TEST(TestMonoTime, TestComparison) {
     MonoTime future(now);
     future.AddDelta(MonoDelta::FromNanoseconds(1L));
 
-    ASSERT_GT((future - now).ToNanoseconds(), 0);
-    ASSERT_LT((now - future).ToNanoseconds(), 0);
-    ASSERT_EQ((now - now).ToNanoseconds(), 0);
+    EXPECT_GT((future - now).ToNanoseconds(), 0);
+    EXPECT_LT((now - future).ToNanoseconds(), 0);
+    EXPECT_EQ((now - now).ToNanoseconds(), 0);
 
     MonoDelta nano(MonoDelta::FromNanoseconds(1L));
     MonoDelta mil(MonoDelta::FromMilliseconds(1L));
     MonoDelta sec(MonoDelta::FromSeconds(1.0));
 
-    ASSERT_TRUE(nano.LessThan(mil));
-    ASSERT_TRUE(mil.LessThan(sec));
-    ASSERT_TRUE(mil.MoreThan(nano));
-    ASSERT_TRUE(sec.MoreThan(mil));
+    EXPECT_TRUE(nano.LessThan(mil));
+    EXPECT_TRUE(mil.LessThan(sec));
+    EXPECT_TRUE(mil.MoreThan(nano));
+    EXPECT_TRUE(sec.MoreThan(mil));
 }
 
 TEST(TestMonoTime, TestTimeVal) {
@@ -70,32 +70,32 @@ TEST(TestMonoTime, TestTimeVal) {
     // Normal conversion case.
     MonoDelta one_sec_one_micro(MonoDelta::FromNanoseconds(1000001000L));
     one_sec_one_micro.ToTimeVal(&tv);
-    ASSERT_EQ(1, tv.tv_sec);
-    ASSERT_EQ(1, tv.tv_usec);
+    EXPECT_EQ(1, tv.tv_sec);
+    EXPECT_EQ(1, tv.tv_usec);
 
     // Case where we are still positive but sub-micro.
     // Round up to nearest microsecond. This is to avoid infinite timeouts
     // in APIs that take a struct timeval.
     MonoDelta zero_sec_one_nano(MonoDelta::FromNanoseconds(1L));
     zero_sec_one_nano.ToTimeVal(&tv);
-    ASSERT_EQ(0, tv.tv_sec);
-    ASSERT_EQ(1, tv.tv_usec); // Special case: 1ns rounds up to
+    EXPECT_EQ(0, tv.tv_sec);
+    EXPECT_EQ(1, tv.tv_usec); // Special case: 1ns rounds up to
 
     // Negative conversion case. Ensure the timeval is normalized.
     // That means sec is negative and usec is positive.
     MonoDelta neg_micro(MonoDelta::FromMicroseconds(-1L));
-    ASSERT_EQ(-1000, neg_micro.ToNanoseconds());
+    EXPECT_EQ(-1000, neg_micro.ToNanoseconds());
     neg_micro.ToTimeVal(&tv);
-    ASSERT_EQ(-1, tv.tv_sec);
-    ASSERT_EQ(999999, tv.tv_usec);
+    EXPECT_EQ(-1, tv.tv_sec);
+    EXPECT_EQ(999999, tv.tv_usec);
 
     // Case where we are still negative but sub-micro.
     // Round up to nearest microsecond. This is to avoid infinite timeouts
     // in APIs that take a struct timeval and for consistency.
     MonoDelta zero_sec_neg_one_nano(MonoDelta::FromNanoseconds(-1L));
     zero_sec_neg_one_nano.ToTimeVal(&tv);
-    ASSERT_EQ(-1, tv.tv_sec);
-    ASSERT_EQ(999999, tv.tv_usec);
+    EXPECT_EQ(-1, tv.tv_sec);
+    EXPECT_EQ(999999, tv.tv_usec);
 }
 
 TEST(TestMonoTime, TestTimeSpec) {
@@ -104,20 +104,20 @@ TEST(TestMonoTime, TestTimeSpec) {
     ts.tv_sec = 1;
     ts.tv_nsec = 1;
     MonoTime one_sec_one_nano_actual(ts);
-    ASSERT_EQ(0, one_sec_one_nano_expected.GetDeltaSince(one_sec_one_nano_actual).ToNanoseconds());
+    EXPECT_EQ(0, one_sec_one_nano_expected.GetDeltaSince(one_sec_one_nano_actual).ToNanoseconds());
 
     MonoDelta zero_sec_two_nanos(MonoDelta::FromNanoseconds(2L));
     zero_sec_two_nanos.ToTimeSpec(&ts);
-    ASSERT_EQ(0, ts.tv_sec);
-    ASSERT_EQ(2, ts.tv_nsec);
+    EXPECT_EQ(0, ts.tv_sec);
+    EXPECT_EQ(2, ts.tv_nsec);
 
     // Negative conversion case. Ensure the timespec is normalized.
     // That means sec is negative and nsec is positive.
     MonoDelta neg_nano(MonoDelta::FromNanoseconds(-1L));
-    ASSERT_EQ(-1, neg_nano.ToNanoseconds());
+    EXPECT_EQ(-1, neg_nano.ToNanoseconds());
     neg_nano.ToTimeSpec(&ts);
-    ASSERT_EQ(-1, ts.tv_sec);
-    ASSERT_EQ(999999999, ts.tv_nsec);
+    EXPECT_EQ(-1, ts.tv_sec);
+    EXPECT_EQ(999999999, ts.tv_nsec);
 }
 
 TEST(TestMonoTime, TestDeltas) {
@@ -137,13 +137,13 @@ TEST(TestMonoTime, TestDeltaConversions) {
     // TODO: Reliably test MonoDelta::FromSeconds() considering floating-point rounding errors
 
     MonoDelta mil(MonoDelta::FromMilliseconds(500));
-    ASSERT_EQ(500 * MonoTime::kNanosecondsPerMillisecond, mil.nano_delta_);
+    EXPECT_EQ(500 * MonoTime::kNanosecondsPerMillisecond, mil.nano_delta_);
 
     MonoDelta micro(MonoDelta::FromMicroseconds(500));
-    ASSERT_EQ(500 * MonoTime::kNanosecondsPerMicrosecond, micro.nano_delta_);
+    EXPECT_EQ(500 * MonoTime::kNanosecondsPerMicrosecond, micro.nano_delta_);
 
     MonoDelta nano(MonoDelta::FromNanoseconds(500));
-    ASSERT_EQ(500, nano.nano_delta_);
+    EXPECT_EQ(500, nano.nano_delta_);
 }
 
 static void DoTestMonoTimePerf() {
@@ -167,7 +167,7 @@ TEST(TestMonoTime, TestSleepFor) {
     SleepFor(sleep);
     MonoTime end = MonoTime::Now();
     MonoDelta actualSleep = end.GetDeltaSince(start);
-    ASSERT_GE(actualSleep.ToNanoseconds(), sleep.ToNanoseconds());
+    EXPECT_GE(actualSleep.ToNanoseconds(), sleep.ToNanoseconds());
 }
 
 // Test functionality of the handy operators for MonoTime/MonoDelta objects.
@@ -204,7 +204,7 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoDelta dn = MonoDelta::FromNanoseconds(0);
         MonoDelta dm = MonoDelta::FromMicroseconds(0);
-        ASSERT_TRUE(dn.Equals(dm));
+        EXPECT_TRUE(dn.Equals(dm));
         EXPECT_TRUE(dn == dm);
         EXPECT_TRUE(dm == dn);
     }
@@ -213,7 +213,7 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoDelta dn = MonoDelta::FromNanoseconds(1);
         MonoDelta dm = MonoDelta::FromMicroseconds(1);
-        ASSERT_FALSE(dn.Equals(dm));
+        EXPECT_FALSE(dn.Equals(dm));
         EXPECT_TRUE(dn != dm);
         EXPECT_TRUE(dm != dn);
     }
@@ -222,7 +222,7 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoDelta d0 = MonoDelta::FromNanoseconds(0);
         MonoDelta d1 = MonoDelta::FromNanoseconds(1);
-        ASSERT_TRUE(d0.LessThan(d1));
+        EXPECT_TRUE(d0.LessThan(d1));
         EXPECT_TRUE(d0 < d1);
     }
 
@@ -230,12 +230,12 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoDelta d0 = MonoDelta::FromNanoseconds(0);
         MonoDelta d1 = MonoDelta::FromNanoseconds(1);
-        ASSERT_TRUE(d0.LessThan(d1));
+        EXPECT_TRUE(d0.LessThan(d1));
         EXPECT_TRUE(d0 <= d1);
 
         MonoDelta d20 = MonoDelta::FromNanoseconds(2);
         MonoDelta d21 = MonoDelta::FromNanoseconds(2);
-        ASSERT_TRUE(d20.Equals(d21));
+        EXPECT_TRUE(d20.Equals(d21));
         EXPECT_TRUE(d20 <= d21);
     }
 
@@ -243,7 +243,7 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoDelta d0 = MonoDelta::FromNanoseconds(0);
         MonoDelta d1 = MonoDelta::FromNanoseconds(1);
-        ASSERT_TRUE(d1.MoreThan(d0));
+        EXPECT_TRUE(d1.MoreThan(d0));
         EXPECT_TRUE(d1 > d0);
     }
 
@@ -251,12 +251,12 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoDelta d0 = MonoDelta::FromNanoseconds(0);
         MonoDelta d1 = MonoDelta::FromNanoseconds(1);
-        ASSERT_TRUE(d1.MoreThan(d0));
+        EXPECT_TRUE(d1.MoreThan(d0));
         EXPECT_TRUE(d1 >= d1);
 
         MonoDelta d20 = MonoDelta::FromNanoseconds(2);
         MonoDelta d21 = MonoDelta::FromNanoseconds(2);
-        ASSERT_TRUE(d20.Equals(d21));
+        EXPECT_TRUE(d20.Equals(d21));
         EXPECT_TRUE(d21 >= d20);
     }
 
@@ -264,8 +264,8 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoTime t0 = MonoTime::Now();
         MonoTime t1(t0);
-        ASSERT_TRUE(t0.Equals(t1));
-        ASSERT_TRUE(t1.Equals(t0));
+        EXPECT_TRUE(t0.Equals(t1));
+        EXPECT_TRUE(t1.Equals(t0));
         EXPECT_TRUE(t0 == t1);
         EXPECT_TRUE(t1 == t0);
     }
@@ -274,8 +274,8 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoTime t0 = MonoTime::Now();
         MonoTime t1(t0 + MonoDelta::FromMilliseconds(100));
-        ASSERT_TRUE(!t0.Equals(t1));
-        ASSERT_TRUE(!t1.Equals(t0));
+        EXPECT_TRUE(!t0.Equals(t1));
+        EXPECT_TRUE(!t1.Equals(t0));
         EXPECT_TRUE(t0 != t1);
         EXPECT_TRUE(t1 != t0);
     }
@@ -284,8 +284,8 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoTime t0 = MonoTime::Now();
         MonoTime t1(t0 + MonoDelta::FromMilliseconds(100));
-        ASSERT_TRUE(t0.ComesBefore(t1));
-        ASSERT_FALSE(t1.ComesBefore(t0));
+        EXPECT_TRUE(t0.ComesBefore(t1));
+        EXPECT_FALSE(t1.ComesBefore(t0));
         EXPECT_TRUE(t0 < t1);
         EXPECT_FALSE(t1 < t0);
     }
@@ -294,20 +294,20 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoTime t00 = MonoTime::Now();
         MonoTime t01(t00);
-        ASSERT_TRUE(t00.Equals(t00));
-        ASSERT_TRUE(t00.Equals(t01));
-        ASSERT_TRUE(t01.Equals(t00));
-        ASSERT_TRUE(t01.Equals(t01));
+        EXPECT_TRUE(t00.Equals(t00));
+        EXPECT_TRUE(t00.Equals(t01));
+        EXPECT_TRUE(t01.Equals(t00));
+        EXPECT_TRUE(t01.Equals(t01));
         EXPECT_TRUE(t00 <= t00);
         EXPECT_TRUE(t00 <= t01);
         EXPECT_TRUE(t01 <= t00);
         EXPECT_TRUE(t01 <= t01);
 
         MonoTime t1(t00 + MonoDelta::FromMilliseconds(100));
-        ASSERT_TRUE(t00.ComesBefore(t1));
-        ASSERT_TRUE(t01.ComesBefore(t1));
-        ASSERT_FALSE(t1.ComesBefore(t00));
-        ASSERT_FALSE(t1.ComesBefore(t01));
+        EXPECT_TRUE(t00.ComesBefore(t1));
+        EXPECT_TRUE(t01.ComesBefore(t1));
+        EXPECT_FALSE(t1.ComesBefore(t00));
+        EXPECT_FALSE(t1.ComesBefore(t01));
         EXPECT_TRUE(t00 <= t1);
         EXPECT_TRUE(t01 <= t1);
         EXPECT_FALSE(t1 <= t00);
@@ -318,8 +318,8 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoTime t0 = MonoTime::Now();
         MonoTime t1(t0 + MonoDelta::FromMilliseconds(100));
-        ASSERT_TRUE(t0.ComesBefore(t1));
-        ASSERT_FALSE(t1.ComesBefore(t0));
+        EXPECT_TRUE(t0.ComesBefore(t1));
+        EXPECT_FALSE(t1.ComesBefore(t0));
         EXPECT_TRUE(t0 < t1);
         EXPECT_FALSE(t1 < t0);
     }
@@ -328,20 +328,20 @@ TEST(TestMonoTime, TestOperators) {
     {
         MonoTime t00 = MonoTime::Now();
         MonoTime t01(t00);
-        ASSERT_TRUE(t00.Equals(t00));
-        ASSERT_TRUE(t00.Equals(t01));
-        ASSERT_TRUE(t01.Equals(t00));
-        ASSERT_TRUE(t01.Equals(t01));
+        EXPECT_TRUE(t00.Equals(t00));
+        EXPECT_TRUE(t00.Equals(t01));
+        EXPECT_TRUE(t01.Equals(t00));
+        EXPECT_TRUE(t01.Equals(t01));
         EXPECT_TRUE(t00 >= t00);
         EXPECT_TRUE(t00 >= t01);
         EXPECT_TRUE(t01 >= t00);
         EXPECT_TRUE(t01 >= t01);
 
         MonoTime t1(t00 + MonoDelta::FromMilliseconds(100));
-        ASSERT_TRUE(t00.ComesBefore(t1));
-        ASSERT_TRUE(t01.ComesBefore(t1));
-        ASSERT_FALSE(t1.ComesBefore(t00));
-        ASSERT_FALSE(t1.ComesBefore(t01));
+        EXPECT_TRUE(t00.ComesBefore(t1));
+        EXPECT_TRUE(t01.ComesBefore(t1));
+        EXPECT_FALSE(t1.ComesBefore(t00));
+        EXPECT_FALSE(t1.ComesBefore(t01));
         EXPECT_FALSE(t00 >= t1);
         EXPECT_FALSE(t01 >= t1);
         EXPECT_TRUE(t1 >= t00);
@@ -402,8 +402,3 @@ TEST(TestMonoTimePerf, TestMonoTimePerf) {
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

@@ -31,17 +31,10 @@ TEST(ChunkAllocatorTest, Normal) {
     config::use_mmap_allocate_chunk = true;
     for (size_t size = 4096; size <= 1024 * 1024; size <<= 1) {
         Chunk chunk;
-        ASSERT_TRUE(ChunkAllocator::instance()->allocate(size, &chunk).ok());
-        ASSERT_NE(nullptr, chunk.data);
-        ASSERT_EQ(size, chunk.size);
+        EXPECT_TRUE(ChunkAllocator::instance()->allocate(size, &chunk).ok());
+        EXPECT_NE(nullptr, chunk.data);
+        EXPECT_EQ(size, chunk.size);
         ChunkAllocator::instance()->free(chunk);
     }
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    doris::ChunkAllocator::init_instance(1024 * 1024);
-    return RUN_ALL_TESTS();
-}

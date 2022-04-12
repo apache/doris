@@ -46,7 +46,7 @@ TEST_F(HybridSetTest, bool) {
     a = false;
     set->insert(&a);
 
-    ASSERT_EQ(2, set->size());
+    EXPECT_EQ(2, set->size());
     HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
@@ -55,9 +55,9 @@ TEST_F(HybridSetTest, bool) {
     }
 
     a = true;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = false;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
 }
 
 TEST_F(HybridSetTest, tinyint) {
@@ -75,7 +75,7 @@ TEST_F(HybridSetTest, tinyint) {
     a = 4;
     set->insert(&a);
 
-    ASSERT_EQ(5, set->size());
+    EXPECT_EQ(5, set->size());
 
     HybridSetBase::IteratorBase* base = set->begin();
 
@@ -85,17 +85,17 @@ TEST_F(HybridSetTest, tinyint) {
     }
 
     a = 0;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 2;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 3;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 4;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 5;
-    ASSERT_FALSE(set->find(&a));
+    EXPECT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, smallint) {
     HybridSetBase* set = create_set(TYPE_SMALLINT);
@@ -112,7 +112,7 @@ TEST_F(HybridSetTest, smallint) {
     a = 4;
     set->insert(&a);
 
-    ASSERT_EQ(5, set->size());
+    EXPECT_EQ(5, set->size());
     HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
@@ -121,17 +121,17 @@ TEST_F(HybridSetTest, smallint) {
     }
 
     a = 0;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 2;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 3;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 4;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 5;
-    ASSERT_FALSE(set->find(&a));
+    EXPECT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, int) {
     HybridSetBase* set = create_set(TYPE_INT);
@@ -148,7 +148,7 @@ TEST_F(HybridSetTest, int) {
     a = 4;
     set->insert(&a);
 
-    ASSERT_EQ(5, set->size());
+    EXPECT_EQ(5, set->size());
     HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
@@ -157,17 +157,17 @@ TEST_F(HybridSetTest, int) {
     }
 
     a = 0;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 2;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 3;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 4;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 5;
-    ASSERT_FALSE(set->find(&a));
+    EXPECT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, bigint) {
     HybridSetBase* set = create_set(TYPE_BIGINT);
@@ -184,7 +184,7 @@ TEST_F(HybridSetTest, bigint) {
     a = 4;
     set->insert(&a);
 
-    ASSERT_EQ(5, set->size());
+    EXPECT_EQ(5, set->size());
     HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
@@ -193,17 +193,17 @@ TEST_F(HybridSetTest, bigint) {
     }
 
     a = 0;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 2;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 3;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 4;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 5;
-    ASSERT_FALSE(set->find(&a));
+    EXPECT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, float) {
     HybridSetBase* set = create_set(TYPE_FLOAT);
@@ -220,7 +220,7 @@ TEST_F(HybridSetTest, float) {
     a = 4.1;
     set->insert(&a);
 
-    ASSERT_EQ(5, set->size());
+    EXPECT_EQ(5, set->size());
     HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
@@ -229,17 +229,17 @@ TEST_F(HybridSetTest, float) {
     }
 
     a = 0;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 1.1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 2.1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 3.1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 4.1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 5.1;
-    ASSERT_FALSE(set->find(&a));
+    EXPECT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, double) {
     HybridSetBase* set = create_set(TYPE_DOUBLE);
@@ -256,7 +256,7 @@ TEST_F(HybridSetTest, double) {
     a = 4.1;
     set->insert(&a);
 
-    ASSERT_EQ(5, set->size());
+    EXPECT_EQ(5, set->size());
     HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
@@ -265,17 +265,17 @@ TEST_F(HybridSetTest, double) {
     }
 
     a = 0;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 1.1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 2.1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 3.1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 4.1;
-    ASSERT_TRUE(set->find(&a));
+    EXPECT_TRUE(set->find(&a));
     a = 5.1;
-    ASSERT_FALSE(set->find(&a));
+    EXPECT_FALSE(set->find(&a));
 }
 TEST_F(HybridSetTest, string) {
     HybridSetBase* set = create_set(TYPE_VARCHAR);
@@ -299,7 +299,7 @@ TEST_F(HybridSetTest, string) {
     a.len = 4;
     set->insert(&a);
 
-    ASSERT_EQ(5, set->size());
+    EXPECT_EQ(5, set->size());
     HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
@@ -315,17 +315,17 @@ TEST_F(HybridSetTest, string) {
     b.ptr = buf1;
 
     b.len = 0;
-    ASSERT_TRUE(set->find(&b));
+    EXPECT_TRUE(set->find(&b));
     b.len = 1;
-    ASSERT_TRUE(set->find(&b));
+    EXPECT_TRUE(set->find(&b));
     b.len = 2;
-    ASSERT_TRUE(set->find(&b));
+    EXPECT_TRUE(set->find(&b));
     b.len = 3;
-    ASSERT_TRUE(set->find(&b));
+    EXPECT_TRUE(set->find(&b));
     b.len = 4;
-    ASSERT_TRUE(set->find(&b));
+    EXPECT_TRUE(set->find(&b));
     b.len = 5;
-    ASSERT_FALSE(set->find(&b));
+    EXPECT_FALSE(set->find(&b));
 }
 TEST_F(HybridSetTest, timestamp) {
     CpuInfo::init();
@@ -354,7 +354,7 @@ TEST_F(HybridSetTest, timestamp) {
         LOG(INFO) << ((DateTimeValue*)base->get_value())->debug_string();
         base->next();
     }
-    ASSERT_EQ(2, set->size());
+    EXPECT_EQ(2, set->size());
 
     char s11[] = "2012-01-20 01:10:01";
     char s12[] = "1990-10-20 10:10:10.123456  ";
@@ -366,25 +366,14 @@ TEST_F(HybridSetTest, timestamp) {
     DateTimeValue v13;
     v13.from_date_str(s13, strlen(s13));
 
-    ASSERT_TRUE(set->find(&v11));
-    ASSERT_TRUE(set->find(&v12));
-    ASSERT_TRUE(set->find(&v13));
+    EXPECT_TRUE(set->find(&v11));
+    EXPECT_TRUE(set->find(&v12));
+    EXPECT_TRUE(set->find(&v13));
 
     char s23[] = "1992-10-20 10:10:10.123456";
     DateTimeValue v23;
     v23.from_date_str(s23, strlen(s23));
-    ASSERT_FALSE(set->find(&v23));
+    EXPECT_FALSE(set->find(&v23));
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

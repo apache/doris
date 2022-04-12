@@ -77,8 +77,3 @@ TEST(function_array_element_test, element_at) {
 }
 
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

@@ -198,14 +198,3 @@ TEST(UdfTest, TestVarArgs) {
             num_var_args, BigIntVal(0), args, IntVal(args.size()))));
 }
 } // namespace doris_udf
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

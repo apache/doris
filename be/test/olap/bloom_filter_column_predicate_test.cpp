@@ -95,7 +95,8 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
         return_columns.push_back(i);
     }
 
-    std::shared_ptr<IBloomFilterFuncBase> bloom_filter(create_bloom_filter(PrimitiveType::TYPE_FLOAT));
+    std::shared_ptr<IBloomFilterFuncBase> bloom_filter(
+            create_bloom_filter(PrimitiveType::TYPE_FLOAT));
 
     bloom_filter->init(4096, 0.05);
     float value = 4.1;
@@ -117,11 +118,11 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
         *(col_data + i) = i + 0.1f;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 10);
+    EXPECT_EQ(_vectorized_batch->size(), 10);
     uint16_t* sel = _vectorized_batch->selected();
-    ASSERT_FLOAT_EQ(*(col_data + sel[0]), 0.1);
-    ASSERT_FLOAT_EQ(*(col_data + sel[1]), 1.1);
-    ASSERT_FLOAT_EQ(*(col_data + sel[2]), 2.1);
+    EXPECT_FLOAT_EQ(*(col_data + sel[0]), 0.1);
+    EXPECT_FLOAT_EQ(*(col_data + sel[1]), 1.1);
+    EXPECT_FLOAT_EQ(*(col_data + sel[2]), 2.1);
 
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
@@ -133,10 +134,10 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
         *reinterpret_cast<float*>(col_block_view.data()) = i + 0.1f;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 3);
-    ASSERT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 4.1);
-    ASSERT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), 5.1);
-    ASSERT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), 6.1);
+    EXPECT_EQ(select_size, 3);
+    EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 4.1);
+    EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[1]).cell_ptr(), 5.1);
+    EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[2]).cell_ptr(), 6.1);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -153,11 +154,11 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 10);
+    EXPECT_EQ(_vectorized_batch->size(), 10);
     sel = _vectorized_batch->selected();
-    ASSERT_FLOAT_EQ(*(col_data + sel[0]), 0.1);
-    ASSERT_FLOAT_EQ(*(col_data + sel[1]), 1.1);
-    ASSERT_FLOAT_EQ(*(col_data + sel[2]), 2.1);
+    EXPECT_FLOAT_EQ(*(col_data + sel[0]), 0.1);
+    EXPECT_FLOAT_EQ(*(col_data + sel[1]), 1.1);
+    EXPECT_FLOAT_EQ(*(col_data + sel[2]), 2.1);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -172,8 +173,8 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.1);
+    EXPECT_EQ(select_size, 1);
+    EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.1);
 
     // for vectorized::Block no null
     auto pred_col = PredicateColumnType<vectorized::Float32>::create();
@@ -185,10 +186,10 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(*pred_col, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 3);
-    ASSERT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[0]], 4.1);
-    ASSERT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[1]], 5.1);
-    ASSERT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[2]], 6.1);
+    EXPECT_EQ(select_size, 3);
+    EXPECT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[0]], 4.1);
+    EXPECT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[1]], 5.1);
+    EXPECT_FLOAT_EQ((float)pred_col->get_data()[_row_block->selection_vector()[2]], 6.1);
 
     // for vectorized::Block has nulls
     auto null_map = ColumnUInt8::create(size, 0);
@@ -201,27 +202,12 @@ TEST_F(TestBloomFilterColumnPredicate, FLOAT_COLUMN) {
     auto nullable_col =
             vectorized::ColumnNullable::create(std::move(pred_col), std::move(null_map));
     pred->evaluate(*nullable_col, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
+    EXPECT_EQ(select_size, 1);
     auto nested_col = check_and_get_column<PredicateColumnType<vectorized::Float32>>(
             nullable_col->get_nested_column());
-    ASSERT_FLOAT_EQ((float)nested_col->get_data()[_row_block->selection_vector()[0]], 5.1);
+    EXPECT_FLOAT_EQ((float)nested_col->get_data()[_row_block->selection_vector()[0]], 5.1);
 
     delete pred;
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    int ret = doris::OLAP_SUCCESS;
-    testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    ret = RUN_ALL_TESTS();
-    google::protobuf::ShutdownProtobufLibrary();
-    return ret;
-}

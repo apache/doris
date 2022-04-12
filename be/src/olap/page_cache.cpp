@@ -34,22 +34,21 @@ StoragePageCache::StoragePageCache(size_t capacity, int32_t index_cache_percenta
                                                   MemTrackerLevel::OVERVIEW)) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     if (index_cache_percentage == 0) {
-        _data_page_cache =
-                std::unique_ptr<Cache>(new_lru_cache("DataPageCache", capacity));
+        _data_page_cache = std::unique_ptr<Cache>(new_lru_cache("DataPageCache", capacity));
     } else if (index_cache_percentage == 100) {
-        _index_page_cache =
-                std::unique_ptr<Cache>(new_lru_cache("IndexPageCache", capacity));
+        _index_page_cache = std::unique_ptr<Cache>(new_lru_cache("IndexPageCache", capacity));
     } else if (index_cache_percentage > 0 && index_cache_percentage < 100) {
-        _data_page_cache = std::unique_ptr<Cache>(new_lru_cache(
-                "DataPageCache", capacity * (100 - index_cache_percentage) / 100));
-        _index_page_cache = std::unique_ptr<Cache>(new_lru_cache(
-                "IndexPageCache", capacity * index_cache_percentage / 100));
+        _data_page_cache = std::unique_ptr<Cache>(
+                new_lru_cache("DataPageCache", capacity * (100 - index_cache_percentage) / 100));
+        _index_page_cache = std::unique_ptr<Cache>(
+                new_lru_cache("IndexPageCache", capacity * index_cache_percentage / 100));
     } else {
         CHECK(false) << "invalid index page cache percentage";
     }
 }
 
-bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle, segment_v2::PageTypePB page_type) {
+bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle,
+                              segment_v2::PageTypePB page_type) {
     auto cache = _get_page_cache(page_type);
     auto lru_handle = cache->lookup(key.encode());
     if (lru_handle == nullptr) {

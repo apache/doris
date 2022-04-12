@@ -47,9 +47,9 @@ class FileUtilsTest : public testing::Test {
 public:
     // create a mock cgroup folder
     virtual void SetUp() {
-        ASSERT_FALSE(std::filesystem::exists(_s_test_data_path));
+        EXPECT_FALSE(std::filesystem::exists(_s_test_data_path));
         // create a mock cgroup path
-        ASSERT_TRUE(std::filesystem::create_directory(_s_test_data_path));
+        EXPECT_TRUE(std::filesystem::create_directory(_s_test_data_path));
     }
     void save_string_file(const std::filesystem::path& filename, const std::string& content) {
         std::ofstream file;
@@ -59,7 +59,7 @@ public:
     }
 
     // delete the mock cgroup folder
-    virtual void TearDown() { ASSERT_TRUE(std::filesystem::remove_all(_s_test_data_path)); }
+    virtual void TearDown() { EXPECT_TRUE(std::filesystem::remove_all(_s_test_data_path)); }
 
     static std::string _s_test_data_path;
 };
@@ -70,11 +70,11 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     FileHandler src_file_handler;
     std::string src_file_name = _s_test_data_path + "/abcd12345.txt";
     // create a file using open
-    ASSERT_FALSE(std::filesystem::exists(src_file_name));
+    EXPECT_FALSE(std::filesystem::exists(src_file_name));
     OLAPStatus op_status = src_file_handler.open_with_mode(
             src_file_name, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
-    ASSERT_EQ(OLAPStatus::OLAP_SUCCESS, op_status);
-    ASSERT_TRUE(std::filesystem::exists(src_file_name));
+    EXPECT_EQ(OLAPStatus::OLAP_SUCCESS, op_status);
+    EXPECT_TRUE(std::filesystem::exists(src_file_name));
 
     char large_bytes2[(1 << 12)];
     memset(&large_bytes2, 0, sizeof(large_bytes2));
@@ -92,43 +92,43 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     dst_file_handler.open(dst_file_name, O_RDONLY);
     int64_t dst_length = dst_file_handler.length();
     int64_t src_length = 4194317;
-    ASSERT_EQ(src_length, dst_length);
+    EXPECT_EQ(src_length, dst_length);
 }
 
 TEST_F(FileUtilsTest, TestRemove) {
     // remove_all
-    ASSERT_TRUE(FileUtils::remove_all("./file_test").ok());
-    ASSERT_FALSE(FileUtils::check_exist("./file_test"));
+    EXPECT_TRUE(FileUtils::remove_all("./file_test").ok());
+    EXPECT_FALSE(FileUtils::check_exist("./file_test"));
 
-    ASSERT_TRUE(FileUtils::create_dir("./file_test/123/456/789").ok());
-    ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/def/zxc").ok());
-    ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/123").ok());
+    EXPECT_TRUE(FileUtils::create_dir("./file_test/123/456/789").ok());
+    EXPECT_TRUE(FileUtils::create_dir("./file_test/abc/def/zxc").ok());
+    EXPECT_TRUE(FileUtils::create_dir("./file_test/abc/123").ok());
 
     save_string_file("./file_test/s1", "123");
     save_string_file("./file_test/123/s2", "123");
 
-    ASSERT_TRUE(FileUtils::check_exist("./file_test"));
-    ASSERT_TRUE(FileUtils::remove_all("./file_test").ok());
-    ASSERT_FALSE(FileUtils::check_exist("./file_test"));
+    EXPECT_TRUE(FileUtils::check_exist("./file_test"));
+    EXPECT_TRUE(FileUtils::remove_all("./file_test").ok());
+    EXPECT_FALSE(FileUtils::check_exist("./file_test"));
 
     // remove
-    ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/123").ok());
+    EXPECT_TRUE(FileUtils::create_dir("./file_test/abc/123").ok());
     save_string_file("./file_test/abc/123/s2", "123");
 
-    ASSERT_TRUE(FileUtils::check_exist("./file_test/abc/123/s2"));
-    ASSERT_TRUE(FileUtils::remove("./file_test/abc/123/s2").ok());
-    ASSERT_FALSE(FileUtils::check_exist("./file_test/abc/123/s2"));
+    EXPECT_TRUE(FileUtils::check_exist("./file_test/abc/123/s2"));
+    EXPECT_TRUE(FileUtils::remove("./file_test/abc/123/s2").ok());
+    EXPECT_FALSE(FileUtils::check_exist("./file_test/abc/123/s2"));
 
-    ASSERT_TRUE(FileUtils::check_exist("./file_test/abc/123"));
-    ASSERT_TRUE(FileUtils::remove("./file_test/abc/123/").ok());
-    ASSERT_FALSE(FileUtils::check_exist("./file_test/abc/123"));
+    EXPECT_TRUE(FileUtils::check_exist("./file_test/abc/123"));
+    EXPECT_TRUE(FileUtils::remove("./file_test/abc/123/").ok());
+    EXPECT_FALSE(FileUtils::check_exist("./file_test/abc/123"));
 
-    ASSERT_TRUE(FileUtils::remove_all("./file_test").ok());
-    ASSERT_FALSE(FileUtils::check_exist("./file_test"));
+    EXPECT_TRUE(FileUtils::remove_all("./file_test").ok());
+    EXPECT_FALSE(FileUtils::check_exist("./file_test"));
 
     // remove paths
-    ASSERT_TRUE(FileUtils::create_dir("./file_test/123/456/789").ok());
-    ASSERT_TRUE(FileUtils::create_dir("./file_test/abc/def/zxc").ok());
+    EXPECT_TRUE(FileUtils::create_dir("./file_test/123/456/789").ok());
+    EXPECT_TRUE(FileUtils::create_dir("./file_test/abc/def/zxc").ok());
     save_string_file("./file_test/s1", "123");
     save_string_file("./file_test/s2", "123");
 
@@ -137,17 +137,17 @@ TEST_F(FileUtilsTest, TestRemove) {
     ps.push_back("./file_test/123/456");
     ps.push_back("./file_test/123");
 
-    ASSERT_TRUE(FileUtils::check_exist("./file_test/123"));
-    ASSERT_TRUE(FileUtils::remove_paths(ps).ok());
-    ASSERT_FALSE(FileUtils::check_exist("./file_test/123"));
+    EXPECT_TRUE(FileUtils::check_exist("./file_test/123"));
+    EXPECT_TRUE(FileUtils::remove_paths(ps).ok());
+    EXPECT_FALSE(FileUtils::check_exist("./file_test/123"));
 
     ps.clear();
     ps.push_back("./file_test/s1");
     ps.push_back("./file_test/abc/def");
 
-    ASSERT_TRUE(FileUtils::remove_paths(ps).ok());
-    ASSERT_FALSE(FileUtils::check_exist("./file_test/s1"));
-    ASSERT_FALSE(FileUtils::check_exist("./file_test/abc/def/"));
+    EXPECT_TRUE(FileUtils::remove_paths(ps).ok());
+    EXPECT_FALSE(FileUtils::check_exist("./file_test/s1"));
+    EXPECT_FALSE(FileUtils::check_exist("./file_test/abc/def/"));
 
     ps.clear();
     ps.push_back("./file_test/abc/def/zxc");
@@ -155,49 +155,49 @@ TEST_F(FileUtilsTest, TestRemove) {
     ps.push_back("./file_test/abc/def");
     ps.push_back("./file_test/abc");
 
-    ASSERT_TRUE(FileUtils::remove_paths(ps).ok());
-    ASSERT_FALSE(FileUtils::check_exist("./file_test/s2"));
-    ASSERT_FALSE(FileUtils::check_exist("./file_test/abc"));
+    EXPECT_TRUE(FileUtils::remove_paths(ps).ok());
+    EXPECT_FALSE(FileUtils::check_exist("./file_test/s2"));
+    EXPECT_FALSE(FileUtils::check_exist("./file_test/abc"));
 
-    ASSERT_TRUE(FileUtils::remove_all("./file_test").ok());
+    EXPECT_TRUE(FileUtils::remove_all("./file_test").ok());
 }
 
 TEST_F(FileUtilsTest, TestCreateDir) {
     // normal
     std::string path = "./file_test/123/456/789";
     FileUtils::remove_all("./file_test");
-    ASSERT_FALSE(FileUtils::check_exist(path));
+    EXPECT_FALSE(FileUtils::check_exist(path));
 
-    ASSERT_TRUE(FileUtils::create_dir(path).ok());
+    EXPECT_TRUE(FileUtils::create_dir(path).ok());
 
-    ASSERT_TRUE(FileUtils::check_exist(path));
-    ASSERT_TRUE(FileUtils::is_dir("./file_test"));
-    ASSERT_TRUE(FileUtils::is_dir("./file_test/123"));
-    ASSERT_TRUE(FileUtils::is_dir("./file_test/123/456"));
-    ASSERT_TRUE(FileUtils::is_dir("./file_test/123/456/789"));
+    EXPECT_TRUE(FileUtils::check_exist(path));
+    EXPECT_TRUE(FileUtils::is_dir("./file_test"));
+    EXPECT_TRUE(FileUtils::is_dir("./file_test/123"));
+    EXPECT_TRUE(FileUtils::is_dir("./file_test/123/456"));
+    EXPECT_TRUE(FileUtils::is_dir("./file_test/123/456/789"));
 
     FileUtils::remove_all("./file_test");
 
     // normal
     path = "./file_test/123/456/789/";
     FileUtils::remove_all("./file_test");
-    ASSERT_FALSE(FileUtils::check_exist(path));
+    EXPECT_FALSE(FileUtils::check_exist(path));
 
-    ASSERT_TRUE(FileUtils::create_dir(path).ok());
+    EXPECT_TRUE(FileUtils::create_dir(path).ok());
 
-    ASSERT_TRUE(FileUtils::check_exist(path));
-    ASSERT_TRUE(FileUtils::is_dir("./file_test"));
-    ASSERT_TRUE(FileUtils::is_dir("./file_test/123"));
-    ASSERT_TRUE(FileUtils::is_dir("./file_test/123/456"));
-    ASSERT_TRUE(FileUtils::is_dir("./file_test/123/456/789"));
+    EXPECT_TRUE(FileUtils::check_exist(path));
+    EXPECT_TRUE(FileUtils::is_dir("./file_test"));
+    EXPECT_TRUE(FileUtils::is_dir("./file_test/123"));
+    EXPECT_TRUE(FileUtils::is_dir("./file_test/123/456"));
+    EXPECT_TRUE(FileUtils::is_dir("./file_test/123/456/789"));
 
     FileUtils::remove_all("./file_test");
 
     // absolute path;
     std::string real_path;
     Env::Default()->canonicalize(".", &real_path);
-    ASSERT_TRUE(FileUtils::create_dir(real_path + "/file_test/absolute/path/123/asdf").ok());
-    ASSERT_TRUE(FileUtils::is_dir("./file_test/absolute/path/123/asdf"));
+    EXPECT_TRUE(FileUtils::create_dir(real_path + "/file_test/absolute/path/123/asdf").ok());
+    EXPECT_TRUE(FileUtils::is_dir("./file_test/absolute/path/123/asdf"));
     FileUtils::remove_all("./file_test");
 }
 
@@ -213,16 +213,16 @@ TEST_F(FileUtilsTest, TestListDirsFiles) {
     std::set<string> dirs;
     std::set<string> files;
 
-    ASSERT_TRUE(FileUtils::list_dirs_files("./file_test", &dirs, &files, Env::Default()).ok());
-    ASSERT_EQ(5, dirs.size());
-    ASSERT_EQ(0, files.size());
+    EXPECT_TRUE(FileUtils::list_dirs_files("./file_test", &dirs, &files, Env::Default()).ok());
+    EXPECT_EQ(5, dirs.size());
+    EXPECT_EQ(0, files.size());
 
     dirs.clear();
     files.clear();
 
-    ASSERT_TRUE(FileUtils::list_dirs_files("./file_test", &dirs, nullptr, Env::Default()).ok());
-    ASSERT_EQ(5, dirs.size());
-    ASSERT_EQ(0, files.size());
+    EXPECT_TRUE(FileUtils::list_dirs_files("./file_test", &dirs, nullptr, Env::Default()).ok());
+    EXPECT_EQ(5, dirs.size());
+    EXPECT_EQ(0, files.size());
 
     save_string_file("./file_test/f1", "just test");
     save_string_file("./file_test/f2", "just test");
@@ -231,28 +231,17 @@ TEST_F(FileUtilsTest, TestListDirsFiles) {
     dirs.clear();
     files.clear();
 
-    ASSERT_TRUE(FileUtils::list_dirs_files("./file_test", &dirs, &files, Env::Default()).ok());
-    ASSERT_EQ(5, dirs.size());
-    ASSERT_EQ(3, files.size());
+    EXPECT_TRUE(FileUtils::list_dirs_files("./file_test", &dirs, &files, Env::Default()).ok());
+    EXPECT_EQ(5, dirs.size());
+    EXPECT_EQ(3, files.size());
 
     dirs.clear();
     files.clear();
 
-    ASSERT_TRUE(FileUtils::list_dirs_files("./file_test", nullptr, &files, Env::Default()).ok());
-    ASSERT_EQ(0, dirs.size());
-    ASSERT_EQ(3, files.size());
+    EXPECT_TRUE(FileUtils::list_dirs_files("./file_test", nullptr, &files, Env::Default()).ok());
+    EXPECT_EQ(0, dirs.size());
+    EXPECT_EQ(3, files.size());
 
     FileUtils::remove_all(path);
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

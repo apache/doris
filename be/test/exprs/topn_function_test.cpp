@@ -23,8 +23,8 @@
 
 #include "exprs/anyval_util.h"
 #include "exprs/expr_context.h"
-#include "test_util/test_util.h"
 #include "testutil/function_utils.h"
+#include "testutil/test_util.h"
 #include "util/topn_counter.h"
 #include "zipf_distribution.h"
 
@@ -192,7 +192,7 @@ TEST_F(TopNFunctionsTest, topn_update) {
 
     StringVal result = TopNFunctions::topn_finalize(ctx, dst);
     StringVal expected("{\"a\":10,\"b\":2}");
-    ASSERT_EQ(expected, result);
+    EXPECT_EQ(expected, result);
 }
 
 TEST_F(TopNFunctionsTest, topn_merge) {
@@ -224,12 +224,7 @@ TEST_F(TopNFunctionsTest, topn_merge) {
     TopNFunctions::topn_merge(ctx, val2, &dst);
     StringVal result = TopNFunctions::topn_finalize(ctx, dst);
     StringVal expected("{\"a\":20,\"b\":8}");
-    ASSERT_EQ(expected, result);
+    EXPECT_EQ(expected, result);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

@@ -177,13 +177,13 @@ TEST_F(SorterTest, init_sort_exec_exprs) {
     {
         SortExecExprs exec_exprs;
         Status status = exec_exprs.init(_ordering_exprs, nullptr, get_object_pool());
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
     }
     // full sort_tuple_slot_expr
     {
         SortExecExprs exec_exprs;
         Status status = exec_exprs.init(_ordering_exprs, &_sort_tuple_slot_expr, get_object_pool());
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
     }
 }
 
@@ -191,17 +191,17 @@ TEST_F(SorterTest, prepare_sort_exec_exprs) {
     {
         SortExecExprs exec_exprs;
         Status status = exec_exprs.init(_ordering_exprs, nullptr, get_object_pool());
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         status = exec_exprs.prepare(_runtime_state, *_child_row_desc, *_output_row_desc);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
     }
 
     {
         SortExecExprs exec_exprs;
         Status status = exec_exprs.init(_ordering_exprs, &_sort_tuple_slot_expr, get_object_pool());
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         status = exec_exprs.prepare(_runtime_state, *_child_row_desc, *_output_row_desc);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
     }
 }
 
@@ -225,9 +225,9 @@ RowBatch* SorterTest::CreateRowBatch(int num_rows) {
 TEST_F(SorterTest, sorter_run_asc) {
     SortExecExprs exec_exprs;
     Status status = exec_exprs.init(_ordering_exprs, &_sort_tuple_slot_expr, _object_pool);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = exec_exprs.prepare(_runtime_state, *_child_row_desc, *_output_row_desc);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     TupleRowComparator less_than(exec_exprs.lhs_ordering_expr_ctxs(),
                                  exec_exprs.rhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first);
@@ -237,30 +237,26 @@ TEST_F(SorterTest, sorter_run_asc) {
     int num_rows = 5;
     RowBatch* batch = CreateRowBatch(num_rows);
     status = sorter->add_batch(batch);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = sorter->add_batch(batch);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     sorter->input_done();
 
     RowBatch output_batch(*_child_row_desc, 2 * num_rows);
     bool eos;
     status = sorter->get_next(&output_batch, &eos);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
-    //for (int i = 0; i < num_rows; i ++) {
-    //     TupleRow* row = output_batch.GetRow(i);
-    //     std::cout << "output row: " << PrintRow(row, *_child_row_desc) << std::endl;
-    //}
-    ASSERT_EQ("[(0)]", PrintRow(output_batch.GetRow(0), *_child_row_desc));
-    ASSERT_EQ("[(0)]", PrintRow(output_batch.GetRow(1), *_child_row_desc));
-    ASSERT_EQ("[(1)]", PrintRow(output_batch.GetRow(2), *_child_row_desc));
-    ASSERT_EQ("[(1)]", PrintRow(output_batch.GetRow(3), *_child_row_desc));
-    ASSERT_EQ("[(2)]", PrintRow(output_batch.GetRow(4), *_child_row_desc));
-    ASSERT_EQ("[(2)]", PrintRow(output_batch.GetRow(5), *_child_row_desc));
-    ASSERT_EQ("[(3)]", PrintRow(output_batch.GetRow(6), *_child_row_desc));
-    ASSERT_EQ("[(3)]", PrintRow(output_batch.GetRow(7), *_child_row_desc));
-    ASSERT_EQ("[(4)]", PrintRow(output_batch.GetRow(8), *_child_row_desc));
-    ASSERT_EQ("[(4)]", PrintRow(output_batch.GetRow(9), *_child_row_desc));
+    EXPECT_EQ("[(0)]", PrintRow(output_batch.GetRow(0), *_child_row_desc));
+    EXPECT_EQ("[(0)]", PrintRow(output_batch.GetRow(1), *_child_row_desc));
+    EXPECT_EQ("[(1)]", PrintRow(output_batch.GetRow(2), *_child_row_desc));
+    EXPECT_EQ("[(1)]", PrintRow(output_batch.GetRow(3), *_child_row_desc));
+    EXPECT_EQ("[(2)]", PrintRow(output_batch.GetRow(4), *_child_row_desc));
+    EXPECT_EQ("[(2)]", PrintRow(output_batch.GetRow(5), *_child_row_desc));
+    EXPECT_EQ("[(3)]", PrintRow(output_batch.GetRow(6), *_child_row_desc));
+    EXPECT_EQ("[(3)]", PrintRow(output_batch.GetRow(7), *_child_row_desc));
+    EXPECT_EQ("[(4)]", PrintRow(output_batch.GetRow(8), *_child_row_desc));
+    EXPECT_EQ("[(4)]", PrintRow(output_batch.GetRow(9), *_child_row_desc));
 
     delete sorter;
 }
@@ -269,9 +265,9 @@ TEST_F(SorterTest, sorter_run_asc) {
 TEST_F(SorterTest, sorter_run_desc_with_quick_sort) {
     SortExecExprs exec_exprs;
     Status status = exec_exprs.init(_ordering_exprs, &_sort_tuple_slot_expr, _object_pool);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = exec_exprs.prepare(_runtime_state, *_child_row_desc, *_output_row_desc);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     _is_asc_order.clear();
     _is_asc_order.push_back(false);
@@ -284,7 +280,7 @@ TEST_F(SorterTest, sorter_run_desc_with_quick_sort) {
     RowBatch* batch = CreateRowBatch(num_rows);
     for (int i = 0; i < 5; i++) {
         status = sorter->add_batch(batch);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
     }
 
     sorter->input_done();
@@ -292,14 +288,14 @@ TEST_F(SorterTest, sorter_run_desc_with_quick_sort) {
     RowBatch output_batch(*_child_row_desc, 2 * num_rows);
     bool eos;
     status = sorter->get_next(&output_batch, &eos);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
-    ASSERT_EQ("[(4)]", PrintRow(output_batch.GetRow(0), *_child_row_desc));
-    ASSERT_EQ("[(4)]", PrintRow(output_batch.GetRow(1), *_child_row_desc));
-    ASSERT_EQ("[(4)]", PrintRow(output_batch.GetRow(2), *_child_row_desc));
-    ASSERT_EQ("[(4)]", PrintRow(output_batch.GetRow(3), *_child_row_desc));
-    ASSERT_EQ("[(4)]", PrintRow(output_batch.GetRow(4), *_child_row_desc));
-    ASSERT_EQ("[(3)]", PrintRow(output_batch.GetRow(5), *_child_row_desc));
+    EXPECT_EQ("[(4)]", PrintRow(output_batch.GetRow(0), *_child_row_desc));
+    EXPECT_EQ("[(4)]", PrintRow(output_batch.GetRow(1), *_child_row_desc));
+    EXPECT_EQ("[(4)]", PrintRow(output_batch.GetRow(2), *_child_row_desc));
+    EXPECT_EQ("[(4)]", PrintRow(output_batch.GetRow(3), *_child_row_desc));
+    EXPECT_EQ("[(4)]", PrintRow(output_batch.GetRow(4), *_child_row_desc));
+    EXPECT_EQ("[(3)]", PrintRow(output_batch.GetRow(5), *_child_row_desc));
 
     delete sorter;
 }
@@ -307,9 +303,9 @@ TEST_F(SorterTest, sorter_run_desc_with_quick_sort) {
 TEST_F(SorterTest, sorter_run_desc) {
     SortExecExprs exec_exprs;
     Status status = exec_exprs.init(_ordering_exprs, &_sort_tuple_slot_expr, _object_pool);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = exec_exprs.prepare(_runtime_state, *_child_row_desc, *_output_row_desc);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     _is_asc_order.clear();
     _is_asc_order.push_back(false);
@@ -321,39 +317,29 @@ TEST_F(SorterTest, sorter_run_desc) {
     int num_rows = 5;
     RowBatch* batch = CreateRowBatch(num_rows);
     status = sorter->add_batch(batch);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = sorter->add_batch(batch);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     sorter->input_done();
 
     RowBatch output_batch(*_child_row_desc, 2 * num_rows);
     bool eos;
     status = sorter->get_next(&output_batch, &eos);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
-    // for (int i = 0; i < num_rows; i ++) {
-    //     TupleRow* row = output_batch.GetRow(i);
-    //     std::cout << "output row: " << PrintRow(row, *_child_row_desc) << std::endl;
-    //}
-    ASSERT_EQ("[(4)]", PrintRow(output_batch.GetRow(0), *_child_row_desc));
-    ASSERT_EQ("[(4)]", PrintRow(output_batch.GetRow(1), *_child_row_desc));
-    ASSERT_EQ("[(3)]", PrintRow(output_batch.GetRow(2), *_child_row_desc));
-    ASSERT_EQ("[(3)]", PrintRow(output_batch.GetRow(3), *_child_row_desc));
-    ASSERT_EQ("[(2)]", PrintRow(output_batch.GetRow(4), *_child_row_desc));
-    ASSERT_EQ("[(2)]", PrintRow(output_batch.GetRow(5), *_child_row_desc));
-    ASSERT_EQ("[(1)]", PrintRow(output_batch.GetRow(6), *_child_row_desc));
-    ASSERT_EQ("[(1)]", PrintRow(output_batch.GetRow(7), *_child_row_desc));
-    ASSERT_EQ("[(0)]", PrintRow(output_batch.GetRow(8), *_child_row_desc));
-    ASSERT_EQ("[(0)]", PrintRow(output_batch.GetRow(9), *_child_row_desc));
+    EXPECT_EQ("[(4)]", PrintRow(output_batch.GetRow(0), *_child_row_desc));
+    EXPECT_EQ("[(4)]", PrintRow(output_batch.GetRow(1), *_child_row_desc));
+    EXPECT_EQ("[(3)]", PrintRow(output_batch.GetRow(2), *_child_row_desc));
+    EXPECT_EQ("[(3)]", PrintRow(output_batch.GetRow(3), *_child_row_desc));
+    EXPECT_EQ("[(2)]", PrintRow(output_batch.GetRow(4), *_child_row_desc));
+    EXPECT_EQ("[(2)]", PrintRow(output_batch.GetRow(5), *_child_row_desc));
+    EXPECT_EQ("[(1)]", PrintRow(output_batch.GetRow(6), *_child_row_desc));
+    EXPECT_EQ("[(1)]", PrintRow(output_batch.GetRow(7), *_child_row_desc));
+    EXPECT_EQ("[(0)]", PrintRow(output_batch.GetRow(8), *_child_row_desc));
+    EXPECT_EQ("[(0)]", PrintRow(output_batch.GetRow(9), *_child_row_desc));
 
     delete sorter;
 }
 } // namespace doris
 
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    impala::CpuInfo::Init();
-    return RUN_ALL_TESTS();
-}
-
-/* vim: set ts=4 sw=4 sts=4 tw=100 noet: */
+\n

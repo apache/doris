@@ -31,52 +31,52 @@ public:
 
 TEST_F(StringUtilTest, normal) {
     {
-        ASSERT_EQ("abc", to_lower("ABC"));
-        ASSERT_EQ("abc", to_lower("abc"));
-        ASSERT_EQ("123", to_lower("123"));
-        ASSERT_EQ("abc,", to_lower("Abc,"));
+        EXPECT_EQ("abc", to_lower("ABC"));
+        EXPECT_EQ("abc", to_lower("abc"));
+        EXPECT_EQ("123", to_lower("123"));
+        EXPECT_EQ("abc,", to_lower("Abc,"));
     }
     {
-        ASSERT_EQ("ABC", to_upper("ABC"));
-        ASSERT_EQ("ABC", to_upper("abc"));
-        ASSERT_EQ("123", to_upper("123"));
-        ASSERT_EQ("ABC,", to_upper("Abc,"));
+        EXPECT_EQ("ABC", to_upper("ABC"));
+        EXPECT_EQ("ABC", to_upper("abc"));
+        EXPECT_EQ("123", to_upper("123"));
+        EXPECT_EQ("ABC,", to_upper("Abc,"));
     }
     {
-        ASSERT_EQ("ABC", to_upper("ABC"));
-        ASSERT_EQ("ABC", to_upper("abc"));
-        ASSERT_EQ("123", to_upper("123"));
-        ASSERT_EQ("ABC,", to_upper("Abc,"));
+        EXPECT_EQ("ABC", to_upper("ABC"));
+        EXPECT_EQ("ABC", to_upper("abc"));
+        EXPECT_EQ("123", to_upper("123"));
+        EXPECT_EQ("ABC,", to_upper("Abc,"));
     }
     {
-        ASSERT_TRUE(iequal("ABC", "ABC"));
-        ASSERT_TRUE(iequal("ABC", "abc"));
-        ASSERT_TRUE(iequal("ABC", "ABc"));
-        ASSERT_TRUE(iequal("123", "123"));
-        ASSERT_TRUE(iequal("123A,", "123a,"));
-        ASSERT_FALSE(iequal("12A,", "123a,"));
-        ASSERT_FALSE(iequal("abc", "ABD"));
+        EXPECT_TRUE(iequal("ABC", "ABC"));
+        EXPECT_TRUE(iequal("ABC", "abc"));
+        EXPECT_TRUE(iequal("ABC", "ABc"));
+        EXPECT_TRUE(iequal("123", "123"));
+        EXPECT_TRUE(iequal("123A,", "123a,"));
+        EXPECT_FALSE(iequal("12A,", "123a,"));
+        EXPECT_FALSE(iequal("abc", "ABD"));
     }
     {
-        ASSERT_TRUE(starts_with("abcd", "ab"));
-        ASSERT_TRUE(starts_with("abcd", "abc"));
-        ASSERT_TRUE(starts_with("abcd", "abcd"));
-        ASSERT_TRUE(starts_with("1234", "123"));
-        ASSERT_TRUE(starts_with("a", "a"));
-        ASSERT_TRUE(starts_with("", ""));
-        ASSERT_TRUE(starts_with("a", ""));
-        ASSERT_FALSE(starts_with("", " "));
-        ASSERT_FALSE(starts_with("1234", "123a"));
+        EXPECT_TRUE(starts_with("abcd", "ab"));
+        EXPECT_TRUE(starts_with("abcd", "abc"));
+        EXPECT_TRUE(starts_with("abcd", "abcd"));
+        EXPECT_TRUE(starts_with("1234", "123"));
+        EXPECT_TRUE(starts_with("a", "a"));
+        EXPECT_TRUE(starts_with("", ""));
+        EXPECT_TRUE(starts_with("a", ""));
+        EXPECT_FALSE(starts_with("", " "));
+        EXPECT_FALSE(starts_with("1234", "123a"));
     }
     {
-        ASSERT_TRUE(ends_with("abcd", "cd"));
-        ASSERT_TRUE(ends_with("abcd", "bcd"));
-        ASSERT_TRUE(ends_with("abcd", "abcd"));
-        ASSERT_TRUE(ends_with("1234", "234"));
-        ASSERT_TRUE(ends_with("a", "a"));
-        ASSERT_TRUE(ends_with("", ""));
-        ASSERT_TRUE(ends_with("a", ""));
-        ASSERT_FALSE(ends_with("", " "));
+        EXPECT_TRUE(ends_with("abcd", "cd"));
+        EXPECT_TRUE(ends_with("abcd", "bcd"));
+        EXPECT_TRUE(ends_with("abcd", "abcd"));
+        EXPECT_TRUE(ends_with("1234", "234"));
+        EXPECT_TRUE(ends_with("a", "a"));
+        EXPECT_TRUE(ends_with("", ""));
+        EXPECT_TRUE(ends_with("a", ""));
+        EXPECT_FALSE(ends_with("", " "));
     }
     {
         std::vector<std::string> tokens1;
@@ -100,9 +100,9 @@ TEST_F(StringUtilTest, normal) {
 
         std::vector<std::string> empty_tokens;
 
-        ASSERT_EQ(join(tokens1, "-"), "xx-abc-xx");
-        ASSERT_EQ(join(tokens2, "-"), "-xx-abc--abc-xx-");
-        ASSERT_EQ(join(empty_tokens, "-"), "");
+        EXPECT_EQ(join(tokens1, "-"), "xx-abc-xx");
+        EXPECT_EQ(join(tokens2, "-"), "-xx-abc--abc-xx-");
+        EXPECT_EQ(join(empty_tokens, "-"), "");
     }
     {
         std::string str1("xx-abc--xx-abb");
@@ -112,72 +112,72 @@ TEST_F(StringUtilTest, normal) {
         const char* pch1 = "xx-abc--xx-abb";
         std::vector<std::string> tokens;
         tokens = split(str2, "Xx");
-        ASSERT_EQ(tokens.size(), 2);
-        ASSERT_EQ(tokens[0], "");
-        ASSERT_EQ(tokens[1], "-abc--xX-abb-xx");
+        EXPECT_EQ(tokens.size(), 2);
+        EXPECT_EQ(tokens[0], "");
+        EXPECT_EQ(tokens[1], "-abc--xX-abb-xx");
         tokens = split(pch1, "x");
-        ASSERT_EQ(tokens.size(), 5);
-        ASSERT_EQ(tokens[0], "");
-        ASSERT_EQ(tokens[1], "");
-        ASSERT_EQ(tokens[2], "-abc--");
-        ASSERT_EQ(tokens[3], "");
-        ASSERT_EQ(tokens[4], "-abb");
+        EXPECT_EQ(tokens.size(), 5);
+        EXPECT_EQ(tokens[0], "");
+        EXPECT_EQ(tokens[1], "");
+        EXPECT_EQ(tokens[2], "-abc--");
+        EXPECT_EQ(tokens[3], "");
+        EXPECT_EQ(tokens[4], "-abb");
 
         tokens = split(str1, "-");
-        ASSERT_EQ(tokens.size(), 5);
-        ASSERT_EQ(tokens[0], "xx");
-        ASSERT_EQ(tokens[1], "abc");
-        ASSERT_EQ(tokens[2], "");
-        ASSERT_EQ(tokens[3], "xx");
-        ASSERT_EQ(tokens[4], "abb");
+        EXPECT_EQ(tokens.size(), 5);
+        EXPECT_EQ(tokens[0], "xx");
+        EXPECT_EQ(tokens[1], "abc");
+        EXPECT_EQ(tokens[2], "");
+        EXPECT_EQ(tokens[3], "xx");
+        EXPECT_EQ(tokens[4], "abb");
 
         tokens = split(str3, ",");
 
-        ASSERT_EQ(tokens.size(), 1);
-        ASSERT_EQ(tokens[0], "xx");
+        EXPECT_EQ(tokens.size(), 1);
+        EXPECT_EQ(tokens[0], "xx");
 
         tokens = split(strempty, "-");
 
-        ASSERT_EQ(tokens.size(), 1);
-        ASSERT_EQ(tokens[0], "");
+        EXPECT_EQ(tokens.size(), 1);
+        EXPECT_EQ(tokens[0], "");
     }
     {
         StringCaseSet test_set;
         test_set.emplace("AbC");
         test_set.emplace("AbCD");
         test_set.emplace("AbCE");
-        ASSERT_EQ(1, test_set.count("abc"));
-        ASSERT_EQ(1, test_set.count("abcd"));
-        ASSERT_EQ(1, test_set.count("abce"));
-        ASSERT_EQ(0, test_set.count("ab"));
+        EXPECT_EQ(1, test_set.count("abc"));
+        EXPECT_EQ(1, test_set.count("abcd"));
+        EXPECT_EQ(1, test_set.count("abce"));
+        EXPECT_EQ(0, test_set.count("ab"));
     }
     {
         StringCaseUnorderedSet test_set;
         test_set.emplace("AbC");
         test_set.emplace("AbCD");
         test_set.emplace("AbCE");
-        ASSERT_EQ(1, test_set.count("abc"));
-        ASSERT_EQ(0, test_set.count("ab"));
+        EXPECT_EQ(1, test_set.count("abc"));
+        EXPECT_EQ(0, test_set.count("ab"));
     }
     {
         StringCaseMap<int> test_map;
         test_map.emplace("AbC", 123);
         test_map.emplace("AbCD", 234);
         test_map.emplace("AbCE", 345);
-        ASSERT_EQ(123, test_map["abc"]);
-        ASSERT_EQ(234, test_map["aBcD"]);
-        ASSERT_EQ(345, test_map["abcE"]);
-        ASSERT_EQ(0, test_map.count("ab"));
+        EXPECT_EQ(123, test_map["abc"]);
+        EXPECT_EQ(234, test_map["aBcD"]);
+        EXPECT_EQ(345, test_map["abcE"]);
+        EXPECT_EQ(0, test_map.count("ab"));
     }
     {
         StringCaseUnorderedMap<int> test_map;
         test_map.emplace("AbC", 123);
         test_map.emplace("AbCD", 234);
         test_map.emplace("AbCE", 345);
-        ASSERT_EQ(123, test_map["abc"]);
-        ASSERT_EQ(234, test_map["aBcD"]);
-        ASSERT_EQ(345, test_map["abcE"]);
-        ASSERT_EQ(0, test_map.count("ab"));
+        EXPECT_EQ(123, test_map["abc"]);
+        EXPECT_EQ(234, test_map["aBcD"]);
+        EXPECT_EQ(345, test_map["abcE"]);
+        EXPECT_EQ(0, test_map.count("ab"));
     }
     {
         std::string ip1 = "192.168.1.1";
@@ -185,23 +185,17 @@ TEST_F(StringUtilTest, normal) {
         int64_t hash1 = hash_of_path(ip1, "/home/disk1/palo2.HDD");
         int64_t hash2 = hash_of_path(ip1, "/home/disk1//palo2.HDD/");
         int64_t hash3 = hash_of_path(ip1, "home/disk1/palo2.HDD/");
-        ASSERT_EQ(hash1, hash2);
-        ASSERT_EQ(hash3, hash2);
+        EXPECT_EQ(hash1, hash2);
+        EXPECT_EQ(hash3, hash2);
 
         int64_t hash4 = hash_of_path(ip1, "/home/disk1/palo2.HDD/");
         int64_t hash5 = hash_of_path(ip2, "/home/disk1/palo2.HDD/");
-        ASSERT_NE(hash4, hash5);
+        EXPECT_NE(hash4, hash5);
 
         int64_t hash6 = hash_of_path(ip1, "/");
         int64_t hash7 = hash_of_path(ip1, "//");
-        ASSERT_EQ(hash6, hash7);
+        EXPECT_EQ(hash6, hash7);
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

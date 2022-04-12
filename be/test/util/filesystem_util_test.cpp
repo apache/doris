@@ -31,14 +31,14 @@ namespace filesystem = std::filesystem;
 using filesystem::path;
 
 TEST(FileSystemUtil, rlimit) {
-    ASSERT_LT(0ul, FileSystemUtil::max_num_file_handles());
+    EXPECT_LT(0ul, FileSystemUtil::max_num_file_handles());
 }
 
 TEST(FileSystemUtil, CreateDirectory) {
     char filename[] = "temp-XXXXXX";
     // Setup a temporary directory with one subdir
     std::string dir_name = mkdtemp(filename);
-    path dir{dir_name};
+    path dir {dir_name};
     path subdir1 = dir / "path1";
     path subdir2 = dir / "path2";
     path subdir3 = dir / "a" / "longer" / "path";
@@ -129,8 +129,3 @@ TEST(FilesystemUtil, contain_path) {
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

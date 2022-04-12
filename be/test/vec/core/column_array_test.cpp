@@ -15,15 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
 
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
+
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 
 namespace doris::vectorized {
 
@@ -42,12 +43,12 @@ TEST(ColumnArrayTest, IntArrayTest) {
 
     // check column array result
     ColumnArray array_column(std::move(data_column), std::move(off_column));
-    ASSERT_EQ(array_column.size(), offs.size() - 1);
+    EXPECT_EQ(array_column.size(), offs.size() - 1);
     for (size_t i = 0; i < array_column.size(); ++i) {
         auto v = get<Array>(array_column[i]);
-        ASSERT_EQ(v.size(), offs[i + 1] - offs[i]);
+        EXPECT_EQ(v.size(), offs[i + 1] - offs[i]);
         for (size_t j = 0; j < v.size(); ++j) {
-            ASSERT_EQ(vals[offs[i] + j], get<int32_t>(v[j]));
+            EXPECT_EQ(vals[offs[i] + j], get<int32_t>(v[j]));
         }
     }
 }
@@ -67,19 +68,14 @@ TEST(ColumnArrayTest, StringArrayTest) {
 
     // check column array result
     ColumnArray array_column(std::move(data_column), std::move(off_column));
-    ASSERT_EQ(array_column.size(), offs.size() - 1);
+    EXPECT_EQ(array_column.size(), offs.size() - 1);
     for (size_t i = 0; i < array_column.size(); ++i) {
         auto v = get<Array>(array_column[i]);
-        ASSERT_EQ(v.size(), offs[i + 1] - offs[i]);
+        EXPECT_EQ(v.size(), offs[i + 1] - offs[i]);
         for (size_t j = 0; j < v.size(); ++j) {
-            ASSERT_EQ(vals[offs[i] + j], get<std::string>(v[j]));
+            EXPECT_EQ(vals[offs[i] + j], get<std::string>(v[j]));
         }
     }
 }
 
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

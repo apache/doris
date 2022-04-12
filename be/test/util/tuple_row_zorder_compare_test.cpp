@@ -15,733 +15,780 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/json_util.h"
+#include "util/tuple_row_zorder_compare.h"
+
 #include <gtest/gtest.h>
+
 #include "common/logging.h"
 #include "exec/sort_exec_exprs.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
+#include "olap/memtable.h"
+#include "olap/row.h"
+#include "olap/schema.h"
 #include "runtime/descriptors.h"
+#include "runtime/large_int_value.h"
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
-#include "olap/schema.h"
-#include "olap/row.h"
-#include "util/tuple_row_zorder_compare.h"
-#include "runtime/large_int_value.h"
-#include "olap/memtable.h"
+#include "util/json_util.h"
 
 namespace doris {
-    class TupleRowZOrderCompareTest : public testing::Test {
-    public:
-        ObjectPool _agg_buffer_pool;
-        std::unique_ptr<MemTracker> _mem_tracker;
-        std::unique_ptr<MemPool> _buffer_mem_pool;
+class TupleRowZOrderCompareTest : public testing::Test {
+public:
+    ObjectPool _agg_buffer_pool;
+    std::unique_ptr<MemTracker> _mem_tracker;
+    std::unique_ptr<MemPool> _buffer_mem_pool;
 
-        TupleRowZOrderCompareTest() {
-            _mem_tracker.reset(new MemTracker(-1));
-            _buffer_mem_pool.reset(new MemPool(_mem_tracker.get()));
-        }
+    TupleRowZOrderCompareTest() {
+        _mem_tracker.reset(new MemTracker(-1));
+        _buffer_mem_pool.reset(new MemPool(_mem_tracker.get()));
+    }
 
-        ~TupleRowZOrderCompareTest() = default;
+    ~TupleRowZOrderCompareTest() = default;
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareInt8Test(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::TINYINT);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(int8_t) + 1*i;
-
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(int8_t) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                slot_descs.emplace_back(slot_desc);
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareInt8Test(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::TINYINT);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(int8_t) + 1 * i;
 
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_TINYINT, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_TINYINT, true);
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(int8_t) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
+            slot_descs.emplace_back(slot_desc);
+        }
 
-            Schema schema = Schema(col_schemas, col_num);
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int8_t), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_TINYINT, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_TINYINT, true);
+
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int8_t),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        }
+        FillMem(lhs_tuple, 1, lval1, lval2);
+        uint8_t* lhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int8_t));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int8_t),
+                                         _buffer_mem_pool.get());
+        FillMem(rhs_tuple, 1, rval1, rval2);
+        uint8_t* rhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int8_t));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
+
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareInt16Test(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::SMALLINT);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
-            FillMem(lhs_tuple, 1, lval1, lval2);
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int8_t));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(int16_t) + 1 * i;
 
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int8_t), _buffer_mem_pool.get());
-            FillMem(rhs_tuple, 1, rval1, rval2);
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int8_t));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(int16_t) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
+
+            slot_descs.emplace_back(slot_desc);
         }
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareInt16Test(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::SMALLINT);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(int16_t) + 1 * i;
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
 
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(int16_t) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                
-                slot_descs.emplace_back(slot_desc);
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int16_t),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        }
+        FillMem(lhs_tuple, 1, lval1, lval2);
+        uint8_t* lhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int16_t));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int16_t),
+                                         _buffer_mem_pool.get());
+        FillMem(rhs_tuple, 1, rval1, rval2);
+        uint8_t* rhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int16_t));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
+
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareIntTest(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::INT);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(int32_t) + 1 * i;
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(int32_t) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
+            slot_descs.emplace_back(slot_desc);
+        }
 
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_SMALLINT, true);
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);
 
-            Schema schema = Schema(col_schemas, col_num); 
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int16_t), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int32_t),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        }
+        FillMem(lhs_tuple, 1, lval1, lval2);
+        uint8_t* lhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int32_t));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int32_t),
+                                         _buffer_mem_pool.get());
+        FillMem(rhs_tuple, 1, rval1, rval2);
+        uint8_t* rhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int32_t));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
+
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareInt64Test(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::BIGINT);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
-            FillMem(lhs_tuple, 1, lval1, lval2);
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int16_t));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
-
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int16_t), _buffer_mem_pool.get());
-            FillMem(rhs_tuple, 1, rval1, rval2);
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int16_t));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(int64_t) + 1 * i;
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(int64_t) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
+            slot_descs.emplace_back(slot_desc);
         }
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareIntTest(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::INT);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(int32_t) + 1*i;
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(int32_t) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                slot_descs.emplace_back(slot_desc);
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BIGINT, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BIGINT, true);
+
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int64_t),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        }
+        FillMem(lhs_tuple, 1, lval1, lval2);
+        uint8_t* lhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int64_t));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int64_t),
+                                         _buffer_mem_pool.get());
+        FillMem(rhs_tuple, 1, rval1, rval2);
+        uint8_t* rhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int64_t));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
+
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareInt128Test(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::LARGEINT);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(int128_t) + 1 * i;
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(int128_t) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
+            slot_descs.emplace_back(slot_desc);
+        }
 
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_INT, true);
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_LARGEINT, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_LARGEINT, true);
 
-            Schema schema = Schema(col_schemas, col_num); 
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int32_t), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int128_t),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        }
+        FillMem(lhs_tuple, 1, lval1, lval2);
+        uint8_t* lhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int128_t));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int128_t),
+                                         _buffer_mem_pool.get());
+        FillMem(rhs_tuple, 1, rval1, rval2);
+        uint8_t* rhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int128_t));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
+
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareFloatTest(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::FLOAT);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
-            FillMem(lhs_tuple, 1, lval1, lval2);
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int32_t));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
-
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int32_t), _buffer_mem_pool.get());
-            FillMem(rhs_tuple, 1, rval1, rval2);
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int32_t));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(float) + 1 * i;
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(float) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
+            slot_descs.emplace_back(slot_desc);
         }
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareInt64Test(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::BIGINT);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(int64_t) + 1*i;
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(int64_t) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                slot_descs.emplace_back(slot_desc);
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_FLOAT, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_FLOAT, true);
+
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(float),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        }
+        FillMem(lhs_tuple, 1, lval1, lval2);
+        uint8_t* lhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(float));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(float),
+                                         _buffer_mem_pool.get());
+        FillMem(rhs_tuple, 1, rval1, rval2);
+        uint8_t* rhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(float));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
+
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareDoubleTest(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::DOUBLE);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(double) + 1 * i;
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(double) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
 
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BIGINT, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BIGINT, true);
+            slot_descs.emplace_back(slot_desc);
+        }
 
-            Schema schema = Schema(col_schemas, col_num); 
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int64_t), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DOUBLE, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DOUBLE, true);
+
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(double),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        }
+        FillMem(lhs_tuple, 1, lval1, lval2);
+        uint8_t* lhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(double));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(double),
+                                         _buffer_mem_pool.get());
+        FillMem(rhs_tuple, 1, rval1, rval2);
+        uint8_t* rhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(double));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
+
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareBoolTest(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::BOOLEAN);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
-            FillMem(lhs_tuple, 1, lval1, lval2);
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int64_t));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
-
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int64_t), _buffer_mem_pool.get());
-            FillMem(rhs_tuple, 1, rval1, rval2);
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int64_t));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(bool) + 1 * i;
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(bool) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
+            slot_descs.emplace_back(slot_desc);
         }
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareInt128Test(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::LARGEINT);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(int128_t) + 1*i;
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(int128_t) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                slot_descs.emplace_back(slot_desc);
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BOOL, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BOOL, true);
+
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(bool),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        }
+        FillMem(lhs_tuple, 1, lval1, lval2);
+        uint8_t* lhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(bool));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(bool),
+                                         _buffer_mem_pool.get());
+        FillMem(rhs_tuple, 1, rval1, rval2);
+        uint8_t* rhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(bool));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
+
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareCharTest(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::VARCHAR);
+                scalar_type.__set_len(65535);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(StringValue) + 1 * i;
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(StringValue) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
+            slot_descs.emplace_back(slot_desc);
+        }
 
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_LARGEINT, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_LARGEINT, true);
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR, true);
 
-            Schema schema = Schema(col_schemas, col_num); 
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int128_t), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(StringValue),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        }
+        FillMem(lhs_tuple, 1, lval1, lval2);
+        uint8_t* lhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(StringValue));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(StringValue),
+                                         _buffer_mem_pool.get());
+        FillMem(rhs_tuple, 1, rval1, rval2);
+        uint8_t* rhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(StringValue));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
+
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareDateTest(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::DATETIME);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
-            FillMem(lhs_tuple, 1, lval1, lval2);
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int128_t));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
-
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int128_t), _buffer_mem_pool.get());
-            FillMem(rhs_tuple, 1, rval1, rval2);
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int128_t));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(DateTimeValue) + 1 * i;
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(DateTimeValue) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
+            slot_descs.emplace_back(slot_desc);
         }
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareFloatTest(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::FLOAT);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(float) + 1*i;
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(float) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                slot_descs.emplace_back(slot_desc);
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME, true);
+
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(DateTimeValue),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
+        }
+        FillMem(lhs_tuple, 1, lval1, lval2);
+        uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num * sizeof(char) +
+                                                            col_num * sizeof(DateTimeValue));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(DateTimeValue),
+                                         _buffer_mem_pool.get());
+        FillMem(rhs_tuple, 1, rval1, rval2);
+        uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num * sizeof(char) +
+                                                            col_num * sizeof(DateTimeValue));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
+
+    template <typename T, bool IS_FIRST_SLOT_NULL = false>
+    int CompareDecimalTest(T lval1, T lval2, T rval1, T rval2) {
+        int col_num = 2;
+        std::vector<SlotDescriptor> slot_descs;
+        for (int i = 1; i <= col_num; i++) {
+            TSlotDescriptor slot_desc;
+            slot_desc.id = i;
+            slot_desc.parent = 0;
+            TTypeDesc type;
+            {
+                TTypeNode node;
+                node.__set_type(TTypeNodeType::SCALAR);
+                TScalarType scalar_type;
+                scalar_type.__set_type(TPrimitiveType::type::DECIMALV2);
+                scalar_type.__isset.precision = true;
+                scalar_type.__isset.scale = true;
+                scalar_type.__set_precision(-1);
+                scalar_type.__set_scale(-1);
+                node.__set_scalar_type(scalar_type);
+                type.types.push_back(node);
             }
-
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_FLOAT, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_FLOAT, true);
-
-            Schema schema = Schema(col_schemas, col_num); 
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(float), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
-            }
-            FillMem(lhs_tuple, 1, lval1, lval2);
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(float));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
-
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(float), _buffer_mem_pool.get());
-            FillMem(rhs_tuple, 1, rval1, rval2);
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(float));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
+            slot_desc.slotType = type;
+            slot_desc.columnPos = i;
+            slot_desc.byteOffset = (i - 1) * sizeof(int128_t) + 1 * i;
+            slot_desc.nullIndicatorByte = 0 + (i - 1) * sizeof(int128_t) + 1 * (i - 1);
+            slot_desc.nullIndicatorBit = 1;
+            std::ostringstream ss;
+            ss << "col_" << i;
+            slot_desc.colName = ss.str();
+            slot_desc.slotIdx = i;
+            slot_desc.isMaterialized = true;
+            slot_descs.emplace_back(slot_desc);
         }
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareDoubleTest(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::DOUBLE);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(double) + 1*i;
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(double) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                
-                slot_descs.emplace_back(slot_desc);
-            }
+        std::vector<TabletColumn> col_schemas;
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL, true);
+        col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL, true);
 
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DOUBLE, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DOUBLE, true);
-
-            Schema schema = Schema(col_schemas, col_num); 
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(double), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
-            }
-            FillMem(lhs_tuple, 1, lval1, lval2);
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(double));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
-
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(double), _buffer_mem_pool.get());
-            FillMem(rhs_tuple, 1, rval1, rval2);
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(double));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
+        Schema schema = Schema(col_schemas, col_num);
+        TupleRowZOrderComparator comparator(&schema, 2);
+        Tuple* lhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int128_t),
+                                         _buffer_mem_pool.get());
+        if (IS_FIRST_SLOT_NULL) {
+            lhs_tuple->set_null(NullIndicatorOffset(0, 1));
         }
+        FillMem(lhs_tuple, 1, lval1.value(), lval2.value());
+        uint8_t* lhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int128_t));
+        ContiguousRow lhs_row(&schema, lhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareBoolTest(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::BOOLEAN);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(bool) + 1*i;
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(bool) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                slot_descs.emplace_back(slot_desc);
-            }
+        Tuple* rhs_tuple = Tuple::create(col_num * sizeof(char) + col_num * sizeof(int128_t),
+                                         _buffer_mem_pool.get());
 
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BOOL, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_BOOL, true);
+        FillMem(rhs_tuple, 1, rval1.value(), rval2.value());
+        uint8_t* rhs_tuple_buf =
+                _buffer_mem_pool->allocate(col_num * sizeof(char) + col_num * sizeof(int128_t));
+        ContiguousRow rhs_row(&schema, rhs_tuple_buf);
+        tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
+        int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
+                                        reinterpret_cast<const char*>(rhs_row.row_ptr()));
+        return result;
+    }
 
-            Schema schema = Schema(col_schemas, col_num); 
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(bool), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
-            }
-            FillMem(lhs_tuple, 1, lval1, lval2);
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(bool));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
-
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(bool), _buffer_mem_pool.get());
-            FillMem(rhs_tuple, 1, rval1, rval2);
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(bool));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
+    void tuple_to_row(const Schema& schema, const vector<SlotDescriptor>& slot_descs,
+                      const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool) {
+        for (size_t i = 0; i < slot_descs.size(); ++i) {
+            auto cell = row->cell(i);
+            const SlotDescriptor& slot = slot_descs[i];
+            bool is_null = tuple->is_null(slot.null_indicator_offset());
+            const void* value = tuple->get_slot(slot.tuple_offset());
+            schema.column(i)->consume(&cell, (const char*)value, is_null, mem_pool,
+                                      &_agg_buffer_pool);
         }
+    }
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareCharTest(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::VARCHAR);
-                    scalar_type.__set_len(65535);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(StringValue) + 1*i;
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(StringValue) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                slot_descs.emplace_back(slot_desc);
-            }
+    template <typename T>
+    void FillMem(Tuple* tuple_mem, int idx, T val) {
+        memcpy(tuple_mem->get_slot(idx), &val, sizeof(T));
+    }
 
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR, true);
+    template <typename T, typename... Args>
+    void FillMem(Tuple* tuple_mem, int idx, T val, Args... args) {
+        // Use memcpy to avoid gcc generating unaligned instructions like movaps
+        // for int128_t. They will raise SegmentFault when addresses are not
+        // aligned to 16 bytes.
+        memcpy(tuple_mem->get_slot(idx), &val, sizeof(T));
+        FillMem(tuple_mem, idx + sizeof(T) + 1, args...);
+    }
 
-            Schema schema = Schema(col_schemas, col_num); 
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(StringValue), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
-            }
-            FillMem(lhs_tuple, 1, lval1, lval2);
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(StringValue));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int Int8Int8Test(int8_t lval1, int8_t lval2, int8_t rval1, int8_t rval2) {
+        return CompareInt8Test<int8_t, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
 
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) +  col_num*sizeof(StringValue), _buffer_mem_pool.get());
-            FillMem(rhs_tuple, 1, rval1, rval2);
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(StringValue));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
-        }
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int Int16Int16Test(int16_t lval1, int16_t lval2, int16_t rval1, int16_t rval2) {
+        return CompareInt16Test<int16_t, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareDateTest(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::DATETIME);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(DateTimeValue) + 1*i;
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(DateTimeValue) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                slot_descs.emplace_back(slot_desc);
-            }
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int IntIntTest(int32_t lval1, int32_t lval2, int32_t rval1, int32_t rval2) {
+        return CompareIntTest<int32_t, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
 
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DATETIME, true);
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int Int64Int64Test(int64_t lval1, int64_t lval2, int64_t rval1, int64_t rval2) {
+        return CompareInt64Test<int64_t, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
 
-            Schema schema = Schema(col_schemas, col_num); 
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(DateTimeValue), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
-            }
-            FillMem(lhs_tuple, 1, lval1, lval2);
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(DateTimeValue));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int Int128Int128Test(int128_t lval1, int128_t lval2, int128_t rval1, int128_t rval2) {
+        return CompareInt128Test<int128_t, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
 
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) +  col_num*sizeof(DateTimeValue), _buffer_mem_pool.get());
-            FillMem(rhs_tuple, 1, rval1, rval2);
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(DateTimeValue));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
-        }
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int FloatFloatTest(float lval1, float lval2, float rval1, float rval2) {
+        return CompareFloatTest<float, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
 
-        template <typename T, bool IS_FIRST_SLOT_NULL = false>
-        int CompareDecimalTest(T lval1, T lval2, T rval1, T rval2) {
-            int col_num = 2;
-            std::vector<SlotDescriptor> slot_descs;
-            for (int i = 1; i <= col_num; i++) {
-                TSlotDescriptor slot_desc;
-                slot_desc.id = i;
-                slot_desc.parent = 0;
-                TTypeDesc type;
-                {
-                    TTypeNode node;
-                    node.__set_type(TTypeNodeType::SCALAR);
-                    TScalarType scalar_type;
-                    scalar_type.__set_type(TPrimitiveType::type::DECIMALV2);
-                    scalar_type.__isset.precision = true;
-                    scalar_type.__isset.scale = true;
-                    scalar_type.__set_precision(-1);
-                    scalar_type.__set_scale(-1);
-                    node.__set_scalar_type(scalar_type);
-                    type.types.push_back(node);
-                }
-                slot_desc.slotType = type;
-                slot_desc.columnPos = i;
-                slot_desc.byteOffset = (i-1)*sizeof(int128_t) + 1*i;
-                slot_desc.nullIndicatorByte = 0+(i-1)*sizeof(int128_t) + 1*(i-1);
-                slot_desc.nullIndicatorBit = 1;
-                std::ostringstream ss;
-                ss << "col_" << i;
-                slot_desc.colName = ss.str();
-                slot_desc.slotIdx = i;
-                slot_desc.isMaterialized = true;
-                slot_descs.emplace_back(slot_desc);
-            }
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int DoubleDoubleTest(double lval1, double lval2, double rval1, double rval2) {
+        return CompareDoubleTest<double, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
 
-            std::vector<TabletColumn> col_schemas;
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL, true);
-            col_schemas.emplace_back(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_DECIMAL, true);
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int BoolBoolTest(bool lval1, bool lval2, bool rval1, bool rval2) {
+        return CompareBoolTest<bool, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
 
-            Schema schema = Schema(col_schemas, col_num); 
-            TupleRowZOrderComparator comparator(&schema, 2);
-            Tuple* lhs_tuple = Tuple::create(col_num*sizeof(char) + col_num*sizeof(int128_t), _buffer_mem_pool.get());
-            if (IS_FIRST_SLOT_NULL) {
-                lhs_tuple->set_null(NullIndicatorOffset(0, 1));
-            }
-            FillMem(lhs_tuple, 1, lval1.value(), lval2.value());
-            uint8_t* lhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int128_t));
-            ContiguousRow lhs_row(&schema, lhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, lhs_tuple, &lhs_row, _buffer_mem_pool.get());
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int CharCharTest(StringValue lval1, StringValue lval2, StringValue rval1, StringValue rval2) {
+        return CompareCharTest<StringValue, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
 
-            Tuple* rhs_tuple = Tuple::create(col_num*sizeof(char) +  col_num*sizeof(int128_t), _buffer_mem_pool.get());
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int DateDateTest(DateTimeValue lval1, DateTimeValue lval2, DateTimeValue rval1,
+                     DateTimeValue rval2) {
+        return CompareDateTest<DateTimeValue, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
 
-            FillMem(rhs_tuple, 1, rval1.value(), rval2.value());
-            uint8_t* rhs_tuple_buf = _buffer_mem_pool->allocate(col_num*sizeof(char) + col_num*sizeof(int128_t));
-            ContiguousRow rhs_row(&schema, rhs_tuple_buf);
-            tuple_to_row(schema, slot_descs, rhs_tuple, &rhs_row, _buffer_mem_pool.get());
-            int result = comparator.compare(reinterpret_cast<const char*>(lhs_row.row_ptr()),
-                                             reinterpret_cast<const char*>(rhs_row.row_ptr()));
-            return result;
-        }
-
-        void tuple_to_row(const Schema& schema, const vector<SlotDescriptor>& slot_descs, const Tuple* tuple,
-                          ContiguousRow* row, MemPool* mem_pool) {
-            for (size_t i = 0; i < slot_descs.size(); ++i) {
-                auto cell = row->cell(i);
-                const SlotDescriptor& slot = slot_descs[i];
-                bool is_null = tuple->is_null(slot.null_indicator_offset());
-                const void* value = tuple->get_slot(slot.tuple_offset());
-                schema.column(i)->consume(&cell, (const char*)value, is_null, mem_pool,
-                                            &_agg_buffer_pool);
-            }
-        }
-
-        template <typename T>
-        void FillMem(Tuple* tuple_mem, int idx, T val) {
-            memcpy(tuple_mem->get_slot(idx), &val, sizeof(T));
-        }
-
-        template <typename T, typename... Args>
-        void FillMem(Tuple* tuple_mem, int idx, T val, Args... args) {
-            // Use memcpy to avoid gcc generating unaligned instructions like movaps
-            // for int128_t. They will raise SegmentFault when addresses are not
-            // aligned to 16 bytes.
-            memcpy(tuple_mem->get_slot(idx), &val, sizeof(T));
-            FillMem(tuple_mem, idx + sizeof(T)+1, args...);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int Int8Int8Test(int8_t lval1, int8_t lval2, int8_t rval1, int8_t rval2) {
-            return CompareInt8Test<int8_t, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int Int16Int16Test(int16_t lval1, int16_t lval2, int16_t rval1, int16_t rval2) {
-            return CompareInt16Test<int16_t, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int IntIntTest(int32_t lval1, int32_t lval2, int32_t rval1, int32_t rval2) {
-            return CompareIntTest<int32_t, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int Int64Int64Test(int64_t lval1, int64_t lval2, int64_t rval1, int64_t rval2) {
-            return CompareInt64Test<int64_t, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int Int128Int128Test(int128_t lval1, int128_t lval2, int128_t rval1, int128_t rval2) {
-            return CompareInt128Test<int128_t, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int FloatFloatTest(float lval1, float lval2, float rval1, float rval2) {
-            return CompareFloatTest<float, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int DoubleDoubleTest(double lval1, double lval2, double rval1, double rval2) {
-            return CompareDoubleTest<double, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int BoolBoolTest(bool lval1, bool lval2, bool rval1, bool rval2) {
-            return CompareBoolTest<bool, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int CharCharTest(StringValue lval1, StringValue lval2, StringValue rval1, StringValue rval2) {
-            return CompareCharTest<StringValue, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int DateDateTest(DateTimeValue lval1, DateTimeValue lval2, DateTimeValue rval1, DateTimeValue rval2) {
-            return CompareDateTest<DateTimeValue, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-
-        template <bool IS_FIRST_SLOT_NULL = false>
-        int DecimalDecimalTest(DecimalV2Value lval1, DecimalV2Value lval2,
-                               DecimalV2Value rval1, DecimalV2Value rval2) {
-            return CompareDecimalTest<DecimalV2Value, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
-        }
-    };
+    template <bool IS_FIRST_SLOT_NULL = false>
+    int DecimalDecimalTest(DecimalV2Value lval1, DecimalV2Value lval2, DecimalV2Value rval1,
+                           DecimalV2Value rval2) {
+        return CompareDecimalTest<DecimalV2Value, IS_FIRST_SLOT_NULL>(lval1, lval2, rval1, rval2);
+    }
+};
 
 TEST_F(TupleRowZOrderCompareTest, DecimalTest) {
     std::string str1 = "1.00";
@@ -906,20 +953,41 @@ TEST_F(TupleRowZOrderCompareTest, DateDateTest) {
     EXPECT_EQ(DateDateTest(val1, val2, val3, val4), -1);
 }
 TEST_F(TupleRowZOrderCompareTest, CharTest) {
-    EXPECT_EQ(CharCharTest(StringValue("a"), StringValue("b"), StringValue("a"), StringValue("b")), 0);
-    EXPECT_EQ(CharCharTest(StringValue("a"), StringValue("b"), StringValue("a"), StringValue("b")), 0);
-    EXPECT_EQ(CharCharTest(StringValue("h"), StringValue("0"), StringValue("h"), StringValue("0")), 0);
-    EXPECT_EQ(CharCharTest(StringValue("h"), StringValue("z"), StringValue("z"), StringValue("h")), -1);
-    EXPECT_EQ(CharCharTest(StringValue("a"), StringValue("0"), StringValue("h"), StringValue("0")), -1);
-    EXPECT_EQ(CharCharTest(StringValue("!"), StringValue("{"), StringValue("0"), StringValue("K")), 1);
-    EXPECT_EQ(CharCharTest(StringValue("A"), StringValue("~"), StringValue("B"), StringValue("Z")), 1);
-    EXPECT_EQ(CharCharTest(StringValue("aaa"), StringValue("bbb"), StringValue("aaa"), StringValue("bbb")), 0);
-    EXPECT_EQ(CharCharTest(StringValue("abc"), StringValue("bbc"), StringValue("abc"), StringValue("bbc")), 0);
-    EXPECT_EQ(CharCharTest(StringValue("aah"), StringValue("aa0"), StringValue("aah"), StringValue("aa0")), 0);
-    EXPECT_EQ(CharCharTest(StringValue("aaa"), StringValue("aa0"), StringValue("aah"), StringValue("aa0")), -1);
-    EXPECT_EQ(CharCharTest(StringValue("aah"), StringValue("aaz"), StringValue("aaz"), StringValue("aah")), -1);
-    EXPECT_EQ(CharCharTest(StringValue("aa!"), StringValue("aa{"), StringValue("aa0"), StringValue("aaK")), 1);
-    EXPECT_EQ(CharCharTest(StringValue("aaA"), StringValue("aa~"), StringValue("aaB"), StringValue("aaZ")), 1);
+    EXPECT_EQ(CharCharTest(StringValue("a"), StringValue("b"), StringValue("a"), StringValue("b")),
+              0);
+    EXPECT_EQ(CharCharTest(StringValue("a"), StringValue("b"), StringValue("a"), StringValue("b")),
+              0);
+    EXPECT_EQ(CharCharTest(StringValue("h"), StringValue("0"), StringValue("h"), StringValue("0")),
+              0);
+    EXPECT_EQ(CharCharTest(StringValue("h"), StringValue("z"), StringValue("z"), StringValue("h")),
+              -1);
+    EXPECT_EQ(CharCharTest(StringValue("a"), StringValue("0"), StringValue("h"), StringValue("0")),
+              -1);
+    EXPECT_EQ(CharCharTest(StringValue("!"), StringValue("{"), StringValue("0"), StringValue("K")),
+              1);
+    EXPECT_EQ(CharCharTest(StringValue("A"), StringValue("~"), StringValue("B"), StringValue("Z")),
+              1);
+    EXPECT_EQ(CharCharTest(StringValue("aaa"), StringValue("bbb"), StringValue("aaa"),
+                           StringValue("bbb")),
+              0);
+    EXPECT_EQ(CharCharTest(StringValue("abc"), StringValue("bbc"), StringValue("abc"),
+                           StringValue("bbc")),
+              0);
+    EXPECT_EQ(CharCharTest(StringValue("aah"), StringValue("aa0"), StringValue("aah"),
+                           StringValue("aa0")),
+              0);
+    EXPECT_EQ(CharCharTest(StringValue("aaa"), StringValue("aa0"), StringValue("aah"),
+                           StringValue("aa0")),
+              -1);
+    EXPECT_EQ(CharCharTest(StringValue("aah"), StringValue("aaz"), StringValue("aaz"),
+                           StringValue("aah")),
+              -1);
+    EXPECT_EQ(CharCharTest(StringValue("aa!"), StringValue("aa{"), StringValue("aa0"),
+                           StringValue("aaK")),
+              1);
+    EXPECT_EQ(CharCharTest(StringValue("aaA"), StringValue("aa~"), StringValue("aaB"),
+                           StringValue("aaZ")),
+              1);
 }
 TEST_F(TupleRowZOrderCompareTest, BoolTest) {
     EXPECT_EQ(BoolBoolTest(true, false, true, false), 0);
@@ -954,7 +1022,7 @@ TEST_F(TupleRowZOrderCompareTest, FloatTest) {
     EXPECT_EQ(FloatFloatTest(5.0f, 7.0f, 4.0f, 10.0f), -1);
     EXPECT_EQ(FloatFloatTest(6.0f, 10.0f, 7.0f, 3.0f), 1);
     EXPECT_EQ(FloatFloatTest(9.0f, 7.0f, 8.0f, 10.0f), -1);
-    EXPECT_EQ(FloatFloatTest(8.0f , 8.0f, 9.0f, 7.0f), 1);
+    EXPECT_EQ(FloatFloatTest(8.0f, 8.0f, 9.0f, 7.0f), 1);
     EXPECT_EQ(FloatFloatTest(9.0f, 4.0f, 6.0f, 10.0f), 1);
     EXPECT_EQ(FloatFloatTest(-4.0f, -3.0f, -3.0f, -4.0f), -1);
     EXPECT_EQ(FloatFloatTest(-5.0f, -7.0f, -4.0f, -10.0f), 1);
@@ -1046,15 +1114,3 @@ TEST_F(TupleRowZOrderCompareTest, LargeIntTest) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

@@ -84,7 +84,7 @@ TEST_F(SetExecutorTest, normal_case) {
     SetExecutor executor(&doris_server, params);
     RowDescriptor row_desc;
     Status status = executor.prepare((RuntimeState*)&_runtime_state, row_desc);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     LOG(INFO) << executor.debug_string();
 }
 TEST_F(SetExecutorTest, failed_case) {
@@ -107,19 +107,7 @@ TEST_F(SetExecutorTest, failed_case) {
     SetExecutor executor(&doris_server, params);
     RowDescriptor row_desc;
     Status status = executor.prepare((RuntimeState*)&_runtime_state, row_desc);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     LOG(INFO) << executor.debug_string();
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::Init();
-    return RUN_ALL_TESTS();
-}

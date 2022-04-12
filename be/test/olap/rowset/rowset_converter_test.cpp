@@ -50,10 +50,10 @@ using std::string;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
-StorageEngine* k_engine = nullptr;
+static StorageEngine* k_engine = nullptr;
 
-void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_type,
-                                  RowsetWriterContext* rowset_writer_context) {
+static void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_type,
+                                         RowsetWriterContext* rowset_writer_context) {
     RowsetId rowset_id;
     rowset_id.init(10000);
     rowset_writer_context->rowset_id = rowset_id;
@@ -68,12 +68,13 @@ void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_
     rowset_writer_context->version.second = 1;
 }
 
-void create_rowset_reader_context(TabletSchema* tablet_schema,
-                                  const std::vector<uint32_t>* return_columns,
-                                  const DeleteHandler* delete_handler,
-                                  std::vector<ColumnPredicate*>* predicates,
-                                  std::set<uint32_t>* load_bf_columns, Conditions* conditions,
-                                  RowsetReaderContext* rowset_reader_context) {
+static void create_rowset_reader_context(TabletSchema* tablet_schema,
+                                         const std::vector<uint32_t>* return_columns,
+                                         const DeleteHandler* delete_handler,
+                                         std::vector<ColumnPredicate*>* predicates,
+                                         std::set<uint32_t>* load_bf_columns,
+                                         Conditions* conditions,
+                                         RowsetReaderContext* rowset_reader_context) {
     rowset_reader_context->reader_type = READER_ALTER_TABLE;
     rowset_reader_context->tablet_schema = tablet_schema;
     rowset_reader_context->need_ordered_result = true;
@@ -89,7 +90,7 @@ void create_rowset_reader_context(TabletSchema* tablet_schema,
     rowset_reader_context->conditions = conditions;
 }
 
-void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
+static void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     tablet_schema_pb.set_keys_type(keys_type);
     tablet_schema_pb.set_num_short_key_columns(2);
@@ -130,7 +131,7 @@ void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     tablet_schema->init_from_pb(tablet_schema_pb);
 }
 
-void create_tablet_meta(TabletSchema* tablet_schema, TabletMeta* tablet_meta) {
+static void create_tablet_meta(TabletSchema* tablet_schema, TabletMeta* tablet_meta) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(10000);
     tablet_meta_pb.set_tablet_id(12345);
@@ -157,10 +158,10 @@ public:
         config::txn_shard_size = 1;
         config::path_gc_check = false;
         char buffer[MAX_PATH_LEN];
-        ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+        EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
         config::storage_root_path = std::string(buffer) + "/data_test";
         FileUtils::remove_all(config::storage_root_path);
-        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
+        EXPECT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
 
@@ -168,25 +169,32 @@ public:
         options.store_paths = paths;
         if (k_engine == nullptr) {
             Status s = doris::StorageEngine::open(options, &k_engine);
-            ASSERT_TRUE(s.ok()) << s.to_string();
+            EXPECT_TRUE(s.ok()) << s.to_string();
         }
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(k_engine);
 
         std::string data_path = config::storage_root_path + "/data";
-        ASSERT_TRUE(FileUtils::create_dir(data_path).ok());
+        EXPECT_TRUE(FileUtils::create_dir(data_path).ok());
         std::string shard_path = data_path + "/0";
-        ASSERT_TRUE(FileUtils::create_dir(shard_path).ok());
+        EXPECT_TRUE(FileUtils::create_dir(shard_path).ok());
         std::string tablet_path = shard_path + "/12345";
-        ASSERT_TRUE(FileUtils::create_dir(tablet_path).ok());
+        EXPECT_TRUE(FileUtils::create_dir(tablet_path).ok());
         _schema_hash_path = tablet_path + "/1111";
-        ASSERT_TRUE(FileUtils::create_dir(_schema_hash_path).ok());
+        EXPECT_TRUE(FileUtils::create_dir(_schema_hash_path).ok());
         _mem_tracker.reset(new MemTracker(-1));
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
 
-    virtual void TearDown() { FileUtils::remove_all(config::storage_root_path); }
+    virtual void TearDown() {
+        if (k_engine != nullptr) {
+            k_engine->stop();
+            delete k_engine;
+            k_engine = nullptr;
+        }
+        FileUtils::remove_all(config::storage_root_path);
+    }
 
     void process(RowsetTypePB src_type, RowsetTypePB dst_type);
 
@@ -203,11 +211,11 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     RowsetWriterContext rowset_writer_context;
     create_rowset_writer_context(&tablet_schema, src_type, &rowset_writer_context);
     std::unique_ptr<RowsetWriter> _rowset_writer;
-    ASSERT_EQ(OLAP_SUCCESS,
+    EXPECT_EQ(OLAP_SUCCESS,
               RowsetFactory::create_rowset_writer(rowset_writer_context, &_rowset_writer));
     RowCursor row;
     OLAPStatus res = row.init(tablet_schema);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(OLAP_SUCCESS, res);
 
     std::vector<std::string> test_data;
     for (int i = 0; i < 1024; ++i) {
@@ -223,11 +231,11 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     }
     _rowset_writer->flush();
     RowsetSharedPtr src_rowset = _rowset_writer->build();
-    ASSERT_TRUE(src_rowset != nullptr);
+    EXPECT_TRUE(src_rowset != nullptr);
     RowsetId src_rowset_id;
     src_rowset_id.init(10000);
-    ASSERT_EQ(src_rowset_id, src_rowset->rowset_id());
-    ASSERT_EQ(1024, src_rowset->num_rows());
+    EXPECT_EQ(src_rowset_id, src_rowset->rowset_id());
+    EXPECT_EQ(1024, src_rowset->num_rows());
 
     // convert
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
@@ -237,28 +245,28 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     FilePathDesc schema_hash_path_desc;
     schema_hash_path_desc.filepath = _schema_hash_path;
     if (dst_type == BETA_ROWSET) {
-        ASSERT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(OLAP_SUCCESS,
                   rowset_converter.convert_alpha_to_beta(
                           src_rowset->rowset_meta(), schema_hash_path_desc, &dst_rowset_meta_pb));
     } else {
-        ASSERT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(OLAP_SUCCESS,
                   rowset_converter.convert_beta_to_alpha(
                           src_rowset->rowset_meta(), schema_hash_path_desc, &dst_rowset_meta_pb));
     }
 
-    ASSERT_EQ(dst_type, dst_rowset_meta_pb.rowset_type());
-    ASSERT_EQ(12345, dst_rowset_meta_pb.tablet_id());
-    ASSERT_EQ(1024, dst_rowset_meta_pb.num_rows());
+    EXPECT_EQ(dst_type, dst_rowset_meta_pb.rowset_type());
+    EXPECT_EQ(12345, dst_rowset_meta_pb.tablet_id());
+    EXPECT_EQ(1024, dst_rowset_meta_pb.num_rows());
 
     // read
     RowsetMetaSharedPtr dst_rowset_meta(new RowsetMeta());
-    ASSERT_TRUE(dst_rowset_meta->init_from_pb(dst_rowset_meta_pb));
+    EXPECT_TRUE(dst_rowset_meta->init_from_pb(dst_rowset_meta_pb));
     RowsetSharedPtr dst_rowset;
-    ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(&tablet_schema, schema_hash_path_desc,
+    EXPECT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(&tablet_schema, schema_hash_path_desc,
                                                          dst_rowset_meta, &dst_rowset));
 
     RowsetReaderSharedPtr dst_rowset_reader;
-    ASSERT_EQ(OLAP_SUCCESS, dst_rowset->create_reader(&dst_rowset_reader));
+    EXPECT_EQ(OLAP_SUCCESS, dst_rowset->create_reader(&dst_rowset_reader));
     RowsetReaderContext rowset_reader_context;
     std::set<uint32_t> load_bf_columns;
     std::vector<ColumnPredicate*> predicates;
@@ -271,19 +279,19 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     create_rowset_reader_context(&tablet_schema, &return_columns, &delete_handler, &predicates,
                                  &load_bf_columns, &conditions, &rowset_reader_context);
     res = dst_rowset_reader->init(&rowset_reader_context);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(OLAP_SUCCESS, res);
 
     RowBlock* row_block = nullptr;
     res = dst_rowset_reader->next_block(&row_block);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-    ASSERT_EQ(1024, row_block->remaining());
+    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(1024, row_block->remaining());
     RowCursor row_cursor;
     row_cursor.init(tablet_schema);
     for (int i = 0; i < 1024; ++i) {
         row_block->get_row(i, &row_cursor);
-        ASSERT_EQ(i, *(uint32_t*)row_cursor.cell_ptr(0));
-        ASSERT_EQ("well" + std::to_string(i), (*(Slice*)row_cursor.cell_ptr(1)).to_string());
-        ASSERT_EQ(10000 + i, *(uint32_t*)row_cursor.cell_ptr(2));
+        EXPECT_EQ(i, *(uint32_t*)row_cursor.cell_ptr(0));
+        EXPECT_EQ("well" + std::to_string(i), (*(Slice*)row_cursor.cell_ptr(1)).to_string());
+        EXPECT_EQ(10000 + i, *(uint32_t*)row_cursor.cell_ptr(2));
     }
 }
 
@@ -296,10 +304,3 @@ TEST_F(RowsetConverterTest, TestConvertBetaRowsetToAlpha) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    doris::StoragePageCache::create_global_cache(1 << 30, 10);
-    doris::SegmentLoader::create_global_instance(1000);
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

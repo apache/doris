@@ -96,16 +96,16 @@ char g_tuple_buf[10000]; // enough for tuple
 TEST_F(SchemaOpenTablesScannerTest, normal_use) {
     SchemaOpenTablesScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(nullptr != tuple_desc);
+    EXPECT_TRUE(nullptr != tuple_desc);
     status = scanner.start((RuntimeState*)1);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(eos);
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(eos);
 }
 TEST_F(SchemaOpenTablesScannerTest, one_column) {
     table_num = 1;
@@ -113,19 +113,19 @@ TEST_F(SchemaOpenTablesScannerTest, one_column) {
     desc_num = 1;
     SchemaOpenTablesScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(nullptr != tuple_desc);
+    EXPECT_TRUE(nullptr != tuple_desc);
     status = scanner.start((RuntimeState*)1);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
-    ASSERT_TRUE(status.ok());
-    ASSERT_FALSE(eos);
+    EXPECT_TRUE(status.ok());
+    EXPECT_FALSE(eos);
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(eos);
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(eos);
 }
 TEST_F(SchemaOpenTablesScannerTest, op_before_init) {
     table_num = 1;
@@ -133,11 +133,11 @@ TEST_F(SchemaOpenTablesScannerTest, op_before_init) {
     desc_num = 1;
     SchemaOpenTablesScanner scanner;
     Status status = scanner.start((RuntimeState*)1);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 TEST_F(SchemaOpenTablesScannerTest, input_fail) {
     table_num = 1;
@@ -145,14 +145,14 @@ TEST_F(SchemaOpenTablesScannerTest, input_fail) {
     desc_num = 1;
     SchemaOpenTablesScanner scanner;
     Status status = scanner.init(nullptr, &_obj_pool);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     status = scanner.init(&_param, &_obj_pool);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = scanner.start((RuntimeState*)1);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     bool eos = false;
     status = scanner.get_next_row(nullptr, &_mem_pool, &eos);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 TEST_F(SchemaOpenTablesScannerTest, table_fail) {
     table_num = 1;
@@ -160,16 +160,16 @@ TEST_F(SchemaOpenTablesScannerTest, table_fail) {
     desc_num = 1;
     SchemaOpenTablesScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(nullptr != tuple_desc);
+    EXPECT_TRUE(nullptr != tuple_desc);
     status = scanner.start((RuntimeState*)1);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
     s_table_result = Status::InternalError("get table failed");
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 TEST_F(SchemaOpenTablesScannerTest, desc_fail) {
     table_num = 1;
@@ -177,16 +177,16 @@ TEST_F(SchemaOpenTablesScannerTest, desc_fail) {
     desc_num = 1;
     SchemaOpenTablesScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     const TupleDescriptor* tuple_desc = scanner.tuple_desc();
-    ASSERT_TRUE(nullptr != tuple_desc);
+    EXPECT_TRUE(nullptr != tuple_desc);
     status = scanner.start((RuntimeState*)1);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     Tuple* tuple = (Tuple*)g_tuple_buf;
     bool eos = false;
     s_desc_result = Status::InternalError("get desc failed");
     status = scanner.get_next_row(tuple, &_mem_pool, &eos);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 
 TEST_F(SchemaOpenTablesScannerTest, start_fail) {
@@ -195,21 +195,10 @@ TEST_F(SchemaOpenTablesScannerTest, start_fail) {
     desc_num = 1;
     SchemaOpenTablesScanner scanner;
     Status status = scanner.init(&_param, &_obj_pool);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     s_db_result = Status::InternalError("get db failed.");
     status = scanner.start((RuntimeState*)1);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

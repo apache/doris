@@ -42,9 +42,9 @@ TEST_F(ShortKeyIndexTest, builder) {
     std::vector<Slice> slices;
     segment_v2::PageFooterPB footer;
     auto st = builder.finalize(9000 * 1024, &slices, &footer);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(segment_v2::SHORT_KEY_PAGE, footer.type());
-    ASSERT_EQ(num_items, footer.short_key_page_footer().num_items());
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(segment_v2::SHORT_KEY_PAGE, footer.type());
+    EXPECT_EQ(num_items, footer.short_key_page_footer().num_items());
 
     std::string buf;
     for (auto& slice : slices) {
@@ -53,43 +53,43 @@ TEST_F(ShortKeyIndexTest, builder) {
 
     ShortKeyIndexDecoder decoder;
     st = decoder.parse(buf, footer.short_key_page_footer());
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // find 1499
     {
         auto iter = decoder.lower_bound("1499");
-        ASSERT_TRUE(iter.valid());
-        ASSERT_STREQ("1500", (*iter).to_string().c_str());
+        EXPECT_TRUE(iter.valid());
+        EXPECT_STREQ("1500", (*iter).to_string().c_str());
     }
     // find 1500 lower bound
     {
         auto iter = decoder.lower_bound("1500");
-        ASSERT_TRUE(iter.valid());
-        ASSERT_STREQ("1500", (*iter).to_string().c_str());
+        EXPECT_TRUE(iter.valid());
+        EXPECT_STREQ("1500", (*iter).to_string().c_str());
     }
     // find 1500 upper bound
     {
         auto iter = decoder.upper_bound("1500");
-        ASSERT_TRUE(iter.valid());
-        ASSERT_STREQ("1502", (*iter).to_string().c_str());
+        EXPECT_TRUE(iter.valid());
+        EXPECT_STREQ("1502", (*iter).to_string().c_str());
     }
     // find prefix "87"
     {
         auto iter = decoder.lower_bound("87");
-        ASSERT_TRUE(iter.valid());
-        ASSERT_STREQ("8700", (*iter).to_string().c_str());
+        EXPECT_TRUE(iter.valid());
+        EXPECT_STREQ("8700", (*iter).to_string().c_str());
     }
     // find prefix "87"
     {
         auto iter = decoder.upper_bound("87");
-        ASSERT_TRUE(iter.valid());
-        ASSERT_STREQ("8700", (*iter).to_string().c_str());
+        EXPECT_TRUE(iter.valid());
+        EXPECT_STREQ("8700", (*iter).to_string().c_str());
     }
 
     // find prefix "9999"
     {
         auto iter = decoder.upper_bound("9999");
-        ASSERT_FALSE(iter.valid());
+        EXPECT_FALSE(iter.valid());
     }
 }
 
@@ -123,7 +123,7 @@ TEST_F(ShortKeyIndexTest, encode) {
             std::string buf;
             encode_key_with_padding(&buf, row, 3, true);
             // should be \x02\x80\x00\x30\x39\x02\x80\x00\xD4\x31\x00
-            ASSERT_STREQ("0280003039028000D43100", hexdump(buf.c_str(), buf.size()).c_str());
+            EXPECT_STREQ("0280003039028000D43100", hexdump(buf.c_str(), buf.size()).c_str());
         }
         // test with null
         {
@@ -142,22 +142,17 @@ TEST_F(ShortKeyIndexTest, encode) {
                 std::string buf;
                 encode_key_with_padding(&buf, row, 3, false);
                 // should be \x02\x80\x00\xD4\x31\x01\xff
-                ASSERT_STREQ("028000D43101FF", hexdump(buf.c_str(), buf.size()).c_str());
+                EXPECT_STREQ("028000D43101FF", hexdump(buf.c_str(), buf.size()).c_str());
             }
             // encode key
             {
                 std::string buf;
                 encode_key(&buf, row, 2);
                 // should be \x02\x80\x00\xD4\x31\x01
-                ASSERT_STREQ("028000D43101", hexdump(buf.c_str(), buf.size()).c_str());
+                EXPECT_STREQ("028000D43101", hexdump(buf.c_str(), buf.size()).c_str());
             }
         }
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

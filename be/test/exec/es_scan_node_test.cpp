@@ -107,7 +107,7 @@ protected:
 TEST_F(EsScanNodeTest, normal_use) {
     EsScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     TEsScanRange es_scan_range;
     es_scan_range.__set_index("index1");
     es_scan_range.__set_type("docs");
@@ -126,27 +126,22 @@ TEST_F(EsScanNodeTest, normal_use) {
     scan_ranges.push_back(scan_range_params);
 
     status = scan_node.set_scan_ranges(scan_ranges);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::stringstream out;
     scan_node.debug_string(1, &out);
     LOG(WARNING) << out.str();
 
     status = scan_node.open(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     RowBatch row_batch(scan_node._row_descriptor, _runtime_state.batch_size());
     bool eos = false;
     status = scan_node.get_next(&_runtime_state, &row_batch, &eos);
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ(2, row_batch.num_rows());
-    ASSERT_TRUE(eos);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(2, row_batch.num_rows());
+    EXPECT_TRUE(eos);
 
     status = scan_node.close(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

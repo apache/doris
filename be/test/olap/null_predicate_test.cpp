@@ -133,7 +133,7 @@ public:
             *(col_data + i) = i;                                                                 \
         }                                                                                        \
         pred->evaluate(_vectorized_batch);                                                       \
-        ASSERT_EQ(_vectorized_batch->size(), 0);                                                 \
+        EXPECT_EQ(_vectorized_batch->size(), 0);                                                 \
                                                                                                  \
         /* for ColumnBlock nulls */                                                              \
         init_row_block(&tablet_schema, size);                                                    \
@@ -145,7 +145,7 @@ public:
             *reinterpret_cast<TYPE*>(col_block_view.data()) = i;                                 \
         }                                                                                        \
         pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);                \
-        ASSERT_EQ(select_size, 0);                                                               \
+        EXPECT_EQ(select_size, 0);                                                               \
                                                                                                  \
         /* for vectorized::Block no null */                                                      \
         _row_block->clear();                                                                     \
@@ -155,7 +155,7 @@ public:
         ColumnPtr vec_col = vec_block.get_columns()[0];                                          \
         pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),                        \
                        _row_block->selection_vector(), &select_size);                            \
-        ASSERT_EQ(select_size, 0);                                                               \
+        EXPECT_EQ(select_size, 0);                                                               \
                                                                                                  \
         /* for has nulls */                                                                      \
         col_vector->set_no_nulls(false);                                                         \
@@ -172,7 +172,7 @@ public:
         _vectorized_batch->set_size(size);                                                       \
         _vectorized_batch->set_selected_in_use(false);                                           \
         pred->evaluate(_vectorized_batch);                                                       \
-        ASSERT_EQ(_vectorized_batch->size(), 5);                                                 \
+        EXPECT_EQ(_vectorized_batch->size(), 5);                                                 \
                                                                                                  \
         /* for ColumnBlock has nulls */                                                          \
         col_block_view = ColumnBlockView(&col_block);                                            \
@@ -187,7 +187,7 @@ public:
         _row_block->clear();                                                                     \
         select_size = _row_block->selected_size();                                               \
         pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);                \
-        ASSERT_EQ(select_size, 5);                                                               \
+        EXPECT_EQ(select_size, 5);                                                               \
                                                                                                  \
         /* for vectorized::Block has nulls */                                                    \
         _row_block->clear();                                                                     \
@@ -197,7 +197,7 @@ public:
         vec_col = vec_block.get_columns()[0];                                                    \
         pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),                        \
                        _row_block->selection_vector(), &select_size);                            \
-        ASSERT_EQ(select_size, 5);                                                               \
+        EXPECT_EQ(select_size, 5);                                                               \
         pred.reset();                                                                            \
     }
 
@@ -227,7 +227,7 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
         *(col_data + i) = i + 0.1;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 0);
+    EXPECT_EQ(_vectorized_batch->size(), 0);
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -239,7 +239,7 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
         *reinterpret_cast<float*>(col_block_view.data()) = i + 0.1;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for vectorized::Block no null
     _row_block->clear();
@@ -249,7 +249,7 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     ColumnPtr vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -266,7 +266,7 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 5);
+    EXPECT_EQ(_vectorized_batch->size(), 5);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -281,7 +281,7 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 5);
+    EXPECT_EQ(select_size, 5);
 
     // for vectorized::Block has nulls
     _row_block->clear();
@@ -291,7 +291,7 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 5);
+    EXPECT_EQ(select_size, 5);
 }
 
 TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
@@ -315,7 +315,7 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
         *(col_data + i) = i + 0.1;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 0);
+    EXPECT_EQ(_vectorized_batch->size(), 0);
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -327,7 +327,7 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
         *reinterpret_cast<double*>(col_block_view.data()) = i + 0.1;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for vectorized::Block no null
     _row_block->clear();
@@ -337,7 +337,7 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     ColumnPtr vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -354,7 +354,7 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 5);
+    EXPECT_EQ(_vectorized_batch->size(), 5);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -369,7 +369,7 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 5);
+    EXPECT_EQ(select_size, 5);
 
     // for vectorized::Block has nulls
     _row_block->clear();
@@ -379,7 +379,7 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 5);
+    EXPECT_EQ(select_size, 5);
 }
 
 TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
@@ -405,7 +405,7 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
         (*(col_data + i)).fraction = i;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 0);
+    EXPECT_EQ(_vectorized_batch->size(), 0);
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -418,7 +418,7 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
         reinterpret_cast<decimal12_t*>(col_block_view.data())->fraction = i;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for vectorized::Block no null
     _row_block->clear();
@@ -428,7 +428,7 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     ColumnPtr vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -446,7 +446,7 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 4);
+    EXPECT_EQ(_vectorized_batch->size(), 4);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -462,7 +462,7 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 4);
+    EXPECT_EQ(select_size, 4);
 
     // for vectorized::Block has nulls
     _row_block->clear();
@@ -472,7 +472,7 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 4);
+    EXPECT_EQ(select_size, 4);
 }
 
 TEST_F(TestNullPredicate, STRING_COLUMN) {
@@ -502,9 +502,9 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
         (*(col_data + i)).ptr = string_buffer;
         string_buffer += i + 1;
     }
-    ASSERT_EQ(_vectorized_batch->size(), 10);
+    EXPECT_EQ(_vectorized_batch->size(), 10);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 0);
+    EXPECT_EQ(_vectorized_batch->size(), 0);
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -523,7 +523,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
         string_buffer += i + 1;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for vectorized::Block no null
     _row_block->clear();
@@ -533,7 +533,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     ColumnPtr vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -556,7 +556,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 4);
+    EXPECT_EQ(_vectorized_batch->size(), 4);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -577,7 +577,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 4);
+    EXPECT_EQ(select_size, 4);
 
     // for vectorized::Block has nulls
     _row_block->clear();
@@ -587,7 +587,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 4);
+    EXPECT_EQ(select_size, 4);
 }
 
 TEST_F(TestNullPredicate, DATE_COLUMN) {
@@ -619,7 +619,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
         *(col_data + i) = timestamp;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 0);
+    EXPECT_EQ(_vectorized_batch->size(), 0);
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -632,7 +632,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for vectorized::Block no null
     _row_block->clear();
@@ -642,7 +642,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     ColumnPtr vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -660,7 +660,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 2);
+    EXPECT_EQ(_vectorized_batch->size(), 2);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -676,7 +676,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 2);
+    EXPECT_EQ(select_size, 2);
 
     // for vectorized::Block has nulls
     _row_block->clear();
@@ -686,7 +686,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 2);
+    EXPECT_EQ(select_size, 2);
 }
 
 TEST_F(TestNullPredicate, DATETIME_COLUMN) {
@@ -718,7 +718,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
         *(col_data + i) = timestamp;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 0);
+    EXPECT_EQ(_vectorized_batch->size(), 0);
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -731,7 +731,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
         *reinterpret_cast<uint64_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for vectorized::Block no null
     _row_block->clear();
@@ -741,7 +741,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     ColumnPtr vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 0);
+    EXPECT_EQ(select_size, 0);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -759,7 +759,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 2);
+    EXPECT_EQ(_vectorized_batch->size(), 2);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -775,7 +775,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 2);
+    EXPECT_EQ(select_size, 2);
 
     // for vectorized::Block has nulls
     _row_block->clear();
@@ -785,22 +785,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     vec_col = vec_block.get_columns()[0];
     pred->evaluate(const_cast<doris::vectorized::IColumn&>(*vec_col),
                    _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 2);
+    EXPECT_EQ(select_size, 2);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    int ret = doris::OLAP_SUCCESS;
-    testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    ret = RUN_ALL_TESTS();
-    google::protobuf::ShutdownProtobufLibrary();
-    return ret;
-}

@@ -22,11 +22,11 @@
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <gtest/gtest.h>
-#include <test_util/test_util.h>
 
 #include <memory>
 
 #include "gen_cpp/DorisExternalService_types.h"
+#include "testutil/test_util.h"
 #include "util/blocking_queue.hpp"
 
 namespace doris {
@@ -40,7 +40,7 @@ TEST_F(ResultQueueMgrTest, create_normal) {
     query_id.hi = 100;
     ResultQueueMgr queue_mgr;
     queue_mgr.create_queue(query_id, &block_queue_t);
-    ASSERT_TRUE(block_queue_t != nullptr);
+    EXPECT_TRUE(block_queue_t != nullptr);
 }
 
 TEST_F(ResultQueueMgrTest, create_same_queue) {
@@ -51,13 +51,13 @@ TEST_F(ResultQueueMgrTest, create_same_queue) {
 
     BlockQueueSharedPtr block_queue_t_1;
     queue_mgr.create_queue(query_id, &block_queue_t_1);
-    ASSERT_TRUE(block_queue_t_1 != nullptr);
+    EXPECT_TRUE(block_queue_t_1 != nullptr);
 
     BlockQueueSharedPtr block_queue_t_2;
     queue_mgr.create_queue(query_id, &block_queue_t_2);
-    ASSERT_TRUE(block_queue_t_2 != nullptr);
+    EXPECT_TRUE(block_queue_t_2 != nullptr);
 
-    ASSERT_EQ(block_queue_t_1.get(), block_queue_t_2.get());
+    EXPECT_EQ(block_queue_t_1.get(), block_queue_t_2.get());
 }
 
 TEST_F(ResultQueueMgrTest, fetch_result_normal) {
@@ -68,7 +68,7 @@ TEST_F(ResultQueueMgrTest, fetch_result_normal) {
 
     BlockQueueSharedPtr block_queue_t;
     queue_mgr.create_queue(query_id, &block_queue_t);
-    ASSERT_TRUE(block_queue_t != nullptr);
+    EXPECT_TRUE(block_queue_t != nullptr);
 
     std::shared_ptr<arrow::Field> field = arrow::field("k1", arrow::int32(), true);
     std::vector<std::shared_ptr<arrow::Field>> fields;
@@ -101,10 +101,10 @@ TEST_F(ResultQueueMgrTest, fetch_result_normal) {
 
     std::shared_ptr<arrow::RecordBatch> result;
     bool eos;
-    ASSERT_TRUE(queue_mgr.fetch_result(query_id, &result, &eos).ok());
-    ASSERT_FALSE(eos);
-    ASSERT_EQ(1, result->num_rows());
-    ASSERT_EQ(1, result->num_columns());
+    EXPECT_TRUE(queue_mgr.fetch_result(query_id, &result, &eos).ok());
+    EXPECT_FALSE(eos);
+    EXPECT_EQ(1, result->num_rows());
+    EXPECT_EQ(1, result->num_columns());
 }
 
 TEST_F(ResultQueueMgrTest, fetch_result_end) {
@@ -115,14 +115,14 @@ TEST_F(ResultQueueMgrTest, fetch_result_end) {
 
     BlockQueueSharedPtr block_queue_t;
     queue_mgr.create_queue(query_id, &block_queue_t);
-    ASSERT_TRUE(block_queue_t != nullptr);
+    EXPECT_TRUE(block_queue_t != nullptr);
     block_queue_t->blocking_put(nullptr);
 
     std::shared_ptr<arrow::RecordBatch> result;
     bool eos;
-    ASSERT_TRUE(queue_mgr.fetch_result(query_id, &result, &eos).ok());
-    ASSERT_TRUE(eos);
-    ASSERT_TRUE(result == nullptr);
+    EXPECT_TRUE(queue_mgr.fetch_result(query_id, &result, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_TRUE(result == nullptr);
 }
 
 TEST_F(ResultQueueMgrTest, normal_cancel) {
@@ -132,8 +132,8 @@ TEST_F(ResultQueueMgrTest, normal_cancel) {
     ResultQueueMgr queue_mgr;
     BlockQueueSharedPtr block_queue_t;
     queue_mgr.create_queue(query_id, &block_queue_t);
-    ASSERT_TRUE(block_queue_t != nullptr);
-    ASSERT_TRUE(queue_mgr.cancel(query_id).ok());
+    EXPECT_TRUE(block_queue_t != nullptr);
+    EXPECT_TRUE(queue_mgr.cancel(query_id).ok());
 }
 
 TEST_F(ResultQueueMgrTest, cancel_no_block) {
@@ -143,15 +143,7 @@ TEST_F(ResultQueueMgrTest, cancel_no_block) {
     ResultQueueMgr queue_mgr;
     BlockQueueSharedPtr block_queue_t;
     queue_mgr.create_queue(query_id, &block_queue_t);
-    ASSERT_TRUE(block_queue_t != nullptr);
-    ASSERT_TRUE(queue_mgr.cancel(query_id).ok());
+    EXPECT_TRUE(block_queue_t != nullptr);
+    EXPECT_TRUE(queue_mgr.cancel(query_id).ok());
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    doris::InitConfig();
-
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

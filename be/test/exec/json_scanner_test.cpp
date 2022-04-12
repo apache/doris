@@ -26,9 +26,9 @@
 #include "exec/broker_scan_node.h"
 #include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
+#include "exprs/decimalv2_operators.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "exprs/decimalv2_operators.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
@@ -76,7 +76,7 @@ private:
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 7
 int JsonScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
-    const char *columnNames[] = {"category","author","title","price", "largeint", "decimal"};
+    const char* columnNames[] = {"category", "author", "title", "price", "largeint", "decimal"};
     for (int i = 0; i < COLUMN_NUMBERS; i++) {
         TSlotDescriptor slot_desc;
 
@@ -225,7 +225,7 @@ int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 8;
-    {// lagreint
+    { // lagreint
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -251,7 +251,7 @@ int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
         t_desc_table.slotDescriptors.push_back(slot_desc);
     }
     byteOffset += 16;
-    {// decimal
+    { // decimal
         TSlotDescriptor slot_desc;
 
         slot_desc.id = next_slot_id++;
@@ -533,7 +533,7 @@ TEST_F(JsonScannerTest, normal_simple_arrayjson) {
     BrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     // set scan range
     std::vector<TScanRangeParams> scan_ranges;
@@ -558,31 +558,32 @@ TEST_F(JsonScannerTest, normal_simple_arrayjson) {
 
     scan_node.set_scan_ranges(scan_ranges);
     status = scan_node.open(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     // Get batch
     RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size());
     bool eof = false;
     status = scan_node.get_next(&_runtime_state, &batch, &eof);
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ(2, batch.num_rows());
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(2, batch.num_rows());
     // Do not use num_as_string, so largeint is too big is null and decimal value loss precision
-    auto tuple_str = batch.get_row(1)->get_tuple(0)->to_string(*scan_node.row_desc().tuple_descriptors()[0]);
-    ASSERT_TRUE(tuple_str.find("1180591620717411303424") == tuple_str.npos);
-    ASSERT_TRUE(tuple_str.find("9999999999999.999999") == tuple_str.npos);
-    ASSERT_FALSE(eof);
+    auto tuple_str =
+            batch.get_row(1)->get_tuple(0)->to_string(*scan_node.row_desc().tuple_descriptors()[0]);
+    EXPECT_TRUE(tuple_str.find("1180591620717411303424") == tuple_str.npos);
+    EXPECT_TRUE(tuple_str.find("9999999999999.999999") == tuple_str.npos);
+    EXPECT_FALSE(eof);
     batch.reset();
 
     status = scan_node.get_next(&_runtime_state, &batch, &eof);
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ(0, batch.num_rows());
-    ASSERT_TRUE(eof);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(0, batch.num_rows());
+    EXPECT_TRUE(eof);
 
     // Use num_as_string load data again
     BrokerScanNode scan_node2(&_obj_pool, _tnode, *_desc_tbl);
     scan_node2.init(_tnode);
     status = scan_node2.prepare(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     scan_ranges.clear();
     {
         TScanRangeParams scan_range_params;
@@ -606,15 +607,16 @@ TEST_F(JsonScannerTest, normal_simple_arrayjson) {
     }
     scan_node2.set_scan_ranges(scan_ranges);
     status = scan_node2.open(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     status = scan_node2.get_next(&_runtime_state, &batch, &eof);
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ(2, batch.num_rows());
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(2, batch.num_rows());
     // Use num as string, load largeint, decimal successfully
-    tuple_str = batch.get_row(1)->get_tuple(0)->to_string(*scan_node2.row_desc().tuple_descriptors()[0]);
-    ASSERT_FALSE(tuple_str.find("1180591620717411303424") == tuple_str.npos);
-    ASSERT_FALSE(tuple_str.find("9999999999999.999999") == tuple_str.npos);
+    tuple_str = batch.get_row(1)->get_tuple(0)->to_string(
+            *scan_node2.row_desc().tuple_descriptors()[0]);
+    EXPECT_FALSE(tuple_str.find("1180591620717411303424") == tuple_str.npos);
+    EXPECT_FALSE(tuple_str.find("9999999999999.999999") == tuple_str.npos);
 
     scan_node.close(&_runtime_state);
     scan_node2.close(&_runtime_state);
@@ -626,9 +628,3 @@ TEST_F(JsonScannerTest, normal_simple_arrayjson) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

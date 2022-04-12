@@ -142,7 +142,7 @@ Status EsPredicateTest::build_expr_context_list(std::vector<ExprContext*>& conju
 TEST_F(EsPredicateTest, normal) {
     std::vector<ExprContext*> conjunct_ctxs;
     Status status = build_expr_context_list(conjunct_ctxs);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     std::vector<EsPredicate*> predicates;
     for (int i = 0; i < conjunct_ctxs.size(); ++i) {
@@ -164,15 +164,10 @@ TEST_F(EsPredicateTest, normal) {
             "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"range\":{\"id\":{\"gt\":\"10\"}}}]}}]"
             "}}";
     LOG(INFO) << "compound bool query" << actual_bool_json;
-    ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
+    EXPECT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
     for (auto predicate : predicates) {
         delete predicate;
     }
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

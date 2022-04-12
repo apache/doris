@@ -173,22 +173,22 @@ protected:
 TEST_F(MysqlScanNodeTest, normal_use) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(&_runtim_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::vector<TScanRangeParams> scan_ranges;
     status = scan_node.set_scan_ranges(scan_ranges);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     std::stringstream out;
     scan_node.debug_string(1, &out);
     LOG(WARNING) << out.str();
 
     status = scan_node.open(&_runtim_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     RowBatch row_batch(scan_node._row_descriptor, 100);
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(&_runtim_state, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         if (!eos) {
             for (int i = 0; i < row_batch.num_rows(); ++i) {
@@ -199,67 +199,67 @@ TEST_F(MysqlScanNodeTest, normal_use) {
     }
 
     status = scan_node.close(&_runtim_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 }
 TEST_F(MysqlScanNodeTest, Prepare_fail_1) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node._tuple_id = 1;
     Status status = scan_node.prepare(&_runtim_state);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 TEST_F(MysqlScanNodeTest, Prepare_fail_2) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     TableDescriptor* old = _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc;
     _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc = nullptr;
     Status status = scan_node.prepare(&_runtim_state);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     _desc_tbl->_tuple_desc_map[(TupleId)0]->_table_desc = old;
 }
 TEST_F(MysqlScanNodeTest, open_fail_1) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(&_runtim_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     scan_node._table_name = "no_such_table";
     status = scan_node.open(&_runtim_state);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 TEST_F(MysqlScanNodeTest, open_fail_3) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(&_runtim_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     scan_node._columns.clear();
     scan_node._columns.push_back("id");
     status = scan_node.open(&_runtim_state);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 TEST_F(MysqlScanNodeTest, open_fail_2) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(&_runtim_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     scan_node._my_param.host = "";
     status = scan_node.open(&_runtim_state);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 TEST_F(MysqlScanNodeTest, invalid_input) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(nullptr);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     status = scan_node.prepare(&_runtim_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = scan_node.prepare(&_runtim_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = scan_node.open(nullptr);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     status = scan_node.open(&_runtim_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     RowBatch row_batch(scan_node._row_descriptor, 100);
     bool eos = false;
     status = scan_node.get_next(nullptr, &row_batch, &eos);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 
     while (!eos) {
         status = scan_node.get_next(&_runtim_state, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         for (int i = 0; i < row_batch.num_rows(); ++i) {
             TupleRow* row = row_batch.get_row(i);
@@ -270,22 +270,11 @@ TEST_F(MysqlScanNodeTest, invalid_input) {
 TEST_F(MysqlScanNodeTest, no_init) {
     MysqlScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.open(&_runtim_state);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
     RowBatch row_batch(scan_node._row_descriptor, 100);
     bool eos = false;
     status = scan_node.get_next(&_runtim_state, &row_batch, &eos);
-    ASSERT_FALSE(status.ok());
+    EXPECT_FALSE(status.ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

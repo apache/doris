@@ -186,8 +186,8 @@ protected:
         BufferedBlockMgr2::Block* new_block;
         for (int i = 0; i < num_blocks; ++i) {
             status = block_mgr->get_new_block(client, nullptr, &new_block);
-            ASSERT_TRUE(status.ok());
-            ASSERT_TRUE(new_block != nullptr);
+            EXPECT_TRUE(status.ok());
+            EXPECT_TRUE(new_block != nullptr);
             data = new_block->allocate<int32_t>(sizeof(int32_t));
             *data = blocks->size();
             blocks->push_back(new_block);
@@ -918,7 +918,7 @@ TEST_F(BufferedBlockMgrTest, DISABLED_WriteErrorBlacklist) {
     const string& good_dir = tmp_dirs[1];
     // Delete one file from first scratch dir for first block manager.
     BufferedBlockMgr2::Block* error_block = FindBlockForDir(blocks[error_mgr], error_dir);
-    ASSERT_TRUE(error_block != nullptr) << "Expected a tmp file in dir " << error_dir;
+    EXPECT_TRUE(error_block != nullptr) << "Expected a tmp file in dir " << error_dir;
     PinBlocks(all_blocks);
     DeleteBackingFile(error_block);
     UnpinBlocks(all_blocks); // Should succeed since tmp file space was already allocated.
@@ -1257,25 +1257,3 @@ TEST_F(BufferedBlockMgrTest, CreateDestroyMulti) {
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    doris::config::query_scratch_dirs = "/tmp";
-    // doris::config::max_free_io_buffers = 128;
-    doris::config::read_size = 8388608;
-    doris::config::min_buffer_size = 1024;
-
-    doris::config::disable_mem_pools = false;
-
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-
-    doris::CpuInfo::init();
-    doris::DiskInfo::init();
-
-    return RUN_ALL_TESTS();
-}

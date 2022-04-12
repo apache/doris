@@ -43,7 +43,7 @@ TEST_F(ResultBufferMgrTest, create_normal) {
     query_id.hi = 100;
 
     std::shared_ptr<BufferControlBlock> control_block1;
-    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
 }
 
 TEST_F(ResultBufferMgrTest, create_same_buffer) {
@@ -53,11 +53,11 @@ TEST_F(ResultBufferMgrTest, create_same_buffer) {
     query_id.hi = 100;
 
     std::shared_ptr<BufferControlBlock> control_block1;
-    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
     std::shared_ptr<BufferControlBlock> control_block2;
-    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block2).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block2).ok());
 
-    ASSERT_EQ(control_block1.get(), control_block1.get());
+    EXPECT_EQ(control_block1.get(), control_block1.get());
 }
 
 TEST_F(ResultBufferMgrTest, fetch_data_normal) {
@@ -67,15 +67,15 @@ TEST_F(ResultBufferMgrTest, fetch_data_normal) {
     query_id.hi = 100;
 
     std::shared_ptr<BufferControlBlock> control_block1;
-    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
 
     TFetchDataResult* result = new TFetchDataResult();
     result->result_batch.rows.push_back("hello test");
     control_block1->add_batch(result);
     TFetchDataResult get_result;
-    ASSERT_TRUE(buffer_mgr.fetch_data(query_id, &get_result).ok());
-    ASSERT_EQ(1U, get_result.result_batch.rows.size());
-    ASSERT_STREQ("hello test", get_result.result_batch.rows[0].c_str());
+    EXPECT_TRUE(buffer_mgr.fetch_data(query_id, &get_result).ok());
+    EXPECT_EQ(1U, get_result.result_batch.rows.size());
+    EXPECT_STREQ("hello test", get_result.result_batch.rows[0].c_str());
 }
 
 TEST_F(ResultBufferMgrTest, fetch_data_no_block) {
@@ -85,12 +85,12 @@ TEST_F(ResultBufferMgrTest, fetch_data_no_block) {
     query_id.hi = 100;
 
     std::shared_ptr<BufferControlBlock> control_block1;
-    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
 
     TFetchDataResult* result = new TFetchDataResult();
     query_id.lo = 11;
     query_id.hi = 100;
-    ASSERT_FALSE(buffer_mgr.fetch_data(query_id, result).ok());
+    EXPECT_FALSE(buffer_mgr.fetch_data(query_id, result).ok());
     delete result;
 }
 
@@ -101,9 +101,9 @@ TEST_F(ResultBufferMgrTest, normal_cancel) {
     query_id.hi = 100;
 
     std::shared_ptr<BufferControlBlock> control_block1;
-    ASSERT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
+    EXPECT_TRUE(buffer_mgr.create_sender(query_id, 1024, &control_block1).ok());
 
-    ASSERT_TRUE(buffer_mgr.cancel(query_id).ok());
+    EXPECT_TRUE(buffer_mgr.cancel(query_id).ok());
 }
 
 TEST_F(ResultBufferMgrTest, cancel_no_block) {
@@ -112,18 +112,6 @@ TEST_F(ResultBufferMgrTest, cancel_no_block) {
     query_id.lo = 10;
     query_id.hi = 100;
 
-    ASSERT_TRUE(buffer_mgr.cancel(query_id).ok());
+    EXPECT_TRUE(buffer_mgr.cancel(query_id).ok());
 }
 } // namespace doris
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    // doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}
-/* vim: set ts=4 sw=4 sts=4 tw=100 */

@@ -45,7 +45,7 @@ public:
 
         size_t n = 1;
         decoder->next_batch(&n, &column_block_view);
-        ASSERT_EQ(1, n);
+        EXPECT_EQ(1, n);
         *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(block.cell_ptr(0));
     }
 
@@ -57,16 +57,16 @@ public:
         PageBuilderType for_page_builder(builder_options);
         for_page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
         OwnedSlice s = for_page_builder.finish();
-        ASSERT_EQ(size, for_page_builder.count());
+        EXPECT_EQ(size, for_page_builder.count());
         LOG(INFO) << "FrameOfReference Encoded size for " << size << " values: " << s.slice().size
                   << ", original size:" << size * sizeof(CppType);
 
         PageDecoderOptions decoder_options;
         PageDecoderType for_page_decoder(s.slice(), decoder_options);
         Status status = for_page_decoder.init();
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(0, for_page_decoder.current_index());
-        ASSERT_EQ(size, for_page_decoder.count());
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(0, for_page_decoder.current_index());
+        EXPECT_EQ(size, for_page_decoder.count());
 
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
@@ -76,8 +76,8 @@ public:
         ColumnBlockView column_block_view(&block);
         size_t size_to_fetch = size;
         status = for_page_decoder.next_batch(&size_to_fetch, &column_block_view);
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(size, size_to_fetch);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(size, size_to_fetch);
 
         CppType* values = reinterpret_cast<CppType*>(column_block_view.data());
 
@@ -226,7 +226,7 @@ TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
     OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 1 /8 packing value = 20
     // footer: (1 + 1) * 1 + 1 + 4 = 7
-    ASSERT_EQ(27, s.slice().size);
+    EXPECT_EQ(27, s.slice().size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestFirstLastValue) {
@@ -242,10 +242,10 @@ TEST_F(FrameOfReferencePageTest, TestFirstLastValue) {
     OwnedSlice s = page_builder.finish();
     int32_t first_value = -1;
     page_builder.get_first_value(&first_value);
-    ASSERT_EQ(0, first_value);
+    EXPECT_EQ(0, first_value);
     int32_t last_value = 0;
     page_builder.get_last_value(&last_value);
-    ASSERT_EQ(127, last_value);
+    EXPECT_EQ(127, last_value);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
@@ -261,38 +261,33 @@ TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
     OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 7 /8 packing value = 116
     // footer: (1 + 1) * 1 + 1 + 4 = 7
-    ASSERT_EQ(123, s.slice().size);
+    EXPECT_EQ(123, s.slice().size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestFindBitsOfInt) {
     int8_t bits_3 = 0x06;
-    ASSERT_EQ(3, bits(bits_3));
+    EXPECT_EQ(3, bits(bits_3));
 
     uint8_t bits_4 = 0x0F;
-    ASSERT_EQ(4, bits(bits_4));
+    EXPECT_EQ(4, bits(bits_4));
 
     int32_t bits_17 = 0x000100FF;
-    ASSERT_EQ(17, bits(bits_17));
+    EXPECT_EQ(17, bits(bits_17));
 
     int64_t bits_33 = 0x00000001FFFFFFFF;
-    ASSERT_EQ(33, bits(bits_33));
+    EXPECT_EQ(33, bits(bits_33));
 
     int128_t bits_0 = 0;
-    ASSERT_EQ(0, bits(bits_0));
+    EXPECT_EQ(0, bits(bits_0));
 
     int128_t bits_127 = numeric_limits<int128_t>::max();
-    ASSERT_EQ(127, bits(bits_127));
+    EXPECT_EQ(127, bits(bits_127));
 
     uint128_t bits_128 = numeric_limits<uint128_t>::max();
-    ASSERT_EQ(128, bits(bits_128));
+    EXPECT_EQ(128, bits(bits_128));
 
     int128_t bits_65 = ((int128_t)1) << 64;
-    ASSERT_EQ(65, bits(bits_65));
+    EXPECT_EQ(65, bits(bits_65));
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

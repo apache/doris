@@ -81,7 +81,7 @@ TEST(TEST_VEXPR, ABSTEST) {
 
     FunctionContext* fun_ct = context->fn_context(0);
     context->close(&runtime_stat);
-    if(fun_ct) {
+    if (fun_ct) {
         delete fun_ct;
     }
 }
@@ -131,7 +131,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
 
     FunctionContext* fun_ct = context->fn_context(0);
     context->close(&runtime_stat);
-    if(fun_ct) {
+    if (fun_ct) {
         delete fun_ct;
     }
 }
@@ -280,7 +280,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         bool v = ctn.column->get_bool(0);
-        ASSERT_EQ(v, true);
+        EXPECT_EQ(v, true);
     }
     {
         VLiteral literal(create_literal<TYPE_SMALLINT>(1024));
@@ -289,7 +289,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
-        ASSERT_EQ(v, 1024);
+        EXPECT_EQ(v, 1024);
     }
     {
         VLiteral literal(create_literal<TYPE_INT>(1024));
@@ -298,7 +298,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
-        ASSERT_EQ(v, 1024);
+        EXPECT_EQ(v, 1024);
     }
     {
         VLiteral literal(create_literal<TYPE_BIGINT>(1024));
@@ -307,7 +307,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
-        ASSERT_EQ(v, 1024);
+        EXPECT_EQ(v, 1024);
     }
     {
         VLiteral literal(create_literal<TYPE_LARGEINT, __int128_t>(1024));
@@ -316,7 +316,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int128_t>();
-        ASSERT_EQ(v, 1024);
+        EXPECT_EQ(v, 1024);
     }
     {
         VLiteral literal(create_literal<TYPE_FLOAT, float>(1024.0f));
@@ -325,7 +325,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
-        ASSERT_FLOAT_EQ(v, 1024.0f);
+        EXPECT_FLOAT_EQ(v, 1024.0f);
     }
     {
         VLiteral literal(create_literal<TYPE_DOUBLE, double>(1024.0));
@@ -334,7 +334,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
-        ASSERT_FLOAT_EQ(v, 1024.0);
+        EXPECT_FLOAT_EQ(v, 1024.0);
     }
     {
         vectorized::VecDateTimeValue data_time_value;
@@ -348,7 +348,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int64_t>();
-        ASSERT_EQ(v, dt);
+        EXPECT_EQ(v, dt);
     }
     {
         VLiteral literal(create_literal<TYPE_DECIMALV2, std::string>(std::string("1234.56")));
@@ -357,11 +357,6 @@ TEST(TEST_VEXPR, LITERALTEST) {
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<DecimalField<Decimal128>>();
-        ASSERT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
+        EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);
     }
-}
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
 }

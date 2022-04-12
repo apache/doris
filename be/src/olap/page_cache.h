@@ -21,11 +21,10 @@
 #include <string>
 #include <utility>
 
-#include "gutil/macros.h" // for DISALLOW_COPY_AND_ASSIGN
-#include "olap/lru_cache.h"
 #include "gen_cpp/segment_v2.pb.h" // for cache allocation
+#include "gutil/macros.h"          // for DISALLOW_COPY_AND_ASSIGN
+#include "olap/lru_cache.h"
 #include "runtime/mem_tracker.h"
-
 
 namespace doris {
 
@@ -100,10 +99,10 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker = nullptr;
 
     Cache* _get_page_cache(segment_v2::PageTypePB page_type) {
-        switch (page_type)
-        {
-        case segment_v2::DATA_PAGE:
+        switch (page_type) {
+        case segment_v2::DATA_PAGE: {
             return _data_page_cache.get();
+        }
         case segment_v2::INDEX_PAGE:
             return _index_page_cache.get();
         default:

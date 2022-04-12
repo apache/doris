@@ -59,7 +59,7 @@ public:
         _offsets.push_back(0);
         _stream_factory = new (std::nothrow)
                 OutStreamFactory(COMPRESS_LZ4, OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
-        ASSERT_TRUE(_stream_factory != nullptr);
+        EXPECT_TRUE(_stream_factory != nullptr);
         config::column_dictionary_key_ratio_threshold = 30;
         config::column_dictionary_key_size_threshold = 1000;
     }
@@ -85,8 +85,8 @@ public:
     void create_column_writer(const TabletSchema& tablet_schema) {
         _column_writer = ColumnWriter::create(0, tablet_schema, _stream_factory, 1024,
                                               BLOOM_FILTER_DEFAULT_FPP);
-        ASSERT_TRUE(_column_writer != nullptr);
-        ASSERT_EQ(_column_writer->init(), OLAP_SUCCESS);
+        EXPECT_TRUE(_column_writer != nullptr);
+        EXPECT_EQ(_column_writer->init(), OLAP_SUCCESS);
     }
 
     void create_column_reader(const TabletSchema& tablet_schema) {
@@ -107,12 +107,12 @@ public:
         _column_reader =
                 ColumnReader::create(0, tablet_schema, included, segment_included, encodings);
 
-        ASSERT_TRUE(_column_reader != nullptr);
+        EXPECT_TRUE(_column_reader != nullptr);
 
-        ASSERT_EQ(system("mkdir -p ./ut_dir"), 0);
-        ASSERT_EQ(system("rm -f ./ut_dir/tmp_file"), 0);
+        EXPECT_EQ(system("mkdir -p ./ut_dir"), 0);
+        EXPECT_EQ(system("rm -f ./ut_dir/tmp_file"), 0);
 
-        ASSERT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(OLAP_SUCCESS,
                   helper.open_with_mode("./ut_dir/tmp_file", O_CREAT | O_EXCL | O_WRONLY,
                                         S_IRUSR | S_IWUSR));
         std::vector<int> off;
@@ -142,10 +142,10 @@ public:
             } else if (stream_name.kind() == StreamInfoMessage::LENGTH) {
                 buffers = &_length_buffers;
             } else {
-                ASSERT_TRUE(false);
+                EXPECT_TRUE(false);
             }
 
-            ASSERT_TRUE(buffers != nullptr);
+            EXPECT_TRUE(buffers != nullptr);
             off.push_back(helper.tell());
             out_stream->write_to_file(&helper, 0);
             length.push_back(out_stream->get_stream_length());
@@ -154,13 +154,13 @@ public:
         }
         helper.close();
 
-        ASSERT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(OLAP_SUCCESS,
                   helper.open_with_mode("./ut_dir/tmp_file", O_RDONLY, S_IRUSR | S_IWUSR));
 
         SAFE_DELETE(_shared_buffer);
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
                                                    sizeof(StreamHead));
-        ASSERT_TRUE(_shared_buffer != nullptr);
+        EXPECT_TRUE(_shared_buffer != nullptr);
 
         for (auto in_stream : _map_in_streams) {
             delete in_stream.second;
@@ -171,11 +171,11 @@ public:
             ReadOnlyFileStream* in_stream = new (std::nothrow)
                     ReadOnlyFileStream(&helper, &_shared_buffer, off[i], length[i], lz4_decompress,
                                        buffer_size[i], &_stats);
-            ASSERT_EQ(OLAP_SUCCESS, in_stream->init());
+            EXPECT_EQ(OLAP_SUCCESS, in_stream->init());
             _map_in_streams[name[i]] = in_stream;
         }
 
-        ASSERT_EQ(_column_reader->init(&_map_in_streams, 1024, _mem_pool.get(), &_stats),
+        EXPECT_EQ(_column_reader->init(&_map_in_streams, 1024, _mem_pool.get(), &_stats),
                   OLAP_SUCCESS);
     }
 
@@ -195,7 +195,7 @@ public:
     }
 
     void create_and_save_last_position() {
-        ASSERT_EQ(_column_writer->create_row_index_entry(), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->create_row_index_entry(), OLAP_SUCCESS);
     }
 
     template <typename T>
@@ -216,9 +216,9 @@ public:
         write_row.set_field_content(0, reinterpret_cast<char*>(&val), _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
-        ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
         ColumnDataHeaderMessage header;
-        ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
         helper.close();
 
         TabletSchema dst_tablet_schema;
@@ -229,19 +229,19 @@ public:
         read_row.init(dst_tablet_schema);
 
         _col_vector.reset(new ColumnVector());
-        ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+        EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
         auto st = read_row.convert_from(0, data, write_row.column_schema(0)->type_info(),
                                         _mem_pool.get());
-        ASSERT_EQ(st, expected_st);
+        EXPECT_EQ(st, expected_st);
         if (st == OLAP_SUCCESS) {
             std::string dst_str = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
-            ASSERT_TRUE(dst_str.compare(0, expected_val.size(), expected_val) == 0);
+            EXPECT_TRUE(dst_str.compare(0, expected_val.size(), expected_val) == 0);
         }
 
         const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
         st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
-        ASSERT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
+        EXPECT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
     }
 
     void test_convert_from_varchar(const std::string& type_name, int type_size,
@@ -260,9 +260,9 @@ public:
         write_row.set_field_content(0, reinterpret_cast<char*>(&normal_str), _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
-        ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
         ColumnDataHeaderMessage header;
-        ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
         helper.close();
 
         TabletSchema converted_tablet_schema;
@@ -273,19 +273,19 @@ public:
         read_row.init(converted_tablet_schema);
 
         _col_vector.reset(new ColumnVector());
-        ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+        EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
         auto st = read_row.convert_from(0, data, write_row.column_schema(0)->type_info(),
                                         _mem_pool.get());
-        ASSERT_EQ(st, expected_st);
+        EXPECT_EQ(st, expected_st);
         if (st == OLAP_SUCCESS) {
             std::string dst_str = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
-            ASSERT_TRUE(dst_str.compare(0, value.size(), value) == 0);
+            EXPECT_TRUE(dst_str.compare(0, value.size(), value) == 0);
         }
 
         const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
         st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
-        ASSERT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
+        EXPECT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
     }
 
     ColumnWriter* _column_writer;
@@ -326,16 +326,16 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
 
     value = 3.234;
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
 
     ColumnDataHeaderMessage header;
-    ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
     TabletSchema convert_tablet_schema;
@@ -344,7 +344,7 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
     RowCursor read_row;
     read_row.init(convert_tablet_schema);
     _col_vector.reset(new ColumnVector());
-    ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     //float val1 = *reinterpret_cast<float*>(read_row.cell_ptr(0));
@@ -355,12 +355,12 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
     sprintf(buf, "%f", val2);
     char* tg;
     double v2 = strtod(buf, &tg);
-    ASSERT_EQ(v2, 1.234);
+    EXPECT_EQ(v2, 1.234);
 
     //test not support type
     const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
     OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
-    ASSERT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
+    EXPECT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
 }
 
 TEST_F(TestColumn, ConvertDatetimeToDate) {
@@ -382,10 +382,10 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
     write_row.from_tuple(tuple);
     block.set_row(0, write_row);
     block.finalize(1);
-    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
 
     ColumnDataHeaderMessage header;
-    ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
     TabletSchema convert_tablet_schema;
@@ -395,16 +395,16 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
     read_row.init(convert_tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
-    ASSERT_TRUE(strncmp(dest_string.c_str(), "2019-11-25", strlen("2019-11-25")) == 0);
+    EXPECT_TRUE(strncmp(dest_string.c_str(), "2019-11-25", strlen("2019-11-25")) == 0);
 
     //test not support type
     const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
     OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
-    ASSERT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
+    EXPECT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
 }
 
 TEST_F(TestColumn, ConvertDateToDatetime) {
@@ -427,10 +427,10 @@ TEST_F(TestColumn, ConvertDateToDatetime) {
     write_row.from_tuple(tuple);
     block.set_row(0, write_row);
     block.finalize(1);
-    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
 
     ColumnDataHeaderMessage header_message;
-    ASSERT_EQ(_column_writer->finalize(&header_message), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header_message), OLAP_SUCCESS);
 
     TabletSchema convert_tablet_schema;
     set_tablet_schema("DateTimeColumn", "DATETIME", "REPLACE", 8, false, false,
@@ -439,17 +439,17 @@ TEST_F(TestColumn, ConvertDateToDatetime) {
     RowCursor read_row;
     read_row.init(convert_tablet_schema);
     _col_vector.reset(new ColumnVector());
-    ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
-    ASSERT_TRUE(dest_string.compare("2019-12-04 00:00:00") == 0);
+    EXPECT_TRUE(dest_string.compare("2019-12-04 00:00:00") == 0);
 
     //test not support type
     const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
     OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
-    ASSERT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
+    EXPECT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
 }
 
 TEST_F(TestColumn, ConvertIntToDate) {
@@ -469,10 +469,10 @@ TEST_F(TestColumn, ConvertIntToDate) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&time_val), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
 
     ColumnDataHeaderMessage header;
-    ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     TabletSchema convert_tablet_schema;
     set_tablet_schema("DateColumn", "DATE", "REPLACE", 3, false, false, &convert_tablet_schema);
@@ -482,16 +482,16 @@ TEST_F(TestColumn, ConvertIntToDate) {
     read_row.init(convert_tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
     std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
-    ASSERT_TRUE(strncmp(dest_string.c_str(), "2019-12-05", strlen("2019-12-05")) == 0);
+    EXPECT_TRUE(strncmp(dest_string.c_str(), "2019-12-05", strlen("2019-12-05")) == 0);
 
     //test not support type
     const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
     OLAPStatus st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
-    ASSERT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
+    EXPECT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
 }
 
 TEST_F(TestColumn, ConvertVarcharToDate) {
@@ -516,10 +516,10 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
-        ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
 
         ColumnDataHeaderMessage header;
-        ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
         // because file_helper is reused in this case, we should close it.
         helper.close();
@@ -530,12 +530,11 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         read_row.init(convert_tablet_schema);
 
         _col_vector.reset(new ColumnVector());
-        ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+        EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
-        read_row.convert_from(0, data, write_row.column_schema(0)->type_info(),
-                              _mem_pool.get());
+        read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
         std::string dst_str = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
-        ASSERT_EQ(expected_val, dst_str);
+        EXPECT_EQ(expected_val, dst_str);
     }
     helper.close();
     TabletSchema convert_tablet_schema;
@@ -547,7 +546,7 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
     //test not support type
     const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
     OLAPStatus st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
-    ASSERT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
+    EXPECT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
 }
 
 TEST_F(TestColumn, ConvertVarcharToTinyInt1) {
@@ -944,9 +943,9 @@ TEST_F(TestColumn, ConvertIntToBitmap) {
     write_row.from_tuple(tuple);
     block.set_row(0, write_row);
     block.finalize(1);
-    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
     ColumnDataHeaderMessage header;
-    ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     //Materialized View tablet schema
     TabletSchemaPB mv_tablet_schema_pb;
@@ -997,7 +996,7 @@ TEST_F(TestColumn, ConvertIntToBitmap) {
 
     auto dst_slice = reinterpret_cast<Slice*>(mv_row_cursor.cell_ptr(1));
     BitmapValue bitmapValue(dst_slice->data);
-    ASSERT_EQ(bitmapValue.cardinality(), 1);
+    EXPECT_EQ(bitmapValue.cardinality(), 1);
 }
 
 TEST_F(TestColumn, ConvertCharToHLL) {
@@ -1027,9 +1026,9 @@ TEST_F(TestColumn, ConvertCharToHLL) {
     write_row.from_tuple(tuple);
     block.set_row(0, write_row);
     block.finalize(1);
-    ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
     ColumnDataHeaderMessage header;
-    ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     //Materialized View tablet schema
     TabletSchemaPB mv_tablet_schema_pb;
@@ -1080,7 +1079,7 @@ TEST_F(TestColumn, ConvertCharToHLL) {
 
     auto dst_slice = reinterpret_cast<Slice*>(mv_row_cursor.cell_ptr(1));
     HyperLogLog hll(*dst_slice);
-    ASSERT_EQ(hll.estimate_cardinality(), 1);
+    EXPECT_EQ(hll.estimate_cardinality(), 1);
 }
 
 TEST_F(TestColumn, ConvertCharToCount) {
@@ -1110,7 +1109,7 @@ TEST_F(TestColumn, ConvertCharToCount) {
 
     block.finalize(1);
     ColumnDataHeaderMessage header;
-    ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     //Materialized View tablet schema
     TabletSchemaPB mv_tablet_schema_pb;
@@ -1160,20 +1159,6 @@ TEST_F(TestColumn, ConvertCharToCount) {
     mutable_block.get_row(0, &mv_row_cursor);
 
     auto dst = mv_row_cursor.cell_ptr(1);
-    ASSERT_EQ(*(int64_t*)dst, 1);
+    EXPECT_EQ(*(int64_t*)dst, 1);
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conf_file = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conf_file.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    doris::MemInfo::init();
-    int ret = doris::OLAP_SUCCESS;
-    testing::InitGoogleTest(&argc, argv);
-    ret = RUN_ALL_TESTS();
-    return ret;
-}

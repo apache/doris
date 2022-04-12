@@ -45,8 +45,7 @@ OLAPStatus close_status;
 int64_t wait_lock_time_ns;
 
 // mock
-DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine)
-        : _req(*req) {}
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine) : _req(*req) {}
 
 DeltaWriter::~DeltaWriter() {}
 
@@ -83,7 +82,8 @@ OLAPStatus DeltaWriter::close() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken) {
+OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+                                   bool is_broken) {
     return close_status;
 }
 
@@ -119,7 +119,6 @@ public:
     }
 
 private:
-
     size_t uncompressed_size = 0;
     size_t compressed_size = 0;
 };
@@ -140,10 +139,10 @@ TEST_F(LoadChannelMgrTest, check_builder) {
     ObjectPool obj_pool;
     DescriptorTbl::create(&obj_pool, table_builder.desc_tbl(), &desc_tbl);
     auto tuple = desc_tbl->get_tuple_descriptor(0);
-    ASSERT_EQ(32, tuple->byte_size());
-    ASSERT_EQ(4, tuple->slots()[0]->tuple_offset());
-    ASSERT_EQ(8, tuple->slots()[1]->tuple_offset());
-    ASSERT_EQ(16, tuple->slots()[2]->tuple_offset());
+    EXPECT_EQ(32, tuple->byte_size());
+    EXPECT_EQ(4, tuple->slots()[0]->tuple_offset());
+    EXPECT_EQ(8, tuple->slots()[1]->tuple_offset());
+    EXPECT_EQ(16, tuple->slots()[2]->tuple_offset());
 }
 
 TDescriptorTable create_descriptor_table() {
@@ -208,7 +207,7 @@ TEST_F(LoadChannelMgrTest, normal) {
         request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
 
     // add a batch
@@ -260,11 +259,11 @@ TEST_F(LoadChannelMgrTest, normal) {
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
         request.release_id();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
     // check content
-    ASSERT_EQ(_k_tablet_recorder[20], 2);
-    ASSERT_EQ(_k_tablet_recorder[21], 1);
+    EXPECT_EQ(_k_tablet_recorder[20], 2);
+    EXPECT_EQ(_k_tablet_recorder[21], 1);
 }
 
 TEST_F(LoadChannelMgrTest, cancel) {
@@ -296,7 +295,7 @@ TEST_F(LoadChannelMgrTest, cancel) {
         request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
 
     // add a batch
@@ -306,7 +305,7 @@ TEST_F(LoadChannelMgrTest, cancel) {
         request.set_index_id(4);
         auto st = mgr.cancel(request);
         request.release_id();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
 }
 
@@ -340,7 +339,7 @@ TEST_F(LoadChannelMgrTest, open_failed) {
         open_status = OLAP_ERR_TABLE_NOT_FOUND;
         auto st = mgr.open(request);
         request.release_id();
-        ASSERT_FALSE(st.ok());
+        EXPECT_FALSE(st.ok());
     }
 }
 
@@ -374,7 +373,7 @@ TEST_F(LoadChannelMgrTest, add_failed) {
         request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
 
     // add a batch
@@ -429,8 +428,8 @@ TEST_F(LoadChannelMgrTest, add_failed) {
         auto st = mgr.add_batch(request, &response);
         request.release_id();
         // st is still ok.
-        ASSERT_TRUE(st.ok());
-        ASSERT_EQ(2, response.tablet_errors().size());
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(2, response.tablet_errors().size());
     }
 }
 
@@ -463,7 +462,7 @@ TEST_F(LoadChannelMgrTest, close_failed) {
         request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
 
     // add a batch
@@ -520,8 +519,8 @@ TEST_F(LoadChannelMgrTest, close_failed) {
         auto st = mgr.add_batch(request, &response);
         request.release_id();
         // even if delta close failed, the return status is still ok, but tablet_vec is empty
-        ASSERT_TRUE(st.ok());
-        ASSERT_TRUE(response.tablet_vec().empty());
+        EXPECT_TRUE(st.ok());
+        EXPECT_TRUE(response.tablet_vec().empty());
     }
 }
 
@@ -554,7 +553,7 @@ TEST_F(LoadChannelMgrTest, unknown_tablet) {
         request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
 
     // add a batch
@@ -606,7 +605,7 @@ TEST_F(LoadChannelMgrTest, unknown_tablet) {
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
         request.release_id();
-        ASSERT_FALSE(st.ok());
+        EXPECT_FALSE(st.ok());
     }
 }
 
@@ -639,7 +638,7 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
         request.set_need_gen_rollup(false);
         auto st = mgr.open(request);
         request.release_id();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
 
     // add a batch
@@ -690,11 +689,11 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
         row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         PTabletWriterAddBatchResult response2;
         st = mgr.add_batch(request, &response2);
         request.release_id();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
     // close
     {
@@ -707,17 +706,11 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
         request.release_id();
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
     }
     // check content
-    ASSERT_EQ(_k_tablet_recorder[20], 2);
-    ASSERT_EQ(_k_tablet_recorder[21], 1);
+    EXPECT_EQ(_k_tablet_recorder[20], 2);
+    EXPECT_EQ(_k_tablet_recorder[21], 1);
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}
