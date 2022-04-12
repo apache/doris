@@ -209,6 +209,10 @@ Default：100 * 1024 * 1024  （100MB）
 
 This is the maximum number of bytes of the file uploaded by the put or post method, the default value: 100MB
 
+### **`disable_mini_load`**
+
+Whether to disable the mini load data import method, the default：true  (Disabled)
+
 ### frontend_address
 
 Status: Deprecated, not recommended use. This parameter may be deleted later Type: string Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname. Default value: 0.0.0.0
