@@ -1108,7 +1108,10 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
     _stop_background_threads_latch.count_down();
     if (_sender_thread) {
         _sender_thread->join();
-        _send_batch_thread_pool_token->shutdown();
+        // We have to wait all task in _send_batch_thread_pool_token finished,
+        // because it is difficult to handle concurrent problem if we just
+        // shutdown it.
+        _send_batch_thread_pool_token->wait();
     }
 
     Expr::close(_output_expr_ctxs, state);
