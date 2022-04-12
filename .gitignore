@@ -1,5 +1,11 @@
 *.swp
 *.pyc
+*.class
+*.iml
+*.swp
+*.jar
+*.zip
+*.log
 be/output
 be/build
 be/build_Release
@@ -12,6 +18,7 @@ docs/node_modules
 docs/build
 gensrc/build
 fe/fe-core/target
+fe/fe-core/bin
 thirdparty/src
 thirdparty/installed
 *.so.tmp
@@ -33,25 +40,35 @@ fe/**/target
 dependency-reduced-pom.xml
 fe_plugins/**/.classpath
 fe_plugins/**/.factorypath
-samples/**/.classpath
+
+fe/fe-common/.classpath
 fe/fe-core/src/main/resources/static/
+fe/fe-core/bin/src/main/resources/
+
 fs_brokers/apache_hdfs_broker/src/main/resources/
 fs_brokers/apache_hdfs_broker/src/main/thrift/
+
+samples/**/.classpath
+samples/doris-demo/*/target
+samples/doris-demo/*/bin/
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
 samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py
 samples/doris-demo/remote-udf-cpp-demo/*.o
 samples/doris-demo/remote-udf-cpp-demo/*.pb.h
 samples/doris-demo/remote-udf-cpp-demo/*.pb.cc
 samples/doris-demo/remote-udf-cpp-demo/function_server_demo
+
 regression-test/framework/target
 regression-test/framework/dependency-reduced-pom.xml
 
-# ignore eclipse project file & idea project file
+# ignore project file
 .cproject
 .project
 .settings/
 .idea/
-/Default/
+.vscode
+
+# Default
 be/cmake-build
 be/cmake-build-debug
 be/cmake-build-release
@@ -71,15 +88,9 @@ ui/node_modules
 ui/package-lock.json
 ui/yarn.lock
 docs/package-lock.json
-fe/fe-common/.classpath
 
 rpc_data/
 
-## ignore sample target
-samples/doris-demo/*/target
-
-# ignore vscode project file
-.vscode
 be/.devcontainer/
 
 derby.log
