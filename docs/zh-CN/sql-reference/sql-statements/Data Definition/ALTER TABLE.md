@@ -226,6 +226,14 @@ under the License.
     3. 修改 partition 名称
         语法：
             RENAME PARTITION old_partition_name new_partition_name;
+    
+    replace 支持对两个表进行原子的替换操作:
+    1. 替换表
+        语法：
+            REPLACE WITH TABLE new_table [PROPERTIES('swap' = 'true')];
+        注意：
+            1. 如果 swap 参数为 true，两表交换数据。
+            2. 如果 swap 参数为 false，用 new_table 表中的数据替换 old_table 表中的数据，并删除 new_table 表。
 
     bitmap index 支持如下几种修改方式
     1. 创建bitmap 索引
@@ -233,7 +241,7 @@ under the License.
             ADD INDEX [IF NOT EXISTS] index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
         注意：
             1. 目前仅支持bitmap 索引
-            1. BITMAP 索引仅在单列上创建
+            2. BITMAP 索引仅在单列上创建
 
     2. 删除索引
         语法：
@@ -414,6 +422,13 @@ under the License.
         
     3. 将表 example_table 中名为 p1 的 partition 修改为 p2
         ALTER TABLE example_table RENAME PARTITION p1 p2;
+    
+    [replace]
+    1. 将 tabel1 和 table2 的数据互换
+        ALTER TABLE table1 REPLACE WITH TABLE table2;
+    2. 用 table2 表中的数据替换 tabel1 表中的数据, 并删除 table2
+        ALTER TABLE table1 REPLACE WITH TABLE table2 PROPERTIES('swap' = 'false');
+
     [index]
     1. 在table1 上为siteid 创建bitmap 索引
         ALTER TABLE table1 ADD INDEX [IF NOT EXISTS] index_name (siteid) [USING BITMAP] COMMENT 'balabala';

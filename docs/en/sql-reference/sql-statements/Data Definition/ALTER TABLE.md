@@ -228,6 +228,14 @@ under the License.
     3. Modify the partition name
         grammar:
             RENAME PARTITION old_partition_name new_partition_name;
+
+    Replace supports swap data between two tables:
+    1. swap data between two tables
+        geammar:
+            REPLACE WITH TABLE new_table [PROPERTIES('swap' = 'true')];
+        note:
+            1. if swap is true, swap data between two tables.
+            2. if swap is fasle, replace the old_table with the new_table, and delete the new_table.
   
     Bitmap index supports the following modifications:
     1. create bitmap index
@@ -418,6 +426,12 @@ under the License.
         
     3. Modify the partition named p1 in the table example_table to p2
         ALTER TABLE example_table RENAME PARTITION p1 p2;
+
+    [replace]
+    1. swap data between two tables
+        ALTER TABLE table1 REPLACE WITH TABLE table2;
+    2. replace the table1 with the table2, and delete the table2.
+        ALTER TABLE table1 REPLACE WITH TABLE table2 PROPERTIES('swap' = 'false');
     
     [index]
     1. create index on table1 column siteid using bitmap 
