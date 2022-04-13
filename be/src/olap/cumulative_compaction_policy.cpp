@@ -460,7 +460,7 @@ void NumBasedCumulativeCompactionPolicy::calculate_cumulative_point(
 
 void CumulativeCompactionPolicy::pick_candidate_rowsets(
         int64_t skip_window_sec,
-        const std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
+        const phmap::flat_hash_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
         int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets) {
     int64_t now = UnixSeconds();
     for (auto& it : rs_version_map) {

@@ -18,7 +18,7 @@
 #pragma once
 
 #include <string>
-
+#include <parallel_hashmap/phmap.h>
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet.h"
@@ -75,7 +75,7 @@ public:
     /// return candidate_rowsets, the container of candidate rowsets
     virtual void pick_candidate_rowsets(
             int64_t skip_window_sec,
-            const std::unordered_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
+            const phmap::flat_hash_map<Version, RowsetSharedPtr, HashOfVersion>& rs_version_map,
             int64_t cumulative_point, std::vector<RowsetSharedPtr>* candidate_rowsets);
 
     /// Pick input rowsets from candidate rowsets for compaction. This function is pure virtual function.

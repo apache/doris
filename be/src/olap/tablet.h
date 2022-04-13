@@ -21,7 +21,7 @@
 #include <memory>
 #include <set>
 #include <string>
-#include <unordered_map>
+#include <parallel_hashmap/phmap.h>
 #include <vector>
 
 #include "gen_cpp/AgentService_types.h"
@@ -302,11 +302,11 @@ private:
     mutable std::shared_mutex _meta_lock;
     // After version 0.13, all newly created rowsets are saved in _rs_version_map.
     // And if rowset being compacted, the old rowsetis will be saved in _stale_rs_version_map;
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
+    phmap::flat_hash_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
     // This variable _stale_rs_version_map is used to record these rowsets which are be compacted.
     // These _stale rowsets are been removed when rowsets' pathVersion is expired,
     // this policy is judged and computed by TimestampedVersionTracker.
-    std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
+    phmap::flat_hash_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
     // timestamp of last cumu compaction failure
