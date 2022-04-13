@@ -174,7 +174,17 @@ module.exports = [
       "orthogonal-bitmap-manual",
       "variables",
       "time-zone",
-      "small-file-mgr"
+      "small-file-mgr",
+      {
+         title: "最佳实践",
+         directoryPath: "best-practice/",
+         initialOpenGroupIndex: -1,
+         children: [
+           "query-analysis",
+           "import-analysis",
+           "debug-log"
+         ],
+      }
     ],
   },
   {
