@@ -85,6 +85,7 @@ check_prerequest() {
 check_prerequest "mysql --version" "mysql"
 
 source $CURDIR/doris-cluster.conf
+export MYSQL_PWD=$PASSWORD
 
 echo "FE_HOST: $FE_HOST"
 echo "FE_QUERY_PORT: $FE_QUERY_PORT"
@@ -92,7 +93,7 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
-mysql -h$FE_HOST -u$USER -p$PASSWORD -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
+mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
 
 echo $CURDIR/create-tpch-tables.sql
-mysql -h$FE_HOST -u$USER -p$PASSWORD -P$FE_QUERY_PORT -D$DB <$CURDIR/create-tpch-tables.sql
+mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <$CURDIR/create-tpch-tables.sql
