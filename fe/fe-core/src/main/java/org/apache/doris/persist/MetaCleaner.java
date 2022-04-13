@@ -67,6 +67,19 @@ public class MetaCleaner {
             }
         }
     }
+
+    public void cleanTheLatestInvalidImageFile() throws IOException {
+        Storage storage = new Storage(imageDir);
+        long currentVersion = storage.getImageSeq();
+        File currentImage = storage.getImageFile(currentVersion);
+        if (currentImage.exists()) {
+            if (currentImage.delete()) {
+                LOG.info(currentImage.getAbsoluteFile() + " deleted.");
+            } else {
+                LOG.warn(currentImage.getAbsoluteFile() + " delete failed.");
+            }
+        }
+    }
     
     private String fileType(File file) throws IOException {
         String type = null;

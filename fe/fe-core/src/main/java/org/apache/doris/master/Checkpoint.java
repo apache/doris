@@ -111,6 +111,7 @@ public class Checkpoint extends MasterDaemon {
         catalog = Catalog.getCurrentCatalog();
         catalog.setEditLog(editLog);
         createStaticFieldForCkpt();
+        boolean newImageGenerated = false;
         try {
             catalog.loadImage(imageDir);
             catalog.replayJournal(checkPointVersion);
@@ -120,6 +121,7 @@ public class Checkpoint extends MasterDaemon {
             }
             catalog.fixBugAfterMetadataReplayed(false);
             catalog.saveImage();
+            newImageGenerated = true;
             replayedJournalId = catalog.getReplayedJournalId();
 
             // destroy checkpoint catalog, reclaim memory
@@ -137,6 +139,21 @@ public class Checkpoint extends MasterDaemon {
             }
             LOG.info("checkpoint finished save image.{}", replayedJournalId);
         } catch (Throwable e) {
+            if (newImageGenerated) {
+                // delete the newest image file, cuz it is invalid
+                MetaCleaner cleaner = new MetaCleaner(Config.meta_dir + "/image");
+                try {
+                    cleaner.cleanTheLatestInvalidImageFile();
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_IMAGE_CLEAN_SUCCESS.increase(1L);
+                    }
+                } catch (Throwable ex) {
+                    LOG.error("Master delete latest invalid image file failed.", ex);
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_IMAGE_CLEAN_FAILED.increase(1L);
+                    }
+                }
+            }
             e.printStackTrace();
             LOG.error("Exception when generate new image file", e);
             if (MetricRepo.isInit) {
