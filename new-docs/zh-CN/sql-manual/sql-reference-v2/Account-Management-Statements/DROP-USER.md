@@ -28,7 +28,26 @@ under the License.
 
 ### Description
 
+删除一个用户
+
+```sql
+ DROP USER 'user_identity'
+
+    `user_identity`:
+    
+        user@'host'
+        user@['domain']
+```
+
+ 删除指定的 user identitiy.
+
 ### Example
+
+1. 删除用户 jack@'192.%'
+
+    ```sql
+    DROP USER 'jack'@'192.%'
+    ```
 
 ### Keywords
 
