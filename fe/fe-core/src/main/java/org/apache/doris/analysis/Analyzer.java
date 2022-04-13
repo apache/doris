@@ -359,7 +359,9 @@ public class Analyzer {
                 // autoBroadcastJoinThreshold is a "final" field, must set an initial value for it
                 autoBroadcastJoinThreshold = 0;
             }
-            enableQueryVec = context.getSessionVariable().enableVectorizedEngine();
+            if (context != null) {
+                enableQueryVec = context.getSessionVariable().enableVectorizedEngine();
+            }
         }
     }
 
