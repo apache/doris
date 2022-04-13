@@ -57,23 +57,29 @@ public:
 
     // read next range into [*from, *to) whose size <= max_range_size.
     // return false when there is no more range.
-    bool next_range(uint32_t max_range_size, uint32_t* from, uint32_t* to) {
+    bool next_range(const uint32_t max_range_size, uint32_t* from, uint32_t* to) {
         if (_eof) {
             return false;
         }
+
         *from = _buf[_buf_pos];
-        uint32_t range_size = 0, last_val;
-        do {
-            last_val = _buf[_buf_pos];
-            _buf_pos++;
-            range_size++;
-            if (UNLIKELY(_buf_pos == _buf_size)) { // read next batch
-                _read_next_batch();
-                if (_eof) {
-                    break;
-                }
-            }
-        } while (range_size < max_range_size && _buf[_buf_pos] == last_val + 1);
+        uint32_t range_size = 0;
+        uint32_t last_val = _buf[_buf_pos] - 1;
+
+        while (!_eof && range_size + _buf_size - _buf_pos <= max_range_size &&
+               last_val + 1 == _buf[_buf_pos] &&
+               _buf[_buf_size - 1] - _buf[_buf_pos] == _buf_size - 1 - _buf_pos) {
+            range_size += _buf_size - _buf_pos;
+            last_val = _buf[_buf_size - 1];
+            _read_next_batch();
+        }
+
+        if (!_eof && range_size < max_range_size && last_val + 1 == _buf[_buf_pos]) {
+            do {
+                _buf_pos++;
+                range_size++;
+            } while (range_size < max_range_size && _buf[_buf_pos] == _buf[_buf_pos - 1] + 1);
+        }
         *to = *from + range_size;
         return true;
     }
