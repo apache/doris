@@ -49,12 +49,12 @@ public:
         REALTIME_PUSH,
         PUBLISH_VERSION,
         // Deprecated
-        CLEAR_ALTER_TASK,
+        CLEAR_ALTER_TASK [[deprecated]],
         CLEAR_TRANSACTION_TASK,
         DELETE,
         ALTER_TABLE,
         // Deprecated
-        QUERY_SPLIT_KEY,
+        QUERY_SPLIT_KEY [[deprecated]],
         CLONE,
         STORAGE_MEDIUM_MIGRATE,
         CHECK_CONSISTENCY,
@@ -90,16 +90,12 @@ public:
             return "REALTIME_PUSH";
         case PUBLISH_VERSION:
             return "PUBLISH_VERSION";
-        case CLEAR_ALTER_TASK:
-            return "CLEAR_ALTER_TASK";
         case CLEAR_TRANSACTION_TASK:
             return "CLEAR_TRANSACTION_TASK";
         case DELETE:
             return "DELETE";
         case ALTER_TABLE:
             return "ALTER_TABLE";
-        case QUERY_SPLIT_KEY:
-            return "QUERY_SPLIT_KEY";
         case CLONE:
             return "CLONE";
         case STORAGE_MEDIUM_MIGRATE:

@@ -323,13 +323,15 @@ public:
 
     void add_row(BlockRow& block_row, int64_t tablet_id);
 
-    void for_each_node_channel(const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
+    void for_each_node_channel(
+            const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
         for (auto& it : _node_channels) {
             func(it.second);
         }
     }
 
-    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err, int64_t tablet_id = -1);
+    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
+                        int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
     // set error tablet info in runtime state, so that it can be returned to FE.
@@ -507,9 +509,7 @@ protected:
     // compute tablet index for every row batch
     // FIND_TABLET_EVERY_SINK is only used for random distribution info, which indicates that we should
     // only compute tablet index in the corresponding partition once for the whole time in olap table sink
-    enum FindTabletMode {
-        FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK
-    };
+    enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
     FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
 };
 
