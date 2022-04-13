@@ -70,13 +70,13 @@ public class MetaCleaner {
 
     public void cleanTheLatestInvalidImageFile() throws IOException {
         Storage storage = new Storage(imageDir);
-        long currentVersion = storage.getImageSeq();
-        File currentImage = storage.getImageFile(currentVersion);
-        if (currentImage.exists()) {
-            if (currentImage.delete()) {
-                LOG.info(currentImage.getAbsoluteFile() + " deleted.");
+        long latestVersion = storage.getImageSeq();
+        File latestInvalidImage = storage.getImageFile(latestVersion);
+        if (latestInvalidImage.exists()) {
+            if (latestInvalidImage.delete()) {
+                LOG.info(latestInvalidImage.getAbsoluteFile() + " deleted.");
             } else {
-                LOG.warn(currentImage.getAbsoluteFile() + " delete failed.");
+                LOG.warn(latestInvalidImage.getAbsoluteFile() + " delete failed.");
             }
         }
     }
