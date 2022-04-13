@@ -26,26 +26,32 @@ under the License.
 
 ## SHOW-PROPERTY
 
+### Name
+
+SHOW PROPERTY
+
 ### Description
 
 该语句用于查看用户的属性
 
-```
-SHOW PROPERTY [FOR user] [LIKE key];
+语法：
+
+```sql
+SHOW PROPERTY [FOR user] [LIKE key]
 ```
 
 * `user`
 
-    查看指定用户的属性。如不指定，查看当前用户的。
-    
+   查看指定用户的属性。 如果未指定，请检查当前用户的。
+
 * `LIKE`
 
-    可以通过属性名模糊匹配。
-    
+   模糊匹配可以通过属性名来完成。
+
 返回结果说明：
 
 ```sql
-mysql> show property like '%connection%';
+mysql> show property like'%connection%';
 +----------------------+-------+
 | Key                  | Value |
 +----------------------+-------+
@@ -56,25 +62,25 @@ mysql> show property like '%connection%';
 
 * `Key`
 
-    属性名。
-    
+  属性名.
+
 * `Value`
 
-    属性值。
+  属性值.
 
 ### Example
 
 1. 查看 jack 用户的属性
-    
-    ```sql
-    SHOW PROPERTY FOR 'jack';
-    ```
 
-2. 查看 jack 用户连接数限制属性
+   ```sql
+   SHOW PROPERTY FOR 'jack'
+   ```
 
-    ```sql
-    SHOW PROPERTY FOR 'jack' LIKE '%connection%';
-    ```
+2. 查看 jack 用户导入cluster相关属性
+
+   ```sql
+   SHOW PROPERTY FOR 'jack' LIKE '%load_cluster%'
+   ```
 
 ### Keywords
 
