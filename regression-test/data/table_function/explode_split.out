@@ -31,3 +31,6 @@
 1	a,b,c	c	b
 1	a,b,c	c	c
 
+-- !explode_split_non_empty --
+a
+

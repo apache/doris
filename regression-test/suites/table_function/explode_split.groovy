@@ -48,4 +48,5 @@ suite("explode_split") {
                         lateral view explode_split(k2, ',') tmp1 as e1 
                         lateral view explode_split(k2, ',') tmp2 as e2 """
 
+    qt_explode_split_non_empty """select e1 from (select 1 k1) as t lateral view explode_split_non_empty("a,,",",") tmp1 as e1;"""
 }

@@ -36,6 +36,8 @@ grammar:
 
 ```
 explode_split(str, delimiter)
+
+explode_split_non_empty(str, delimiter)
 ```
 
 ## example
@@ -105,8 +107,24 @@ mysql> select k1, e1 from example1 lateral view explode_split(k2, ',') tmp1 as e
 |    6 |  c   |
 |    6 | a    |
 +------+------+
+
+mysql> select e1 from (select 1 k1) as t lateral view explode_split("a,,",",") tmp1 as e1;
++------+
+| e1   |
++------+
+| a    |
+|      |
+|      |
++------+
+
+mysql> select e1 from (select 1 k1) as t lateral view explode_split_non_empty("a,,",",") tmp1 as e1;
++------+
+| e1   |
++------+
+| a    |
++------+
 ```
 
 ## keyword
 
-    explode_split
+    explode_split, explode_split_non_empty
