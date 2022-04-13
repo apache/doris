@@ -135,7 +135,7 @@ public class SystemHandler extends AlterHandler {
                 throw new DdlException("It is highly NOT RECOMMENDED to use DROP BACKEND stmt."
                         + "It is not safe to directly drop a backend. "
                         + "All data on this backend will be discarded permanently. "
-                        + "If you insist, use DROPP BACKEND stmt (double P).");
+                        + "If you insist, use DROPP instead of DROP");
             }
             Catalog.getCurrentSystemInfo().dropBackends(dropBackendClause.getHostPortPairs());
         } else if (alterClause instanceof DecommissionBackendClause) {
