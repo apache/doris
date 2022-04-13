@@ -64,8 +64,16 @@ public:
 
         *from = _buf[_buf_pos];
         uint32_t range_size = 0;
-        uint32_t last_val = _buf[_buf_pos] - 1;
+        uint32_t last_val = _buf[_buf_pos] - 1; // this initial value just make first batch valid
 
+        // if array is contiguous sequence then the following conditions need to be met :
+        // a_0: x
+        // a_1: x+1
+        // a_2: x+2
+        // ... 
+        // a_p: x+p
+        // so we can just use (a_p-a_0)-p to check conditions
+        // and should notice the previous batch needs to be continuous with the current batch
         while (!_eof && range_size + _buf_size - _buf_pos <= max_range_size &&
                last_val + 1 == _buf[_buf_pos] &&
                _buf[_buf_size - 1] - _buf[_buf_pos] == _buf_size - 1 - _buf_pos) {
@@ -74,6 +82,7 @@ public:
             _read_next_batch();
         }
 
+        // promise remain range not will reach next batch
         if (!_eof && range_size < max_range_size && last_val + 1 == _buf[_buf_pos]) {
             do {
                 _buf_pos++;
