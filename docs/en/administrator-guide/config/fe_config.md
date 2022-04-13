@@ -192,16 +192,27 @@ Default：0
 
 With the above three parameters, Jetty's thread architecture model is very simple, divided into acceptors, selectors and workers three thread pools. Acceptors are responsible for accepting new connections, and then hand them over to selectors to process the unpacking of the HTTP message protocol, and finally workers process the request. The first two thread pools adopt a non-blocking model, and one thread can handle the read and write of many sockets, so the number of thread pools is small.
 
-For most projects, only 1-2 acceptors threads are required, and 2 to 4 selectors threads are sufficient. Workers are obstructive business logic, often have more database operations, and require a large number of threads. The specific number depends on the proportion of QPS and IO events of the application. The higher the QPS, the more threads are required, the higher the proportion of IO, the more threads waiting, and the more total threads required.
+For most projects, only 4 acceptors threads are required, and 2 to 4 selectors threads are sufficient. Workers are obstructive business logic, often have more database operations, and require a large number of threads. The specific number depends on the proportion of QPS and IO events of the application. The higher the QPS, the more threads are required, the higher the proportion of IO, the more threads waiting, and the more total threads required.
 
 Worker thread pool is not set by default, set according to your needs
 
+### jetty_threadPool_minThreads
+
+The minimum number of threads in the Jetty thread pool, the default is 20
+
+### jetty_threadPool_maxThreads
+
+The maximum number of threads in the Jetty thread pool, the default is 400
 
 ### jetty_server_max_http_post_size
 
 Default：100 * 1024 * 1024  （100MB）
 
 This is the maximum number of bytes of the file uploaded by the put or post method, the default value: 100MB
+
+### **`disable_mini_load`**
+
+Whether to disable the mini load data import method, the default：true  (Disabled)
 
 ### frontend_address
 
@@ -1684,6 +1695,28 @@ The value for thrift_client_timeout_ms is set to be larger than zero to prevent 
 Default：1024
 
 The backlog_num for mysql nio server, When you enlarge this backlog_num, you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
+
+### http_backlog_num
+
+Default：1024
+
+The backlog_num for netty http server, When you enlarge this backlog_num, you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
+
+### http_max_line_length
+
+Default：4096
+
+The max length of an HTTP URL. The unit of this configuration is BYTE. Defaults to 4096.
+
+###  http_max_header_size
+
+Default：8192
+
+The max size of allowed HTTP headers. The unit of this configuration is BYTE. Defaults to 8192.
+
+###  http_max_chunk_size
+
+Default：8192
 
 ### http_port
 
