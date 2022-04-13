@@ -147,7 +147,7 @@ TEST_F(TestByteBuffer, TestRef) {
 TEST_F(TestByteBuffer, TestMmap) {
     FileHandler file_handle;
     std::string file_name = ".test_byte_buffer";
-    OLAPStatus res = file_handle.open_with_mode(file_name, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
+    Status res = file_handle.open_with_mode(file_name, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
     EXPECT_EQ(Status::OK(), res);
 
     char buf[100];

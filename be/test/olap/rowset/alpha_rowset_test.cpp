@@ -185,7 +185,7 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetWriter) {
     EXPECT_EQ(Status::OK(),
               RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
     RowCursor row;
-    OLAPStatus res = row.init(tablet_schema);
+    Status res = row.init(tablet_schema);
     EXPECT_EQ(Status::OK(), res);
 
     int32_t field_0 = 10;
@@ -214,7 +214,7 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
               RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
 
     RowCursor row;
-    OLAPStatus res = row.init(tablet_schema);
+    Status res = row.init(tablet_schema);
     EXPECT_EQ(Status::OK(), res);
 
     int32_t field_0 = 10;

@@ -269,7 +269,7 @@ TEST_F(TestRowCursor, InitRowCursor) {
     TabletSchema tablet_schema;
     set_tablet_schema_for_init(&tablet_schema);
     RowCursor row;
-    OLAPStatus res = row.init(tablet_schema);
+    Status res = row.init(tablet_schema);
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(row.get_fixed_len(), 126);
     EXPECT_EQ(row.get_variable_len(), 20);
@@ -279,7 +279,7 @@ TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
     TabletSchema tablet_schema;
     set_tablet_schema_for_init(&tablet_schema);
     RowCursor row;
-    OLAPStatus res = row.init(tablet_schema, 5);
+    Status res = row.init(tablet_schema, 5);
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(row.get_fixed_len(), 23);
     EXPECT_EQ(row.get_variable_len(), 0);
@@ -297,7 +297,7 @@ TEST_F(TestRowCursor, InitRowCursorWithColIds) {
     }
 
     RowCursor row;
-    OLAPStatus res = row.init(tablet_schema, col_ids);
+    Status res = row.init(tablet_schema, col_ids);
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(row.get_fixed_len(), 63);
     EXPECT_EQ(row.get_variable_len(), 20);
@@ -315,7 +315,7 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     std::shared_ptr<Schema> schema = std::make_shared<Schema>(tablet_schema.columns(), columns);
 
     RowCursor row;
-    OLAPStatus res = row.init_scan_key(tablet_schema, scan_keys, schema);
+    Status res = row.init_scan_key(tablet_schema, scan_keys, schema);
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(row.get_fixed_len(), 34);
     EXPECT_EQ(row.get_variable_len(), 39);
@@ -334,7 +334,7 @@ TEST_F(TestRowCursor, EqualAndCompare) {
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor left;
-    OLAPStatus res = left.init(tablet_schema);
+    Status res = left.init(tablet_schema);
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(left.get_fixed_len(), 78);
     EXPECT_EQ(left.get_variable_len(), 20);
@@ -372,7 +372,7 @@ TEST_F(TestRowCursor, IndexCmp) {
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor left;
-    OLAPStatus res = left.init(tablet_schema, 2);
+    Status res = left.init(tablet_schema, 2);
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(left.get_fixed_len(), 22);
     EXPECT_EQ(left.get_variable_len(), 4);
@@ -413,7 +413,7 @@ TEST_F(TestRowCursor, FullKeyCmp) {
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
 
     RowCursor left;
-    OLAPStatus res = left.init(tablet_schema);
+    Status res = left.init(tablet_schema);
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(left.get_fixed_len(), 78);
     EXPECT_EQ(left.get_variable_len(), 20);
@@ -454,7 +454,7 @@ TEST_F(TestRowCursor, AggregateWithoutNull) {
 
     RowCursor row;
 
-    OLAPStatus res = row.init(tablet_schema);
+    Status res = row.init(tablet_schema);
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(row.get_fixed_len(), 78);
     EXPECT_EQ(row.get_variable_len(), 20);
@@ -518,7 +518,7 @@ TEST_F(TestRowCursor, AggregateWithNull) {
 
     RowCursor row;
 
-    OLAPStatus res = row.init(tablet_schema);
+    Status res = row.init(tablet_schema);
     EXPECT_EQ(res, Status::OK());
     EXPECT_EQ(row.get_fixed_len(), 78);
     EXPECT_EQ(row.get_variable_len(), 20);

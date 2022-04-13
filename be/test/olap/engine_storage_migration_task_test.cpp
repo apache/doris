@@ -157,7 +157,7 @@ public:
 TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    OLAPStatus res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request);
     EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();

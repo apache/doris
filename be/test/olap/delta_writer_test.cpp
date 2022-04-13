@@ -347,7 +347,7 @@ public:
 TEST_F(TestDeltaWriter, open) {
     TCreateTabletReq request;
     create_tablet_request(10003, 270068375, &request);
-    OLAPStatus res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request);
     EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -379,7 +379,7 @@ TEST_F(TestDeltaWriter, open) {
 TEST_F(TestDeltaWriter, write) {
     TCreateTabletReq request;
     create_tablet_request(10004, 270068376, &request);
-    OLAPStatus res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request);
     EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
@@ -498,7 +498,7 @@ TEST_F(TestDeltaWriter, write) {
 TEST_F(TestDeltaWriter, sequence_col) {
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    OLAPStatus res = k_engine->create_tablet(request);
+    Status res = k_engine->create_tablet(request);
     EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();

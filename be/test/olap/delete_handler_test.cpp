@@ -257,7 +257,7 @@ protected:
 
         // 1. Prepare for query split key.
         // create base tablet
-        OLAPStatus res = Status::OK();
+        Status res = Status::OK();
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         EXPECT_EQ(Status::OK(), res);
@@ -434,7 +434,7 @@ protected:
 
         // 1. Prepare for query split key.
         // create base tablet
-        OLAPStatus res = Status::OK();
+        Status res = Status::OK();
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         EXPECT_EQ(Status::OK(), res);
@@ -459,7 +459,7 @@ protected:
 };
 
 TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
-    OLAPStatus res;
+    Status res;
     std::vector<TCondition> conditions;
 
     // 测试数据中, k1,k2,k3,k4类型分别为int8, int16, int32, int64
@@ -580,7 +580,7 @@ TEST_F(TestDeleteConditionHandler2, ValidConditionValue) {
 }
 
 TEST_F(TestDeleteConditionHandler2, InvalidConditionValue) {
-    OLAPStatus res;
+    Status res;
     std::vector<TCondition> conditions;
 
     // 测试k1的值越上界，k1类型为int8
@@ -809,7 +809,7 @@ protected:
 
         // 1. Prepare for query split key.
         // create base tablet
-        OLAPStatus res = Status::OK();
+        Status res = Status::OK();
         set_default_create_tablet_request(&_create_tablet);
         res = k_engine->create_tablet(_create_tablet);
         EXPECT_EQ(Status::OK(), res);
@@ -840,7 +840,7 @@ protected:
 };
 
 TEST_F(TestDeleteHandler, InitSuccess) {
-    OLAPStatus res;
+    Status res;
     std::vector<TCondition> conditions;
 
     // 往头文件中添加过滤条件
@@ -926,7 +926,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
 // 测试一个过滤条件包含的子条件之间是and关系,
 // 即只有满足一条过滤条件包含的所有子条件，这条数据才会被过滤
 TEST_F(TestDeleteHandler, FilterDataSubconditions) {
-    OLAPStatus res;
+    Status res;
     std::vector<TCondition> conditions;
 
     // 往Header中添加过滤条件
@@ -987,7 +987,7 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
 // 测试多个过滤条件之间是or关系，
 // 即如果存在多个过滤条件，会一次检查数据是否符合这些过滤条件；只要有一个过滤条件符合，则过滤数据
 TEST_F(TestDeleteHandler, FilterDataConditions) {
-    OLAPStatus res;
+    Status res;
     std::vector<TCondition> conditions;
 
     // 往Header中添加过滤条件
@@ -1067,7 +1067,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
 
 // 测试在过滤时，版本号小于数据版本的过滤条件将不起作用
 TEST_F(TestDeleteHandler, FilterDataVersion) {
-    OLAPStatus res;
+    Status res;
     std::vector<TCondition> conditions;
 
     // 往Header中添加过滤条件
