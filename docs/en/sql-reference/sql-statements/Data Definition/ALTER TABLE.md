@@ -71,6 +71,7 @@ under the License.
             1) The following attributes of the modified partition are currently supported.
                 - storage_medium
                 - storage_cooldown_time
+                - remote_storage_cooldown_time
                 - replication_num 
                 — in_memory
             2) For single-partition tables, partition_name is the same as the table name.

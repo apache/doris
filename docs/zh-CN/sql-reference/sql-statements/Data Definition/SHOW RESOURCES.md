@@ -25,30 +25,32 @@ under the License.
 -->
 
 # SHOW RESOURCES
-## description
+
+## Description
 
     该语句用于展示用户有使用权限的资源。普通用户仅能展示有使用权限的资源，root 或 admin 用户会展示所有的资源。
     
-    语法
+    语法:
     
         SHOW RESOURCES
         [
             WHERE 
             [NAME [ = "your_resource_name" | LIKE "name_matcher"]]
-            [RESOURCETYPE = ["SPARK"]]
+            [RESOURCETYPE = ["[spark|odbc_catalog|s3]"]]
         ]
         [ORDER BY ...]
         [LIMIT limit][OFFSET offset];
         
      说明：
-        1) 如果使用 NAME LIKE，则会匹配RESOURCES的Name包含 name_matcher的Resource
+        1) 如果使用 NAME LIKE，则会匹配 RESOURCES 的 Name 包含 name_matcher 的 Resource
         2) 如果使用 NAME = ，则精确匹配指定的 Name
-        3) 如果指定了RESOURCETYPE，则匹配对应的Resrouce类型
+        3) 如果指定了 RESOURCETYPE，则匹配对应的 Resrouce 类型
         4) 可以使用 ORDER BY 对任意列组合进行排序
         5) 如果指定了 LIMIT，则显示 limit 条匹配记录。否则全部显示
-        6) 如果指定了 OFFSET，则从偏移量offset开始显示查询结果。默认情况下偏移量为0。
+        6) 如果指定了 OFFSET，则从偏移量 offset 开始显示查询结果。默认情况下偏移量为 0。
 
-## example
+## Example
+
     1. 展示当前用户拥有权限的所有Resource
         SHOW RESOURCES;
     
@@ -60,5 +62,5 @@ under the License.
 
 
 ## keyword
-    SHOW RESOURCES
 
+    SHOW RESOURCES, RESOURCES

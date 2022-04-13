@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DROP RESOURCE",
+    "title": "ALTER RESOURCE",
     "language": "zh-CN"
 }
 ---
@@ -24,21 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DROP RESOURCE
+# ALTER RESOURCE
 
 ## Description
     
-    该语句用于删除一个已有的资源。仅 root 或 admin 用户可以删除资源。
+    该语句用于修改一个已有的资源。仅 root 或 admin 用户可以修改资源。
     语法：
-        DROP RESOURCE 'resource_name'
+        ALTER RESOURCE 'resource_name'
+        PROPERTIES ("key"="value", ...);
 
-    注意：正在使用的 ODBC/S3 资源无法删除。
+    注意：resource type 不支持修改。
 
 ## Example
     
-    1. 删除名为 spark0 的 Spark 资源：
-        DROP RESOURCE 'spark0';
+    1. 修改名为 spark0 的 Spark 资源的工作目录：
+        ALTER RESOURCE 'spark0' PROPERTIES ("working_dir" = "hdfs://127.0.0.1:10000/tmp/doris_new");
+
+    2. 修改名为 remote_s3 的 S3 资源的最大连接数：
+        ALTER RESOURCE 'remote_s3' PROPERTIES ("s3_max_connections" = "100");
 
 ## keyword
 
-    DROP, RESOURCE
+    ALTER, RESOURCE

@@ -19,12 +19,14 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -56,7 +58,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_REPLICATION_ALLOCATION = "replication_allocation";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
-    public static final String PROPERTIES_STORAGE_COLDOWN_TIME = "storage_cooldown_time";
+    public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
+    public static final String PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME = "remote_storage_cooldown_time";
     // for 1.x -> 2.x migration
     public static final String PROPERTIES_VERSION_INFO = "version_info";
     // for restore
@@ -85,6 +88,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
+    public static final String PROPERTIES_REMOTE_STORAGE_RESOURCE = "remote_storage_resource";
+
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
     public static final String PROPERTIES_STRICT_RANGE = "strict_range";
@@ -105,15 +110,19 @@ public class PropertyAnalyzer {
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
-        if (properties == null) {
+        if (properties == null || properties.isEmpty()) {
             return oldDataProperty;
         }
 
         TStorageMedium storageMedium = null;
-        long coolDownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        long cooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        String remoteStorageResourceName = "";
+        long remoteCooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
 
         boolean hasMedium = false;
         boolean hasCooldown = false;
+        boolean hasRemoteStorageResource = false;
+        boolean hasRemoteCooldown = false;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
@@ -126,42 +135,83 @@ public class PropertyAnalyzer {
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
-            } else if (!hasCooldown && key.equalsIgnoreCase(PROPERTIES_STORAGE_COLDOWN_TIME)) {
-                hasCooldown = true;
+            } else if (!hasCooldown && key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
-                coolDownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                cooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                if (cooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS) {
+                    hasCooldown = true;
+                }
+            } else if (!hasRemoteStorageResource && key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
+                if (!Strings.isNullOrEmpty(value)) {
+                    hasRemoteStorageResource = true;
+                    remoteStorageResourceName = value;
+                }
+            } else if (!hasRemoteCooldown && key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME)) {
+                DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
+                remoteCooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                if (remoteCooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS) {
+                    hasRemoteCooldown = true;
+                }
             }
         } // end for properties
+
+        // Check properties
 
         if (!hasCooldown && !hasMedium) {
             return oldDataProperty;
         }
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
-        properties.remove(PROPERTIES_STORAGE_COLDOWN_TIME);
+        properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
+        properties.remove(PROPERTIES_REMOTE_STORAGE_RESOURCE);
+        properties.remove(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME);
+
 
         if (hasCooldown && !hasMedium) {
             throw new AnalysisException("Invalid data property. storage medium property is not found");
         }
 
         if (storageMedium == TStorageMedium.HDD && hasCooldown) {
-            throw new AnalysisException("Can not assign cooldown timestamp to HDD storage medium");
+            cooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+            LOG.info("Can not assign cool down timestamp to HDD storage medium, ignore user setting.");
+            hasCooldown = false;
         }
 
         long currentTimeMs = System.currentTimeMillis();
         if (storageMedium == TStorageMedium.SSD && hasCooldown) {
-            if (coolDownTimeStamp <= currentTimeMs) {
-                throw new AnalysisException("Cooldown time should later than now");
+            if (cooldownTimeStamp <= currentTimeMs) {
+                throw new AnalysisException("Cool down time should later than now");
             }
         }
 
         if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
             // set default cooldown time
-            coolDownTimeStamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
+            cooldownTimeStamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
+        }
+
+        // check remote_storage_resource and remote_storage_cooldown_time
+        if ((!hasRemoteCooldown && hasRemoteStorageResource) || (hasRemoteCooldown && !hasRemoteStorageResource)) {
+            throw new AnalysisException("Invalid data property, " +
+                    "`remote_storage_resource` and `remote_storage_cooldown_time` must be used together.");
+        }
+        if (hasRemoteStorageResource && hasRemoteCooldown) {
+            // check remote resource
+            Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(remoteStorageResourceName);
+            if (resource == null) {
+                throw new AnalysisException("Invalid data property, " +
+                        "`remote_storage_resource` [" + remoteStorageResourceName + "] dose not exist.");
+            }
+            // check remote storage cool down timestamp
+            if (remoteCooldownTimeStamp <= currentTimeMs) {
+                throw new AnalysisException("Remote storage cool down time should later than now");
+            }
+            if (hasCooldown && (remoteCooldownTimeStamp <= cooldownTimeStamp)) {
+                throw new AnalysisException("`remote_storage_cooldown_time` should later than `storage_cooldown_time`.");
+            }
         }
 
         Preconditions.checkNotNull(storageMedium);
-        return new DataProperty(storageMedium, coolDownTimeStamp);
+        return new DataProperty(storageMedium, cooldownTimeStamp, remoteStorageResourceName, remoteCooldownTimeStamp);
     }
     
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
@@ -419,6 +469,21 @@ public class PropertyAnalyzer {
             return Boolean.parseBoolean(val);
         }
         return defaultVal;
+    }
+
+    // analyze remote storage resource
+    public static String analyzeRemoteStorageResource(Map<String, String> properties) throws AnalysisException {
+        String resourceName = "";
+        if (properties != null && properties.containsKey(PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
+            resourceName = properties.get(PROPERTIES_REMOTE_STORAGE_RESOURCE);
+            // check resource existence
+            Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
+            if (resource == null) {
+                throw new AnalysisException("Resource does not exist, name: " + resourceName);
+            }
+        }
+
+        return resourceName;
     }
 
     // analyze property like : "type" = "xxx";
