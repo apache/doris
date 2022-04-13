@@ -26,9 +26,32 @@ under the License.
 
 ## ALTER-SYSTEM-DROP-FOLLOWER
 
+### Name
+
+ALTER SYSTEM DROP FOLLOWER
+
 ### Description
 
+The change statement is to increase the node of the FOLLOWER role of FRONTEND, (only for administrators!)
+
+grammar:
+
+```sql
+ALTER SYSTEM DROP FOLLOWER "follower_host:edit_log_port"
+````
+
+illustrate:
+
+1. host can be a hostname or an ip address
+2. edit_log_port : edit_log_port in its configuration file fe.conf
+
 ### Example
+
+1. Add a FOLLOWER node
+
+    ```sql
+    ALTER SYSTEM DROP FOLLOWER "host_ip:9010"
+    ````
 
 ### Keywords
 

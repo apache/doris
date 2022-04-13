@@ -1,8 +1,9 @@
 ---
 {
-    "title": "ALTER-SYSTEM-DROP-BACKEND",
+    "title": "ALTER-SYSTEM-MODIFY-BACKEND",
     "language": "zh-CN"
 }
+
 ---
 
 <!--
@@ -24,39 +25,53 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ALTER-SYSTEM-DROP-BACKEND
+## ALTER-SYSTEM-MODIFY-BACKEND
 
 ### Name
 
-ALTER SYSTEM DROP BACKEND
+ALTER SYSTEM MKDIFY BACKEND
 
 ### Description
 
-该语句用于删除 BACKEND 节点（仅管理员使用！）
+修改 BE 节点属性（仅管理员使用！）
 
 语法：
 
 ```sql
-ALTER SYSTEM DROP BACKEND "host:heartbeat_port"[,"host:heartbeat_port"...]
+ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
 ```
 
-说明：
+ 说明：
 
 1. host 可以是主机名或者ip地址
 2. heartbeat_port 为该节点的心跳端口
-3. 增加和删除节点为同步操作。这两种操作不考虑节点上已有的数据，节点直接从元数据中删除，请谨慎使用。
+3. 修改 BE 节点属性目前支持以下属性：
+
+- tag.location：资源标签
+- disable_query: 查询禁用属性
+- disable_load: 导入禁用属性        
 
 ### Example
 
-1. 删除两个节点
+1. 修改 BE 的资源标签
 
    ```sql
-   ALTER SYSTEM DROP BACKEND "host1:port", "host2:port";
+   ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
    ```
 
+2. 修改 BE 的查询禁用属性
+   
+   ```sql
+   ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_query" = "true");
+   ```
+3. 修改 BE 的导入禁用属性
+   
+   ```sql
+   ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_load" = "true");
+   ```
 ### Keywords
 
-    ALTER, SYSTEM, DROP, BACKEND
+    ALTER, SYSTEM, ADD, BACKEND
 
 ### Best Practice
 

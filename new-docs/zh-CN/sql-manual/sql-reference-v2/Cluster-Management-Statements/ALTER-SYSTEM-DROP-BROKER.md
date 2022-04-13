@@ -1,8 +1,9 @@
 ---
 {
-    "title": "ALTER-SYSTEM-DROP-OBSERVER",
-    "language": "en"
+    "title": "ALTER-SYSTEM-DROP-BROKER",
+    "language": "zh-CN"
 }
+
 ---
 
 <!--
@@ -24,38 +25,42 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ALTER-SYSTEM-DROP-OBSERVER
+## ALTER-SYSTEM-DROP-BROKER
 
 ### Name
 
-ALTER SYSTEM DROP OBSERVER
+ALTER SYSTEM DROP BROKER
 
 ### Description
 
-The change statement is to increase the node of the OBSERVER role of FRONTEND, (only for administrators!)
+该语句是删除 BROKER 节点，（仅限管理员使用）
 
-grammar:
+语法：
 
 ```sql
-ALTER SYSTEM DROP OBSERVER "follower_host:edit_log_port"
-````
-
-illustrate:
-
-1. host can be a hostname or an ip address
-2. edit_log_port : edit_log_port in its configuration file fe.conf
+删除所有 Broker
+ALTER SYSTEM DROP ALL BROKER broker_name
+删除某一个 Broker 节点
+ALTER SYSTEM DROP BROKER broker_name "host:port"[,"host:port"...];
+```
 
 ### Example
 
-1. Add a FOLLOWER node
+1. 删除所有 Broker
 
-    ```sql
-    ALTER SYSTEM DROP OBSERVER "host_ip:9010"
-    ````
+   ```sql
+   ALTER SYSTEM DROP ALL BROKER broker_name
+   ```
+
+2. 删除某一个 Broker 节点
+
+   ```sql
+   ALTER SYSTEM DROP BROKER broker_name "host:port"[,"host:port"...];
+   ```
 
 ### Keywords
 
-    ALTER, SYSTEM, DROP, OBSERVER
+    ALTER, SYSTEM, DROP, FOLLOWER
 
 ### Best Practice
 
