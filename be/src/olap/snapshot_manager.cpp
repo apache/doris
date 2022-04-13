@@ -31,7 +31,6 @@
 #include "gen_cpp/Types_constants.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_converter.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_writer.h"
@@ -448,19 +447,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
         // Clear it for safety reason.
         // Whether it is incremental or full snapshot, rowset information is stored in rs_meta.
         new_tablet_meta->revise_rs_metas(std::move(rs_metas));
-
-        if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION1) {
-            // convert beta rowset to alpha rowset
-            res = _convert_beta_rowsets_to_alpha(new_tablet_meta, new_tablet_meta->all_rs_metas(),
-                                                 schema_full_path_desc);
-            if (res != OLAP_SUCCESS) {
-                break;
-            }
-            res = new_tablet_meta->save(header_path);
-            LOG(INFO) << "finish convert beta to alpha, res:" << res
-                      << ", tablet:" << new_tablet_meta->tablet_id()
-                      << ", schema hash:" << new_tablet_meta->schema_hash();
-        } else if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
+        
+        if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);
         } else {
             res = OLAP_ERR_INVALID_SNAPSHOT_VERSION;
@@ -489,44 +477,6 @@ OLAPStatus SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_ta
         *snapshot_path = snapshot_id;
     }
 
-    return res;
-}
-
-OLAPStatus SnapshotManager::_convert_beta_rowsets_to_alpha(
-        const TabletMetaSharedPtr& new_tablet_meta,
-        const std::vector<RowsetMetaSharedPtr>& rowset_metas, const FilePathDesc& dst_path_desc) {
-    OLAPStatus res = OLAP_SUCCESS;
-    RowsetConverter rowset_converter(new_tablet_meta);
-    std::vector<RowsetMetaSharedPtr> new_rowset_metas;
-    bool modified = false;
-    for (auto& rowset_meta : rowset_metas) {
-        if (rowset_meta->rowset_type() == BETA_ROWSET) {
-            modified = true;
-            RowsetMetaPB rowset_meta_pb;
-            auto st = rowset_converter.convert_beta_to_alpha(rowset_meta, dst_path_desc,
-                                                             &rowset_meta_pb);
-            if (st != OLAP_SUCCESS) {
-                res = st;
-                LOG(WARNING) << "convert beta to alpha failed"
-                             << ", tablet_id:" << new_tablet_meta->tablet_id()
-                             << ", schema hash:" << new_tablet_meta->schema_hash()
-                             << ", src rowset:" << rowset_meta->rowset_id() << ", error:" << st;
-                break;
-            }
-            RowsetMetaSharedPtr new_rowset_meta(new AlphaRowsetMeta());
-            bool ret = new_rowset_meta->init_from_pb(rowset_meta_pb);
-            if (!ret) {
-                res = OLAP_ERR_INIT_FAILED;
-                break;
-            }
-            new_rowset_metas.push_back(new_rowset_meta);
-        } else {
-            new_rowset_metas.push_back(rowset_meta);
-        }
-    }
-    if (res == OLAP_SUCCESS && modified) {
-        new_tablet_meta->revise_rs_metas(std::move(new_rowset_metas));
-    }
     return res;
 }
 
