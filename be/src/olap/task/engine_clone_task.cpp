@@ -287,11 +287,10 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
     for (auto& src : _clone_req.src_backends) {
         // Make snapshot in remote olap engine
         *src_host = src;
-        int32_t snapshot_version = 0;
         // make snapshot
         auto st = _make_snapshot(src.host, src.be_port, _clone_req.tablet_id,
                                  _clone_req.schema_hash, timeout_s, missed_versions, snapshot_path,
-                                 allow_incremental_clone, &snapshot_version);
+                                 allow_incremental_clone);
         if (st.ok()) {
             LOG(INFO) << "success to make snapshot. ip=" << src.host << ", port=" << src.be_port
                       << ", tablet=" << _clone_req.tablet_id
@@ -361,8 +360,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
 Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId tablet_id,
                                        TSchemaHash schema_hash, int timeout_s,
                                        const std::vector<Version>* missed_versions,
-                                       std::string* snapshot_path, bool* allow_incremental_clone,
-                                       int32_t* snapshot_version) {
+                                       std::string* snapshot_path, bool* allow_incremental_clone) {
     TSnapshotRequest request;
     request.__set_tablet_id(tablet_id);
     request.__set_schema_hash(schema_hash);
@@ -402,7 +400,6 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
         // should add a symbol to indicate it.
         *allow_incremental_clone = result.allow_incremental_clone;
     }
-    *snapshot_version = result.snapshot_version;
     return Status::OK();
 }
 
