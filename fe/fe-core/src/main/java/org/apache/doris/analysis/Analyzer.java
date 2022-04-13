@@ -666,10 +666,23 @@ public class Analyzer {
         return globalState.mvExprRewriter;
     }
 
+    /**
+     * Only the top-level `query vec` value of the query analyzer represents the value of the entire query.
+     * Other sub-analyzers cannot represent the value of `query vec`.
+     * @return
+     */
     public boolean enableQueryVec() {
-        return globalState.enableQueryVec;
+        if (ancestors.isEmpty()) {
+            return globalState.enableQueryVec;
+        } else {
+            return ancestors.get(ancestors.size() - 1).enableQueryVec();
+        }
     }
 
+    /**
+     * Since analyzer cannot get sub-analyzers from top to bottom.
+     * So I can only set the `query vec` variable of the top level analyzer of query to true.
+     */
     public void disableQueryVec() {
         globalState.enableQueryVec = false;
     }
