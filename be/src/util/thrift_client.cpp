@@ -21,7 +21,6 @@
 #include <string>
 
 #include "gutil/strings/substitute.h"
-#include "util/monotime.h"
 
 namespace doris {
 
@@ -69,7 +68,7 @@ Status ThriftClientImpl::open_with_retry(int num_tries, int wait_ms) {
             LOG(INFO) << "(Attempt " << try_count << " of " << num_tries << ")";
         }
 
-        SleepFor(MonoDelta::FromMilliseconds(wait_ms));
+        std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
     }
 
     return status;

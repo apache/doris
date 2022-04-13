@@ -78,8 +78,8 @@ public:
 
             timer.start();
             if (timeout_ms != 0) {
-                auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-                if (_get_cv.wait_until(unique_lock, deadline) == std::cv_status::timeout) {
+                if (_get_cv.wait_for(unique_lock, std::chrono::milliseconds(timeout_ms)) ==
+                    std::cv_status::timeout) {
                     return false;
                 }
             } else {

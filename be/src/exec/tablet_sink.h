@@ -111,7 +111,7 @@ public:
                 brpc::Join(cid);
             }
             if (_packet_in_flight) {
-                SleepFor(MonoDelta::FromMilliseconds(10));
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
     }

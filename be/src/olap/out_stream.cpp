@@ -21,7 +21,6 @@
 #include "olap/file_helper.h"
 #include "olap/utils.h"
 #include "util/mem_util.hpp"
-#include "util/monotime.h"
 
 namespace doris {
 
@@ -228,9 +227,9 @@ OLAPStatus OutStream::_spill() {
 
             _spilled_bytes += sizeof(StreamHead) + output_bytes;
         } else {
-             // directly output _current
-             // If there is _compress before, output m_compress first
-             // Note that there must be no _overflow at this time
+            // directly output _current
+            // If there is _compress before, output m_compress first
+            // Note that there must be no _overflow at this time
             _compressed->set_position(head_pos);
 
             if (head_pos != 0) {
@@ -252,11 +251,11 @@ OLAPStatus OutStream::write(const char* buffer, uint64_t length) {
     uint64_t remain = length;
 
     while (remain > 0) {
-         // The reason why it was thrown in is because in the case of compression, _current will only be created once
-         // It has been multiplexing since then, and the output is compress
-         // In the case of uncompressed, current will be put into the list and cannot be reused. The reason is
-         // If it is reused, the previous content will be modified, so it needs to be redistributed.
-         // Only allocate once and the second block will hang up
+        // The reason why it was thrown in is because in the case of compression, _current will only be created once
+        // It has been multiplexing since then, and the output is compress
+        // In the case of uncompressed, current will be put into the list and cannot be reused. The reason is
+        // If it is reused, the previous content will be modified, so it needs to be redistributed.
+        // Only allocate once and the second block will hang up
         if (nullptr == _current) {
             res = _create_new_input_buffer();
             if (OLAP_SUCCESS != res) {
@@ -360,7 +359,7 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle, uint32_t write_mby
             if (sleep_time > 0) {
                 VLOG_TRACE << "sleep to limit merge speed. time=" << sleep_time
                            << ", bytes=" << total_stream_len;
-                SleepFor(MonoDelta::FromMicroseconds(sleep_time));
+                std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
             }
         }
     }

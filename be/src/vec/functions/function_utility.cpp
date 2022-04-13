@@ -14,8 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#include <thread>
 
-#include "util/monotime.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
@@ -60,7 +60,7 @@ public:
                     null_map_column->insert(1);
                 } else {
                     int seconds = data_column->get_data()[i];
-                    SleepFor(MonoDelta::FromSeconds(seconds));
+                    std::this_thread::sleep_for(std::chrono::seconds(seconds));
                     res_column->insert(1);
                     null_map_column->insert(0);
                 }
@@ -73,7 +73,7 @@ public:
 
             for (int i = 0; i < input_rows_count; i++) {
                 int seconds = data_column->get_element(i);
-                SleepFor(MonoDelta::FromSeconds(seconds));
+                std::this_thread::sleep_for(std::chrono::seconds(seconds));
                 res_column->insert(1);
             }
 

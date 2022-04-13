@@ -21,8 +21,6 @@
 
 #include <thread>
 
-#include "util/monotime.h"
-
 namespace doris {
 
 class StreamLoadPipeTest : public testing::Test {
@@ -210,7 +208,7 @@ TEST_F(StreamLoadPipeTest, cancel) {
             char buf = '0' + (k++ % 10);
             pipe.append(&buf, 1);
         }
-        SleepFor(MonoDelta::FromMilliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         pipe.cancel("test");
     };
     std::thread t1(appender);
@@ -253,7 +251,7 @@ TEST_F(StreamLoadPipeTest, close) {
     };
     std::thread t1(appender);
 
-    SleepFor(MonoDelta::FromMilliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     pipe.close();
 

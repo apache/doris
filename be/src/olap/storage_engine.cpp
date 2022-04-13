@@ -1024,13 +1024,13 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
         std::vector<TabletSharedPtr> related_tablets;
-        std::vector<UniqueWriteLock> wrlocks;
+        std::vector<std::unique_lock<std::shared_mutex>> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
                     _tablet_manager->get_tablet(tablet_info.tablet_id);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
-                wrlocks.push_back(UniqueWriteLock(tablet->get_header_lock()));
+                wrlocks.push_back(std::unique_lock<std::shared_mutex>(tablet->get_header_lock()));
             } else {
                 LOG(WARNING) << "could not get tablet before prepare tabletid: "
                              << tablet_info.tablet_id;
@@ -1055,13 +1055,13 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
         std::vector<TabletSharedPtr> related_tablets;
-        std::vector<UniqueWriteLock> wrlocks;
+        std::vector<std::unique_lock<std::shared_mutex>> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
                     _tablet_manager->get_tablet(tablet_info.tablet_id);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
-                wrlocks.push_back(UniqueWriteLock(tablet->get_header_lock()));
+                wrlocks.push_back(std::unique_lock<std::shared_mutex>(tablet->get_header_lock()));
             } else {
                 LOG(WARNING) << "could not get tablet before finish tabletid: "
                              << tablet_info.tablet_id;

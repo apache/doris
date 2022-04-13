@@ -31,7 +31,6 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "util/metrics.h"
-#include "util/mutex.h"
 
 namespace doris {
 
@@ -53,7 +52,7 @@ public:
     void stop_bg_worker();
 
     const std::string& path() const { return _path_desc.filepath; }
-    const FilePathDesc& path_desc() const { return _path_desc;}
+    const FilePathDesc& path_desc() const { return _path_desc; }
     size_t path_hash() const { return _path_hash; }
     bool is_used() const { return _is_used; }
     void set_is_used(bool is_used) { _is_used = is_used; }

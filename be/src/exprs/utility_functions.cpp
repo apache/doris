@@ -17,11 +17,12 @@
 
 #include "exprs/utility_functions.h"
 
+#include <thread>
+
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
 #include "runtime/tuple_row.h"
 #include "util/debug_util.h"
-#include "util/monotime.h"
 
 namespace doris {
 
@@ -35,7 +36,7 @@ BooleanVal UtilityFunctions::sleep(FunctionContext* ctx, const IntVal& seconds) 
     if (seconds.is_null) {
         return BooleanVal::null();
     }
-    SleepFor(MonoDelta::FromSeconds(seconds.val));
+    std::this_thread::sleep_for(std::chrono::seconds(seconds.val));
     return BooleanVal(true);
 }
 

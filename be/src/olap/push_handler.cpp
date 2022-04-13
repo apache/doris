@@ -87,7 +87,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    ReadLock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
+    std::shared_lock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
     if (!base_migration_rlock.owns_lock()) {
         return OLAP_ERR_RWLOCK_ERROR;
     }
@@ -119,9 +119,9 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
             DeletePredicatePB del_pred;
             DeleteConditionHandler del_cond_handler;
             {
-                ReadLock rdlock(tablet_var.tablet->get_header_lock());
-                res = del_cond_handler.generate_delete_predicate(tablet_var.tablet->tablet_schema(),
-                                                                 request.delete_conditions, &del_pred);
+                std::shared_lock rdlock(tablet_var.tablet->get_header_lock());
+                res = del_cond_handler.generate_delete_predicate(
+                        tablet_var.tablet->tablet_schema(), request.delete_conditions, &del_pred);
                 del_preds.push(del_pred);
             }
             if (res != OLAP_SUCCESS) {
@@ -298,7 +298,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
                     if (reader->eof()) {
                         break;
                     }
-                    //if read row but fill tuple fails, 
+                    //if read row but fill tuple fails,
                     if (!reader->is_fill_tuple()) {
                         break;
                     }

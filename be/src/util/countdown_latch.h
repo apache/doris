@@ -18,11 +18,12 @@
 #ifndef DORIS_BE_SRC_UTIL_COUNTDOWN_LATCH_H
 #define DORIS_BE_SRC_UTIL_COUNTDOWN_LATCH_H
 
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
+
 #include "common/logging.h"
 #include "olap/olap_define.h"
-#include "util/condition_variable.h"
-#include "util/monotime.h"
-#include "util/mutex.h"
 
 namespace doris {
 
@@ -32,27 +33,27 @@ namespace doris {
 class CountDownLatch {
 public:
     // Initialize the latch with the given initial count.
-    explicit CountDownLatch(int count) : cond_(&lock_), count_(count) {}
+    explicit CountDownLatch(int count) : _count(count) {}
 
     // Decrement the count of this latch by 'amount'
     // If the new count is less than or equal to zero, then all waiting threads are woken up.
     // If the count is already zero, this has no effect.
     void count_down(int amount) {
         DCHECK_GE(amount, 0);
-        MutexLock lock(&lock_);
-        if (count_ == 0) {
+        std::lock_guard<std::mutex> lock(_lock);
+        if (_count == 0) {
             return;
         }
 
-        if (amount >= count_) {
-            count_ = 0;
+        if (amount >= _count) {
+            _count = 0;
         } else {
-            count_ -= amount;
+            _count -= amount;
         }
 
-        if (count_ == 0) {
+        if (_count == 0) {
             // Latch has triggered.
-            cond_.notify_all();
+            _cond.notify_all();
         }
     }
 
@@ -63,64 +64,59 @@ public:
 
     // Wait until the count on the latch reaches zero.
     // If the count is already zero, this returns immediately.
-    void wait() const {
-        MutexLock lock(&lock_);
-        while (count_ > 0) {
-            cond_.wait();
+    void wait() {
+        std::unique_lock<std::mutex> lock(_lock);
+        while (_count > 0) {
+            _cond.wait(lock);
         }
-    }
-
-    // Waits for the count on the latch to reach zero, or until 'until' time is reached.
-    // Returns true if the count became zero, false otherwise.
-    bool wait_until(const MonoTime& when) const {
-        MutexLock lock(&lock_);
-        while (count_ > 0) {
-            if (!cond_.wait_until(when)) {
-                return false;
-            }
-        }
-        return true;
     }
 
     // Waits for the count on the latch to reach zero, or until 'delta' time elapses.
     // Returns true if the count became zero, false otherwise.
-    bool wait_for(const MonoDelta& delta) const { return wait_until(MonoTime::Now() + delta); }
+    template <class Rep, class Period>
+    bool wait_for(const std::chrono::duration<Rep, Period>& delta) {
+        std::unique_lock lock(_lock);
+        return _cond.wait_for(lock, delta, [&]() { return _count <= 0; });
+    }
 
     // Reset the latch with the given count. This is equivalent to reconstructing
     // the latch. If 'count' is 0, and there are currently waiters, those waiters
     // will be triggered as if you counted down to 0.
     void reset(uint64_t count) {
-        MutexLock lock(&lock_);
-        count_ = count;
-        if (count_ == 0) {
+        std::lock_guard<std::mutex> lock(_lock);
+        _count = count;
+        if (_count == 0) {
             // Awake any waiters if we reset to 0.
-            cond_.notify_all();
+            _cond.notify_all();
         }
     }
 
     uint64_t count() const {
-        MutexLock lock(&lock_);
-        return count_;
+        std::lock_guard<std::mutex> lock(_lock);
+        return _count;
     }
 
 private:
-    mutable Mutex lock_;
-    ConditionVariable cond_;
+    mutable std::mutex _lock;
+    mutable std::condition_variable _cond;
 
-    uint64_t count_;
-    DISALLOW_COPY_AND_ASSIGN(CountDownLatch);
+    uint64_t _count;
+
+    CountDownLatch(const CountDownLatch&) = delete;
+    void operator=(const CountDownLatch&) = delete;
 };
 
 // Utility class which calls latch->CountDown() in its destructor.
 class CountDownOnScopeExit {
 public:
-    explicit CountDownOnScopeExit(CountDownLatch* latch) : latch_(latch) {}
-    ~CountDownOnScopeExit() { latch_->count_down(); }
+    explicit CountDownOnScopeExit(CountDownLatch* latch) : _latch(latch) {}
+    ~CountDownOnScopeExit() { _latch->count_down(); }
 
 private:
-    DISALLOW_COPY_AND_ASSIGN(CountDownOnScopeExit);
+    CountDownLatch* _latch;
 
-    CountDownLatch* latch_;
+    CountDownOnScopeExit(const CountDownOnScopeExit&) = delete;
+    void operator=(const CountDownOnScopeExit&) = delete;
 };
 
 } // namespace doris

@@ -20,9 +20,9 @@
 #include <gtest/gtest.h>
 
 #include <functional>
+#include <thread>
 
 #include "gutil/ref_counted.h"
-#include "util/monotime.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 
@@ -47,7 +47,7 @@ TEST(TestCountDownLatch, TestLatch) {
     // Decrement the count by 1 in another thread, this should not fire the
     // latch.
     EXPECT_TRUE(pool->submit_func(std::bind(decrement_latch, &latch, 1)).ok());
-    EXPECT_FALSE(latch.wait_for(MonoDelta::FromMilliseconds(200)));
+    EXPECT_FALSE(latch.wait_for(std::chrono::milliseconds(200)));
     EXPECT_EQ(999, latch.count());
 
     // Now decrement by 1000 this should decrement to 0 and fire the latch
@@ -65,7 +65,7 @@ TEST(TestCountDownLatch, TestResetToZero) {
     EXPECT_TRUE(Thread::create("test", "cdl-test", &CountDownLatch::wait, &cdl, &t).ok());
 
     // Sleep for a bit until it's likely the other thread is waiting on the latch.
-    SleepFor(MonoDelta::FromMilliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     cdl.reset(0);
     t->join();
 }

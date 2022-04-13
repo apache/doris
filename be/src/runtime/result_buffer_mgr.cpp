@@ -162,7 +162,7 @@ void ResultBufferMgr::cancel_thread() {
         for (int i = 0; i < query_to_cancel.size(); ++i) {
             cancel(query_to_cancel[i]);
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(1)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 
     LOG(INFO) << "result buffer manager cancel thread finish.";
 }

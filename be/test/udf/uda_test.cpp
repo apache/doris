@@ -192,7 +192,7 @@ BigIntVal XorFinalize(FunctionContext* context, const BigIntVal& val) {
 // the return type is bigint
 void DistinctEstimateInit(FunctionContext* context, StringVal* val) {
     // Since this is known, this will be allocated to 256 bytes.
-    assert(val->len == 256);
+    EXPECT_EQ(val->len, 256);
     memset(val->ptr, 0, 256);
 }
 

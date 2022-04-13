@@ -25,7 +25,6 @@
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/bufferpool/buffer_pool_counters.h"
 #include "runtime/bufferpool/reservation_tracker.h"
-#include "util/condition_variable.h"
 
 // Ensure that DCheckConsistency() function calls get removed in release builds.
 #ifndef NDEBUG

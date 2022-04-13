@@ -62,7 +62,6 @@ void disable_core_dumps();
 //
 // This may return false on unsupported (non-Linux) platforms.
 bool is_being_debugged();
-
 } // namespace doris
 
 #endif

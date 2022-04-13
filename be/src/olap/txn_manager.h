@@ -166,7 +166,7 @@ private:
 
     txn_partition_map_t& _get_txn_partition_map(TTransactionId transactionId);
 
-    Mutex& _get_txn_lock(TTransactionId transactionId);
+    inline std::mutex& _get_txn_lock(TTransactionId transactionId);
 
     // Insert or remove (transaction_id, partition_id) from _txn_partition_map
     // get _txn_map_lock before calling.
@@ -188,7 +188,7 @@ private:
 
     std::shared_mutex* _txn_map_locks;
 
-    Mutex* _txn_mutex;
+    std::mutex* _txn_mutex;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager
 
@@ -205,7 +205,7 @@ inline TxnManager::txn_partition_map_t& TxnManager::_get_txn_partition_map(
     return _txn_partition_maps[transactionId & (_txn_map_shard_size - 1)];
 }
 
-inline Mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
+inline std::mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
     return _txn_mutex[transactionId & (_txn_shard_size - 1)];
 }
 

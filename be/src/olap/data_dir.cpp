@@ -45,9 +45,9 @@
 #include "service/backend_options.h"
 #include "util/errno.h"
 #include "util/file_utils.h"
-#include "util/monotime.h"
 #include "util/storage_backend.h"
 #include "util/storage_backend_mgr.h"
+
 #include "util/string_util.h"
 
 using strings::Substitute;
@@ -520,19 +520,20 @@ OLAPStatus DataDir::load() {
     // At startup, we only count these invalid rowset, but do not actually delete it.
     // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
     // which is cleaned up uniformly by the background cleanup thread.
-    LOG(INFO) << "finish to load tablets from " << _path_desc.filepath << ", total rowset meta: "
-              << dir_rowset_metas.size() << ", invalid rowset num: " << invalid_rowset_counter;
+    LOG(INFO) << "finish to load tablets from " << _path_desc.filepath
+              << ", total rowset meta: " << dir_rowset_metas.size()
+              << ", invalid rowset num: " << invalid_rowset_counter;
 
     return OLAP_SUCCESS;
 }
 
 void DataDir::add_pending_ids(const std::string& id) {
-    WriteLock wr_lock(_pending_path_mutex);
+    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
     _pending_path_ids.insert(id);
 }
 
 void DataDir::remove_pending_ids(const std::string& id) {
-    WriteLock wr_lock(_pending_path_mutex);
+    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
     _pending_path_ids.erase(id);
 }
 
@@ -549,7 +550,8 @@ void DataDir::perform_path_gc_by_tablet() {
     for (const auto& path : _all_tablet_schemahash_paths) {
         ++counter;
         if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
-            SleepFor(MonoDelta::FromMilliseconds(config::path_gc_check_step_interval_ms));
+            std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
         }
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;
@@ -599,7 +601,8 @@ void DataDir::perform_path_gc_by_rowsetid() {
     for (const auto& path : _all_check_paths) {
         ++counter;
         if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
-            SleepFor(MonoDelta::FromMilliseconds(config::path_gc_check_step_interval_ms));
+            std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
         }
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;
@@ -702,7 +705,7 @@ void DataDir::_process_garbage_path(const std::string& path) {
 }
 
 bool DataDir::_check_pending_ids(const std::string& id) {
-    ReadLock rd_lock(_pending_path_mutex);
+    std::shared_lock rd_lock(_pending_path_mutex);
     return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 

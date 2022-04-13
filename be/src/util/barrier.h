@@ -18,10 +18,10 @@
 #ifndef DORIS_BE_SRC_UTIL_BARRIER_H
 #define DORIS_BE_SRC_UTIL_BARRIER_H
 
-#include "gutil/macros.h"
+#include <condition_variable>
+#include <mutex>
+
 #include "olap/olap_define.h"
-#include "util/condition_variable.h"
-#include "util/mutex.h"
 
 namespace doris {
 
@@ -29,17 +29,16 @@ namespace doris {
 class Barrier {
 public:
     // Initialize the barrier with the given initial count.
-    explicit Barrier(int count) : _cond(&_mutex), _count(count), _initial_count(count) {
-        DCHECK_GT(count, 0);
-    }
+    explicit Barrier(int count) : _count(count), _initial_count(count) { DCHECK_GT(count, 0); }
 
     ~Barrier() {}
-
+    Barrier(const Barrier&) = delete;
+    void operator=(const Barrier&) = delete;
     // wait until all threads have reached the barrier.
     // Once all threads have reached the barrier, the barrier is reset
     // to the initial count.
     void wait() {
-        MutexLock l(&_mutex);
+        std::unique_lock<std::mutex> l(_mutex);
         if (--_count == 0) {
             _count = _initial_count;
             _cycle_count++;
@@ -49,17 +48,16 @@ public:
 
         int initial_cycle = _cycle_count;
         while (_cycle_count == initial_cycle) {
-            _cond.wait();
+            _cond.wait(l);
         }
     }
 
 private:
-    Mutex _mutex;
-    ConditionVariable _cond;
     int _count;
-    uint32_t _cycle_count = 0;
     const int _initial_count;
-    DISALLOW_COPY_AND_ASSIGN(Barrier);
+    uint32_t _cycle_count = 0;
+    std::mutex _mutex;
+    std::condition_variable _cond;
 };
 
 #endif //DORIS_BE_SRC_UTIL_BARRIER_H

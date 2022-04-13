@@ -23,7 +23,6 @@
 #include "common/status.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
-#include "monotime.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
@@ -63,7 +62,8 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
             LOG(WARNING) << "retrying call frontend service after "
                          << config::thrift_client_retry_interval_ms << " ms, address=" << address
                          << ", reason=" << e.what();
-            SleepFor(MonoDelta::FromMilliseconds(config::thrift_client_retry_interval_ms));
+            std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config::thrift_client_retry_interval_ms));
             status = client.reopen(timeout_ms);
             if (!status.ok()) {
                 LOG(WARNING) << "client reopen failed. address=" << address
@@ -75,7 +75,8 @@ Status ThriftRpcHelper::rpc(const std::string& ip, const int32_t port,
     } catch (apache::thrift::TException& e) {
         LOG(WARNING) << "call frontend service failed, address=" << address
                      << ", reason=" << e.what();
-        SleepFor(MonoDelta::FromMilliseconds(config::thrift_client_retry_interval_ms * 2));
+        std::this_thread::sleep_for(
+                std::chrono::milliseconds(config::thrift_client_retry_interval_ms * 2));
         // just reopen to disable this connection
         client.reopen(timeout_ms);
         return Status::ThriftRpcError("failed to call frontend service");

@@ -36,7 +36,6 @@
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/defer_op.h"
-#include "util/monotime.h"
 #include "util/proto_util.h"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -273,7 +272,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
            (_pending_batches_bytes > _max_pending_batches_bytes ||
             _parent->_mem_tracker->any_limit_exceeded())) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
-        SleepFor(MonoDelta::FromMilliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     auto row_no = _cur_batch->add_row();
@@ -325,7 +324,7 @@ Status NodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
            (_pending_batches_bytes > _max_pending_batches_bytes ||
             _parent->_mem_tracker->any_limit_exceeded())) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
-        SleepFor(MonoDelta::FromMilliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     auto row_no = _cur_batch->add_row();
@@ -399,7 +398,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
     while (!_add_batches_finished && !_cancelled) {
-        SleepFor(MonoDelta::FromMilliseconds(1));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     _close_time_ms = UnixMillis() - _close_time_ms;
 
@@ -1316,7 +1315,7 @@ void OlapTableSink::_send_batch_process(RuntimeState* state) {
             return;
         }
     } while (!_stop_background_threads_latch.wait_for(
-            MonoDelta::FromMilliseconds(config::olap_table_sink_send_interval_ms)));
+            std::chrono::milliseconds(config::olap_table_sink_send_interval_ms)));
 }
 
 } // namespace stream_load

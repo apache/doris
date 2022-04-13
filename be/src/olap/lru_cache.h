@@ -17,7 +17,6 @@
 #include "olap/olap_common.h"
 #include "runtime/mem_tracker.h"
 #include "util/metrics.h"
-#include "util/mutex.h"
 #include "util/slice.h"
 
 namespace doris {
