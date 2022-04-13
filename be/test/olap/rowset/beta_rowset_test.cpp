@@ -162,7 +162,7 @@ protected:
 };
 
 TEST_F(BetaRowsetTest, BasicFunctionTest) {
-    OLAPStatus s;
+    Status s;
     TabletSchema tablet_schema;
     create_tablet_schema(&tablet_schema);
 
@@ -244,7 +244,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
+            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
         }
@@ -280,7 +280,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
+            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(1, num_rows_read);
         }
@@ -318,7 +318,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
+            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(rowset->rowset_meta()->num_rows(), num_rows_read);
         }
@@ -351,7 +351,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
                     num_rows_read++;
                 }
             }
-            EXPECT_EQ(OLAP_ERR_DATA_EOF, s);
+            EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DATA_EOF), s);
             EXPECT_TRUE(output_block == nullptr);
             EXPECT_EQ(100, num_rows_read);
             delete predicate;

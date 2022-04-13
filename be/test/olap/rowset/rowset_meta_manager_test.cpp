@@ -60,7 +60,7 @@ public:
         EXPECT_TRUE(std::filesystem::create_directory(meta_path));
         _meta = new (std::nothrow) OlapMeta(meta_path);
         EXPECT_NE(nullptr, _meta);
-        OLAPStatus st = _meta->init();
+        Status st = _meta->init();
         EXPECT_TRUE(st == Status::OK());
         EXPECT_TRUE(std::filesystem::exists("./meta"));
 
@@ -98,7 +98,7 @@ TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
     EXPECT_EQ(rowset_meta.rowset_id(), rowset_id);
     RowsetMetaPB rowset_meta_pb;
     rowset_meta.to_rowset_pb(&rowset_meta_pb);
-    OLAPStatus status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, rowset_meta_pb);
+    Status status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, rowset_meta_pb);
     EXPECT_TRUE(status == Status::OK());
     EXPECT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
     std::string json_rowset_meta_read;
@@ -117,7 +117,7 @@ TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
 TEST_F(RowsetMetaManagerTest, TestLoad) {
     RowsetId rowset_id;
     rowset_id.init(10000);
-    OLAPStatus status = RowsetMetaManager::load_json_rowset_meta(_meta, rowset_meta_path);
+    Status status = RowsetMetaManager::load_json_rowset_meta(_meta, rowset_meta_path);
     EXPECT_TRUE(status == Status::OK());
     EXPECT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
     std::string json_rowset_meta_read;

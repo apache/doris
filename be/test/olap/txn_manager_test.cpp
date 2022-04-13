@@ -112,7 +112,7 @@ public:
         EXPECT_TRUE(std::filesystem::create_directory(meta_path));
         _meta = new (std::nothrow) OlapMeta(meta_path);
         EXPECT_NE(nullptr, _meta);
-        OLAPStatus st = _meta->init();
+        Status st = _meta->init();
         EXPECT_TRUE(st == Status::OK());
         EXPECT_TRUE(std::filesystem::exists("./meta"));
         load_id.set_hi(0);
@@ -182,7 +182,7 @@ private:
 };
 
 TEST_F(TxnManagerTest, PrepareNewTxn) {
-    OLAPStatus status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
+    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
                                               _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
 }
@@ -191,7 +191,7 @@ TEST_F(TxnManagerTest, PrepareNewTxn) {
 // 2. commit txn
 // 3. should be success
 TEST_F(TxnManagerTest, CommitTxnWithPrepare) {
-    OLAPStatus status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
+    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
                                               _tablet_uid, load_id);
     _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash, _tablet_uid,
                          load_id, _alpha_rowset, false);
@@ -206,7 +206,7 @@ TEST_F(TxnManagerTest, CommitTxnWithPrepare) {
 // 1. commit without prepare
 // 2. should success
 TEST_F(TxnManagerTest, CommitTxnWithNoPrepare) {
-    OLAPStatus status =
+    Status status =
             _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
                                  _tablet_uid, load_id, _alpha_rowset, false);
     EXPECT_TRUE(status == Status::OK());
@@ -215,7 +215,7 @@ TEST_F(TxnManagerTest, CommitTxnWithNoPrepare) {
 // 1. commit twice with different rowset id
 // 2. should failed
 TEST_F(TxnManagerTest, CommitTxnTwiceWithDiffRowsetId) {
-    OLAPStatus status =
+    Status status =
             _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
                                  _tablet_uid, load_id, _alpha_rowset, false);
     EXPECT_TRUE(status == Status::OK());
@@ -227,7 +227,7 @@ TEST_F(TxnManagerTest, CommitTxnTwiceWithDiffRowsetId) {
 // 1. commit twice with same rowset id
 // 2. should success
 TEST_F(TxnManagerTest, CommitTxnTwiceWithSameRowsetId) {
-    OLAPStatus status =
+    Status status =
             _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
                                  _tablet_uid, load_id, _alpha_rowset, false);
     EXPECT_TRUE(status == Status::OK());
@@ -238,7 +238,7 @@ TEST_F(TxnManagerTest, CommitTxnTwiceWithSameRowsetId) {
 
 // 1. prepare twice should be success
 TEST_F(TxnManagerTest, PrepareNewTxnTwice) {
-    OLAPStatus status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
+    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
                                               _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
     status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
@@ -248,7 +248,7 @@ TEST_F(TxnManagerTest, PrepareNewTxnTwice) {
 
 // 1. txn could be rollbacked if it is not committed
 TEST_F(TxnManagerTest, RollbackNotCommittedTxn) {
-    OLAPStatus status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
+    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
                                               _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
     status = _txn_mgr->rollback_txn(partition_id, transaction_id, tablet_id, schema_hash,
@@ -262,7 +262,7 @@ TEST_F(TxnManagerTest, RollbackNotCommittedTxn) {
 
 // 1. txn could not be rollbacked if it is committed
 TEST_F(TxnManagerTest, RollbackCommittedTxn) {
-    OLAPStatus status =
+    Status status =
             _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
                                  _tablet_uid, load_id, _alpha_rowset, false);
     EXPECT_TRUE(status == Status::OK());
@@ -278,7 +278,7 @@ TEST_F(TxnManagerTest, RollbackCommittedTxn) {
 
 // 1. publish version success
 TEST_F(TxnManagerTest, PublishVersionSuccessful) {
-    OLAPStatus status =
+    Status status =
             _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
                                  _tablet_uid, load_id, _alpha_rowset, false);
     EXPECT_TRUE(status == Status::OK());
@@ -299,13 +299,13 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
 // 1. publish version failed if not found related txn and rowset
 TEST_F(TxnManagerTest, PublishNotExistedTxn) {
     Version new_version(10, 11);
-    OLAPStatus status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id,
+    Status status = _txn_mgr->publish_txn(_meta, partition_id, transaction_id, tablet_id,
                                               schema_hash, _tablet_uid, new_version);
     EXPECT_TRUE(status != Status::OK());
 }
 
 TEST_F(TxnManagerTest, DeletePreparedTxn) {
-    OLAPStatus status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
+    Status status = _txn_mgr->prepare_txn(partition_id, transaction_id, tablet_id, schema_hash,
                                               _tablet_uid, load_id);
     EXPECT_TRUE(status == Status::OK());
     status = _txn_mgr->delete_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
@@ -314,7 +314,7 @@ TEST_F(TxnManagerTest, DeletePreparedTxn) {
 }
 
 TEST_F(TxnManagerTest, DeleteCommittedTxn) {
-    OLAPStatus status =
+    Status status =
             _txn_mgr->commit_txn(_meta, partition_id, transaction_id, tablet_id, schema_hash,
                                  _tablet_uid, load_id, _alpha_rowset, false);
     EXPECT_TRUE(status == Status::OK());

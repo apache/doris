@@ -39,9 +39,9 @@
 namespace doris {
 
 std::unordered_map<int64_t, int> _k_tablet_recorder;
-OLAPStatus open_status;
-OLAPStatus add_status;
-OLAPStatus close_status;
+Status open_status;
+Status add_status;
+Status close_status;
 int64_t wait_lock_time_ns;
 
 // mock
@@ -49,11 +49,11 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine) : _re
 
 DeltaWriter::~DeltaWriter() {}
 
-OLAPStatus DeltaWriter::init() {
+Status DeltaWriter::init() {
     return Status::OK();
 }
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
+Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
     if (open_status != Status::OK()) {
         return open_status;
     }
@@ -61,7 +61,7 @@ OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
     return open_status;
 }
 
-OLAPStatus DeltaWriter::write(Tuple* tuple) {
+Status DeltaWriter::write(Tuple* tuple) {
     if (_k_tablet_recorder.find(_req.tablet_id) == std::end(_k_tablet_recorder)) {
         _k_tablet_recorder[_req.tablet_id] = 1;
     } else {
@@ -70,7 +70,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
     return add_status;
 }
 
-OLAPStatus DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row_idxs) {
+Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row_idxs) {
     if (_k_tablet_recorder.find(_req.tablet_id) == std::end(_k_tablet_recorder)) {
         _k_tablet_recorder[_req.tablet_id] = 0;
     }
@@ -78,24 +78,24 @@ OLAPStatus DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>&
     return add_status;
 }
 
-OLAPStatus DeltaWriter::close() {
+Status DeltaWriter::close() {
     return Status::OK();
 }
 
-OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                                    bool is_broken) {
     return close_status;
 }
 
-OLAPStatus DeltaWriter::cancel() {
+Status DeltaWriter::cancel() {
     return Status::OK();
 }
 
-OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
+Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
     return Status::OK();
 }
 
-OLAPStatus DeltaWriter::wait_flush() {
+Status DeltaWriter::wait_flush() {
     return Status::OK();
 }
 
@@ -336,7 +336,7 @@ TEST_F(LoadChannelMgrTest, open_failed) {
         }
         request.set_num_senders(1);
         request.set_need_gen_rollup(false);
-        open_status = OLAP_ERR_TABLE_NOT_FOUND;
+        open_status = Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
         auto st = mgr.open(request);
         request.release_id();
         EXPECT_FALSE(st.ok());
@@ -423,7 +423,7 @@ TEST_F(LoadChannelMgrTest, add_failed) {
         }
         row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
         // DeltaWriter's write will return -215
-        add_status = OLAP_ERR_TABLE_NOT_FOUND;
+        add_status = Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
         request.release_id();
@@ -514,7 +514,7 @@ TEST_F(LoadChannelMgrTest, close_failed) {
             row_batch.commit_last_row();
         }
         row_batch.serialize(request.mutable_row_batch(), &uncompressed_size, &compressed_size);
-        close_status = OLAP_ERR_TABLE_NOT_FOUND;
+        close_status = Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
         PTabletWriterAddBatchResult response;
         auto st = mgr.add_batch(request, &response);
         request.release_id();

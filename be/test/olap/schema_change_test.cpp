@@ -200,7 +200,7 @@ public:
 
     template <typename T>
     void test_convert_to_varchar(const std::string& type_name, int type_size, T val,
-                                 const std::string& expected_val, OLAPStatus expected_st,
+                                 const std::string& expected_val, Status expected_st,
                                  int varchar_len = 255) {
         TabletSchema src_tablet_schema;
         set_tablet_schema("ConvertColumn", type_name, "REPLACE", type_size, false, false,
@@ -241,11 +241,11 @@ public:
 
         const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
         st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
-        EXPECT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
+        EXPECT_EQ(st, Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
     }
 
     void test_convert_from_varchar(const std::string& type_name, int type_size,
-                                   const std::string& value, OLAPStatus expected_st) {
+                                   const std::string& value, Status expected_st) {
         TabletSchema tablet_schema;
         set_tablet_schema("VarcharColumn", "VARCHAR", "REPLACE", 255, false, false, &tablet_schema);
         create_column_writer(tablet_schema);
@@ -285,7 +285,7 @@ public:
 
         const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
         st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
-        EXPECT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
+        EXPECT_EQ(st, Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
     }
 
     ColumnWriter* _column_writer;
@@ -359,8 +359,8 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
 
     //test not support type
     const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
-    OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
-    EXPECT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
+    Status st = read_row.convert_from(0, data, tp, _mem_pool.get());
+    EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertDatetimeToDate) {
@@ -403,8 +403,8 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
 
     //test not support type
     const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
-    OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
-    EXPECT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
+    Status st = read_row.convert_from(0, data, tp, _mem_pool.get());
+    EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertDateToDatetime) {
@@ -448,8 +448,8 @@ TEST_F(TestColumn, ConvertDateToDatetime) {
 
     //test not support type
     const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
-    OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
-    EXPECT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
+    Status st = read_row.convert_from(0, data, tp, _mem_pool.get());
+    EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertIntToDate) {
@@ -490,8 +490,8 @@ TEST_F(TestColumn, ConvertIntToDate) {
 
     //test not support type
     const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
-    OLAPStatus st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
-    EXPECT_TRUE(st == OLAP_ERR_INVALID_SCHEMA);
+    Status st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
+    EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertVarcharToDate) {
@@ -545,8 +545,8 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
 
     //test not support type
     const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
-    OLAPStatus st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
-    EXPECT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
+    Status st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
+    EXPECT_EQ(st, Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertVarcharToTinyInt1) {
@@ -554,7 +554,7 @@ TEST_F(TestColumn, ConvertVarcharToTinyInt1) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToTinyInt2) {
-    test_convert_from_varchar("TINYINT", 1, "128", OLAP_ERR_INVALID_SCHEMA);
+    test_convert_from_varchar("TINYINT", 1, "128", Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertVarcharToSmallInt1) {
@@ -562,7 +562,7 @@ TEST_F(TestColumn, ConvertVarcharToSmallInt1) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToSmallInt2) {
-    test_convert_from_varchar("SMALLINT", 2, "32768", OLAP_ERR_INVALID_SCHEMA);
+    test_convert_from_varchar("SMALLINT", 2, "32768", Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertVarcharToInt1) {
@@ -570,7 +570,7 @@ TEST_F(TestColumn, ConvertVarcharToInt1) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToInt2) {
-    test_convert_from_varchar("INT", 4, "2147483648", OLAP_ERR_INVALID_SCHEMA);
+    test_convert_from_varchar("INT", 4, "2147483648", Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertVarcharToBigInt1) {
@@ -578,7 +578,7 @@ TEST_F(TestColumn, ConvertVarcharToBigInt1) {
 }
 
 TEST_F(TestColumn, ConvertVarcharToBigInt2) {
-    test_convert_from_varchar("BIGINT", 8, "9223372036854775808", OLAP_ERR_INVALID_SCHEMA);
+    test_convert_from_varchar("BIGINT", 8, "9223372036854775808", Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertVarcharToLargeInt1) {
@@ -588,7 +588,7 @@ TEST_F(TestColumn, ConvertVarcharToLargeInt1) {
 
 TEST_F(TestColumn, ConvertVarcharToLargeInt2) {
     test_convert_from_varchar("LARGEINT", 16, "1701411834604690000000000000000000000000",
-                              OLAP_ERR_INVALID_SCHEMA);
+                              Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertVarcharToFloat1) {
@@ -602,7 +602,7 @@ TEST_F(TestColumn, ConvertVarcharToFloat2) {
             "52996321966094455338163203127744334848599000464911410516510916727344709727599413825823"
             "04802812882753059262973637182942535982636884444611376868582636745405553206881859340916"
             "3400929532301499014067384276511218551077374242324480.999",
-            OLAP_ERR_INVALID_SCHEMA);
+            Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertVarcharToDouble1) {
@@ -616,11 +616,11 @@ TEST_F(TestColumn, ConvertVarcharToDouble2) {
             "52996321966094455338163203127744334848599000464911410516510916727344709727599413825823"
             "04802812882753059262973637182942535982636884444611376868582636745405553206881859340916"
             "3400929532301499014067384276511218551077374242324480.0000000000",
-            OLAP_ERR_INVALID_SCHEMA);
+            Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
 TEST_F(TestColumn, ConvertTinyIntToVarchar3) {
-    test_convert_to_varchar<int8_t>("TINYINT", 1, 127, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 3);
+    test_convert_to_varchar<int8_t>("TINYINT", 1, 127, "", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 3);
 }
 
 TEST_F(TestColumn, ConvertTinyIntToVarchar5) {
@@ -628,7 +628,7 @@ TEST_F(TestColumn, ConvertTinyIntToVarchar5) {
 }
 
 TEST_F(TestColumn, ConvertTinyIntToVarchar4) {
-    test_convert_to_varchar<int8_t>("TINYINT", 1, -127, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 4);
+    test_convert_to_varchar<int8_t>("TINYINT", 1, -127, "", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 4);
 }
 
 TEST_F(TestColumn, ConvertTinyIntToVarchar6) {
@@ -637,7 +637,7 @@ TEST_F(TestColumn, ConvertTinyIntToVarchar6) {
 }
 
 TEST_F(TestColumn, ConvertSmallIntToVarchar5) {
-    test_convert_to_varchar<int16_t>("SMALLINT", 2, 32767, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 5);
+    test_convert_to_varchar<int16_t>("SMALLINT", 2, 32767, "", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 5);
 }
 
 TEST_F(TestColumn, ConvertSmallIntToVarchar7) {
@@ -645,7 +645,7 @@ TEST_F(TestColumn, ConvertSmallIntToVarchar7) {
 }
 
 TEST_F(TestColumn, ConvertSmallIntToVarchar6) {
-    test_convert_to_varchar<int16_t>("SMALLINT", 2, -32767, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 6);
+    test_convert_to_varchar<int16_t>("SMALLINT", 2, -32767, "", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 6);
 }
 
 TEST_F(TestColumn, ConvertSmallIntToVarchar8) {
@@ -653,7 +653,7 @@ TEST_F(TestColumn, ConvertSmallIntToVarchar8) {
 }
 
 TEST_F(TestColumn, ConvertIntToVarchar10) {
-    test_convert_to_varchar<int32_t>("INT", 4, 2147483647, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 10);
+    test_convert_to_varchar<int32_t>("INT", 4, 2147483647, "", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 10);
 }
 
 TEST_F(TestColumn, ConvertIntToVarchar12) {
@@ -661,7 +661,7 @@ TEST_F(TestColumn, ConvertIntToVarchar12) {
 }
 
 TEST_F(TestColumn, ConvertIntToVarchar11) {
-    test_convert_to_varchar<int32_t>("INT", 4, -2147483647, "", OLAP_ERR_INPUT_PARAMETER_ERROR, 11);
+    test_convert_to_varchar<int32_t>("INT", 4, -2147483647, "", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 11);
 }
 
 TEST_F(TestColumn, ConvertIntToVarchar13) {
@@ -670,7 +670,7 @@ TEST_F(TestColumn, ConvertIntToVarchar13) {
 
 TEST_F(TestColumn, ConvertBigIntToVarchar19) {
     test_convert_to_varchar<int64_t>("BIGINT", 8, 9223372036854775807, "",
-                                     OLAP_ERR_INPUT_PARAMETER_ERROR, 19);
+                                     Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 19);
 }
 
 TEST_F(TestColumn, ConvertBigIntToVarchar21) {
@@ -680,7 +680,7 @@ TEST_F(TestColumn, ConvertBigIntToVarchar21) {
 
 TEST_F(TestColumn, ConvertBigIntToVarchar20) {
     test_convert_to_varchar<int64_t>("BIGINT", 8, -9223372036854775807, "",
-                                     OLAP_ERR_INPUT_PARAMETER_ERROR, 20);
+                                     Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 20);
 }
 
 TEST_F(TestColumn, ConvertBigIntToVarchar22) {
@@ -695,7 +695,7 @@ TEST_F(TestColumn, ConvertLargeIntToVarchar39) {
             StringParser::string_to_int<int128_t>(str_val.c_str(), str_val.length(), &result);
     DCHECK(result == StringParser::PARSE_SUCCESS);
     test_convert_to_varchar<int128_t>("LARGEINT", 16, int128_val, "",
-                                      OLAP_ERR_INPUT_PARAMETER_ERROR, 39);
+                                      Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 39);
 }
 
 TEST_F(TestColumn, ConvertLargeIntToVarchar41) {
@@ -714,7 +714,7 @@ TEST_F(TestColumn, ConvertLargeIntToVarchar40) {
             StringParser::string_to_int<int128_t>(str_val.c_str(), str_val.length(), &result);
     DCHECK(result == StringParser::PARSE_SUCCESS);
     test_convert_to_varchar<int128_t>("LARGEINT", 16, int128_val, "",
-                                      OLAP_ERR_INPUT_PARAMETER_ERROR, 40);
+                                      Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 40);
 }
 
 TEST_F(TestColumn, ConvertLargeIntToVarchar46) {
@@ -728,7 +728,7 @@ TEST_F(TestColumn, ConvertLargeIntToVarchar46) {
 
 TEST_F(TestColumn, ConvertFloatToVarchar11) {
     test_convert_to_varchar<float>("FLOAT", 4, 3.40282e+38, "3.40282e+38",
-                                   OLAP_ERR_INPUT_PARAMETER_ERROR, 11);
+                                   Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 11);
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar13) {
@@ -742,7 +742,7 @@ TEST_F(TestColumn, ConvertFloatToVarchar13_2) {
 
 TEST_F(TestColumn, ConvertFloatToVarchar12) {
     test_convert_to_varchar<float>("FLOAT", 4, -3.40282e+38, "-3.40282e+38",
-                                   OLAP_ERR_INPUT_PARAMETER_ERROR, 12);
+                                   Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 12);
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar14) {
@@ -756,7 +756,7 @@ TEST_F(TestColumn, ConvertFloatToVarchar14_2) {
 
 TEST_F(TestColumn, ConvertFloatToVarchar13_3) {
     test_convert_to_varchar<float>("FLOAT", 4, 1.17549435082228750796873653722224568e-38F,
-                                   "1.1754944e-38", OLAP_ERR_INPUT_PARAMETER_ERROR, 13);
+                                   "1.1754944e-38", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 13);
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar15) {
@@ -766,7 +766,7 @@ TEST_F(TestColumn, ConvertFloatToVarchar15) {
 
 TEST_F(TestColumn, ConvertFloatToVarchar14_3) {
     test_convert_to_varchar<float>("FLOAT", 4, -1.17549435082228750796873653722224568e-38F,
-                                   "-1.1754944e-38", OLAP_ERR_INPUT_PARAMETER_ERROR, 14);
+                                   "-1.1754944e-38", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 14);
 }
 
 TEST_F(TestColumn, ConvertFloatToVarchar16) {
@@ -775,7 +775,7 @@ TEST_F(TestColumn, ConvertFloatToVarchar16) {
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar7) {
-    test_convert_to_varchar<double>("DOUBLE", 8, 123.456, "123.456", OLAP_ERR_INPUT_PARAMETER_ERROR,
+    test_convert_to_varchar<double>("DOUBLE", 8, 123.456, "123.456", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR),
                                     7);
 }
 
@@ -785,7 +785,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar9) {
 
 TEST_F(TestColumn, ConvertDoubleToVarchar23) {
     test_convert_to_varchar<double>("DOUBLE", 8, 1.79769313486231570814527423731704357e+308,
-                                    "1.7976931348623157e+308", OLAP_ERR_INPUT_PARAMETER_ERROR, 23);
+                                    "1.7976931348623157e+308", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 23);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar25) {
@@ -795,7 +795,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar25) {
 
 TEST_F(TestColumn, ConvertDoubleToVarchar22) {
     test_convert_to_varchar<double>("DOUBLE", 8, 1797693134862315708.0, "1.7976931348623158e+18",
-                                    OLAP_ERR_INPUT_PARAMETER_ERROR, 22);
+                                    Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 22);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar24) {
@@ -805,7 +805,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar24) {
 
 TEST_F(TestColumn, ConvertDoubleToVarchar23_2) {
     test_convert_to_varchar<double>("DOUBLE", 8, -1797693134862315708.0, "-1.7976931348623158e+18",
-                                    OLAP_ERR_INPUT_PARAMETER_ERROR, 23);
+                                    Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 23);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar25_2) {
@@ -815,7 +815,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar25_2) {
 
 TEST_F(TestColumn, ConvertDoubleToVarchar23_3) {
     test_convert_to_varchar<double>("DOUBLE", 8, 2.22507385850720138309023271733240406e-308,
-                                    "2.2250738585072014e-308", OLAP_ERR_INPUT_PARAMETER_ERROR, 23);
+                                    "2.2250738585072014e-308", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 23);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar25_3) {
@@ -825,7 +825,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar25_3) {
 
 TEST_F(TestColumn, ConvertDoubleToVarchar24_2) {
     test_convert_to_varchar<double>("DOUBLE", 8, -2.22507385850720138309023271733240406e-308,
-                                    "-2.2250738585072014e-308", OLAP_ERR_INPUT_PARAMETER_ERROR, 24);
+                                    "-2.2250738585072014e-308", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 24);
 }
 
 TEST_F(TestColumn, ConvertDoubleToVarchar26) {
@@ -836,7 +836,7 @@ TEST_F(TestColumn, ConvertDoubleToVarchar26) {
 TEST_F(TestColumn, ConvertDecimalToVarchar13) {
     decimal12_t val = {456, 789000000};
     test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "456.789000000",
-                                         OLAP_ERR_INPUT_PARAMETER_ERROR, 13);
+                                         Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), 13);
 }
 
 TEST_F(TestColumn, ConvertDecimalToVarchar15) {
@@ -846,7 +846,7 @@ TEST_F(TestColumn, ConvertDecimalToVarchar15) {
 
 TEST_F(TestColumn, ConvertDecimalToVarchar28) {
     decimal12_t val = {999999999999999999, 999999999};
-    test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "", OLAP_ERR_INPUT_PARAMETER_ERROR,
+    test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR),
                                          28);
 }
 
@@ -858,7 +858,7 @@ TEST_F(TestColumn, ConvertDecimalToVarchar30) {
 
 TEST_F(TestColumn, ConvertDecimalToVarchar29) {
     decimal12_t val = {-999999999999999999, 999999999};
-    test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "", OLAP_ERR_INPUT_PARAMETER_ERROR,
+    test_convert_to_varchar<decimal12_t>("Decimal", 12, val, "", Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR),
                                          29);
 }
 

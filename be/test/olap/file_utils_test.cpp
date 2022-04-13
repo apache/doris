@@ -71,7 +71,7 @@ TEST_F(FileUtilsTest, TestCopyFile) {
     std::string src_file_name = _s_test_data_path + "/abcd12345.txt";
     // create a file using open
     EXPECT_FALSE(std::filesystem::exists(src_file_name));
-    OLAPStatus op_status = src_file_handler.open_with_mode(
+    Status op_status = src_file_handler.open_with_mode(
             src_file_name, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
     EXPECT_EQ(OLAPStatus::Status::OK(), op_status);
     EXPECT_TRUE(std::filesystem::exists(src_file_name));

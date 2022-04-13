@@ -42,7 +42,7 @@ public:
         FileUtils::create_dir(_root_path);
 
         _meta = new OlapMeta(_root_path);
-        OLAPStatus s = _meta->init();
+        Status s = _meta->init();
         EXPECT_EQ(Status::OK(), s);
         EXPECT_TRUE(std::filesystem::exists(_root_path + "/meta"));
     }
@@ -66,7 +66,7 @@ TEST_F(OlapMetaTest, TestPutAndGet) {
     // normal cases
     std::string key = "key";
     std::string value = "value";
-    OLAPStatus s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    Status s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
     EXPECT_EQ(Status::OK(), s);
     std::string value_get;
     s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
@@ -75,14 +75,14 @@ TEST_F(OlapMetaTest, TestPutAndGet) {
 
     // abnormal cases
     s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", &value_get);
-    EXPECT_EQ(OLAP_ERR_META_KEY_NOT_FOUND, s);
+    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_META_KEY_NOT_FOUND), s);
 }
 
 TEST_F(OlapMetaTest, TestRemove) {
     // normal cases
     std::string key = "key";
     std::string value = "value";
-    OLAPStatus s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    Status s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
     EXPECT_EQ(Status::OK(), s);
     std::string value_get;
     s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
@@ -98,7 +98,7 @@ TEST_F(OlapMetaTest, TestIterate) {
     // normal cases
     std::string key = "hdr_key";
     std::string value = "value";
-    OLAPStatus s = Status::OK();
+    Status s = Status::OK();
     for (int i = 0; i < 10; i++) {
         std::stringstream ss;
         ss << key << "_" << i;
