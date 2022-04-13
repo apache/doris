@@ -346,6 +346,13 @@ template <>
 inline constexpr bool IsDecimalNumber<Decimal128> = true;
 
 template <typename T>
+constexpr bool IsFloatNumber = false;
+template <>
+inline constexpr bool IsFloatNumber<Float32> = true;
+template <>
+inline constexpr bool IsFloatNumber<Float64> = true;
+
+template <typename T>
 struct NativeType {
     using Type = T;
 };
