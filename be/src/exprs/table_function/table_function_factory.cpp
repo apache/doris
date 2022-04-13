@@ -52,7 +52,7 @@ struct TableFunctionCreator<vectorized::VExplodeJsonArrayTableFunction> {
 template <>
 struct TableFunctionCreator<vectorized::VExplodeTableFunction> {
     bool is_outer;
-    TableFunction* operator()() { return new vectorized::VExplodeTableFunction(is_outer); }
+    TableFunction* operator()() const { return new vectorized::VExplodeTableFunction(is_outer); }
 };
 
 inline auto ExplodeJsonArrayIntCreator =
@@ -75,7 +75,7 @@ inline auto VExplodeJsonArrayStringCreator =
 inline auto VExplodeCreator = TableFunctionCreator<vectorized::VExplodeTableFunction> {false};
 inline auto VExplodeOuterCreator = TableFunctionCreator<vectorized::VExplodeTableFunction> {true};
 
-//{fn_name,is_vectorized}->table_function_creator
+// {fn_name, is_vectorized} -> table_function_creator
 const std::unordered_map<std::pair<std::string, bool>, std::function<TableFunction*()>>
         TableFunctionFactory::_function_map {
                 {{"explode_split", false}, TableFunctionCreator<ExplodeSplitTableFunction> {}},
@@ -85,6 +85,8 @@ const std::unordered_map<std::pair<std::string, bool>, std::function<TableFuncti
                 {{"explode_json_array_string", false}, ExplodeJsonArrayStringCreator},
                 {{"explode_split", true},
                  TableFunctionCreator<vectorized::VExplodeSplitTableFunction>()},
+                {{"explode_split_non_empty", true},
+                 TableFunctionCreator<vectorized::VExplodeSplitNonEmptyTableFunction>()},
                 {{"explode_numbers", true},
                  TableFunctionCreator<vectorized::VExplodeNumbersTableFunction>()},
                 {{"explode_json_array_int", true}, VExplodeJsonArrayIntCreator},

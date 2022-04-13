@@ -30,8 +30,8 @@ class ObjectPool;
 class TableFunction;
 class TableFunctionFactory {
 public:
-    TableFunctionFactory() {}
-    ~TableFunctionFactory() {}
+    TableFunctionFactory() = default;
+    ~TableFunctionFactory() = default;
     static Status get_fn(const std::string& fn_name, bool is_vectorized, ObjectPool* pool,
                          TableFunction** fn);
 

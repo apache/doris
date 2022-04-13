@@ -112,7 +112,6 @@ set(VEC_FILES
   exprs/vcase_expr.cpp
   exprs/vinfo_func.cpp
   exprs/table_function/vexplode.cpp
-  exprs/table_function/vexplode_split.cpp
   exprs/table_function/vexplode_numbers.cpp
   exprs/table_function/vexplode_bitmap.cpp
   functions/array/function_array_index.cpp

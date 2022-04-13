@@ -2367,6 +2367,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
     }
 
     public static final String EXPLODE_SPLIT = "explode_split";
+    public static final String EXPLODE_SPLIT_NON_EMPTY = "explode_split_non_empty";
     public static final String EXPLODE_BITMAP = "explode_bitmap";
     public static final String EXPLODE_JSON_ARRAY_INT = "explode_json_array_int";
     public static final String EXPLODE_JSON_ARRAY_DOUBLE = "explode_json_array_double";
@@ -2383,6 +2384,14 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 "_ZN5doris19DummyTableFunctions13explode_splitEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
                 null, null, true));
         tableFunctions.put(EXPLODE_SPLIT, explodeSplits);
+
+        List<Function> explodeSplitNonEmptys = Lists.newArrayList();
+        explodeSplitNonEmptys.add(ScalarFunction.createBuiltin(
+                EXPLODE_SPLIT_NON_EMPTY, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT,
+                Lists.newArrayList(Type.VARCHAR, Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions13explode_split_non_emptyEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
+                null, null, true));
+        tableFunctions.put(EXPLODE_SPLIT_NON_EMPTY, explodeSplitNonEmptys);
 
         List<Function> explodeBitmaps = Lists.newArrayList();
         explodeBitmaps.add(ScalarFunction.createBuiltin(

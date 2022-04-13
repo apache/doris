@@ -26,6 +26,11 @@ StringVal DummyTableFunctions::explode_split(FunctionContext* context, const Str
     return StringVal();
 }
 
+StringVal DummyTableFunctions::explode_split_non_empty(FunctionContext* context,
+                                                       const StringVal& str, const StringVal& sep) {
+    return StringVal();
+}
+
 BigIntVal DummyTableFunctions::explode_bitmap(doris_udf::FunctionContext* context,
                                               const doris_udf::StringVal& bitmap) {
     return BigIntVal();

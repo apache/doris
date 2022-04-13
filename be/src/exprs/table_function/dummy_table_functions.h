@@ -35,6 +35,9 @@ public:
     static doris_udf::StringVal explode_split(doris_udf::FunctionContext* context,
                                               const doris_udf::StringVal& str,
                                               const doris_udf::StringVal& sep);
+    static doris_udf::StringVal explode_split_non_empty(doris_udf::FunctionContext* context,
+                                                        const doris_udf::StringVal& str,
+                                                        const doris_udf::StringVal& sep);
     static doris_udf::BigIntVal explode_bitmap(doris_udf::FunctionContext* context,
                                                const doris_udf::StringVal& bitmap);
     static doris_udf::BigIntVal explode_json_array_int(doris_udf::FunctionContext* context,

@@ -42,6 +42,13 @@ struct FunctionExplodeSplitImpl {
     }
 };
 
+struct FunctionExplodeSplitNonEmptyImpl {
+    static constexpr auto name = "explode_split_non_empty";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeString>();
+    }
+};
+
 struct FunctionExplodeNumbersImpl {
     static constexpr auto name = "explode_numbers";
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
