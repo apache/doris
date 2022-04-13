@@ -41,6 +41,17 @@ public class HttpServer extends SpringBootServletInitializer {
     private int maxHttpPostSize ;
     private int workers;
 
+    private int minThreads;
+    private int maxThreads;
+
+    public int getMinThreads() { return minThreads; }
+
+    public void setMinThreads(int minThreads) { this.minThreads = minThreads; }
+
+    public int getMaxThreads() { return maxThreads; }
+
+    public void setMaxThreads(int maxThreads) { this.maxThreads = maxThreads; }
+
     public void setWorkers(int workers) {
         this.workers = workers;
     }

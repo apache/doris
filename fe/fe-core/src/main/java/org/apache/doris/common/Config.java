@@ -343,6 +343,16 @@ public class Config extends ConfigBase {
     @ConfField public static int jetty_server_acceptors = 2;
     @ConfField public static int jetty_server_selectors = 4;
     @ConfField public static int jetty_server_workers = 0;
+
+    /**
+     * Configure the default minimum and maximum number of threads for jetty.
+     * The default minimum and maximum number of threads for jetty is 10 and the maximum is 200.
+     * If this is relatively small in a high-concurrency import scenario,
+     * users can adjust it according to their own conditions.
+     */
+    @ConfField public static int jetty_threadPool_minThreads = 20;
+    @ConfField public static int jetty_threadPool_maxThreads = 400;
+
     /**
      * jetty Maximum number of bytes in put or post method,default:100MB
      */

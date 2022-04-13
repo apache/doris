@@ -198,10 +198,17 @@ Default：0
 
 With the above three parameters, Jetty's thread architecture model is very simple, divided into acceptors, selectors and workers three thread pools. Acceptors are responsible for accepting new connections, and then hand them over to selectors to process the unpacking of the HTTP message protocol, and finally workers process the request. The first two thread pools adopt a non-blocking model, and one thread can handle the read and write of many sockets, so the number of thread pools is small.
 
-For most projects, only 1-2 acceptors threads are required, and 2 to 4 selectors threads are sufficient. Workers are obstructive business logic, often have more database operations, and require a large number of threads. The specific number depends on the proportion of QPS and IO events of the application. The higher the QPS, the more threads are required, the higher the proportion of IO, the more threads waiting, and the more total threads required.
+For most projects, only 4 acceptors threads are required, and 2 to 4 selectors threads are sufficient. Workers are obstructive business logic, often have more database operations, and require a large number of threads. The specific number depends on the proportion of QPS and IO events of the application. The higher the QPS, the more threads are required, the higher the proportion of IO, the more threads waiting, and the more total threads required.
 
 Worker thread pool is not set by default, set according to your needs
 
+### jetty_threadPool_minThreads
+
+The minimum number of threads in the Jetty thread pool, the default is 20
+
+### jetty_threadPool_maxThreads
+
+The maximum number of threads in the Jetty thread pool, the default is 400
 
 ### jetty_server_max_http_post_size
 
