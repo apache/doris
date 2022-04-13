@@ -200,7 +200,6 @@ set(OLAP_TEST_FILES
     olap/options_test.cpp
     olap/fs/file_block_manager_test.cpp
     olap/common_test.cpp
-    # olap/rowset/rowset_converter_test.cpp
     # olap/memtable_flush_executor_test.cpp
     # olap/push_handler_test.cpp
 )
