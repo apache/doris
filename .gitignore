@@ -1,3 +1,4 @@
+# ignore file with wildcard anywhere
 *.swp
 *.pyc
 *.class
@@ -5,52 +6,57 @@
 *.swp
 *.jar
 *.zip
+*.gz
 *.log
-be/output
-be/build
-be/build_Release
-be/ut_build
-output
-docs/contents
+*.so.tmp
+*.flattened-pom.xml
+core.*
+
+# ignore file with specifiy name anywhere
+.DS_Store
+.classpath
+nohup.out
+custom_env.sh
+derby.log
+dependency-reduced-pom.xml
+package-lock.json
+yarn.lock
+
+# ignore all sub `/bin` and `/build` directory
+**/build/
+**/bin/
+**/target/
+**/node_modules/
+**/dist/
+**/log/
+
+# ignore project file
+.cproject
+.project
+.settings/
+**/.idea/
+**/.vscode/
+
+# docs
+docs/contents/
 docs/.temp
-docs/.vuepress/dist
-docs/node_modules
-docs/build
-gensrc/build
-fe/fe-core/target
-fe/fe-core/bin
+
+# output, thirdparty, extension
+output/
+conf/
+rpc_data/
 thirdparty/src
 thirdparty/installed
-*.so.tmp
-.DS_Store
-*.iml
-core.*
-extension/**/.classpath
-extension/**/target
-nohup.out
 
-fe/log
-custom_env.sh
-ut_dir
-log/
-fe_plugins/**/target
 fe_plugins/output
-fe/mocked
-fe/**/target
-dependency-reduced-pom.xml
-fe_plugins/**/.classpath
 fe_plugins/**/.factorypath
-
-fe/fe-common/.classpath
-fe/fe-core/src/main/resources/static/
-fe/fe-core/bin/src/main/resources/
 
 fs_brokers/apache_hdfs_broker/src/main/resources/
 fs_brokers/apache_hdfs_broker/src/main/thrift/
 
-samples/**/.classpath
-samples/doris-demo/*/target
-samples/doris-demo/*/bin/
+# regression-test
+regression-test/framework/dependency-reduced-pom.xml
+
 samples/doris-demo/remote-udf-python-demo/*_pb2.py
 samples/doris-demo/remote-udf-python-demo/*_pb2_grpc.py
 samples/doris-demo/remote-udf-cpp-demo/*.o
@@ -58,42 +64,14 @@ samples/doris-demo/remote-udf-cpp-demo/*.pb.h
 samples/doris-demo/remote-udf-cpp-demo/*.pb.cc
 samples/doris-demo/remote-udf-cpp-demo/function_server_demo
 
-regression-test/framework/target
-regression-test/framework/dependency-reduced-pom.xml
+# FE
+fe/mocked/
+fe/fe-core/src/main/resources/static/
 
-# ignore project file
-.cproject
-.project
-.settings/
-.idea/
-.vscode
-
-# Default
-be/cmake-build
-be/cmake-build-debug
-be/cmake-build-release
-be/.vscode
-be/src/gen_cpp/*.cc
-be/src/gen_cpp/*.cpp
-be/src/gen_cpp/*.h
+# BE
+be/*build*/
+be/src/gen_cpp/*.[cc, cpp, h]
 be/src/gen_cpp/opcode
-be/ut_build_*
 be/tags
-be/build*
 be/test/olap/test_data/tablet_meta_test.hdr
-build
-
-ui/dist
-ui/node_modules
-ui/package-lock.json
-ui/yarn.lock
-docs/package-lock.json
-
-rpc_data/
-
 be/.devcontainer/
-
-derby.log
-
-# Ignore all the .flattened-pom.xml files
-.flattened-pom.xml
