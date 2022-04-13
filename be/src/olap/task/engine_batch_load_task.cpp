@@ -262,7 +262,7 @@ Status EngineBatchLoadTask::_process() {
         if (push_status == Status::OLAPInternalError(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST)) {
             status = Status::OK();
         } else if (push_status != Status::OK()) {
-            status = Status::InternalError("Unknown");
+            status = push_status;
         }
     }
 
