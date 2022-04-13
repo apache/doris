@@ -26,6 +26,10 @@ under the License.
 
 ## SHOW-STATUS
 
+### Name
+
+SHOW STATUS
+
 ### Description
 
 ### Example

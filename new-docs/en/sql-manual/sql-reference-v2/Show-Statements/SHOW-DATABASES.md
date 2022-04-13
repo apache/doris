@@ -26,7 +26,19 @@ under the License.
 
 ## SHOW-DATABASES
 
+### Name
+
+SHOW DATABASES
+
 ### Description
+
+This statement is used to display the currently visible db
+
+grammar:
+
+```sql
+SHOW DATABASES;
+````
 
 ### Example
 
