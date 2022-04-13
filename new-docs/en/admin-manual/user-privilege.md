@@ -221,4 +221,6 @@ Here are some usage scenarios of Doris privilege system.
 
     Doris itself does not support blacklist, only whitelist, but we can simulate blacklist in some way. Suppose you first create a user named `user@'192.%'`, which allows users from `192.*` to login. At this time, if you want to prohibit users from `192.168.10.1` from logging in, you can create another user with `cmy@'192.168.10.1'` and set a new password. Since `192.168.10.1` has a higher priority than `192.%`, user can no longer login by using the old password from `192.168.10.1`.
 
+## More help
 
+For more detailed syntax and best practices for permission management use, please refer to the [GRANTS](../sql-manual/sql-reference-v2/Account-Management-Statements/GRANT.html) command manual. Enter `HELP GRANTS` at the command line of the MySql client for more help information.
