@@ -282,17 +282,16 @@ Status ColumnDataWriter::_flush_segment_with_verification() {
 }
 
 Status ColumnDataWriter::_finalize_segment() {
-    Status res = Status::OK();
     uint32_t data_segment_size;
-
-    if ((res = _segment_writer->finalize(&data_segment_size)) != Status::OK()) {
+    Status res = _segment_writer->finalize(&data_segment_size);
+    if (res != Status::OK()) {
         OLAP_LOG_WARNING("fail to finish segment from olap_data.");
         return res;
     }
-
-    if ((res != _segment_group->finalize_segment(data_segment_size, _num_rows)) != Status::OK()) {
+    res = _segment_group->finalize_segment(data_segment_size, _num_rows);
+    if (res != Status::OK()) {
         OLAP_LOG_WARNING("fail to finish segment from olap_index.");
-        return Status::OLAPInternalError(OLAP_ERR_WRITER_INDEX_WRITE_ERROR);
+        return res;
     }
 
     SAFE_DELETE(_segment_writer);
