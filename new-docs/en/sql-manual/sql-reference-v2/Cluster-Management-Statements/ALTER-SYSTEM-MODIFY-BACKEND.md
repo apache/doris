@@ -1,8 +1,9 @@
 ---
 {
-    "title": "ALTER-SYSTEM-DROP-OBSERVER",
+    "title": "ALTER-SYSTEM-MODIFY-BACKEND",
     "language": "en"
 }
+
 ---
 
 <!--
@@ -24,38 +25,55 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ALTER-SYSTEM-DROP-OBSERVER
+## ALTER-SYSTEM-MODIFY-BACKEND
 
 ### Name
 
-ALTER SYSTEM DROP OBSERVER
+ALTER SYSTEM MKDIFY BACKEND
 
 ### Description
 
-The change statement is to increase the node of the OBSERVER role of FRONTEND, (only for administrators!)
+Modify BE node properties (administrator only!)
 
 grammar:
 
 ```sql
-ALTER SYSTEM DROP OBSERVER "follower_host:edit_log_port"
+ALTER SYSTEM MODIFY BACKEND "host:heartbeat_port" SET ("key" = "value"[, ...]);
 ````
 
-illustrate:
+  illustrate:
 
 1. host can be a hostname or an ip address
-2. edit_log_port : edit_log_port in its configuration file fe.conf
+2. heartbeat_port is the heartbeat port of the node
+3. Modify BE node properties The following properties are currently supported:
+
+- tag.location: resource tag
+- disable_query: query disable attribute
+- disable_load: import disable attribute
 
 ### Example
 
-1. Add a FOLLOWER node
+1. Modify the resource tag of BE
 
     ```sql
-    ALTER SYSTEM DROP OBSERVER "host_ip:9010"
+    ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("tag.location" = "group_a");
+    ````
+
+2. Modify the query disable property of BE
+
+    ```sql
+    ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_query" = "true");
+    ````
+
+3. Modify the import disable property of BE
+
+    ```sql
+    ALTER SYSTEM MODIFY BACKEND "host1:9050" SET ("disable_load" = "true");
     ````
 
 ### Keywords
 
-    ALTER, SYSTEM, DROP, OBSERVER
+    ALTER, SYSTEM, ADD, BACKEND
 
 ### Best Practice
 
