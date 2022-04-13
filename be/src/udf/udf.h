@@ -74,7 +74,7 @@ public:
         TYPE_LARGEINT,
         TYPE_FLOAT,
         TYPE_DOUBLE,
-        TYPE_DECIMAL_DEPRACTED,
+        TYPE_DECIMAL [[deprecated]],
         TYPE_DATE,
         TYPE_DATETIME,
         TYPE_CHAR,
