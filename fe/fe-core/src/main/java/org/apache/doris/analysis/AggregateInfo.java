@@ -453,7 +453,10 @@ public final class AggregateInfo extends AggregateInfoBase {
             FunctionCallExpr inputExpr = getAggregateExprs().get(i);
             Preconditions.checkState(inputExpr.isAggregateFunction());
             List<Expr> paramExprs = new ArrayList<>();
-            if (inputExpr.fn.functionName().equals("max_by")) {
+            // TODO(zhannngchen), change intermediate argument to a list, and remove this
+            // ad-hoc logic
+            if (inputExpr.fn.functionName().equals("max_by") ||
+                    inputExpr.fn.functionName().equals("min_by")) {
                 paramExprs.addAll(inputExpr.getFnParams().exprs());
             } else {
                 paramExprs.add(new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size())));
