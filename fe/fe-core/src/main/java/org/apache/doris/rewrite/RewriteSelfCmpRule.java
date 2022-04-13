@@ -22,31 +22,35 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IsNullPredicate;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 
 /**
  * Rewrites predicate which is self compare self like A = A.
- * =, >= , <= , <=>: where col is not null;
- * <, >, !=: where col is null;
+ * =, >= , <=: where col is not null;
+ * <, >, !=: where false;
+ * <=>: where true;
  */
 public class RewriteSelfCmpRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new RewriteSelfCmpRule();
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
-        if (!(expr instanceof BinaryPredicate) || !expr.getChild(0).equals(expr.getChild(1)))
+        if (!(expr instanceof BinaryPredicate) || !(expr.getChild(0) instanceof SlotRef)
+                || !expr.getChild(0).equals(expr.getChild(1)))
             return expr;
 
         switch (((BinaryPredicate) expr).getOp()) {
             case EQ:
             case LE:
             case GE:
-            case EQ_FOR_NULL:
                 return new IsNullPredicate(expr.getChild(0), true);
             case NE:
             case LT:
             case GT:
                 return new BoolLiteral(false);
+            case EQ_FOR_NULL:
+                return new BoolLiteral(true);
         }
         return expr;
     }
