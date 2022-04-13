@@ -26,9 +26,33 @@ under the License.
 
 ## SHOW-CREATE-FUNCTION
 
+### Name
+
+SHOW CREATE FUNTION
+
 ### Description
 
+This statement is used to display the creation statement of the user-defined function
+
+grammar:
+
+```sql
+SHOW CREATE FUNTION function_name(arg_type [, ...]) [FROM db_name]];
+````
+
+illustrate:
+
+1. `function_name`: The name of the function to display
+2. `arg_type`: The parameter list of the function to display
+3. If db_name is not specified, the current default db is used
+
 ### Example
+
+1. Show the creation statement of the specified function under the default db
+
+    ```sql
+    SHOW CREATE FUNCTION my_add(INT, INT)
+    ````
 
 ### Keywords
 

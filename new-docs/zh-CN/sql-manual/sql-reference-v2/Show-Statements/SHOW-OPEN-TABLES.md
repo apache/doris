@@ -26,7 +26,19 @@ under the License.
 
 ## SHOW-OPEN-TABLES
 
+### Name
+
+SHOW TABLES
+
 ### Description
+
+该语句用于展示当前 db 下所有的 table
+
+语法：
+
+```SQL
+SHOW TABLES
+```
 
 ### Example
 

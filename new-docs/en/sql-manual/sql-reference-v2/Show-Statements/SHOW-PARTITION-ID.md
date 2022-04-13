@@ -26,9 +26,26 @@ under the License.
 
 ## SHOW-PARTITION-ID
 
+### Name
+
+SHOW PARTITION ID
+
 ### Description
 
+This statement is used to find the corresponding database name, table name, partition name according to the partition id (only for administrators)
+
+  grammar:
+
+```sql
+SHOW PARTITION [partition_id]
+```
 ### Example
+
+1. Find the corresponding database name, table name, partition name according to the partition id
+
+    ```sql
+    SHOW PARTITION 10002;
+    ````
 
 ### Keywords
 

@@ -47,9 +47,9 @@ Return result description:
 ```sql
 mysql> show property like'%connection%';
 +----------------------+-------+
-| Key | Value |
+| Key                  | Value |
 +----------------------+-------+
-| max_user_connections | 100 |
+| max_user_connections | 100   |
 +----------------------+-------+
 1 row in set (0.01 sec)
 ```

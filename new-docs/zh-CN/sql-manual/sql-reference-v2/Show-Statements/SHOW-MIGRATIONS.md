@@ -26,7 +26,19 @@ under the License.
 
 ## SHOW-MIGRATIONS
 
+### Name
+
+SHOW MIGRATIONS
+
 ### Description
+
+该语句用于查看数据库迁移的进度
+
+语法：
+
+```sql
+SHOW MIGRATIONS
+```
 
 ### Example
 

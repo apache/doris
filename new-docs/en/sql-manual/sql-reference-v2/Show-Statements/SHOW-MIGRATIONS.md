@@ -26,7 +26,19 @@ under the License.
 
 ## SHOW-MIGRATIONS
 
+### Name
+
+SHOW MIGRATIONS
+
 ### Description
+
+This statement is used to view the progress of database migration
+
+grammar:
+
+```sql
+SHOW MIGRATIONS
+````
 
 ### Example
 

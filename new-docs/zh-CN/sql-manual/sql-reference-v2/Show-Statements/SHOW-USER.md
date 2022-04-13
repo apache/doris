@@ -26,6 +26,10 @@ under the License.
 
 ## SHOW-USER
 
+### Name
+
+SHOW USER
+
 ### Description
 
 ### Example

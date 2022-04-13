@@ -26,13 +26,31 @@ under the License.
 
 ## SHOW-COLUMNS
 
+### Name
+
+SHOW FULL COLUMNS
+
 ### Description
+
+该语句用于指定表的列信息
+
+语法：
+
+        ```sql
+        SHOW FULL COLUMNS FROM tbl;
+        ```
 
 ### Example
 
+1. 查看指定表的列信息
+
+   ```sql
+    SHOW FULL COLUMNS FROM tbl;
+   ```
+
 ### Keywords
 
-    SHOW, COLUMNS
+    SHOW, FULL, COLUMNS
 
 ### Best Practice
 
