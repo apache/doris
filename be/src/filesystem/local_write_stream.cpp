@@ -51,22 +51,27 @@ LocalWriteStream::~LocalWriteStream() {
 }
 
 Status LocalWriteStream::write(const char* from, size_t put_n) {
-    if (put_n > buffer_remain()) {
-        RETURN_IF_ERROR(flush());
-        // Write bytes is greater than the capacity of buffer,
-        // do not copy data into buffer.
-        // TODO(cyx): Perhaps a more appropriate water level line could be used here
-        if (put_n > _buffer_size) {
-            if (!detail::write_retry(_fd, from, put_n)) {
-                return Status::IOError("Cannot write to file");
-            }
-            _dirty = true;
-            return Status::OK();
-        }
-    }
-    memcpy(_buffer + _buffer_used, from, put_n);
-    _buffer_used += put_n;
     _dirty = true;
+
+    size_t copied = std::min(put_n, buffer_remain());
+    memcpy(_buffer + _buffer_used, from, copied);
+    _buffer_used += copied;
+    from += copied;
+    put_n -= copied;
+    if (put_n == 0) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(flush());
+    // Write bytes is greater than 1/2 capacity of buffer,
+    // do not copy data into buffer.
+    if (put_n < _buffer_size / 2) {
+        memcpy(_buffer, from, put_n);
+        _buffer_used = put_n;
+        return Status::OK();
+    }
+    if (!detail::write_retry(_fd, from, put_n)) {
+        return Status::IOError("Cannot write to file");
+    }
     return Status::OK();
 }
 

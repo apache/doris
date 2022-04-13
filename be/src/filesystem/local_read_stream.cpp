@@ -41,7 +41,7 @@ Status LocalReadStream::read(char* to, size_t req_n, size_t* read_n) {
         // Request length is larger than the capacity of buffer,
         // do not copy data into buffer.
         if (req_n > _buffer_size) {
-            int res = 0;
+            ssize_t res = 0;
             RETRY_ON_EINTR(res, ::pread(_fd, to, req_n, _offset));
             if (-1 == res) {
                 return Status::IOError("Cannot read from file");
@@ -91,7 +91,7 @@ Status LocalReadStream::close() {
 }
 
 Status LocalReadStream::fill() {
-    int res = 0;
+    ssize_t res = 0;
     RETRY_ON_EINTR(res, ::pread(_fd, _buffer, _buffer_size, _offset));
     if (-1 == res) {
         return Status::IOError("Cannot read from file");
