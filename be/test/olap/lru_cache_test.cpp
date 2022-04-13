@@ -49,7 +49,7 @@ const CacheKey EncodeKey(std::string* result, int k) {
 }
 
 static int DecodeKey(const CacheKey& k) {
-    assert(k.size() == 4);
+    EXPECT_EQ(k.size(), 4);
     return DecodeFixed32(k.data());
 }
 static void* EncodeValue(uintptr_t v) {

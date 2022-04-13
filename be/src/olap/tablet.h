@@ -250,8 +250,8 @@ public:
         return _cumulative_compaction_policy;
     }
 
-    bool all_beta() const {
-        ReadLock rdlock(_meta_lock);
+    inline bool all_beta() const {
+        std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
     }
 
@@ -381,14 +381,14 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
 // are not locked, here needs a comment to explain.
 inline size_t Tablet::tablet_footprint() {
-    ReadLock rdlock(_meta_lock);
+    std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->tablet_footprint();
 }
 
 // TODO(lingbin): Why other methods which need to get information from _tablet_meta
 // are not locked, here needs a comment to explain.
 inline size_t Tablet::num_rows() {
-    ReadLock rdlock(_meta_lock);
+    std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->num_rows();
 }
 

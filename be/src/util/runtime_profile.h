@@ -34,16 +34,10 @@
 
 namespace doris {
 
-// Define macros for updating counters.  The macros make it very easy to disable
-// all counters at compile time.  Set this to 0 to remove counters.  This is useful
-// to do to make sure the counters aren't affecting the system.
-#define ENABLE_COUNTERS 1
-
 // Some macro magic to generate unique ids using __COUNTER__
 #define CONCAT_IMPL(x, y) x##y
 #define MACRO_CONCAT(x, y) CONCAT_IMPL(x, y)
 
-#if ENABLE_COUNTERS
 #define ADD_COUNTER(profile, name, type) (profile)->add_counter(name, type)
 #define ADD_TIMER(profile, name) (profile)->add_counter(name, TUnit::TIME_NS)
 #define ADD_CHILD_TIMER(profile, name, parent) (profile)->add_counter(name, TUnit::TIME_NS, parent)
@@ -60,21 +54,6 @@ namespace doris {
                                                                           __COUNTER__)(c)
 #define COUNTER_UPDATE(c, v) (c)->update(v)
 #define COUNTER_SET(c, v) (c)->set(v)
-#define ADD_THREAD_COUNTERS(profile, prefix) (profile)->add_thread_counters(prefix)
-#define SCOPED_THREAD_COUNTER_MEASUREMENT(c) \
-    /*ThreadCounterMeasurement                                        \
-      MACRO_CONCAT(SCOPED_THREAD_COUNTER_MEASUREMENT, __COUNTER__)(c)*/
-#else
-#define ADD_COUNTER(profile, name, type) nullptr
-#define ADD_TIMER(profile, name) nullptr
-#define SCOPED_TIMER(c)
-#define SCOPED_RAW_TIMER(c)
-#define SCOPED_ATOMIC_TIMER(c)
-#define COUNTER_UPDATE(c, v)
-#define COUNTER_SET(c, v)
-#define ADD_THREADCOUNTERS(profile, prefix) nullptr
-#define SCOPED_THREAD_COUNTER_MEASUREMENT(c)
-#endif
 
 class ObjectPool;
 

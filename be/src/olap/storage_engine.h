@@ -360,7 +360,7 @@ private:
     std::mutex _report_mtx;
     std::set<TaskWorkerPool*> _report_listeners;
 
-    Mutex _engine_task_mutex;
+    std::mutex _engine_task_mutex;
 
     std::unique_ptr<TabletManager> _tablet_manager;
     std::unique_ptr<TxnManager> _txn_manager;
