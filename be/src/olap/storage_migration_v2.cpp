@@ -372,7 +372,7 @@ Status StorageMigrationV2Handler::_convert_historical_rowsets(
             LOG(WARNING) << "failed to build rowset, exit alter process";
             goto PROCESS_ALTER_EXIT;
         }
-        res = sm_params.new_tablet->add_rowset(new_rowset, false);
+        res = sm_params.new_tablet->add_rowset(new_rowset);
         if (res.precise_code() == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
             LOG(WARNING) << "version already exist, version revert occurred. "
                          << "tablet=" << sm_params.new_tablet->full_name() << ", version='"

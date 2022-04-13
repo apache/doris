@@ -206,7 +206,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
     return res;
 }
 
-Status Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
+Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     DCHECK(rowset != nullptr);
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     // If the rowset already exist, just return directly.  The rowset_id is an unique-id,
@@ -235,15 +235,6 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     }
     std::vector<RowsetSharedPtr> empty_vec;
     modify_rowsets(empty_vec, rowsets_to_delete);
-
-    if (need_persist) {
-        Status res =
-                RowsetMetaManager::save(data_dir()->get_meta(), tablet_uid(), rowset->rowset_id(),
-                                        rowset->rowset_meta()->get_rowset_pb());
-        if (!res.ok()) {
-            LOG(FATAL) << "failed to save rowset to local meta store" << rowset->rowset_id();
-        }
-    }
     ++_newly_created_rowset_num;
     return Status::OK();
 }
@@ -1444,6 +1435,101 @@ void Tablet::reset_compaction(CompactionType compaction_type) {
     } else {
         _base_compaction.reset();
     }
+}
+
+Status Tablet::create_initial_rowset(const int64_t req_version) {
+    Status res = Status::OK();
+    if (req_version < 1) {
+        LOG(WARNING) << "init version of tablet should at least 1. req.ver=" << req_version;
+        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
+    }
+    Version version(0, req_version);
+    RowsetSharedPtr new_rowset;
+    do {
+        // there is no data in init rowset, so overlapping info is unknown.
+        std::unique_ptr<RowsetWriter> rs_writer;
+        res = create_rowset_writer(version, VISIBLE, OVERLAP_UNKNOWN, &rs_writer);
+        if (!res.ok()) {
+            LOG(WARNING) << "failed to init rowset writer for tablet " << full_name();
+            break;
+        }
+        res = rs_writer->flush();
+        if (!res.ok()) {
+            LOG(WARNING) << "failed to flush rowset writer for tablet " << full_name();
+            break;
+        }
+
+        new_rowset = rs_writer->build();
+        res = add_rowset(new_rowset);
+        if (!res.ok()) {
+            LOG(WARNING) << "failed to add rowset for tablet " << full_name();
+            break;
+        }
+    } while (0);
+
+    // Unregister index and delete files(index and data) if failed
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to create initial rowset. res=" << res << " version=" << req_version;
+        StorageEngine::instance()->add_unused_rowset(new_rowset);
+        return res;
+    }
+    set_cumulative_layer_point(req_version + 1);
+    return res;
+}
+
+Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
+                                    const SegmentsOverlapPB& overlap,
+                                    std::unique_ptr<RowsetWriter>* rowset_writer) {
+    RowsetWriterContext context;
+    context.rowset_id = StorageEngine::instance()->next_rowset_id();
+    context.tablet_uid = tablet_uid();
+    context.tablet_id = tablet_id();
+    context.partition_id = partition_id();
+    context.tablet_schema_hash = schema_hash();
+    context.data_dir = data_dir();
+    context.rowset_type = tablet_meta()->preferred_rowset_type();
+    // Alpha Rowset will be removed in the future, so that if the tablet's default rowset type is
+    // alpah rowset, then set the newly created rowset to storage engine's default rowset.
+    if (context.rowset_type == ALPHA_ROWSET) {
+        context.rowset_type = StorageEngine::instance()->default_rowset_type();
+    }
+    context.path_desc = tablet_path_desc();
+    context.tablet_schema = &(tablet_schema());
+    context.rowset_state = rowset_state;
+    context.version = version;
+    context.segments_overlap = overlap;
+    // The test results show that one rs writer is low-memory-footprint, there is no need to tracker its mem pool
+    return RowsetFactory::create_rowset_writer(context, rowset_writer);
+}
+
+Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
+                                    const RowsetStatePB& rowset_state,
+                                    const SegmentsOverlapPB& overlap,
+                                    std::unique_ptr<RowsetWriter>* rowset_writer) {
+    RowsetWriterContext context;
+    context.rowset_id = StorageEngine::instance()->next_rowset_id();
+    context.tablet_uid = tablet_uid();
+    context.tablet_id = tablet_id();
+    context.partition_id = partition_id();
+    context.tablet_schema_hash = schema_hash();
+    context.rowset_type = tablet_meta()->preferred_rowset_type();
+    // Alpha Rowset will be removed in the future, so that if the tablet's default rowset type is
+    // alpah rowset, then set the newly created rowset to storage engine's default rowset.
+    if (context.rowset_type == ALPHA_ROWSET) {
+        context.rowset_type = StorageEngine::instance()->default_rowset_type();
+    }
+    context.path_desc = tablet_path_desc();
+    context.tablet_schema = &(tablet_schema());
+    context.rowset_state = rowset_state;
+    context.txn_id = txn_id;
+    context.load_id = load_id;
+    context.segments_overlap = overlap;
+    context.data_dir = data_dir();
+    return RowsetFactory::create_rowset_writer(context, rowset_writer);
+}
+
+Status Tablet::create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
+    return RowsetFactory::create_rowset(&tablet_schema(), tablet_path_desc(), rowset_meta, rowset);
 }
 
 } // namespace doris

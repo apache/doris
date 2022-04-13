@@ -33,6 +33,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset/rowset_writer.h"
 #include "olap/tablet_meta.h"
 #include "olap/tuple.h"
 #include "olap/utils.h"
@@ -97,7 +98,8 @@ public:
     int32_t field_index(const std::string& field_name) const;
 
     // operation in rowsets
-    Status add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
+    Status add_rowset(RowsetSharedPtr rowset);
+    Status create_initial_rowset(const int64_t version);
     void modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                         std::vector<RowsetSharedPtr>& to_delete);
 
@@ -255,6 +257,16 @@ public:
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
     }
+
+    Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
+                                const SegmentsOverlapPB& overlap,
+                                std::unique_ptr<RowsetWriter>* rowset_writer);
+
+    Status create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
+                                const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
+                                std::unique_ptr<RowsetWriter>* rowset_writer);
+
+    Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
 
 private:
     Status _init_once_action();
