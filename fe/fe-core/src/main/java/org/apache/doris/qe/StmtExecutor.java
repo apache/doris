@@ -577,7 +577,11 @@ public class StmtExecutor implements ProfileWriter {
             for (int i = 1; i <= analyzeTimes; i++) {
                 MetaLockUtils.readLockTables(tables);
                 try {
+                    if (i > 1) {
+                        resetAnalyzerAndStmt();
+                    }
                     analyzeAndGenerateQueryPlan(tQueryOptions);
+                    break;
                 } catch (MVSelectFailedException e) {
                     /**
                      * If there is MVSelectFailedException after the first planner, there will be error mv rewritten in query.
@@ -586,14 +590,11 @@ public class StmtExecutor implements ProfileWriter {
                      */
                     if (i == analyzeTimes) {
                         throw e;
-                    } else {
-                        resetAnalyzerAndStmt();
                     }
                 } catch (VecNotImplException e) {
                     if (i == analyzeTimes) {
                         throw e;
                     } else {
-                        resetAnalyzerAndStmt();
                         VectorizedUtil.switchToQueryNonVec();
                     }
                 } catch (UserException e) {
