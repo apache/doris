@@ -105,6 +105,8 @@ POST /_bulk
 
 ### Doris中创建ES外表
 
+具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)
+
 ```
 CREATE EXTERNAL TABLE `test` (
   `k1` bigint(20) COMMENT "",

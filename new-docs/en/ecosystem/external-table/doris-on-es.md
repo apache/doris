@@ -107,6 +107,8 @@ POST /_bulk
 
 ### Create external ES table
 
+Refer to the specific table syntax:[CREATE TABLE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)
+
 ```
 CREATE EXTERNAL TABLE `test` (
   `k1` bigint(20) COMMENT "",

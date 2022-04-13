@@ -101,4 +101,95 @@ doriswriter 插件依赖的 DataX 代码中的一些模块。而这些模块并�
 
 ### 示例
 
-doriswriter 插件的使用说明请参阅 [这里](https://github.com/apache/incubator-doris/blob/master/extension/DataX/doriswriter/doc/doriswriter.md)
+#### 1.Stream读取数据后导入至Doris
+
+该示例插件的使用说明请参阅 [这里](https://github.com/apache/incubator-doris/blob/master/extension/DataX/doriswriter/doc/doriswriter.md)
+
+#### 2.Mysql读取数据后导入至Doris
+
+1.Mysql表结构
+
+```sql
+CREATE TABLE `t_test`(
+ `id`bigint(30) NOT NULL,
+ `order_code` varchar(30) DEFAULT NULL COMMENT '',
+ `line_code` varchar(30) DEFAULT NULL COMMENT '',
+ `remark` varchar(30) DEFAULT NULL COMMENT '',
+ `unit_no` varchar(30) DEFAULT NULL COMMENT '',
+ `unit_name` varchar(30) DEFAULT NULL COMMENT '',
+ `price` decimal(12,2) DEFAULT NULL COMMENT '',
+ PRIMARY KEY(`id`) USING BTREE
+)ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC COMMENT='';
+```
+
+2.Doris表结构
+
+```sql
+CREATE TABLE `ods_t_test` (
+ `id`bigint(30) NOT NULL,
+ `order_code` varchar(30) DEFAULT NULL COMMENT '',
+ `line_code` varchar(30) DEFAULT NULL COMMENT '',
+ `remark` varchar(30) DEFAULT NULL COMMENT '',
+ `unit_no` varchar(30) DEFAULT NULL COMMENT '',
+ `unit_name` varchar(30) DEFAULT NULL COMMENT '',
+ `price` decimal(12,2) DEFAULT NULL COMMENT ''
+）ENGINE=OLAP
+UNIQUE KEY(id`, `order_code`)
+DISTRIBUTED BY HASH(`order_code`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 3",
+"in_memory" = "false",
+"storage_format" = "V2"
+);
+```
+
+3.创建datax脚本
+
+```
+{
+    "job": {
+        "setting": {
+            "speed": {
+                "channel": 1
+            },
+            "errorLimit": {
+                "record": 0,
+                "percentage": 0
+            }
+        },
+        "content": [
+            {
+                "reader": {
+                    "name": "mysqlreader",
+                    "parameter": {
+                        "username": "xxx",
+                        "password": "xxx",
+                        "column": ["id","order_code","line_code","remark","unit_no","unit_name","price"],
+                        "connection": [ { "table": [ "t_test" ], "jdbcUrl": [ "jdbc:mysql://10.10.10.1:33306/demo" ] } ] }
+                },
+                "writer": {
+                    "name": "doriswriter",
+                    "parameter": {
+                        "feLoadUrl": ["127.0.0.1:8030","127.0.0.2:8030"],
+                        "beLoadUrl": ["127.0.0.3:8040","127.0.0.4:8040","127.0.0.5:8040"],
+                        "jdbcUrl": "jdbc:mysql://127.0.0.1:9030/",
+                        "database": "demo",
+                        "table": "ods_t_test",
+                        "column": ["id","order_code","line_code","remark","unit_no","unit_name","price"],
+                        "username": "xxx",
+                        "password": "xxx",
+                        "postSql": [],
+                        "preSql": [],
+                        "loadProps": {
+                        },
+                        "maxBatchRows" : 300000,
+                        "maxBatchByteSize" : 20971520
+                    }
+                }
+            }
+        ]
+    }
+}
+```
+
+4.执行datax任务，具体参考 [datax官网](https://github.com/alibaba/DataX/blob/master/userGuid.md)

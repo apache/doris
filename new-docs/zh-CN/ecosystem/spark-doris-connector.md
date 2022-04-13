@@ -44,6 +44,40 @@ Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据�
 
 ## 编译与安装
 
+准备工作
+
+修改`custom_env.sh.tpl`文件，需要指定thrift安装目录
+
+```bash
+##源文件内容
+#export THRIFT_BIN=
+#export MVN_BIN=
+#export JAVA_HOME=
+
+##修改如下
+export THRIFT_BIN=./thirdparty/installed/bin（thrift的安装目录）
+#export MVN_BIN=
+#export JAVA_HOME=
+
+安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
+ Windows: 
+    1. 下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
+    2. 拷贝：将文件拷贝至 `./thirdparty/installed/bin`
+ 
+ MacOS: 
+    1. 下载：`brew install thrift@0.13.0`
+    2. 建立软链接： 
+       `mkdir -p ./thirdparty/installed/bin`
+       `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+ 
+ 注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
+    1. `brew tap-new $USER/local-tap`
+    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
+    3. `brew install thrift@0.13.0`
+ 参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
+
+```
+
 在源码目录下执行：
 
 ```bash
@@ -179,7 +213,9 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
   .awaitTermination()
 ```
 
+### java示例
 
+`samples/doris-demo/spark-demo/` 下提供了 Java 版本的示例，可供参考，[这里](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/spark-demo)
 
 ## 配置
 
@@ -244,3 +280,4 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | HLL        | Unsupported datatype             |
 
 * 注：Connector中，将`DATE`和`DATETIME`映射为`String`。由于`Doris`底层存储引擎处理逻辑，直接使用时间类型时，覆盖的时间范围无法满足需求。所以使用 `String` 类型直接返回对应的时间可读文本。
+

@@ -50,6 +50,40 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 
 ## 编译与安装
 
+准备工作
+
+修改`custom_env.sh.tpl`文件，需要指定thrift安装目录
+
+```bash
+##源文件内容
+#export THRIFT_BIN=
+#export MVN_BIN=
+#export JAVA_HOME=
+
+##修改如下
+export THRIFT_BIN=./thirdparty/installed/bin
+#export MVN_BIN=
+#export JAVA_HOME=
+
+安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
+ Windows: 
+    1. 下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
+    2. 拷贝：将文件拷贝至 `./thirdparty/installed/bin`
+ 
+ MacOS: 
+    1. 下载：`brew install thrift@0.13.0`
+    2. 建立软链接： 
+       `mkdir -p ./thirdparty/installed/bin`
+       `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+ 
+ 注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
+    1. `brew tap-new $USER/local-tap`
+    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
+    3. `brew install thrift@0.13.0`
+ 参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
+ 
+```
+
 在源码目录下执行：
 
 ```bash
@@ -132,7 +166,7 @@ Flink 1.13.* 及以前的版本
   <!--artifactId>flink-doris-connector-1.11_2.12</artifactId-->
   <version>1.0.3</version>
 </dependency>    
-``` 
+```
 Flink 1.14.* 版本
 ```
 <dependency>
@@ -166,7 +200,7 @@ Flink 1.14.* 版本
   <artifactId>flink-doris-connector-1.14_2.12</artifactId>
   <version>1.0.3</version>
 </dependency>  
-``` 
+```
 
 **备注**
 
@@ -449,3 +483,33 @@ WITH (
 
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
+
+## Java示例
+
+`samples/doris-demo/fink-demo/` 下提供了 Java 版本的示例，可供参考，查看点击[这里](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/flink-demo)
+
+## 最佳实践
+
+### 应用场景
+
+使用 Flink Doris Connector最适合的场景就是实时/批次同步源数据到Doris（Mysql，Oracle，PostgreSQL）等，使用Flink对Doris中的数据和其他数据源进行联合分析，也可以使用Flink Doris Connector
+
+### 数据量
+
+Flink Doris Connector写入频率主要是通过sink.batch.size，sink.batch.interval和sink.batch.bytes控制
+
+这三个参数用于控制单个任务的执行时间。其中任意一个阈值达到，则任务结束。其中 `sink.batch.size` 用于记录单词写入的数据行数。`sink.batch.interval` 表示间隔多长时间开始写数据，`sink.batch.bytes`，单次写入数据的数据量，单位是字节。目前一个任务的消费速率大约为 5-10MB/s。
+
+那么假设一行数据 500B，用户希望每 100MB 或 10 秒为一个 task。100MB 的预期处理时间是 10-20 秒，对应的行数约为 200000 行。则一个合理的配置为：
+
+```text
+"sink.batch.interval" = "10",
+"sink.batch.size" = "200000",
+"sink.batch.bytes" = "104857600"
+```
+
+### 常见问题
+
+1.Could not execute SQL statement. Reason：java.lang.IllegalAraumenException: Row parity: 32，but serializer rarity：31
+
+因为Doris有个隐藏列，需要手动添加一列`__DORIS_DELETE_SIGN__`  类型：TINYINT

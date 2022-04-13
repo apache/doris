@@ -48,6 +48,40 @@ Github: https://github.com/apache/incubator-doris-flink-connector
 
 ## Build and Install
 
+Ready to work
+
+Modify the `custom_env.sh.tpl` file, you need to specify the thrift installation directory
+
+```bash
+##source file content
+#export THRIFT_BIN=
+#export MVN_BIN=
+#export JAVA_HOME=
+
+##amend as below
+export THRIFT_BIN=./thirdparty/installed/bin（thrift installation directory）
+#export MVN_BIN=
+#export JAVA_HOME=
+
+Install `thrift` 0.13.0 (Note: `Doris` 0.15 and the latest builds are based on `thrift` 0.13.0, previous versions are still built with `thrift` 0.9.3)
+Windows:
+  1. Download: `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
+  2. Copy: Copy the file to `./thirdparty/installed/bin` 
+  
+ 
+MacOS:
+  1. Download: `brew install thrift@0.13.0`
+  2. Create a soft link:
+       `mkdir -p ./thirdparty/installed/bin`
+       `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+
+Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that the version cannot be found. The solution is as follows, execute it in the terminal:
+    1. `brew tap-new $USER/local-tap`
+    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
+    3. `brew install thrift@0.13.0`
+ Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
+```
+
 Execute following command in source dir:
 
 ```bash
@@ -371,3 +405,33 @@ WITH (
 
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
+
+## Java example
+
+`samples/doris-demo/fink-demo/`  An example of the Java version is provided below for reference, see [here](https://github.com/apache/incubator-doris/tree/master/samples/doris-demo/flink-demo)
+
+## Best Practices
+
+### Application scenarios
+
+The most suitable scenario for using Flink Doris Connector is to synchronize source data to Doris (Mysql, Oracle, PostgreSQL) in real time/batch, etc., and use Flink to perform joint analysis on data in Doris and other data sources. You can also use Flink Doris Connector
+
+### The amount of data
+
+The writing frequency of Flink Doris Connector is mainly controlled by sink.batch.size, sink.batch.interval and sink.batch.bytes
+
+These three parameters are used to control the execution time of a single task. When any one of the thresholds is reached, the task ends. where `sink.batch.size` is used to record the number of lines of data written by the word. `sink.batch.interval` indicates the interval to start writing data, `sink.batch.bytes`, the amount of data to be written at a time, in bytes. The current consumption rate of a task is about 5-10MB/s.
+
+Then suppose a row of data is 500B, and the user wants every 100MB or 10 seconds to be a task. The expected processing time for 100MB is 10-20 seconds, which corresponds to about 200,000 rows. Then a reasonable configuration is:
+
+```
+"sink.batch.interval" = "10",
+"sink.batch.size" = "200000",
+"sink.batch.bytes" = "104857600"
+```
+
+### common problem
+
+1.Could not execute SQL statement. Reason：java.lang.IllegalAraumenException: Row parity: 32，but serializer rarity：31
+
+Because Doris has a hidden column, you need to manually add a column `__DORIS_DELETE_SIGN__` Type: TINYINT
