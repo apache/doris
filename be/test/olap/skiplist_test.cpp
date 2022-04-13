@@ -26,9 +26,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "testutil/test_util.h"
-#include "util/condition_variable.h"
 #include "util/hash_util.hpp"
-#include "util/mutex.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/random.h"
 
@@ -222,9 +220,9 @@ private:
     }
 
     static Key make_key(uint64_t k, uint64_t g) {
-        assert(sizeof(Key) == sizeof(uint64_t));
-        assert(k <= K); // We sometimes pass K to seek to the end of the skiplist
-        assert(g <= 0xffffffffu);
+        EXPECT_EQ(sizeof(Key), sizeof(uint64_t));
+        EXPECT_LE(k, K); // We sometimes pass K to seek to the end of the skiplist
+        EXPECT_LE(g, 0xffffffffu);
         return ((k << 40) | (g << 8) | (hash_numbers(k, g) & 0xff));
     }
 
@@ -362,27 +360,25 @@ public:
 
     enum ReaderState { STARTING, RUNNING, DONE };
 
-    explicit TestState(int s) : _seed(s), _quit_flag(false), _state(STARTING), _cv_state(&_mu) {}
+    explicit TestState(int s) : _seed(s), _quit_flag(false), _state(STARTING) {}
 
     void wait(ReaderState s) {
-        _mu.lock();
+        std::unique_lock l(_mu);
         while (_state != s) {
-            _cv_state.wait();
+            _cv_state.wait(l);
         }
-        _mu.unlock();
     }
 
     void change(ReaderState s) {
-        _mu.lock();
+        std::lock_guard l(_mu);
         _state = s;
         _cv_state.notify_one();
-        _mu.unlock();
     }
 
 private:
-    Mutex _mu;
+    std::mutex _mu;
     ReaderState _state;
-    ConditionVariable _cv_state;
+    std::condition_variable _cv_state;
 };
 
 static void concurrent_reader(void* arg) {

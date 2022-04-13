@@ -17,18 +17,15 @@
 
 #include "olap/task/engine_checksum_task.h"
 
-#include "olap/tuple_reader.h"
 #include "olap/row.h"
 #include "runtime/thread_context.h"
+#include "olap/tuple_reader.h"
 
 namespace doris {
 
 EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash,
                                        TVersion version, uint32_t* checksum)
-        : _tablet_id(tablet_id),
-          _schema_hash(schema_hash),
-          _version(version),
-          _checksum(checksum) {
+        : _tablet_id(tablet_id), _schema_hash(schema_hash), _version(version), _checksum(checksum) {
     _mem_tracker = MemTracker::create_tracker(-1, "compute checksum: " + std::to_string(tablet_id),
                                               StorageEngine::instance()->consistency_mem_tracker(),
                                               MemTrackerLevel::TASK);
@@ -66,7 +63,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     reader_params.version = Version(0, _version);
 
     {
-        ReadLock rdlock(tablet->get_header_lock());
+        std::shared_lock rdlock(tablet->get_header_lock());
         const RowsetSharedPtr message = tablet->rowset_with_max_version();
         if (message == nullptr) {
             LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;
