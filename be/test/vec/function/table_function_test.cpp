@@ -16,6 +16,7 @@
 // under the License.
 
 #include "exprs/mock_vexpr.h"
+#include "vec/core/types.h"
 #include "vec/exprs/table_function/vexplode.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
@@ -147,7 +148,7 @@ TEST_F(TableFunctionTest, vexplode_split) {
     tfn.set_vexpr_context(_ctx.get());
 
     {
-        // Case 1: explode_split(null) --- null
+        // Case 1: explode_split(null) --> null
         // Case 2: explode_split("a,b,c", ",") --> ["a", "b", "c"]
         // Case 3: explode_split("a,b,c", "a,")) --> ["", "b,c"]
         // Case 4: explode_split("", ",")) --> [""]
@@ -161,6 +162,30 @@ TEST_F(TableFunctionTest, vexplode_split) {
         InputDataSet output_set = {{Null()},           {std::string("a")}, {std::string("b")},
                                    {std::string("c")}, {std::string("")},  {std::string("b,c")},
                                    {std::string("")}};
+
+        check_vec_table_function(&tfn, input_types, input_set, output_types, output_set);
+    }
+}
+
+TEST_F(TableFunctionTest, vexplode_split_non_empty) {
+    init_expr_context(2);
+    VExplodeSplitNonEmptyTableFunction tfn;
+    tfn.set_vexpr_context(_ctx.get());
+
+    {
+        // Case 1: explode_split(null) --> null
+        // Case 2: explode_split("a,b,c", ",") --> ["a", "b", "c"]
+        // Case 3: explode_split("a,b,c", "a,")) --> ["b,c"]
+        // Case 4: explode_split("", ",")) --> null
+        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
+        InputDataSet input_set = {{Null(), Null()},
+                                  {std::string("a,b,c"), std::string(",")},
+                                  {std::string("a,b,c"), std::string("a,")},
+                                  {std::string(""), std::string(",")}};
+
+        InputTypeSet output_types = {TypeIndex::String};
+        InputDataSet output_set = {{Null()},           {std::string("a")},   {std::string("b")},
+                                   {std::string("c")}, {std::string("b,c")}, {Null()}};
 
         check_vec_table_function(&tfn, input_types, input_set, output_types, output_set);
     }
