@@ -64,7 +64,7 @@ private:
     Status _make_snapshot(const std::string& ip, int port, TTableId tablet_id,
                           TSchemaHash schema_hash, int timeout_s,
                           const std::vector<Version>* missed_versions, std::string* snapshot_path,
-                          bool* allow_incremental_clone, int32_t* snapshot_version);
+                          bool* allow_incremental_clone);
 
     Status _release_snapshot(const std::string& ip, int port, const std::string& snapshot_path);
 
