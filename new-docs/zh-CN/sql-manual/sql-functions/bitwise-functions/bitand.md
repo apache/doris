@@ -1,7 +1,7 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
-    "language": "zh-CN"
+"title": "bitand",
+"language": "zh-CN"
 }
 ---
 
@@ -24,33 +24,34 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# bitand
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BITAND(Integer-type lhs, Integer-type rhs)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
+返回两个整数与运算的结果.
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+整数范围：TINYINT、SMALLINT、INT、BIGINT、LARGEINT
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select bitand(3,5) ans;
++------+
+| ans  |
++------+
+|    1 |
++------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select bitand(4,7) ans;
++------+
+| ans  |
++------+
+|    4 |
++------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITAND

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "dayofweek",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,35 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# dayofweek
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT DAYOFWEEK(DATETIME date)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+DAYOFWEEK函数返回日期的工作日索引值，即星期日为1，星期一为2，星期六为7
+
+参数为Date或者Datetime类型或者可以cast为Date或者Datetime类型的数字
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select dayofweek('2019-06-25');
++----------------------------------+
+| dayofweek('2019-06-25 00:00:00') |
++----------------------------------+
+|                                3 |
++----------------------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select dayofweek(cast(20190625 as date)); 
++-----------------------------------+
+| dayofweek(CAST(20190625 AS DATE)) |
++-----------------------------------+
+|                                 3 |
++-----------------------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    DAYOFWEEK
