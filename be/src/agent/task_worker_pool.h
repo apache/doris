@@ -31,9 +31,7 @@
 #include "gutil/ref_counted.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "util/condition_variable.h"
 #include "util/countdown_latch.h"
-#include "util/mutex.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -73,15 +71,11 @@ public:
         SUBMIT_TABLE_COMPACTION
     };
 
-    enum ReportType {
-        TASK,
-        DISK,
-        TABLET
-    };
+    enum ReportType { TASK, DISK, TABLET };
 
     enum class ThreadModel {
-        SINGLE_THREAD,      // Only 1 thread allowed in the pool
-        MULTI_THREADS       // 1 or more threads allowed in the pool
+        SINGLE_THREAD, // Only 1 thread allowed in the pool
+        MULTI_THREADS  // 1 or more threads allowed in the pool
     };
 
     const std::string TYPE_STRING(TaskWorkerType type) {
@@ -224,8 +218,8 @@ private:
     ExecEnv* _env;
 
     // Protect task queue
-    Mutex _worker_thread_lock;
-    ConditionVariable _worker_thread_condition_variable;
+    std::mutex _worker_thread_lock;
+    std::condition_variable _worker_thread_condition_variable;
     CountDownLatch _stop_background_threads_latch;
     bool _is_work;
     ThreadModel _thread_model;
@@ -245,7 +239,7 @@ private:
     static FrontendServiceClientCache _master_service_client_cache;
     static std::atomic_ulong _s_report_version;
 
-    static Mutex _s_task_signatures_lock;
+    static std::mutex _s_task_signatures_lock;
     static std::map<TTaskType::type, std::set<int64_t>> _s_task_signatures;
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);

@@ -84,7 +84,7 @@ Status OlapScanner::prepare(
             return Status::InternalError(ss.str());
         }
         {
-            ReadLock rdlock(_tablet->get_header_lock());
+            std::shared_lock rdlock(_tablet->get_header_lock());
             const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
             if (rowset == nullptr) {
                 std::stringstream ss;
@@ -379,13 +379,13 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                     const TypeDescriptor& item_type = desc->type().children.at(0);
                     auto pool = batch->tuple_data_pool();
                     CollectionValue::deep_copy_collection(
-                        slot, item_type, [pool](int size) -> MemFootprint {
-                            int64_t offset = pool->total_allocated_bytes();
-                            uint8_t* data = pool->allocate(size);
-                            return { offset, data };
-                        },
-                        false
-                    );
+                            slot, item_type,
+                            [pool](int size) -> MemFootprint {
+                                int64_t offset = pool->total_allocated_bytes();
+                                uint8_t* data = pool->allocate(size);
+                                return {offset, data};
+                            },
+                            false);
                 }
                 // the memory allocate by mem pool has been copied,
                 // so we should release these memory immediately

@@ -91,12 +91,12 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     }
     schema->set_compress_kind(COMPRESS_LZ4);
 
-    switch(tablet_schema.sort_type) {
-        case TSortType::type::ZORDER:
-            schema->set_sort_type(SortType::ZORDER);
-            break;
-        default:
-            schema->set_sort_type(SortType::LEXICAL);
+    switch (tablet_schema.sort_type) {
+    case TSortType::type::ZORDER:
+        schema->set_sort_type(SortType::ZORDER);
+        break;
+    default:
+        schema->set_sort_type(SortType::LEXICAL);
     }
     schema->set_sort_col_num(tablet_schema.sort_col_num);
     tablet_meta_pb.set_in_restore_mode(false);
@@ -301,7 +301,7 @@ OLAPStatus TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_
 }
 
 OLAPStatus TabletMeta::save_meta(DataDir* data_dir) {
-    WriteLock wrlock(_meta_lock);
+    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     return _save_meta(data_dir);
 }
 
@@ -546,7 +546,7 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
 // an existing tablet before. Add after revise, only the passing "rs_metas"
 // is needed.
 void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
-    WriteLock wrlock(_meta_lock);
+    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     _rs_metas = std::move(rs_metas);
     _stale_rs_metas.clear();
 }

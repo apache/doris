@@ -50,7 +50,6 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "util/errno.h"
-#include "util/mutex.h"
 #include "util/string_parser.hpp"
 
 using std::string;

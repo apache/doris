@@ -22,8 +22,8 @@
 #include <boost/algorithm/string.hpp>
 #include <cmath>
 #include <ctime>
-#include <string>
 #include <random>
+#include <string>
 
 #include "agent/cgroups_mgr.h"
 #include "common/status.h"
@@ -131,7 +131,7 @@ void StorageEngine::_fd_cache_clean_callback() {
     ProfilerRegisterThread();
 #endif
     int32_t interval = 600;
-    while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         interval = config::cache_clean_interval;
         if (interval <= 0) {
             OLAP_LOG_WARNING(
@@ -165,7 +165,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     double usage = 1.0;
     // After the program starts, the first round of cleaning starts after min_interval.
     uint32_t curr_interval = min_interval;
-    while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(curr_interval))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(curr_interval))) {
         // Function properties:
         // when usage < 0.6,          ratio close to 1.(interval close to max_interval)
         // when usage at [0.6, 0.75], ratio is rapidly decreasing from 0.87 to 0.27.
@@ -205,7 +205,7 @@ void StorageEngine::_disk_stat_monitor_thread_callback() {
                          << ", force set to 1";
             interval = 1;
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::check_cumulative_compaction_config() {
@@ -242,7 +242,7 @@ void StorageEngine::_unused_rowset_monitor_thread_callback() {
                          << ", force set to 1";
             interval = 1;
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
@@ -265,7 +265,7 @@ void StorageEngine::_path_gc_thread_callback(DataDir* data_dir) {
                          << "will be forced set to half hour";
             interval = 1800; // 0.5 hour
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
@@ -284,7 +284,7 @@ void StorageEngine::_path_scan_thread_callback(DataDir* data_dir) {
                          << "will be forced set to one day";
             interval = 24 * 3600; // one day
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs) {
@@ -305,7 +305,7 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
             }
         }
         interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
 }
 
 void StorageEngine::_compaction_tasks_producer_callback() {
@@ -338,24 +338,30 @@ void StorageEngine::_compaction_tasks_producer_callback() {
     int64_t interval = config::generate_compaction_tasks_min_interval_ms;
     do {
         if (!config::disable_auto_compaction) {
-            VLOG_CRITICAL << "compaction thread pool. num_threads: " << _compaction_thread_pool->num_threads()
-                      << ", num_threads_pending_start: " << _compaction_thread_pool->num_threads_pending_start()
-                      << ", num_active_threads: " << _compaction_thread_pool->num_active_threads()
-                      << ", max_threads: " << _compaction_thread_pool->max_threads()
-                      << ", min_threads: " << _compaction_thread_pool->min_threads()
-                      << ", num_total_queued_tasks: " << _compaction_thread_pool->get_queue_size();
+            VLOG_CRITICAL << "compaction thread pool. num_threads: "
+                          << _compaction_thread_pool->num_threads()
+                          << ", num_threads_pending_start: "
+                          << _compaction_thread_pool->num_threads_pending_start()
+                          << ", num_active_threads: "
+                          << _compaction_thread_pool->num_active_threads()
+                          << ", max_threads: " << _compaction_thread_pool->max_threads()
+                          << ", min_threads: " << _compaction_thread_pool->min_threads()
+                          << ", num_total_queued_tasks: "
+                          << _compaction_thread_pool->get_queue_size();
 
-            if(_compaction_thread_pool->max_threads() != config::max_compaction_threads) {
+            if (_compaction_thread_pool->max_threads() != config::max_compaction_threads) {
                 int old_max_threads = _compaction_thread_pool->max_threads();
-                Status status = _compaction_thread_pool->set_max_threads(config::max_compaction_threads);
+                Status status =
+                        _compaction_thread_pool->set_max_threads(config::max_compaction_threads);
                 if (status.ok()) {
                     LOG(INFO) << "update compaction thread pool max_threads from "
                               << old_max_threads << " to " << config::max_compaction_threads;
                 }
             }
-            if(_compaction_thread_pool->min_threads() != config::max_compaction_threads) {
+            if (_compaction_thread_pool->min_threads() != config::max_compaction_threads) {
                 int old_min_threads = _compaction_thread_pool->min_threads();
-                Status status = _compaction_thread_pool->set_min_threads(config::max_compaction_threads);
+                Status status =
+                        _compaction_thread_pool->set_min_threads(config::max_compaction_threads);
                 if (status.ok()) {
                     LOG(INFO) << "update compaction thread pool min_threads from "
                               << old_min_threads << " to " << config::max_compaction_threads;
@@ -399,20 +405,19 @@ void StorageEngine::_compaction_tasks_producer_callback() {
             for (const auto& tablet : tablets_compaction) {
                 Status st = _submit_compaction_task(tablet, compaction_type);
                 if (!st.ok()) {
-                    LOG(WARNING) << "failed to submit compaction task for tablet: " << tablet->tablet_id()
-                        << ", err: " << st.get_error_msg();
+                    LOG(WARNING) << "failed to submit compaction task for tablet: "
+                                 << tablet->tablet_id() << ", err: " << st.get_error_msg();
                 }
             }
             interval = config::generate_compaction_tasks_min_interval_ms;
         } else {
             interval = config::check_auto_compaction_interval_seconds * 1000;
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromMilliseconds(interval)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::milliseconds(interval)));
 }
 
 std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
-
     _update_cumulative_compaction_policy();
 
     std::vector<TabletSharedPtr> tablets_compaction;
@@ -439,7 +444,8 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         // If so, the last Slot can be assigned to Base compaction,
         // otherwise, this Slot needs to be reserved for cumulative compaction.
         int count = copied_cumu_map[data_dir].size() + copied_base_map[data_dir].size();
-        int thread_per_disk = data_dir->is_ssd_disk() ? config::compaction_task_num_per_fast_disk : config::compaction_task_num_per_disk;
+        int thread_per_disk = data_dir->is_ssd_disk() ? config::compaction_task_num_per_fast_disk
+                                                      : config::compaction_task_num_per_disk;
         if (count >= thread_per_disk) {
             // Return if no available slot
             need_pick_tablet = false;
@@ -517,10 +523,14 @@ bool StorageEngine::_push_tablet_into_submitted_compaction(TabletSharedPtr table
     bool already_existed = false;
     switch (compaction_type) {
     case CompactionType::CUMULATIVE_COMPACTION:
-        already_existed = !(_tablet_submitted_cumu_compaction[tablet->data_dir()].insert(tablet->tablet_id()).second);
+        already_existed = !(_tablet_submitted_cumu_compaction[tablet->data_dir()]
+                                    .insert(tablet->tablet_id())
+                                    .second);
         break;
     default:
-        already_existed = !(_tablet_submitted_base_compaction[tablet->data_dir()].insert(tablet->tablet_id()).second);
+        already_existed = !(_tablet_submitted_base_compaction[tablet->data_dir()]
+                                    .insert(tablet->tablet_id())
+                                    .second);
         break;
     }
     return already_existed;
@@ -546,7 +556,8 @@ void StorageEngine::_pop_tablet_from_submitted_compaction(TabletSharedPtr tablet
     }
 }
 
-Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type) {
+Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
+                                              CompactionType compaction_type) {
     bool already_exist = _push_tablet_into_submitted_compaction(tablet, compaction_type);
     if (already_exist) {
         return Status::AlreadyExist(strings::Substitute(
@@ -557,21 +568,22 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet, Compaction
     Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
     if (st.ok() && permits > 0 && _permit_limiter.request(permits)) {
         auto st = _compaction_thread_pool->submit_func([=]() {
-          CgroupsMgr::apply_system_cgroup();
-          tablet->execute_compaction(compaction_type);
-          _permit_limiter.release(permits);
-          // reset compaction
-          tablet->reset_compaction(compaction_type);
-          _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+            CgroupsMgr::apply_system_cgroup();
+            tablet->execute_compaction(compaction_type);
+            _permit_limiter.release(permits);
+            // reset compaction
+            tablet->reset_compaction(compaction_type);
+            _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         });
         if (!st.ok()) {
             _permit_limiter.release(permits);
             // reset compaction
             tablet->reset_compaction(compaction_type);
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-            return Status::InternalError(strings::Substitute(
-                    "failed to submit compaction task to thread pool, tablet_id=$0, compaction_type=$1.",
-                    tablet->tablet_id(), compaction_type));
+            return Status::InternalError(
+                    strings::Substitute("failed to submit compaction task to thread pool, "
+                                        "tablet_id=$0, compaction_type=$1.",
+                                        tablet->tablet_id(), compaction_type));
         }
         return Status::OK();
     } else {
@@ -588,10 +600,12 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet, Compaction
     }
 }
 
-Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type) {
+Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
+                                             CompactionType compaction_type) {
     _update_cumulative_compaction_policy();
     if (tablet->get_cumulative_compaction_policy() == nullptr ||
-        tablet->get_cumulative_compaction_policy()->name() != _cumulative_compaction_policy->name()) {
+        tablet->get_cumulative_compaction_policy()->name() !=
+                _cumulative_compaction_policy->name()) {
         tablet->set_cumulative_compaction_policy(_cumulative_compaction_policy);
     }
     return _submit_compaction_task(tablet, compaction_type);

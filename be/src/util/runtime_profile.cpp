@@ -26,7 +26,6 @@
 #include "util/container_util.hpp"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
-#include "util/monotime.h"
 #include "util/pretty_printer.h"
 #include "util/thrift_util.h"
 #include "util/url_coding.h"

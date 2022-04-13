@@ -105,7 +105,7 @@ OLAPStatus DeltaWriter::init() {
     }
 
     {
-        ReadLock base_migration_rlock(_tablet->get_migration_lock(), std::try_to_lock);
+        std::shared_lock base_migration_rlock(_tablet->get_migration_lock(), std::try_to_lock);
         if (!base_migration_rlock.owns_lock()) {
             return OLAP_ERR_RWLOCK_ERROR;
         }
@@ -139,8 +139,8 @@ OLAPStatus DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(&_flush_token,
-            writer_context.rowset_type, _req.is_high_priority));
+    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
+            &_flush_token, writer_context.rowset_type, _req.is_high_priority));
 
     _is_init = true;
     return OLAP_SUCCESS;
@@ -211,7 +211,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
         // and at that time, the writer may not be initialized yet and that is a normal case.
         return OLAP_SUCCESS;
     }
-    
+
     if (_is_cancelled) {
         return OLAP_ERR_ALREADY_CANCELLED;
     }
@@ -219,8 +219,8 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait(bool need_wait) {
     if (mem_consumption() == _mem_table->memory_usage()) {
         // equal means there is no memtable in flush queue, just flush this memtable
         VLOG_NOTICE << "flush memtable to reduce mem consumption. memtable size: "
-                << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
-                << ", load id: " << print_id(_req.load_id);
+                    << _mem_table->memory_usage() << ", tablet: " << _req.tablet_id
+                    << ", load id: " << print_id(_req.load_id);
         RETURN_NOT_OK(_flush_memtable_async());
         _reset_mem_table();
     } else {
@@ -275,7 +275,8 @@ OLAPStatus DeltaWriter::close() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken) {
+OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+                                   bool is_broken) {
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -312,9 +313,8 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
     _delta_written_success = true;
 
     const FlushStatistic& stat = _flush_token->get_stats();
-    VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id() 
-                  << ", load id: " << print_id(_req.load_id)
-                  << ", stats: " << stat;
+    VLOG_CRITICAL << "close delta writer for tablet: " << _tablet->tablet_id()
+                  << ", load id: " << print_id(_req.load_id) << ", stats: " << stat;
     return OLAP_SUCCESS;
 }
 
