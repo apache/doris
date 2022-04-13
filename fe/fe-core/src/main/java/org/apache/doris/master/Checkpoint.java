@@ -121,6 +121,17 @@ public class Checkpoint extends MasterDaemon {
             catalog.fixBugAfterMetadataReplayed(false);
             catalog.saveImage();
             replayedJournalId = catalog.getReplayedJournalId();
+
+            // destroy checkpoint catalog, reclaim memory
+            catalog = null;
+            Catalog.destroyCheckpoint();
+            destroyStaticFieldForCkpt();
+
+            // Load image to verify if the newly generated image file is valid
+            // If success, do all the following jobs
+            // If failed, just return
+            catalog = Catalog.getCurrentCatalog();
+            catalog.loadImage(imageDir);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_SUCCESS.increase(1L);
             }
