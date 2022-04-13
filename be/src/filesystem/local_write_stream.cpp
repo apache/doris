@@ -46,9 +46,8 @@ LocalWriteStream::LocalWriteStream(int fd, size_t buffer_size)
 }
 
 LocalWriteStream::~LocalWriteStream() {
-    if (_fd != -1) {
-        close();
-    }
+    close();
+    delete[] _buffer;
 }
 
 Status LocalWriteStream::write(const char* from, size_t put_n) {

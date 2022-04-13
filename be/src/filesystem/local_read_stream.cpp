@@ -27,9 +27,8 @@ LocalReadStream::LocalReadStream(int fd, size_t file_size, size_t buffer_size)
 }
 
 LocalReadStream::~LocalReadStream() {
-    if (_fd != -1) {
-        close();
-    }
+    close();
+    delete[] _buffer;
 }
 
 Status LocalReadStream::read(char* to, size_t req_n, size_t* read_n) {
