@@ -226,7 +226,7 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
     if (!res.ok()) {
         LOG(WARNING) << "tablet migrate failed. tablet_id=" << tablet_id
                      << ", schema_hash=" << schema_hash << ", dest_disk=" << dest_disk
-                     << ", status:" << res.to_string();
+                     << ", status:" << res;
     } else {
         LOG(INFO) << "tablet migrate success. tablet_id=" << tablet_id
                   << ", schema_hash=" << schema_hash << ", dest_disk=" << dest_disk;

@@ -83,7 +83,7 @@ Status EngineBatchLoadTask::execute() {
         Status delete_data_status = _delete_data(_push_req, _tablet_infos);
         if (delete_data_status != Status::OK()) {
             LOG(WARNING) << "delete data failed. status:" << delete_data_status << " signature:" << _signature;
-            status = Status::InternalError("Delete data failed");
+            status = delete_data_status;
         }
     } else {
         status = Status::InvalidArgument("Not support task type");

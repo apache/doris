@@ -59,7 +59,7 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
             auto res = _tablet_reader->next_block_with_aggregation(block, nullptr, nullptr, eof);
             if (!res) {
                 std::stringstream ss;
-                ss << "Internal Error: read storage fail. res=" << res.to_string()
+                ss << "Internal Error: read storage fail. res=" << res
                    << ", tablet=" << _tablet->full_name()
                    << ", backend=" << BackendOptions::get_localhost();
                 return res;

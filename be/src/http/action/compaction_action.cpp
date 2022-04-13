@@ -218,7 +218,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                             << tablet->full_name();
             } else {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to init base compaction. res=" << res.to_string()
+                LOG(WARNING) << "failed to init base compaction. res=" << res
                              << ", tablet=" << tablet->full_name();
             }
         }
@@ -232,13 +232,13 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                             << "tablet=" << tablet->full_name();
             } else {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-                LOG(WARNING) << "failed to do cumulative compaction. res=" << res.to_string()
+                LOG(WARNING) << "failed to do cumulative compaction. res=" << res
                              << ", table=" << tablet->full_name();
             }
         }
     }
 
-    LOG(INFO) << "Manual compaction task finish, status = " << res.to_string();
+    LOG(INFO) << "Manual compaction task finish, status = " << res;
     std::lock_guard<std::mutex> lock(_compaction_running_mutex);
     _is_compaction_running = false;
 

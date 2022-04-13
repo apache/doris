@@ -707,7 +707,7 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
             // if publish failed, return failed, FE will ignore this error and
             // check error tablet ids and FE will also republish this task
             LOG(WARNING) << "publish version failed. signature:" << agent_task_req.signature
-                         << ", error_code=" << res.to_string();
+                         << ", error_code=" << res;
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
             LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
