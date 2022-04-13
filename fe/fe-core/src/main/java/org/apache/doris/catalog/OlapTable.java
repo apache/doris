@@ -1536,6 +1536,14 @@ public class OlapTable extends Table {
         tableProperty.buildDataSortInfo();
     }
 
+    public void setRemoteStorageResource(String resourceName) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.setRemoteStorageResource(resourceName);
+        tableProperty.buildRemoteStorageResource();
+    }
+
     // return true if partition with given name already exist, both in partitions and temp partitions.
     // return false otherwise
     public boolean checkPartitionNameExist(String partitionName) {
@@ -1686,6 +1694,13 @@ public class OlapTable extends Table {
             return new DataSortInfo(TSortType.LEXICAL, this.getKeysNum());
         }
         return tableProperty.getDataSortInfo();
+    }
+
+    public String getRemoteStorageResource() {
+        if (tableProperty == null) {
+            return "";
+        }
+        return tableProperty.getRemoteStorageResource();
     }
 
     // For non partitioned table:

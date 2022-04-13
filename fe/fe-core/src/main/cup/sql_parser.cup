@@ -858,6 +858,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabasePropertyStmt(dbName, map);
     :}
+    | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
+    {:
+        RESULT = new AlterResourceStmt(resourceName, properties);
+    :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
     {:
