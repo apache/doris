@@ -76,6 +76,16 @@ Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that t
     2. `brew extract --version='0.13.0' thrift $USER/local-tap`
     3. `brew install thrift@0.13.0`
  Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
+ 
+Linux:
+    1.Download source package：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
+    2.Install dependencies：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
+    3.`tar zxvf thrift-0.13.0.tar.gz`
+    4.`cd thrift-0.13.0`
+    5.`./configure --without-tests`
+    6.`make`
+    7.`make install`
+   Check the version after installation is complete：thrift --version
 ```
 
 Execute following command in source dir

@@ -76,6 +76,15 @@ export THRIFT_BIN=./thirdparty/installed/bin
     3. `brew install thrift@0.13.0`
  参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
  
+ Linux:
+    1.下载源码包：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
+    2.安装依赖：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
+    3.`tar zxvf thrift-0.13.0.tar.gz`
+    4.`cd thrift-0.13.0`
+    5.`./configure --without-tests`
+    6.`make`
+    7.`make install`
+   安装完成后查看版本：thrift --version   
 ```
 
 在源码目录下执行：
