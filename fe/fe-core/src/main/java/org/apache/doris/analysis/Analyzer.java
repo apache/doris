@@ -39,6 +39,7 @@ import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
+import org.apache.doris.rewrite.RewriteSelfCmpRule;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.ExtractCommonFactorsRule;
@@ -301,6 +302,9 @@ public class Analyzer {
             this.catalog = catalog;
             this.context = context;
             List<ExprRewriteRule> rules = Lists.newArrayList();
+            // Eliminate self cmp self like:
+            // Where col = col; 
+            rules.add(RewriteSelfCmpRule.INSTANCE);
             // BetweenPredicates must be rewritten to be executable. Other non-essential
             // expr rewrites can be disabled via a query option. When rewrites are enabled
             // BetweenPredicates should be rewritten first to help trigger other rules.
