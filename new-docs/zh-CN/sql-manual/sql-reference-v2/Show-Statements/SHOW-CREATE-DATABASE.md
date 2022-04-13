@@ -26,6 +26,10 @@ under the License.
 
 ## SHOW-CREATE-DATABASE
 
+### Name
+
+SHOW CREATE DATABASE
+
 ### Description
 
 ### Example
