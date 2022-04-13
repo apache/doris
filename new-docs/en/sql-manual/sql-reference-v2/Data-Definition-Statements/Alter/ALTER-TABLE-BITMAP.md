@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ALTER-TABLE-REPLACE",
+    "title": "ALTER-TABLE-BITMAP",
     "language": "en"
 }
 ---
@@ -24,34 +24,63 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ALTER-TABLE-REPLACE
+## ALTER-TABLE-BITMAP
 
 ### Name
 
-ALTER TABLE REPLACE
+ALTER TABLE BITMAP
 
 ### Description
 
-This statement is used to modify the attributes of the schema of the existing table. The syntax is basically similar to [ALTER TABLE CULUMN](ALTER-TABLE-COLUMN.html).
+This statement is used to perform a bitmap index operation on an existing table.
+
+grammar:
 
 ```sql
-ALTER TABLE [database.]table MODIFY NEW_COLUMN_INFO REPLACE OLD_COLUMN_INFO ;
+ALTER TABLE [database.]table alter_clause;
+```
+
+The alter_clause of bitmap index supports the following modification methods
+
+1. Create a bitmap index
+
+ Syntax:
+
+```sql
+ADD INDEX [IF NOT EXISTS] index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
+```
+
+Notice:
+
+- Currently only supports bitmap indexes
+- BITMAP indexes are only created on a single column
+
+2. Delete the index
+
+Syntax:
+
+```sql
+DROP INDEX [IF EXISTS] index_name;
 ```
 
 ### Example
 
-1. Modify the maximum length of the val1 column of base index. The original val1 is (val1 VARCHAR(32) REPLACE DEFAULT "abc")
+1. Create a bitmap index for siteid on table1
 
 ```sql
-ALTER TABLE example_db.my_table
-MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
+ALTER TABLE table1 ADD INDEX [IF NOT EXISTS] index_name (siteid) [USING BITMAP] COMMENT 'balabala';
+```
+
+2. Delete the bitmap index of the siteid column on table1
+
+```sql
+ALTER TABLE table1 DROP INDEX [IF EXISTS] index_name;
 ```
 
 ### Keywords
 
 ```text
-ALTER, TABLE, REPLACE
+ALTER, TABLE, BITMAP
 ```
 
 ### Best Practice
-

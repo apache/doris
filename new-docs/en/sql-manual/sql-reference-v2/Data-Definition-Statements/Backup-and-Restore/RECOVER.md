@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ALTER-TABLE-REPLACE",
+    "title": "RECOVER",
     "language": "en"
 }
 ---
@@ -24,34 +24,55 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ALTER-TABLE-REPLACE
+## RECOVER
 
 ### Name
 
-ALTER TABLE REPLACE
+REVOCER
 
 ### Description
 
-This statement is used to modify the attributes of the schema of the existing table. The syntax is basically similar to [ALTER TABLE CULUMN](ALTER-TABLE-COLUMN.html).
+This statement is used to restore a previously deleted database, table or partition
+
+grammar:
+
+1) restore database
 
 ```sql
-ALTER TABLE [database.]table MODIFY NEW_COLUMN_INFO REPLACE OLD_COLUMN_INFO ;
+RECOVER DATABASE db_name;
 ```
+
+   1) restore table
+   2) restore partition
+
+illustrate:
+
+- This operation can only restore meta information that was deleted in the previous period. Default is 1 day. (Configurable through the `catalog_trash_expire_second` parameter in fe.conf)
+- If a new meta information with the same name and type is created after the meta information is deleted, the previously deleted meta information cannot be recovered
 
 ### Example
 
-1. Modify the maximum length of the val1 column of base index. The original val1 is (val1 VARCHAR(32) REPLACE DEFAULT "abc")
+1. Restore the database named example_db
 
 ```sql
-ALTER TABLE example_db.my_table
-MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
+RECOVER DATABASE example_db;
+```
+
+2. Restore the table named example_tbl
+
+```sql
+RECOVER TABLE example_db.example_tbl;
+```
+
+3. Restore the partition named p1 in table example_tbl
+
+```sql
+RECOVER PARTITION p1 FROM example_tbl;
 ```
 
 ### Keywords
 
-```text
-ALTER, TABLE, REPLACE
-```
+     RECOVER
 
 ### Best Practice
 

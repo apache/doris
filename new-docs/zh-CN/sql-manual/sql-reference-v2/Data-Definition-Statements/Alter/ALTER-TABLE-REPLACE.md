@@ -26,13 +26,32 @@ under the License.
 
 ## ALTER-TABLE-REPLACE
 
+### Name
+
+ALTER TABLE REPLACE
+
 ### Description
+
+该语句用于对已有 table 的 Schema 的进行属性的修改操作。语法基本类似于 [ALTER TABLE CULUMN](ALTER-TABLE-COLUMN.html)。
+
+```sql
+ALTER TABLE [database.]table MODIFY NEW_COLUMN_INFO REPLACE OLD_COLUMN_INFO ;
+```
 
 ### Example
 
+1. 修改 base index 的 val1 列最大长度。原 val1 为 (val1 VARCHAR(32) REPLACE DEFAULT "abc")
+
+```sql
+ALTER TABLE example_db.my_table
+MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
+```
+
 ### Keywords
 
-    ALTER, TABLE, REPLACE
+```text
+ALTER, TABLE, REPLACE
+```
 
 ### Best Practice
 
