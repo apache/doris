@@ -72,6 +72,7 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable, int64_t sub
     MonotonicStopWatch timer;
     timer.start();
     Status s = memtable->flush();
+    LOG(WARNING) << "Flush memtable failed with res = " << s;
     // If s is not ok, ignore the code, just use other code is ok
     _flush_status.store(s.ok() ? OLAP_SUCCESS : OLAP_ERR_OTHER_ERROR);
     if (_flush_status.load() != OLAP_SUCCESS) {

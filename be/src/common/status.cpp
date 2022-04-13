@@ -14,6 +14,7 @@ constexpr int MAX_ERROR_NUM = 65536;
 struct ErrorCodeState {
     int16_t error_code = 0;
     bool stacktrace = true;
+    std::string description;
     size_t count = 0;   // Used for count the number of error happens
     std::mutex mutex;   // lock guard for count state
 };
@@ -22,6 +23,10 @@ class Initializer {
 public:
     Initializer() {
     #define M(NAME, ERRORCODE, DESC, STACKTRACEENABLED) error_states[abs(ERRORCODE)].stacktrace = STACKTRACEENABLED;
+        APPLY_FOR_ERROR_CODES(M)
+    #undef M
+    // Currently, most of description is empty, so that we use NAME as description
+    #define M(NAME, ERRORCODE, DESC, STACKTRACEENABLED) error_states[abs(ERRORCODE)].description = #NAME;
         APPLY_FOR_ERROR_CODES(M)
     #undef M
     }
@@ -70,7 +75,7 @@ Status Status::ConstructErrorStatus(int16_t precise_code, const Slice& msg) {
         // Add stacktrace as part of message, could use LOG(WARN) << "" << status will print both
         // the error message and the stacktrace
         return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, 
-                    boost::stacktrace::to_string(boost::stacktrace::stacktrace()));
+                      boost::stacktrace::to_string(boost::stacktrace::stacktrace()));
     } else {
         return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, Slice());
     }
