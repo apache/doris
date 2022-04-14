@@ -53,21 +53,21 @@ TEST_F(OptionsTest, parse_root_path) {
     // /path<.extension>, <capacity>
     {
         root_path = path1;
-        EXPECT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
+        EXPECT_EQ(Status::OK(), parse_root_path(root_path, &path));
         EXPECT_STREQ(path1.c_str(), path.path.c_str());
         EXPECT_EQ(-1, path.capacity_bytes);
         EXPECT_EQ(TStorageMedium::HDD, path.storage_medium);
     }
     {
         root_path = path2;
-        EXPECT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
+        EXPECT_EQ(Status::OK(), parse_root_path(root_path, &path));
         EXPECT_STREQ(path2.c_str(), path.path.c_str());
         EXPECT_EQ(-1, path.capacity_bytes);
         EXPECT_EQ(TStorageMedium::SSD, path.storage_medium);
     }
     {
         root_path = path2 + ", 50";
-        EXPECT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
+        EXPECT_EQ(Status::OK(), parse_root_path(root_path, &path));
         EXPECT_STREQ(path2.c_str(), path.path.c_str());
         EXPECT_EQ(50 * GB_EXCHANGE_BYTE, path.capacity_bytes);
         EXPECT_EQ(TStorageMedium::SSD, path.storage_medium);
@@ -76,35 +76,35 @@ TEST_F(OptionsTest, parse_root_path) {
     // /path, <property>:<value>,...
     {
         root_path = path1 + ", capacity:50, medium: ssd";
-        EXPECT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
+        EXPECT_EQ(Status::OK(), parse_root_path(root_path, &path));
         EXPECT_STREQ(path1.c_str(), path.path.c_str());
         EXPECT_EQ(50 * GB_EXCHANGE_BYTE, path.capacity_bytes);
         EXPECT_EQ(TStorageMedium::SSD, path.storage_medium);
     }
     {
         root_path = path1 + ", medium: ssd, capacity:30";
-        EXPECT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
+        EXPECT_EQ(Status::OK(), parse_root_path(root_path, &path));
         EXPECT_STREQ(path1.c_str(), path.path.c_str());
         EXPECT_EQ(30 * GB_EXCHANGE_BYTE, path.capacity_bytes);
         EXPECT_EQ(TStorageMedium::SSD, path.storage_medium);
     }
     {
         root_path = path1 + " , medium: ssd, 60";
-        EXPECT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
+        EXPECT_EQ(Status::OK(), parse_root_path(root_path, &path));
         EXPECT_STREQ(path1.c_str(), path.path.c_str());
         EXPECT_EQ(60 * GB_EXCHANGE_BYTE, path.capacity_bytes);
         EXPECT_EQ(TStorageMedium::SSD, path.storage_medium);
     }
     {
         root_path = path1 + ", medium: ssd, 60, medium: hdd, capacity: 10";
-        EXPECT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
+        EXPECT_EQ(Status::OK(), parse_root_path(root_path, &path));
         EXPECT_STREQ(path1.c_str(), path.path.c_str());
         EXPECT_EQ(10 * GB_EXCHANGE_BYTE, path.capacity_bytes);
         EXPECT_EQ(TStorageMedium::HDD, path.storage_medium);
     }
     {
         root_path = path2 + ", medium: hdd, 60, capacity: 10";
-        EXPECT_EQ(OLAP_SUCCESS, parse_root_path(root_path, &path));
+        EXPECT_EQ(Status::OK(), parse_root_path(root_path, &path));
         EXPECT_STREQ(path2.c_str(), path.path.c_str());
         EXPECT_EQ(10 * GB_EXCHANGE_BYTE, path.capacity_bytes);
         EXPECT_EQ(TStorageMedium::HDD, path.storage_medium);

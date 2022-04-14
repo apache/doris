@@ -54,37 +54,37 @@ struct WriteRequest {
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
-    static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
+    static Status open(WriteRequest* req, DeltaWriter** writer);
 
     ~DeltaWriter();
 
-    OLAPStatus init();
+    Status init();
 
-    OLAPStatus write(Tuple* tuple);
-    OLAPStatus write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
+    Status write(Tuple* tuple);
+    Status write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
     // flush the last memtable to flush queue, must call it before close_wait()
-    OLAPStatus close();
+    Status close();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    OLAPStatus close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken);
+    Status close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken);
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
-    OLAPStatus cancel();
+    Status cancel();
 
     // submit current memtable to flush queue, and wait all memtables in flush queue
     // to be flushed.
     // This is currently for reducing mem consumption of this delta writer.
     // If need_wait is true, it will wait for all memtable in flush queue to be flushed.
     // Otherwise, it will just put memtables to the flush queue and return.
-    OLAPStatus flush_memtable_and_wait(bool need_wait);
+    Status flush_memtable_and_wait(bool need_wait);
 
     int64_t partition_id() const;
 
     int64_t mem_consumption() const;
 
     // Wait all memtable in flush queue to be flushed
-    OLAPStatus wait_flush();
+    Status wait_flush();
 
     int64_t tablet_id() { return _tablet->tablet_id(); }
 
@@ -92,7 +92,7 @@ private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
 
     // push a full memtable to flush executor
-    OLAPStatus _flush_memtable_async();
+    Status _flush_memtable_async();
 
     void _garbage_collection();
 

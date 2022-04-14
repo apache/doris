@@ -54,7 +54,7 @@ public:
     // Deserialize field value from incoming string.
     //
     // NOTE: the parameter must be a '\0' terminated string. It do not include the null flag.
-    OLAPStatus from_string(const std::string& value_string) {
+    Status from_string(const std::string& value_string) {
         if (_is_string_type) {
             if (value_string.size() > _var_length) {
                 Slice* slice = reinterpret_cast<Slice*>(cell_ptr());

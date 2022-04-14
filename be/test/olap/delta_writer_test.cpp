@@ -347,8 +347,8 @@ public:
 TEST_F(TestDeltaWriter, open) {
     TCreateTabletReq request;
     create_tablet_request(10003, 270068375, &request);
-    OLAPStatus res = k_engine->create_tablet(request);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    Status res = k_engine->create_tablet(request);
+    EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
@@ -364,23 +364,23 @@ TEST_F(TestDeltaWriter, open) {
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     res = delta_writer->close_wait(nullptr, false);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     SAFE_DELETE(delta_writer);
 
     TDropTabletReq drop_request;
     auto tablet_id = 10003;
     auto schema_hash = 270068375;
     res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
 }
 
 TEST_F(TestDeltaWriter, write) {
     TCreateTabletReq request;
     create_tablet_request(10004, 270068376, &request);
-    OLAPStatus res = k_engine->create_tablet(request);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    Status res = k_engine->create_tablet(request);
+    EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
@@ -459,13 +459,13 @@ TEST_F(TestDeltaWriter, write) {
         *(DecimalV2Value*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
 
         res = delta_writer->write(tuple);
-        EXPECT_EQ(OLAP_SUCCESS, res);
+        EXPECT_EQ(Status::OK(), res);
     }
 
     res = delta_writer->close();
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     res = delta_writer->close_wait(nullptr, false);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
 
     // publish version success
     TabletSharedPtr tablet =
@@ -482,24 +482,24 @@ TEST_F(TestDeltaWriter, write) {
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                    write_req.tablet_id, write_req.schema_hash,
                                                    tablet_rs.first.tablet_uid, version);
-        EXPECT_EQ(OLAP_SUCCESS, res);
+        EXPECT_EQ(Status::OK(), res);
         res = tablet->add_inc_rowset(rowset);
-        EXPECT_EQ(OLAP_SUCCESS, res);
+        EXPECT_EQ(Status::OK(), res);
     }
     EXPECT_EQ(1, tablet->num_rows());
 
     auto tablet_id = 10003;
     auto schema_hash = 270068375;
     res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }
 
 TEST_F(TestDeltaWriter, sequence_col) {
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    OLAPStatus res = k_engine->create_tablet(request);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    Status res = k_engine->create_tablet(request);
+    EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
@@ -530,13 +530,13 @@ TEST_F(TestDeltaWriter, sequence_col) {
                 ->from_date_str("2020-07-16 19:39:43", 19);
 
         res = delta_writer->write(tuple);
-        EXPECT_EQ(OLAP_SUCCESS, res);
+        EXPECT_EQ(Status::OK(), res);
     }
 
     res = delta_writer->close();
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     res = delta_writer->close_wait(nullptr, false);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
 
     // publish version success
     TabletSharedPtr tablet =
@@ -553,16 +553,16 @@ TEST_F(TestDeltaWriter, sequence_col) {
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                    write_req.tablet_id, write_req.schema_hash,
                                                    tablet_rs.first.tablet_uid, version);
-        EXPECT_EQ(OLAP_SUCCESS, res);
+        EXPECT_EQ(Status::OK(), res);
         res = tablet->add_inc_rowset(rowset);
-        EXPECT_EQ(OLAP_SUCCESS, res);
+        EXPECT_EQ(Status::OK(), res);
     }
     EXPECT_EQ(1, tablet->num_rows());
 
     auto tablet_id = 10005;
     auto schema_hash = 270068377;
     res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }
 

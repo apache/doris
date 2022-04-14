@@ -32,10 +32,10 @@ namespace doris {
 class EngineTask {
 public:
     // use olap_status not agent_status, because the task is very close to engine
-    virtual OLAPStatus prepare() { return OLAP_SUCCESS; }
-    virtual OLAPStatus execute() { return OLAP_SUCCESS; }
-    virtual OLAPStatus finish() { return OLAP_SUCCESS; }
-    virtual OLAPStatus cancel() { return OLAP_SUCCESS; }
+    virtual Status prepare() { return Status::OK(); }
+    virtual Status execute() { return Status::OK(); }
+    virtual Status finish() { return Status::OK(); }
+    virtual Status cancel() { return Status::OK(); }
     virtual void get_related_tablets(std::vector<TabletInfo>* tablet_infos) {}
 };
 

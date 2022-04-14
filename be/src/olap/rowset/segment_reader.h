@@ -60,11 +60,11 @@ public:
     // 2. Check the file version
     // 3. Get the decompressor
     // @return [description]
-    OLAPStatus init(bool is_using_cache);
+    Status init(bool is_using_cache);
 
     // Must called before seek to block.
     // TODO(zc)
-    OLAPStatus prepare(const std::vector<uint32_t>& columns);
+    Status prepare(const std::vector<uint32_t>& columns);
 
     // Specify the first block and the last block to read, and initialize the column reader
     // seek_to_block supports being called multiple times
@@ -79,7 +79,7 @@ public:
     // next_block_id:
     //      block with next_block_id would read if get_block called again.
     //      this field is used to set batch's limit when client found logical end is reach
-    OLAPStatus seek_to_block(uint32_t first_block, uint32_t last_block, bool without_filter,
+    Status seek_to_block(uint32_t first_block, uint32_t last_block, bool without_filter,
                              uint32_t* next_block_id, bool* eof);
 
     // get vector batch from this segment.
@@ -87,7 +87,7 @@ public:
     //      block with next_block_id would read if get_block called again.
     //      this field is used to set batch's limit when client found logical end is reach
     // ATTN: If you change batch to contain more columns, you must call seek_to_block again.
-    OLAPStatus get_block(VectorizedRowBatch* batch, uint32_t* next_block_id, bool* eof);
+    Status get_block(VectorizedRowBatch* batch, uint32_t* next_block_id, bool* eof);
 
     bool eof() const { return _eof; }
 
@@ -136,43 +136,43 @@ private:
     }
 
     // Load files and necessary file information
-    OLAPStatus _load_segment_file();
+    Status _load_segment_file();
 
     // Set the encoding map and use it when creating columns
     void _set_column_map();
 
     //Get the current file compression format from the header and generate a decompressor, which can be called by _decompressor
     // @return Return OLAP_SUCCESS on behalf of the version check passed
-    OLAPStatus _set_decompressor();
+    Status _set_decompressor();
 
     // Set segment related information, decompressor, column, encoding, etc.
-    OLAPStatus _set_segment_info();
+    Status _set_segment_info();
 
     // Check the listed file version
     // @return Return OLAP_SUCCESS on behalf of the version check passed
-    OLAPStatus _check_file_version();
+    Status _check_file_version();
 
     // Select the column to be read
-    OLAPStatus _pick_columns();
+    Status _pick_columns();
 
     // Select the range to be read according to the conditions, and use the conditions to mark the appropriate block between the first block and the last block
     // NOTE. Note that the range is [first_block, last_block], closed interval
     // @param  first_block : Starting block number
     // @param  last_block  : End block number
     // @return
-    OLAPStatus _pick_row_groups(uint32_t first_block, uint32_t last_block);
-    OLAPStatus _pick_delete_row_groups(uint32_t first_block, uint32_t last_block);
+    Status _pick_row_groups(uint32_t first_block, uint32_t last_block);
+    Status _pick_delete_row_groups(uint32_t first_block, uint32_t last_block);
 
     // Load the index, read the index of the required column into memory
-    OLAPStatus _load_index(bool is_using_cache);
+    Status _load_index(bool is_using_cache);
 
     // Read all the columns, the complete stream, (here just create the stream, because there is no mmap in the orc file, 
     // it means the actual data is read, but there is no actual read here, just circle the required range)
-    OLAPStatus _read_all_data_streams(size_t* buffer_size);
+    Status _read_all_data_streams(size_t* buffer_size);
 
     // Filter and read, (like _read_all_data_streams, there is no actual read data)
     // Create reader
-    OLAPStatus _create_reader(size_t* buffer_size);
+    Status _create_reader(size_t* buffer_size);
 
     // we implement seek to block in two phase. first, we just only move _next_block_id
     // to the position that we want goto; second, we seek the column streams to the
@@ -181,19 +181,19 @@ private:
 
     // seek to block id without check. only seek in cids's read stream.
     // because some columns may not be read
-    OLAPStatus _seek_to_block_directly(int64_t block_id, const std::vector<uint32_t>& cids);
+    Status _seek_to_block_directly(int64_t block_id, const std::vector<uint32_t>& cids);
 
     // Jump to a row entry
-    OLAPStatus _seek_to_row_entry(int64_t block_id);
+    Status _seek_to_row_entry(int64_t block_id);
 
-    OLAPStatus _reset_readers();
+    Status _reset_readers();
 
     // Get the current table-level schema.
     const TabletSchema& tablet_schema() { return _segment_group->get_tablet_schema(); }
 
     const ColumnDataHeaderMessage& _header_message() { return _file_header->message(); }
 
-    OLAPStatus _init_include_blocks(uint32_t first_block, uint32_t last_block);
+    Status _init_include_blocks(uint32_t first_block, uint32_t last_block);
 
     const int32_t _get_included_row_index_stream_num() {
         int32_t included_row_index_stream_num = 0;
@@ -214,7 +214,7 @@ private:
         return included_row_index_stream_num;
     }
 
-    OLAPStatus _load_to_vectorized_row_batch(VectorizedRowBatch* batch, size_t size);
+    Status _load_to_vectorized_row_batch(VectorizedRowBatch* batch, size_t size);
 
     FieldAggregationMethod _get_aggregation_by_index(uint32_t index) {
         const TabletSchema& tablet_schema = _segment_group->get_tablet_schema();

@@ -182,11 +182,11 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetWriter) {
     create_tablet_schema(AGG_KEYS, &tablet_schema);
     RowsetWriterContext rowset_writer_context;
     create_rowset_writer_context(&tablet_schema, &rowset_writer_context);
-    EXPECT_EQ(OLAP_SUCCESS,
+    EXPECT_EQ(Status::OK(),
               RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
     RowCursor row;
-    OLAPStatus res = row.init(tablet_schema);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    Status res = row.init(tablet_schema);
+    EXPECT_EQ(Status::OK(), res);
 
     int32_t field_0 = 10;
     row.set_field_content(0, reinterpret_cast<char*>(&field_0), _mem_pool.get());
@@ -210,12 +210,12 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     RowsetWriterContext rowset_writer_context;
     create_rowset_writer_context(&tablet_schema, &rowset_writer_context);
 
-    EXPECT_EQ(OLAP_SUCCESS,
+    EXPECT_EQ(Status::OK(),
               RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
 
     RowCursor row;
-    OLAPStatus res = row.init(tablet_schema);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    Status res = row.init(tablet_schema);
+    EXPECT_EQ(Status::OK(), res);
 
     int32_t field_0 = 10;
     row.set_not_null(0);
@@ -227,9 +227,9 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     row.set_not_null(2);
     row.set_field_content(2, reinterpret_cast<char*>(&field_2), _mem_pool.get());
     res = _alpha_rowset_writer->add_row(row);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     res = _alpha_rowset_writer->flush();
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
     EXPECT_TRUE(alpha_rowset != nullptr);
     RowsetId rowset_id;
@@ -238,7 +238,7 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     EXPECT_EQ(1, alpha_rowset->num_rows());
     RowsetReaderSharedPtr rowset_reader;
     res = alpha_rowset->create_reader(&rowset_reader);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     std::vector<uint32_t> return_columns;
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
@@ -246,7 +246,7 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     DeleteHandler delete_handler;
     DelPredicateArray predicate_array;
     res = delete_handler.init(tablet_schema, predicate_array, 4);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     RowsetReaderContext rowset_reader_context;
 
     std::set<uint32_t> load_bf_columns;
@@ -255,10 +255,10 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     create_rowset_reader_context(&tablet_schema, &return_columns, &delete_handler, &predicates,
                                  &load_bf_columns, &conditions, &rowset_reader_context);
     res = rowset_reader->init(&rowset_reader_context);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     RowBlock* row_block = nullptr;
     res = rowset_reader->next_block(&row_block);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     EXPECT_EQ(1, row_block->remaining());
 }
 

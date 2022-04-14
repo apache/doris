@@ -97,9 +97,9 @@ Status OlapScanner::prepare(
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
-            OLAPStatus acquire_reader_st =
+            Status acquire_reader_st =
                     _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
-            if (acquire_reader_st != OLAP_SUCCESS) {
+            if (!acquire_reader_st.ok()) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
                 ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
@@ -129,8 +129,7 @@ Status OlapScanner::open() {
     _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init reader.[res=%d]", res);
+    if (!res.ok()) {
         std::stringstream ss;
         ss << "failed to initialize storage reader. tablet="
            << _tablet_reader_params.tablet->full_name() << ", res=" << res
@@ -214,10 +213,10 @@ Status OlapScanner::_init_tablet_reader_params(
     }
 
     // use _tablet_reader_params.return_columns, because reader use this to merge sort
-    OLAPStatus res =
+    Status res =
             _read_row_cursor.init(_tablet->tablet_schema(), _tablet_reader_params.return_columns);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init row cursor.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to init row cursor.res = " << res;
         return Status::InternalError("failed to initialize storage read row cursor");
     }
     _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
@@ -299,7 +298,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             // Read one row from reader
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
                                                                  batch->agg_object_pool(), eof);
-            if (res != OLAP_SUCCESS) {
+            if (!res.ok()) {
                 std::stringstream ss;
                 ss << "Internal Error: read storage fail. res=" << res
                    << ", tablet=" << _tablet->full_name()

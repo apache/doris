@@ -79,7 +79,7 @@ public:
     }
 
     // called when finished fill this row_block
-    OLAPStatus finalize(uint32_t row_num);
+    Status finalize(uint32_t row_num);
 
     const uint32_t row_num() const { return _info.row_num; }
     const RowBlockInfo& row_block_info() const { return _info; }

@@ -61,9 +61,9 @@ Status BrokerStorageBackend::download(const std::string& remote, const std::stri
 
     // 3. open local file for write
     FileHandler file_handler;
-    OLAPStatus ost =
+    Status ost =
             file_handler.open_with_mode(local, O_CREAT | O_TRUNC | O_WRONLY, S_IRUSR | S_IWUSR);
-    if (ost != OLAP_SUCCESS) {
+    if (!ost.ok()) {
         return Status::InternalError("failed to open file: " + local);
     }
 
@@ -84,7 +84,7 @@ Status BrokerStorageBackend::download(const std::string& remote, const std::stri
 
         if (read_len > 0) {
             ost = file_handler.pwrite(read_buf, read_len, write_offset);
-            if (ost != OLAP_SUCCESS) {
+            if (!ost.ok()) {
                 return Status::InternalError("failed to write file: " + local);
             }
 
@@ -103,8 +103,8 @@ Status BrokerStorageBackend::direct_download(const std::string& remote, std::str
 Status BrokerStorageBackend::upload(const std::string& local, const std::string& remote) {
     // read file and write to broker
     FileHandler file_handler;
-    OLAPStatus ost = file_handler.open(local, O_RDONLY);
-    if (ost != OLAP_SUCCESS) {
+    Status ost = file_handler.open(local, O_RDONLY);
+    if (!ost.ok()) {
         return Status::InternalError("failed to open file: " + local);
     }
 
@@ -127,7 +127,7 @@ Status BrokerStorageBackend::upload(const std::string& local, const std::string&
     while (left_len > 0) {
         size_t read_len = left_len > buf_sz ? buf_sz : left_len;
         ost = file_handler.pread(read_buf, read_len, read_offset);
-        if (ost != OLAP_SUCCESS) {
+        if (!ost.ok()) {
             return Status::InternalError("failed to read file: " + local);
         }
         // write through broker

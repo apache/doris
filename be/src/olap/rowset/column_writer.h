@@ -56,23 +56,23 @@ public:
                                 double bf_fpp);
 
     virtual ~ColumnWriter();
-    virtual OLAPStatus init();
+    virtual Status init();
 
-    OLAPStatus write(RowCursor* cursor);
+    Status write(RowCursor* cursor);
 
-    virtual OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) = 0;
+    virtual Status write_batch(RowBlock* block, RowCursor* cursor) = 0;
 
     // Write the previously recorded block location information and current statistical information into a new index entry
-    OLAPStatus create_row_index_entry();
+    Status create_row_index_entry();
     // Estimate the current cache memory size, excluding the memory that has been output to OutStream
     virtual uint64_t estimate_buffered_memory();
-    virtual OLAPStatus flush();
+    virtual Status flush();
     // End the segment, flush stream and update the header:
     //   * column_unique_id
     //   * column_type
     //   * column_encoding
     //   * zone_maps
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header);
+    virtual Status finalize(ColumnDataHeaderMessage* header);
     virtual void save_encoding(ColumnEncodingMessage* encoding);
     uint32_t column_id() const { return _column_id; }
 
@@ -128,14 +128,14 @@ public:
     ByteColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
                      const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~ByteColumnWriter();
-    virtual OLAPStatus init() override;
+    virtual Status init() override;
 
-    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+    Status write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
             block->get_row(i, cursor);
 
-            OLAPStatus res = ColumnWriter::write(cursor);
-            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+            Status res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(!res.ok())) {
                 OLAP_LOG_WARNING("fail to write ColumnWriter.");
                 return res;
             }
@@ -145,18 +145,18 @@ public:
             if (!cell.is_null()) {
                 char value = *reinterpret_cast<const char*>(cell.cell_ptr());
                 res = _writer->write(value);
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     LOG(WARNING) << "fail to write double, res=" << res;
                     return res;
                 }
             }
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override;
+    virtual Status finalize(ColumnDataHeaderMessage* header) override;
     virtual void record_position() override;
-    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
+    virtual Status flush() override { return Status::OK(); }
 
 private:
     RunLengthByteWriter* _writer;
@@ -170,13 +170,13 @@ public:
     IntegerColumnWriter(uint32_t column_id, uint32_t unique_column_id,
                         OutStreamFactory* stream_factory, bool is_singed);
     ~IntegerColumnWriter();
-    OLAPStatus init();
-    OLAPStatus write(int64_t data) { return _writer->write(data); }
-    OLAPStatus finalize(ColumnDataHeaderMessage* header) { return _writer->flush(); }
+    Status init();
+    Status write(int64_t data) { return _writer->write(data); }
+    Status finalize(ColumnDataHeaderMessage* header) { return _writer->flush(); }
     void record_position(PositionEntryWriter* index_entry) {
         _writer->get_position(index_entry, false);
     }
-    OLAPStatus flush() { return _writer->flush(); }
+    Status flush() { return _writer->flush(); }
 
 private:
     uint32_t _column_id;
@@ -199,31 +199,31 @@ public:
 
     virtual ~IntegerColumnWriterWrapper() {}
 
-    virtual OLAPStatus init() override {
-        OLAPStatus res = OLAP_SUCCESS;
+    virtual Status init() override {
+        Status res = Status::OK();
 
         res = ColumnWriter::init();
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to init ColumnWriter. [res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to init ColumnWriter. res = " << res;
             return res;
         }
 
         res = _writer.init();
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to init IntegerColumnWriter. [res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to init IntegerColumnWriter. res = " << res;
             return res;
         }
 
         record_position();
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+    Status write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
             block->get_row(i, cursor);
-            OLAPStatus res = ColumnWriter::write(cursor);
-            if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-                OLAP_LOG_WARNING("fail to write ColumnWriter. [res=%d]", res);
+            Status res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(!res.ok())) {
+                LOG(WARNING) << "fail to write ColumnWriter. res = " << res;
                 return res;
             }
 
@@ -232,38 +232,38 @@ public:
             if (!cell.is_null()) {
                 T value = *reinterpret_cast<const T*>(cell.cell_ptr());
                 res = _writer.write(static_cast<int64_t>(value));
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     LOG(WARNING) << "fail to write integer, res=" << res;
                     return res;
                 }
             }
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    virtual OLAPStatus flush() override {
-        OLAPStatus res = ColumnWriter::flush();
+    virtual Status flush() override {
+        Status res = ColumnWriter::flush();
 
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to flush column_writer. [res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to flush column_writer. res = " << res;
             return res;
         }
 
         res = _writer.flush();
 
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to flush integer_writer. [res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to flush integer_writer. res = " << res;
             return res;
         }
 
         return res;
     }
 
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override {
-        OLAPStatus res = ColumnWriter::finalize(header);
+    virtual Status finalize(ColumnDataHeaderMessage* header) override {
+        Status res = ColumnWriter::finalize(header);
 
-        if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-            OLAP_LOG_WARNING("fail to finalize ColumnWriter. [res=%d]", res);
+        if (OLAP_UNLIKELY(!res.ok())) {
+            LOG(WARNING) << "fail to finalize ColumnWriter. res = " << res;
             return res;
         }
 
@@ -291,11 +291,11 @@ public:
 
     virtual ~DoubleColumnWriterBase() {}
 
-    virtual OLAPStatus init() override {
-        OLAPStatus res = OLAP_SUCCESS;
+    virtual Status init() override {
+        Status res = Status::OK();
 
         res = ColumnWriter::init();
-        if (OLAP_SUCCESS != res) {
+        if (!res.ok()) {
             return res;
         }
 
@@ -303,22 +303,22 @@ public:
         _stream = factory->create_stream(unique_column_id(), StreamInfoMessage::DATA);
 
         if (nullptr == _stream) {
-            OLAP_LOG_WARNING("fail to allocate DATA STREAM");
-            return OLAP_ERR_MALLOC_ERROR;
+            LOG(WARNING) << "fail to allocate DATA STREAM";
+            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
         record_position();
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
+    virtual Status flush() override { return Status::OK(); }
 
-    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+    Status write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
             block->get_row(i, cursor);
-            OLAPStatus res = ColumnWriter::write(cursor);
-            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
-                OLAP_LOG_WARNING("fail to write ColumnWriter. [res=%d]", res);
+            Status res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(!res.ok())) {
+                LOG(WARNING) << "fail to write ColumnWriter. res = " << res;
                 return res;
             }
 
@@ -327,31 +327,31 @@ public:
             if (!cell.is_null()) {
                 const T* value = reinterpret_cast<const T*>(cell.cell_ptr());
                 res = _stream->write(reinterpret_cast<const char*>(value), sizeof(T));
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     LOG(WARNING) << "fail to write double, res=" << res;
                     return res;
                 }
             }
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override {
-        OLAPStatus res = OLAP_SUCCESS;
+    virtual Status finalize(ColumnDataHeaderMessage* header) override {
+        Status res = Status::OK();
 
         res = ColumnWriter::finalize(header);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to finalize ColumnWriter. [res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to finalize ColumnWriter. res = " << res;
             return res;
         }
 
         res = _stream->flush();
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to flush. [res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to flush. res = " << res;
             return res;
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     virtual void record_position() override {
@@ -375,13 +375,13 @@ public:
     VarStringColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
                           const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~VarStringColumnWriter();
-    virtual OLAPStatus init() override;
+    virtual Status init() override;
 
-    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+    Status write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
             block->get_row(i, cursor);
-            OLAPStatus res = ColumnWriter::write(cursor);
-            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+            Status res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(!res.ok())) {
                 OLAP_LOG_WARNING("fail to write ColumnWriter.");
                 return res;
             }
@@ -390,24 +390,24 @@ public:
                 char* buf = cursor->cell_ptr(column_id());
                 Slice* slice = reinterpret_cast<Slice*>(buf);
                 res = write(slice->data, slice->size);
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     LOG(WARNING) << "fail to write varchar, res=" << res;
                     return res;
                 }
             }
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     virtual uint64_t estimate_buffered_memory() override;
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override;
+    virtual Status finalize(ColumnDataHeaderMessage* header) override;
     virtual void save_encoding(ColumnEncodingMessage* encoding) override;
     virtual void record_position() override;
-    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
+    virtual Status flush() override { return Status::OK(); }
 
 protected:
     //Write a piece of data directly without using cursor
-    OLAPStatus write(const char* str, uint32_t length);
+    Status write(const char* str, uint32_t length);
 
 private:
     // You can use references as keys in the map
@@ -424,8 +424,8 @@ private:
     typedef std::map<DictKey, uint32_t> StringDict;
 
 private:
-    OLAPStatus _finalize_dict_encoding();
-    OLAPStatus _finalize_direct_encoding();
+    Status _finalize_dict_encoding();
+    Status _finalize_direct_encoding();
 
 private:
     bool _use_dictionary_encoding;
@@ -450,12 +450,12 @@ public:
                                 double bf_fpp);
     virtual ~FixLengthStringColumnWriter();
 
-    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+    Status write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
             block->get_row(i, cursor);
 
-            OLAPStatus res = ColumnWriter::write(cursor);
-            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+            Status res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(!res.ok())) {
                 OLAP_LOG_WARNING("fail to write ColumnWriter.");
                 return res;
             }
@@ -467,16 +467,16 @@ public:
                 //const char* str = reinterpret_cast<const char*>(buf);
                 Slice* slice = reinterpret_cast<Slice*>(buf);
                 res = VarStringColumnWriter::write(slice->data, slice->size);
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     LOG(WARNING) << "fail to write fix-length string, res=" << res;
                     return res;
                 }
             }
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
+    virtual Status flush() override { return Status::OK(); }
 
 private:
     uint32_t _length;
@@ -495,13 +495,13 @@ public:
     DecimalColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
                         const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~DecimalColumnWriter();
-    virtual OLAPStatus init() override;
+    virtual Status init() override;
 
-    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+    Status write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
             block->get_row(i, cursor);
-            OLAPStatus res = ColumnWriter::write(cursor);
-            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+            Status res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(!res.ok())) {
                 OLAP_LOG_WARNING("fail to write ColumnWriter.");
                 return res;
             }
@@ -511,23 +511,23 @@ public:
             if (!cell.is_null()) {
                 decimal12_t value = *reinterpret_cast<const decimal12_t*>(cell.cell_ptr());
                 res = _int_writer->write(value.integer);
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     OLAP_LOG_WARNING("fail to write integer of Decimal.");
                     return res;
                 }
                 res = _frac_writer->write(value.fraction);
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     OLAP_LOG_WARNING("fail to write fraction of Decimal.");
                     return res;
                 }
             }
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override;
+    virtual Status finalize(ColumnDataHeaderMessage* header) override;
     virtual void record_position() override;
-    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
+    virtual Status flush() override { return Status::OK(); }
 
 private:
     RunLengthIntegerWriter* _int_writer;
@@ -541,13 +541,13 @@ public:
     LargeIntColumnWriter(uint32_t column_id, OutStreamFactory* stream_factory,
                          const TabletColumn& column, size_t num_rows_per_row_block, double bf_fpp);
     virtual ~LargeIntColumnWriter();
-    virtual OLAPStatus init() override;
+    virtual Status init() override;
 
-    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor) override {
+    Status write_batch(RowBlock* block, RowCursor* cursor) override {
         for (uint32_t i = 0; i < block->row_block_info().row_num; i++) {
             block->get_row(i, cursor);
-            OLAPStatus res = ColumnWriter::write(cursor);
-            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
+            Status res = ColumnWriter::write(cursor);
+            if (OLAP_UNLIKELY(!res.ok())) {
                 OLAP_LOG_WARNING("fail to write ColumnWriter.");
                 return res;
             }
@@ -556,23 +556,23 @@ public:
             if (!cell.is_null()) {
                 const int64_t* value = reinterpret_cast<const int64_t*>(cell.cell_ptr());
                 res = _high_writer->write(*value);
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     OLAP_LOG_WARNING("fail to write integer of LargeInt.");
                     return res;
                 }
                 res = _low_writer->write(*(++value));
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     OLAP_LOG_WARNING("fail to write fraction of LargeInt.");
                     return res;
                 }
             }
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    virtual OLAPStatus finalize(ColumnDataHeaderMessage* header) override;
+    virtual Status finalize(ColumnDataHeaderMessage* header) override;
     virtual void record_position() override;
-    virtual OLAPStatus flush() override { return OLAP_SUCCESS; }
+    virtual Status flush() override { return Status::OK(); }
 
 private:
     RunLengthIntegerWriter* _high_writer;
