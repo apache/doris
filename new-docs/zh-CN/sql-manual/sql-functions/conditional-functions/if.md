@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "if",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,27 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# if
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`if(boolean condition, type valueTrue, type valueFalseOrNull)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+如果表达式 condition 成立，返回结果 valueTrue；否则，返回结果 valueFalseOrNull
+返回类型： valueTrue 表达式结果的类型
+
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+mysql> select  user_id, if(user_id = 1, "true", "false") test_if from test;
++---------+---------+
+| user_id | test_if |
++---------+---------+
+| 1       | true    |
+| 2       | false   |
++---------+---------+
+```
 ## keyword
-
-DIGITAL_MASKING
+IF

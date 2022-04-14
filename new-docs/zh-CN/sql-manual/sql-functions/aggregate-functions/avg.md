@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "AVG",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,34 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# AVG
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`AVG([DISTINCT] expr)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+用于返回选中字段的平均值
+
+可选字段DISTINCT参数可以用来返回去重平均值
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> SELECT datetime, AVG(cost_time) FROM log_statis group by datetime;
++---------------------+--------------------+
+| datetime            | avg(`cost_time`)   |
++---------------------+--------------------+
+| 2019-07-03 21:01:20 | 25.827794561933533 |
++---------------------+--------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> SELECT datetime, AVG(distinct cost_time) FROM log_statis group by datetime;
++---------------------+---------------------------+
+| datetime            | avg(DISTINCT `cost_time`) |
++---------------------+---------------------------+
+| 2019-07-04 02:23:24 |        20.666666666666668 |
++---------------------+---------------------------+
 
+```
 ## keyword
-
-DIGITAL_MASKING
+AVG

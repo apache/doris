@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "dayofmonth",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,28 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# dayofmonth
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT DAYOFMONTH(DATETIME date)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+获得日期中的天信息，返回值范围从1-31。
+
+参数为Date或者Datetime类型
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select dayofmonth('1987-01-31');
++-----------------------------------+
+| dayofmonth('1987-01-31 00:00:00') |
++-----------------------------------+
+|                                31 |
++-----------------------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    DAYOFMONTH

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
-    "language": "zh-CN"
+"title": "SM3",
+"language": "zh-CN"
 }
 ---
 
@@ -13,9 +13,7 @@ regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
 with the License.  You may obtain a copy of the License at
-
   http://www.apache.org/licenses/LICENSE-2.0
-
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -24,33 +22,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
+# SM3
 
 ## description
-
+计算 SM3 256-bit
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
-
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+`SM3(str)`
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+MySQL > select sm3("abcd");
++------------------------------------------------------------------+
+| sm3('abcd')                                                      |
++------------------------------------------------------------------+
+| 82ec580fe6d36ae4f81cae3c73f4a5b3b5a09c943172dc9053c69fd8e18dca1e |
++------------------------------------------------------------------+
+1 row in set (0.009 sec)
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    SM3

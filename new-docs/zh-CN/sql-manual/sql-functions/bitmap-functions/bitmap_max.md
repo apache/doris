@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "bitmap_max",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,32 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# bitmap_max
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BIGINT BITMAP_MAX(BITMAP input)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+计算并返回 bitmap 中的最大值.
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select bitmap_max(bitmap_from_string('')) value;
++-------+
+| value |
++-------+
+|  NULL |
++-------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select bitmap_max(bitmap_from_string('1,9999999999')) value;
++------------+
+| value      |
++------------+
+| 9999999999 |
++------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITMAP_MAX,BITMAP

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "from_days",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# from_days
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`DATE FROM_DAYS(INT N)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+通过距离0000-01-01日的天数计算出哪一天
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select from_days(730669);
++-------------------+
+| from_days(730669) |
++-------------------+
+| 2000-07-03        |
++-------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    FROM_DAYS,FROM,DAYS
