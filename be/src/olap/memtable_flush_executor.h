@@ -56,14 +56,14 @@ public:
     explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
             : _flush_token(std::move(flush_pool_token)), _flush_status(OLAP_SUCCESS) {}
 
-    OLAPStatus submit(const std::shared_ptr<MemTable>& mem_table);
+    Status submit(const std::shared_ptr<MemTable>& mem_table);
 
     // error has happpens, so we cancel this token
     // And remove all tasks in the queue.
     void cancel();
 
     // wait all tasks in token to be completed.
-    OLAPStatus wait();
+    Status wait();
 
     // get flush operations' statistics
     const FlushStatistic& get_stats() const { return _stats; }
@@ -75,7 +75,7 @@ private:
 
     // Records the current flush status of the tablet.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
-    std::atomic<OLAPStatus> _flush_status;
+    std::atomic<ErrorCode> _flush_status;
 
     FlushStatistic _stats;
 };
@@ -101,7 +101,7 @@ public:
     // because it needs path hash of each data dir.
     void init(const std::vector<DataDir*>& data_dirs);
 
-    OLAPStatus create_flush_token(
+    Status create_flush_token(
             std::unique_ptr<FlushToken>* flush_token,
             RowsetTypePB rowset_type, bool is_high_priority);
 

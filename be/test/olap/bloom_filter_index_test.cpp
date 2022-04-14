@@ -59,9 +59,9 @@ TEST_F(TestBloomFilterIndex, normal_read_and_write) {
 
     char buffer[expect_size];
     memset(buffer, 0, expect_size);
-    EXPECT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, expect_size));
+    EXPECT_EQ(Status::OK(), writer.write_to_buffer(buffer, expect_size));
 
-    EXPECT_EQ(OLAP_SUCCESS,
+    EXPECT_EQ(Status::OK(),
               reader.init(buffer, expect_size, true, bf_0->hash_function_num(), bf_0->bit_num()));
     EXPECT_EQ(2, reader.entry_count());
 
@@ -79,9 +79,9 @@ TEST_F(TestBloomFilterIndex, normal_read_and_write) {
 TEST_F(TestBloomFilterIndex, abnormal_write) {
     char buffer[24];
     BloomFilterIndexWriter writer;
-    EXPECT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR, writer.write_to_buffer(nullptr));
-    EXPECT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR, writer.write_to_buffer(nullptr, 0));
-    EXPECT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR, writer.write_to_buffer(buffer, 0));
+    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), writer.write_to_buffer(nullptr));
+    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), writer.write_to_buffer(nullptr, 0));
+    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), writer.write_to_buffer(buffer, 0));
     EXPECT_EQ(sizeof(BloomFilterIndexHeader), writer.estimate_buffered_memory());
 }
 
@@ -95,10 +95,10 @@ TEST_F(TestBloomFilterIndex, abnormal_read) {
     BloomFilterIndexReader reader;
 
     header->block_count = 1;
-    EXPECT_EQ(OLAP_SUCCESS, reader.init(buffer, buffer_size, true, hash_function_num, bit_num));
+    EXPECT_EQ(Status::OK(), reader.init(buffer, buffer_size, true, hash_function_num, bit_num));
 
     header->block_count = 3;
-    EXPECT_EQ(OLAP_ERR_INPUT_PARAMETER_ERROR,
+    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR),
               reader.init(buffer, buffer_size, true, hash_function_num, bit_num));
 }
 

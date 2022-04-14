@@ -30,10 +30,10 @@ public:
     BloomFilterIndexWriter() {}
     ~BloomFilterIndexWriter();
 
-    OLAPStatus add_bloom_filter(BloomFilter* bf);
+    Status add_bloom_filter(BloomFilter* bf);
     uint64_t estimate_buffered_memory();
-    OLAPStatus write_to_buffer(OutStream* out_stream);
-    OLAPStatus write_to_buffer(char* buffer, size_t buffer_size);
+    Status write_to_buffer(OutStream* out_stream);
+    Status write_to_buffer(char* buffer, size_t buffer_size);
 
 private:
     std::vector<BloomFilter*> _bloom_filters;

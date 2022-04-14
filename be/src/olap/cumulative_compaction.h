@@ -30,13 +30,13 @@ public:
     CumulativeCompaction(TabletSharedPtr tablet);
     ~CumulativeCompaction() override;
 
-    OLAPStatus prepare_compact() override;
-    OLAPStatus execute_compact_impl() override;
+    Status prepare_compact() override;
+    Status execute_compact_impl() override;
 
     std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
 
 protected:
-    OLAPStatus pick_rowsets_to_compact() override;
+    Status pick_rowsets_to_compact() override;
 
     std::string compaction_name() const override { return "cumulative compaction"; }
 

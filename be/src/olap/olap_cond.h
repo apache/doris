@@ -68,7 +68,7 @@ public:
     Cond() = default;
     ~Cond();
 
-    OLAPStatus init(const TCondition& tcond, const TabletColumn& column);
+    Status init(const TCondition& tcond, const TabletColumn& column);
 
     // 用一行数据的指定列同条件进行比较，如果符合过滤条件，
     // 即按照此条件，行应被过滤掉，则返回true，否则返回false
@@ -103,7 +103,7 @@ public:
     }
     ~CondColumn();
 
-    OLAPStatus add_cond(const TCondition& tcond, const TabletColumn& column);
+    Status add_cond(const TCondition& tcond, const TabletColumn& column);
 
     // 对一行数据中的指定列，用所有过滤条件进行比较，如果所有条件都满足，则过滤此行
     // Return true means this row should be filtered out, otherwise return false
@@ -170,7 +170,7 @@ public:
     // 对于下列情况，将不会被处理
     // 1. column不属于key列
     // 2. column类型是double, float
-    OLAPStatus append_condition(const TCondition& condition);
+    Status append_condition(const TCondition& condition);
 
     // 通过所有列上的删除条件对RowCursor进行过滤
     // Return true means this row should be filtered out, otherwise return false

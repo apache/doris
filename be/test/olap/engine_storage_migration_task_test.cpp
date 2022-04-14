@@ -157,8 +157,8 @@ public:
 TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
-    OLAPStatus res = k_engine->create_tablet(request);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    Status res = k_engine->create_tablet(request);
+    EXPECT_EQ(Status::OK(), res);
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
@@ -189,13 +189,13 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
                 ->from_date_str("2020-07-16 19:39:43", 19);
 
         res = delta_writer->write(tuple);
-        EXPECT_EQ(OLAP_SUCCESS, res);
+        EXPECT_EQ(Status::OK(), res);
     }
 
     res = delta_writer->close();
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     res = delta_writer->close_wait(nullptr, false);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
 
     // publish version success
     TabletSharedPtr tablet =
@@ -212,9 +212,9 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
                                                    write_req.tablet_id, write_req.schema_hash,
                                                    tablet_rs.first.tablet_uid, version);
-        EXPECT_EQ(OLAP_SUCCESS, res);
+        EXPECT_EQ(Status::OK(), res);
         res = tablet->add_inc_rowset(rowset);
-        EXPECT_EQ(OLAP_SUCCESS, res);
+        EXPECT_EQ(Status::OK(), res);
     }
     EXPECT_EQ(1, tablet->num_rows());
     // we should sleep 1 second for the migrated tablet has different time with the current tablet
@@ -232,7 +232,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     // migrating
     EngineStorageMigrationTask engine_task(tablet, dest_store);
     res = engine_task.execute();
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     // reget the tablet from manager after migration
     auto tablet_id = 10005;
     auto schema_hash = 270068377;
@@ -253,7 +253,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     EXPECT_NE(dest_store->path(), tablet2->data_dir()->path());
     EngineStorageMigrationTask engine_task2(tablet2, dest_store);
     res = engine_task2.execute();
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     TabletSharedPtr tablet3 = k_engine->tablet_manager()->get_tablet(tablet_id, schema_hash);
     // check path
     EXPECT_EQ(tablet3->data_dir()->path(), tablet->data_dir()->path());
@@ -265,7 +265,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     // test case 2 end
 
     res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
-    EXPECT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     delete delta_writer;
 }
 

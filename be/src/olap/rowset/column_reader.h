@@ -78,13 +78,13 @@ public:
       * @param is_sign whether the number read has a sign
       * @return [description]
       */
-    OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, bool is_sign);
+    Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, bool is_sign);
     // Position the internal pointer to positions
-    OLAPStatus seek(PositionProvider* positions);
+    Status seek(PositionProvider* positions);
     // Move the internal pointer back row_count rows
-    OLAPStatus skip(uint64_t row_count);
+    Status skip(uint64_t row_count);
     // Return the data of the current row by moving the internal pointer to the next row
-    OLAPStatus next(int64_t* value);
+    Status next(int64_t* value);
     bool eof() { return _eof; }
 
 private:
@@ -100,15 +100,15 @@ public:
     StringColumnDirectReader(uint32_t column_unique_id, uint32_t dictionary_size);
     ~StringColumnDirectReader();
 
-    OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+    Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                     MemPool* mem_pool);
-    OLAPStatus seek(PositionProvider* positions);
-    OLAPStatus skip(uint64_t row_count);
+    Status seek(PositionProvider* positions);
+    Status skip(uint64_t row_count);
     // Return the data of the current row and move the internal pointer backward
     // buffer - the buffer of the returned data
     // length - the size of the buffer area when input, and the size of the string when returning
-    OLAPStatus next(char* buffer, uint32_t* length);
-    OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool,
+    Status next(char* buffer, uint32_t* length);
+    Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool,
                            int64_t* read_bytes);
 
     size_t get_buffer_size() { return sizeof(RunLengthByteReader); }
@@ -132,12 +132,12 @@ class StringColumnDictionaryReader {
 public:
     StringColumnDictionaryReader(uint32_t column_unique_id, uint32_t dictionary_size);
     ~StringColumnDictionaryReader();
-    OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+    Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                     MemPool* mem_pool);
-    OLAPStatus seek(PositionProvider* positions);
-    OLAPStatus skip(uint64_t row_count);
-    OLAPStatus next(char* buffer, uint32_t* length);
-    OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool,
+    Status seek(PositionProvider* positions);
+    Status skip(uint64_t row_count);
+    Status next(char* buffer, uint32_t* length);
+    Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool,
                            int64_t* read_bytes);
 
     size_t get_buffer_size() { return sizeof(RunLengthByteReader) + _dictionary_size; }
@@ -188,17 +188,17 @@ public:
     // ColumnReader is initialized only once, and a new object is allocated each time it is used.
     // Input:
     //       streams-input stream
-    virtual OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+    virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                             MemPool* mem_pool, OlapReaderStatistics* stats);
 
     // Set the position of the next returned data
     // positions are the positions where each column needs to seek, ColumnReader passes (*positions)[_column_unique_id]
     // Get the seek position of this column
-    virtual OLAPStatus seek(PositionProvider* positions);
+    virtual Status seek(PositionProvider* positions);
 
-    virtual OLAPStatus skip(uint64_t row_count);
+    virtual Status skip(uint64_t row_count);
 
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);
+    virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);
 
     uint32_t column_unique_id() { return _column_unique_id; }
 
@@ -233,7 +233,7 @@ public:
 
     virtual ~DefaultValueReader() {}
 
-    virtual OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+    virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                             MemPool* mem_pool, OlapReaderStatistics* stats) {
         switch (_type) {
         case OLAP_FIELD_TYPE_TINYINT: {
@@ -364,16 +364,16 @@ public:
             break;
         }
         _stats = stats;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
-    virtual OLAPStatus seek(PositionProvider* positions) { return OLAP_SUCCESS; }
-    virtual OLAPStatus skip(uint64_t row_count) { return OLAP_SUCCESS; }
+    virtual Status seek(PositionProvider* positions) { return Status::OK(); }
+    virtual Status skip(uint64_t row_count) { return Status::OK(); }
 
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
+    virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         column_vector->set_no_nulls(true);
         column_vector->set_col_data(_values);
         _stats->bytes_read += _length * size;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
 private:
@@ -387,21 +387,21 @@ class NullValueReader : public ColumnReader {
 public:
     NullValueReader(uint32_t column_id, uint32_t column_unique_id)
             : ColumnReader(column_id, column_unique_id) {}
-    OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size, MemPool* mem_pool,
+    Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size, MemPool* mem_pool,
                     OlapReaderStatistics* stats) override {
         _is_null = reinterpret_cast<bool*>(mem_pool->allocate(size));
         memset(_is_null, 1, size);
         _stats = stats;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
-    virtual OLAPStatus seek(PositionProvider* positions) override { return OLAP_SUCCESS; }
-    virtual OLAPStatus skip(uint64_t row_count) override { return OLAP_SUCCESS; }
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size,
+    virtual Status seek(PositionProvider* positions) override { return Status::OK(); }
+    virtual Status skip(uint64_t row_count) override { return Status::OK(); }
+    virtual Status next_vector(ColumnVector* column_vector, uint32_t size,
                                    MemPool* mem_pool) override {
         column_vector->set_no_nulls(false);
         column_vector->set_is_null(_is_null);
         _stats->bytes_read += size;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 };
 
@@ -411,11 +411,11 @@ public:
     TinyColumnReader(uint32_t column_id, uint32_t column_unique_id);
     virtual ~TinyColumnReader();
 
-    virtual OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+    virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                             MemPool* mem_pool, OlapReaderStatistics* stats);
-    virtual OLAPStatus seek(PositionProvider* positions);
-    virtual OLAPStatus skip(uint64_t row_count);
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);
+    virtual Status seek(PositionProvider* positions);
+    virtual Status skip(uint64_t row_count);
+    virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);
 
     virtual size_t get_buffer_size() { return sizeof(RunLengthByteReader); }
 
@@ -437,11 +437,11 @@ public:
 
     virtual ~IntegerColumnReaderWrapper() {}
 
-    virtual OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+    virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                             MemPool* mem_pool, OlapReaderStatistics* stats) {
-        OLAPStatus res = ColumnReader::init(streams, size, mem_pool, stats);
+        Status res = ColumnReader::init(streams, size, mem_pool, stats);
 
-        if (OLAP_SUCCESS == res) {
+        if (res.ok()) {
             res = _reader.init(streams, is_sign);
         }
 
@@ -449,36 +449,36 @@ public:
 
         return res;
     }
-    virtual OLAPStatus seek(PositionProvider* positions) {
-        OLAPStatus res;
+    virtual Status seek(PositionProvider* positions) {
+        Status res;
         if (nullptr == _present_reader) {
             res = _reader.seek(positions);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 return res;
             }
         } else {
             //all field in the segment can be nullptr, so the data stream is EOF
             res = ColumnReader::seek(positions);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 return res;
             }
             res = _reader.seek(positions);
-            if (OLAP_SUCCESS != res && OLAP_ERR_COLUMN_STREAM_EOF != res) {
-                OLAP_LOG_WARNING("fail to seek int stream. [res=%d]", res);
+            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+                LOG(WARNING) << "fail to seek int stream. res = " << res;
                 return res;
             }
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
-    virtual OLAPStatus skip(uint64_t row_count) {
+    virtual Status skip(uint64_t row_count) {
         return _reader.skip(_count_none_nulls(row_count));
     }
 
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
-        OLAPStatus res = ColumnReader::next_vector(column_vector, size, mem_pool);
-        if (OLAP_SUCCESS != res) {
-            if (OLAP_ERR_DATA_EOF == res) {
+    virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
+        Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
+        if (!res.ok()) {
+            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
                 _eof = true;
             }
             return res;
@@ -489,7 +489,7 @@ public:
             for (uint32_t i = 0; i < size; ++i) {
                 int64_t value = 0;
                 res = _reader.next(&value);
-                if (OLAP_SUCCESS != res) {
+                if (!res.ok()) {
                     break;
                 }
                 _values[i] = value;
@@ -500,7 +500,7 @@ public:
                 int64_t value = 0;
                 if (!is_null[i]) {
                     res = _reader.next(&value);
-                    if (OLAP_SUCCESS != res) {
+                    if (!res.ok()) {
                         break;
                     }
                 }
@@ -509,7 +509,7 @@ public:
         }
         _stats->bytes_read += sizeof(T) * size;
 
-        if (OLAP_ERR_DATA_EOF == res) {
+        if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
             _eof = true;
         }
         return res;
@@ -537,46 +537,46 @@ public:
               _string_length(string_length) {}
     virtual ~FixLengthStringColumnReader() {}
 
-    virtual OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+    virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                             MemPool* mem_pool, OlapReaderStatistics* stats) {
-        OLAPStatus res = ColumnReader::init(streams, size, mem_pool, stats);
+        Status res = ColumnReader::init(streams, size, mem_pool, stats);
 
-        if (OLAP_SUCCESS == res) {
+        if (res.ok()) {
             res = _reader.init(streams, size, mem_pool);
         }
 
         return res;
     }
 
-    virtual OLAPStatus seek(PositionProvider* positions) {
-        OLAPStatus res;
+    virtual Status seek(PositionProvider* positions) {
+        Status res;
         if (nullptr == _present_reader) {
             res = _reader.seek(positions);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 return res;
             }
         } else {
             //all field in the segment can be nullptr, so the data stream is EOF
             res = ColumnReader::seek(positions);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 return res;
             }
             res = _reader.seek(positions);
-            if (OLAP_SUCCESS != res && OLAP_ERR_COLUMN_STREAM_EOF != res) {
-                OLAP_LOG_WARNING("fail to read fixed string stream. [res=%d]", res);
+            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+                LOG(WARNING) << "fail to read fixed string stream. res = " << res;
                 return res;
             }
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
-    virtual OLAPStatus skip(uint64_t row_count) {
+    virtual Status skip(uint64_t row_count) {
         return _reader.skip(_count_none_nulls(row_count));
     }
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
-        OLAPStatus res = ColumnReader::next_vector(column_vector, size, mem_pool);
-        if (OLAP_SUCCESS != res) {
-            if (OLAP_ERR_DATA_EOF == res) {
+    virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
+        Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
+        if (!res.ok()) {
+            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
                 _eof = true;
             }
             return res;
@@ -604,46 +604,46 @@ public:
               _reader(column_unique_id, dictionary_size),
               _max_length(max_length) {}
     virtual ~VarStringColumnReader() {}
-    virtual OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+    virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                             MemPool* mem_pool, OlapReaderStatistics* stats) {
-        OLAPStatus res = ColumnReader::init(streams, size, mem_pool, stats);
-        if (OLAP_SUCCESS == res) {
+        Status res = ColumnReader::init(streams, size, mem_pool, stats);
+        if (res.ok()) {
             res = _reader.init(streams, size, mem_pool);
         }
 
         return res;
     }
 
-    virtual OLAPStatus seek(PositionProvider* position) {
-        OLAPStatus res;
+    virtual Status seek(PositionProvider* position) {
+        Status res;
         if (nullptr == _present_reader) {
             res = _reader.seek(position);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 return res;
             }
         } else {
             //all field in the segment can be nullptr, so the data stream is EOF
             res = ColumnReader::seek(position);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 return res;
             }
             res = _reader.seek(position);
-            if (OLAP_SUCCESS != res && OLAP_ERR_COLUMN_STREAM_EOF != res) {
-                OLAP_LOG_WARNING("fail to seek varchar stream. [res=%d]", res);
+            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+                LOG(WARNING) << "fail to seek varchar stream. res = " << res;
                 return res;
             }
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
-    virtual OLAPStatus skip(uint64_t row_count) {
+    virtual Status skip(uint64_t row_count) {
         return _reader.skip(_count_none_nulls(row_count));
     }
 
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
-        OLAPStatus res = ColumnReader::next_vector(column_vector, size, mem_pool);
-        if (OLAP_SUCCESS != res) {
-            if (OLAP_ERR_DATA_EOF == res) {
+    virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
+        Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
+        if (!res.ok()) {
+            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
                 _eof = true;
             }
             return res;
@@ -671,11 +671,11 @@ public:
 
     virtual ~FloatintPointColumnReader() {}
 
-    virtual OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+    virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                             MemPool* mem_pool, OlapReaderStatistics* stats) {
         if (nullptr == streams) {
             OLAP_LOG_WARNING("input streams is nullptr");
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
         // reset stream and reader
@@ -684,63 +684,63 @@ public:
 
         if (nullptr == _data_stream) {
             OLAP_LOG_WARNING("specified stream not exist");
-            return OLAP_ERR_COLUMN_STREAM_NOT_EXIST;
+            return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
         }
 
         _values = reinterpret_cast<FLOAT_TYPE*>(mem_pool->allocate(size * sizeof(FLOAT_TYPE)));
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
-    virtual OLAPStatus seek(PositionProvider* position) {
+    virtual Status seek(PositionProvider* position) {
         if (nullptr == position) {
             OLAP_LOG_WARNING("input positions is nullptr");
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
         if (nullptr == _data_stream) {
             OLAP_LOG_WARNING("reader not init.");
-            return OLAP_ERR_NOT_INITED;
+            return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
         }
 
-        OLAPStatus res;
+        Status res;
         if (nullptr == _present_reader) {
             res = _data_stream->seek(position);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 return res;
             }
         } else {
             //all field in the segment can be nullptr, so the data stream is EOF
             res = ColumnReader::seek(position);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 return res;
             }
             res = _data_stream->seek(position);
-            if (OLAP_SUCCESS != res && OLAP_ERR_COLUMN_STREAM_EOF != res) {
-                OLAP_LOG_WARNING("fail to seek float stream. [res=%d]", res);
+            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+                LOG(WARNING) << "fail to seek float stream. res = " << res;
                 return res;
             }
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
-    virtual OLAPStatus skip(uint64_t row_count) {
+    virtual Status skip(uint64_t row_count) {
         if (nullptr == _data_stream) {
             OLAP_LOG_WARNING("reader not init.");
-            return OLAP_ERR_NOT_INITED;
+            return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
         }
 
         uint64_t skip_values_count = _count_none_nulls(row_count);
         return _data_stream->skip(skip_values_count * sizeof(FLOAT_TYPE));
     }
 
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
+    virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         if (nullptr == _data_stream) {
             OLAP_LOG_WARNING("reader not init.");
-            return OLAP_ERR_NOT_INITED;
+            return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
         }
 
-        OLAPStatus res = ColumnReader::next_vector(column_vector, size, mem_pool);
-        if (OLAP_SUCCESS != res) {
-            if (OLAP_ERR_DATA_EOF == res) {
+        Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
+        if (!res.ok()) {
+            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
                 _eof = true;
             }
             return res;
@@ -753,7 +753,7 @@ public:
             for (uint32_t i = 0; i < size; ++i) {
                 FLOAT_TYPE value = 0.0;
                 res = _data_stream->read(reinterpret_cast<char*>(&value), &length);
-                if (OLAP_SUCCESS != res) {
+                if (!res.ok()) {
                     break;
                 }
                 _values[i] = value;
@@ -763,7 +763,7 @@ public:
                 FLOAT_TYPE value = 0.0;
                 if (!is_null[i]) {
                     res = _data_stream->read(reinterpret_cast<char*>(&value), &length);
-                    if (OLAP_SUCCESS != res) {
+                    if (!res.ok()) {
                         break;
                     }
                 }
@@ -772,7 +772,7 @@ public:
         }
         _stats->bytes_read += sizeof(FLOAT_TYPE) * size;
 
-        if (OLAP_ERR_DATA_EOF == res) {
+        if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
             _eof = true;
         }
 
@@ -789,11 +789,11 @@ class DecimalColumnReader : public ColumnReader {
 public:
     DecimalColumnReader(uint32_t column_id, uint32_t column_unique_id);
     virtual ~DecimalColumnReader();
-    OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size, MemPool* mem_pool,
+    Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size, MemPool* mem_pool,
                     OlapReaderStatistics* stats) override;
-    virtual OLAPStatus seek(PositionProvider* positions) override;
-    virtual OLAPStatus skip(uint64_t row_count) override;
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size,
+    virtual Status seek(PositionProvider* positions) override;
+    virtual Status skip(uint64_t row_count) override;
+    virtual Status next_vector(ColumnVector* column_vector, uint32_t size,
                                    MemPool* mem_pool) override;
 
     virtual size_t get_buffer_size() override { return sizeof(RunLengthByteReader) * 2; }
@@ -809,11 +809,11 @@ class LargeIntColumnReader : public ColumnReader {
 public:
     LargeIntColumnReader(uint32_t column_id, uint32_t column_unique_id);
     virtual ~LargeIntColumnReader();
-    virtual OLAPStatus init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+    virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                             MemPool* mem_pool, OlapReaderStatistics* stats);
-    virtual OLAPStatus seek(PositionProvider* positions);
-    virtual OLAPStatus skip(uint64_t row_count);
-    virtual OLAPStatus next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);
+    virtual Status seek(PositionProvider* positions);
+    virtual Status skip(uint64_t row_count);
+    virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);
 
     virtual size_t get_buffer_size() { return sizeof(RunLengthByteReader) * 2; }
 

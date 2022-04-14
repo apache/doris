@@ -48,8 +48,8 @@ public:
         EXPECT_TRUE(std::filesystem::create_directory(meta_path));
         _meta = new (std::nothrow) OlapMeta(meta_path);
         EXPECT_NE(nullptr, _meta);
-        OLAPStatus st = _meta->init();
-        EXPECT_TRUE(st == OLAP_SUCCESS);
+        Status st = _meta->init();
+        EXPECT_TRUE(st == Status::OK());
         EXPECT_TRUE(std::filesystem::exists("./meta"));
 
         std::ifstream infile(rowset_meta_path);

@@ -60,20 +60,20 @@ public:
     virtual ~SegmentGroup();
 
     // Load the index into memory.
-    OLAPStatus load(bool use_cache = true);
+    Status load(bool use_cache = true);
     bool index_loaded();
-    OLAPStatus load_pb(const char* file, uint32_t seg_id);
+    Status load_pb(const char* file, uint32_t seg_id);
 
     bool has_zone_maps() { return _zone_maps.size() != 0; }
 
-    OLAPStatus add_zone_maps_for_linked_schema_change(
+    Status add_zone_maps_for_linked_schema_change(
             const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields,
             const SchemaMapping& schema_mapping);
 
-    OLAPStatus add_zone_maps(
+    Status add_zone_maps(
             const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields);
 
-    OLAPStatus add_zone_maps(std::vector<std::pair<std::string, std::string>>& zone_map_strings,
+    Status add_zone_maps(std::vector<std::pair<std::string, std::string>>& zone_map_strings,
                              std::vector<bool>& null_vec);
 
     const std::vector<std::pair<WrapperField*, WrapperField*>>& get_zone_maps() {
@@ -81,42 +81,42 @@ public:
     }
 
     // 检查index文件和data文件的有效性
-    OLAPStatus validate();
+    Status validate();
 
     // this function should be called after load
     bool check();
 
     // Finds position of first row block contain the smallest key equal
     // to or greater than 'key'. Returns true on success.
-    OLAPStatus find_short_key(const RowCursor& key, RowCursor* helper_cursor, bool find_last,
+    Status find_short_key(const RowCursor& key, RowCursor* helper_cursor, bool find_last,
                               RowBlockPosition* position) const;
 
     // Returns position of the first row block in the index.
-    OLAPStatus find_first_row_block(RowBlockPosition* position) const;
+    Status find_first_row_block(RowBlockPosition* position) const;
 
     // Returns position of the last row block in the index.
-    OLAPStatus find_last_row_block(RowBlockPosition* position) const;
+    Status find_last_row_block(RowBlockPosition* position) const;
 
     // Given the position of a row block, finds position of the next block.
     // Sets eof to tru if there are no more blocks to go through, and
     // returns false. Returns true on success.
-    OLAPStatus find_next_row_block(RowBlockPosition* position, bool* eof) const;
+    Status find_next_row_block(RowBlockPosition* position, bool* eof) const;
 
     // Given two positions in an index, low and high, set output to be
     // the midpoint between those two positions.  Returns the distance
     // between low and high as computed by ComputeDistance.
-    OLAPStatus find_mid_point(const RowBlockPosition& low, const RowBlockPosition& high,
+    Status find_mid_point(const RowBlockPosition& low, const RowBlockPosition& high,
                               RowBlockPosition* output, uint32_t* dis) const;
 
-    OLAPStatus find_prev_point(const RowBlockPosition& current, RowBlockPosition* prev) const;
+    Status find_prev_point(const RowBlockPosition& current, RowBlockPosition* prev) const;
 
-    OLAPStatus get_row_block_entry(const RowBlockPosition& pos, EntrySlice* entry) const;
+    Status get_row_block_entry(const RowBlockPosition& pos, EntrySlice* entry) const;
 
     // Given a starting row block position, advances the position by
     // num_row_blocks, then stores back the new position through the
     // pointer.  Returns true on success, false on attempt to seek past
     // the last block.
-    OLAPStatus advance_row_block(int64_t num_row_blocks, RowBlockPosition* position) const;
+    Status advance_row_block(int64_t num_row_blocks, RowBlockPosition* position) const;
 
     // Computes the distance between two positions, in row blocks.
     uint32_t compute_distance(const RowBlockPosition& position1,
@@ -126,10 +126,10 @@ public:
     // files. AddSegment() and FinalizeSegment() start and end a new
     // segment respectively, while IndexRowBlock() and IndexShortKey()
     // add a new index entry to the current segment.
-    OLAPStatus add_segment();
-    OLAPStatus add_short_key(const RowCursor& short_key, const uint32_t data_offset);
-    OLAPStatus add_row_block(const RowBlock& row_block, const uint32_t data_offset);
-    OLAPStatus finalize_segment(uint32_t data_segment_size, int64_t num_rows);
+    Status add_segment();
+    Status add_short_key(const RowCursor& short_key, const uint32_t data_offset);
+    Status add_row_block(const RowBlock& row_block, const uint32_t data_offset);
+    Status finalize_segment(uint32_t data_segment_size, int64_t num_rows);
 
     // reference count
     void acquire();
@@ -187,7 +187,7 @@ public:
     // return count of entries in MemIndex
     uint64_t num_index_entries() const;
 
-    OLAPStatus get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const {
+    Status get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const {
         return _index.get_row_block_position(pos, rbp);
     }
 
@@ -231,17 +231,17 @@ public:
 
     const RowsetId& rowset_id() { return _rowset_id; }
 
-    OLAPStatus convert_from_old_files(const std::string& snapshot_path,
+    Status convert_from_old_files(const std::string& snapshot_path,
                                       std::vector<std::string>* success_links);
 
-    OLAPStatus convert_to_old_files(const std::string& snapshot_path,
+    Status convert_to_old_files(const std::string& snapshot_path,
                                     std::vector<std::string>* success_links);
 
-    OLAPStatus remove_old_files(std::vector<std::string>* links_to_remove);
+    Status remove_old_files(std::vector<std::string>* links_to_remove);
 
-    OLAPStatus copy_files_to(const std::string& dir);
+    Status copy_files_to(const std::string& dir);
 
-    OLAPStatus link_segments_to_path(const std::string& dest_path, const RowsetId& rowset_id);
+    Status link_segments_to_path(const std::string& dest_path, const RowsetId& rowset_id);
 
 private:
     std::string _construct_file_name(int32_t segment_id, const std::string& suffix) const;
