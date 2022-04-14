@@ -20,9 +20,9 @@
 
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_binary_arithmetic.h"
+#include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/functions/function_totype.h"
 
 namespace doris::vectorized {
 
@@ -101,10 +101,10 @@ struct BitLengthImpl {
     }
 };
 
-using FunctionBitAnd = FunctionBinaryArithmetic<BitAndImpl, NameBitAnd>;
+using FunctionBitAnd = FunctionBinaryArithmetic<BitAndImpl, NameBitAnd, false>;
 using FunctionBitNot = FunctionUnaryArithmetic<BitNotImpl, NameBitNot, false>;
-using FunctionBitOr = FunctionBinaryArithmetic<BitOrImpl, NameBitOr>;
-using FunctionBitXor = FunctionBinaryArithmetic<BitXorImpl, NameBitXor>;
+using FunctionBitOr = FunctionBinaryArithmetic<BitOrImpl, NameBitOr, false>;
+using FunctionBitXor = FunctionBinaryArithmetic<BitXorImpl, NameBitXor, false>;
 using FunctionBitLength = FunctionUnaryToType<BitLengthImpl, NameBitLength>;
 
 void register_function_bit(SimpleFunctionFactory& factory) {

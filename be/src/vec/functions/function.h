@@ -95,11 +95,6 @@ protected:
       */
     virtual ColumnNumbers get_arguments_that_are_always_constant() const { return {}; }
 
-    /** True if function can be called on default arguments (include Nullable's) and won't throw.
-      * Counterexample: modulo(0, 0)
-      */
-    virtual bool can_be_executed_on_default_arguments() const { return true; }
-
 private:
     Status default_implementation_for_nulls(FunctionContext* context, Block& block,
                                             const ColumnNumbers& args, size_t result,
@@ -386,7 +381,6 @@ public:
     bool use_default_implementation_for_constants() const override { return false; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
-    bool can_be_executed_on_default_arguments() const override { return true; }
     bool can_be_executed_on_low_cardinality_dictionary() const override {
         return is_deterministic_in_scope_of_query();
     }
@@ -459,9 +453,6 @@ protected:
     }
     ColumnNumbers get_arguments_that_are_always_constant() const final {
         return function->get_arguments_that_are_always_constant();
-    }
-    bool can_be_executed_on_default_arguments() const override {
-        return function->can_be_executed_on_default_arguments();
     }
 
 private:

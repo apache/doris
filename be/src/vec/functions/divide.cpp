@@ -18,7 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/divide.cpp
 // and modified by Doris
 
-#include "vec/functions/function_binary_arithmetic_to_null_type.h"
+#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -28,26 +28,42 @@ static const DecimalV2Value one(1, 0);
 template <typename A, typename B>
 struct DivideFloatingImpl {
     using ResultType = typename NumberTraits::ResultOfFloatingPointDivision<A, B>::Type;
+    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
+
     static const constexpr bool allow_decimal = true;
 
+    template <typename Result = ResultType>
+    static void apply(const typename Traits::ArrayA& a, B b,
+                      typename ColumnVector<Result>::Container& c,
+                      typename Traits::ArrayNull& null_map) {
+        size_t size = c.size();
+        UInt8 is_null = b == 0;
+        memset(null_map.data(), is_null, size);
+
+        if (!is_null) {
+            for (size_t i = 0; i < size; i++) {
+                c[i] = (double)a[i] / (double)b;
+            }
+        }
+    }
+
     template <typename Result = DecimalV2Value>
-    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, NullMap& null_map,
-                                       size_t index) {
-        null_map[index] = b.is_zero();
-        return a / (b.is_zero() ? one : b);
+    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, UInt8& is_null) {
+        is_null = b.is_zero();
+        return a / (is_null ? one : b);
     }
 
     template <typename Result = ResultType>
-    static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
-        null_map[index] = b == 0;
-        return static_cast<Result>(a) / (b + (b == 0));
+    static inline Result apply(A a, B b, UInt8& is_null) {
+        is_null = b == 0;
+        return static_cast<Result>(a) / (b + is_null);
     }
 };
 
 struct NameDivide {
     static constexpr auto name = "divide";
 };
-using FunctionDivide = FunctionBinaryArithmeticToNullType<DivideFloatingImpl, NameDivide>;
+using FunctionDivide = FunctionBinaryArithmetic<DivideFloatingImpl, NameDivide, true>;
 
 void register_function_divide(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDivide>();

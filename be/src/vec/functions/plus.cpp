@@ -50,7 +50,7 @@ struct PlusImpl {
 struct NamePlus {
     static constexpr auto name = "add";
 };
-using FunctionPlus = FunctionBinaryArithmetic<PlusImpl, NamePlus>;
+using FunctionPlus = FunctionBinaryArithmetic<PlusImpl, NamePlus, false>;
 
 void register_function_plus(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionPlus>();
