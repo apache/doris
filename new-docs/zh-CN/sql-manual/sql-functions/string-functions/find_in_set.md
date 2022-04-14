@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "find_in_set",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,24 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# find_in_set
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT find_in_set(VARCHAR str, VARCHAR strlist)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+返回 strlist 中第一次出现 str 的位置（从1开始计数）。strlist 是用逗号分隔的字符串。如果没有找到，返回0。任意参数为 NULL ，返回 NULL。
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+mysql> select find_in_set("b", "a,b,c");
++---------------------------+
+| find_in_set('b', 'a,b,c') |
++---------------------------+
+|                         2 |
++---------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+FIND_IN_SET,FIND,IN,SET

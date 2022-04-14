@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "`ST_X`",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,24 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# `ST_X`
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`DOUBLE ST_X(POINT point)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+当point是一个合法的POINT类型时，返回对应的X坐标值
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+mysql> SELECT ST_X(ST_Point(24.7, 56.7));
++----------------------------+
+| st_x(st_point(24.7, 56.7)) |
++----------------------------+
+|                       24.7 |
++----------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+ST_X,ST,X

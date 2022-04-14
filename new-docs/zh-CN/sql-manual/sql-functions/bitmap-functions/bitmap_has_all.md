@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "bitmap_has_all",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# bitmap_has_all
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`B00LEAN BITMAP_HAS_ALL(BITMAP lhs, BITMAP rhs)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+如果第一个bitmap包含第二个bitmap的全部元素，则返回true。
+如果第二个bitmap包含的元素为空，返回true。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select bitmap_has_all(bitmap_from_string("0, 1, 2"), bitmap_from_string("1, 2")) cnt;
++------+
+| cnt  |
++------+
+|    1 |
++------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select bitmap_has_all(bitmap_empty(), bitmap_from_string("1, 2")) cnt;
++------+
+| cnt  |
++------+
+|    0 |
++------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITMAP_HAS_ALL,BITMAP

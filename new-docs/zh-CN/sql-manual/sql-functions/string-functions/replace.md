@@ -1,11 +1,11 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "replace",
     "language": "zh-CN"
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,33 +24,23 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# replace
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`VARCHAR REPLACE (VARCHAR str, VARCHAR old, VARCHAR new)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+将str字符串中的old子串全部替换为new串
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+mysql> select replace("http://www.baidu.com:9090", "9090", "");
++------------------------------------------------------+
+| replace('http://www.baidu.com:9090', '9090', '') |
++------------------------------------------------------+
+| http://www.baidu.com:                                |
++------------------------------------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+REPLACE

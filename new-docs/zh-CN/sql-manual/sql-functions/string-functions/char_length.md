@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "CHAR_LENGTH",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# char_length
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT char_length(VARCHAR str)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+返回字符串的长度，对于多字节字符，返回字符数, 目前仅支持utf8 编码。这个函数还有一个别名 `character_length`。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select char_length("abc");
++--------------------+
+| char_length('abc') |
++--------------------+
+|                  3 |
++--------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+mysql> select char_length("中国");
++------------------- ---+
+| char_length('中国')   |
++-----------------------+
+|                     2 |
++-----------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+CHAR_LENGTH, CHARACTER_LENGTH

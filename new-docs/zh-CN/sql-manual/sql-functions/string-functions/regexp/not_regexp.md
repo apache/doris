@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "not regexp",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# not regexp
 ## description
+### syntax
 
-### Syntax
+`BOOLEAN not regexp(VARCHAR str, VARCHAR pattern)`
 
-```
-digital_masking(digital_number)
-```
-
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+对字符串 str 进行正则匹配，匹配上的则返回 false，没匹配上则返回 true。pattern 为正则表达式。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+// 查找 k1 字段中不以 'billie' 为开头的所有数据
+mysql > select k1 from test where k1 not regexp '^billie';
++--------------------+
+| k1                 |
++--------------------+
+| Emmy eillish       |
++--------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+// 查找 k1 字段中不以 'ok' 为结尾的所有数据：
+mysql > select k1 from test where k1 not regexp 'ok$';
++------------+
+| k1         |
++------------+
+| It's true  |
++------------+
+```
 
 ## keyword
-
-DIGITAL_MASKING
+REGEXP, NOT, NOT REGEXP

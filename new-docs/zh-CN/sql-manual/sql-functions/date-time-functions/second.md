@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "second",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# second
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT SECOND(DATETIME date)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+获得日期中的秒的信息，返回值范围从0-59。
+
+参数为Date或者Datetime类型
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+mysql> select second('2018-12-31 23:59:59');
++-----------------------------+
+| second('2018-12-31 23:59:59') |
++-----------------------------+
+|                          59 |
++-----------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+SECOND

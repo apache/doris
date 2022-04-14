@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "SUM",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,23 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# SUM
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`SUM(expr)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+用于返回选中字段所有值的和
 
 ## example
-
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+MySQL > select sum(scan_rows) from log_statis group by datetime;
++------------------+
+| sum(`scan_rows`) |
++------------------+
+|       8217360135 |
++------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+SUM
