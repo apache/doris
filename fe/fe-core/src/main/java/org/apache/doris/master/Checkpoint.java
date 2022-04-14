@@ -112,6 +112,7 @@ public class Checkpoint extends MasterDaemon {
         catalog.setEditLog(editLog);
         createStaticFieldForCkpt();
         boolean newImageGenerated = false;
+        boolean exceptionCaught = false;
         try {
             catalog.loadImage(imageDir);
             catalog.replayJournal(checkPointVersion);
@@ -139,8 +140,21 @@ public class Checkpoint extends MasterDaemon {
             }
             LOG.info("checkpoint finished save image.{}", replayedJournalId);
         } catch (Throwable e) {
-            if (newImageGenerated) {
-                // delete the newest image file, cuz it is invalid
+            exceptionCaught = true;
+            e.printStackTrace();
+            LOG.error("Exception when generate new image file", e);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
+            }
+            return;
+        } finally {
+            // destroy checkpoint catalog, reclaim memory
+            catalog = null;
+            Catalog.destroyCheckpoint();
+            destroyStaticFieldForCkpt();
+            // if new image generated && exception caught, delete the latest image here
+            // delete the newest image file, cuz it is invalid
+            if (newImageGenerated && exceptionCaught) {
                 MetaCleaner cleaner = new MetaCleaner(Config.meta_dir + "/image");
                 try {
                     cleaner.cleanTheLatestInvalidImageFile();
@@ -154,17 +168,6 @@ public class Checkpoint extends MasterDaemon {
                     }
                 }
             }
-            e.printStackTrace();
-            LOG.error("Exception when generate new image file", e);
-            if (MetricRepo.isInit) {
-                MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
-            }
-            return;
-        } finally {
-            // destroy checkpoint catalog, reclaim memory
-            catalog = null;
-            Catalog.destroyCheckpoint();
-            destroyStaticFieldForCkpt();
         }
 
         // push image file to all the other non master nodes
