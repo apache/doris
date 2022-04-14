@@ -114,7 +114,7 @@ void get_meta(DataDir* data_dir) {
     std::string value;
     Status s =
             TabletMetaManager::get_json_meta(data_dir, FLAGS_tablet_id, FLAGS_schema_hash, &value);
-    if (s == doris::Status::OLAPInternalError(OLAP_ERR_META_KEY_NOT_FOUND)) {
+    if (s == doris::Status::OLAPInternalError(doris::OLAP_ERR_META_KEY_NOT_FOUND)) {
         std::cout << "no tablet meta for tablet_id:" << FLAGS_tablet_id
                   << ", schema_hash:" << FLAGS_schema_hash << std::endl;
         return;

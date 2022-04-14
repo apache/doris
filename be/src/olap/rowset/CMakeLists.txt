@@ -47,4 +47,4 @@ add_library(Rowset STATIC
     beta_rowset_reader.cpp
     beta_rowset_writer.cpp)
 
-target_compile_options(Rowset PUBLIC "-Wno-error=maybe-uninitialized")
+target_compile_options(Rowset PUBLIC)

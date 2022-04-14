@@ -30,7 +30,7 @@ Status RunLengthIntegerReader::_read_values() {
     Status res = Status::OK();
 
     // read the first 2 bits and determine the encoding type
-    uint8_t first_byte;
+    uint8_t first_byte = 0;
 
     res = _input->read((char*)&first_byte);
     if (!res.ok()) {
@@ -311,7 +311,7 @@ Status RunLengthIntegerReader::_read_direct_values(uint8_t first_byte) {
 
     // extract the run length
     int32_t len = (first_byte & 0x01) << 8;
-    uint8_t byte;
+    uint8_t byte = 0;
 
     res = _input->read((char*)&byte);
     if (!res.ok()) {

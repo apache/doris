@@ -190,7 +190,7 @@ Status StringColumnDirectReader::next_vector(ColumnVector* column_vector, uint32
             string_buffer_size += length;
         }
 
-        uint8_t* allocated_mem;
+        uint8_t* allocated_mem = nullptr;
         res = mem_pool->allocate_safely(string_buffer_size, allocated_mem);
         if (!res.ok()) {
             return res;
@@ -229,7 +229,7 @@ Status StringColumnDirectReader::next_vector(ColumnVector* column_vector, uint32
             }
         }
 
-        uint8_t* allocated_mem;
+        uint8_t* allocated_mem = nullptr;
         res = mem_pool->allocate_safely(string_buffer_size, allocated_mem);
         if (!res.ok()) {
             return res;
