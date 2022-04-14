@@ -103,10 +103,8 @@ private:
             NullState null_state = is_null ? NullState::IS_NULL : NullState::NOT_NULL;
             return RowCursorCell(ref.data, null_state);
         }
-        ~ RowInBlock(){
-            for( auto place: _agg_places){
-                delete place;
-            }
+        ~RowInBlock() {
+            std::vector<vectorized::AggregateDataPtr>().swap(_agg_places);
         }
     };
     class RowInBlockComparator {
