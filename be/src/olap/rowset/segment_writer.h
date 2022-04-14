@@ -33,16 +33,16 @@ public:
                            uint32_t stream_buffer_size, CompressKind compress_kind,
                            double bloom_filter_fpp);
     ~SegmentWriter();
-    OLAPStatus init(uint32_t write_mbytes_per_sec);
-    OLAPStatus write_batch(RowBlock* block, RowCursor* cursor, bool is_finalize);
+    Status init(uint32_t write_mbytes_per_sec);
+    Status write_batch(RowBlock* block, RowCursor* cursor, bool is_finalize);
     // 通过对缓存的使用,预估最终segment的大小
     uint64_t estimate_segment_size();
     // 生成文件并写入缓存的数据
-    OLAPStatus finalize(uint32_t* segment_file_size);
+    Status finalize(uint32_t* segment_file_size);
 
 private:
     // Helper: 生成最终的PB文件头
-    OLAPStatus _make_file_header(ColumnDataHeaderMessage* file_header);
+    Status _make_file_header(ColumnDataHeaderMessage* file_header);
 
 private:
     std::string _file_name;

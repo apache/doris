@@ -124,14 +124,14 @@ void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_
     }
 }
 
-OLAPStatus MemTable::flush() {
+Status MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        OLAPStatus st = _rowset_writer->flush_single_memtable(this, &_flush_size);
-        if (st == OLAP_ERR_FUNC_NOT_IMPLEMENTED) {
+        Status st = _rowset_writer->flush_single_memtable(this, &_flush_size);
+        if (st == Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED)) {
             // For alpha rowset, we do not implement "flush_single_memtable".
             // Flush the memtable like the old way.
             Table::Iterator it(_skip_list);
@@ -150,10 +150,10 @@ OLAPStatus MemTable::flush() {
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << _tablet_id
                   << ", flushsize: " << _flush_size;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus MemTable::close() {
+Status MemTable::close() {
     return flush();
 }
 

@@ -84,8 +84,8 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_pa
     INT_COUNTER_METRIC_REGISTER(_metric_entity, flush_count);
 }
 
-OLAPStatus Tablet::_init_once_action() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status Tablet::_init_once_action() {
+    Status res = Status::OK();
     VLOG_NOTICE << "begin to load tablet. tablet=" << full_name()
                 << ", version_size=" << _tablet_meta->version_count();
 
@@ -100,7 +100,7 @@ OLAPStatus Tablet::_init_once_action() {
         Version version = rs_meta->version();
         RowsetSharedPtr rowset;
         res = RowsetFactory::create_rowset(&_schema, _tablet_path_desc, rs_meta, &rowset);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             LOG(WARNING) << "fail to init rowset. tablet_id=" << tablet_id()
                          << ", schema_hash=" << schema_hash() << ", version=" << version
                          << ", res=" << res;
@@ -114,7 +114,7 @@ OLAPStatus Tablet::_init_once_action() {
         Version version = stale_rs_meta->version();
         RowsetSharedPtr rowset;
         res = RowsetFactory::create_rowset(&_schema, _tablet_path_desc, stale_rs_meta, &rowset);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             LOG(WARNING) << "fail to init stale rowset. tablet_id:" << tablet_id()
                          << ", schema_hash:" << schema_hash() << ", version=" << version
                          << ", res:" << res;
@@ -126,7 +126,7 @@ OLAPStatus Tablet::_init_once_action() {
     return res;
 }
 
-OLAPStatus Tablet::init() {
+Status Tablet::init() {
     return _init_once.call([this] { return _init_once_action(); });
 }
 
@@ -134,16 +134,16 @@ OLAPStatus Tablet::init() {
 // if it's a primary replica
 void Tablet::save_meta() {
     auto res = _tablet_meta->save_meta(_data_dir);
-    CHECK_EQ(res, OLAP_SUCCESS) << "fail to save tablet_meta. res=" << res
+    CHECK_EQ(res, Status::OK()) << "fail to save tablet_meta. res=" << res
                                 << ", root=" << _data_dir->path();
 }
 
-OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
+Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                       const std::vector<Version>& versions_to_delete) {
     LOG(INFO) << "begin to revise tablet. tablet=" << full_name()
               << ", rowsets_to_clone=" << rowsets_to_clone.size()
               << ", versions_to_delete=" << versions_to_delete.size();
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     do {
         // load new local tablet_meta to operate on
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta(*_tablet_meta));
@@ -166,7 +166,7 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
                     << ", added rowset size=" << rowsets_to_clone.size();
         // save and reload tablet_meta
         res = new_tablet_meta->save_meta(_data_dir);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             LOG(WARNING) << "failed to save new local tablet_meta when clone. res:" << res;
             break;
         }
@@ -184,7 +184,7 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
         Version version = {rs_meta->start_version(), rs_meta->end_version()};
         RowsetSharedPtr rowset;
         res = RowsetFactory::create_rowset(&_schema, _tablet_path_desc, rs_meta, &rowset);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             LOG(WARNING) << "fail to init rowset. version=" << version;
             return res;
         }
@@ -205,13 +205,13 @@ OLAPStatus Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& ro
     return res;
 }
 
-OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
+Status Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     DCHECK(rowset != nullptr);
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     // If the rowset already exist, just return directly.  The rowset_id is an unique-id,
     // we can use it to check this situation.
     if (_contains_rowset(rowset->rowset_id())) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     // Otherwise, the version should be not contained in any existing rowset.
     RETURN_NOT_OK(_contains_version(rowset->version()));
@@ -236,15 +236,15 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     modify_rowsets(empty_vec, rowsets_to_delete);
 
     if (need_persist) {
-        OLAPStatus res =
+        Status res =
                 RowsetMetaManager::save(data_dir()->get_meta(), tablet_uid(), rowset->rowset_id(),
                                         rowset->rowset_meta()->get_rowset_pb());
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             LOG(FATAL) << "failed to save rowset to local meta store" << rowset->rowset_id();
         }
     }
     ++_newly_created_rowset_num;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
@@ -367,11 +367,11 @@ RowsetSharedPtr Tablet::_rowset_with_largest_size() {
 }
 
 // add inc rowset should not persist tablet meta, because it will be persisted when publish txn.
-OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
+Status Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     DCHECK(rowset != nullptr);
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     if (_contains_rowset(rowset->rowset_id())) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     RETURN_NOT_OK(_contains_version(rowset->version()));
 
@@ -381,7 +381,7 @@ OLAPStatus Tablet::add_inc_rowset(const RowsetSharedPtr& rowset) {
     _timestamped_version_tracker.add_version(rowset->version());
 
     ++_newly_created_rowset_num;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void Tablet::_delete_stale_rowset_by_version(const Version& version) {
@@ -437,9 +437,9 @@ void Tablet::delete_expired_stale_rowset() {
         Version test_version = Version(0, lastest_delta->end_version());
         stale_version_path_map[*path_id_iter] = version_path;
 
-        OLAPStatus status = capture_consistent_versions(test_version, nullptr);
+        Status status = capture_consistent_versions(test_version, nullptr);
         // 1. When there is no consistent versions, we must reconstruct the tracker.
-        if (status != OLAP_SUCCESS) {
+        if (!status.ok()) {
             // 2. fetch missing version after delete
             std::vector<Version> after_missed_versions;
             calc_missed_versions_unlocked(lastest_delta->end_version(), &after_missed_versions);
@@ -551,12 +551,12 @@ bool Tablet::_reconstruct_version_tracker_if_necessary() {
     return false;
 }
 
-OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
+Status Tablet::capture_consistent_versions(const Version& spec_version,
                                                std::vector<Version>* version_path,
                                                bool quiet) const {
-    OLAPStatus status =
+    Status status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
-    if (status != OLAP_SUCCESS && !quiet) {
+    if (!status.ok() && !quiet) {
         std::vector<Version> missed_versions;
         calc_missed_versions_unlocked(spec_version.second, &missed_versions);
         if (missed_versions.empty()) {
@@ -566,7 +566,7 @@ OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
                 LOG(WARNING) << "tablet:" << full_name()
                              << ", version already has been merged. spec_version: " << spec_version;
             }
-            status = OLAP_ERR_VERSION_ALREADY_MERGED;
+            status = Status::OLAPInternalError(OLAP_ERR_VERSION_ALREADY_MERGED);
         } else {
             if (version_path != nullptr) {
                 LOG(WARNING) << "status:" << status << ", tablet:" << full_name()
@@ -578,7 +578,7 @@ OLAPStatus Tablet::capture_consistent_versions(const Version& spec_version,
     return status;
 }
 
-OLAPStatus Tablet::check_version_integrity(const Version& version, bool quiet) {
+Status Tablet::check_version_integrity(const Version& version, bool quiet) {
     std::shared_lock rdlock(_meta_lock);
     return capture_consistent_versions(version, nullptr, quiet);
 }
@@ -601,15 +601,15 @@ void Tablet::acquire_version_and_rowsets(
     }
 }
 
-OLAPStatus Tablet::capture_consistent_rowsets(const Version& spec_version,
+Status Tablet::capture_consistent_rowsets(const Version& spec_version,
                                               std::vector<RowsetSharedPtr>* rowsets) const {
     std::vector<Version> version_path;
     RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
     RETURN_NOT_OK(_capture_consistent_rowsets_unlocked(version_path, rowsets));
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus Tablet::_capture_consistent_rowsets_unlocked(
+Status Tablet::_capture_consistent_rowsets_unlocked(
         const std::vector<Version>& version_path, std::vector<RowsetSharedPtr>* rowsets) const {
     DCHECK(rowsets != nullptr && rowsets->empty());
     rowsets->reserve(version_path.size());
@@ -634,21 +634,21 @@ OLAPStatus Tablet::_capture_consistent_rowsets_unlocked(
         if (!is_find) {
             LOG(WARNING) << "fail to find Rowset for version. tablet=" << full_name()
                          << ", version='" << version;
-            return OLAP_ERR_CAPTURE_ROWSET_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_CAPTURE_ROWSET_ERROR);
         }
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus Tablet::capture_rs_readers(const Version& spec_version,
+Status Tablet::capture_rs_readers(const Version& spec_version,
                                       std::vector<RowsetReaderSharedPtr>* rs_readers) const {
     std::vector<Version> version_path;
     RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
     RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus Tablet::capture_rs_readers(const std::vector<Version>& version_path,
+Status Tablet::capture_rs_readers(const std::vector<Version>& version_path,
                                       std::vector<RowsetReaderSharedPtr>* rs_readers) const {
     DCHECK(rs_readers != nullptr && rs_readers->empty());
     for (auto version : version_path) {
@@ -662,18 +662,18 @@ OLAPStatus Tablet::capture_rs_readers(const std::vector<Version>& version_path,
                 LOG(WARNING) << "fail to find Rowset in stale_rs_version for version. tablet="
                              << full_name() << ", version='" << version.first << "-"
                              << version.second;
-                return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
+                return Status::OLAPInternalError(OLAP_ERR_CAPTURE_ROWSET_READER_ERROR);
             }
         }
         RowsetReaderSharedPtr rs_reader;
         auto res = it->second->create_reader(&rs_reader);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             LOG(WARNING) << "failed to create reader for rowset:" << it->second->rowset_id();
-            return OLAP_ERR_CAPTURE_ROWSET_READER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_CAPTURE_ROWSET_READER_ERROR);
         }
         rs_readers->push_back(std::move(rs_reader));
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void Tablet::add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version) {
@@ -712,7 +712,7 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         }
 
         Version test_version = Version(0, lastest_delta->end_version());
-        if (OLAP_SUCCESS != capture_consistent_versions(test_version, nullptr)) {
+        if (!capture_consistent_versions(test_version, nullptr)) {
             return false;
         }
     }
@@ -852,7 +852,7 @@ void Tablet::calculate_cumulative_point() {
     set_cumulative_layer_point(ret_cumulative_point);
 }
 
-OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
+Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
                                uint64_t request_block_row_count, std::vector<OlapTuple>* ranges) {
     DCHECK(ranges != nullptr);
 
@@ -860,20 +860,20 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
     RowCursor start_key;
     // 如果有startkey，用startkey初始化；反之则用minkey初始化
     if (start_key_strings.size() > 0) {
-        if (start_key.init_scan_key(_schema, start_key_strings.values()) != OLAP_SUCCESS) {
+        if (start_key.init_scan_key(_schema, start_key_strings.values()) != Status::OK()) {
             LOG(WARNING) << "fail to initial key strings with RowCursor type.";
-            return OLAP_ERR_INIT_FAILED;
+            return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
 
-        if (start_key.from_tuple(start_key_strings) != OLAP_SUCCESS) {
+        if (start_key.from_tuple(start_key_strings) != Status::OK()) {
             LOG(WARNING) << "init end key failed";
-            return OLAP_ERR_INVALID_SCHEMA;
+            return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
         }
         key_num = start_key_strings.size();
     } else {
-        if (start_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
+        if (start_key.init(_schema, num_short_key_columns()) != Status::OK()) {
             LOG(WARNING) << "fail to initial key strings with RowCursor type.";
-            return OLAP_ERR_INIT_FAILED;
+            return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
 
         start_key.allocate_memory_for_string_type(_schema);
@@ -884,19 +884,19 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
     RowCursor end_key;
     // 和startkey一样处理，没有则用maxkey初始化
     if (end_key_strings.size() > 0) {
-        if (OLAP_SUCCESS != end_key.init_scan_key(_schema, end_key_strings.values())) {
+        if (!end_key.init_scan_key(_schema, end_key_strings.values())) {
             LOG(WARNING) << "fail to parse strings to key with RowCursor type.";
-            return OLAP_ERR_INVALID_SCHEMA;
+            return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
         }
 
-        if (end_key.from_tuple(end_key_strings) != OLAP_SUCCESS) {
+        if (end_key.from_tuple(end_key_strings) != Status::OK()) {
             LOG(WARNING) << "init end key failed";
-            return OLAP_ERR_INVALID_SCHEMA;
+            return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
         }
     } else {
-        if (end_key.init(_schema, num_short_key_columns()) != OLAP_SUCCESS) {
+        if (end_key.init(_schema, num_short_key_columns()) != Status::OK()) {
             LOG(WARNING) << "fail to initial key strings with RowCursor type.";
-            return OLAP_ERR_INIT_FAILED;
+            return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
 
         end_key.allocate_memory_for_string_type(_schema);
@@ -912,7 +912,7 @@ OLAPStatus Tablet::split_range(const OlapTuple& start_key_strings, const OlapTup
         // it may be right if the tablet is empty, so we return success.
         ranges->emplace_back(start_key.to_tuple());
         ranges->emplace_back(end_key.to_tuple());
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     return rowset->split_range(start_key, end_key, request_block_row_count, key_num, ranges);
 }
@@ -993,7 +993,7 @@ void Tablet::_print_missed_versions(const std::vector<Version>& missed_versions)
     LOG(WARNING) << ss.str();
 }
 
-OLAPStatus Tablet::_contains_version(const Version& version) {
+Status Tablet::_contains_version(const Version& version) {
     // check if there exist a rowset contains the added rowset
     for (auto& it : _rs_version_map) {
         if (it.first.contains(version)) {
@@ -1004,14 +1004,14 @@ OLAPStatus Tablet::_contains_version(const Version& version) {
             CHECK(it.second != nullptr) << "there exist a version=" << it.first
                                         << " contains the input rs with version=" << version
                                         << ", but the related rs is null";
-            return OLAP_ERR_PUSH_VERSION_ALREADY_EXIST;
+            return Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST);
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus Tablet::set_partition_id(int64_t partition_id) {
+Status Tablet::set_partition_id(int64_t partition_id) {
     return _tablet_meta->set_partition_id(partition_id);
 }
 
@@ -1331,11 +1331,11 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         TRACE("create cumulative compaction");
         StorageEngine::instance()->create_cumulative_compaction(tablet, _cumulative_compaction);
         DorisMetrics::instance()->cumulative_compaction_request_total->increment(1);
-        OLAPStatus res = _cumulative_compaction->prepare_compact();
-        if (res != OLAP_SUCCESS) {
+        Status res = _cumulative_compaction->prepare_compact();
+        if (!res.ok()) {
             set_last_cumu_compaction_failure_time(UnixMillis());
             *permits = 0;
-            if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
+            if (res != Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION)) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
                 return Status::InternalError(fmt::format("prepare cumulative compaction with err: {}", res));
             }
@@ -1360,11 +1360,11 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
         TRACE("create base compaction");
         StorageEngine::instance()->create_base_compaction(tablet, _base_compaction);
         DorisMetrics::instance()->base_compaction_request_total->increment(1);
-        OLAPStatus res = _base_compaction->prepare_compact();
-        if (res != OLAP_SUCCESS) {
+        Status res = _base_compaction->prepare_compact();
+        if (!res.ok()) {
             set_last_base_compaction_failure_time(UnixMillis());
             *permits = 0;
-            if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
+            if (res != Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION)) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
                 return Status::InternalError(fmt::format("prepare base compaction with err: {}", res));
             }
@@ -1396,8 +1396,8 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         ADOPT_TRACE(trace.get());
 
         TRACE("execute cumulative compaction");
-        OLAPStatus res = _cumulative_compaction->execute_compact();
-        if (res != OLAP_SUCCESS) {
+        Status res = _cumulative_compaction->execute_compact();
+        if (!res.ok()) {
             set_last_cumu_compaction_failure_time(UnixMillis());
             DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do cumulative compaction. res=" << res
@@ -1419,8 +1419,8 @@ void Tablet::execute_compaction(CompactionType compaction_type) {
         ADOPT_TRACE(trace.get());
 
         TRACE("create base compaction");
-        OLAPStatus res = _base_compaction->execute_compact();
-        if (res != OLAP_SUCCESS) {
+        Status res = _base_compaction->execute_compact();
+        if (!res.ok()) {
             set_last_base_compaction_failure_time(UnixMillis());
             DorisMetrics::instance()->base_compaction_request_failed->increment(1);
             LOG(WARNING) << "failed to do base compaction. res=" << res

@@ -37,14 +37,14 @@ public:
     ~BlockReader() override;
 
     // Initialize BlockReader with tablet, data version and fetch range.
-    OLAPStatus init(const ReaderParams& read_params) override;
+    Status init(const ReaderParams& read_params) override;
 
-    OLAPStatus next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
+    Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
                                          ObjectPool* agg_pool, bool* eof) override {
-        return OLAP_ERR_READER_INITIALIZE_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_READER_INITIALIZE_ERROR);
     }
 
-    OLAPStatus next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
+    Status next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                            bool* eof) override {
         return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
     }
@@ -55,22 +55,22 @@ private:
 
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
-    OLAPStatus _direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    Status _direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
     // Just same as _direct_next_block, but this is only for AGGREGATE KEY tables.
     // And this is an optimization for AGGR tables.
     // When there is only one rowset and is not overlapping, we can read it directly without aggregation.
-    OLAPStatus _direct_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
+    Status _direct_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                           bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
-    OLAPStatus _agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
+    Status _agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                    bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
     // to minimize the comparison time in merge heap.
-    OLAPStatus _unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
+    Status _unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                       bool* eof);
 
-    OLAPStatus _init_collect_iter(const ReaderParams& read_params,
+    Status _init_collect_iter(const ReaderParams& read_params,
                                   std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
 
     void _init_agg_state(const ReaderParams& read_params);
@@ -108,7 +108,7 @@ private:
 
     bool _eof = false;
 
-    OLAPStatus (BlockReader::*_next_block_func)(Block* block, MemPool* mem_pool,
+    Status (BlockReader::*_next_block_func)(Block* block, MemPool* mem_pool,
                                                 ObjectPool* agg_pool, bool* eof) = nullptr;
 };
 

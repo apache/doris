@@ -30,14 +30,14 @@ class BitFieldWriter {
 public:
     explicit BitFieldWriter(OutStream* output);
     ~BitFieldWriter();
-    OLAPStatus init();
+    Status init();
     // Write a bit, bit_value is true means writing 1, false means writing 0
-    OLAPStatus write(bool bit_value);
-    OLAPStatus flush();
+    Status write(bool bit_value);
+    Status flush();
     void get_position(PositionEntryWriter* index_entry) const;
 
 private:
-    OLAPStatus _write_byte();
+    Status _write_byte();
 
     OutStream* _output;
     RunLengthByteWriter* _byte_writer;

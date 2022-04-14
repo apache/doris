@@ -35,13 +35,13 @@ public:
     explicit RunLengthByteReader(ReadOnlyFileStream* input);
     ~RunLengthByteReader() {}
     bool has_next() const;
-    // Gets the next piece of data, or if there is no more, returns OLAP_ERR_DATA_EOF
-    OLAPStatus next(char* value);
-    OLAPStatus seek(PositionProvider* position);
-    OLAPStatus skip(uint64_t num_values);
+    // Gets the next piece of data, or if there is no more, returns Status::OLAPInternalError(OLAP_ERR_DATA_EOF)
+    Status next(char* value);
+    Status seek(PositionProvider* position);
+    Status skip(uint64_t num_values);
 
 private:
-    OLAPStatus _read_values();
+    Status _read_values();
 
     ReadOnlyFileStream* _input;
     char _literals[RunLengthByteWriter::MAX_LITERAL_SIZE];

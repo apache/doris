@@ -38,7 +38,7 @@ BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
     _rowset->acquire();
 }
 
-OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
+Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     RETURN_NOT_OK(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
@@ -98,7 +98,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         auto s = seg_ptr->new_iterator(*_schema, read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
-            return OLAP_ERR_ROWSET_READER_INIT;
+            return Status::OLAPInternalError(OLAP_ERR_ROWSET_READER_INIT);
         }
         seg_iterators.push_back(std::move(iter));
     }
@@ -128,7 +128,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     auto s = final_iterator->init(read_options);
     if (!s.ok()) {
         LOG(WARNING) << "failed to init iterator: " << s.to_string();
-        return OLAP_ERR_ROWSET_READER_INIT;
+        return Status::OLAPInternalError(OLAP_ERR_ROWSET_READER_INIT);
     }
     _iterator.reset(final_iterator);
 
@@ -151,10 +151,10 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
         RETURN_NOT_OK(_row->init(*(read_context->tablet_schema), *(_context->seek_columns)));
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
+Status BetaRowsetReader::next_block(RowBlock** block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     // read next input block
     _input_block->clear();
@@ -163,10 +163,10 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
         if (!s.ok()) {
             if (s.is_end_of_file()) {
                 *block = nullptr;
-                return OLAP_ERR_DATA_EOF;
+                return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
             }
             LOG(WARNING) << "failed to read next block: " << s.to_string();
-            return OLAP_ERR_ROWSET_READ_FAILED;
+            return Status::OLAPInternalError(OLAP_ERR_ROWSET_READ_FAILED);
         }
     }
 
@@ -177,19 +177,19 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
         _input_block->convert_to_row_block(_row.get(), _output_block.get());
     }
     *block = _output_block.get();
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
+Status BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     if (config::enable_storage_vectorization && _context->is_vec) {
         auto s = _iterator->next_batch(block);
         if (!s.ok()) {
             if (s.is_end_of_file()) {
-                return OLAP_ERR_DATA_EOF;
+                return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
             } else {
                 LOG(WARNING) << "failed to read next block: " << s.to_string();
-                return OLAP_ERR_ROWSET_READ_FAILED;
+                return Status::OLAPInternalError(OLAP_ERR_ROWSET_READ_FAILED);
             }
         }
     } else {
@@ -204,13 +204,13 @@ OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
                     if (!s.ok()) {
                         if (s.is_end_of_file()) {
                             if (is_first) {
-                                return OLAP_ERR_DATA_EOF;
+                                return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
                             } else {
                                 break;
                             }
                         } else {
                             LOG(WARNING) << "failed to read next block: " << s.to_string();
-                            return OLAP_ERR_ROWSET_READ_FAILED;
+                            return Status::OLAPInternalError(OLAP_ERR_ROWSET_READ_FAILED);
                         }
                     } else if (_input_block->selected_size() == 0) {
                         continue;
@@ -223,14 +223,14 @@ OLAPStatus BetaRowsetReader::next_block(vectorized::Block* block) {
                 auto s = _input_block->convert_to_vec_block(block);
                 if (UNLIKELY(!s.ok())) {
                     LOG(WARNING) << "failed to read next block: " << s.to_string();
-                    return OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE;
+                    return Status::OLAPInternalError(OLAP_ERR_STRING_OVERFLOW_IN_VEC_ENGINE);
                 }
             }
             is_first = false;
         } while (block->rows() < _context->batch_size); // here we should keep block.rows() < batch_size
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

@@ -54,33 +54,33 @@ ColumnData::~ColumnData() {
     SAFE_DELETE(_segment_reader);
 }
 
-OLAPStatus ColumnData::init() {
+Status ColumnData::init() {
     _segment_group->acquire();
 
     auto res = _short_key_cursor.init(_segment_group->short_key_columns());
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "key cursor init failed, res:" << res;
         return res;
     }
     return res;
 }
 
-OLAPStatus ColumnData::get_next_block(RowBlock** row_block) {
+Status ColumnData::get_next_block(RowBlock** row_block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     _is_normal_read = true;
     auto res = _get_block(false);
-    if (res != OLAP_SUCCESS) {
-        if (res != OLAP_ERR_DATA_EOF) {
+    if (!res.ok()) {
+        if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
             LOG(WARNING) << "Get next block failed.";
         }
         *row_block = nullptr;
         return res;
     }
     *row_block = _read_block.get();
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnData::_next_row(const RowCursor** row, bool without_filter) {
+Status ColumnData::_next_row(const RowCursor** row, bool without_filter) {
     _read_block->pos_inc();
     do {
         if (_read_block->has_remaining()) {
@@ -89,20 +89,20 @@ OLAPStatus ColumnData::_next_row(const RowCursor** row, bool without_filter) {
             _read_block->get_row(pos, &_cursor);
             if (without_filter) {
                 *row = &_cursor;
-                return OLAP_SUCCESS;
+                return Status::OK();
             }
 
             // when without_filter is true, _include_blocks is nullptr
             if (_read_block->block_status() == DEL_NOT_SATISFIED) {
                 *row = &_cursor;
-                return OLAP_SUCCESS;
+                return Status::OK();
             } else {
                 DCHECK(_read_block->block_status() == DEL_PARTIAL_SATISFIED);
                 bool row_del_filter =
                         _delete_handler->is_filter_data(_segment_group->version().second, _cursor);
                 if (!row_del_filter) {
                     *row = &_cursor;
-                    return OLAP_SUCCESS;
+                    return Status::OK();
                 }
                 // This row is filtered, continue to process next row
                 _stats->rows_del_filtered++;
@@ -111,23 +111,23 @@ OLAPStatus ColumnData::_next_row(const RowCursor** row, bool without_filter) {
         } else {
             // get_next_block
             auto res = _get_block(without_filter);
-            if (res != OLAP_SUCCESS) {
+            if (!res.ok()) {
                 return res;
             }
         }
     } while (true);
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool without_filter) {
+Status ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool without_filter) {
     // TODO(zc): _segment_readers???
     // open segment reader if needed
     if (_segment_reader == nullptr || block_pos.segment != _current_segment) {
         if (block_pos.segment >= _segment_group->num_segments() ||
             (_end_key_is_set && block_pos.segment > _end_segment)) {
             _eof = true;
-            return OLAP_ERR_DATA_EOF;
+            return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
         }
         SAFE_DELETE(_segment_reader);
         std::string file_name;
@@ -138,13 +138,13 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
                               _lru_cache, _runtime_state, _stats);
         if (_segment_reader == nullptr) {
             OLAP_LOG_WARNING("fail to malloc segment reader.");
-            return OLAP_ERR_MALLOC_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
         _current_segment = block_pos.segment;
         auto res = _segment_reader->init(_is_using_cache);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to init segment reader. [res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to init segment reader. res = " << res;
             return res;
         }
     }
@@ -161,52 +161,52 @@ OLAPStatus ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool wi
                                           &_next_block, &_segment_eof);
 }
 
-OLAPStatus ColumnData::_find_position_by_short_key(const RowCursor& key, bool find_last_key,
+Status ColumnData::_find_position_by_short_key(const RowCursor& key, bool find_last_key,
                                                    RowBlockPosition* position) {
     RowBlockPosition tmp_pos;
     auto res = _segment_group->find_short_key(key, &_short_key_cursor, find_last_key, &tmp_pos);
-    if (res != OLAP_SUCCESS) {
-        if (res == OLAP_ERR_INDEX_EOF) {
-            res = OLAP_ERR_DATA_EOF;
+    if (!res.ok()) {
+        if (res == Status::OLAPInternalError(OLAP_ERR_INDEX_EOF)) {
+            res = Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
         } else {
-            OLAP_LOG_WARNING("find row block failed. [res=%d]", res);
+            LOG(WARNING) << "find row block failed. res = " << res;
         }
         return res;
     }
     res = segment_group()->find_prev_point(tmp_pos, position);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("find prev row block failed. [res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "find prev row block failed. res = " << res;
         return res;
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnData::_find_position_by_full_key(const RowCursor& key, bool find_last_key,
+Status ColumnData::_find_position_by_full_key(const RowCursor& key, bool find_last_key,
                                                   RowBlockPosition* position) {
     RowBlockPosition tmp_pos;
     auto res = _segment_group->find_short_key(key, &_short_key_cursor, false, &tmp_pos);
-    if (res != OLAP_SUCCESS) {
-        if (res == OLAP_ERR_INDEX_EOF) {
-            res = OLAP_ERR_DATA_EOF;
+    if (!res.ok()) {
+        if (res == Status::OLAPInternalError(OLAP_ERR_INDEX_EOF)) {
+            res = Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
         } else {
-            OLAP_LOG_WARNING("find row block failed. [res=%d]", res);
+            LOG(WARNING) << "find row block failed. res = " << res;
         }
         return res;
     }
     RowBlockPosition start_position;
     res = segment_group()->find_prev_point(tmp_pos, &start_position);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("find prev row block failed. [res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "find prev row block failed. res = " << res;
         return res;
     }
 
     RowBlockPosition end_position;
     res = _segment_group->find_short_key(key, &_short_key_cursor, true, &end_position);
-    if (res != OLAP_SUCCESS) {
-        if (res == OLAP_ERR_INDEX_EOF) {
-            res = OLAP_ERR_DATA_EOF;
+    if (!res.ok()) {
+        if (res == Status::OLAPInternalError(OLAP_ERR_INDEX_EOF)) {
+            res = Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
         } else {
-            OLAP_LOG_WARNING("find row block failed. [res=%d]", res);
+            LOG(WARNING) << "find row block failed. res = " << res;
         }
         return res;
     }
@@ -221,8 +221,8 @@ OLAPStatus ColumnData::_find_position_by_full_key(const RowCursor& key, bool fin
             index_offset.segment = _end_segment;
             index_offset.offset = _end_block;
             res = segment_group()->get_row_block_position(index_offset, &end_position);
-            if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("fail to get row block position. [res=%d]", res);
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to get row block position. res = " << res;
                 return res;
             }
         }
@@ -245,18 +245,16 @@ OLAPStatus ColumnData::_find_position_by_full_key(const RowCursor& key, bool fin
                     << ", start_pos=" << start_position.to_string();
     } catch (std::exception& e) {
         LOG(WARNING) << "exception happens when doing seek. exception=" << e.what();
-        return OLAP_ERR_STL_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_STL_ERROR);
     }
 
     if (*it_result != *it_start) {
         it_result -= 1;
     }
 
-    if (OLAP_SUCCESS != (res = segment_group()->advance_row_block(*it_result, &start_position))) {
-        OLAP_LOG_WARNING(
-                "fail to advance row_block. [res=%d it_offset=%u "
-                "start_pos='%s']",
-                res, *it_result, start_position.to_string().c_str());
+    if (!(res = segment_group()->advance_row_block(*it_result, &start_position))) {
+        LOG(WARNING) << "fail to advance row_block. res=" << res 
+                     << " it_offset=" << *it_result << " start_pos=" << start_position.to_string();
         return res;
     }
 
@@ -265,17 +263,17 @@ OLAPStatus ColumnData::_find_position_by_full_key(const RowCursor& key, bool fin
         end_key_position.segment = _end_segment;
         end_key_position.data_offset = _end_block;
         if (end_position > end_key_position) {
-            return OLAP_ERR_DATA_EOF;
+            return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
         }
     }
 
     *position = start_position;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bool is_end_key) {
+Status ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bool is_end_key) {
     RowBlockPosition position;
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     const TabletSchema& tablet_schema = _segment_group->get_tablet_schema();
     FieldType type = tablet_schema.column(key.field_count() - 1).type();
     if (key.field_count() > _segment_group->get_num_short_key_columns() ||
@@ -284,8 +282,8 @@ OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bo
     } else {
         res = _find_position_by_short_key(key, find_last_key, &position);
     }
-    if (res != OLAP_SUCCESS) {
-        if (res != OLAP_ERR_DATA_EOF) {
+    if (!res.ok()) {
+        if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
             LOG(WARNING) << "Fail to find the key.[res=" << res << " key=" << key.to_string()
                          << " find_last_key=" << find_last_key << "]";
         }
@@ -293,17 +291,17 @@ OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bo
     }
     bool without_filter = is_end_key;
     res = _seek_to_block(position, without_filter);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING(
-                "fail to get row block. "
-                "[res=%d segment=%d block_size=%d data_offset=%d index_offset=%d]",
-                res, position.segment, position.block_size, position.data_offset,
-                position.index_offset);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to get row block. res=" << res 
+                    << " segment=" << position.segment 
+                    << " block_size=" << position.block_size
+                    << " data_offset=" << position.data_offset
+                    << " index_offset=" << position.index_offset;
         return res;
     }
     res = _get_block(without_filter);
-    if (res != OLAP_SUCCESS) {
-        if (res != OLAP_ERR_DATA_EOF) {
+    if (!res.ok()) {
+        if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
             LOG(WARNING) << "Fail to find the key.[res=" << res << " key=" << key.to_string()
                          << " find_last_key=" << find_last_key << "]";
         }
@@ -316,13 +314,13 @@ OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bo
         // row_cursor >= key
         // 此处比较2个block的行数，是存在一种极限情况：若未找到满足的block，
         // Index模块会返回倒数第二个block，此时key可能是最后一个block的最后一行
-        while (res == OLAP_SUCCESS && compare_row_key(*row_cursor, key) < 0) {
+        while (res.ok() && compare_row_key(*row_cursor, key) < 0) {
             res = _next_row(&row_cursor, without_filter);
         }
     } else {
         // 找last key。返回大于这个key的第一个。也就是
         // row_cursor > key
-        while (res == OLAP_SUCCESS && compare_row_key(*row_cursor, key) <= 0) {
+        while (res.ok() && compare_row_key(*row_cursor, key) <= 0) {
             res = _next_row(&row_cursor, without_filter);
         }
     }
@@ -332,13 +330,13 @@ OLAPStatus ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bo
 
 const RowCursor* ColumnData::seek_and_get_current_row(const RowBlockPosition& position) {
     auto res = _seek_to_block(position, true);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "Fail to seek to block in seek_and_get_current_row, res=" << res
                      << ", segment:" << position.segment << ", block:" << position.data_offset;
         return nullptr;
     }
     res = _get_block(true, 1);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "Fail to get block in seek_and_get_current_row, res=" << res
                      << ", segment:" << position.segment << ", block:" << position.data_offset
                      << ", tablet: " << _segment_group->get_tablet_id();
@@ -347,7 +345,7 @@ const RowCursor* ColumnData::seek_and_get_current_row(const RowBlockPosition& po
     return _current_row();
 }
 
-OLAPStatus ColumnData::prepare_block_read(const RowCursor* start_key, bool find_start_key,
+Status ColumnData::prepare_block_read(const RowCursor* start_key, bool find_start_key,
                                           const RowCursor* end_key, bool find_end_key,
                                           RowBlock** first_block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
@@ -357,25 +355,25 @@ OLAPStatus ColumnData::prepare_block_read(const RowCursor* start_key, bool find_
     // set end position
     if (end_key != nullptr) {
         auto res = _seek_to_row(*end_key, find_end_key, true);
-        if (res == OLAP_SUCCESS) {
+        if (res.ok()) {
             // we find a
             _end_segment = _current_segment;
             _end_block = _current_block;
             _end_row_index = _read_block->pos();
             _end_key_is_set = true;
-        } else if (res != OLAP_ERR_DATA_EOF) {
+        } else if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
             LOG(WARNING) << "Find end key failed.key=" << end_key->to_string();
             return res;
         }
-        // res == OLAP_ERR_DATA_EOF means there is no end key, then we read to
+        // res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF) means there is no end key, then we read to
         // the end of this ColumnData
     }
     set_eof(false);
     if (start_key != nullptr) {
         auto res = _seek_to_row(*start_key, !find_start_key, false);
-        if (res == OLAP_SUCCESS) {
+        if (res.ok()) {
             *first_block = _read_block.get();
-        } else if (res == OLAP_ERR_DATA_EOF) {
+        } else if (res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
             _eof = true;
             *first_block = nullptr;
             return res;
@@ -391,20 +389,20 @@ OLAPStatus ColumnData::prepare_block_read(const RowCursor* start_key, bool find_
         pos.segment = 0u;
         pos.data_offset = 0u;
         auto res = _seek_to_block(pos, false);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             LOG(WARNING) << "failed to seek to block in, res=" << res << ", segment:" << pos.segment
                          << ", block:" << pos.data_offset;
             return res;
         }
         res = _get_block(false);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             LOG(WARNING) << "failed to get block in , res=" << res << ", segment:" << pos.segment
                          << ", block:" << pos.data_offset;
             return res;
         }
         *first_block = _read_block.get();
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 // ColumnData向上返回的列至少由几部分组成:
@@ -427,7 +425,7 @@ void ColumnData::set_read_params(const std::vector<uint32_t>& return_columns,
     _load_bf_columns = load_bf_columns;
 
     auto res = _cursor.init(_segment_group->get_tablet_schema(), _seek_columns);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to init row_cursor";
     }
 
@@ -445,16 +443,16 @@ void ColumnData::set_read_params(const std::vector<uint32_t>& return_columns,
     _read_block->init(block_info);
 }
 
-OLAPStatus ColumnData::get_first_row_block(RowBlock** row_block) {
+Status ColumnData::get_first_row_block(RowBlock** row_block) {
     DCHECK(!_end_key_is_set) << "end key is set while use block interface.";
     _is_normal_read = true;
     _eof = false;
 
     // to be same with OLAPData, we use segment_group.
     RowBlockPosition block_pos;
-    OLAPStatus res = segment_group()->find_first_row_block(&block_pos);
-    if (res != OLAP_SUCCESS) {
-        if (res == OLAP_ERR_INDEX_EOF) {
+    Status res = segment_group()->find_first_row_block(&block_pos);
+    if (!res.ok()) {
+        if (res == Status::OLAPInternalError(OLAP_ERR_INDEX_EOF)) {
             *row_block = nullptr;
             _eof = true;
             return res;
@@ -464,17 +462,17 @@ OLAPStatus ColumnData::get_first_row_block(RowBlock** row_block) {
     }
 
     res = _seek_to_block(block_pos, false);
-    if (res != OLAP_SUCCESS) {
-        if (res != OLAP_ERR_DATA_EOF) {
-            OLAP_LOG_WARNING("seek to block fail. [res=%d]", res);
+    if (!res.ok()) {
+        if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+            LOG(WARNING) << "seek to block fail. res = " << res;
         }
         *row_block = nullptr;
         return res;
     }
 
     res = _get_block(false);
-    if (res != OLAP_SUCCESS) {
-        if (res != OLAP_ERR_DATA_EOF) {
+    if (!res.ok()) {
+        if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
             LOG(WARNING) << "fail to load data to row block. res=" << res
                          << ", version=" << version().first << "-" << version().second;
         }
@@ -483,7 +481,7 @@ OLAPStatus ColumnData::get_first_row_block(RowBlock** row_block) {
     }
 
     *row_block = _read_block.get();
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 bool ColumnData::rowset_pruning_filter() {
@@ -558,7 +556,7 @@ uint64_t ColumnData::get_filtered_rows() {
     return _stats->rows_del_filtered;
 }
 
-OLAPStatus ColumnData::schema_change_init() {
+Status ColumnData::schema_change_init() {
     _is_using_cache = false;
 
     for (int i = 0; i < _segment_group->get_tablet_schema().num_columns(); ++i) {
@@ -567,7 +565,7 @@ OLAPStatus ColumnData::schema_change_init() {
     }
 
     auto res = _cursor.init(_segment_group->get_tablet_schema());
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         OLAP_LOG_WARNING("fail to init row_cursor");
         return res;
     }
@@ -581,10 +579,10 @@ OLAPStatus ColumnData::schema_change_init() {
     block_info.row_num = _num_rows_per_block;
     block_info.null_supported = true;
     _read_block->init(block_info);
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnData::_get_block_from_reader(VectorizedRowBatch** got_batch, bool without_filter,
+Status ColumnData::_get_block_from_reader(VectorizedRowBatch** got_batch, bool without_filter,
                                               int rows_read) {
     VectorizedRowBatch* vec_batch = nullptr;
     if (_is_normal_read) {
@@ -612,12 +610,12 @@ OLAPStatus ColumnData::_get_block_from_reader(VectorizedRowBatch** got_batch, bo
         if (!_segment_eof) {
             _current_block = _next_block;
             auto res = _segment_reader->get_block(vec_batch, &_next_block, &_segment_eof);
-            if (res != OLAP_SUCCESS) {
+            if (!res.ok()) {
                 return res;
             }
             // Normal case
             *got_batch = vec_batch;
-            return OLAP_SUCCESS;
+            return Status::OK();
         }
         // When this segment is read over, we reach here.
         // Seek to next segment
@@ -625,19 +623,19 @@ OLAPStatus ColumnData::_get_block_from_reader(VectorizedRowBatch** got_batch, bo
         block_pos.segment = _current_segment + 1;
         block_pos.data_offset = 0;
         auto res = _seek_to_block(block_pos, without_filter);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             return res;
         }
     } while (true);
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnData::_get_block(bool without_filter, int rows_read) {
+Status ColumnData::_get_block(bool without_filter, int rows_read) {
     do {
         VectorizedRowBatch* vec_batch = nullptr;
         auto res = _get_block_from_reader(&vec_batch, without_filter, rows_read);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             return res;
         }
         // evaluate predicates
@@ -657,9 +655,9 @@ OLAPStatus ColumnData::_get_block(bool without_filter, int rows_read) {
         // when reach here, we have already read a block successfully
         _read_block->clear();
         vec_batch->dump_to_row_block(_read_block.get());
-        return OLAP_SUCCESS;
+        return Status::OK();
     } while (true);
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

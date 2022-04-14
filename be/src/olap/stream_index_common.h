@@ -47,7 +47,7 @@ public:
 
     // Initialization, FieldType needs to be used to initialize the maximum and minimum values
     // It must be initialized before use, otherwise it will be invalid
-    OLAPStatus init(const FieldType& type, bool null_supported);
+    Status init(const FieldType& type, bool null_supported);
     // Just reset the maximum and minimum values, set the minimum value to MAX, and the maximum value to MIN.
     void reset();
 
@@ -72,7 +72,7 @@ public:
     // Attach the maximum and minimum values to the given buffer
     void attach(char* buffer);
     // Output the maximum and minimum values to the buffer
-    OLAPStatus write_to_buffer(char* buffer, size_t size);
+    Status write_to_buffer(char* buffer, size_t size);
 
     // Attributes
     const WrapperField* minimum() const { return _minimum; }

@@ -114,9 +114,9 @@ Status RestoreTabletAction::_reload_tablet(const std::string& key, const std::st
     TCloneReq clone_req;
     clone_req.__set_tablet_id(tablet_id);
     clone_req.__set_schema_hash(schema_hash);
-    OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
+    Status res = Status::OK();
     res = _exec_env->storage_engine()->load_header(shard_path, clone_req, /*restore=*/true);
-    if (res != OLAPStatus::OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "load header failed. status: " << res << ", signature: " << tablet_id;
         // remove tablet data path in data path
         // path: /roo_path/data/shard/tablet_id
@@ -156,8 +156,8 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id,
     std::string original_header_path =
             latest_tablet_path + "/" + std::to_string(tablet_id) + ".hdr";
     TabletMeta tablet_meta;
-    OLAPStatus load_status = tablet_meta.create_from_file(original_header_path);
-    if (load_status != OLAP_SUCCESS) {
+    Status load_status = tablet_meta.create_from_file(original_header_path);
+    if (!load_status.ok()) {
         LOG(WARNING) << "header load and init error, header path:" << original_header_path;
         return Status::InternalError("load header failed");
     }

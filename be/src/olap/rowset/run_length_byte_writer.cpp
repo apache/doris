@@ -28,31 +28,31 @@ const int32_t RunLengthByteWriter::MAX_REPEAT_SIZE;
 RunLengthByteWriter::RunLengthByteWriter(OutStream* output)
         : _output(output), _num_literals(0), _repeat(false), _tail_run_length(0) {}
 
-OLAPStatus RunLengthByteWriter::_write_values() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthByteWriter::_write_values() {
+    Status res = Status::OK();
 
     if (_num_literals != 0) {
         if (_repeat) {
             res = _output->write(_num_literals - MIN_REPEAT_SIZE);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 OLAP_LOG_WARNING("fail to write control byte.");
                 return res;
             }
 
             res = _output->write(_literals[0]);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 OLAP_LOG_WARNING("fail to write repeat byte");
                 return res;
             }
         } else {
             res = _output->write(-_num_literals);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 OLAP_LOG_WARNING("fail to write control byte.");
                 return res;
             }
 
             res = _output->write(_literals, _num_literals);
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 OLAP_LOG_WARNING("fail to write literals bytes.");
                 return res;
             }
@@ -66,8 +66,8 @@ OLAPStatus RunLengthByteWriter::_write_values() {
     return res;
 }
 
-OLAPStatus RunLengthByteWriter::write(char value) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthByteWriter::write(char value) {
+    Status res = Status::OK();
 
     if (0 == _num_literals) {
         _literals[0] = value;
@@ -83,7 +83,7 @@ OLAPStatus RunLengthByteWriter::write(char value) {
         } else {
             res = _write_values();
 
-            if (OLAP_SUCCESS == res) {
+            if (res.ok()) {
                 _literals[0] = value;
                 _num_literals = 1;
                 _tail_run_length = 1;
@@ -104,7 +104,7 @@ OLAPStatus RunLengthByteWriter::write(char value) {
                 _num_literals -= MIN_REPEAT_SIZE - 1;
                 res = _write_values();
 
-                if (OLAP_SUCCESS == res) {
+                if (res.ok()) {
                     _literals[0] = value;
                     _repeat = true;
                     _num_literals = MIN_REPEAT_SIZE;
@@ -123,11 +123,11 @@ OLAPStatus RunLengthByteWriter::write(char value) {
     return res;
 }
 
-OLAPStatus RunLengthByteWriter::flush() {
-    OLAPStatus res;
+Status RunLengthByteWriter::flush() {
+    Status res;
 
     res = _write_values();
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         return res;
     }
 

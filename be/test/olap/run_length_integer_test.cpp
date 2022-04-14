@@ -52,13 +52,13 @@ public:
     }
 
     void CreateReader() {
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   helper.open_with_mode(_file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY,
                                         S_IRUSR | S_IWUSR));
         _out_stream->write_to_file(&helper, 0);
         helper.close();
 
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   helper.open_with_mode(_file_path.c_str(), O_RDONLY, S_IRUSR | S_IWUSR));
 
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
@@ -68,7 +68,7 @@ public:
         _stream = new (std::nothrow)
                 ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), nullptr,
                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, &_stats);
-        EXPECT_EQ(OLAP_SUCCESS, _stream->init());
+        EXPECT_EQ(Status::OK(), _stream->init());
 
         _reader = new (std::nothrow) RunLengthIntegerReader(_stream, false);
         EXPECT_TRUE(_reader != nullptr);
@@ -87,15 +87,15 @@ public:
 
 TEST_F(TestRunLengthUnsignInteger, ReadWriteOneInteger) {
     // write data
-    EXPECT_EQ(OLAP_SUCCESS, _writer->write(100));
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->write(100));
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
 
     EXPECT_TRUE(_reader->has_next());
     int64_t value = 0;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 100);
 
     EXPECT_FALSE(_reader->has_next());
@@ -105,10 +105,10 @@ TEST_F(TestRunLengthUnsignInteger, ReadWriteMultiInteger) {
     // write data
     int64_t write_data[] = {100, 102, 105, 106};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -116,7 +116,7 @@ TEST_F(TestRunLengthUnsignInteger, ReadWriteMultiInteger) {
     for (int32_t i = 0; i < 4; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -127,7 +127,7 @@ TEST_F(TestRunLengthUnsignInteger, seek) {
     // write data
     int64_t write_data[] = {100, 102, 105, 106};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
 
     PositionEntryWriter index_entry;
@@ -138,7 +138,7 @@ TEST_F(TestRunLengthUnsignInteger, seek) {
     _writer->write(109);
     _writer->write(110);
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -151,13 +151,13 @@ TEST_F(TestRunLengthUnsignInteger, seek) {
     PositionProvider position(&entry);
     _reader->seek(&position);
     int64_t value = 0;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 107);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 108);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 109);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 110);
 }
 
@@ -165,30 +165,30 @@ TEST_F(TestRunLengthUnsignInteger, skip) {
     // write data
     int64_t write_data[] = {100, 102, 105, 106};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
 
     _reader->skip(2);
     int64_t value = 0;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 105);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 106);
-    EXPECT_NE(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_NE(Status::OK(), _reader->next(&value));
 }
 
 TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding) {
     // write data
     int64_t write_data[] = {100, 100, 100, 100};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -196,7 +196,7 @@ TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding) {
     for (int32_t i = 0; i < 4; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -207,9 +207,9 @@ TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding2) {
     // write data
     int64_t write_data[] = {876012345678912, 876012345678912, 876012345678912, 876012345678912};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -217,7 +217,7 @@ TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding2) {
     for (int32_t i = 0; i < 4; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -228,9 +228,9 @@ TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding3) {
     // write data
     int64_t write_data[] = {876012345678912};
     for (int32_t i = 0; i < 1; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -238,7 +238,7 @@ TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding3) {
     for (int32_t i = 0; i < 1; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -249,9 +249,9 @@ TEST_F(TestRunLengthUnsignInteger, DirectEncoding) {
     // write data
     int64_t write_data[] = {1703, 6054, 8760, 902};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -259,7 +259,7 @@ TEST_F(TestRunLengthUnsignInteger, DirectEncoding) {
     for (int32_t i = 0; i < 4; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -270,9 +270,9 @@ TEST_F(TestRunLengthUnsignInteger, DirectEncoding2) {
     // write data
     int64_t write_data[] = {1703, 6054, 876012345678912, 902, 9292, 184932, 873624, 827364, 999, 8};
     for (int32_t i = 0; i < 10; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -280,7 +280,7 @@ TEST_F(TestRunLengthUnsignInteger, DirectEncoding2) {
     for (int32_t i = 0; i < 10; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -293,9 +293,9 @@ TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding1) {
             1703, 6054, 876012345678912, 902,   9292, 184932, 873624, 827364, 999, 8,
             1,    3323, 432232523,       90982, 9,    223234, 5,      44,     5,   3};
     for (int32_t i = 0; i < 20; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -303,7 +303,7 @@ TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding1) {
     for (int32_t i = 0; i < 20; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -316,9 +316,9 @@ TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding2) {
             1703, 6054,      902,   9292, 184932, 873624, 827364,          999, 8, 1,
             3323, 432232523, 90982, 9,    223234, 5,      876012345678912, 44,  5, 3};
     for (int32_t i = 0; i < 20; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -326,7 +326,7 @@ TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding2) {
     for (int32_t i = 0; i < 20; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -357,13 +357,13 @@ public:
     }
 
     void CreateReader() {
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   helper.open_with_mode(_file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY,
                                         S_IRUSR | S_IWUSR));
         _out_stream->write_to_file(&helper, 0);
         helper.close();
 
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   helper.open_with_mode(_file_path.c_str(), O_RDONLY, S_IRUSR | S_IWUSR));
 
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
@@ -373,7 +373,7 @@ public:
         _stream = new (std::nothrow)
                 ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), nullptr,
                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, &_stats);
-        EXPECT_EQ(OLAP_SUCCESS, _stream->init());
+        EXPECT_EQ(Status::OK(), _stream->init());
 
         _reader = new (std::nothrow) RunLengthIntegerReader(_stream, true);
         EXPECT_TRUE(_reader != nullptr);
@@ -391,15 +391,15 @@ public:
 
 TEST_F(TestRunLengthSignInteger, ReadWriteOneInteger) {
     // write data
-    EXPECT_EQ(OLAP_SUCCESS, _writer->write(100));
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->write(100));
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
 
     EXPECT_TRUE(_reader->has_next());
     int64_t value = 0;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 100);
 
     EXPECT_FALSE(_reader->has_next());
@@ -407,15 +407,15 @@ TEST_F(TestRunLengthSignInteger, ReadWriteOneInteger) {
 
 TEST_F(TestRunLengthSignInteger, ReadWriteOneInteger2) {
     // write data
-    EXPECT_EQ(OLAP_SUCCESS, _writer->write(1234567800));
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->write(1234567800));
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
 
     EXPECT_TRUE(_reader->has_next());
     int64_t value = 0;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 1234567800);
 
     EXPECT_FALSE(_reader->has_next());
@@ -425,10 +425,10 @@ TEST_F(TestRunLengthSignInteger, ReadWriteMultiInteger) {
     // write data
     int64_t write_data[] = {100, 101, 104, 107};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -436,7 +436,7 @@ TEST_F(TestRunLengthSignInteger, ReadWriteMultiInteger) {
     for (int32_t i = 0; i < 4; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -447,7 +447,7 @@ TEST_F(TestRunLengthSignInteger, seek) {
     // write data
     int64_t write_data[] = {100, 102, 105, 106};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
 
     PositionEntryWriter index_entry;
@@ -458,7 +458,7 @@ TEST_F(TestRunLengthSignInteger, seek) {
     _writer->write(109);
     _writer->write(110);
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -471,13 +471,13 @@ TEST_F(TestRunLengthSignInteger, seek) {
     PositionProvider position(&entry);
     _reader->seek(&position);
     int64_t value = 0;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 107);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 108);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 109);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 110);
 }
 
@@ -485,30 +485,30 @@ TEST_F(TestRunLengthSignInteger, skip) {
     // write data
     int64_t write_data[] = {100, 102, 105, 106};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
 
     _reader->skip(2);
     int64_t value = 0;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 105);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 106);
-    EXPECT_NE(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_NE(Status::OK(), _reader->next(&value));
 }
 
 TEST_F(TestRunLengthSignInteger, ShortRepeatEncoding) {
     // write data
     int64_t write_data[] = {-100, -100, -100, -100};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -516,7 +516,7 @@ TEST_F(TestRunLengthSignInteger, ShortRepeatEncoding) {
     for (int32_t i = 0; i < 4; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -527,9 +527,9 @@ TEST_F(TestRunLengthSignInteger, DirectEncoding) {
     // write data
     int64_t write_data[] = {-1703, -6054, -8760, -902};
     for (int32_t i = 0; i < 4; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -537,7 +537,7 @@ TEST_F(TestRunLengthSignInteger, DirectEncoding) {
     for (int32_t i = 0; i < 4; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -547,10 +547,10 @@ TEST_F(TestRunLengthSignInteger, DirectEncoding) {
 TEST_F(TestRunLengthUnsignInteger, ReadWriteMassInteger) {
     // write data
     for (int64_t i = 0; i < 100000; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(i));
+        EXPECT_EQ(Status::OK(), _writer->write(i));
     }
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -558,7 +558,7 @@ TEST_F(TestRunLengthUnsignInteger, ReadWriteMassInteger) {
     for (int64_t i = 0; i < 100000; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, i);
     }
 }
@@ -569,9 +569,9 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding1) {
             1703, 6054, -876012345678912, 902,    9292, 184932, 873624, 827364, 999, 8,
             1,    3323, 432232523,        -90982, 9,    223234, 5,      44,     5,   3};
     for (int32_t i = 0; i < 20; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -579,7 +579,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding1) {
     for (int32_t i = 0; i < 20; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -592,9 +592,9 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding2) {
             -1703, -6054, -876012345678912, -902,   -9292, -184932, -873624, -827364, -999, -8,
             -1,    -3323, -432232523,       -90982, -9,    -223234, -5,      -44,     -5,   -3};
     for (int32_t i = 0; i < 20; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -602,7 +602,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding2) {
     for (int32_t i = 0; i < 20; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -616,9 +616,9 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding3) {
             1703, 6054, 876012345678912, 902,    9292, 184932, 873624, 827364, 999, 888,
             -300, 3323, 432232523,       -90982, 450,  223234, 690,    444,    555, 333};
     for (int32_t i = 0; i < 20; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -626,7 +626,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding3) {
     for (int32_t i = 0; i < 20; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -919,9 +919,9 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding4) {
                             876012345678912};
 
     for (int32_t i = 0; i < 281; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -929,7 +929,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding4) {
     for (int32_t i = 0; i < 281; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -994,9 +994,9 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) {
             3323, 876012345678912};
 
     for (int32_t i = 0; i < 512; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -1004,7 +1004,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) {
     for (int32_t i = 0; i < 512; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -1028,9 +1028,9 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding6) {
             -15605417571528704, -15605417571528704, -13322895849418752, -13322895849418752,
             -15605417571528704, -13322895849418752};
     for (int32_t i = 0; i < 30; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -1038,7 +1038,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding6) {
     for (int32_t i = 0; i < 30; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -1049,10 +1049,10 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows1) {
     // write data
     int64_t write_data[] = {4513343538618202711, 2911390882471569739, -9181829309989854913};
     for (int32_t i = 0; i < 3; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
 
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -1060,7 +1060,7 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows1) {
     for (int32_t i = 0; i < 3; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -1459,9 +1459,9 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) {
                                9223372036854775807};
 
     for (int32_t i = 0; i < 388; i++) {
-        EXPECT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
+        EXPECT_EQ(Status::OK(), _writer->write(write_data[i]));
     }
-    EXPECT_EQ(OLAP_SUCCESS, _writer->flush());
+    EXPECT_EQ(Status::OK(), _writer->flush());
 
     // read data
     CreateReader();
@@ -1469,7 +1469,7 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) {
     for (int32_t i = 0; i < 388; i++) {
         EXPECT_TRUE(_reader->has_next());
         int64_t value = 0;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 

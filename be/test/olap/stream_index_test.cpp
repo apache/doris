@@ -52,7 +52,7 @@ TEST_F(TestStreamIndex, index_write) {
     ColumnStatistics stat;
     stat.init(OLAP_FIELD_TYPE_INT, true);
 
-    EXPECT_EQ(OLAP_SUCCESS, stat.init(OLAP_FIELD_TYPE_INT, true));
+    EXPECT_EQ(Status::OK(), stat.init(OLAP_FIELD_TYPE_INT, true));
 
     static const uint32_t loop = 10;
     uint32_t i = 0;
@@ -74,10 +74,10 @@ TEST_F(TestStreamIndex, index_write) {
 
     char* buffer = new char[output_size];
 
-    EXPECT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
+    EXPECT_EQ(Status::OK(), writer.write_to_buffer(buffer, output_size));
 
     StreamIndexReader reader;
-    EXPECT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
+    EXPECT_EQ(Status::OK(), reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
     EXPECT_EQ(loop, reader.entry_count());
 
@@ -122,10 +122,10 @@ TEST_F(TestStreamIndex, remove_written_position) {
         size_t output_size = writer.output_size();
         char* buffer = new char[output_size];
 
-        EXPECT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
+        EXPECT_EQ(Status::OK(), writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
-        EXPECT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
+        EXPECT_EQ(Status::OK(), reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         EXPECT_EQ(loop, reader.entry_count());
 
@@ -164,10 +164,10 @@ TEST_F(TestStreamIndex, remove_written_position) {
         size_t output_size = writer.output_size();
         char* buffer = new char[output_size];
 
-        EXPECT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
+        EXPECT_EQ(Status::OK(), writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
-        EXPECT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
+        EXPECT_EQ(Status::OK(), reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         EXPECT_EQ(loop, reader.entry_count());
 
@@ -207,10 +207,10 @@ TEST_F(TestStreamIndex, remove_written_position) {
         size_t output_size = writer.output_size();
         char* buffer = new char[output_size];
 
-        EXPECT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
+        EXPECT_EQ(Status::OK(), writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
-        EXPECT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
+        EXPECT_EQ(Status::OK(), reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         EXPECT_EQ(loop, reader.entry_count());
 
@@ -250,10 +250,10 @@ TEST_F(TestStreamIndex, remove_written_position) {
         size_t output_size = writer.output_size();
 
         char* buffer = new char[output_size];
-        EXPECT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
+        EXPECT_EQ(Status::OK(), writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
-        EXPECT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
+        EXPECT_EQ(Status::OK(), reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         EXPECT_EQ(loop, reader.entry_count());
 
@@ -271,7 +271,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
 
 TEST_F(TestStreamIndex, test_statistic) {
     ColumnStatistics stat;
-    EXPECT_EQ(OLAP_SUCCESS, stat.init(OLAP_FIELD_TYPE_INT, true));
+    EXPECT_EQ(Status::OK(), stat.init(OLAP_FIELD_TYPE_INT, true));
 
     WrapperField* field = WrapperField::create_by_type(OLAP_FIELD_TYPE_INT);
 
@@ -316,7 +316,7 @@ TEST_F(TestStreamIndex, test_statistic) {
     EXPECT_STREQ(stat.maximum()->to_string().c_str(), "6");
 
     ColumnStatistics stat2;
-    EXPECT_EQ(OLAP_SUCCESS, stat2.init(OLAP_FIELD_TYPE_INT, true));
+    EXPECT_EQ(Status::OK(), stat2.init(OLAP_FIELD_TYPE_INT, true));
 
     char buf[256];
     stat.write_to_buffer(buf, sizeof(buf));
@@ -332,7 +332,7 @@ TEST_F(TestStreamIndex, statistic) {
     PositionEntryWriter entry;
     ColumnStatistics stat;
 
-    EXPECT_EQ(OLAP_SUCCESS, stat.init(OLAP_FIELD_TYPE_INT, true));
+    EXPECT_EQ(Status::OK(), stat.init(OLAP_FIELD_TYPE_INT, true));
 
     WrapperField* field = WrapperField::create_by_type(OLAP_FIELD_TYPE_INT);
     EXPECT_TRUE(nullptr != field);
@@ -365,10 +365,10 @@ TEST_F(TestStreamIndex, statistic) {
 
     char* buffer = new char[output_size];
 
-    EXPECT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
+    EXPECT_EQ(Status::OK(), writer.write_to_buffer(buffer, output_size));
 
     StreamIndexReader reader;
-    EXPECT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
+    EXPECT_EQ(Status::OK(), reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
     EXPECT_EQ(loop, reader.entry_count());
 

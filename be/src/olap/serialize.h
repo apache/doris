@@ -44,21 +44,21 @@ inline int64_t zig_zag_decode(int64_t value) {
 // The so-called unsigned data means that the data is not easy to appear. The sign bit is 1, and the subsequent consecutive 0; or from the sign bit
 // 1 Continuous occurrence. This situation is prone to occur when the signature data represents a negative number. under these circumstances,
 // Variable length coding cannot effectively reduce the code length, for this, please use write_var_signed.
-OLAPStatus write_var_unsigned(OutStream* stream, int64_t value);
+Status write_var_unsigned(OutStream* stream, int64_t value);
 
 // Write signed data with variable length encoding, in order to avoid the problem of continuous 1s in the high bits of negative numbers, the data is ZigZag transformed
-inline OLAPStatus write_var_signed(OutStream* stream, int64_t value) {
+inline Status write_var_signed(OutStream* stream, int64_t value) {
     return write_var_unsigned(stream, zig_zag_encode(value));
 }
 
 // Read in write_var_unsigned encoded data
-OLAPStatus read_var_unsigned(ReadOnlyFileStream* stream, int64_t* value);
+Status read_var_unsigned(ReadOnlyFileStream* stream, int64_t* value);
 
 // Read in write_var_signed encoded data
-inline OLAPStatus read_var_signed(ReadOnlyFileStream* stream, int64_t* value) {
-    OLAPStatus res = read_var_unsigned(stream, value);
+inline Status read_var_signed(ReadOnlyFileStream* stream, int64_t* value) {
+    Status res = read_var_unsigned(stream, value);
 
-    if (OLAP_SUCCESS == res) {
+    if (res.ok()) {
         *value = zig_zag_decode(*value);
     }
 
@@ -155,7 +155,7 @@ inline uint32_t percentile_bits_with_hist(uint16_t hists[65], uint16_t count, do
 uint32_t find_closet_num_bits(int64_t value);
 
 // Read n bytes in big endian order and convert to long
-OLAPStatus bytes_to_long_be(ReadOnlyFileStream* stream, int32_t n, int64_t* value);
+Status bytes_to_long_be(ReadOnlyFileStream* stream, int32_t n, int64_t* value);
 
 // Encode the bit length as one of 32 fixed-length bits, and the return value is between 0 and 31
 uint32_t encode_bit_width(uint32_t n);
@@ -170,10 +170,10 @@ uint32_t decode_bit_width(uint32_t n);
 uint32_t percentile_bits(int64_t* data, uint16_t count, double p);
 
 // Output a set of integers to output in a compact manner
-OLAPStatus write_ints(OutStream* output, int64_t* data, uint32_t count, uint32_t bit_width);
+Status write_ints(OutStream* output, int64_t* data, uint32_t count, uint32_t bit_width);
 
 // Read the data output by write_ints
-OLAPStatus read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, uint32_t bit_width);
+Status read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, uint32_t bit_width);
 
 // Do not want to use Guava LongMath.checkedSubtract() here as it will throw
 // ArithmeticException in case of overflow

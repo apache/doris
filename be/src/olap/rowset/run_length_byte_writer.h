@@ -33,15 +33,15 @@ class RunLengthByteWriter {
 public:
     explicit RunLengthByteWriter(OutStream* output);
     ~RunLengthByteWriter() {}
-    OLAPStatus write(char byte);
-    OLAPStatus flush();
+    Status write(char byte);
+    Status flush();
     void get_position(PositionEntryWriter* index_entry) const;
     static const int32_t MIN_REPEAT_SIZE = 3;
     static const int32_t MAX_LITERAL_SIZE = 128;
     static const int32_t MAX_REPEAT_SIZE = 127 + MIN_REPEAT_SIZE;
 
 private:
-    OLAPStatus _write_values();
+    Status _write_values();
 
     OutStream* _output;
     char _literals[MAX_LITERAL_SIZE];

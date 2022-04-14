@@ -717,7 +717,7 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
         } else {
             _type_size = _type_info->size();
             _mem_value = reinterpret_cast<void*>(_pool->allocate(_type_size));
-            OLAPStatus s = OLAP_SUCCESS;
+            Status s = Status::OK();
             if (_type_info->type() == OLAP_FIELD_TYPE_CHAR) {
                 int32_t length = _schema_length;
                 char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
@@ -740,9 +740,8 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             } else {
                 s = _type_info->from_string(_mem_value, _default_value);
             }
-            if (s != OLAP_SUCCESS) {
-                return Status::InternalError(strings::Substitute(
-                        "get value of type from default value failed. status:$0", s));
+            if (!s.ok()) {
+                return s;
             }
         }
     } else if (_is_nullable) {

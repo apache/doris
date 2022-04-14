@@ -72,7 +72,7 @@ using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
 public:
-    static OLAPStatus create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
+    static Status create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
                              uint64_t shard_id, uint32_t next_unique_id,
                              const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                              TabletMetaSharedPtr* tablet_meta);
@@ -91,16 +91,16 @@ public:
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
-    OLAPStatus create_from_file(const std::string& file_path);
-    OLAPStatus save(const std::string& file_path);
-    static OLAPStatus save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
-    static OLAPStatus reset_tablet_uid(const std::string& file_path);
+    Status create_from_file(const std::string& file_path);
+    Status save(const std::string& file_path);
+    static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
+    static Status reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
                                                   int64_t tablet_id);
-    OLAPStatus save_meta(DataDir* data_dir);
+    Status save_meta(DataDir* data_dir);
 
-    OLAPStatus serialize(std::string* meta_binary);
-    OLAPStatus deserialize(const std::string& meta_binary);
+    Status serialize(std::string* meta_binary);
+    Status deserialize(const std::string& meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
@@ -137,7 +137,7 @@ public:
     TabletSchema* mutable_tablet_schema();
 
     const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
-    OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
+    Status add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
     // If same_version is true, the rowset in "to_delete" will not be added
@@ -159,7 +159,7 @@ public:
 
     std::string full_name() const;
 
-    OLAPStatus set_partition_id(int64_t partition_id);
+    Status set_partition_id(int64_t partition_id);
 
     RowsetTypePB preferred_rowset_type() const { return _preferred_rowset_type; }
 
@@ -177,7 +177,7 @@ public:
     }
 
 private:
-    OLAPStatus _save_meta(DataDir* data_dir);
+    Status _save_meta(DataDir* data_dir);
     void _init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column);
 
     // _del_pred_array is ignored to compare.

@@ -36,12 +36,12 @@ BlockReader::~BlockReader() {
     }
 }
 
-OLAPStatus BlockReader::_init_collect_iter(const ReaderParams& read_params,
+Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
                                            std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     _vcollect_iter.init(this);
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto res = _capture_rs_readers(read_params, &rs_readers);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
                      << ", schema_hash:" << read_params.tablet->schema_hash()
@@ -54,12 +54,12 @@ OLAPStatus BlockReader::_init_collect_iter(const ReaderParams& read_params,
     _reader_context.is_vec = true;
     for (auto& rs_reader : rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
-        OLAPStatus res = _vcollect_iter.add_child(rs_reader);
-        if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
+        Status res = _vcollect_iter.add_child(rs_reader);
+        if (!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
             return res;
         }
-        if (res == OLAP_SUCCESS) {
+        if (res.ok()) {
             valid_rs_readers->push_back(rs_reader);
         }
     }
@@ -67,10 +67,10 @@ OLAPStatus BlockReader::_init_collect_iter(const ReaderParams& read_params,
     _vcollect_iter.build_heap(*valid_rs_readers);
     if (_vcollect_iter.is_merge()) {
         auto status = _vcollect_iter.current_row(&_next_row);
-        _eof = status == OLAP_ERR_DATA_EOF;
+        _eof = status == Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void BlockReader::_init_agg_state(const ReaderParams& read_params) {
@@ -119,7 +119,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
     }
 }
 
-OLAPStatus BlockReader::init(const ReaderParams& read_params) {
+Status BlockReader::init(const ReaderParams& read_params) {
     TabletReader::init(read_params);
 
     auto return_column_size =
@@ -142,13 +142,13 @@ OLAPStatus BlockReader::init(const ReaderParams& read_params) {
 
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto status = _init_collect_iter(read_params, &rs_readers);
-    if (status != OLAP_SUCCESS) {
+    if (!status.ok()) {
         return status;
     }
 
     if (_direct_mode) {
         _next_block_func = &BlockReader::_direct_next_block;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     switch (tablet()->keys_type()) {
@@ -167,29 +167,29 @@ OLAPStatus BlockReader::init(const ReaderParams& read_params) {
         break;
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
+Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                            bool* eof) {
     auto res = _vcollect_iter.next(block);
-    if (UNLIKELY(res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF)) {
+    if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
         return res;
     }
-    *eof = res == OLAP_ERR_DATA_EOF;
-    return OLAP_SUCCESS;
+    *eof = res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+    return Status::OK();
 }
 
-OLAPStatus BlockReader::_direct_agg_key_next_block(Block* block, MemPool* mem_pool,
+Status BlockReader::_direct_agg_key_next_block(Block* block, MemPool* mem_pool,
                                                    ObjectPool* agg_pool, bool* eof) {
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
+Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                             bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     auto target_block_row = 0;
@@ -201,11 +201,11 @@ OLAPStatus BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, Obj
 
     while (true) {
         auto res = _vcollect_iter.next(&_next_row);
-        if (UNLIKELY(res == OLAP_ERR_DATA_EOF)) {
+        if (UNLIKELY(res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
             *eof = true;
             break;
         }
-        if (UNLIKELY(res != OLAP_SUCCESS)) {
+        if (UNLIKELY(!res.ok())) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
@@ -229,14 +229,14 @@ OLAPStatus BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, Obj
     _update_agg_data(target_columns);
 
     _merged_rows += target_block_row;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
+Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
                                                ObjectPool* agg_pool, bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     auto target_block_row = 0;
@@ -250,19 +250,19 @@ OLAPStatus BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
         auto res = _vcollect_iter.next(&_next_row);
-        if (UNLIKELY(res == OLAP_ERR_DATA_EOF)) {
+        if (UNLIKELY(res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
             *eof = true;
             break;
         }
 
-        if (UNLIKELY(res != OLAP_SUCCESS)) {
+        if (UNLIKELY(!res.ok())) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
     } while (target_block_row < _batch_size);
 
     _merged_rows += target_block_row;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void BlockReader::_insert_data_normal(MutableColumns& columns) {

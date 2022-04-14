@@ -31,9 +31,9 @@ class StorageByteBuffer;
 //     out - output buffer,The space from position to limit can be used to store data
 //     smaller - Whether the compressed data size is smaller than the data size before compression
 // Returns:
-//     OLAP_ERR_BUFFER_OVERFLOW - Insufficient space left in output buffer
-//     OLAP_ERR_COMPRESS_ERROR - Compression error
-typedef OLAPStatus (*Compressor)(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
+//     Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW) - Insufficient space left in output buffer
+//     Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR) - Compression error
+typedef Status (*Compressor)(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
 
 // Define a decompression function to decompress the remaining memory in the input buffer
 // and save it to the remaining space in the output buffer
@@ -41,17 +41,17 @@ typedef OLAPStatus (*Compressor)(StorageByteBuffer* in, StorageByteBuffer* out, 
 //     in - input buffer,Decompress memory from position to limit
 //     out - output buffer,The space from position to limit can be used to store data
 // Returns:
-//     OLAP_ERR_BUFFER_OVERFLOW - Insufficient space left in output buffer
-//     OLAP_ERR_DECOMPRESS_ERROR - decompression error
-typedef OLAPStatus (*Decompressor)(StorageByteBuffer* in, StorageByteBuffer* out);
+//     Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW) - Insufficient space left in output buffer
+//     Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR) - decompression error
+typedef Status (*Decompressor)(StorageByteBuffer* in, StorageByteBuffer* out);
 
 #ifdef DORIS_WITH_LZO
-OLAPStatus lzo_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
-OLAPStatus lzo_decompress(StorageByteBuffer* in, StorageByteBuffer* out);
+Status lzo_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
+Status lzo_decompress(StorageByteBuffer* in, StorageByteBuffer* out);
 #endif
 
-OLAPStatus lz4_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
-OLAPStatus lz4_decompress(StorageByteBuffer* in, StorageByteBuffer* out);
+Status lz4_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller);
+Status lz4_decompress(StorageByteBuffer* in, StorageByteBuffer* out);
 
 } // namespace doris
 #endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_COMPRESS_H

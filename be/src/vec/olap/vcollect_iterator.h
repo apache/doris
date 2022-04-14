@@ -47,20 +47,20 @@ public:
 
     void init(TabletReader* reader);
 
-    OLAPStatus add_child(RowsetReaderSharedPtr rs_reader);
+    Status add_child(RowsetReaderSharedPtr rs_reader);
 
     void build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers);
     // Get top row of the heap, nullptr if reach end.
-    OLAPStatus current_row(IteratorRowRef* ref) const;
+    Status current_row(IteratorRowRef* ref) const;
 
     // Read nest order row in Block.
     // Returns
     //      OLAP_SUCCESS when read successfully.
-    //      OLAP_ERR_DATA_EOF and set *row to nullptr when EOF is reached.
+    //      Status::OLAPInternalError(OLAP_ERR_DATA_EOF) and set *row to nullptr when EOF is reached.
     //      Others when error happens
-    OLAPStatus next(IteratorRowRef* ref);
+    Status next(IteratorRowRef* ref);
 
-    OLAPStatus next(Block* block);
+    Status next(Block* block);
 
     bool is_merge() const { return _merge; }
 
@@ -75,15 +75,15 @@ private:
     public:
         LevelIterator(TabletReader* reader) : _schema(reader->tablet()->tablet_schema()) {};
 
-        virtual OLAPStatus init() = 0;
+        virtual Status init() = 0;
 
         virtual int64_t version() const = 0;
 
         const IteratorRowRef* current_row_ref() const { return &_ref; }
 
-        virtual OLAPStatus next(IteratorRowRef* ref) = 0;
+        virtual Status next(IteratorRowRef* ref) = 0;
 
-        virtual OLAPStatus next(Block* block) = 0;
+        virtual Status next(Block* block) = 0;
 
         void set_same(bool same) { _ref.is_same = same; }
 
@@ -124,16 +124,16 @@ private:
         Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader);
         ~Level0Iterator() {}
 
-        OLAPStatus init() override;
+        Status init() override;
 
         int64_t version() const override;
 
-        OLAPStatus next(IteratorRowRef* ref) override;
+        Status next(IteratorRowRef* ref) override;
 
-        OLAPStatus next(Block* block) override;
+        Status next(Block* block) override;
 
     private:
-        OLAPStatus _refresh_current_row();
+        Status _refresh_current_row();
 
         RowsetReaderSharedPtr _rs_reader;
         TabletReader* _reader = nullptr;
@@ -146,22 +146,22 @@ private:
         Level1Iterator(const std::list<LevelIterator*>& children, TabletReader* reader, bool merge,
                        bool skip_same);
 
-        OLAPStatus init() override;
+        Status init() override;
 
         int64_t version() const override;
 
-        OLAPStatus next(IteratorRowRef* ref) override;
+        Status next(IteratorRowRef* ref) override;
 
-        OLAPStatus next(Block* block) override;
+        Status next(Block* block) override;
 
         ~Level1Iterator();
 
     private:
-        OLAPStatus _merge_next(IteratorRowRef* ref);
+        Status _merge_next(IteratorRowRef* ref);
 
-        OLAPStatus _normal_next(IteratorRowRef* ref);
+        Status _normal_next(IteratorRowRef* ref);
 
-        OLAPStatus _normal_next(Block* block);
+        Status _normal_next(Block* block);
 
         // Each LevelIterator corresponds to a rowset reader,
         // it will be cleared after '_heap' has been initialized when '_merge == true'.

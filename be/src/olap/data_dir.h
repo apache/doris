@@ -76,7 +76,7 @@ public:
     Status set_cluster_id(int32_t cluster_id);
     void health_check();
 
-    OLAPStatus get_shard(uint64_t* shard);
+    Status get_shard(uint64_t* shard);
 
     OlapMeta* get_meta() { return _meta; }
 
@@ -99,7 +99,7 @@ public:
             const std::string& schema_hash_dir_in_trash);
 
     // load data from meta and data files
-    OLAPStatus load();
+    Status load();
 
     void add_pending_ids(const std::string& id);
 
@@ -137,7 +137,7 @@ public:
     // storage_root/trash/20150619154308.delete_counter/tablet_path/segment_path,
     // remote_path is replaced by：
     // storage_root/trash/20150619154308.delete_counter/tablet_path/segment_path/tablet_uid
-    OLAPStatus move_to_trash(const FilePathDesc& segment_path_desc);
+    Status move_to_trash(const FilePathDesc& segment_path_desc);
 
 private:
     Status _init_cluster_id();
@@ -145,13 +145,13 @@ private:
     Status _init_meta();
 
     Status _check_disk();
-    OLAPStatus _read_and_write_test_file();
+    Status _read_and_write_test_file();
     Status read_cluster_id(Env* env, const std::string& cluster_id_path, int32_t* cluster_id);
     Status _write_cluster_id_to_path(const FilePathDesc& path_desc, int32_t cluster_id);
     // Check whether has old format (hdr_ start) in olap. When doris updating to current version,
     // it may lead to data missing. When conf::storage_strict_check_incompatible_old_format is true,
     // process will log fatal.
-    OLAPStatus _check_incompatible_old_format_tablet();
+    Status _check_incompatible_old_format_tablet();
 
     void _process_garbage_path(const std::string& path);
 

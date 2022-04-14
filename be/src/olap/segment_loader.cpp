@@ -57,12 +57,12 @@ void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::C
     *handle = SegmentCacheHandle(_cache.get(), lru_handle);
 }
 
-OLAPStatus SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
+Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
                                         SegmentCacheHandle* cache_handle, bool use_cache) {
     SegmentLoader::CacheKey cache_key(rowset->rowset_id());
     if (_lookup(cache_key, cache_handle)) {
         cache_handle->owned = false;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     cache_handle->owned = !use_cache;
 
@@ -78,10 +78,10 @@ OLAPStatus SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
         cache_handle->segments = std::move(segments);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus SegmentLoader::prune() {
+Status SegmentLoader::prune() {
     const int64_t curtime = UnixMillis();
     auto pred = [curtime](const void* value) -> bool {
         SegmentLoader::CacheValue* cache_value = (SegmentLoader::CacheValue*)value;
@@ -94,7 +94,7 @@ OLAPStatus SegmentLoader::prune() {
     int64_t prune_num = _cache->prune_if(pred);
     LOG(INFO) << "prune " << prune_num
               << " entries in segment cache. cost(ms): " << watch.elapsed_time() / 1000 / 1000;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

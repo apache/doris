@@ -53,9 +53,9 @@ TEST(TestStream, UncompressOutStream) {
     EXPECT_EQ(head.type, StreamHead::UNCOMPRESSED);
     EXPECT_EQ(head.length, 1);
     char data;
-    EXPECT_EQ(OLAP_SUCCESS, (*it)->get((char*)&data));
+    EXPECT_EQ(Status::OK(), (*it)->get((char*)&data));
     EXPECT_EQ(0x5A, data);
-    EXPECT_NE(OLAP_SUCCESS, (*it)->get((char*)&data));
+    EXPECT_NE(Status::OK(), (*it)->get((char*)&data));
 
     SAFE_DELETE(out_stream);
 }
@@ -92,15 +92,15 @@ TEST(TestStream, UncompressOutStream2) {
 
     char data;
     for (int32_t i = 0; i < OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE - 1; i++) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, 0x5a);
     }
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, 0x5a);
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, 0x5a);
 
-    EXPECT_NE(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_NE(in_stream->read(&data), Status::OK());
 
     SAFE_DELETE(out_stream);
     SAFE_DELETE(in_stream);
@@ -142,16 +142,16 @@ TEST(TestStream, UncompressOutStream3) {
 
     char data;
     for (int32_t i = 0; i < OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE; i++) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, 0x5a);
     }
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, 0x5a);
 
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, 0x5a);
 
-    EXPECT_NE(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_NE(in_stream->read(&data), Status::OK());
 
     SAFE_DELETE(in_stream);
     SAFE_DELETE(out_stream);
@@ -185,7 +185,7 @@ TEST(TestStream, UncompressInStream) {
 
     EXPECT_EQ(in_stream->available(), 1);
     char data;
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, 0x5a);
 
     SAFE_DELETE(in_stream);
@@ -251,13 +251,13 @@ TEST(TestStream, CompressOutStream2) {
 
     char data;
     for (int32_t i = 0; i < OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE; i++) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, 0x5a);
     }
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, 0x5a);
 
-    EXPECT_NE(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_NE(in_stream->read(&data), Status::OK());
 
     SAFE_DELETE(in_stream);
     SAFE_DELETE(out_stream);
@@ -297,15 +297,15 @@ TEST(TestStream, CompressOutStream3) {
 
     char data;
     for (int32_t i = 0; i < OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE; i++) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, 0x5a);
     }
     for (int32_t i = 0; i < sizeof(write_data); i++) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, write_data[i]);
     }
 
-    EXPECT_NE(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_NE(in_stream->read(&data), Status::OK());
 
     SAFE_DELETE(in_stream);
     SAFE_DELETE(out_stream);
@@ -348,21 +348,21 @@ TEST(TestStream, CompressOutStream4) {
 
     char data;
     for (int32_t i = 0; i < 15; i++) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, 0x5a);
     }
 
     for (int32_t i = 0; i < 12; i++) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, 0x5a);
     }
 
     for (int32_t i = 0; i < 6; i++) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, i);
     }
 
-    EXPECT_NE(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_NE(in_stream->read(&data), Status::OK());
 
     SAFE_DELETE(in_stream);
     SAFE_DELETE(out_stream);
@@ -402,15 +402,15 @@ TEST(TestStream, CompressMassOutStream) {
 
     char data;
     for (int32_t i = 0; i < 100; i++) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, 0x5a);
     }
     for (int32_t i = 0; i < 100; i++) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, i);
     }
 
-    EXPECT_NE(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_NE(in_stream->read(&data), Status::OK());
 
     SAFE_DELETE(in_stream);
     for (auto input : inputs) {
@@ -447,12 +447,12 @@ TEST(TestStream, CompressInStream) {
     EXPECT_EQ(in_stream->available(), OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
     char data;
     for (int32_t i = 0; i < OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE - 1; ++i) {
-        EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+        EXPECT_EQ(in_stream->read(&data), Status::OK());
         EXPECT_EQ(data, 0x5a);
     }
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, 0x5a);
-    EXPECT_NE(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_NE(in_stream->read(&data), Status::OK());
 
     SAFE_DELETE_ARRAY(write_data);
     SAFE_DELETE(out_stream);
@@ -510,7 +510,7 @@ TEST(TestStream, SeekUncompress) {
 
     in_stream->seek(&position);
     char data;
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, 0x5b);
     SAFE_DELETE(out_stream);
     SAFE_DELETE(in_stream);
@@ -549,7 +549,7 @@ TEST(TestStream, SkipUncompress) {
     EXPECT_EQ(in_stream->available(), sizeof(write_data) + 1);
     in_stream->skip(sizeof(write_data) - 1);
     char data;
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, write_data[sizeof(write_data) - 1]);
     SAFE_DELETE(out_stream);
     SAFE_DELETE(in_stream);
@@ -602,7 +602,7 @@ TEST(TestStream, SeekCompress) {
     PositionProvider position(&entry);
     in_stream->seek(&position);
     char data;
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, 0x5b);
     SAFE_DELETE(out_stream);
     SAFE_DELETE(in_stream);
@@ -639,7 +639,7 @@ TEST(TestStream, SkipCompress) {
 
     in_stream->skip(10);
     char data;
-    EXPECT_EQ(in_stream->read(&data), OLAP_SUCCESS);
+    EXPECT_EQ(in_stream->read(&data), Status::OK());
     EXPECT_EQ(data, 0x5e);
 
     SAFE_DELETE(out_stream);
@@ -673,13 +673,13 @@ public:
     }
 
     void CreateReader() {
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   helper.open_with_mode(_file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY,
                                         S_IRUSR | S_IWUSR));
         _out_stream->write_to_file(&helper, 0);
         helper.close();
 
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   helper.open_with_mode(_file_path.c_str(), O_RDONLY, S_IRUSR | S_IWUSR));
 
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
@@ -689,7 +689,7 @@ public:
         _stream = new (std::nothrow)
                 ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), nullptr,
                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, &_stats);
-        EXPECT_EQ(OLAP_SUCCESS, _stream->init());
+        EXPECT_EQ(Status::OK(), _stream->init());
 
         _reader = new (std::nothrow) RunLengthByteReader(_stream);
         EXPECT_TRUE(_reader != nullptr);
@@ -713,7 +713,7 @@ TEST_F(TestRunLengthByte, ReadWriteOneByte) {
 
     EXPECT_TRUE(_reader->has_next());
     char value = 0xff;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 0X5A);
 
     EXPECT_FALSE(_reader->has_next());
@@ -737,7 +737,7 @@ TEST_F(TestRunLengthByte, ReadWriteMultiBytes) {
     for (int32_t i = 0; i < sizeof(write_data); i++) {
         EXPECT_TRUE(_reader->has_next());
         char value = 0xff;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -762,7 +762,7 @@ TEST_F(TestRunLengthByte, ReadWriteSameBytes) {
     for (int32_t i = 0; i < sizeof(write_data); i++) {
         EXPECT_TRUE(_reader->has_next());
         char value = 0xff;
-        EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+        EXPECT_EQ(Status::OK(), _reader->next(&value));
         EXPECT_EQ(value, write_data[i]);
     }
 
@@ -801,13 +801,13 @@ TEST_F(TestRunLengthByte, Seek) {
     PositionProvider position(&entry);
     _reader->seek(&position);
     char value = 0xff;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 0x5e);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 0x5f);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 0x60);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 0x61);
 }
 
@@ -825,9 +825,9 @@ TEST_F(TestRunLengthByte, Skip) {
 
     _reader->skip(sizeof(write_data) - 1);
     char value = 0xff;
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, write_data[sizeof(write_data) - 1]);
-    EXPECT_EQ(OLAP_SUCCESS, _reader->next(&value));
+    EXPECT_EQ(Status::OK(), _reader->next(&value));
     EXPECT_EQ(value, 0x5e);
 }
 

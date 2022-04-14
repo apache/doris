@@ -31,21 +31,20 @@ EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_h
                                               MemTrackerLevel::TASK);
 }
 
-OLAPStatus EngineChecksumTask::execute() {
+Status EngineChecksumTask::execute() {
     SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
-    OLAPStatus res = _compute_checksum();
-    return res;
+    return _compute_checksum();
 } // execute
 
-OLAPStatus EngineChecksumTask::_compute_checksum() {
+Status EngineChecksumTask::_compute_checksum() {
     LOG(INFO) << "begin to process compute checksum."
               << "tablet_id=" << _tablet_id << ", schema_hash=" << _schema_hash
               << ", version=" << _version;
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
 
     if (_checksum == nullptr) {
         OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
-        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
 
     TabletSharedPtr tablet =
@@ -53,7 +52,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     if (nullptr == tablet.get()) {
         OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]", _tablet_id,
                          _schema_hash);
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     TupleReader reader;
@@ -67,12 +66,12 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
         const RowsetSharedPtr message = tablet->rowset_with_max_version();
         if (message == nullptr) {
             LOG(FATAL) << "fail to get latest version. tablet_id=" << _tablet_id;
-            return OLAP_ERR_VERSION_NOT_EXIST;
+            return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
         }
 
-        OLAPStatus acquire_reader_st =
+        Status acquire_reader_st =
                 tablet->capture_rs_readers(reader_params.version, &reader_params.rs_readers);
-        if (acquire_reader_st != OLAP_SUCCESS) {
+        if (acquire_reader_st != Status::OK()) {
             LOG(WARNING) << "fail to init reader. tablet=" << tablet->full_name()
                          << "res=" << acquire_reader_st;
             return acquire_reader_st;
@@ -84,8 +83,8 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     }
 
     res = reader.init(reader_params);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("initiate reader fail. [res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "initiate reader fail. res = " << res;
         return res;
     }
 
@@ -93,8 +92,8 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     std::unique_ptr<MemPool> mem_pool(new MemPool("EngineChecksumTask:_compute_checksum"));
     std::unique_ptr<ObjectPool> agg_object_pool(new ObjectPool());
     res = row.init(tablet->tablet_schema(), reader_params.return_columns);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("failed to init row cursor. [res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "failed to init row cursor. res = " << res;
         return res;
     }
     row.allocate_memory_for_string_type(tablet->tablet_schema());
@@ -102,13 +101,13 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
     bool eof = false;
     uint32_t row_checksum = 0;
     while (true) {
-        OLAPStatus res =
+        Status res =
                 reader.next_row_with_aggregation(&row, mem_pool.get(), agg_object_pool.get(), &eof);
-        if (res == OLAP_SUCCESS && eof) {
+        if (res.ok() && eof) {
             VLOG_NOTICE << "reader reads to the end.";
             break;
-        } else if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to read in reader. [res=%d]", res);
+        } else if (!res.ok()) {
+            LOG(WARNING) << "fail to read in reader. res = " << res;
             return res;
         }
         // The value of checksum is independent of the sorting of data rows.
@@ -121,7 +120,7 @@ OLAPStatus EngineChecksumTask::_compute_checksum() {
 
     LOG(INFO) << "success to finish compute checksum. checksum=" << row_checksum;
     *_checksum = row_checksum;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

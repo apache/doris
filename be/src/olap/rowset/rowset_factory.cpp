@@ -28,7 +28,7 @@
 
 namespace doris {
 
-OLAPStatus RowsetFactory::create_rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
+Status RowsetFactory::create_rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
                                         RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
         rowset->reset(new AlphaRowset(schema, rowset_path_desc, rowset_meta));
@@ -38,10 +38,10 @@ OLAPStatus RowsetFactory::create_rowset(const TabletSchema* schema, const FilePa
         rowset->reset(new BetaRowset(schema, rowset_path_desc, rowset_meta));
         return (*rowset)->init();
     }
-    return OLAP_ERR_ROWSET_TYPE_NOT_FOUND; // should never happen
+    return Status::OLAPInternalError(OLAP_ERR_ROWSET_TYPE_NOT_FOUND); // should never happen
 }
 
-OLAPStatus RowsetFactory::create_rowset_writer(const RowsetWriterContext& context,
+Status RowsetFactory::create_rowset_writer(const RowsetWriterContext& context,
                                                std::unique_ptr<RowsetWriter>* output) {
     if (context.rowset_type == ALPHA_ROWSET) {
         output->reset(new AlphaRowsetWriter);
@@ -51,7 +51,7 @@ OLAPStatus RowsetFactory::create_rowset_writer(const RowsetWriterContext& contex
         output->reset(new BetaRowsetWriter);
         return (*output)->init(context);
     }
-    return OLAP_ERR_ROWSET_TYPE_NOT_FOUND;
+    return Status::OLAPInternalError(OLAP_ERR_ROWSET_TYPE_NOT_FOUND);
 }
 
 } // namespace doris

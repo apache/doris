@@ -57,14 +57,14 @@ public:
     ~AlphaRowsetReader() override;
 
     // reader init
-    OLAPStatus init(RowsetReaderContext* read_context) override;
+    Status init(RowsetReaderContext* read_context) override;
 
     // read next block data
     // It's ok, because we only get ref here, the block's owner is this reader.
-    OLAPStatus next_block(RowBlock** block) override;
+    Status next_block(RowBlock** block) override;
 
-    OLAPStatus next_block(vectorized::Block *block) override {
-        return OLAP_ERR_DATA_EOF;
+    Status next_block(vectorized::Block *block) override {
+        return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
     }
 
     bool delete_flag() override;
@@ -78,26 +78,26 @@ public:
     RowsetTypePB type() const override { return RowsetTypePB::ALPHA_ROWSET; }
 
 private:
-    OLAPStatus _init_merge_ctxs(RowsetReaderContext* read_context);
+    Status _init_merge_ctxs(RowsetReaderContext* read_context);
 
-    OLAPStatus _union_block(RowBlock** block);
-    OLAPStatus _merge_block(RowBlock** block);
-    OLAPStatus _pull_next_block(AlphaMergeContext* merge_ctx);
+    Status _union_block(RowBlock** block);
+    Status _merge_block(RowBlock** block);
+    Status _pull_next_block(AlphaMergeContext* merge_ctx);
 
     // Doris will split query predicates to several scan keys
     // This function is used to fetch block when advancing
     // current scan key to next scan key.
-    OLAPStatus _pull_first_block(AlphaMergeContext* merge_ctx);
+    Status _pull_first_block(AlphaMergeContext* merge_ctx);
 
     // merge by priority queue(_merge_heap)
-    OLAPStatus _pull_next_row_for_merge_rowset_v2(RowCursor** row);
+    Status _pull_next_row_for_merge_rowset_v2(RowCursor** row);
     // init the merge heap, this should be call before calling _pull_next_row_for_merge_rowset_v2();
-    OLAPStatus _init_merge_heap();
+    Status _init_merge_heap();
     // update the merge ctx.
     // 1. get next row block of this ctx, if current row block is empty.
     // 2. read the current row of the row block and push it to merge heap.
     // 3. point to the next row of the row block
-    OLAPStatus _update_merge_ctx_and_build_merge_heap(AlphaMergeContext* merge_ctx);
+    Status _update_merge_ctx_and_build_merge_heap(AlphaMergeContext* merge_ctx);
 
 private:
     int _num_rows_per_row_block;
@@ -111,7 +111,7 @@ private:
     std::list<AlphaMergeContext*> _sequential_ctxs;
 
     std::unique_ptr<RowBlock> _read_block;
-    OLAPStatus (AlphaRowsetReader::*_next_block)(RowBlock** block) = nullptr;
+    Status (AlphaRowsetReader::*_next_block)(RowBlock** block) = nullptr;
     RowCursor* _dst_cursor = nullptr;
     int _key_range_size;
 

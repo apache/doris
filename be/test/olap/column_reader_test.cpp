@@ -83,7 +83,7 @@ public:
                                               BLOOM_FILTER_DEFAULT_FPP);
 
         EXPECT_TRUE(_column_writer != nullptr);
-        EXPECT_EQ(_column_writer->init(), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->init(), Status::OK());
     }
 
     void create_column_reader(const TabletSchema& tablet_schema) {
@@ -108,7 +108,7 @@ public:
         EXPECT_EQ(system("mkdir -p ./ut_dir"), 0);
         EXPECT_EQ(system("rm ./ut_dir/tmp_file"), 0);
 
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   helper.open_with_mode("./ut_dir/tmp_file", O_CREAT | O_EXCL | O_WRONLY,
                                         S_IRUSR | S_IWUSR));
         std::vector<int> off;
@@ -151,7 +151,7 @@ public:
         }
         helper.close();
 
-        EXPECT_EQ(OLAP_SUCCESS,
+        EXPECT_EQ(Status::OK(),
                   helper.open_with_mode("./ut_dir/tmp_file", O_RDONLY, S_IRUSR | S_IWUSR));
 
         _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
@@ -162,13 +162,13 @@ public:
             ReadOnlyFileStream* in_stream = new (std::nothrow)
                     ReadOnlyFileStream(&helper, &_shared_buffer, off[i], length[i], lz4_decompress,
                                        buffer_size[i], &_stats);
-            EXPECT_EQ(OLAP_SUCCESS, in_stream->init());
+            EXPECT_EQ(Status::OK(), in_stream->init());
 
             _map_in_streams[name[i]] = in_stream;
         }
 
         EXPECT_EQ(_column_reader->init(&_map_in_streams, 1024, _mem_pool.get(), &_stats),
-                  OLAP_SUCCESS);
+                  Status::OK());
     }
 
     void set_tablet_schema_with_one_column(std::string name, std::string type,
@@ -192,7 +192,7 @@ public:
     }
 
     void create_and_save_last_position() {
-        EXPECT_EQ(_column_writer->create_row_index_entry(), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->create_row_index_entry(), Status::OK());
     }
 
     ColumnWriter* _column_writer;
@@ -240,10 +240,10 @@ TEST_F(TestColumn, VectorizedTinyColumnWithoutPresent) {
     block.set_row(1, write_row);
     block.finalize(2);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -252,7 +252,7 @@ TEST_F(TestColumn, VectorizedTinyColumnWithoutPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
 
     value = *reinterpret_cast<char*>(data);
@@ -288,7 +288,7 @@ TEST_F(TestColumn, SeekTinyColumnWithoutPresent) {
     block.set_row(1, write_row);
     block.finalize(2);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
@@ -297,12 +297,12 @@ TEST_F(TestColumn, SeekTinyColumnWithoutPresent) {
     block.set_row(0, write_row);
     block.finalize(1);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -323,9 +323,9 @@ TEST_F(TestColumn, SeekTinyColumnWithoutPresent) {
     PositionProvider position0(&entry1);
     PositionProvider position1(&entry2);
 
-    EXPECT_EQ(_column_reader->seek(&position0), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position0), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 1);
@@ -333,9 +333,9 @@ TEST_F(TestColumn, SeekTinyColumnWithoutPresent) {
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 2);
 
-    EXPECT_EQ(_column_reader->seek(&position1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 3);
@@ -370,10 +370,10 @@ TEST_F(TestColumn, SkipTinyColumnWithoutPresent) {
     block.set_row(2, write_row);
     block.finalize(3);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -381,9 +381,9 @@ TEST_F(TestColumn, SkipTinyColumnWithoutPresent) {
     RowCursor read_row;
     read_row.init(tablet_schema);
 
-    EXPECT_EQ(_column_reader->skip(2), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->skip(2), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 3);
@@ -413,10 +413,10 @@ TEST_F(TestColumn, VectorizedTinyColumnWithPresent) {
     block.set_row(1, write_row);
     block.finalize(2);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -425,7 +425,7 @@ TEST_F(TestColumn, VectorizedTinyColumnWithPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
 
@@ -458,10 +458,10 @@ TEST_F(TestColumn, TinyColumnIndex) {
     block.set_row(1, write_row);
     block.finalize(2);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -470,7 +470,7 @@ TEST_F(TestColumn, TinyColumnIndex) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 1);
@@ -503,7 +503,7 @@ TEST_F(TestColumn, SeekTinyColumnWithPresent) {
     block.set_row(1, write_row);
     block.finalize(2);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
@@ -512,12 +512,12 @@ TEST_F(TestColumn, SeekTinyColumnWithPresent) {
     block.set_row(0, write_row);
     block.finalize(1);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -538,18 +538,18 @@ TEST_F(TestColumn, SeekTinyColumnWithPresent) {
     PositionProvider position1(&entry1);
     PositionProvider position2(&entry2);
 
-    EXPECT_EQ(_column_reader->seek(&position1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 1);
     value = *reinterpret_cast<char*>(data + 1);
     EXPECT_EQ(value, 2);
 
-    EXPECT_EQ(_column_reader->seek(&position2), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position2), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 3);
@@ -583,10 +583,10 @@ TEST_F(TestColumn, SkipTinyColumnWithPresent) {
     block.set_row(2, write_row);
     block.finalize(3);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -594,9 +594,9 @@ TEST_F(TestColumn, SkipTinyColumnWithPresent) {
     RowCursor read_row;
     read_row.init(tablet_schema);
 
-    EXPECT_EQ(_column_reader->skip(2), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->skip(2), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 3);
@@ -626,10 +626,10 @@ TEST_F(TestColumn, VectorizedShortColumnWithoutPresent) {
     block.set_row(1, write_row);
     block.finalize(2);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -638,7 +638,7 @@ TEST_F(TestColumn, VectorizedShortColumnWithoutPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<int16_t*>(data);
     EXPECT_EQ(value, 1);
@@ -670,7 +670,7 @@ TEST_F(TestColumn, SeekShortColumnWithoutPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(1, write_row);
     block.finalize(2);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
@@ -678,12 +678,12 @@ TEST_F(TestColumn, SeekShortColumnWithoutPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -704,9 +704,9 @@ TEST_F(TestColumn, SeekShortColumnWithoutPresent) {
     PositionProvider position0(&entry1);
     PositionProvider position1(&entry2);
 
-    EXPECT_EQ(_column_reader->seek(&position0), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position0), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 1);
@@ -714,9 +714,9 @@ TEST_F(TestColumn, SeekShortColumnWithoutPresent) {
     value = *reinterpret_cast<char*>(data + sizeof(int16_t));
     EXPECT_EQ(value, 2);
 
-    EXPECT_EQ(_column_reader->seek(&position1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 3);
@@ -750,10 +750,10 @@ TEST_F(TestColumn, SkipShortColumnWithoutPresent) {
     block.set_row(2, write_row);
     block.finalize(3);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -761,9 +761,9 @@ TEST_F(TestColumn, SkipShortColumnWithoutPresent) {
     RowCursor read_row;
     read_row.init(tablet_schema);
 
-    EXPECT_EQ(_column_reader->skip(2), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->skip(2), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 3);
@@ -792,7 +792,7 @@ TEST_F(TestColumn, SeekShortColumnWithPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(1, write_row);
     block.finalize(2);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
@@ -800,12 +800,12 @@ TEST_F(TestColumn, SeekShortColumnWithPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -827,16 +827,16 @@ TEST_F(TestColumn, SeekShortColumnWithPresent) {
     PositionProvider position0(&entry1);
     PositionProvider position1(&entry2);
 
-    EXPECT_EQ(_column_reader->seek(&position0), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position0), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 1);
 
-    EXPECT_EQ(_column_reader->seek(&position1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 3);
@@ -867,10 +867,10 @@ TEST_F(TestColumn, VectorizedShortColumnWithPresent) {
     block.set_row(1, write_row);
     block.finalize(2);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -879,7 +879,7 @@ TEST_F(TestColumn, VectorizedShortColumnWithPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
 
@@ -918,10 +918,10 @@ TEST_F(TestColumn, SkipShortColumnWithPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(2, write_row);
     block.finalize(3);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -930,9 +930,9 @@ TEST_F(TestColumn, SkipShortColumnWithPresent) {
     RowCursor read_row;
     read_row.init(tablet_schema);
 
-    EXPECT_EQ(_column_reader->skip(2), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->skip(2), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<char*>(data);
     EXPECT_EQ(value, 3);
@@ -963,10 +963,10 @@ TEST_F(TestColumn, VectorizedIntColumnWithoutPresent) {
     block.set_row(1, write_row);
     block.finalize(2);
 
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -976,7 +976,7 @@ TEST_F(TestColumn, VectorizedIntColumnWithoutPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<int*>(data);
     EXPECT_EQ(value, 1);
@@ -1006,10 +1006,10 @@ TEST_F(TestColumn, VectorizedIntColumnMassWithoutPresent) {
         block.set_row(i, write_row);
     }
     block.finalize(10000);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1024,7 +1024,7 @@ TEST_F(TestColumn, VectorizedIntColumnMassWithoutPresent) {
     for (int32_t i = 0; i < 10000; ++i) {
         if (i % 1000 == 0) {
             EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1000, _mem_pool.get()),
-                      OLAP_SUCCESS);
+                      Status::OK());
             data = reinterpret_cast<char*>(_col_vector->col_data());
         }
 
@@ -1054,15 +1054,15 @@ TEST_F(TestColumn, VectorizedIntColumnWithPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     write_row.set_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1073,7 +1073,7 @@ TEST_F(TestColumn, VectorizedIntColumnWithPresent) {
 
     _col_vector.reset(new ColumnVector());
 
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
 
     bool* is_null = _col_vector->is_null();
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
@@ -1104,16 +1104,16 @@ TEST_F(TestColumn, VectorizedLongColumnWithoutPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     value = 3;
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1123,7 +1123,7 @@ TEST_F(TestColumn, VectorizedLongColumnWithoutPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<int64_t*>(data);
     EXPECT_EQ(value, 1);
@@ -1151,17 +1151,17 @@ TEST_F(TestColumn, VectorizedLongColumnWithPresent) {
     write_row.set_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     int64_t value = 3;
     write_row.set_not_null(0);
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1171,7 +1171,7 @@ TEST_F(TestColumn, VectorizedLongColumnWithPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
 
@@ -1202,16 +1202,16 @@ TEST_F(TestColumn, VectorizedFloatColumnWithoutPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     value = 3.234;
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1221,7 +1221,7 @@ TEST_F(TestColumn, VectorizedFloatColumnWithoutPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<float*>(data);
     EXPECT_FLOAT_EQ(value, 1.234);
@@ -1250,17 +1250,17 @@ TEST_F(TestColumn, VectorizedFloatColumnWithPresent) {
     write_row.set_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     float value = 3.234;
     write_row.set_not_null(0);
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1270,7 +1270,7 @@ TEST_F(TestColumn, VectorizedFloatColumnWithPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
 
@@ -1301,7 +1301,7 @@ TEST_F(TestColumn, SeekFloatColumnWithPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
@@ -1309,12 +1309,12 @@ TEST_F(TestColumn, SeekFloatColumnWithPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1336,9 +1336,9 @@ TEST_F(TestColumn, SeekFloatColumnWithPresent) {
     PositionProvider position0(&entry1);
     PositionProvider position1(&entry2);
 
-    EXPECT_EQ(_column_reader->seek(&position0), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position0), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<float*>(data);
     EXPECT_FLOAT_EQ(value, 1.234);
@@ -1367,16 +1367,16 @@ TEST_F(TestColumn, SkipFloatColumnWithPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     value = 3.234;
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1385,9 +1385,9 @@ TEST_F(TestColumn, SkipFloatColumnWithPresent) {
     RowCursor read_row;
     read_row.init(tablet_schema);
 
-    EXPECT_EQ(_column_reader->skip(1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->skip(1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<float*>(data);
     EXPECT_FLOAT_EQ(value, 3.234);
@@ -1413,16 +1413,16 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithoutPresent) {
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     value = 3.23456789;
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1432,7 +1432,7 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithoutPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     value = *reinterpret_cast<double*>(data);
     EXPECT_DOUBLE_EQ(value, 1.23456789);
@@ -1461,17 +1461,17 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithPresent) {
     write_row.set_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     double value = 3.23456789;
     write_row.set_not_null(0);
     write_row.set_field_content(0, reinterpret_cast<char*>(&value), _mem_pool.get());
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1481,7 +1481,7 @@ TEST_F(TestColumn, VectorizedDoubleColumnWithPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
 
@@ -1515,10 +1515,10 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithoutPresent) {
     write_row.from_tuple(tuple);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1528,7 +1528,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithoutPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     EXPECT_TRUE(strncmp(read_row.to_string().c_str(), "0&2000-10-10 10:10:10",
@@ -1554,7 +1554,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
     write_row.set_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     std::vector<string> val_string_array;
     val_string_array.push_back("2000-10-10 10:10:10");
@@ -1563,10 +1563,10 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
     write_row.set_not_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1576,7 +1576,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
 
@@ -1588,7 +1588,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnWithPresent) {
     EXPECT_TRUE(strncmp(read_row.to_string().c_str(), "0&2000-10-10 10:10:10",
                         strlen("0&2000-10-10 10:10:10")) == 0);
 
-    EXPECT_NE(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_NE(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
 }
 TEST_F(TestColumn, VectorizedDatetimeColumnZero) {
     // write data
@@ -1609,7 +1609,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnZero) {
     write_row.set_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     std::vector<string> val_string_array;
     val_string_array.push_back("1000-01-01 00:00:00");
@@ -1618,10 +1618,10 @@ TEST_F(TestColumn, VectorizedDatetimeColumnZero) {
     write_row.set_not_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1631,7 +1631,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnZero) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
 
@@ -1643,7 +1643,7 @@ TEST_F(TestColumn, VectorizedDatetimeColumnZero) {
     EXPECT_TRUE(strncmp(read_row.to_string().c_str(), "0&1000-01-01 00:00:00",
                         strlen("0&1000-01-01 00:00:00")) == 0);
 
-    EXPECT_NE(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_NE(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
 }
 
 TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
@@ -1668,10 +1668,10 @@ TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
     write_row.from_tuple(tuple);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1681,7 +1681,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithoutPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     EXPECT_TRUE(strncmp(read_row.to_string().c_str(), "0&2000-10-10", strlen("0&2000-10-10")) == 0);
@@ -1706,7 +1706,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithPresent) {
     write_row.set_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     std::vector<string> val_string_array;
     val_string_array.push_back("2000-10-10");
@@ -1716,11 +1716,11 @@ TEST_F(TestColumn, VectorizedDateColumnWithPresent) {
         write_row.set_not_null(0);
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     }
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1730,7 +1730,7 @@ TEST_F(TestColumn, VectorizedDateColumnWithPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 101, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 101, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
 
@@ -1766,7 +1766,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithoutPresent) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("5678.1234");
@@ -1774,10 +1774,10 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithoutPresent) {
     write_row.from_tuple(tuple2);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1787,7 +1787,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithoutPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     EXPECT_TRUE(strncmp(read_row.to_string().c_str(), "0&1234.5678", strlen("0&1234.5678")) == 0);
@@ -1817,7 +1817,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithPresent) {
     write_row.set_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("5678.1234");
@@ -1826,10 +1826,10 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithPresent) {
     write_row.set_not_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1839,7 +1839,7 @@ TEST_F(TestColumn, VectorizedDecimalColumnWithPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
 
@@ -1871,17 +1871,17 @@ TEST_F(TestColumn, SkipDecimalColumnWithPresent) {
     write_row.from_tuple(val_string_array);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("5678.1234");
     write_row.from_tuple(val_string_array);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1892,9 +1892,9 @@ TEST_F(TestColumn, SkipDecimalColumnWithPresent) {
 
     char read_value[20];
     memset(read_value, 0, 20);
-    EXPECT_EQ(_column_reader->skip(1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->skip(1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     EXPECT_TRUE(strncmp(read_row.to_string().c_str(), "0&5678.1234", strlen("0&5678.1234")) == 0);
@@ -1922,7 +1922,7 @@ TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
@@ -1932,12 +1932,12 @@ TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
     write_row.from_tuple(tuple2);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     create_and_save_last_position();
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -1960,17 +1960,17 @@ TEST_F(TestColumn, SeekDecimalColumnWithPresent) {
 
     char read_value[20];
     memset(read_value, 0, 20);
-    EXPECT_EQ(_column_reader->seek(&position0), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position0), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     EXPECT_TRUE(strncmp(read_row.to_string().c_str(), "0&1234.5678", strlen("0&1234.5678")) == 0);
 
     memset(read_value, 0, 20);
-    EXPECT_EQ(_column_reader->seek(&position1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     EXPECT_TRUE(strncmp(read_row.to_string().c_str(), "0&5678.1234", strlen("0&5678.1234")) == 0);
@@ -2004,7 +2004,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithoutPresent) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back(value2);
@@ -2012,10 +2012,10 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithoutPresent) {
     write_row.from_tuple(tuple2);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -2025,7 +2025,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithoutPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     value1 = "0&" + value1;
@@ -2062,7 +2062,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
     write_row.set_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     std::vector<string> val_string_array;
     val_string_array.push_back(value1);
@@ -2071,7 +2071,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
     write_row.set_not_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back(value2);
@@ -2080,10 +2080,10 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
     write_row.set_not_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
 
@@ -2093,7 +2093,7 @@ TEST_F(TestColumn, VectorizedLargeIntColumnWithPresent) {
     read_row.init(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 3, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 3, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
     EXPECT_EQ(is_null[1], false);
@@ -2140,7 +2140,7 @@ TEST_F(TestColumn, SkipLargeIntColumnWithPresent) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back(value2);
@@ -2148,10 +2148,10 @@ TEST_F(TestColumn, SkipLargeIntColumnWithPresent) {
     write_row.from_tuple(tuple2);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2159,9 +2159,9 @@ TEST_F(TestColumn, SkipLargeIntColumnWithPresent) {
     read_row.init(tablet_schema);
 
     value2 = "0&" + value2;
-    EXPECT_EQ(_column_reader->skip(1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->skip(1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
     read_row.set_field_content(0, data, _mem_pool.get());
     EXPECT_TRUE(strncmp(read_row.to_string().c_str(), value2.c_str(), value2.size()) == 0);
@@ -2191,11 +2191,11 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithoutPresent) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     for (uint32_t i = 0; i < 2; i++) {
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     }
     val_string_array.clear();
     val_string_array.push_back("ZWRjYmE="); //"edcba" base_64_encode is "ZWRjYmE="
@@ -2204,11 +2204,11 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithoutPresent) {
     for (uint32_t i = 0; i < 2; i++) {
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     }
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2219,7 +2219,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithoutPresent) {
 
     _col_vector.reset(new ColumnVector());
 
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 5, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 5, _mem_pool.get()), Status::OK());
     Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
     EXPECT_TRUE(strncmp(value->data, "YWJjZGU=", value->size) == 0);
     for (uint32_t i = 0; i < 2; i++) {
@@ -2230,7 +2230,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithoutPresent) {
         value++;
         EXPECT_TRUE(strncmp(value->data, "ZWRjYmE=", value->size) == 0);
     }
-    EXPECT_NE(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_NE(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
 }
 
 TEST_F(TestColumn, VectorizedDirectVarcharColumnWithPresent) {
@@ -2252,7 +2252,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithPresent) {
     write_row.set_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     std::vector<string> val_string_array;
     val_string_array.push_back("YWJjZGU="); //"abcde" base_64_encode is "YWJjZGU="
@@ -2261,10 +2261,10 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithPresent) {
     write_row.set_not_null(0);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2274,7 +2274,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWithPresent) {
     read_row.allocate_memory_for_string_type(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
     EXPECT_EQ(is_null[1], false);
@@ -2307,7 +2307,7 @@ TEST_F(TestColumn, SkipDirectVarcharColumnWithPresent) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("YWFhYWE="); //"aaaaa" base_64_encode is "YWJjZGU="
@@ -2315,10 +2315,10 @@ TEST_F(TestColumn, SkipDirectVarcharColumnWithPresent) {
     write_row.from_tuple(tuple2);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2329,9 +2329,9 @@ TEST_F(TestColumn, SkipDirectVarcharColumnWithPresent) {
 
     char read_value[20];
     memset(read_value, 0, 20);
-    EXPECT_EQ(_column_reader->skip(1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->skip(1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
     EXPECT_TRUE(strncmp(value->data, "YWFhYWE=", value->size) == 0);
 }
@@ -2359,7 +2359,7 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithoutPresent) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     _column_writer->create_row_index_entry();
 
@@ -2369,12 +2369,12 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithoutPresent) {
     write_row.from_tuple(tuple2);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     _column_writer->create_row_index_entry();
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2396,15 +2396,15 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithoutPresent) {
     PositionProvider position0(&entry1);
     PositionProvider position1(&entry2);
 
-    EXPECT_EQ(_column_reader->seek(&position0), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position0), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
     EXPECT_TRUE(strncmp(value->data, "YWJjZGU=", value->size) == 0);
 
-    EXPECT_EQ(_column_reader->seek(&position1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     value = reinterpret_cast<Slice*>(_col_vector->col_data());
     EXPECT_TRUE(strncmp(value->data, "YWFhYWE=", value->size) == 0);
 }
@@ -2432,7 +2432,7 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithPresent) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     _column_writer->create_row_index_entry();
 
@@ -2442,12 +2442,12 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithPresent) {
     write_row.from_tuple(tuple2);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     _column_writer->create_row_index_entry();
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2469,15 +2469,15 @@ TEST_F(TestColumn, SeekDirectVarcharColumnWithPresent) {
     PositionProvider position0(&entry1);
     PositionProvider position1(&entry2);
 
-    EXPECT_EQ(_column_reader->seek(&position0), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position0), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
     EXPECT_TRUE(strncmp(value->data, "YWJjZGU=", value->size) == 0);
 
-    EXPECT_EQ(_column_reader->seek(&position1), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->seek(&position1), Status::OK());
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
     value = reinterpret_cast<Slice*>(_col_vector->col_data());
     EXPECT_TRUE(strncmp(value->data, "YWFhYWE=", value->size) == 0);
 }
@@ -2504,11 +2504,11 @@ TEST_F(TestColumn, VectorizedCharColumnWithoutPresent) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     for (uint32_t i = 0; i < 2; i++) {
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     }
     val_string_array.clear();
     val_string_array.push_back("edcba"); //"edcba" base_64_encode is "ZWRjYmE="
@@ -2517,11 +2517,11 @@ TEST_F(TestColumn, VectorizedCharColumnWithoutPresent) {
     for (uint32_t i = 0; i < 2; i++) {
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     }
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2531,7 +2531,7 @@ TEST_F(TestColumn, VectorizedCharColumnWithoutPresent) {
     read_row.allocate_memory_for_string_type(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 5, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 5, _mem_pool.get()), Status::OK());
     Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
 
     EXPECT_TRUE(strncmp(value->data, "abcde", value->size) == 0);
@@ -2543,7 +2543,7 @@ TEST_F(TestColumn, VectorizedCharColumnWithoutPresent) {
         value++;
         EXPECT_TRUE(strncmp(value->data, "edcba", value->size) == 0);
     }
-    EXPECT_NE(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_NE(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
 }
 
 TEST_F(TestColumn, VectorizedCharColumnWithPresent) {
@@ -2572,10 +2572,10 @@ TEST_F(TestColumn, VectorizedCharColumnWithPresent) {
     write_row.set_not_null(0);
     block.set_row(1, write_row);
     block.finalize(2);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2585,7 +2585,7 @@ TEST_F(TestColumn, VectorizedCharColumnWithPresent) {
     read_row.allocate_memory_for_string_type(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
     EXPECT_EQ(is_null[1], false);
@@ -2617,7 +2617,7 @@ TEST_F(TestColumn, VectorizedCharColumnWithoutoutPresent2) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("aaaaa"); //"abcde" base_64_encode is "YWJjZGU="
@@ -2625,7 +2625,7 @@ TEST_F(TestColumn, VectorizedCharColumnWithoutoutPresent2) {
     write_row.from_tuple(tuple2);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("bbbbb"); //"abcde" base_64_encode is "YWJjZGU="
@@ -2633,7 +2633,7 @@ TEST_F(TestColumn, VectorizedCharColumnWithoutoutPresent2) {
     write_row.from_tuple(tuple3);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("ccccc"); //"abcde" base_64_encode is "YWJjZGU="
@@ -2641,7 +2641,7 @@ TEST_F(TestColumn, VectorizedCharColumnWithoutoutPresent2) {
     write_row.from_tuple(tuple4);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("ddddd"); //"abcde" base_64_encode is "YWJjZGU="
@@ -2649,10 +2649,10 @@ TEST_F(TestColumn, VectorizedCharColumnWithoutoutPresent2) {
     write_row.from_tuple(tuple5);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2662,7 +2662,7 @@ TEST_F(TestColumn, VectorizedCharColumnWithoutoutPresent2) {
     read_row.allocate_memory_for_string_type(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 5, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 5, _mem_pool.get()), Status::OK());
     Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
 
     EXPECT_TRUE(strncmp(value->data, "abcde", value->size) == 0);
@@ -2702,11 +2702,11 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutPresent) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     for (uint32_t i = 0; i < 2; i++) {
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     }
     val_string_array.clear();
     val_string_array.push_back("edcba"); //"edcba" base_64_encode is "ZWRjYmE="
@@ -2715,11 +2715,11 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutPresent) {
     for (uint32_t i = 0; i < 2; i++) {
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     }
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2729,7 +2729,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutPresent) {
     read_row.allocate_memory_for_string_type(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 5, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 5, _mem_pool.get()), Status::OK());
     Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
 
     EXPECT_TRUE(strncmp(value->data, "abcde", value->size) == 0);
@@ -2741,7 +2741,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutPresent) {
         value++;
         EXPECT_TRUE(strncmp(value->data, "edcba", value->size) == 0);
     }
-    EXPECT_NE(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_NE(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
 }
 
 TEST_F(TestColumn, VectorizedStringColumnWithPresent) {
@@ -2770,10 +2770,10 @@ TEST_F(TestColumn, VectorizedStringColumnWithPresent) {
     write_row.set_not_null(0);
     block.set_row(1, write_row);
     block.finalize(2);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2783,7 +2783,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithPresent) {
     read_row.allocate_memory_for_string_type(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 2, _mem_pool.get()), Status::OK());
     bool* is_null = _col_vector->is_null();
     EXPECT_EQ(is_null[0], true);
     EXPECT_EQ(is_null[1], false);
@@ -2815,7 +2815,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     write_row.from_tuple(tuple1);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("aaaaa"); //"abcde" base_64_encode is "YWJjZGU="
@@ -2823,7 +2823,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     write_row.from_tuple(tuple2);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("bbbbb"); //"abcde" base_64_encode is "YWJjZGU="
@@ -2831,7 +2831,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     write_row.from_tuple(tuple3);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("ccccc"); //"abcde" base_64_encode is "YWJjZGU="
@@ -2839,7 +2839,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     write_row.from_tuple(tuple4);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("ddddd"); //"abcde" base_64_encode is "YWJjZGU="
@@ -2847,10 +2847,10 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     write_row.from_tuple(tuple5);
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2860,7 +2860,7 @@ TEST_F(TestColumn, VectorizedStringColumnWithoutoutPresent2) {
     read_row.allocate_memory_for_string_type(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 5, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 5, _mem_pool.get()), Status::OK());
     Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
 
     EXPECT_TRUE(strncmp(value->data, "abcde", value->size) == 0);
@@ -2897,10 +2897,10 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWith65533) {
     std::vector<string> val_string_array;
     val_string_array.push_back(std::string(65533, 'a'));
     OlapTuple tuple1(val_string_array);
-    EXPECT_EQ(OLAP_SUCCESS, write_row.from_tuple(tuple1));
+    EXPECT_EQ(Status::OK(), write_row.from_tuple(tuple1));
     block.set_row(0, write_row);
     block.finalize(1);
-    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
 
     val_string_array.clear();
     val_string_array.push_back("edcba"); //"edcba" base_64_encode is "ZWRjYmE="
@@ -2909,11 +2909,11 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWith65533) {
     for (uint32_t i = 0; i < 2; i++) {
         block.set_row(0, write_row);
         block.finalize(1);
-        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
     }
 
     ColumnDataHeaderMessage header;
-    EXPECT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
 
     // read data
     create_column_reader(tablet_schema);
@@ -2923,7 +2923,7 @@ TEST_F(TestColumn, VectorizedDirectVarcharColumnWith65533) {
     read_row.allocate_memory_for_string_type(tablet_schema);
 
     _col_vector.reset(new ColumnVector());
-    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 3, _mem_pool.get()), OLAP_SUCCESS);
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 3, _mem_pool.get()), Status::OK());
     Slice* value = reinterpret_cast<Slice*>(_col_vector->col_data());
 
     for (uint32_t i = 0; i < 65533; i++) {

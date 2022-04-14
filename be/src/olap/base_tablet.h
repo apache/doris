@@ -41,7 +41,7 @@ public:
     FilePathDesc tablet_path_desc() const;
 
     TabletState tablet_state() const { return _state; }
-    OLAPStatus set_tablet_state(TabletState state);
+    Status set_tablet_state(TabletState state);
 
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr tablet_meta();

@@ -179,12 +179,10 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         curr_interval = std::min(curr_interval, max_interval);
 
         // start clean trash and update usage.
-        OLAPStatus res = start_trash_sweep(&usage);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING(
-                    "one or more errors occur when sweep trash."
-                    "see previous message for detail. [err code=%d]",
-                    res);
+        Status res = start_trash_sweep(&usage);
+        if (!res.ok()) {
+            LOG(WARNING) << "one or more errors occur when sweep trash."
+                     << "see previous message for detail. err code=" << res;
             // do nothing. continue next loop.
         }
     }

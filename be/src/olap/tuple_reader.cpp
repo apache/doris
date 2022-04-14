@@ -38,12 +38,12 @@ using std::vector;
 
 namespace doris {
     
-OLAPStatus TupleReader::_init_collect_iter(const ReaderParams& read_params,
+Status TupleReader::_init_collect_iter(const ReaderParams& read_params,
         std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     _collect_iter.init(this);
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto res = _capture_rs_readers(read_params, &rs_readers);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
                      << ", schema_hash:" << read_params.tablet->schema_hash()
@@ -54,32 +54,32 @@ OLAPStatus TupleReader::_init_collect_iter(const ReaderParams& read_params,
 
     for (auto& rs_reader : rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
-        OLAPStatus res = _collect_iter.add_child(rs_reader);
-        if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
+        Status res = _collect_iter.add_child(rs_reader);
+        if (!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
             return res;
         }
-        if (res == OLAP_SUCCESS) {
+        if (res.ok()) {
             valid_rs_readers->push_back(rs_reader);
         }
     }
     _collect_iter.build_heap(*valid_rs_readers);
     _next_key = _collect_iter.current_row(&_next_delete_flag);
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus TupleReader::init(const ReaderParams& read_params) {
+Status TupleReader::init(const ReaderParams& read_params) {
     TabletReader::init(read_params);
 
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto status = _init_collect_iter(read_params, &rs_readers);
-    if (status != OLAP_SUCCESS) { return status; }
+    if (!status.ok()) { return status; }
 
     if (_optimize_for_single_rowset(rs_readers)) {
         _next_row_func = _tablet->keys_type() == AGG_KEYS ? &TupleReader::_direct_agg_key_next_row
                                                           : &TupleReader::_direct_next_row;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     switch (_tablet->keys_type()) {
@@ -97,55 +97,55 @@ OLAPStatus TupleReader::init(const ReaderParams& read_params) {
         break;
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus TupleReader::_direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+Status TupleReader::_direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                     bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     direct_copy_row(row_cursor, *_next_key);
     auto res = _collect_iter.next(&_next_key, &_next_delete_flag);
-    if (UNLIKELY(res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF)) {
+    if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
         return res;
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus TupleReader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+Status TupleReader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
                                             ObjectPool* agg_pool, bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     init_row_with_others(row_cursor, *_next_key, mem_pool, agg_pool);
     auto res = _collect_iter.next(&_next_key, &_next_delete_flag);
-    if (UNLIKELY(res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF)) {
+    if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
         return res;
     }
     if (_need_agg_finalize) {
         agg_finalize_row(_value_cids, row_cursor, mem_pool);
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus TupleReader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+Status TupleReader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                      bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     init_row_with_others(row_cursor, *_next_key, mem_pool, agg_pool);
     int64_t merged_count = 0;
     do {
         auto res = _collect_iter.next(&_next_key, &_next_delete_flag);
-        if (UNLIKELY(res == OLAP_ERR_DATA_EOF)) {
+        if (UNLIKELY(res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
             break;
         }
 
-        if (UNLIKELY(res != OLAP_SUCCESS)) {
+        if (UNLIKELY(!res.ok())) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
@@ -167,17 +167,17 @@ OLAPStatus TupleReader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_po
         agg_finalize_row(_value_cids, row_cursor, mem_pool);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+Status TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
                                         ObjectPool* agg_pool, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
     do {
         if (UNLIKELY(_next_key == nullptr)) {
             *eof = true;
-            return OLAP_SUCCESS;
+            return Status::OK();
         }
         cur_delete_flag = _next_delete_flag;
         // the version is in reverse order, the first row is the highest version,
@@ -186,8 +186,8 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
         direct_copy_row(row_cursor, *_next_key);
         // skip the lower version rows;
         auto res = _collect_iter.next(&_next_key, &_next_delete_flag);
-        if (LIKELY(res != OLAP_ERR_DATA_EOF)) {
-            if (UNLIKELY(res != OLAP_SUCCESS)) {
+        if (LIKELY(res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+            if (UNLIKELY(!res.ok())) {
                 LOG(WARNING) << "next failed: " << res;
                 return res;
             }
@@ -202,7 +202,7 @@ OLAPStatus TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem
         }
         _stats.rows_del_filtered++;
     } while (cur_delete_flag);
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

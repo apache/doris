@@ -154,39 +154,39 @@ StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset
     return buf;
 }
 
-OLAPStatus StorageByteBuffer::put(char src) {
+Status StorageByteBuffer::put(char src) {
     if (_position < _limit) {
         _array[_position++] = src;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    return OLAP_ERR_BUFFER_OVERFLOW;
+    return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
 }
 
-OLAPStatus StorageByteBuffer::put(uint64_t index, char src) {
+Status StorageByteBuffer::put(uint64_t index, char src) {
     if (index < _limit) {
         _array[index] = src;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    return OLAP_ERR_BUFFER_OVERFLOW;
+    return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
 }
 
-OLAPStatus StorageByteBuffer::put(const char* src, uint64_t src_size, uint64_t offset,
+Status StorageByteBuffer::put(const char* src, uint64_t src_size, uint64_t offset,
                                   uint64_t length) {
     //没有足够的空间可以写
     if (length > remaining()) {
-        return OLAP_ERR_BUFFER_OVERFLOW;
+        return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
     }
 
     //src不够大
     if (offset + length > src_size) {
-        return OLAP_ERR_OUT_OF_BOUND;
+        return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
     }
 
     memory_copy(&_array[_position], &src[offset], length);
     _position += length;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

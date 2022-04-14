@@ -43,7 +43,7 @@ public:
                         int64_t signature, Status* res_status);
     virtual ~EngineBatchLoadTask();
 
-    virtual OLAPStatus execute();
+    virtual Status execute();
 
 private:
     virtual Status _init();
@@ -62,10 +62,10 @@ private:
     // @param [out] tablet_info_vec return tablet last status, which
     //              include version info, row count, data size, etc
     // @return OLAP_SUCCESS if submit delete_data success
-    virtual OLAPStatus _delete_data(const TPushReq& request, vector<TTabletInfo>* tablet_info_vec);
+    virtual Status _delete_data(const TPushReq& request, vector<TTabletInfo>* tablet_info_vec);
 
     Status _get_tmp_file_dir(const std::string& root_path, std::string* local_path);
-    OLAPStatus _push(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec);
+    Status _push(const TPushReq& request, std::vector<TTabletInfo>* tablet_info_vec);
     void _get_file_name_from_path(const std::string& file_path, std::string* file_name);
 
     bool _is_init = false;

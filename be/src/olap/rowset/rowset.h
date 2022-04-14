@@ -58,19 +58,19 @@ class RowsetStateMachine {
 public:
     RowsetStateMachine() : _rowset_state(ROWSET_UNLOADED) {}
 
-    OLAPStatus on_load() {
+    Status on_load() {
         switch (_rowset_state) {
         case ROWSET_UNLOADED:
             _rowset_state = ROWSET_LOADED;
             break;
 
         default:
-            return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+            return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION);
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    OLAPStatus on_close(uint64_t refs_by_reader) {
+    Status on_close(uint64_t refs_by_reader) {
         switch (_rowset_state) {
         case ROWSET_LOADED:
             if (refs_by_reader == 0) {
@@ -81,21 +81,21 @@ public:
             break;
 
         default:
-            return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+            return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION);
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    OLAPStatus on_release() {
+    Status on_release() {
         switch (_rowset_state) {
         case ROWSET_UNLOADING:
             _rowset_state = ROWSET_UNLOADED;
             break;
 
         default:
-            return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+            return Status::OLAPInternalError(OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION);
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     RowsetState rowset_state() { return _rowset_state; }
@@ -113,10 +113,10 @@ public:
     //
     // May be called multiple times, subsequent calls will no-op.
     // Derived class implements the load logic by overriding the `do_load_once()` method.
-    OLAPStatus load(bool use_cache = true);
+    Status load(bool use_cache = true);
 
-    // returns OLAP_ERR_ROWSET_CREATE_READER when failed to create reader
-    virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
+    // returns Status::OLAPInternalError(OLAP_ERR_ROWSET_CREATE_READER) when failed to create reader
+    virtual Status create_reader(std::shared_ptr<RowsetReader>* result) = 0;
 
     // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly
     // `request_block_row_count` rows. Sub-range is represented by pair of OlapTuples and added to `ranges`.
@@ -126,7 +126,7 @@ public:
     //
     // The first/last tuple must be start_key/end_key.to_tuple(). If we can't divide the input range,
     // the result `ranges` should be [start_key.to_tuple(), end_key.to_tuple()]
-    virtual OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
+    virtual Status split_range(const RowCursor& start_key, const RowCursor& end_key,
                                    uint64_t request_block_row_count, size_t key_num,
                                    std::vector<OlapTuple>* ranges) = 0;
 
@@ -160,7 +160,7 @@ public:
 
     // remove all files in this rowset
     // TODO should we rename the method to remove_files() to be more specific?
-    virtual OLAPStatus remove() = 0;
+    virtual Status remove() = 0;
 
     // close to clear the resource owned by rowset
     // including: open files, indexes and so on
@@ -170,7 +170,7 @@ public:
         if (old_state != ROWSET_LOADED) {
             return;
         }
-        OLAPStatus st = OLAP_SUCCESS;
+        Status st = Status::OK();
         {
             std::lock_guard<std::mutex> close_lock(_lock);
             uint64_t current_refs = _refs_by_reader;
@@ -183,7 +183,7 @@ public:
             }
             st = _rowset_state_machine.on_close(current_refs);
         }
-        if (st != OLAP_SUCCESS) {
+        if (!st.ok()) {
             LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
             return;
         }
@@ -193,14 +193,14 @@ public:
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
-    virtual OLAPStatus link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) = 0;
+    virtual Status link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) = 0;
 
     // copy all files to `dir`
-    virtual OLAPStatus copy_files_to(const std::string& dir) = 0;
+    virtual Status copy_files_to(const std::string& dir) = 0;
 
-    virtual OLAPStatus upload_files_to(const FilePathDesc& dir_desc) { return OLAP_SUCCESS; }
+    virtual Status upload_files_to(const FilePathDesc& dir_desc) { return Status::OK(); }
 
-    virtual OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) = 0;
+    virtual Status remove_old_files(std::vector<std::string>* files_to_remove) = 0;
 
     // return whether `path` is one of the files in this rowset
     virtual bool check_path(const std::string& path) = 0;
@@ -254,10 +254,10 @@ protected:
     Rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc, RowsetMetaSharedPtr rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    virtual OLAPStatus init() = 0;
+    virtual Status init() = 0;
 
     // The actual implementation of load(). Guaranteed by to called exactly once.
-    virtual OLAPStatus do_load(bool use_cache) = 0;
+    virtual Status do_load(bool use_cache) = 0;
 
     // release resources in this api
     virtual void do_close() = 0;

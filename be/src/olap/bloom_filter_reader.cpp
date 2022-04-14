@@ -27,9 +27,9 @@ BloomFilterIndexReader::~BloomFilterIndexReader() {
     }
 }
 
-OLAPStatus BloomFilterIndexReader::init(char* buffer, size_t buffer_size, bool is_using_cache,
+Status BloomFilterIndexReader::init(char* buffer, size_t buffer_size, bool is_using_cache,
                                         uint32_t hash_function_num, uint32_t bit_num) {
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
 
     _buffer = buffer;
     _buffer_size = buffer_size;
@@ -45,7 +45,7 @@ OLAPStatus BloomFilterIndexReader::init(char* buffer, size_t buffer_size, bool i
                 "invalid param found. "
                 "[buffer_size=%lu bit_num=%u block_count=%lu header_size=%lu]",
                 buffer_size, bit_num, _entry_count, _start_offset);
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     return res;

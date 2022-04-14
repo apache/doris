@@ -28,7 +28,7 @@
 
 namespace doris {
 
-OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
+Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
                                  const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                                  RowsetWriter* dst_rowset_writer,
                                  Merger::Statistics* stats_output) {
@@ -84,7 +84,7 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     RETURN_NOT_OK_LOG(
             dst_rowset_writer->flush(),
             "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

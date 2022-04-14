@@ -106,7 +106,7 @@ public:
     }
 
     /// Same as Allocate() expect add a check when return a nullptr
-    OLAPStatus allocate_safely(int64_t size, uint8_t*& ret, Status* rst = nullptr) {
+    Status allocate_safely(int64_t size, uint8_t*& ret, Status* rst = nullptr) {
         return allocate_safely<false>(size, DEFAULT_ALIGNMENT, ret, rst);
     }
 
@@ -270,14 +270,14 @@ private:
     }
 
     template <bool CHECK_LIMIT_FIRST>
-    OLAPStatus ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret,
+    Status ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret,
                                              Status* rst = nullptr) {
         uint8_t* result = allocate<CHECK_LIMIT_FIRST>(size, alignment, rst);
         if (result == nullptr) {
-            return OLAP_ERR_MALLOC_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
         ret = result;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
 private:

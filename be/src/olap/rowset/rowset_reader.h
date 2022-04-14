@@ -41,16 +41,16 @@ public:
     virtual ~RowsetReader() {}
 
     // reader init
-    virtual OLAPStatus init(RowsetReaderContext* read_context) = 0;
+    virtual Status init(RowsetReaderContext* read_context) = 0;
 
     // read next block data into *block.
     // Returns
     //      OLAP_SUCCESS when read successfully.
-    //      OLAP_ERR_DATA_EOF and set *block to null when there is no more block.
+    //      Status::OLAPInternalError(OLAP_ERR_DATA_EOF) and set *block to null when there is no more block.
     //      Others when error happens.
-    virtual OLAPStatus next_block(RowBlock** block) = 0;
+    virtual Status next_block(RowBlock** block) = 0;
 
-    virtual OLAPStatus next_block(vectorized::Block* block) = 0;
+    virtual Status next_block(vectorized::Block* block) = 0;
 
     virtual bool delete_flag() = 0;
 

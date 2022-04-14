@@ -430,7 +430,7 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
                     &char_tablet_schema);
     // test WrapperField.from_string() for char type
     WrapperField* field = WrapperField::create(char_tablet_schema.column(0));
-    EXPECT_EQ(OLAP_SUCCESS, field->from_string("true"));
+    EXPECT_EQ(Status::OK(), field->from_string("true"));
     const std::string tmp = field->to_string();
     EXPECT_EQ(5, tmp.size());
     EXPECT_EQ('t', tmp[0]);

@@ -28,15 +28,15 @@ CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
 
 CumulativeCompaction::~CumulativeCompaction() {}
 
-OLAPStatus CumulativeCompaction::prepare_compact() {
+Status CumulativeCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS;
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS);
     }
 
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_CE_TRY_CE_LOCK_ERROR);
     }
     TRACE("got cumulative compaction lock");
 
@@ -52,14 +52,14 @@ OLAPStatus CumulativeCompaction::prepare_compact() {
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
     _tablet->set_clone_occurred(false);
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus CumulativeCompaction::execute_compact_impl() {
+Status CumulativeCompaction::execute_compact_impl() {
     std::unique_lock<std::mutex> lock(_tablet->get_cumulative_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(INFO) << "The tablet is under cumulative compaction. tablet=" << _tablet->full_name();
-        return OLAP_ERR_CE_TRY_CE_LOCK_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_CE_TRY_CE_LOCK_ERROR);
     }
     TRACE("got cumulative compaction lock");
 
@@ -67,7 +67,7 @@ OLAPStatus CumulativeCompaction::execute_compact_impl() {
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return OLAP_ERR_CUMULATIVE_CLONE_OCCURRED;
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_CLONE_OCCURRED);
     }
 
     // 3. do cumulative compaction, merge rowsets
@@ -89,17 +89,17 @@ OLAPStatus CumulativeCompaction::execute_compact_impl() {
     DorisMetrics::instance()->cumulative_compaction_bytes_total->increment(_input_rowsets_size);
     TRACE("save cumulative compaction metrics");
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
+Status CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
 
     _tablet->pick_candidate_rowsets_to_cumulative_compaction(
             config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
 
     if (candidate_rowsets.empty()) {
-        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION;
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION);
     }
 
     // candidate_rowsets may not be continuous. Because some rowset may not be selected
@@ -123,14 +123,14 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             &_last_delete_version, &compaction_score);
 
     // Cumulative compaction will process with at least 1 rowset.
-    // So when there is no rowset being chosen, we should return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION:
+    // So when there is no rowset being chosen, we should return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION):
     if (_input_rowsets.empty()) {
         if (_last_delete_version.first != -1) {
             // we meet a delete version, should increase the cumulative point to let base compaction handle the delete version.
             // plus 1 to skip the delete version.
             // NOTICE: after that, the cumulative point may be larger than max version of this tablet, but it doesn't matter.
             _tablet->set_cumulative_layer_point(_last_delete_version.first + 1);
-            return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION;
+            return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION);
         }
 
         // we did not meet any delete version. which means compaction_score is not enough to do cumulative compaction.
@@ -156,7 +156,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
                 for (auto& rs : candidate_rowsets) {
                     if (rs->rowset_meta()->is_segments_overlapping()) {
                         _input_rowsets = candidate_rowsets;
-                        return OLAP_SUCCESS;
+                        return Status::OK();
                     }
                 }
 
@@ -174,10 +174,10 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
             }
         }
 
-        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION;
+        return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

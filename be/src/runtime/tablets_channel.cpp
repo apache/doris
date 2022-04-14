@@ -126,11 +126,11 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& request,
                     strings::Substitute("unknown tablet to append data, tablet=$0", tablet_to_rowidxs_it.first));
         }
 
-        OLAPStatus st = tablet_writer_it->second->write(&row_batch, tablet_to_rowidxs_it.second);
-        if (st != OLAP_SUCCESS) {
+        Status st = tablet_writer_it->second->write(&row_batch, tablet_to_rowidxs_it.second);
+        if (!st.ok()) {
             auto err_msg = strings::Substitute(
                     "tablet writer write failed, tablet_id=$0, txn_id=$1, err=$2",
-                    tablet_to_rowidxs_it.first, _txn_id, st);
+                    tablet_to_rowidxs_it.first, _txn_id, st.to_string());
             LOG(WARNING) << err_msg;
             PTabletError* error = tablet_errors->Add();
             error->set_tablet_id(tablet_to_rowidxs_it.first);
@@ -176,7 +176,7 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
         for (auto& it : _tablet_writers) {
             if (_partition_ids.count(it.second->partition_id()) > 0) {
                 auto st = it.second->close();
-                if (st != OLAP_SUCCESS) {
+                if (!st.ok()) {
                     LOG(WARNING) << "close tablet writer failed, tablet_id=" << it.first
                                  << ", transaction_id=" << _txn_id << ", err=" << st;
                     // just skip this tablet(writer) and continue to close others
@@ -185,7 +185,7 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
                 need_wait_writers.push_back(it.second);
             } else {
                 auto st = it.second->cancel();
-                if (st != OLAP_SUCCESS) {
+                if (!st.ok()) {
                     LOG(WARNING) << "cancel tablet writer failed, tablet_id=" << it.first
                                  << ", transaction_id=" << _txn_id;
                     // just skip this tablet(writer) and continue to close others
@@ -252,8 +252,8 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     }
 
     for (int i = 0; i < counter; i++) {
-        OLAPStatus st = writers[i]->wait_flush();
-        if (st != OLAP_SUCCESS) {
+        Status st = writers[i]->wait_flush();
+        if (!st.ok()) {
             return Status::InternalError(fmt::format("failed to reduce mem consumption by flushing memtable. err: {}", st));
         }
     }
@@ -289,7 +289,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&wrequest, &writer);
-        if (st != OLAP_SUCCESS) {
+        if (!st.ok()) {
             std::stringstream ss;
             ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()
                << ", txn_id=" << _txn_id << ", partition_id=" << tablet.partition_id()

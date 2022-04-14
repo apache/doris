@@ -703,11 +703,11 @@ static Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
         }
         SCOPED_TIMER(show_hints_timer);
 
-        OLAPStatus res = OLAP_SUCCESS;
+        Status res = Status::OK();
         std::vector<OlapTuple> range;
         res = table->split_range(key_range->begin_scan_range, key_range->end_scan_range,
                                  block_row_count, &range);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
@@ -717,7 +717,7 @@ static Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
     if (!have_valid_range) {
         std::vector<OlapTuple> range;
         auto res = table->split_range({}, {}, block_row_count, &range);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));

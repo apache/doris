@@ -35,7 +35,7 @@ public:
     ~BloomFilterIndexReader();
 
     // Init BloomFilterIndexReader with given bloom filter index buffer
-    OLAPStatus init(char* buffer, size_t buffer_size, bool is_using_cache,
+    Status init(char* buffer, size_t buffer_size, bool is_using_cache,
                     uint32_t hash_function_num, uint32_t bit_num);
 
     // Get specified bloom filter entry

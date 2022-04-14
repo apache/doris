@@ -58,14 +58,14 @@ using std::vector;
 
 namespace doris {
 
-OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
+Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
                          size_t* written_len, OLAPCompressionType compression_type) {
     if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
         OLAP_LOG_WARNING(
                 "input param with nullptr pointer. [src_buf=%p dest_buf=%p written_len=%p]",
                 src_buf, dest_buf, written_len);
 
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     *written_len = dest_len;
@@ -78,17 +78,17 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
         if (LZO_E_OK != (lzo_res = lzo1x_1_compress(
                                  reinterpret_cast<const lzo_byte*>(src_buf), src_len,
                                  reinterpret_cast<unsigned char*>(dest_buf), written_len, mem))) {
-            OLAP_LOG_WARNING(
-                    "compress failed."
-                    "[src_len=%lu; dest_len=%lu; written_len=%lu; lzo_res=%d]",
-                    src_len, dest_len, *written_len, lzo_res);
+            LOG(WARNING) <<  "compress failed. src_len=" << src_len
+                         << "; dest_len= " << dest_len 
+                         << "; written_len=" << *written_len
+                         << "; lzo_res=" << lzo_res;
 
-            return OLAP_ERR_COMPRESS_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
         } else if (*written_len > dest_len) {
             VLOG_NOTICE << "buffer overflow when compressing. "
                         << "dest_len=" << dest_len << ", written_len=" << *written_len;
 
-            return OLAP_ERR_BUFFER_OVERFLOW;
+            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
         break;
     }
@@ -99,17 +99,17 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
         if (LZO_E_OK != (lzo_res = lzo1c_99_compress(
                                  reinterpret_cast<const lzo_byte*>(src_buf), src_len,
                                  reinterpret_cast<unsigned char*>(dest_buf), written_len, mem))) {
-            OLAP_LOG_WARNING(
-                    "compress failed."
-                    "[src_len=%lu; dest_len=%lu; written_len=%lu; lzo_res=%d]",
-                    src_len, dest_len, *written_len, lzo_res);
+            LOG(WARNING) << "compress failed. src_len=" << src_len
+                         << "; dest_len= " << dest_len 
+                         << "; written_len=" << *written_len
+                         << "; lzo_res=" << lzo_res;
 
-            return OLAP_ERR_COMPRESS_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
         } else if (*written_len > dest_len) {
             VLOG_NOTICE << "buffer overflow when compressing. "
                         << ", dest_len=" << dest_len << ", written_len=" << *written_len;
 
-            return OLAP_ERR_BUFFER_OVERFLOW;
+            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
         break;
     }
@@ -122,7 +122,7 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
         if (0 == lz4_res) {
             VLOG_TRACE << "compress failed. src_len=" << src_len << ", dest_len=" << dest_len
                        << ", written_len=" << *written_len << ", lz4_res=" << lz4_res;
-            return OLAP_ERR_BUFFER_OVERFLOW;
+            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
         break;
     }
@@ -130,17 +130,17 @@ OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, si
         OLAP_LOG_WARNING("unknown compression type. [type=%d]", compression_type);
         break;
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
+Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
                            size_t* written_len, OLAPCompressionType compression_type) {
     if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
         OLAP_LOG_WARNING(
                 "input param with nullptr pointer. [src_buf=%p dest_buf=%p written_len=%p]",
                 src_buf, dest_buf, written_len);
 
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     *written_len = dest_len;
@@ -151,17 +151,16 @@ OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, 
                                             reinterpret_cast<unsigned char*>(dest_buf), written_len,
                                             nullptr);
         if (LZO_E_OK != lzo_res) {
-            OLAP_LOG_WARNING(
-                    "decompress failed."
-                    "[src_len=%lu; dest_len=%lu; written_len=%lu; lzo_res=%d]",
-                    src_len, dest_len, *written_len, lzo_res);
-
-            return OLAP_ERR_DECOMPRESS_ERROR;
+            LOG(WARNING) << "decompress failed. src_len=" << src_len
+                         << "; dest_len= " << dest_len 
+                         << "; written_len=" << *written_len
+                         << "; lzo_res=" << lzo_res;
+            return Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR);
         } else if (*written_len > dest_len) {
             OLAP_LOG_WARNING("buffer overflow when decompressing. [dest_len=%lu written_len=%lu]",
                              dest_len, *written_len);
 
-            return OLAP_ERR_BUFFER_OVERFLOW;
+            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
         break;
     }
@@ -170,17 +169,16 @@ OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, 
                                             reinterpret_cast<unsigned char*>(dest_buf), written_len,
                                             nullptr);
         if (LZO_E_OK != lzo_res) {
-            OLAP_LOG_WARNING(
-                    "decompress failed."
-                    "[src_len=%lu; dest_len=%lu; written_len=%lu; lzo_res=%d]",
-                    src_len, dest_len, *written_len, lzo_res);
-
-            return OLAP_ERR_DECOMPRESS_ERROR;
+            LOG(WARNING) <<  "compress failed. src_len=" << src_len
+                         << "; dest_len= " << dest_len 
+                         << "; written_len=" << *written_len
+                         << "; lzo_res=" << lzo_res;
+            return Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR);
         } else if (*written_len > dest_len) {
             OLAP_LOG_WARNING("buffer overflow when decompressing. [dest_len=%lu written_len=%lu]",
                              dest_len, *written_len);
 
-            return OLAP_ERR_BUFFER_OVERFLOW;
+            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
         break;
     }
@@ -190,12 +188,11 @@ OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, 
         int lz4_res = LZ4_decompress_safe(src_buf, dest_buf, src_len, dest_len);
         *written_len = lz4_res;
         if (lz4_res < 0) {
-            OLAP_LOG_WARNING(
-                    "decompress failed."
-                    "[src_len=%lu; dest_len=%lu; written_len=%lu; lzo_res=%d]",
-                    src_len, dest_len, *written_len, lz4_res);
-
-            return OLAP_ERR_BUFFER_OVERFLOW;
+            LOG(WARNING) << "decompress failed. src_len=" << src_len
+                         << "; dest_len= " << dest_len 
+                         << "; written_len=" << *written_len
+                         << "; lzo_res=" << lz4_res;
+            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
         break;
     }
@@ -203,7 +200,7 @@ OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, 
         LOG(FATAL) << "unknown compress kind. kind=" << compression_type;
         break;
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len) {
@@ -564,36 +561,36 @@ uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len) {
 #endif
 }
 
-OLAPStatus gen_timestamp_string(string* out_string) {
+Status gen_timestamp_string(string* out_string) {
     time_t now = time(nullptr);
     tm local_tm;
 
     if (localtime_r(&now, &local_tm) == nullptr) {
         OLAP_LOG_WARNING("fail to localtime_r time. [time=%lu]", now);
-        return OLAP_ERR_OS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
     char time_suffix[16] = {0}; // Example: 20150706111404, 长度是15个字符
     if (strftime(time_suffix, sizeof(time_suffix), "%Y%m%d%H%M%S", &local_tm) == 0) {
         OLAP_LOG_WARNING("fail to strftime time. [time=%lu]", now);
-        return OLAP_ERR_OS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
 
     *out_string = time_suffix;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 int operator-(const BinarySearchIterator& left, const BinarySearchIterator& right) {
     return *left - *right;
 }
 
-OLAPStatus read_write_test_file(const string& test_file_path) {
+Status read_write_test_file(const string& test_file_path) {
     if (access(test_file_path.c_str(), F_OK) == 0) {
         if (remove(test_file_path.c_str()) != 0) {
             char errmsg[64];
             LOG(WARNING) << "fail to delete test file. "
                          << "path=" << test_file_path << ", errno=" << errno
                          << ", err=" << strerror_r(errno, errmsg, 64);
-            return OLAP_ERR_IO_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
         }
     } else {
         if (errno != ENOENT) {
@@ -601,13 +598,13 @@ OLAPStatus read_write_test_file(const string& test_file_path) {
             LOG(WARNING) << "fail to access test file. "
                          << "path=" << test_file_path << ", errno=" << errno
                          << ", err=" << strerror_r(errno, errmsg, 64);
-            return OLAP_ERR_IO_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
         }
     }
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     FileHandler file_handler;
     if ((res = file_handler.open_with_mode(test_file_path.c_str(), O_RDWR | O_CREAT | O_SYNC,
-                                           S_IRUSR | S_IWUSR)) != OLAP_SUCCESS) {
+                                           S_IRUSR | S_IWUSR)) != Status::OK()) {
         LOG(WARNING) << "fail to create test file. path=" << test_file_path;
         return res;
     }
@@ -617,12 +614,12 @@ OLAPStatus read_write_test_file(const string& test_file_path) {
     char* read_test_buff = nullptr;
     if (posix_memalign((void**)&write_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "fail to allocate write buffer memory. size=" << TEST_FILE_BUF_SIZE;
-        return OLAP_ERR_MALLOC_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
     std::unique_ptr<char, decltype(&std::free)> write_buff(write_test_buff, &std::free);
     if (posix_memalign((void**)&read_test_buff, DIRECT_IO_ALIGNMENT, TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "fail to allocate read buffer memory. size=" << TEST_FILE_BUF_SIZE;
-        return OLAP_ERR_MALLOC_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
     std::unique_ptr<char, decltype(&std::free)> read_buff(read_test_buff, &std::free);
     // generate random numbers
@@ -631,21 +628,20 @@ OLAPStatus read_write_test_file(const string& test_file_path) {
         int32_t tmp_value = rand_r(&rand_seed);
         write_test_buff[i] = static_cast<char>(tmp_value);
     }
-    if ((res = file_handler.pwrite(write_buff.get(), TEST_FILE_BUF_SIZE, SEEK_SET)) !=
-        OLAP_SUCCESS) {
+    if (!(res = file_handler.pwrite(write_buff.get(), TEST_FILE_BUF_SIZE, SEEK_SET))) {
         LOG(WARNING) << "fail to write test file. [file_name=" << test_file_path << "]";
         return res;
     }
-    if ((res = file_handler.pread(read_buff.get(), TEST_FILE_BUF_SIZE, SEEK_SET)) != OLAP_SUCCESS) {
+    if ((res = file_handler.pread(read_buff.get(), TEST_FILE_BUF_SIZE, SEEK_SET)) != Status::OK()) {
         LOG(WARNING) << "fail to read test file. [file_name=" << test_file_path << "]";
         return res;
     }
     if (memcmp(write_buff.get(), read_buff.get(), TEST_FILE_BUF_SIZE) != 0) {
         LOG(WARNING) << "the test file write_buf and read_buf not equal, [file_name = "
                      << test_file_path << "]";
-        return OLAP_ERR_TEST_FILE_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_TEST_FILE_ERROR);
     }
-    if ((res = file_handler.close()) != OLAP_SUCCESS) {
+    if ((res = file_handler.close()) != Status::OK()) {
         LOG(WARNING) << "fail to close test file. [file_name=" << test_file_path << "]";
         return res;
     }
@@ -653,7 +649,7 @@ OLAPStatus read_write_test_file(const string& test_file_path) {
         char errmsg[64];
         VLOG_NOTICE << "fail to delete test file. [err='" << strerror_r(errno, errmsg, 64)
                     << "' path='" << test_file_path << "']";
-        return OLAP_ERR_IO_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
     return res;
 }
@@ -662,8 +658,8 @@ bool check_datapath_rw(const string& path) {
     if (!FileUtils::check_exist(path)) return false;
     string file_path = path + "/.read_write_test_file";
     try {
-        OLAPStatus res = read_write_test_file(file_path);
-        return res == OLAP_SUCCESS;
+        Status res = read_write_test_file(file_path);
+        return res.ok();
     } catch (...) {
         // do nothing
     }

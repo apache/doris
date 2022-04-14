@@ -49,8 +49,8 @@ public:
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
     void insert(const Tuple* tuple);
     /// Flush
-    OLAPStatus flush();
-    OLAPStatus close();
+    Status flush();
+    Status close();
 
     int64_t flush_size() const { return _flush_size; }
 

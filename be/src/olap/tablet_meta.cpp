@@ -34,7 +34,7 @@ using std::vector;
 
 namespace doris {
 
-OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
+Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
                               uint64_t shard_id, uint32_t next_unique_id,
                               const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                               TabletMetaSharedPtr* tablet_meta) {
@@ -44,7 +44,7 @@ OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& 
             col_ordinal_to_unique_id, tablet_uid,
             request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
             request.storage_medium, request.storage_param.storage_name));
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 TabletMeta::TabletMeta() : _tablet_uid(0, 0), _schema(new TabletSchema) {}
@@ -212,19 +212,19 @@ void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tc
     }
 }
 
-OLAPStatus TabletMeta::create_from_file(const string& file_path) {
+Status TabletMeta::create_from_file(const string& file_path) {
     FileHeader<TabletMetaPB> file_header;
     FileHandler file_handler;
 
-    if (file_handler.open(file_path, O_RDONLY) != OLAP_SUCCESS) {
+    if (file_handler.open(file_path, O_RDONLY) != Status::OK()) {
         LOG(WARNING) << "fail to open ordinal file. file=" << file_path;
-        return OLAP_ERR_IO_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
 
     // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
-    if (file_header.unserialize(&file_handler) != OLAP_SUCCESS) {
+    if (file_header.unserialize(&file_handler) != Status::OK()) {
         LOG(WARNING) << "fail to unserialize tablet_meta. file='" << file_path;
-        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_PARSE_PROTOBUF_ERROR);
     }
 
     TabletMetaPB tablet_meta_pb;
@@ -232,17 +232,17 @@ OLAPStatus TabletMeta::create_from_file(const string& file_path) {
         tablet_meta_pb.CopyFrom(file_header.message());
     } catch (...) {
         LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
-        return OLAP_ERR_PARSE_PROTOBUF_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_PARSE_PROTOBUF_ERROR);
     }
 
     init_from_pb(tablet_meta_pb);
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus TabletMeta::reset_tablet_uid(const string& header_file) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status TabletMeta::reset_tablet_uid(const string& header_file) {
+    Status res = Status::OK();
     TabletMeta tmp_tablet_meta;
-    if ((res = tmp_tablet_meta.create_from_file(header_file)) != OLAP_SUCCESS) {
+    if ((res = tmp_tablet_meta.create_from_file(header_file)) != Status::OK()) {
         LOG(WARNING) << "fail to load tablet meta from file"
                      << ", meta_file=" << header_file;
         return res;
@@ -251,7 +251,7 @@ OLAPStatus TabletMeta::reset_tablet_uid(const string& header_file) {
     tmp_tablet_meta.to_meta_pb(&tmp_tablet_meta_pb);
     *(tmp_tablet_meta_pb.mutable_tablet_uid()) = TabletUid::gen_uid().to_proto();
     res = save(header_file, tmp_tablet_meta_pb);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(FATAL) << "fail to save tablet meta pb to "
                    << " meta_file=" << header_file;
         return res;
@@ -266,46 +266,45 @@ std::string TabletMeta::construct_header_file_path(const string& schema_hash_pat
     return header_name_stream.str();
 }
 
-OLAPStatus TabletMeta::save(const string& file_path) {
+Status TabletMeta::save(const string& file_path) {
     TabletMetaPB tablet_meta_pb;
     to_meta_pb(&tablet_meta_pb);
     return TabletMeta::save(file_path, tablet_meta_pb);
 }
 
-OLAPStatus TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta_pb) {
+Status TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta_pb) {
     DCHECK(!file_path.empty());
 
     FileHeader<TabletMetaPB> file_header;
     FileHandler file_handler;
 
-    if (file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR) !=
-        OLAP_SUCCESS) {
+    if (!file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR)) {
         LOG(WARNING) << "fail to open header file. file='" << file_path;
-        return OLAP_ERR_IO_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
 
     try {
         file_header.mutable_message()->CopyFrom(tablet_meta_pb);
     } catch (...) {
         LOG(WARNING) << "fail to copy protocol buffer object. file='" << file_path;
-        return OLAP_ERR_OTHER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
     }
 
-    if (file_header.prepare(&file_handler) != OLAP_SUCCESS ||
-        file_header.serialize(&file_handler) != OLAP_SUCCESS) {
+    if (file_header.prepare(&file_handler) != Status::OK() ||
+        file_header.serialize(&file_handler) != Status::OK()) {
         LOG(WARNING) << "fail to serialize to file header. file='" << file_path;
-        return OLAP_ERR_SERIALIZE_PROTOBUF_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_SERIALIZE_PROTOBUF_ERROR);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus TabletMeta::save_meta(DataDir* data_dir) {
+Status TabletMeta::save_meta(DataDir* data_dir) {
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     return _save_meta(data_dir);
 }
 
-OLAPStatus TabletMeta::_save_meta(DataDir* data_dir) {
+Status TabletMeta::_save_meta(DataDir* data_dir) {
     // check if tablet uid is valid
     if (_tablet_uid.hi == 0 && _tablet_uid.lo == 0) {
         LOG(FATAL) << "tablet_uid is invalid"
@@ -313,33 +312,33 @@ OLAPStatus TabletMeta::_save_meta(DataDir* data_dir) {
     }
     string meta_binary;
     RETURN_NOT_OK(serialize(&meta_binary));
-    OLAPStatus status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
-    if (status != OLAP_SUCCESS) {
+    Status status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
+    if (!status.ok()) {
         LOG(FATAL) << "fail to save tablet_meta. status=" << status << ", tablet_id=" << tablet_id()
                    << ", schema_hash=" << schema_hash();
     }
     return status;
 }
 
-OLAPStatus TabletMeta::serialize(string* meta_binary) {
+Status TabletMeta::serialize(string* meta_binary) {
     TabletMetaPB tablet_meta_pb;
     to_meta_pb(&tablet_meta_pb);
     bool serialize_success = tablet_meta_pb.SerializeToString(meta_binary);
     if (!serialize_success) {
         LOG(FATAL) << "failed to serialize meta " << full_name();
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus TabletMeta::deserialize(const string& meta_binary) {
+Status TabletMeta::deserialize(const string& meta_binary) {
     TabletMetaPB tablet_meta_pb;
     bool parsed = tablet_meta_pb.ParseFromString(meta_binary);
     if (!parsed) {
         LOG(WARNING) << "parse tablet meta failed";
-        return OLAP_ERR_INIT_FAILED;
+        return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
     init_from_pb(tablet_meta_pb);
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
@@ -475,17 +474,17 @@ Version TabletMeta::max_version() const {
     return max_version;
 }
 
-OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
+Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     // check RowsetMeta is valid
     for (auto& rs : _rs_metas) {
         if (rs->version() == rs_meta->version()) {
             if (rs->rowset_id() != rs_meta->rowset_id()) {
                 LOG(WARNING) << "version already exist. rowset_id=" << rs->rowset_id()
                              << " version=" << rs->version() << ", tablet=" << full_name();
-                return OLAP_ERR_PUSH_VERSION_ALREADY_EXIST;
+                return Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST);
             } else {
                 // rowsetid,version is equal, it is a duplicate req, skip it
-                return OLAP_SUCCESS;
+                return Status::OK();
             }
         }
     }
@@ -495,7 +494,7 @@ OLAPStatus TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
         add_delete_predicate(rs_meta->delete_predicate(), rs_meta->version().first);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void TabletMeta::delete_rs_meta_by_version(const Version& version,
@@ -637,13 +636,13 @@ std::string TabletMeta::full_name() const {
     return ss.str();
 }
 
-OLAPStatus TabletMeta::set_partition_id(int64_t partition_id) {
+Status TabletMeta::set_partition_id(int64_t partition_id) {
     if ((_partition_id > 0 && _partition_id != partition_id) || partition_id < 1) {
         LOG(FATAL) << "cur partition id=" << _partition_id << " new partition id=" << partition_id
                    << " not equal";
     }
     _partition_id = partition_id;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 bool operator==(const TabletMeta& a, const TabletMeta& b) {

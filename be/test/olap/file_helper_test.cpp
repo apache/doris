@@ -63,9 +63,9 @@ TEST_F(FileHandlerTest, TestWrite) {
     std::string file_name = _s_test_data_path + "/abcd123.txt";
     // create a file using open
     EXPECT_FALSE(std::filesystem::exists(file_name));
-    OLAPStatus op_status =
+    Status op_status =
             file_handler.open_with_mode(file_name, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
-    EXPECT_EQ(OLAPStatus::OLAP_SUCCESS, op_status);
+    EXPECT_EQ(Status::OK(), op_status);
     EXPECT_TRUE(std::filesystem::exists(file_name));
 
     // tell current offset
