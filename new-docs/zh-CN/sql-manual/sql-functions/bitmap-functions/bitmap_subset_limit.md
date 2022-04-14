@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "bitmap_subset_limit",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,36 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
+# bitmap_subset_limit
 
-## description
+## Description
 
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BITMAP BITMAP_SUBSET_LIMIT(BITMAP src, BIGINT range_start, BIGINT cardinality_limit)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+生成 src 的子 BITMAP， 从不小于 range_start 的位置开始，大小限制为 cardinality_limit 。
+range_start：范围起始点（含）
+cardinality_limit：子BIGMAP基数上限
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select bitmap_to_string(bitmap_subset_limit(bitmap_from_string('1,2,3,4,5'), 0, 3)) value;
++-----------+
+| value     |
++-----------+
+| 1,2,3 |
++-----------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select bitmap_to_string(bitmap_subset_limit(bitmap_from_string('1,2,3,4,5'), 4, 3)) value;
++-------+
+| value |
++-------+
+| 4，5     |
++-------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITMAP_SUBSET_LIMIT,BITMAP_SUBSET,BITMAP

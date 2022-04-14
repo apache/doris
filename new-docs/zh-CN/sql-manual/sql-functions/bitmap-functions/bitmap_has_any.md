@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "bitmap_has_any",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,32 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# bitmap_has_any
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`B00LEAN BITMAP_HAS_ANY(BITMAP lhs, BITMAP rhs)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+计算两个Bitmap列是否存在相交元素，返回值是Boolean值. 
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select bitmap_has_any(to_bitmap(1),to_bitmap(2)) cnt;
++------+
+| cnt  |
++------+
+|    0 |
++------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select bitmap_has_any(to_bitmap(1),to_bitmap(1)) cnt;
++------+
+| cnt  |
++------+
+|    1 |
++------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITMAP_HAS_ANY,BITMAP

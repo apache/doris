@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "instr",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# instr
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT instr(VARCHAR str, VARCHAR substr)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+返回 substr 在 str 中第一次出现的位置（从1开始计数）。如果 substr 不在 str 中出现，则返回0。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select instr("abc", "b");
++-------------------+
+| instr('abc', 'b') |
++-------------------+
+|                 2 |
++-------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+mysql> select instr("abc", "d");
++-------------------+
+| instr('abc', 'd') |
++-------------------+
+|                 0 |
++-------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+INSTR

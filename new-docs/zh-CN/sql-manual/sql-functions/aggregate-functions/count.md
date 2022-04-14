@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "COUNT",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,38 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# COUNT
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`COUNT([DISTINCT] expr)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+用于返回满足要求的行的数目
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+MySQL > select count(*) from log_statis group by datetime;
++----------+
+| count(*) |
++----------+
+| 28515903 |
++----------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+MySQL > select count(datetime) from log_statis group by datetime;
++-------------------+
+| count(`datetime`) |
++-------------------+
+|         28521682  |
++-------------------+
 
+MySQL > select count(distinct datetime) from log_statis group by datetime;
++-------------------------------+
+| count(DISTINCT `datetime`)    |
++-------------------------------+
+|                       71045   |
++-------------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+COUNT

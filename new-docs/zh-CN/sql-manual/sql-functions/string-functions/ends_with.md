@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "ends_with",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,30 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# ends_with
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BOOLEAN ENDS_WITH (VARCHAR str, VARCHAR suffix)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+如果字符串以指定后缀结尾，返回true。否则，返回false。任意参数为NULL，返回NULL。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select ends_with("Hello doris", "doris");
++-----------------------------------+
+| ends_with('Hello doris', 'doris') |
++-----------------------------------+
+|                                 1 | 
++-----------------------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+mysql> select ends_with("Hello doris", "Hello");
++-----------------------------------+
+| ends_with('Hello doris', 'Hello') |
++-----------------------------------+
+|                                 0 | 
++-----------------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+ENDS_WITH

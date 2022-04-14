@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "ifnull",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# ifnull
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`ifnull(expr1, expr2)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+如果 expr1 的值不为 NULL 则返回 expr1，否则返回 expr2
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select ifnull(1,0);
++--------------+
+| ifnull(1, 0) |
++--------------+
+|            1 |
++--------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+mysql> select ifnull(null,10);
++------------------+
+| ifnull(NULL, 10) |
++------------------+
+|               10 |
++------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+IFNULL

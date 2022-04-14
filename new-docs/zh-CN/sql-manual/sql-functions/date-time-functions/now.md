@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "now",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# now
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`DATETIME NOW()`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+获得当前的时间，以Datetime类型返回
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select now();
++---------------------+
+| now()               |
++---------------------+
+| 2019-05-27 15:58:25 |
++---------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    NOW

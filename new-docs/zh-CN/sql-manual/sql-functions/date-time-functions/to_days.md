@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "to_days",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,28 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# to_days
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT TO_DAYS(DATETIME date)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+返回date距离0000-01-01的天数
+
+参数为Date或者Datetime类型
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select to_days('2007-10-07');
++-----------------------+
+| to_days('2007-10-07') |
++-----------------------+
+|                733321 |
++-----------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    TO_DAYS,TO,DAYS
