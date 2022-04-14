@@ -47,9 +47,9 @@ import org.apache.doris.rewrite.InferFiltersRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteAliasFunctionRule;
 import org.apache.doris.rewrite.RewriteBinaryPredicatesRule;
+import org.apache.doris.rewrite.RewriteDateLiteralRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
-import org.apache.doris.rewrite.RewriteDateLiteralRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
@@ -330,15 +330,23 @@ public class Analyzer {
             mvRewriteRules.add(CountFieldToSum.INSTANCE);
             mvExprRewriter = new ExprRewriter(mvRewriteRules);
 
-            // compute max exec mem could be used for broadcast join
-            long perNodeMemLimit = context.getSessionVariable().getMaxExecMemByte();
-            double autoBroadcastJoinThresholdPercentage = context.getSessionVariable().autoBroadcastJoinThreshold;
-            if (autoBroadcastJoinThresholdPercentage > 1) {
-                autoBroadcastJoinThresholdPercentage = 1.0;
-            } else if (autoBroadcastJoinThresholdPercentage <= 0) {
-                autoBroadcastJoinThresholdPercentage = -1.0;
+            // context maybe null. eg, for StreamLoadPlanner.
+            // and autoBroadcastJoinThreshold is only used for Query's DistributedPlanner.
+            // so it is ok to not set autoBroadcastJoinThreshold if context is null
+            if (context != null) {
+                // compute max exec mem could be used for broadcast join
+                long perNodeMemLimit = context.getSessionVariable().getMaxExecMemByte();
+                double autoBroadcastJoinThresholdPercentage = context.getSessionVariable().autoBroadcastJoinThreshold;
+                if (autoBroadcastJoinThresholdPercentage > 1) {
+                    autoBroadcastJoinThresholdPercentage = 1.0;
+                } else if (autoBroadcastJoinThresholdPercentage <= 0) {
+                    autoBroadcastJoinThresholdPercentage = -1.0;
+                }
+                autoBroadcastJoinThreshold = (long) (perNodeMemLimit * autoBroadcastJoinThresholdPercentage);
+            } else {
+                // autoBroadcastJoinThreshold is a "final" field, must set an initial value for it
+                autoBroadcastJoinThreshold = 0;
             }
-            autoBroadcastJoinThreshold = (long)(perNodeMemLimit * autoBroadcastJoinThresholdPercentage);
         }
     }
 

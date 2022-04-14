@@ -706,7 +706,7 @@ public class ReportHandler extends Daemon {
                                 needDelete = false;
                                 ++addToMetaCounter;
                             } catch (MetaNotFoundException e) {
-                                LOG.warn("failed add to meta. tablet[{}], backend[{}]. {}",
+                                LOG.info("failed add to meta. tablet[{}], backend[{}]. {}",
                                         tabletId, backendId, e.getMessage());
                                 needDelete = true;
                             }
@@ -719,7 +719,7 @@ public class ReportHandler extends Daemon {
                         // drop replica
                         DropReplicaTask task = new DropReplicaTask(backendId, tabletId, backendTabletInfo.getSchemaHash());
                         batchTask.addTask(task);
-                        LOG.warn("delete tablet[" + tabletId + " - " + backendTabletInfo.getSchemaHash()
+                        LOG.info("delete tablet[" + tabletId + " - " + backendTabletInfo.getSchemaHash()
                                 + "] from backend[" + backendId + "] because not found in meta");
                         ++deleteFromBackendCounter;
                     }
