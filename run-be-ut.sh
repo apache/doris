@@ -43,7 +43,6 @@ Usage: $0 <options>
      --clean            clean and build ut
      --run              build and run all ut
      --run --filter=xx  build and run specified ut
-     -v                 build and run all vectorized ut
      -j                 build parallel
      -h                 print this help message
 
@@ -79,7 +78,6 @@ fi
 
 CLEAN=0
 RUN=0
-VECTORIZED_ONLY=0
 FILTER=""
 if [ $# != 1 ] ; then
     while true; do 
@@ -87,7 +85,6 @@ if [ $# != 1 ] ; then
             --clean) CLEAN=1 ; shift ;;
             --run) RUN=1 ; shift ;;
             -f | --filter) FILTER="--gtest_filter=$2"; shift 2;;
-            -v) VECTORIZED_ONLY=1 ; shift ;;
             -j) PARALLEL=$2; shift 2 ;;
             --) shift ;  break ;;
             *) usage ; exit 0 ;;
@@ -231,10 +228,6 @@ touch ${UT_TMP_DIR}/tmp_file
 
 # find all executable test files
 
-if [ ${VECTORIZED_ONLY} -eq 1 ]; then
-    echo "Run Vectorized ut only"
-    export DORIS_TEST_BINARY_DIR=${DORIS_TEST_BINARY_DIR}/vec
-fi
 test=${DORIS_TEST_BINARY_DIR}doris_be_test
 file_name=${test##*/}
 if [ -f "$test" ]; then
