@@ -360,6 +360,11 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* 
             *fill_tuple = _success;
             break;
         }
+        if (_scanner_eof) {
+            *eof = true;
+        } else {
+            *eof = false;
+        }
         return Status::OK();
     } catch (orc::ParseError& e) {
         std::stringstream str_error;
