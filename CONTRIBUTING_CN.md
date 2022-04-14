@@ -32,14 +32,14 @@ under the License.
 初次来到 Doris 社区，您可以：
 
 * 关注 Doris [Github 代码库](https://github.com/apache/incubator-doris)
-* 订阅我们的 [邮件列表](./subscribe-mail-list.md)；
+* 订阅我们的 [邮件列表](./docs/zh-CN/community/subscribe-mail-list.md)；
 * 加入 Doris 的 [Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
 
 通过以上方式及时了解 Doris 项目的开发动态并为您关注的话题发表意见。
 
 ## Doris 的代码和文档
 
-正如您在 [GitHub] (https://github.com/apache/incubator-doris) 上看到的，Apache Doris (incubating) 的代码库主要包括三部分：Frontend (FE), Backend (BE) 和 Broker (为了支持 HDFS 等外部存储系统上的文件读取)。文档主要是 Doris 网站和 GitHub 上的 wiki，还有运行 Doris 的时候的在线帮助手册。这些组件的详细情况参见下表：
+正如您在 [GitHub](https://github.com/apache/incubator-doris) 上看到的，Apache Doris (incubating) 的代码库主要包括三部分：Frontend (FE), Backend (BE) 和 Broker (为了支持 HDFS 等外部存储系统上的文件读取)。文档主要是 Doris 网站和 GitHub 上的 wiki，还有运行 Doris 的时候的在线帮助手册。这些组件的详细情况参见下表：
 
 | 组件名称 | 组件描述 | 相关语言 |
 |--------|----------------------------|----------|
@@ -58,17 +58,17 @@ under the License.
 
 如果您对改进文档的质量感兴趣，不论是修订一个页面的地址、更正一个链接、以及写一篇更优秀的入门文档，我们都非常欢迎！
 
-我们的文档大多数是使用 markdown 格式编写的，您可以直接通过在 [GitHub] (https://github.com/apache/incubator-doris) 中的 `docs/` 中修改并提交文档变更。如果提交代码变更，可以参阅 [Pull Request](./pull-request.md)。
+我们的文档大多数是使用 markdown 格式编写的，您可以直接通过在 [GitHub](https://github.com/apache/incubator-doris) 中的 `docs/` 中修改并提交文档变更。如果提交代码变更，可以参阅 [Pull Request](./docs/zh-CN/community/how-to-contribute/pull-request.md)。
 
 ## 如果发现了一个 Bug 或问题
 
 如果发现了一个 Bug 或问题，您可以直接通过 GitHub 的 [Issues](https://github.com/apache/incubator-doris/issues/new/choose) 提一个新的 Issue，我们会有人定期处理。
 
-您也可以通过阅读分析代码自己修复（当然在这之前最好能和我们交流下，或许已经有人在修复同样的问题了），然后提交一个 [Pull Request](./pull-request.md)。
+您也可以通过阅读分析代码自己修复（当然在这之前最好能和我们交流下，或许已经有人在修复同样的问题了），然后提交一个 [Pull Request](./docs/zh-CN/community/how-to-contribute/pull-request.md)。
 
 ## 修改代码和提交PR（Pull Request）
 
-您可以下载代码，编译安装，部署运行试一试（可以参考[编译文档](../installing/compilation.md)），看看是否与您预想的一样工作。如果有问题，您可以直接联系我们，提 Issue 或者通过阅读和分析源代码自己修复。
+您可以下载代码，编译安装，部署运行试一试（可以参考 [编译文档](./docs/zh-CN/installing/compilation.md)），看看是否与您预想的一样工作。如果有问题，您可以直接联系我们，提 Issue 或者通过阅读和分析源代码自己修复。
 
 无论是修复 Bug 还是增加 Feature，我们都非常欢迎。如果您希望给 Doris 提交代码，您需要从 GitHub 上 fork 代码库至您的项目空间下，为您提交的代码创建一个新的分支，添加源项目为upstream，并提交PR。
-提交PR的方式可以参考文档 [Pull Request](./pull-request.md)。
+提交PR的方式可以参考文档 [Pull Request](./docs/zh-CN/community/how-to-contribute/pull-request.md)。
