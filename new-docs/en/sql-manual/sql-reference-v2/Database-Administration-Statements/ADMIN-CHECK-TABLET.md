@@ -26,9 +26,33 @@ under the License.
 
 ## ADMIN-CHECK-TABLET
 
+### Name
+
+ADMIN CLEAN TRASH
+
 ### Description
 
+This statement is used to clean up garbage data in the backend
+
+grammar:
+
+```sql
+ADMIN CLEAN TRASH [ON ("BackendHost1:BackendHeartBeatPort1", "BackendHost2:BackendHeartBeatPort2", ...)];
+````
+
+illustrate:
+
+1. Use BackendHost:BackendHeartBeatPort to indicate the backend that needs to be cleaned up, and clean up all backends without adding the on limit.
+
 ### Example
+
+1. Clean up the junk data of all be nodes.
+
+        ADMIN CLEAN TRASH;
+
+2. Clean up the junk data of '192.168.0.1:9050' and '192.168.0.2:9050'.
+
+        ADMIN CLEAN TRASH ON ("192.168.0.1:9050","192.168.0.2:9050");
 
 ### Keywords
 
