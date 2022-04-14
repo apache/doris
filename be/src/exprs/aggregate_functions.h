@@ -262,6 +262,8 @@ public:
     static void knuth_var_init(FunctionContext* context, StringVal* val);
     template <typename T>
     static void knuth_var_update(FunctionContext* context, const T& input, StringVal* val);
+    template <typename T>
+    static void knuth_var_remove(FunctionContext* context, const T& src, StringVal* dst);
     static void knuth_var_merge(FunctionContext* context, const StringVal& src, StringVal* dst);
     static DoubleVal knuth_var_finalize(FunctionContext* context, const StringVal& val);
 
@@ -274,8 +276,14 @@ public:
     /// Calculates the biased STDDEV, uses KnuthVar Init-Update-Merge functions
     static DoubleVal knuth_stddev_pop_finalize(FunctionContext* context, const StringVal& val);
 
+    static DoubleVal knuth_var_get_value(FunctionContext* ctx, const StringVal& state_sv);
+    static DoubleVal knuth_var_pop_get_value(FunctionContext* context, const StringVal& val);
+    static DoubleVal knuth_stddev_get_value(FunctionContext* ctx, const StringVal& state_sv);
+    static DoubleVal knuth_stddev_pop_get_value(FunctionContext* context, const StringVal& val);
+
     // variance/stddev for decimals.
     static void decimalv2_knuth_var_init(FunctionContext* context, StringVal* val);
+    static void knuth_var_remove(FunctionContext* ctx, const DecimalV2Val& src, StringVal* dst);
     static void knuth_var_update(FunctionContext* context, const DecimalV2Val& src, StringVal* val);
     static void decimalv2_knuth_var_merge(FunctionContext* context, const StringVal& src,
                                           StringVal* val);
@@ -286,6 +294,15 @@ public:
     static DecimalV2Val decimalv2_knuth_stddev_finalize(FunctionContext* context,
                                                         const StringVal& val);
     static DecimalV2Val decimalv2_knuth_stddev_pop_finalize(FunctionContext* context,
+                                                            const StringVal& val);
+
+    static DecimalV2Val decimalv2_knuth_var_get_value(FunctionContext* ctx,
+                                                      const StringVal& state_sv);
+    static DecimalV2Val decimalv2_knuth_var_pop_get_value(FunctionContext* context,
+                                                         const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_stddev_get_value(FunctionContext* context,
+                                                        const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_stddev_pop_get_value(FunctionContext* context,
                                                             const StringVal& val);
 
     /// ----------------------------- Analytic Functions ---------------------------------

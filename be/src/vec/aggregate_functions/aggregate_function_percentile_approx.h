@@ -35,7 +35,15 @@ struct PercentileApproxState {
 
     void init(double compression = 10000) {
         if (!init_flag) {
+            //https://doris.apache.org/zh-CN/sql-reference/sql-functions/aggregate-functions/percentile_approx.html#description
+            //The compression parameter setting range is [2048, 10000]. 
+            //If the value of compression parameter is not specified set, or is outside the range of [2048, 10000], 
+            //will use the default value of 10000
+            if (compression < 2048 || compression > 10000) {
+                compression = 10000;
+            }
             digest.reset(new TDigest(compression));
+            compressions = compression;
             init_flag = true;
         }
     }
@@ -47,6 +55,7 @@ struct PercentileApproxState {
         }
 
         write_binary(target_quantile, buf);
+        write_binary(compressions, buf);
         uint32_t serialize_size = digest->serialized_size();
         std::string result(serialize_size, '0');
         DCHECK(digest.get() != nullptr);
@@ -62,9 +71,10 @@ struct PercentileApproxState {
         }
 
         read_binary(target_quantile, buf);
+        read_binary(compressions, buf);
         std::string str;
         read_binary(str, buf);
-        digest.reset(new TDigest());
+        digest.reset(new TDigest(compressions));
         digest->unserialize((uint8_t*)str.c_str());
     }
 
@@ -84,7 +94,7 @@ struct PercentileApproxState {
             DCHECK(digest.get() != nullptr);
             digest->merge(rhs.digest.get());
         } else {
-            digest.reset(new TDigest());
+            digest.reset(new TDigest(compressions));
             digest->merge(rhs.digest.get());
             init_flag = true;
         }
@@ -101,12 +111,13 @@ struct PercentileApproxState {
     void reset() {
         target_quantile = INIT_QUANTILE;
         init_flag = false;
-        digest.reset();
+        digest.reset(new TDigest(compressions));
     }
 
     bool init_flag = false;
     std::unique_ptr<TDigest> digest = nullptr;
     double target_quantile = INIT_QUANTILE;
+    double compressions = 10000;
 };
 
 class AggregateFunctionPercentileApprox
