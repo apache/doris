@@ -89,7 +89,7 @@ public class BDBDebugger {
 
         HttpServer httpServer = new HttpServer();
         httpServer.setPort(Config.http_port);
-        httpServer.start(dorisHomeDir);
+        httpServer.start();
 
         // MySQl server
         QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());

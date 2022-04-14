@@ -19,6 +19,7 @@ package org.apache.doris.httpv2;
 
 import org.apache.doris.PaloFe;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -77,7 +78,7 @@ public class HttpServer extends SpringBootServletInitializer {
         return application.sources(HttpServer.class);
     }
 
-    public void start(String dorisHome) {
+    public void start() {
         Map<String, Object> properties = new HashMap<>();
         properties.put("server.port", port);
         properties.put("server.servlet.context-path", "/");
@@ -101,7 +102,12 @@ public class HttpServer extends SpringBootServletInitializer {
             System.setProperty("spring.http.multipart.location", PaloFe.DORIS_HOME_DIR);
         }
         System.setProperty("spring.banner.image.location", "doris-logo.png");
-        properties.put("logging.config", Config.custom_config_dir + "/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
+        if (FeConstants.runningUnitTest) {
+            // this is currently only used for unit test
+            properties.put("logging.config", getClass().getClassLoader().getResource("log4j2.xml").getPath());
+        } else {
+            properties.put("logging.config", Config.custom_config_dir + "/" + SpringLog4j2Config.SPRING_LOG_XML_FILE);
+        }
         new SpringApplicationBuilder()
                 .sources(HttpServer.class)
                 .properties(properties)
