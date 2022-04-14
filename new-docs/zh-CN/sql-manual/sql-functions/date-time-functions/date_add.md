@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "date_add",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,32 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# date_add
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT DATE_ADD(DATETIME date,INTERVAL expr type)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+向日期添加指定的时间间隔。
+
+date 参数是合法的日期表达式。
+
+expr 参数是您希望添加的时间间隔。
+
+type 参数可以是下列值：YEAR, MONTH, DAY, HOUR, MINUTE, SECOND
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select date_add('2010-11-30 23:59:59', INTERVAL 2 DAY);
++-------------------------------------------------+
+| date_add('2010-11-30 23:59:59', INTERVAL 2 DAY) |
++-------------------------------------------------+
+| 2010-12-02 23:59:59                             |
++-------------------------------------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    DATE_ADD,DATE,ADD

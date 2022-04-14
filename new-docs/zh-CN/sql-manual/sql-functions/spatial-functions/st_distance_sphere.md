@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "`ST_Distance_Sphere`",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,24 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# `ST_Distance_Sphere`
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`DOUBLE ST_Distance_Sphere(DOUBLE x_lng, DOUBLE x_lat, DOUBLE y_lng, DOUBLE x_lat)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+计算地球两点之间的球面距离，单位为 米。传入的参数分别为X点的经度，X点的纬度，Y点的经度，Y点的纬度。
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+mysql> select st_distance_sphere(116.35620117, 39.939093, 116.4274406433, 39.9020987219);
++----------------------------------------------------------------------------+
+| st_distance_sphere(116.35620117, 39.939093, 116.4274406433, 39.9020987219) |
++----------------------------------------------------------------------------+
+|                                                         7336.9135549995917 |
++----------------------------------------------------------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+ST_DISTANCE_SPHERE,ST,DISTANCE,SPHERE

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "bitmap_hash",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,29 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# bitmap_hash
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BITMAP BITMAP_HASH(expr)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
+对任意类型的输入计算32位的哈希值，返回包含该哈希值的bitmap。主要用于stream load任务将非整型字段导入Doris表的bitmap字段。例如
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+```
+cat data | curl --location-trusted -u user:passwd -T - -H "columns: dt,page,device_id, device_id=bitmap_hash(device_id)"   http://host:8410/api/test/testDb/_stream_load
+```
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select bitmap_count(bitmap_hash('hello'));
++------------------------------------+
+| bitmap_count(bitmap_hash('hello')) |
++------------------------------------+
+|                                  1 |
++------------------------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITMAP_HASH,BITMAP

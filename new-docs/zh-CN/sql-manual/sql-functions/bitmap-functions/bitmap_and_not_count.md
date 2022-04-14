@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "bitmap_and_not_count",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# bitmap_and_not_count
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BITMAP BITMAP_AND_NOT_COUNT(BITMAP lhs, BITMAP rhs)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+将两个bitmap进行与非操作并返回计算返回的大小.
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select bitmap_and_not_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5')) cnt;
++------+
+| cnt  |
++------+
+|    2 |
++------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITMAP_AND_NOT_COUNT,BITMAP

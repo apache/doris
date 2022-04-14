@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "ascii",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# ascii
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT ascii(VARCHAR str)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+返回字符串第一个字符对应的 ascii 码
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select ascii('1');
++------------+
+| ascii('1') |
++------------+
+|         49 |
++------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+mysql> select ascii('234');
++--------------+
+| ascii('234') |
++--------------+
+|           50 |
++--------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+ASCII

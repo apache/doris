@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "makedate",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,23 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# makedate
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
-
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+`DATE MAKEDATE(INT year, INT dayofyear)`
+返回指定年份和dayofyear构建的日期。dayofyear必须大于0，否则结果为空。
 
 ## example
-
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select makedate(2021,1), makedate(2021,100), makedate(2021,400);
++-------------------+---------------------+---------------------+
+| makedate(2021, 1) | makedate(2021, 100) | makedate(2021, 400) |
++-------------------+---------------------+---------------------+
+| 2021-01-01        | 2021-04-10          | 2022-02-04          |
++-------------------+---------------------+---------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    YEARWEEK

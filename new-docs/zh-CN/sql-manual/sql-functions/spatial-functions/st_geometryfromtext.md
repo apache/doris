@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "`ST_GeometryFromText`,`ST_GeomFromText`",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,24 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# `ST_GeometryFromText`,`ST_GeomFromText`
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`GEOMETRY ST_GeometryFromText(VARCHAR wkt)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+将一个WKT（Well Known Text）转化为对应的内存的几何形式
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
++---------------------------------------------------------+
+| st_astext(st_geometryfromtext('LINESTRING (1 1, 2 2)')) |
++---------------------------------------------------------+
+| LINESTRING (1 1, 2 2)                                   |
++---------------------------------------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+ST_GEOMETRYFROMTEXT,ST_GEOMFROMTEXT,ST,GEOMETRYFROMTEXT,GEOMFROMTEXT

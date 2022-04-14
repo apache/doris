@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "concat",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,38 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# concat
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`VARCHAR concat(VARCHAR,...)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+将多个字符串连接起来, 如果参数中任意一个值是 NULL，那么返回的结果就是 NULL
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select concat("a", "b");
++------------------+
+| concat('a', 'b') |
++------------------+
+| ab               |
++------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select concat("a", "b", "c");
++-----------------------+
+| concat('a', 'b', 'c') |
++-----------------------+
+| abc                   |
++-----------------------+
 
+mysql> select concat("a", null, "c");
++------------------------+
+| concat('a', NULL, 'c') |
++------------------------+
+| NULL                   |
++------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+CONCAT

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "nullif",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,38 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# nullif
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`nullif(expr1, expr2)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+如果两个参数相等，则返回NULL。否则返回第一个参数的值。它和以下的 `CASE WHEN` 效果一样
+
+```
+CASE
+     WHEN expr1 = expr2 THEN NULL
+     ELSE expr1
+END
+```
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select nullif(1,1);
++--------------+
+| nullif(1, 1) |
++--------------+
+|         NULL |
++--------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+mysql> select nullif(1,0);
++--------------+
+| nullif(1, 0) |
++--------------+
+|            1 |
++--------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+NULLIF

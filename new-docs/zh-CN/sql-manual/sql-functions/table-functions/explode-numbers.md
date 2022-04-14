@@ -1,11 +1,11 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "explode_numbers",
     "language": "zh-CN"
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,33 +24,34 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
+# explode_numbers
 
 ## description
 
-### Syntax
+表函数，需配合 Lateral View 使用。
+
+获得一个[0,n)的序列。
+
+语法：
 
 ```
-digital_masking(digital_number)
+explode_numbers(n)
 ```
-
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+mysql> select e1 from (select 1 k1) as t lateral view explode_numbers(5) tmp1 as e1;
++------+
+| e1   |
++------+
+|    0 |
+|    1 |
+|    2 |
+|    3 |
+|    4 |
++------+
+```
 ## keyword
 
-DIGITAL_MASKING
+    explode_numbers

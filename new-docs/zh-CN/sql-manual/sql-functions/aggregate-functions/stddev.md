@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "STDDEV,STDDEV_POP",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,30 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# STDDEV,STDDEV_POP
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`STDDEV(expr)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+返回expr表达式的标准差
 
 ## example
+```
+MySQL > select stddev(scan_rows) from log_statis group by datetime;
++---------------------+
+| stddev(`scan_rows`) |
++---------------------+
+|  2.3736656687790934 |
++---------------------+
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+MySQL > select stddev_pop(scan_rows) from log_statis group by datetime;
++-------------------------+
+| stddev_pop(`scan_rows`) |
++-------------------------+
+|      2.3722760595994914 |
++-------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+STDDEV,STDDEV_POP,POP

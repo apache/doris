@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "lpad",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# lpad
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`VARCHAR lpad(VARCHAR str, INT len, VARCHAR pad)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+返回 str 中长度为 len（从首字母开始算起）的字符串。如果 len 大于 str 的长度，则在 str 的前面不断补充 pad 字符，直到该字符串的长度达到 len 为止。如果 len 小于 str 的长度，该函数相当于截断 str 字符串，只返回长度为 len 的字符串。len 指的是字符长度而不是字节长度。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> SELECT lpad("hi", 5, "xy");
++---------------------+
+| lpad('hi', 5, 'xy') |
++---------------------+
+| xyxhi               |
++---------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+mysql> SELECT lpad("hi", 1, "xy");
++---------------------+
+| lpad('hi', 1, 'xy') |
++---------------------+
+| h                   |
++---------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+LPAD

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "APPROX_COUNT_DISTINCT",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# APPROX_COUNT_DISTINCT
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`APPROX_COUNT_DISTINCT(expr)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+返回类似于 COUNT(DISTINCT col) 结果的近似值聚合函数。
+
+它比 COUNT 和 DISTINCT 组合的速度更快，并使用固定大小的内存，因此对于高基数的列可以使用更少的内存。
 
 ## example
-
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+MySQL > select approx_count_distinct(query_id) from log_statis group by datetime;
++-----------------+
+| approx_count_distinct(`query_id`) |
++-----------------+
+| 17721           |
++-----------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+APPROX_COUNT_DISTINCT

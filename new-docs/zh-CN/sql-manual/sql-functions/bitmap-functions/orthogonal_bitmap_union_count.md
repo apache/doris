@@ -1,7 +1,7 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
-    "language": "zh-CN"
+"title": "orthogonal_bitmap_union_count",
+"language": "zh-CN"
 }
 ---
 
@@ -13,9 +13,7 @@ regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
 with the License.  You may obtain a copy of the License at
-
   http://www.apache.org/licenses/LICENSE-2.0
-
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -24,33 +22,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# orthogonal_bitmap_union_count
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BITMAP ORTHOGONAL_BITMAP_UNION_COUNT(bitmap_column, column_to_filter, filter_values)`
+求bitmap并集大小的函数, 参数类型是bitmap，是待求并集count的列
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select orthogonal_bitmap_union_count(members) from tag_map where  tag_group in ( 1150000, 1150001, 390006);
++------------------------------------------+
+| orthogonal_bitmap_union_count(`members`) |
++------------------------------------------+
+|                                286957811 |
++------------------------------------------+
+1 row in set (2.645 sec)
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    ORTHOGONAL_BITMAP_UNION_COUNT,BITMAP

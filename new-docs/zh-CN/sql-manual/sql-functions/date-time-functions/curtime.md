@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "curtime,current_time",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,27 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
+# curtime,current_time
 
-## description
+## Syntax
 
-### Syntax
+`TIME CURTIME()`
+
+## Description
+
+获得当前的时间，以TIME类型返回
+
+## Examples
 
 ```
-digital_masking(digital_number)
+mysql> select current_time();
++----------------+
+| current_time() |
++----------------+
+| 15:25:47       |
++----------------+
 ```
-
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
-
-## example
-
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
 
 ## keyword
 
-DIGITAL_MASKING
+    CURTIME,CURRENT_TIME

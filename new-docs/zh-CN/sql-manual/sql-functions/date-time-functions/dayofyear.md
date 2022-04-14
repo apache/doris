@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "dayofyear",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,28 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# dayofyear
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT DAYOFYEAR(DATETIME date)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+获得日期中对应当年中的哪一天。
+
+参数为Date或者Datetime类型
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select dayofyear('2007-02-03 00:00:00');
++----------------------------------+
+| dayofyear('2007-02-03 00:00:00') |
++----------------------------------+
+|                               34 |
++----------------------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    DAYOFYEAR

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "`ST_Polygon`,`ST_PolyFromText`,`ST_PolygonFromText`",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,24 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# `ST_Polygon`,`ST_PolyFromText`,`ST_PolygonFromText`
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`GEOMETRY ST_Polygon(VARCHAR wkt)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+将一个WKT（Well Known Text）转化为对应的多边形内存形式
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+```
+mysql> SELECT ST_AsText(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"));
++------------------------------------------------------------------+
+| st_astext(st_polygon('POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))')) |
++------------------------------------------------------------------+
+| POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))                          |
++------------------------------------------------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+ST_POLYGON,ST_POLYFROMTEXT,ST_POLYGONFROMTEXT,ST,POLYGON,POLYFROMTEXT,POLYGONFROMTEXT

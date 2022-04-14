@@ -1,11 +1,11 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "null_or_empty",
     "language": "zh-CN"
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,33 +24,37 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# null_or_empty
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BOOLEAN NULL_OR_EMPTY (VARCHAR str)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+如果字符串为空字符串或者NULL，返回true。否则，返回false。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+MySQL [(none)]> select null_or_empty(null);
++---------------------+
+| null_or_empty(NULL) |
++---------------------+
+|                   1 |
++---------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+MySQL [(none)]> select null_or_empty("");
++-------------------+
+| null_or_empty('') |
++-------------------+
+|                 1 |
++-------------------+
 
+MySQL [(none)]> select null_or_empty("a");
++--------------------+
+| null_or_empty('a') |
++--------------------+
+|                  0 |
++--------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+NULL_OR_EMPTY

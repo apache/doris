@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "bitmap_union",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,36 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
+# bitmap_union function
 
 ## description
 
+聚合函数，用于计算分组后的 bitmap 并集。常见使用场景如：计算PV，UV。
+
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BITMAP BITMAP_UNION(BITMAP value)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+输入一组 bitmap 值，求这一组 bitmap 值的并集，并返回。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select page_id, bitmap_union(user_id) from table group by page_id;
+```
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+和 bitmap_count 函数组合使用可以求得网页的 UV 数据
+
+```
+mysql> select page_id, bitmap_count(bitmap_union(user_id)) from table group by page_id;
+```
+
+当 user_id 字段为 int 时，上面查询语义等同于
+
+```
+mysql> select page_id, count(distinct user_id) from table group by page_id;
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITMAP_UNION, BITMAP

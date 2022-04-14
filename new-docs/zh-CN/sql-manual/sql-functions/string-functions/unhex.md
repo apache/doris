@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "unhex",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,40 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# unhex
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`VARCHAR unhex(VARCHAR str)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
+输入字符串，如果字符串长度为0或者为奇数，返回空串；
+如果字符串中包含`[0-9]、[a-z]、[A-Z]`之外的字符，返回空串；
+其他情况每两个字符为一组转化为16进制后的字符，然后拼接成字符串输出
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select unhex('@');
++------------+
+| unhex('@') |
++------------+
+|            |
++------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select unhex('41');
++-------------+
+| unhex('41') |
++-------------+
+| A           |
++-------------+
 
+mysql> select unhex('4142');
++---------------+
+| unhex('4142') |
++---------------+
+| AB            |
++---------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+UNHEX

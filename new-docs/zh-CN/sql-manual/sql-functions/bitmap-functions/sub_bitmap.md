@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "sub_bitmap",
     "language": "zh-CN"
 }
 ---
@@ -13,9 +13,7 @@ regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
 with the License.  You may obtain a copy of the License at
-
   http://www.apache.org/licenses/LICENSE-2.0
-
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -24,33 +22,41 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
+# sub_bitmap
 
-## description
+## Description
 
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BITMAP SUB_BITMAP(BITMAP src, BIGINT offset, BIGINT cardinality_limit)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+从 offset 指定位置开始，截取 cardinality_limit 个 bitmap 元素，返回一个 bitmap 子集。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select bitmap_to_string(sub_bitmap(bitmap_from_string('1,0,1,2,3,1,5'), 0, 3)) value;
++-------+
+| value |
++-------+
+| 0,1,2 |
++-------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select bitmap_to_string(sub_bitmap(bitmap_from_string('1,0,1,2,3,1,5'), -3, 2)) value;
++-------+
+| value |
++-------+
+| 2,3   |
++-------+
+
+mysql> select bitmap_to_string(sub_bitmap(bitmap_from_string('1,0,1,2,3,1,5'), 2, 100)) value;
++-------+
+| value |
++-------+
+| 2,3,5 |
++-------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    SUB_BITMAP,BITMAP_SUBSET,BITMAP

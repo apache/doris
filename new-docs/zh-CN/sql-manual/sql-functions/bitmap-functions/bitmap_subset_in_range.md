@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "bitmap_subset_in_range",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,34 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
+# bitmap_subset_in_range
 
-## description
+## Description
 
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BITMAP BITMAP_SUBSET_IN_RANGE(BITMAP src, BIGINT range_start, BIGINT range_end)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+返回 BITMAP 指定范围内的子集(不包括范围结束)。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('1,2,3,4,5'), 0, 9)) value;
++-----------+
+| value     |
++-----------+
+| 1,2,3,4,5 |
++-----------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('1,2,3,4,5'), 2, 3)) value;
++-------+
+| value |
++-------+
+| 2     |
++-------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITMAP_SUBSET_IN_RANGE,BITMAP_SUBSET,BITMAP

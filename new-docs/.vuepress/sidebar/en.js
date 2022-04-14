@@ -491,7 +491,6 @@ module.exports = [
             initialOpenGroupIndex: -1,
             children: [
               "CREATE-USER",
-              "ALTER-USER",
               "CREATE-ROLE",
               "DROP-ROLE",
               "DROP-USER",

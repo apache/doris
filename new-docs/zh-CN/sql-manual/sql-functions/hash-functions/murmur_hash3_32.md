@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "murmur_hash3_32",
     "language": "zh-CN"
 }
 ---
@@ -13,9 +13,7 @@ regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
 with the License.  You may obtain a copy of the License at
-
   http://www.apache.org/licenses/LICENSE-2.0
-
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -24,33 +22,40 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
+# murmur_hash3_32
 
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`INT MURMUR_HASH3_32(VARCHAR input, ...)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+返回输入字符串的32位murmur3 hash值
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select murmur_hash3_32(null);
++-----------------------+
+| murmur_hash3_32(NULL) |
++-----------------------+
+|                  NULL |
++-----------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select murmur_hash3_32("hello");
++--------------------------+
+| murmur_hash3_32('hello') |
++--------------------------+
+|               1321743225 |
++--------------------------+
+
+mysql> select murmur_hash3_32("hello", "world");
++-----------------------------------+
+| murmur_hash3_32('hello', 'world') |
++-----------------------------------+
+|                         984713481 |
++-----------------------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    MURMUR_HASH3_32,HASH

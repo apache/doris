@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "REVERSE",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# reverse
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`VARCHAR reverse(VARCHAR str)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+将字符串反转，返回的字符串的顺序和源字符串的顺序相反。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> SELECT REVERSE('hello');
++------------------+
+| REVERSE('hello') |
++------------------+
+| olleh            |
++------------------+
+1 row in set (0.00 sec)
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+mysql> SELECT REVERSE('你好');
++------------------+
+| REVERSE('你好')   |
++------------------+
+| 好你              |
++------------------+
+1 row in set (0.00 sec)
+```
 ## keyword
-
-DIGITAL_MASKING
+REVERSE

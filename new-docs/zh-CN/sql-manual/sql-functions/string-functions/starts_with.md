@@ -1,11 +1,11 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "starts_with",
     "language": "zh-CN"
 }
 ---
 
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,33 +24,30 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# starts_with
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BOOLEAN STARTS_WITH (VARCHAR str, VARCHAR prefix)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
-
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+如果字符串以指定前缀开头，返回true。否则，返回false。任意参数为NULL，返回NULL。
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+MySQL [(none)]> select starts_with("hello world","hello");
++-------------------------------------+
+| starts_with('hello world', 'hello') |
++-------------------------------------+
+|                                   1 |
++-------------------------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
-
+MySQL [(none)]> select starts_with("hello world","world");
++-------------------------------------+
+| starts_with('hello world', 'world') |
++-------------------------------------+
+|                                   0 |
++-------------------------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+STARTS_WITH

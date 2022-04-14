@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "money_format",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,38 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# money_format
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`VARCHAR money_format(Number)`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+将数字按照货币格式输出，整数部分每隔3位用逗号分隔，小数部分保留2位
 
 ## example
 
-1. 将手机号码进行脱敏处理
+```
+mysql> select money_format(17014116);
++------------------------+
+| money_format(17014116) |
++------------------------+
+| 17,014,116.00          |
++------------------------+
 
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+mysql> select money_format(1123.456);
++------------------------+
+| money_format(1123.456) |
++------------------------+
+| 1,123.46               |
++------------------------+
 
+mysql> select money_format(1123.4);
++----------------------+
+| money_format(1123.4) |
++----------------------+
+| 1,123.40             |
++----------------------+
+```
 ## keyword
-
-DIGITAL_MASKING
+MONEY_FORMAT,MONEY,FORMAT

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DIGITAL-MASKING",
+    "title": "bitmap_empty",
     "language": "zh-CN"
 }
 ---
@@ -24,33 +24,29 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
-
+# bitmap_empty
 ## description
-
 ### Syntax
 
-```
-digital_masking(digital_number)
-```
+`BITMAP BITMAP_EMPTY()`
 
-别名函数，原始函数为 `concat(left(id,3),'****',right(id,4))`。
+返回一个空bitmap。主要用于 insert 或 stream load 时填充默认值。例如
 
-将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
+```
+cat data | curl --location-trusted -u user:passwd -T - -H "columns: dt,page,v1,v2=bitmap_empty()"   http://host:8410/api/test/testDb/_stream_load
+```
 
 ## example
 
-1. 将手机号码进行脱敏处理
-
-    ```sql
-    mysql> select digital_masking(13812345678);
-    +------------------------------+
-    | digital_masking(13812345678) |
-    +------------------------------+
-    | 138****5678                  |
-    +------------------------------+
-    ```
+```
+mysql> select bitmap_count(bitmap_empty());
++------------------------------+
+| bitmap_count(bitmap_empty()) |
++------------------------------+
+|                            0 |
++------------------------------+
+```
 
 ## keyword
 
-DIGITAL_MASKING
+    BITMAP_EMPTY,BITMAP
