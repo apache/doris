@@ -350,7 +350,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
-            queryGlobals.setTimestampMs(new Date().getTime());
+            queryGlobals.setTimestampMs(System.currentTimeMillis());
             queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
             if (context.getSessionVariable().getTimeZone().equals("CST")) {
                 queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);

@@ -194,7 +194,7 @@ public class StreamLoadPlanner {
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
-        queryGlobals.setTimestampMs(new Date().getTime());
+        queryGlobals.setTimestampMs(System.currentTimeMillis());
         queryGlobals.setTimeZone(taskInfo.getTimezone());
         queryGlobals.setLoadZeroTolerance(taskInfo.getMaxFilterRatio() <= 0.0);
 

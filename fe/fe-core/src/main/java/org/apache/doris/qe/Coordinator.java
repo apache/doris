@@ -235,7 +235,7 @@ public class Coordinator {
         setFromUserProperty(analyzer);
 
         this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
-        this.queryGlobals.setTimestampMs(new Date().getTime());
+        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setLoadZeroTolerance(false);
         if (context.getSessionVariable().getTimeZone().equals("CST")) {
             this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
@@ -263,7 +263,7 @@ public class Coordinator {
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
         this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
-        this.queryGlobals.setTimestampMs(new Date().getTime());
+        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.tResourceInfo = new TResourceInfo("", "");
