@@ -38,9 +38,9 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.httpv2.HttpServer;
 import org.apache.doris.httpv2.IllegalArgException;
@@ -53,6 +53,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import org.junit.After;
@@ -60,7 +61,10 @@ import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 
+import java.io.File;
+import java.io.IOException;
 import java.net.ServerSocket;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -113,7 +117,19 @@ abstract public class DorisHttpTestCase {
 
     protected String rootAuth = Credentials.basic("root", "");
 
-    public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
+    private static final String DORIS_HOME;
+
+    static {
+        String dorisHome = System.getenv("DORIS_HOME");
+        if (Strings.isNullOrEmpty(dorisHome)) {
+            try {
+                dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        DORIS_HOME = dorisHome;
+    }
 
     @Mocked
     private static EditLog editLog;
@@ -296,15 +312,21 @@ abstract public class DorisHttpTestCase {
             }
         }
 
+        FeConstants.runningUnitTest = true;
         httpServer = new HttpServer();
-        httpServer.setPort(Config.http_port);
-        httpServer.setMaxHttpPostSize(Config.jetty_server_max_http_post_size);
-        httpServer.setAcceptors(Config.jetty_server_acceptors);
-        httpServer.setSelectors(Config.jetty_server_selectors);
-        httpServer.setWorkers(Config.jetty_server_workers);
-        httpServer.start(DORIS_HOME_DIR);
+        httpServer.setPort(HTTP_PORT);
+        httpServer.setMaxHttpPostSize(100 * 1024 * 1024);
+        httpServer.setAcceptors(2);
+        httpServer.setSelectors(4);
+        httpServer.setWorkers(0);
+        httpServer.start();
     }
 
+    @AfterClass
+    public static void afterClass() {
+        File file = new File(DORIS_HOME);
+        file.delete();
+    }
 
 
     @Before
