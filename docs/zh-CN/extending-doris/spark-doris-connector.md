@@ -46,7 +46,9 @@ Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据�
 
 准备工作
 
-修改`custom_env.sh.tpl`文件，需要指定thrift安装目录
+1.修改`custom_env.sh.tpl`文件，重命名为`custom_env.sh`
+
+2.指定thrift安装目录
 
 ```bash
 ##源文件内容

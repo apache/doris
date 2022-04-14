@@ -50,7 +50,9 @@ Github: https://github.com/apache/incubator-doris-flink-connector
 
 Ready to work
 
-Modify the `custom_env.sh.tpl` file, you need to specify the thrift installation directory
+1.Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
+
+2.Specify the thrift installation directory
 
 ```bash
 ##source file content
