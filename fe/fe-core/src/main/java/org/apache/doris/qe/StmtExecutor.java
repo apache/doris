@@ -121,7 +121,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -361,8 +360,6 @@ public class StmtExecutor implements ProfileWriter {
                 if (!((QueryStmt) parsedStmt).isExplain()) {
                     // sql/sqlHash block
                     try {
-                        String sqlHash = DigestUtils.md5Hex(((QueryStmt) parsedStmt).toDigest());
-                        context.setSqlHash(sqlHash);
                         Catalog.getCurrentCatalog().getSqlBlockRuleMgr().matchSql(originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
                     } catch (AnalysisException e) {
                         LOG.warn(e.getMessage());
