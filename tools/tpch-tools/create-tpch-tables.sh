@@ -85,6 +85,7 @@ check_prerequest() {
 check_prerequest "mysql --version" "mysql"
 
 source $CURDIR/doris-cluster.conf
+export MYSQL_PWD=$PASSWORD
 
 echo "FE_HOST: $FE_HOST"
 echo "FE_QUERY_PORT: $FE_QUERY_PORT"
