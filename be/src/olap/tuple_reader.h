@@ -50,9 +50,9 @@ class RowCursor;
 class TupleReader final : public TabletReader {
 public:
     // Initialize TupleReader with tablet, data version and fetch range.
-    OLAPStatus init(const ReaderParams& read_params) override;
+    Status init(const ReaderParams& read_params) override;
 
-    OLAPStatus next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
+    Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
                                          ObjectPool* agg_pool, bool* eof) override {
         return (this->*_next_row_func)(row_cursor, mem_pool, agg_pool, eof);
     }
@@ -63,28 +63,28 @@ private:
 
     // Direcly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
-    OLAPStatus _direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+    Status _direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                 bool* eof);
     // Just same as _direct_next_row, but this is only for AGGREGATE KEY tables.
     // And this is an optimization for AGGR tables.
     // When there is only one rowset and is not overlapping, we can read it directly without aggregation.
-    OLAPStatus _direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+    Status _direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
                                         ObjectPool* agg_pool, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
-    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+    Status _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                  bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_row is that it will read the data from high version to low version,
     // to minimize the comparison time in merge heap.
-    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+    Status _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
                                     bool* eof);
 
-    OLAPStatus _init_collect_iter(const ReaderParams& read_params, std::vector<RowsetReaderSharedPtr>* valid_rs_readers );
+    Status _init_collect_iter(const ReaderParams& read_params, std::vector<RowsetReaderSharedPtr>* valid_rs_readers );
 
 private:
     const RowCursor* _next_key = nullptr;
 
-    OLAPStatus (TupleReader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,
+    Status (TupleReader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,
                                          ObjectPool* agg_pool, bool* eof) = nullptr;
 };
 

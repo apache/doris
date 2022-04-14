@@ -159,11 +159,11 @@ public:
     ~MemIndex();
 
     // 初始化MemIndex, 传入short_key的总长度和对应的Field数组
-    OLAPStatus init(size_t short_key_len, size_t new_short_key_len, size_t short_key_num,
+    Status init(size_t short_key_len, size_t new_short_key_len, size_t short_key_num,
                     std::vector<TabletColumn>* short_key_columns);
 
     // 加载一个segment到内存
-    OLAPStatus load_segment(const char* file, size_t* current_num_rows_per_row_block,
+    Status load_segment(const char* file, size_t* current_num_rows_per_row_block,
                             bool use_cache = true);
 
     // Return the IndexOffset of the first element, physically, it's (0, 0)
@@ -228,10 +228,10 @@ public:
     const OLAPIndexOffset get_relative_offset(iterator_offset_t absolute_offset) const;
 
     // Return content of index item, which IndexOffset is pos
-    OLAPStatus get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const;
+    Status get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const;
 
     // Return RowBlockPosition from IndexOffset
-    OLAPStatus get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const;
+    Status get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const;
 
     const size_t short_key_num() const { return _key_num; }
 
@@ -312,13 +312,13 @@ public:
         return _compare(index, key, COMPARATOR_LARGER);
     }
 
-    OLAPStatus set_segment_id(const iterator_offset_t& segment_id) {
+    Status set_segment_id(const iterator_offset_t& segment_id) {
         if (segment_id >= _index->segment_count()) {
-            return OLAP_ERR_INDEX_EOF;
+            return Status::OLAPInternalError(OLAP_ERR_INDEX_EOF);
         }
 
         _cur_seg = segment_id;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
 private:

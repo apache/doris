@@ -108,8 +108,8 @@ public:
     // 编码以减少存储负数时使用的比特数
     explicit RunLengthIntegerWriter(OutStream* output, bool is_signed);
     ~RunLengthIntegerWriter() {}
-    OLAPStatus write(int64_t value);
-    OLAPStatus flush();
+    Status write(int64_t value);
+    Status flush();
     void get_position(PositionEntryWriter* index_entry, bool print) const;
 
     void print_position_debug_info() {
@@ -239,11 +239,11 @@ private:
     void _determined_encoding();
     void _init_literals(int64_t value);
     void _prepare_patched_blob();
-    OLAPStatus _write_values();
-    OLAPStatus _write_short_repeat_values();
-    OLAPStatus _write_direct_values();
-    OLAPStatus _write_patched_base_values();
-    OLAPStatus _write_delta_values();
+    Status _write_values();
+    Status _write_short_repeat_values();
+    Status _write_direct_values();
+    Status _write_patched_base_values();
+    Status _write_delta_values();
 
     static const uint16_t MAX_SCOPE = 512;
     static const uint16_t MIN_REPEAT = 3; // NOTE 不要修改这个值, 否则程序出错

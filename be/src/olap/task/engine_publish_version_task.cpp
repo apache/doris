@@ -31,8 +31,8 @@ EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publi
                                                    std::vector<TTabletId>* error_tablet_ids)
         : _publish_version_req(publish_version_req), _error_tablet_ids(error_tablet_ids) {}
 
-OLAPStatus EnginePublishVersionTask::finish() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status EnginePublishVersionTask::finish() {
+    Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
     VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
 
@@ -57,7 +57,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
 
         // each tablet
         for (auto& tablet_rs : tablet_related_rs) {
-            OLAPStatus publish_status = OLAP_SUCCESS;
+            Status publish_status = Status::OK();
             TabletInfo tablet_info = tablet_rs.first;
             RowsetSharedPtr rowset = tablet_rs.second;
             VLOG_CRITICAL << "begin to publish version on tablet. "
@@ -72,7 +72,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 LOG(WARNING) << "could not find related rowset for tablet " << tablet_info.tablet_id
                              << " txn id " << transaction_id;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = OLAP_ERR_PUSH_ROWSET_NOT_FOUND;
+                res = Status::OLAPInternalError(OLAP_ERR_PUSH_ROWSET_NOT_FOUND);
                 continue;
             }
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
@@ -81,13 +81,13 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 LOG(WARNING) << "can't get tablet when publish version. tablet_id="
                              << tablet_info.tablet_id << " schema_hash=" << tablet_info.schema_hash;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
-                res = OLAP_ERR_PUSH_TABLE_NOT_EXIST;
+                res = Status::OLAPInternalError(OLAP_ERR_PUSH_TABLE_NOT_EXIST);
                 continue;
             }
 
             publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
                     partition_id, tablet, transaction_id, version);
-            if (publish_status != OLAP_SUCCESS) {
+            if (publish_status != Status::OK()) {
                 LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
                              << ", tablet_id=" << tablet_info.tablet_id
                              << ", txn_id=" << transaction_id;
@@ -98,8 +98,8 @@ OLAPStatus EnginePublishVersionTask::finish() {
 
             // add visible rowset to tablet
             publish_status = tablet->add_inc_rowset(rowset);
-            if (publish_status != OLAP_SUCCESS &&
-                publish_status != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
+            if (publish_status != Status::OK() &&
+                publish_status != Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST)) {
                 LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id="
                              << rowset->rowset_id() << ", tablet_id=" << tablet_info.tablet_id
                              << ", txn_id=" << transaction_id << ", res=" << publish_status;
@@ -127,21 +127,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 // check if the version exist, if not exist, then set publish failed
                 if (!tablet->check_version_exist(version)) {
                     _error_tablet_ids->push_back(tablet_info.tablet_id);
-                    // generate a pull rowset meta task to pull rowset from remote meta store and storage
-                    // pull rowset meta using tablet_id + txn_id
-                    // it depends on the tablet type to download file or only meta
-                    if (tablet->in_eco_mode()) {
-                        if (tablet->is_primary_replica()) {
-                            // primary replica should fetch the meta using txn id
-                            // it will fetch the rowset to meta store, and will be published in next publish version task
-                            StorageEngine::instance()->tablet_sync_service()->fetch_rowset(
-                                    tablet, transaction_id, FETCH_DATA);
-                        } else {
-                            // shadow replica should fetch the meta using version
-                            StorageEngine::instance()->tablet_sync_service()->fetch_rowset(
-                                    tablet, version, NOT_FETCH_DATA);
-                        }
-                    }
+
                 }
             }
         }

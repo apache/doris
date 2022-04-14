@@ -58,7 +58,7 @@ public:
     Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir,
            const std::string& cumulative_compaction_type = "");
 
-    OLAPStatus init();
+    Status init();
     bool init_succeeded();
 
     bool is_used();
@@ -68,7 +68,7 @@ public:
 
     void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
-    OLAPStatus revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
+    Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                   const std::vector<Version>& versions_to_delete);
 
     const int64_t cumulative_layer_point() const;
@@ -96,7 +96,7 @@ public:
     int32_t field_index(const std::string& field_name) const;
 
     // operation in rowsets
-    OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
+    Status add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
     void modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                         std::vector<RowsetSharedPtr>& to_delete);
 
@@ -108,7 +108,7 @@ public:
 
     const RowsetSharedPtr rowset_with_max_version() const;
 
-    OLAPStatus add_inc_rowset(const RowsetSharedPtr& rowset);
+    Status add_inc_rowset(const RowsetSharedPtr& rowset);
     /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset
     /// to delete.  When rowset is deleted, it will be added to StorageEngine unused map and record
@@ -117,21 +117,21 @@ public:
 
     // Given spec_version, find a continuous version path and store it in version_path.
     // If quiet is true, then only "does this path exist" is returned.
-    OLAPStatus capture_consistent_versions(const Version& spec_version,
+    Status capture_consistent_versions(const Version& spec_version,
                                            std::vector<Version>* version_path,
                                            bool quiet = false) const;
     // if quiet is true, no error log will be printed if there are missing versions
-    OLAPStatus check_version_integrity(const Version& version, bool quiet = false);
+    Status check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
     void acquire_version_and_rowsets(
             std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
-    OLAPStatus capture_consistent_rowsets(const Version& spec_version,
+    Status capture_consistent_rowsets(const Version& spec_version,
                                           std::vector<RowsetSharedPtr>* rowsets) const;
-    OLAPStatus capture_rs_readers(const Version& spec_version,
+    Status capture_rs_readers(const Version& spec_version,
                                   std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
-    OLAPStatus capture_rs_readers(const std::vector<Version>& version_path,
+    Status capture_rs_readers(const std::vector<Version>& version_path,
                                   std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
     DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
@@ -166,7 +166,7 @@ public:
     void max_continuous_version_from_beginning(Version* version, Version* max_version = nullptr);
 
     // operation for query
-    OLAPStatus split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
+    Status split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
                            uint64_t request_block_row_count, std::vector<OlapTuple>* ranges);
 
     void set_bad(bool is_bad) { _is_bad = is_bad; }
@@ -196,7 +196,7 @@ public:
     bool check_path(const std::string& check_path) const;
     bool check_rowset_id(const RowsetId& rowset_id);
 
-    OLAPStatus set_partition_id(int64_t partition_id);
+    Status set_partition_id(int64_t partition_id);
 
     TabletInfo get_tablet_info() const;
 
@@ -256,10 +256,10 @@ public:
     }
 
 private:
-    OLAPStatus _init_once_action();
+    Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     bool _contains_rowset(const RowsetId rowset_id);
-    OLAPStatus _contains_version(const Version& version);
+    Status _contains_version(const Version& version);
 
     // Returns:
     // version: the max continuous version from beginning
@@ -270,7 +270,7 @@ private:
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
     /// but also delete the version in rowset meta vector.
     void _delete_stale_rowset_by_version(const Version& version);
-    OLAPStatus _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
+    Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                     std::vector<RowsetSharedPtr>* rowsets) const;
 
     const uint32_t _calc_cumulative_compaction_score(
@@ -287,7 +287,7 @@ public:
 private:
     TimestampedVersionTracker _timestamped_version_tracker;
 
-    DorisCallOnce<OLAPStatus> _init_once;
+    DorisCallOnce<Status> _init_once;
     // meta store lock is used for prevent 2 threads do checkpoint concurrently
     // it will be used in econ-mode in the future
     std::shared_mutex _meta_store_lock;
@@ -351,7 +351,7 @@ inline CumulativeCompactionPolicy* Tablet::cumulative_compaction_policy() {
 }
 
 inline bool Tablet::init_succeeded() {
-    return _init_once.has_called() && _init_once.stored_result() == OLAP_SUCCESS;
+    return _init_once.has_called() && _init_once.stored_result().ok();
 }
 
 inline bool Tablet::is_used() {

@@ -19,6 +19,7 @@
 
 #include <sys/syscall.h>
 
+#include <future>
 #include <sstream>
 #include <string>
 
@@ -99,10 +100,10 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
     }
 
     // 3. execute compaction task
-    std::packaged_task<OLAPStatus()> task([this, tablet, compaction_type]() {
+    std::packaged_task<Status()> task([this, tablet, compaction_type]() {
         return _execute_compaction_callback(tablet, compaction_type);
     });
-    std::future<OLAPStatus> future_obj = task.get_future();
+    std::future<Status> future_obj = task.get_future();
 
     {
         // 3.1 check is there compaction running
@@ -120,10 +121,9 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
     std::future_status status = future_obj.wait_for(std::chrono::seconds(2));
     if (status == std::future_status::ready) {
         // fetch execute result
-        OLAPStatus olap_status = future_obj.get();
-        if (olap_status != OLAP_SUCCESS) {
-            return Status::InternalError(
-                    strings::Substitute("fail to execute compaction, error = $0", olap_status));
+        Status olap_status = future_obj.get();
+        if (!olap_status.ok()) {
+            return olap_status;
         }
     } else {
         LOG(INFO) << "Manual compaction task is timeout for waiting "
@@ -198,7 +198,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
     }
 }
 
-OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
+Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                                                           const std::string& compaction_type) {
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
             _create_cumulative_compaction_policy();
@@ -207,12 +207,12 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
         tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
     }
 
-    OLAPStatus status = OLAP_SUCCESS;
+    Status res = Status::OK();
     if (compaction_type == PARAM_COMPACTION_BASE) {
         BaseCompaction base_compaction(tablet);
-        OLAPStatus res = base_compaction.compact();
-        if (res != OLAP_SUCCESS) {
-            if (res == OLAP_ERR_BE_NO_SUITABLE_VERSION) {
+        res = base_compaction.compact();
+        if (!res) {
+            if (res == Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION)) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init base compaction due to no suitable version, tablet="
                             << tablet->full_name();
@@ -222,12 +222,11 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
                              << ", tablet=" << tablet->full_name();
             }
         }
-        status = res;
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
         CumulativeCompaction cumulative_compaction(tablet);
-        OLAPStatus res = cumulative_compaction.compact();
-        if (res != OLAP_SUCCESS) {
-            if (res == OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
+        res = cumulative_compaction.compact();
+        if (!res) {
+            if (res == Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION)) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
                             << "tablet=" << tablet->full_name();
@@ -237,14 +236,13 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
                              << ", table=" << tablet->full_name();
             }
         }
-        status = res;
     }
 
-    LOG(INFO) << "Manual compaction task finish, status = " << status;
+    LOG(INFO) << "Manual compaction task finish, status = " << res;
     std::lock_guard<std::mutex> lock(_compaction_running_mutex);
     _is_compaction_running = false;
 
-    return status;
+    return res;
 }
 
 void CompactionAction::handle(HttpRequest* req) {

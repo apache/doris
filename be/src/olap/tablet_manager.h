@@ -60,16 +60,16 @@ public:
     // TODO(lingbin): Other schema-change type do not need to be on the same disk. Because
     // there may be insufficient space on the current disk, which will lead the schema-change
     // task to be fail, even if there is enough space on other disks
-    OLAPStatus create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores);
+    Status create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores);
 
     // Drop a tablet by description
     // If set keep_files == true, files will NOT be deleted when deconstruction.
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_DELETE_NOEXIST_ERROR, if tablet not exist
-    //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus drop_tablet(TTabletId tablet_id, bool keep_files = false);
+    //        Status::OLAPInternalError(OLAP_ERR_NOT_INITED), if not inited
+    Status drop_tablet(TTabletId tablet_id, bool keep_files = false);
 
-    OLAPStatus drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
+    Status drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
     TabletSharedPtr find_best_tablet_to_compaction(
             CompactionType compaction_type, DataDir* data_dir,
@@ -101,24 +101,24 @@ public:
     // parse tablet header msg to generate tablet object
     // - restore: whether the request is from restore tablet action,
     //   where we should change tablet status from shutdown back to running
-    OLAPStatus load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
+    Status load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                      TSchemaHash schema_hash, const std::string& header,
                                      bool update_meta, bool force = false, bool restore = false,
                                      bool check_path = true);
 
-    OLAPStatus load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
+    Status load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
                                     const std::string& schema_hash_path, bool force = false,
                                     bool restore = false);
 
     // 获取所有tables的名字
     //
     // Return OLAP_SUCCESS, if run ok
-    //        OLAP_ERR_INPUT_PARAMETER_ERROR, if tables is null
-    OLAPStatus report_tablet_info(TTabletInfo* tablet_info);
+    //        Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), if tables is null
+    Status report_tablet_info(TTabletInfo* tablet_info);
 
-    OLAPStatus build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
+    Status build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
 
-    OLAPStatus start_trash_sweep();
+    Status start_trash_sweep();
 
     void try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
                                        SchemaHash schema_hash, const std::string& schema_hash_path);
@@ -145,19 +145,19 @@ private:
     //
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
-    //        OLAP_ERR_NOT_INITED, if not inited
-    OLAPStatus _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet, bool update_meta, bool force);
+    //        Status::OLAPInternalError(OLAP_ERR_NOT_INITED), if not inited
+    Status _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet, bool update_meta, bool force);
 
-    OLAPStatus _add_tablet_to_map_unlocked(TTabletId tablet_id, 
+    Status _add_tablet_to_map_unlocked(TTabletId tablet_id, 
                                            const TabletSharedPtr& tablet, bool update_meta,
                                            bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
-    OLAPStatus _create_initial_rowset_unlocked(const TCreateTabletReq& request, Tablet* tablet);
+    Status _create_initial_rowset_unlocked(const TCreateTabletReq& request, Tablet* tablet);
 
-    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, bool keep_files = false);
+    Status _drop_tablet_directly_unlocked(TTabletId tablet_id, bool keep_files = false);
 
-    OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, bool keep_files);
+    Status _drop_tablet_unlocked(TTabletId tablet_id, bool keep_files);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted, std::string* err);
@@ -170,7 +170,7 @@ private:
                                                          const bool is_schema_change,
                                                          const Tablet* base_tablet,
                                                          const std::vector<DataDir*>& data_dirs);
-    OLAPStatus _create_tablet_meta_unlocked(const TCreateTabletReq& request, DataDir* store,
+    Status _create_tablet_meta_unlocked(const TCreateTabletReq& request, DataDir* store,
                                             const bool is_schema_change_tablet,
                                             const Tablet* base_tablet,
                                             TabletMetaSharedPtr* tablet_meta);
@@ -181,7 +181,7 @@ private:
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
-    OLAPStatus _get_storage_param(DataDir* data_dir, const std::string& storage_name, StorageParamPB* storage_param);
+    Status _get_storage_param(DataDir* data_dir, const std::string& storage_name, StorageParamPB* storage_param);
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 
