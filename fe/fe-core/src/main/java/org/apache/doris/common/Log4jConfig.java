@@ -19,14 +19,14 @@ package org.apache.doris.common;
 
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.config.ConfigurationSource;
 import org.apache.logging.log4j.core.config.xml.XmlConfiguration;
 import org.apache.logging.log4j.core.lookup.Interpolator;
 import org.apache.logging.log4j.core.lookup.StrSubstitutor;
-
-import com.google.common.collect.Maps;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
