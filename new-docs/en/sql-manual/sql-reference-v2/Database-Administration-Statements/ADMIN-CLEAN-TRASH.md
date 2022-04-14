@@ -1,8 +1,10 @@
 ---
 {
-    "title": "KILL",
+    "title": "ADMIN-CLEAN-TRASH",
     "language": "en"
 }
+
+
 ---
 
 <!--
@@ -24,29 +26,34 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## KILL
+## ADMIN-CLEAN-TRASH
 
 ### Name
 
-KILL
+ADMIN CLEAN TRASH
 
 ### Description
 
-Each Doris connection runs in a separate thread. You can kill a thread with the KILL processlist_id statement.
-
-The thread process list identifier can be determined from the ID column of the INFORMATION_SCHEMA PROCESSLIST table, the Id column of the SHOW PROCESSLIST output, and the PROCESSLIST_ID column of the Performance Schema thread table.
+This statement is used to clean up garbage data in the backend
 
 grammar:
 
 ```sql
-KILL [CONNECTION | QUERY] processlist_id
+ADMIN CLEAN TRASH [ON ("BackendHost1:BackendHeartBeatPort1", "BackendHost2:BackendHeartBeatPort2", ...)];
 ````
+
+illustrate:
+
+1. Use BackendHost:BackendHeartBeatPort to indicate the backend that needs to be cleaned up, and clean up all backends without adding the on limit.
 
 ### Example
 
+1. Clean up the junk data of all be nodes.
+
+        ADMIN CLEAN TRASH;
+
+2. Clean up the junk data of '192.168.0.1:9050' and '192.168.0.2:9050'.
+
+        ADMIN CLEAN TRASH ON ("192.168.0.1:9050","192.168.0.2:9050");
+
 ### Keywords
-
-    KILL
-
-### Best Practice
-
