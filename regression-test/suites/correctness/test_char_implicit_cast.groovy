@@ -22,4 +22,4 @@ suite("test_char_implicit_cast") {
     qt_test_timediff_char 'select timediff("2010-01-01 01:00:00", cast("2010-01-02 01:00:00" as char));'
     qt_test_money_format_varchar 'select money_format("123456");'
     qt_test_money_format_char 'select  money_format(cast("123456" as char));'
-}qt_
+}
