@@ -26,6 +26,10 @@ under the License.
 
 ## GRANT
 
+### Name
+
+GRANT
+
 ### Description
 
 GRANT 命令用于赋予指定用户或角色指定的权限
