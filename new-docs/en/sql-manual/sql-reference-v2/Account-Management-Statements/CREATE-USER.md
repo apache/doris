@@ -26,6 +26,10 @@ under the License.
 
 ## CREATE-USER
 
+### Name
+
+CREATE USER
+
 ### Description
 
 The CREATE USER command is used to create a Doris user.
