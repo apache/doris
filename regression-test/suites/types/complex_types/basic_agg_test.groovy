@@ -27,4 +27,6 @@ suite("basic_agg_test") {
     qt_sql_bitmap """select * from bitmap_basic_agg;"""
 
     qt_sql_hll """select * from hll_basic_agg;"""
+
+    qt_sql_hll_cardinality """select k1, hll_cardinality(hll_union(k2)) from hll_basic_agg group by k1 order by k1;"""
 }
