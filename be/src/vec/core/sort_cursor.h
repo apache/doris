@@ -222,7 +222,7 @@ struct SortBlockCursor {
     }
 
     /// Inverted so that the priority queue elements are removed in ascending order.
-    bool operator<(const SortBlockCursor& rhs) const { return less_at(rhs, impl->rows - 1) >= 0; }
+    bool operator<(const SortBlockCursor& rhs) const { return less_at(rhs, impl->rows - 1) == 1; }
 };
 
 } // namespace doris::vectorized
