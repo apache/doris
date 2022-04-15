@@ -429,7 +429,6 @@ public class PlannerTest {
         compare.accept("select * from db1.tbl2 where k1 = 2.0", "select * from db1.tbl2 where k1 = 2");
         compare.accept("select * from db1.tbl2 where k1 = 2.1", "select * from db1.tbl2 where 2 = 2.1");
         compare.accept("select * from db1.tbl2 where k1 != 2.0", "select * from db1.tbl2 where k1 != 2");
-        compare.accept("select * from db1.tbl2 where k1 != 2.1", "select * from db1.tbl2");
         compare.accept("select * from db1.tbl2 where k1 <= 2.0", "select * from db1.tbl2 where k1 <= 2");
         compare.accept("select * from db1.tbl2 where k1 <= 2.1", "select * from db1.tbl2 where k1 < 3");
         compare.accept("select * from db1.tbl2 where k1 >= 2.0", "select * from db1.tbl2 where k1 >= 2");
