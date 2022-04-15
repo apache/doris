@@ -198,7 +198,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         if (!tableRefs_.isEmpty()) {
             builder.append(" FROM");
             for (int i = 0; i < tableRefs_.size(); ++i) {
-                builder.append(" " + tableRefs_.get(i).toSql());
+                builder.append(" " + tableRefs_.get(i).toDigest());
             }
         }
         return builder.toString();
