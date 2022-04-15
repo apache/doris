@@ -32,7 +32,7 @@ For the time being, read the [Doris metadata design document](../../internal/met
 
 ## Important tips
 
-* Current metadata design is not backward compatible. That is, if the new version has a new metadata structure change (you can see whether there is a new VERSION in the `FeMetaVersion.java` file in the FE code), it is usually impossible to roll back to the old version after upgrading to the new version. Therefore, before upgrading FE, be sure to test metadata compatibility according to the operations in the [Upgrade Document](../../installing/upgrade_EN.md).
+* Current metadata design is not backward compatible. That is, if the new version has a new metadata structure change (you can see whether there is a new VERSION in the `FeMetaVersion.java` file in the FE code), it is usually impossible to roll back to the old version after upgrading to the new version. Therefore, before upgrading FE, be sure to test metadata compatibility according to the operations in the [Upgrade Document](../upgrade.md).
 
 ## Metadata catalog structure
 
@@ -136,7 +136,7 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 
 ### Add FE
 
-Adding FE processes is described in detail in the [Deployment and Upgrade Documents](../../installing/install-deploy.md#Adding%20FE%20nodes) and will not be repeated. Here are some points for attention, as well as common problems.
+Adding FE processes is described in detail in the [Elastic Expansion Documents](../elastic-expansion.html) and will not be repeated. Here are some points for attention, as well as common problems.
 
 1. Notes
 
@@ -333,7 +333,7 @@ The third level can display the value information of the specified key.
 
 ## Best Practices
 
-The deployment recommendation of FE is described in the Installation and [Deployment Document](../../installing/install-deploy_EN.md). Here are some supplements.
+The deployment recommendation of FE is described in the Installation and [Deployment Document](../../install/install-deploy.md). Here are some supplements.
 
 * **If you don't know the operation logic of FE metadata very well, or you don't have enough experience in the operation and maintenance of FE metadata, we strongly recommend that only one FOLLOWER-type FE be deployed as MASTER in practice, and the other FEs are OBSERVER, which can reduce many complex operation and maintenance problems.** Don't worry too much about the failure of MASTER single point to write metadata. First, if you configure it properly, FE as a java process is very difficult to hang up. Secondly, if the MASTER disk is damaged (the probability is very low), we can also use the metadata on OBSERVER to recover manually through `fault recovery`.
 
