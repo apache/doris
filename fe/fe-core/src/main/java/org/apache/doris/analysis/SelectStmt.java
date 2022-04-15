@@ -662,7 +662,9 @@ public class SelectStmt extends QueryStmt {
                 case GT:
                 case GE:
                     expr = setIsNotNull.apply(leftExpr, binaryPredicate);
-                    expr = setIsNotNull.apply(rightExpr, expr);
+                    if (!leftExpr.equals(rightExpr)) {
+                        expr = setIsNotNull.apply(rightExpr, expr);
+                    }
                     return expr;
                 case EQ_FOR_NULL:
                     return expr;
