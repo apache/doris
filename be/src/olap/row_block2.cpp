@@ -288,7 +288,7 @@ Status RowBlockV2::_copy_data_to_column(int cid,
 
         auto& offsets_col = column_array->get_offsets();
         offsets_col.reserve(_selected_size);
-        uint32_t offset = 0;
+        uint32_t offset = offsets_col.back();
         for (uint16_t j = 0; j < _selected_size; ++j) {
             uint16_t row_idx = _selection_vector[j];
             auto cv = reinterpret_cast<const CollectionValue*>(column_block(cid).cell_ptr(row_idx));
