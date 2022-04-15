@@ -135,7 +135,6 @@ public class OlapScanNode extends ScanNode {
     private int selectedPartitionNum = 0;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
-    private long tmpRowCount = 0;
 
     // List of tablets will be scanned by current olap_scan_node
     private ArrayList<Long> scanTabletIds = Lists.newArrayList();
@@ -199,11 +198,6 @@ public class OlapScanNode extends ScanNode {
     // only used for UT
     public void setSelectedPartitionIds(Collection<Long> selectedPartitionIds) {
         this.selectedPartitionIds = selectedPartitionIds;
-    }
-
-    @Override
-    public NodeType getNodeType() {
-        return NodeType.OLAP_SCAN_NODE;
     }
 
     /**

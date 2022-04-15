@@ -71,7 +71,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -97,7 +96,6 @@ public class SingleNodePlanner {
     private final PlannerContext ctx_;
     private final ArrayList<ScanNode> scanNodes = Lists.newArrayList();
     private Map<Analyzer, List<ScanNode>> selectStmtToScanNodes = Maps.newHashMap();
-    private StatsRecursiveDerive statsRecursiveDerive;
 
     public SingleNodePlanner(PlannerContext ctx) {
         ctx_ = ctx;
@@ -166,8 +164,6 @@ public class SingleNodePlanner {
         if (LOG.isTraceEnabled()) {
             LOG.trace("desctbl: " + analyzer.getDescTbl().debugString());
         }
-        statsRecursiveDerive = new StatsRecursiveDerive();
-        statsRecursiveDerive.creteNodeTypeToDeriveMap();
         PlanNode singleNodePlan = createQueryPlan(queryStmt, analyzer,
                 ctx_.getQueryOptions().getDefaultOrderByLimit());
         Preconditions.checkNotNull(singleNodePlan);
