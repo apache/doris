@@ -27,10 +27,8 @@ under the License.
 
 # Description of the return value of the OLAP function on the BE side
 
-
-
 | Return value name | Return value | Return value description |
-| ------------------------------------------------ | ------ | ------------------------------------------- ----------------- |
+| ------------------------------------------------ | ------ | ------------------------------------------------------------ |
 | OLAP_SUCCESS | 0 | Success |
 | OLAP_ERR_OTHER_ERROR | -1 | Other errors |
 | OLAP_REQUEST_FAILED | -2 | Request failed |
