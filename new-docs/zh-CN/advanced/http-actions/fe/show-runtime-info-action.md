@@ -1,12 +1,11 @@
 ---
 {
-    "title": "Doris高可用",
+    "title": "Show Runtime Info Action",
     "language": "zh-CN"
 }
-
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -24,3 +23,62 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
+
+# Show Runtime Info Action
+
+## Request
+
+`GET /api/show_runtime_info`
+
+## Description
+
+用于获取 FE JVM 的 Runtime 信息
+    
+## Path parameters
+
+无
+
+## Query parameters
+
+无
+
+## Request body
+
+无
+
+## Response
+
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"free_mem": "855642056",
+		"total_mem": "1037959168",
+		"thread_cnt": "98",
+		"max_mem": "1037959168"
+	},
+	"count": 0
+}
+```
+    
+## Examples
+
+1. 获取当前 FE 节点的 JVM 信息
+
+    ```
+    GET /api/show_runtime_info
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"free_mem": "855642056",
+    		"total_mem": "1037959168",
+    		"thread_cnt": "98",
+    		"max_mem": "1037959168"
+    	},
+    	"count": 0
+    }
+    ```

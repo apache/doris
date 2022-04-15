@@ -1,12 +1,11 @@
 ---
 {
-    "title": "Elastic scaling",
-    "language": "en"
+    "title": "SHOW DATA",
+    "language": "zh-CN"
 }
-
 ---
 
-<!--
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -25,4 +24,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Elastic scaling
+# SHOW DATA
+   
+获取当前集群占用的总空间大小
+
+```
+curl -X GET http://fe_host:fe_http_port/api/show_data
+```
+
+返回值就是集群的总数据大小
