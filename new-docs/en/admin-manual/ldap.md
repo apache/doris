@@ -73,7 +73,7 @@ You need to configure the LDAP basic information in the fe/conf/ldap.conf file, 
 
 #### Set the LDAP administrator password:
 After configuring the ldap.conf file, start fe, log in to Doris with the root or admin account, and execute sql:  
-```
+```sql
 set ldap_admin_password = 'ldap_admin_password';
 ```
 
@@ -82,14 +82,14 @@ Client-side LDAP authentication requires the mysql client-side explicit authenti
 
 * Set the environment variable LIBMYSQL_ENABLE_CLEARTEXT_PLUGIN to value 1.
   For example, in a linux or max environment you can use the command:
-  ```
+  ```bash
   echo "export LIBMYSQL_ENABLE_CLEARTEXT_PLUGIN=1" >> ～/.bash_profile && source ～/.bash_profile
   ```
 
 * Add the parameter "--enable-cleartext-plugin" each time you log in to Doris.
-  ```
+  ```sql
   mysql -hDORIS_HOST -PDORIS_PORT -u user -p --enable-cleartext-plugin
-
+  
   Enter ldap password
   ```
 
@@ -118,12 +118,12 @@ For example:
 Doris account exists: jack@'172.10.1.10', password: 123456  
 LDAP user node presence attribute: uid: jack user password: abcdef  
 The jack@'172.10.1.10' account can be logged into by logging into Doris using the following command:
-```
+```bash
 mysql -hDoris_HOST -PDoris_PORT -ujack -p abcdef
 ```
 
 Login will fail with the following command:  
-```
+```bash
 mysql -hDoris_HOST -PDoris_PORT -ujack -p 123456
 ```
 
@@ -131,7 +131,7 @@ mysql -hDoris_HOST -PDoris_PORT -ujack -p 123456
 
 LDAP user node presence attribute: uid: jack User password: abcdef  
 Use the following command to create a temporary user and log in to jack@'%', the temporary user has basic privileges DatabasePrivs: Select_priv, Doris will delete the temporary user after the user logs out and logs in:  
-```
+```bash
 mysql -hDoris_HOST -PDoris_PORT -ujack -p abcdef
 ```
 
@@ -139,7 +139,7 @@ mysql -hDoris_HOST -PDoris_PORT -ujack -p abcdef
 
 Doris account exists: jack@'172.10.1.10', password: 123456  
 Login to the account using the Doris password, successfully:  
-```
+```bash
 mysql -hDoris_HOST -PDoris_PORT -ujack -p 123456
 ```
 
@@ -159,7 +159,7 @@ If the logged-in user is a temporary user and no group permission exists, the us
 Example:  
 LDAP user dn is the "member" attribute of the LDAP group node then the user is considered to belong to the group, Doris will intercept the first Rdn of group dn as the group name.  
 For example, if user dn is "uid=jack,ou=aidp,dc=domain,dc=com", the group information is as follows:  
-```
+```text
 dn: cn=doris_rd,ou=group,dc=domain,dc=com  
 objectClass: groupOfNames  
 member: uid=jack,ou=aidp,dc=domain,dc=com  

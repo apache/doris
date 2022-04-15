@@ -72,9 +72,7 @@ Node resource division refers to setting tags for BE nodes in a Doris cluster, a
     (k1 int, k2 int)
     distributed by hash(k1) buckets 1
     properties(
-        "replication_allocation"
-        =
-        "tag.location.group_a:1, tag.location.group_b:1, tag.location.group_c:1"
+        "replication_allocation"="tag.location.group_a:1, tag.location.group_b:1, tag.location.group_c:1"
     )
     ```
     
@@ -148,12 +146,12 @@ At present, Doris's resource restrictions on single queries are mainly divided i
 
     Doris can limit the maximum memory overhead that a query is allowed to use. To ensure that the memory resources of the cluster will not be fully occupied by a query. We can set the memory limit in the following ways:
     
-    ```
-    // Set the session variable exec_mem_limit. Then all subsequent queries in the session (within the connection) use this memory limit.
+    ```sql
+    # Set the session variable exec_mem_limit. Then all subsequent queries in the session (within the connection) use this memory limit.
     set exec_mem_limit=1G;
-    // Set the global variable exec_mem_limit. Then all subsequent queries of all new sessions (new connections) use this memory limit.
+    # Set the global variable exec_mem_limit. Then all subsequent queries of all new sessions (new connections) use this memory limit.
     set global exec_mem_limit=1G;
-    // Set the variable exec_mem_limit in SQL. Then the variable only affects this SQL.
+    # Set the variable exec_mem_limit in SQL. Then the variable only affects this SQL.
     select /*+ SET_VAR(exec_mem_limit=1G) */ id, name from tbl where xxx;
     ```
     
@@ -163,15 +161,16 @@ At present, Doris's resource restrictions on single queries are mainly divided i
 
     Users can limit the CPU resources of the query in the following ways:
     
-    ```
-    // Set the session variable cpu_resource_limit. Then all queries in the session (within the connection) will use this CPU limit.
+    ```sql
+    # Set the session variable cpu_resource_limit. Then all queries in the session (within the connection) will use this CPU limit.
     set cpu_resource_limit = 2
-    // Set the user's attribute cpu_resource_limit, then all queries of this user will use this CPU limit. The priority of this attribute is higher than the session variable cpu_resource_limit
+    # Set the user's attribute cpu_resource_limit, then all queries of this user will use this CPU limit. The priority of this attribute is higher than the session variable cpu_resource_limit
     set property for'user1''cpu_resource_limit' = '3';
     ```
     
     The value of `cpu_resource_limit` is a relative value. The larger the value, the more CPU resources can be used. However, the upper limit of the CPU that can be used by a query also depends on the number of partitions and buckets of the table. In principle, the maximum CPU usage of a query is positively related to the number of tablets involved in the query. In extreme cases, assuming that a query involves only one tablet, even if `cpu_resource_limit` is set to a larger value, only 1 CPU resource can be used.
     
+
 Through memory and CPU resource limits. We can divide user queries into more fine-grained resources within a resource group. For example, we can make some offline tasks with low timeliness requirements, but with a large amount of calculation, use less CPU resources and more memory resources. Some delay-sensitive online tasks use more CPU resources and reasonable memory resources.
 
 ## Best practices and forward compatibility
@@ -190,7 +189,7 @@ Here we give an example of the steps to start using the resource division functi
 
     After the upgrade, the default Tag of BE is `"tag.location": "default"`, and the default copy distribution of the table is: `"tag.location.default:xx`. So if you directly modify the Tag of BE, the system will Automatically detect changes in the distribution of copies, and start data redistribution. This may occupy some system resources. So we can turn off the data repair and balance logic before modifying the tag to ensure that there will be no copies when we plan resources Redistribution operation.
     
-    ```
+    ```sql
     ADMIN SET FRONTEND CONFIG ("disable_balance" = "true");
     ADMIN SET FRONTEND CONFIG ("disable_tablet_scheduler" = "true");
     ```
@@ -199,7 +198,7 @@ Here we give an example of the steps to start using the resource division functi
 
     Next, you can use the `alter system modify backend` statement to set the BE Tag. And through the `alter table` statement to modify the copy distribution strategy of the table. Examples are as follows:
     
-    ```
+    ```sql
     alter system modify backend "host1:9050, 1212:9050" set ("tag.location" = "group_a");
     alter table my_table modify partition p1 set ("replication_allocation" = "tag.location.group_a:2");
     ```
@@ -208,7 +207,7 @@ Here we give an example of the steps to start using the resource division functi
 
     After the tag and copy distribution are set, we can turn on the data repair and equalization logic to trigger data redistribution.
     
-    ```
+    ```sql
     ADMIN SET FRONTEND CONFIG ("disable_balance" = "false");
     ADMIN SET FRONTEND CONFIG ("disable_tablet_scheduler" = "false");
     ```
@@ -216,7 +215,8 @@ Here we give an example of the steps to start using the resource division functi
     This process will continue for a period of time depending on the amount of data involved. And it will cause some colocation tables to fail colocation planning (because the copy is being migrated). You can view the progress by `show proc "/cluster_balance/"`. You can also judge the progress by the number of `UnhealthyTabletNum` in `show proc "/statistic"`. When `UnhealthyTabletNum` drops to 0, it means that the data redistribution is completed. .
     
 4. Set the user's resource label permissions.
-    
+   
     After the data is redistributed. We can start to set the user's resource label permissions. Because by default, the user's `resource_tags.location` attribute is empty, that is, the BE of any tag can be accessed. Therefore, in the previous steps, the normal query of existing users will not be affected. When the `resource_tags.location` property is not empty, the user will be restricted from accessing the BE of the specified Tag.
     
+
 Through the above 4 steps, we can smoothly use the resource division function after the original cluster is upgraded.
