@@ -1222,8 +1222,9 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         if (insertStmt.getQueryStmt().isExplain()) {
-            insertStmt.setIsExplain(new ExplainOptions(true, false));
-            String explainString = planner.getExplainString(planner.getFragments(), new ExplainOptions(true, false));
+            ExplainOptions explainOptions = insertStmt.getQueryStmt().getExplainOptions();
+            insertStmt.setIsExplain(explainOptions);
+            String explainString = planner.getExplainString(planner.getFragments(), explainOptions);
             handleExplainStmt(explainString);
             return;
         }
