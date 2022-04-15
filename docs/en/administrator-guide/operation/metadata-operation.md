@@ -267,7 +267,16 @@ In some extreme cases, the image file on the disk may be damaged, but the metada
 ```
 curl -u $root_user:$password http://$master_hostname:8030/dump
 ```
-3. Replace the image file in the `meta_dir/image` directory on the OBSERVER FE node with the image_mem file, restart the OBSERVER FE node, and verify the integrity and correctness of the image_mem file. You can check whether the DB and Table metadata are normal on the FE Web page, whether there is an exception in `fe.log`, whether it is in a normal replayed jour.
+3. Execute the following command to verify the integrity and correctness of the generated image_mem file:
+```
+sh start_fe.sh --image path_to_image_mem
+```
+
+> note: `path_to_image_mem` is the path to the image_mem file.
+>
+> If the file is valid, the output will be `Load image success. Image file /absolute/path/to/image.xxxxxx valid`.
+>
+> If the file is invalid, the output will be `Load image failed. Image file /absolute/path/to/image.xxxxxx is invalid`.
 
 4. Replace the image file in the `meta_dir/image` directory on the FOLLOWER FE node with the image_mem file in turn, restart the FOLLOWER FE node, and confirm that the metadata and query services are normal.
 

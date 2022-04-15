@@ -267,8 +267,15 @@ FE 目前有以下几个端口
 ```
 curl -u $root_user:$password http://$master_hostname:8030/dump
 ```
-3. 用 image_mem 文件替换掉 OBSERVER FE 节点上`meta_dir/image`目录下的 image 文件，重启 OBSERVER FE 节点，
-验证 image_mem 文件的完整性和正确性（可以在 FE Web 页面查看 DB 和 Table 的元数据是否正常，查看fe.log 是否有异常，是否在正常 replayed journal）
+3. 执行以下命令，验证生成的 image_mem 文件的完整性和正确性：
+```
+sh start_fe.sh --image path_to_image_mem
+```
+> 注意：`path_to_image_mem` 是 image_mem 文件的路径。
+>
+> 如果文件有效会输出 `Load image success. Image file /absolute/path/to/image.xxxxxx is valid`。
+>
+> 如果文件无效会输出 `Load image failed. Image file /absolute/path/to/image.xxxxxx is invalid`。
 4. 依次用 image_mem 文件替换掉 FOLLOWER FE 节点上`meta_dir/image`目录下的 image 文件，重启 FOLLOWER FE 节点，
 确认元数据和查询服务都正常
 5. 用 image_mem 文件替换掉 Master FE 节点上`meta_dir/image`目录下的 image 文件，重启 Master FE 节点，
