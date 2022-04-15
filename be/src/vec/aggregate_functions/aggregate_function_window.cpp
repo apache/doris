@@ -58,7 +58,7 @@ template <template <typename> class AggregateFunctionTemplate, template <typenam
 static IAggregateFunction* create_function_single_value(const String& name,
                                                         const DataTypes& argument_types,
                                                         const Array& parameters) {
-    using StoreType = std::conditional_t<is_copy, CopiedValue, Value>;
+    using StoreType = CopiedValue;
 
     assert_arity_at_most<3>(name, argument_types);
 
