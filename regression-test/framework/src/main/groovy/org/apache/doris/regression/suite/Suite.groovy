@@ -184,7 +184,7 @@ class Suite implements GroovyInterceptable {
 
     List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
-        def result = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
@@ -265,7 +265,7 @@ class Suite implements GroovyInterceptable {
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
 
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
-            def result = JdbcUtils.executorToStringList(context.getConnection(), sql)
+            def (result, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
             if (isOrder) {
                 result = sortByToString(result)
             }
@@ -283,7 +283,8 @@ class Suite implements GroovyInterceptable {
             }
 
             OutputUtils.TagBlockIterator expectCsvResults = context.getOutputIterator().next()
-            List<List<Object>> realResults = JdbcUtils.executorToStringList(context.getConnection(), sql)
+
+            def (realResults, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
             if (isOrder) {
                 realResults = sortByToString(realResults)
             }
@@ -291,8 +292,8 @@ class Suite implements GroovyInterceptable {
             try {
                 errorMsg = OutputUtils.checkOutput(expectCsvResults, realResults.iterator(),
                     { row -> OutputUtils.toCsvString(row as List<Object>) },
-                    {row ->  OutputUtils.toCsvString(row) },
-                    "Check tag '${tag}' failed")
+                    { row ->  OutputUtils.toCsvString(row) },
+                    "Check tag '${tag}' failed", meta)
             } catch (Throwable t) {
                 throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
             }
