@@ -230,7 +230,18 @@ public enum PrimitiveType {
         builder.put(DATETIME, VARCHAR);
         builder.put(DATETIME, STRING);
         // Char
+        builder.put(CHAR, BOOLEAN);
+        builder.put(CHAR, TINYINT);
+        builder.put(CHAR, SMALLINT);
         builder.put(CHAR, CHAR);
+        builder.put(CHAR, INT);
+        builder.put(CHAR, BIGINT);
+        builder.put(CHAR, LARGEINT);
+        builder.put(CHAR, FLOAT);
+        builder.put(CHAR, DOUBLE);
+        builder.put(CHAR, DATE);
+        builder.put(CHAR, DATETIME);
+        builder.put(CHAR, DECIMALV2);
         builder.put(CHAR, VARCHAR);
         builder.put(CHAR, STRING);
         // Varchar
