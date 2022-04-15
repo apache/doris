@@ -48,7 +48,7 @@ while true; do
         break
         ;;
     *)
-        ehco "Internal error"
+        echo "Internal error"
         exit 1
         ;;
     esac
