@@ -61,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BinaryOperator;
 import java.util.stream.Collectors;
 
 /**
@@ -492,7 +493,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
 
-        whereClauseRewrite();
+        rewriteWhereClause();
         if (whereClause != null) {
             if (checkGroupingFn(whereClause)) {
                 throw new AnalysisException("grouping operations are not allowed in WHERE.");
@@ -603,7 +604,7 @@ public class SelectStmt extends QueryStmt {
         return result;
     }
 
-    private void whereClauseRewrite() {
+    private void rewriteWhereClause() {
         if (whereClause instanceof IntLiteral) {
             if (((IntLiteral) whereClause).getLongValue() == 0) {
                 whereClause = new BoolLiteral(false);
@@ -611,6 +612,82 @@ public class SelectStmt extends QueryStmt {
                 whereClause = new BoolLiteral(true);
             }
         }
+
+        whereClause = inferIsNotNull(whereClause);
+    }
+
+    /*-
+     * Infer `IS NOT NULL` from predicate in whereClause.
+     * And spilt it into two parts.
+     * Example:
+     * Where col > 0; -> Where col > 0 and col is not null;
+     */
+    private Expr inferIsNotNull(Expr expr) {
+        if (!(expr instanceof Predicate)) {
+            return expr;
+        }
+
+        Predicate predicate = (Predicate) expr;
+        Expr leftExpr = predicate.getChild(0);
+        Expr rightExpr = predicate.getChild(1);
+        if (leftExpr == null || rightExpr == null) {
+            return expr;
+        }
+
+        // Set `expr`-> `expr and col is not null`
+        BinaryOperator<Expr> setIsNotNull = (childExpr, parentExpr) -> {
+            if (childExpr instanceof SlotRef) {
+                SlotRef slotRef = (SlotRef) childExpr;
+                IsNullPredicate notNull = new IsNullPredicate(slotRef, true);
+                return new CompoundPredicate(CompoundPredicate.Operator.AND, parentExpr, notNull);
+            }
+            return parentExpr;
+        };
+
+        if (predicate instanceof BinaryPredicate) {
+            /*-
+             * Where col > 0; -> Where col > 0 and col is not null;
+             * Where col1 = col2; -> Where (col2 is not null) and (col1 is not null and col1 = col2);
+             */
+            BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
+            // Check NULL
+            if (leftExpr instanceof NullLiteral || rightExpr instanceof NullLiteral) {
+                return expr;
+            }
+            switch (binaryPredicate.getOp()) {
+                case EQ:
+                case NE:
+                case LT:
+                case LE:
+                case GT:
+                case GE:
+                    expr = setIsNotNull.apply(leftExpr, binaryPredicate);
+                    expr = setIsNotNull.apply(rightExpr, expr);
+                    return expr;
+                case EQ_FOR_NULL:
+                    return expr;
+            }
+            return expr;
+        } else if (predicate instanceof InPredicate) {
+            /**
+             * Add IsNotNull for InPredicate if `in` not include NULL.
+             */
+            InPredicate inPredicate = (InPredicate) expr;
+            if (!(leftExpr instanceof SlotRef)) {
+                return expr;
+            }
+            // Check NULL, can't infer `is not null` for `in [.. NULL ..]
+            for (int i = 1; i < inPredicate.getChildren().size(); i++) {
+                if (inPredicate.getChild(i) instanceof NullLiteral) {
+                    return expr;
+                }
+            }
+            return setIsNotNull.apply(leftExpr, inPredicate);
+        } else if (predicate instanceof LikePredicate || predicate instanceof BetweenPredicate) {
+            return setIsNotNull.apply(leftExpr, predicate);
+        }
+
+        return expr;
     }
 
     /**

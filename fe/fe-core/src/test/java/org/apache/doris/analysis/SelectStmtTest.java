@@ -794,4 +794,20 @@ public class SelectStmtTest {
         Assert.assertTrue(stmt1.getAnalyzer().getSlotDesc(new SlotId(2)).getIsNullable());
         Assert.assertTrue(stmt1.getAnalyzer().getSlotDescriptor("r.username").getIsNullable());
     }
+
+    @Test
+    public void testInferIsNotNull() throws Exception {
+        String sql1 = "select citycode from db1.table1 where citycode > 0";
+        String explain1 = dorisAssert.query(sql1).explainQuery();
+        Assert.assertTrue(explain1.contains("`citycode` IS NOT NULL"));
+
+        String sql2 = "select l.citycode, r.username from db1.table1 l left join db1.table2 r on l.siteid=r.siteid where l.citycode = r.citycode";
+        String explain2 = dorisAssert.query(sql2).explainQuery();
+        Assert.assertTrue(explain2.contains("`l`.`citycode` IS NOT NULL"));
+        Assert.assertTrue(explain2.contains("`r`.`citycode` IS NOT NULL"));
+
+        String sql3 = "select l.citycode, r.username from db1.table1 l left join db1.table2 r on l.siteid=r.siteid where l.citycode <=> r.citycode";
+        String explain3 = dorisAssert.query(sql3).explainQuery();
+        Assert.assertFalse(explain3.contains("IS NOT NULL"));
+    }
 }
