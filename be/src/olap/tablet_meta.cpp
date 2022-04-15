@@ -44,7 +44,7 @@ Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tabl
             col_ordinal_to_unique_id, tablet_uid,
             request.__isset.tablet_type ? request.tablet_type : TTabletType::TABLET_TYPE_DISK,
             request.storage_medium, request.storage_param.storage_name, request.compression_type));
-     return Status::OK();
+    return Status::OK();
 }
 
 TabletMeta::TabletMeta() : _tablet_uid(0, 0), _schema(new TabletSchema) {}
@@ -55,7 +55,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                        TabletUid tablet_uid, TTabletType::type tabletType,
                        TStorageMedium::type t_storage_medium, const std::string& storage_name,
-		               TCompressionType::type compression_type)
+                       TCompressionType::type compression_type)
         : _tablet_uid(0, 0), _schema(new TabletSchema) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
@@ -91,11 +91,11 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         LOG(WARNING) << "unknown tablet keys type";
         break;
     }
-
+    // compress_kind used to compress segment files
     schema->set_compress_kind(COMPRESS_LZ4);
 
-    switch (compression_type)
-    {
+    // compression_type used to compress segment page
+    switch (compression_type) {
     case TCompressionType::NO_COMPRESSION:
         schema->set_compression_type(NO_COMPRESSION);
         break;
@@ -118,7 +118,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_compression_type(LZ4F);
         break;
     }
-    
+
     switch (tablet_schema.sort_type) {
     case TSortType::type::ZORDER:
         schema->set_sort_type(SortType::ZORDER);

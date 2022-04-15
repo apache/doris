@@ -171,7 +171,7 @@ private:
     size_t _num_short_key_columns = 0;
     size_t _num_rows_per_row_block = 0;
     CompressKind _compress_kind = COMPRESS_NONE;
-    segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::NO_COMPRESSION;
+    segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     size_t _next_column_unique_id = 0;
 
     bool _has_bf_fpp = false;

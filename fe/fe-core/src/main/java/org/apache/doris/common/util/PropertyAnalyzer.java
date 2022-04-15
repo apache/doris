@@ -455,6 +455,10 @@ public class PropertyAnalyzer {
             return TCompressionType.ZLIB;
         } else if (compressionType.equalsIgnoreCase("zstd")) {
             return TCompressionType.ZSTD;
+        } else if (compressionType.equalsIgnoreCase("snappy")) {
+            return TCompressionType.SNAPPY;
+        } else if (compressionType.equalsIgnoreCase("default_compression")) {
+            return TCompressionType.LZ4F;
         } else {
             throw new AnalysisException("unknown compression type: " + compressionType);
         }
