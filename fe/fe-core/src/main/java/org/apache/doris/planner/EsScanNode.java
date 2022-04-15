@@ -72,7 +72,7 @@ public class EsScanNode extends ScanNode {
     boolean isFinalized = false;
 
     public EsScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName);
+        super(id, desc, planNodeName, NodeType.ES_SCAN_NODE);
         table = (EsTable) (desc.getTable());
         esTablePartitions = table.getEsTablePartitions();
     }

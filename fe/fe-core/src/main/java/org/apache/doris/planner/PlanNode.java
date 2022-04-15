@@ -55,6 +55,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -136,7 +137,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     protected List<SlotId> outputSlotIds;
 
-    private NodeType nodeType = NodeType.DEFAULT;
+    protected NodeType nodeType = NodeType.DEFAULT;
     protected StatsDeriveResult statsDeriveResult = new StatsDeriveResult();
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName) {
@@ -178,26 +179,32 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
                 "V" + planNodeName : planNodeName;
         this.numInstances = 1;
         this.nodeType = node.getNodeType();
-        this.statsDeriveResult.set(node.getStatsDeriveResult());
+        this.statsDeriveResult = new StatsDeriveResult(
+                node.getStatsDeriveResult().get().getCardinality(),
+                node.getStatsDeriveResult().get().getRowCount(),
+                node.getStatsDeriveResult().get().getColumnToDataSize(),
+                node.getStatsDeriveResult().get().getColumnToNdv());
     }
 
     public enum NodeType {
         DEFAULT,
         AGG_NODE,
-        OLAP_SCAN_NODE,
         HASH_JOIN_NODE,
-        MERGE_NODE
+        MERGE_NODE,
+        ES_SCAN_NODE,
+        LOAD_SCAN_NODE,
+        MYSQL_SCAN_NODE,
+        ODBC_SCAN_NODE,
+        OLAP_SCAN_NODE,
+        SCHEMA_SCAN_NODE,
     }
 
     public String getPlanNodeName() {
         return planNodeName;
     }
 
-    public StatsDeriveResult getStatsDeriveResult() {
-        if (statsDeriveResult == null) {
-            statsDeriveResult = new StatsDeriveResult();
-        }
-        return statsDeriveResult;
+    public Optional<StatsDeriveResult> getStatsDeriveResult() {
+        return Optional.ofNullable(statsDeriveResult);
     }
 
     public NodeType getNodeType() {
@@ -206,10 +213,6 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     public void setStatsDeriveResult(StatsDeriveResult statsDeriveResult) {
         this.statsDeriveResult = statsDeriveResult;
-    }
-
-    public void setNodeType(NodeType nodeType) {
-        this.nodeType = nodeType;
     }
 
     /**

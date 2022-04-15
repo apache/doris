@@ -23,8 +23,8 @@ import java.util.Map;
 
 // This structure is maintained in each operator to store the statistical information results obtained by the operator.
 public class StatsDeriveResult {
-    private long cardinality;
-    private long rowCount;
+    private long cardinality = -1;
+    private long rowCount = -1;
     // The data size of the corresponding column in the operator
     // The actual key is slotId
     private final Map<Long, Long> columnToDataSize = Maps.newHashMap();
@@ -32,23 +32,13 @@ public class StatsDeriveResult {
     // The actual key is slotId
     private final Map<Long, Long> columnToNdv = Maps.newHashMap();
 
-    public StatsDeriveResult() {
-        cardinality = -1;
-        rowCount = -1;
-    }
+    public StatsDeriveResult() {}
 
     public StatsDeriveResult(long cardinality, long rowCount, Map<Long, Long> columnToDataSize, Map<Long, Long> columnToNdv) {
         this.cardinality = cardinality;
         this.rowCount = rowCount;
         this.columnToDataSize.putAll(columnToDataSize);
         this.columnToNdv.putAll(columnToNdv);
-    }
-
-    public void set(StatsDeriveResult statsDeriveResult) {
-        this.cardinality = statsDeriveResult.cardinality;
-        this.rowCount = statsDeriveResult.rowCount;
-        this.columnToDataSize.putAll(statsDeriveResult.columnToDataSize);
-        this.columnToNdv.putAll(statsDeriveResult.columnToNdv);
     }
 
     public void setRowCount(long rowCount) {
@@ -60,14 +50,22 @@ public class StatsDeriveResult {
     }
 
     public boolean isStatsDerived() {
-        return cardinality != -1 && rowCount != -1 && columnToDataSize.isEmpty() && columnToNdv.isEmpty();
+        return cardinality != -1 && rowCount != -1 && !columnToDataSize.isEmpty() && !columnToNdv.isEmpty();
+    }
+
+    public long getCardinality() {
+        return cardinality;
+    }
+
+    public long getRowCount() {
+        return rowCount;
     }
 
     public Map<Long, Long> getColumnToNdv() {
         return columnToNdv;
     }
 
-    public long getCardinality() {
-        return cardinality;
+    public Map<Long, Long> getColumnToDataSize() {
+        return columnToDataSize;
     }
 }

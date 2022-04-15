@@ -19,12 +19,17 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.planner.PlanNode;
 
-import java.util.HashMap;
-import java.util.Map;
-
 
 public class StatsRecursiveDerive {
-    Map<PlanNode.NodeType, BaseStatsDerive> typeToDerive = new HashMap<>();
+    private StatsRecursiveDerive() {}
+
+    public static StatsRecursiveDerive getStatsRecursiveDerive() {
+        return Inner.INSTANCE;
+    }
+
+    private static class Inner {
+        private static final StatsRecursiveDerive INSTANCE = new StatsRecursiveDerive();
+    }
 
     /**
      * Recursively complete the derivation of statistics for this node and all its children
@@ -33,25 +38,15 @@ public class StatsRecursiveDerive {
      * which will store the derivation result of statistical information in the corresponding node
      */
     public void statsRecursiveDerive(PlanNode node) {
-        if (node.getStatsDeriveResult().isStatsDerived()) {
+        if (node.getStatsDeriveResult().get().isStatsDerived()) {
             return;
         }
         for (PlanNode childNode : node.getChildren()) {
-            if (!childNode.getStatsDeriveResult().isStatsDerived()) {
+            if (!childNode.getStatsDeriveResult().get().isStatsDerived()) {
                 statsRecursiveDerive(childNode);
             }
         }
-
-        node.setStatsDeriveResult(typeToDerive.get(node.getNodeType()).init(node).deriveStats());
-    }
-
-    public void creteNodeTypeToDeriveMap() {
-        typeToDerive.put(PlanNode.NodeType.DEFAULT, new BaseStatsDerive() {
-            @Override
-            public StatsDeriveResult deriveStats() {
-                return new StatsDeriveResult();
-            }
-        });
-        typeToDerive.put(PlanNode.NodeType.OLAP_SCAN_NODE, new ScanStatsDerive());
+        DeriveFactory deriveFactory = new DeriveFactory();
+        node.setStatsDeriveResult(deriveFactory.getStatsDerive(node.getNodeType()).init(node).deriveStats());
     }
 }
