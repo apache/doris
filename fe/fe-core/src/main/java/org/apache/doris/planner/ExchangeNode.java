@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExchangeNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -51,7 +52,6 @@ public class ExchangeNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(ExchangeNode.class);
 
     public static final String EXCHANGE_NODE = "EXCHANGE";
-    public static final String VEXCHANGE_NODE = "VEXCHANGE";
     public static final String MERGING_EXCHANGE_NODE = "MERGING-EXCHANGE";
 
     // The parameters based on which sorted input streams are merged by this
@@ -121,7 +121,8 @@ public class ExchangeNode extends PlanNode {
     public void setMergeInfo(SortInfo info, long offset) {
         this.mergeInfo = info;
         this.offset = offset;
-        this.planNodeName = MERGING_EXCHANGE_NODE;
+        this.planNodeName = VectorizedUtil.isVectorized() ? "V" + MERGING_EXCHANGE_NODE
+                : MERGING_EXCHANGE_NODE;
     }
 
     @Override
