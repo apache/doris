@@ -32,8 +32,6 @@ If Doris' data disk capacity is not controlled, the process will hang because th
 
 ## Glossary
 
-* FE：Doris Frontend Node. Responsible for metadata management and request access. 
-* BE：Doris Backend Node. Responsible for query execution and data storage.
 * Data Dir：Data directory, each data directory specified in the `storage_root_path` of the BE configuration file `be.conf`. Usually a data directory corresponds to a disk, so the following **disk** also refers to a data directory. 
 
 ## Basic Principles
