@@ -421,7 +421,7 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
                 drop_tablet_req.tablet_id, false, &err);
         if (dropped_tablet != nullptr) {
             Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                    drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
+                    drop_tablet_req.tablet_id);
             if (!drop_status.ok()) {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
