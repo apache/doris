@@ -26,6 +26,10 @@ under the License.
 
 ## DROP-USER
 
+### Name
+
+DROP USER
+
 ### Description
 
 Delete a user

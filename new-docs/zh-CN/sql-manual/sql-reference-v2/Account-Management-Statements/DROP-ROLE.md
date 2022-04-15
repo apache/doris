@@ -26,19 +26,23 @@ under the License.
 
 ## DROP-ROLE
 
+### Name
+
+DROP ROLE
+
 ### Description
 
-The statement user removes a role
+语句用户删除角色
 
 ```sql
   DROP ROLE role1;
 ````
 
-Deleting a role does not affect the permissions of users who previously belonged to the role. It is only equivalent to decoupling the role from the user. The permissions that the user has obtained from the role will not change
+删除角色不会影响以前属于角色的用户的权限。 它仅相当于解耦来自用户的角色。 用户从角色获得的权限不会改变
 
 ### Example
 
-1. Delete a role
+1. 删除一个角色
 
 ```sql
 DROP ROLE role1;

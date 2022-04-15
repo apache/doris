@@ -26,6 +26,10 @@ under the License.
 
 ## SET PROPERTY
 
+### Name
+
+SET PROPERTY
+
 ### Description
 
  设置用户的属性，包括分配给用户的资源、导入cluster等
@@ -81,25 +85,25 @@ key:
 ### Example
 
 1. 修改用户 jack 最大连接数为1000
-    
+   
     ```sql
     SET PROPERTY FOR 'jack' 'max_user_connections' = '1000';
     ```
     
 2. 修改用户 jack 的cpu_share为1000
-    
+   
     ```sql
     SET PROPERTY FOR 'jack' 'resource.cpu_share' = '1000';
     ```
     
 3. 修改 jack 用户的normal组的权重
-    
+   
     ```sql
     SET PROPERTY FOR 'jack' 'quota.normal' = '400';
     ```
     
 4. 为用户 jack 添加导入cluster
-    
+   
     ```sql
     SET PROPERTY FOR 'jack'
         'load_cluster.{cluster_name}.hadoop_palo_path' = '/user/doris/doris_path',
@@ -107,31 +111,31 @@ key:
     ```
     
 5. 删除用户 jack 下的导入cluster。
-    
+   
     ```sql
     SET PROPERTY FOR 'jack' 'load_cluster.{cluster_name}' = '';
     ```
     
 6. 修改用户 jack 默认的导入cluster
-    
+   
     ```sql
     SET PROPERTY FOR 'jack' 'default_load_cluster' = '{cluster_name}';
     ```
     
 7. 修改用户 jack 的集群优先级为 HIGH
-    
+   
     ```sql
     SET PROPERTY FOR 'jack' 'load_cluster.{cluster_name}.priority' = 'HIGH';
     ```
     
 8. 修改用户jack的查询可用instance个数为3000
-    
+   
     ```sql
     SET PROPERTY FOR 'jack' 'max_query_instances' = '3000';
     ```
     
 9. 修改用户jack的sql block rule
-    
+   
     ```sql
     SET PROPERTY FOR 'jack' 'sql_block_rules' = 'rule1, rule2';
     ```
