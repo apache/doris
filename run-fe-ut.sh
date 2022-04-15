@@ -68,7 +68,7 @@ else
             --coverage) COVERAGE=1 ; shift ;;
             --run) RUN=1 ; shift ;;
             --) shift ;  break ;;
-            *) ehco "Internal error" ; exit 1 ;;
+            *) echo "Internal error" ; exit 1 ;;
         esac
     done
 fi
