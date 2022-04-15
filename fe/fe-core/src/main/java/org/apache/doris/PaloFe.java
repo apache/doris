@@ -325,9 +325,9 @@ public class PaloFe {
                 System.out.println("Start to load image: ");
                 try {
                     MetaReader.read(imageFile, Catalog.getCurrentCatalog());
-                    System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + "is valid");
+                    System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
                 } catch (Exception e) {
-                    System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + "is invalid");
+                    System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
                     e.printStackTrace();
                 } finally {
                     System.exit(0);

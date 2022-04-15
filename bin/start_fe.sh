@@ -27,7 +27,7 @@ OPTS=$(getopt \
     -o '' \
     -l 'daemon' \
     -l 'helper:' \
-    -l 'image' \
+    -l 'image:' \
     -- "$@")
 
 eval set -- "$OPTS"
@@ -35,6 +35,7 @@ eval set -- "$OPTS"
 RUN_DAEMON=0
 HELPER=
 IMAGE_PATH=
+IMAGE_TOOL=
 while true; do
     case "$1" in
     --daemon)
@@ -46,6 +47,7 @@ while true; do
         shift 2
         ;;
     --image)
+        IMAGE_TOOL=1
         IMAGE_PATH=$2
         shift 2
         ;;
@@ -169,8 +171,12 @@ if [ x"$HELPER" != x"" ]; then
     HELPER="-helper $HELPER"
 fi
 
-if [ ! -z ${IMAGE_PATH} ]; then
-    $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe -i ${IMAGE_PATH}
+if [ ${IMAGE_TOOL} -eq 1 ]; then
+    if [ ! -z ${IMAGE_PATH} ]; then
+        $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe -i ${IMAGE_PATH}
+    else
+        echo "Internal Error. USE IMAGE_TOOL like : ./start_fe.sh --image image_path"
+    fi
 elif [ ${RUN_DAEMON} -eq 1 ]; then
     nohup $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 < /dev/null &
 else
