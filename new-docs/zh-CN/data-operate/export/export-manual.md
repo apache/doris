@@ -90,7 +90,7 @@ Doris 会首先在指定的远端存储的路径中，建立一个名为 `__dori
 
 ### Broker 参数
 
-Export 需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](./advanced/broker.html)
+Export 需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](../../advanced/broker.html)
 
 ## 开始导出
 

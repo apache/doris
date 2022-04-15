@@ -75,7 +75,7 @@ Examples:
 
 ### SHOW FILE
 
-该语句可以查看已经创建成功的文件，具体操作可查看 [SHOW FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.md)。
+该语句可以查看已经创建成功的文件，具体操作可查看 [SHOW FILE](../sql-manual/sql-reference-v2/Show-Statements/SHOW-FILE.html)。
 
 Examples:
 
@@ -131,4 +131,4 @@ Examples:
 
 ## 更多帮助
 
-关于文件管理器使用的更多详细语法及最佳实践，请参阅 [CREATE FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.html) 、[DROP FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.html) 和 [SHOW FILE](../sql-manual/sql-reference-v2/Show-Statements/SHOW-FILE.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP CREATE FILE` 、`HELP DROP FILE`和`HELP SHOW FILE`  获取更多帮助信息。
+关于文件管理器使用的更多详细语法及最佳实践，请参阅 [CREATE FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.html) 、[DROP FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.html) 和 [SHOW FILE](../sql-manual/sql-reference-v2/Show-Statements/SHOW-FILE.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP CREATE FILE` 、`HELP DROP FILE`和`HELP SHOW FILE`  获取更多帮助信息。
