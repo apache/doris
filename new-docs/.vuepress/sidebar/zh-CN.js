@@ -789,6 +789,7 @@ module.exports = [
               "SHOW-TABLET",
               "SHOW-TRANSACTION",
               "SHOW-TRIGGERS",
+              "SHOW-TRASH",
               "SHOW-USER",
               "SHOW-VARIABLES",
               "SHOW-VIEW",
