@@ -26,6 +26,10 @@ under the License.
 
 ## GRANT
 
+### Name
+
+GRANT
+
 ### Description
 
 The GRANT command is used to grant the specified user or role specified permissions
