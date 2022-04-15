@@ -96,7 +96,7 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 
 以上方式，都需要 Doris 的 root 用户权限。
 
-BE 节点的扩容和缩容过程，不影响当前系统运行以及正在执行的任务，并且不会影响当前系统的性能。数据均衡会自动进行。根据集群现有数据量的大小，集群会在几个小时到1天不等的时间内，恢复到负载均衡的状态。集群负载情况，可以参见 [Tablet 负载均衡文档](../administrator-guide/operation/tablet-repair-and-balance.md)。
+BE 节点的扩容和缩容过程，不影响当前系统运行以及正在执行的任务，并且不会影响当前系统的性能。数据均衡会自动进行。根据集群现有数据量的大小，集群会在几个小时到1天不等的时间内，恢复到负载均衡的状态。集群负载情况，可以参见 [Tablet 负载均衡文档](../maint-monitor/tablet-meta-tool.html)。
 
 ### 增加 BE 节点
 
@@ -128,7 +128,7 @@ DECOMMISSION 语句如下：
      > 		```CANCEL DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```  
      > 	命令取消。取消后，该 BE 上的数据将维持当前剩余的数据量。后续 Doris 重新进行负载均衡
 
-**对于多租户部署环境下，BE 节点的扩容和缩容，请参阅 [多租户设计文档](../administrator-guide/operation/multi-tenant.md)。**
+**对于多租户部署环境下，BE 节点的扩容和缩容，请参阅 [多租户设计文档](../multi-tenant.html)。**
 
 ## Broker 扩容缩容
 
