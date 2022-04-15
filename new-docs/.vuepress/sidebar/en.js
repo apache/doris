@@ -257,6 +257,16 @@ module.exports = [
         ],
         sidebarDepth: 1,
       },
+      {
+        title: "Best Practice",
+        directoryPath: "best-practice/",
+        initialOpenGroupIndex: -1,
+        children: [
+          "query-analysis",
+          "import-analysis",
+          "debug-log"
+        ]
+      }
     ],
   },
   {
