@@ -26,13 +26,29 @@ under the License.
 
 ## DROP-INDEX
 
+### Name
+
+DROP INDEX
+
 ### Description
+
+This statement is used to delete the index of the specified name from a table. Currently, only bitmap indexes are supported.
+grammar:
+
+```sql
+DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;
+````
 
 ### Example
 
+1. Delete the index
+
+    ```sql
+    CREATE INDEX [IF NOT EXISTS] index_name ON table1 ;
+    ````
+
 ### Keywords
 
-    DROP, INDEX
+     DROP, INDEX
 
 ### Best Practice
-
