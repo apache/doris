@@ -36,7 +36,7 @@ This document mainly introduces how to pass the preliminary performance test of 
 
 ## Environmental preparation
 
-Please refer to the [official document](http://doris.incubator.apache.org/master/en/installing/install-deploy.html) to install and deploy Doris to obtain a normal running Doris cluster ( Contain at least 1 FE, 1 BE).
+Please refer to the [official document](../install/install-deploy.html) to install and deploy Doris to obtain a normal running Doris cluster ( Contain at least 1 FE, 1 BE).
 
 The scripts involved in the following documents are all stored under `tools/ssb-tools/` in the Doris code base.
 
