@@ -751,14 +751,14 @@ module.exports = [
     directoryPath: "admin-manual/",
     initialOpenGroupIndex: -1,
     children: [
-      "upgrade",
-      "elastic-expansion",
       {
-        title: "High availability",
-        directoryPath: "cluster-admin/",
+        title: "cluster management",
+        directoryPath: "cluster-management/",
         initialOpenGroupIndex: -1,
         children: [
-          "doris-ha"
+          "upgrade",
+          "elastic-expansion",
+          "load-balancing"
         ],
       },
       {
@@ -771,6 +771,7 @@ module.exports = [
           "delete-recover"
         ],
       },
+      "sql-interception",
       "query-profile",
       "optimization",
       {
