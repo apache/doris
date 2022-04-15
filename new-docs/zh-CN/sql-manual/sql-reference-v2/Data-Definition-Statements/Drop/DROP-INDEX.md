@@ -26,9 +26,26 @@ under the License.
 
 ## DROP-INDEX
 
+### Name
+
+DROP INDEX
+
 ### Description
 
+该语句用于从一个表中删除指定名称的索引，目前仅支持bitmap 索引
+语法：
+
+```sql
+DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;
+```
+
 ### Example
+
+1. 删除索引
+
+   ```sql
+   CREATE INDEX [IF NOT EXISTS] index_name ON table1 ;
+   ```
 
 ### Keywords
 

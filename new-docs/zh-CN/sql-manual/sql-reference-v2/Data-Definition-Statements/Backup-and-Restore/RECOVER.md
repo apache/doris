@@ -36,14 +36,25 @@ REVOCER
 
 语法：
 
-	 1) 恢复 database
+1. 恢复 database
 
-```sql
-RECOVER DATABASE db_name;
-```
+   ```sql
+   RECOVER DATABASE db_name;
+   ```
 
-  	 1) 恢复 table
-  	 2) 恢复 partition
+2. 恢复 table
+
+   ```sql
+   RECOVER TABLE [db_name.]table_name;
+   ```
+
+3. 恢复 partition
+
+   ```sql
+   RECOVER PARTITION partition_name FROM [db_name.]table_name;
+   ```
+
+   
 
 说明：
 

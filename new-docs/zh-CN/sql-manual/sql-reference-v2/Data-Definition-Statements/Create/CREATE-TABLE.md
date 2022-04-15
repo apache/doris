@@ -28,7 +28,7 @@ under the License.
 
 ### Description
 
-该命令用于创建一张表。本文档主语介绍创建 Doris 自维护的表的语法。外部表语法请参阅 [CREATE-EXTERNAL-TABLE] 文档。
+该命令用于创建一张表。本文档主语介绍创建 Doris 自维护的表的语法。外部表语法请参阅 [CREATE-EXTERNAL-TABLE](./CREATE-EXTERNAL-TABLE.html)文档。
 
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
@@ -116,15 +116,15 @@ distribution_info
         
         示例：
         
-            ```
-            k1 TINYINT,
-            k2 DECIMAL(10,2) DEFAULT "10.5",
-            k4 BIGINT NULL DEFAULT VALUE "1000" COMMENT "This is column k4",
-            v1 VARCHAR(10) REPLACE NOT NULL,
-            v2 BITMAP BITMAP_UNION,
-            v3 HLL HLL_UNION,
-            v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
-            ```
+        ```text
+        k1 TINYINT,
+        k2 DECIMAL(10,2) DEFAULT "10.5",
+        k4 BIGINT NULL DEFAULT VALUE "1000" COMMENT "This is column k4",
+        v1 VARCHAR(10) REPLACE NOT NULL,
+        v2 BITMAP BITMAP_UNION,
+        v3 HLL HLL_UNION,
+        v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
+        ```
     
 *  `index_definition_list`
 
@@ -150,7 +150,7 @@ distribution_info
 
 * `engine_type`
 
-    表引擎类型。本文档中类型皆为 OLAP。其他外部表引擎类型见 [CREATE EXTERNAL TABLE](DORIS/SQL手册/语法帮助/DDL/CREATE-EXTERNAL-TABLE.md) 文档。示例：
+    表引擎类型。本文档中类型皆为 OLAP。其他外部表引擎类型见 [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.html) 文档。示例：
     
     `ENGINE=olap`
     
@@ -272,7 +272,7 @@ distribution_info
 
     * `in_memory`
 
-        通过此属性设置该表是否为 [内存表](DORIS/操作手册/内存表.md)。
+        通过此属性设置该表是否为内存表。
 
         `"in_memory" = "true"`
 
@@ -536,7 +536,7 @@ distribution_info
 
 #### 分区和分桶
 
-一个表必须指定分桶列，但可以不指定分区。关于分区和分桶的具体介绍，可参阅 [数据划分](DORIS/开始使用/关系模型与数据划分.md) 文档。
+一个表必须指定分桶列，但可以不指定分区。关于分区和分桶的具体介绍，可参阅 [数据划分](../../../../data-table/data-partition.html) 文档。
 
 Doris 中的表可以分为分区表和无分区的表。这个属性在建表时确定，之后不可更改。即对于分区表，可以在之后的使用过程中对分区进行增删操作，而对于无分区的表，之后不能再进行增加分区等操作。
 
@@ -546,7 +546,7 @@ Doris 中的表可以分为分区表和无分区的表。这个属性在建表�
 
 #### 动态分区
 
-动态分区功能主要用于帮助用户自动的管理分区。通过设定一定的规则，Doris 系统定期增加新的分区或删除历史分区。可参阅 [动态分区](DORIS/操作手册/动态分区.md) 文档查看更多帮助。
+动态分区功能主要用于帮助用户自动的管理分区。通过设定一定的规则，Doris 系统定期增加新的分区或删除历史分区。可参阅 [动态分区](../../../../advanced/partition/dynamic-partition.html) 文档查看更多帮助。
 
 #### 物化视图
 
@@ -556,7 +556,7 @@ Doris 中的表可以分为分区表和无分区的表。这个属性在建表�
 
 如果在之后的使用过程中添加物化视图，如果表中已有数据，则物化视图的创建时间取决于当前数据量大小。
 
-关于物化视图的介绍，请参阅文档 [物化视图](DORIS/操作手册/物化视图.md)。
+关于物化视图的介绍，请参阅文档 [物化视图](../../../../advanced/materialized-view.html)。
 
 #### 索引
 
