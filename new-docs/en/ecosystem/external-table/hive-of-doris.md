@@ -44,6 +44,8 @@ This document introduces how to use this feature and the considerations.
 
 ### Create Hive External Table 
 
+Refer to the specific table syntax:[CREATE TABLE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)
+
 ```sql
 -- Syntax
 CREATE [EXTERNAL] TABLE table_name (

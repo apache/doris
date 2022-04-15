@@ -44,6 +44,52 @@ Github: https://github.com/apache/incubator-doris-spark-connector
 
 ## Build and Install
 
+Ready to work
+
+1.Modify the `custom_env.sh.tpl` file and rename it to `custom_env.sh`
+
+2.Specify the thrift installation directory
+
+```bash
+##source file content
+#export THRIFT_BIN=
+#export MVN_BIN=
+#export JAVA_HOME=
+
+##amend as below
+export THRIFT_BIN=./thirdparty/installed/bin（thrift installation directory）
+#export MVN_BIN=
+#export JAVA_HOME=
+
+Install `thrift` 0.13.0 (Note: `Doris` 0.15 and the latest builds are based on `thrift` 0.13.0, previous versions are still built with `thrift` 0.9.3)
+Windows:
+  1. Download: `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
+  2. Copy: Copy the file to `./thirdparty/installed/bin` 
+  
+ 
+MacOS:
+  1. Download: `brew install thrift@0.13.0`
+  2. Create a soft link:
+       `mkdir -p ./thirdparty/installed/bin`
+       `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+
+Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that the version cannot be found. The solution is as follows, execute it in the terminal:
+    1. `brew tap-new $USER/local-tap`
+    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
+    3. `brew install thrift@0.13.0`
+ Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
+ 
+Linux:
+    1.Download source package：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
+    2.Install dependencies：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
+    3.`tar zxvf thrift-0.13.0.tar.gz`
+    4.`cd thrift-0.13.0`
+    5.`./configure --without-tests`
+    6.`make`
+    7.`make install`
+   Check the version after installation is complete：thrift --version
+```
+
 Execute following command in source dir
 
 ```bash

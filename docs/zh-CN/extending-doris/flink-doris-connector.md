@@ -50,6 +50,52 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 
 ## 编译与安装
 
+准备工作
+
+1.修改`custom_env.sh.tpl`文件，重命名为`custom_env.sh`
+
+2.指定thrift安装目录
+
+```bash
+##源文件内容
+#export THRIFT_BIN=
+#export MVN_BIN=
+#export JAVA_HOME=
+
+##修改如下
+export THRIFT_BIN=./thirdparty/installed/bin
+#export MVN_BIN=
+#export JAVA_HOME=
+
+安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
+ Windows: 
+    1. 下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
+    2. 拷贝：将文件拷贝至 `./thirdparty/installed/bin`
+ 
+ MacOS: 
+    1. 下载：`brew install thrift@0.13.0`
+    2. 建立软链接： 
+       `mkdir -p ./thirdparty/installed/bin`
+       `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+ 
+ 注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
+    1. `brew tap-new $USER/local-tap`
+    2. `brew extract --version='0.13.0' thrift $USER/local-tap`
+    3. `brew install thrift@0.13.0`
+ 参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
+ 
+ Linux:
+    1.下载源码包：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
+    2.安装依赖：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
+    3.`tar zxvf thrift-0.13.0.tar.gz`
+    4.`cd thrift-0.13.0`
+    5.`./configure --without-tests`
+    6.`make`
+    7.`make install`
+   安装完成后查看版本：thrift --version  
+ 
+```
+
 在源码目录下执行：
 
 ```bash
@@ -132,7 +178,7 @@ Flink 1.13.* 及以前的版本
   <!--artifactId>flink-doris-connector-1.11_2.12</artifactId-->
   <version>1.0.3</version>
 </dependency>    
-``` 
+```
 Flink 1.14.* 版本
 ```
 <dependency>
@@ -166,7 +212,7 @@ Flink 1.14.* 版本
   <artifactId>flink-doris-connector-1.14_2.12</artifactId>
   <version>1.0.3</version>
 </dependency>  
-``` 
+```
 
 **备注**
 
