@@ -103,7 +103,7 @@ Spark load 任务的执行主要分为以下5个阶段。
 
 ## Hive Bitmap UDF
 
-Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。详见 [hive-bitmap-udf](../../../ecosystem/external-table/hive-bitmap-udf.html) 文档。
+Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。
 
 ## 基本操作
 
