@@ -36,14 +36,23 @@ This statement is used to restore a previously deleted database, table or partit
 
 grammar:
 
-1) restore database
+1. restore database
 
-```sql
-RECOVER DATABASE db_name;
-```
+   ```sql
+   RECOVER DATABASE db_name;
+   ```
 
-   1) restore table
-   2) restore partition
+2. restore table
+
+   ```sql
+   RECOVER TABLE [db_name.]table_name;
+   ```
+
+ 3. restore partition
+
+    ```sql
+    RECOVER PARTITION partition_name FROM [db_name.]table_name;
+    ```
 
 illustrate:
 
