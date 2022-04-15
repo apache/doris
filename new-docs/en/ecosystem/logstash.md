@@ -28,9 +28,9 @@ under the License.
 
 This plugin is used to output data to Doris for logstash, use the HTTP protocol to interact with the Doris FE Http interface, and import data through Doris's stream load.
 
-[Learn more about Doris Stream Load ](http://doris.apache.org/administrator-guide/load-data/stream-load-manual.html)
+[Learn more about Doris Stream Load ](../data-operate/import/import-way/stream-load-manual.html)
 
-[Learn more about Doris](http://doris.apache.org)
+[Learn more about Doris](../)
 
 
 ## Install and compile

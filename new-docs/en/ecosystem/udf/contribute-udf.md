@@ -121,4 +121,4 @@ The user manual needs to include: UDF function definition description, applicabl
 
 When you meet the conditions and prepare the code, you can contribute UDF to the Doris community after the document. Simply submit the request (PR) on [Github](https://github.com/apache/incubator-doris). See the specific submission method: [Pull Request (PR)](https://help.github.com/articles/about-pull-requests/).
 
-Finally, when the PR assessment is passed and merged. Congratulations, your UDF becomes a third-party UDF supported by Doris. You can check it out in the extended functions section of [Doris official website](http://doris.apache.org/master/zh-CN/)~.
+Finally, when the PR assessment is passed and merged. Congratulations, your UDF becomes a third-party UDF supported by Doris. You can check it out in the ecological expansion section of [Doris official website](/en)~.
