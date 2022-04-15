@@ -120,7 +120,7 @@ module.exports = [
         ],
       },
       {
-        title: "数据导出",
+        title: "Export导出",
         directoryPath: "export/",
         initialOpenGroupIndex: -1,
         children: [
@@ -148,7 +148,15 @@ module.exports = [
     initialOpenGroupIndex: -1,
     children: [
       "materialized-view",
-      "schema-change",
+      {
+        title: "表结构变更",
+        directoryPath: "alter-table/",
+        initialOpenGroupIndex: -1,
+        children: [
+          "schema-change",
+          "replace-table"
+        ],
+      },
       {
         title: "Doris表分区",
         directoryPath: "partition/",

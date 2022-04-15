@@ -148,7 +148,15 @@ module.exports = [
     initialOpenGroupIndex: -1,
     children: [
       "materialized-view",
-      "schema-change",
+      {
+        title: "Alter Table",
+        directoryPath: "alter-table/",
+        initialOpenGroupIndex: -1,
+        children: [
+          "schema-change",
+          "replace-table"
+        ],
+      },
       {
         title: "Doris Partition",
         directoryPath: "partition/",
