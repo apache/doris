@@ -101,4 +101,95 @@ Because the doriswriter plug-in depends on some modules in the DataX code base, 
 
 ### Example
 
+#### 1. Stream reads the data and imports it to Doris
+
 For instructions on using the doriswriter plug-in, please refer to [here](https://github.com/apache/incubator-doris/blob/master/extension/DataX/doriswriter/doc/doriswriter.md).
+
+#### 2.Mysql reads the data and imports it to Doris
+
+1.Mysql table structure
+
+```sql
+CREATE TABLE `t_test`(
+ `id`bigint(30) NOT NULL,
+ `order_code` varchar(30) DEFAULT NULL COMMENT '',
+ `line_code` varchar(30) DEFAULT NULL COMMENT '',
+ `remark` varchar(30) DEFAULT NULL COMMENT '',
+ `unit_no` varchar(30) DEFAULT NULL COMMENT '',
+ `unit_name` varchar(30) DEFAULT NULL COMMENT '',
+ `price` decimal(12,2) DEFAULT NULL COMMENT '',
+ PRIMARY KEY(`id`) USING BTREE
+)ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 ROW_FORMAT=DYNAMIC COMMENT='';
+```
+
+2.Doris table structure
+
+```sql
+CREATE TABLE `ods_t_test` (
+ `id`bigint(30) NOT NULL,
+ `order_code` varchar(30) DEFAULT NULL COMMENT '',
+ `line_code` varchar(30) DEFAULT NULL COMMENT '',
+ `remark` varchar(30) DEFAULT NULL COMMENT '',
+ `unit_no` varchar(30) DEFAULT NULL COMMENT '',
+ `unit_name` varchar(30) DEFAULT NULL COMMENT '',
+ `price` decimal(12,2) DEFAULT NULL COMMENT ''
+）ENGINE=OLAP
+UNIQUE KEY(id`, `order_code`)
+DISTRIBUTED BY HASH(`order_code`) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 3",
+"in_memory" = "false",
+"storage_format" = "V2"
+);
+```
+
+3.Create datax script
+
+```
+{
+    "job": {
+        "setting": {
+            "speed": {
+                "channel": 1
+            },
+            "errorLimit": {
+                "record": 0,
+                "percentage": 0
+            }
+        },
+        "content": [
+            {
+                "reader": {
+                    "name": "mysqlreader",
+                    "parameter": {
+                        "username": "xxx",
+                        "password": "xxx",
+                        "column": ["id","order_code","line_code","remark","unit_no","unit_name","price"],
+                        "connection": [ { "table": [ "t_test" ], "jdbcUrl": [ "jdbc:mysql://10.10.10.1:33306/demo" ] } ] }
+                },
+                "writer": {
+                    "name": "doriswriter",
+                    "parameter": {
+                        "feLoadUrl": ["127.0.0.1:8030","127.0.0.2:8030"],
+                        "beLoadUrl": ["127.0.0.3:8040","127.0.0.4:8040","127.0.0.5:8040"],
+                        "jdbcUrl": "jdbc:mysql://127.0.0.1:9030/",
+                        "database": "demo",
+                        "table": "ods_t_test",
+                        "column": ["id","order_code","line_code","remark","unit_no","unit_name","price"],
+                        "username": "xxx",
+                        "password": "xxx",
+                        "postSql": [],
+                        "preSql": [],
+                        "loadProps": {
+                        },
+                        "maxBatchRows" : 300000,
+                        "maxBatchByteSize" : 20971520
+                    }
+                }
+            }
+        ]
+    }
+}
+```
+
+4.Execute the datax task, refer to the specific [datax official website](https://github.com/alibaba/DataX/blob/master/userGuid.md)
