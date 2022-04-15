@@ -34,7 +34,7 @@ under the License.
 
 ## 原理介绍
 
-创建和删除本质上是一个 schema change 的作业，具体细节可以参照 [Schema Change](../../advanced/schema-change.html)。
+创建和删除本质上是一个 schema change 的作业，具体细节可以参照 [Schema Change](../../advanced/alter-table/schema-change.html)。
 
 ## 语法
 

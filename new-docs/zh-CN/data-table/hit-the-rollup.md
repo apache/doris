@@ -130,7 +130,7 @@ Doris 会执行这些sql时会自动命中这个 ROLLUP 表。
 
 ### Duplicate 模型中的 ROLLUP
 
-因为 Duplicate 模型没有聚合的语意。所以该模型中的 ROLLUP，已经失去了“上卷”这一层含义。而仅仅是作为调整列顺序，以命中前缀索引的作用。我们将在**[数据模型前缀索引](data-model.html#前缀索引)**详细介绍前缀索引，以及如何使用ROLLUP改变前缀索引，以获得更好的查询效率。
+因为 Duplicate 模型没有聚合的语意。所以该模型中的 ROLLUP，已经失去了“上卷”这一层含义。而仅仅是作为调整列顺序，以命中前缀索引的作用。我们将在[前缀索引](./index/prefix-index.html)详细介绍前缀索引，以及如何使用ROLLUP改变前缀索引，以获得更好的查询效率。
 
 ## ROLLUP 调整前缀索引
 
@@ -187,7 +187,7 @@ mysql> SELECT * FROM table where age=20 and message LIKE "%error%";
 
 ### 索引
 
-前面的[数据模型](data-model.html)中已经介绍过 Doris 的前缀索引，即 Doris 会把 Base/Rollup 表中的前 36 个字节（有 varchar 类型则可能导致前缀索引不满 36 个字节，varchar 会截断前缀索引，并且最多使用 varchar 的 20 个字节）在底层存储引擎单独生成一份排序的稀疏索引数据(数据也是排序的，用索引定位，然后在数据中做二分查找)，然后在查询的时候会根据查询中的条件来匹配每个 Base/Rollup 的前缀索引，并且选择出匹配前缀索引最长的一个 Base/Rollup。
+前面的[前缀索引](./index/prefix-index.html)中已经介绍过 Doris 的前缀索引，即 Doris 会把 Base/Rollup 表中的前 36 个字节（有 varchar 类型则可能导致前缀索引不满 36 个字节，varchar 会截断前缀索引，并且最多使用 varchar 的 20 个字节）在底层存储引擎单独生成一份排序的稀疏索引数据(数据也是排序的，用索引定位，然后在数据中做二分查找)，然后在查询的时候会根据查询中的条件来匹配每个 Base/Rollup 的前缀索引，并且选择出匹配前缀索引最长的一个 Base/Rollup。
 
 ```text
        -----> 从左到右匹配
