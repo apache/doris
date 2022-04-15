@@ -42,3 +42,9 @@ testSuites = ""
 testDirectories = ""
 
 customConf1 = "test_custom_conf_value"
+
+// for test csv with header
+hdfsFs = "hdfs://127.0.0.1:9000"
+hdfsUser = "palo-qa"
+hdfsPasswd = ""
+brokerName = "broker_name"
