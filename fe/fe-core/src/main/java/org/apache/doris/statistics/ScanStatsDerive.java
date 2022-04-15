@@ -19,6 +19,7 @@ package org.apache.doris.statistics;
 
 import com.google.common.base.Preconditions;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
 
@@ -30,8 +31,8 @@ public class ScanStatsDerive extends BaseStatsDerive {
     // the selected materialized view is not determined when calculating the statistical information of scan,
     // so baseIndex is used for calculation when generating Planner.
 
-    // The tmpRowCount here is the temporary number of rows.
-    private long tmpRowCount;
+    // The rowCount here is the number of rows.
+    private long rowCount = -1;
     private Map<Long, Long> slotIdToDataSize;
     private Map<Long, Long> slotIdToNdv;
 
@@ -39,7 +40,6 @@ public class ScanStatsDerive extends BaseStatsDerive {
     public ScanStatsDerive init(PlanNode node) {
         Preconditions.checkState(node instanceof OlapScanNode);
         super.init(node);
-        tmpRowCount = ((OlapScanNode)node).getTmpRowCount();
         buildColumnToStats((OlapScanNode)node);
         return this;
     }
@@ -53,15 +53,21 @@ public class ScanStatsDerive extends BaseStatsDerive {
          * - When Join reorder is turned on, the cardinality must be calculated before the reorder algorithm.
          * - So only an inaccurate cardinality can be calculated here.
          */
-        cardinality = tmpRowCount;
+        cardinality = rowCount;
         applyConjunctsSelectivity();
         capCardinalityAtLimit();
-        return new StatsDeriveResult(cardinality, tmpRowCount, slotIdToDataSize, slotIdToNdv);
+        return new StatsDeriveResult(cardinality, rowCount, slotIdToDataSize, slotIdToNdv);
     }
 
     public void buildColumnToStats(OlapScanNode node) {
         slotIdToDataSize = new HashMap<>();
         slotIdToNdv = new HashMap<>();
+        if (node.getTupleDesc() != null
+            && node.getTupleDesc().getTable() != null) {
+            long tableId = node.getTupleDesc().getTable().getId();
+            rowCount = Catalog.getCurrentCatalog().getStatisticsManager()
+                    .getStatistics().getTableStats(tableId).getRowCount();
+        }
         for (SlotDescriptor slot : node.getTupleDesc().getSlots()) {
             if (slot.getParent() != null
                     && slot.getParent().getTable() != null
