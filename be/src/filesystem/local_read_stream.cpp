@@ -23,7 +23,7 @@ namespace doris {
 
 LocalReadStream::LocalReadStream(int fd, size_t file_size, size_t buffer_size)
         : _fd(fd), _file_size(file_size), _buffer_size(buffer_size) {
-    _buffer = new char[buffer_size];
+    _buffer = buffer_size ? new char[buffer_size] : nullptr;
 }
 
 LocalReadStream::~LocalReadStream() {
@@ -59,10 +59,10 @@ Status LocalReadStream::read(char* to, size_t req_n, size_t* read_n) {
     _offset += copied;
     *read_n = copied;
 
-    size_t left_n = req_n - copied;
-    if (left_n > 0) {
+    req_n -= copied;
+    if (req_n > 0) {
         size_t read_n1 = 0;
-        RETURN_IF_ERROR(read(to + copied, left_n, &read_n1));
+        RETURN_IF_ERROR(read(to + copied, req_n, &read_n1));
         *read_n += read_n1;
     }
     return Status::OK();

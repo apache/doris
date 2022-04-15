@@ -37,6 +37,16 @@ S3FileSystem::S3FileSystem(std::string root_path, std::string bucket,
 
 S3FileSystem::~S3FileSystem() = default;
 
+Status S3FileSystem::read_file(const std::string& path, IOContext io_context,
+                               std::unique_ptr<ReadStream>* stream) const {
+    return Status::OK();
+}
+
+Status S3FileSystem::write_file(const std::string& path, IOContext io_context,
+                                std::unique_ptr<WriteStream>* stream) {
+    return Status::OK();
+}
+
 Status S3FileSystem::exists(const std::string& path, bool* res) const {
     auto key = fs::path(_root_path) / path;
     return object_exists(key, res);

@@ -42,7 +42,7 @@ bool write_retry(int fd, const char* from, size_t put_n) {
 
 LocalWriteStream::LocalWriteStream(int fd, size_t buffer_size)
         : _fd(fd), _buffer_size(buffer_size) {
-    _buffer = new char[buffer_size];
+    _buffer = buffer_size ? new char[buffer_size] : nullptr;
 }
 
 LocalWriteStream::~LocalWriteStream() {

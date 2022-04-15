@@ -25,4 +25,6 @@ add_library(FileSystem STATIC
     local_file_system.cpp
     local_read_stream.cpp
     local_write_stream.cpp
+    s3_file_system.cpp
+    s3_read_stream.cpp
 )
