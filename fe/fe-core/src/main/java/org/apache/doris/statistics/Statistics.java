@@ -70,4 +70,16 @@ public class Statistics {
         }
         return tableStats.getNameToColumnStats();
     }
+
+    public void mockTableStatsWithRowCount(long tableId, long rowCount) {
+        TableStats tableStats = idToTableStats.get(tableId);
+        if (tableStats == null) {
+            tableStats = new TableStats();
+            idToTableStats.put(tableId, tableStats);
+        }
+
+        if (tableStats.getRowCount() != rowCount) {
+            tableStats.setRowCount(rowCount);
+        }
+    }
 }

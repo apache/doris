@@ -25,18 +25,18 @@ import org.apache.doris.planner.PlanNode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 public abstract class BaseStatsDerive {
     // estimate of the output cardinality of this node;
     // invalid: -1
-    protected long cardinality;
-    protected long limit;
+    protected long cardinality = -1;
+    protected long limit = -1;
 
     protected List<Expr> conjuncts = Lists.newArrayList();
-    protected List<StatsDeriveResult> childrenStatsResult = Lists.newArrayList();
+    protected List<Optional<StatsDeriveResult>> childrenStatsResult = Lists.newArrayList();
 
     protected BaseStatsDerive init(PlanNode node) {
-        cardinality = -1;
         limit = node.getLimit();
         conjuncts.addAll(node.getConjuncts());
 
