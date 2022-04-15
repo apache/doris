@@ -26,6 +26,10 @@ under the License.
 
 ## CREATE USER
 
+### Name
+
+CREATE USER
+
 ### Description
 
 CREATE USER 命令用于创建一个 Doris 用户。

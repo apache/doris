@@ -26,6 +26,10 @@ under the License.
 
 ## SET-PASSWORD
 
+### Name
+
+SET PASSWORD
+
 ### Description
 
 The SET PASSWORD command can be used to modify a user's login password. If the [FOR user_identity] field does not exist, then change the current user's password

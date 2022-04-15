@@ -26,6 +26,10 @@ under the License.
 
 ## REVOKE
 
+### Name
+
+REVOKE
+
 ### Description
 
  REVOKE 命令用于撤销指定用户或角色指定的权限。

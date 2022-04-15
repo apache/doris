@@ -26,6 +26,10 @@ under the License.
 
 ## SET-PROPERTY
 
+### Name
+
+SET PROPERTY
+
 ### Description
 
 Set user attributes, including resources assigned to users, importing clusters, etc.
