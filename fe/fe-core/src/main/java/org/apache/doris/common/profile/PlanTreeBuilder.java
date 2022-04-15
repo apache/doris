@@ -113,9 +113,7 @@ public class PlanTreeBuilder {
             parent.addChild(node);
         }
 
-        if (planNode.getPlanNodeName().equals(ExchangeNode.EXCHANGE_NODE)
-                || planNode.getPlanNodeName().equals(ExchangeNode.VEXCHANGE_NODE)
-                || planNode.getPlanNodeName().equals(ExchangeNode.MERGING_EXCHANGE_NODE)) {
+        if (planNode.getPlanNodeName().contains(ExchangeNode.EXCHANGE_NODE)) {
             exchangeNodes.add(node);
         } else {
             // Do not traverse children of exchange node,
