@@ -56,7 +56,7 @@ BloomFilter索引也是以Block为粒度创建的。每个Block中，指定列�
 
 下面我们通过实例来看看Doris怎么创建BloomFilter索引。
 
-### 创建BloomFilter索引
+## 创建BloomFilter索引
 
 Doris BloomFilter索引的创建是通过在建表语句的PROPERTIES里加上"bloom_filter_columns"="k1,k2,k3",这个属性，k1,k2,k3是你要创建的BloomFilter索引的Key列名称，例如下面我们对表里的saler_id,category_id创建了BloomFilter索引。
 
@@ -91,7 +91,7 @@ PROPERTIES (
 );
 ```
 
-### 查看BloomFilter索引
+## 查看BloomFilter索引
 
 查看我们在表上建立的BloomFilter索引是使用:
 
@@ -99,7 +99,7 @@ PROPERTIES (
 SHOW CREATE TABLE <table_name>
 ```
 
-### 删除BloomFilter索引
+## 删除BloomFilter索引
 
 删除索引即为将索引列从bloom_filter_columns属性中移除：
 
@@ -107,7 +107,7 @@ SHOW CREATE TABLE <table_name>
 ALTER TABLE <db.table_name> SET ("bloom_filter_columns" = "");
 ```
 
-### 修改BloomFilter索引
+## 修改BloomFilter索引
 
 修改索引即为修改表的bloom_filter_columns属性：
 
@@ -115,7 +115,7 @@ ALTER TABLE <db.table_name> SET ("bloom_filter_columns" = "");
 ALTER TABLE <db.table_name> SET ("bloom_filter_columns" = "k1,k3");
 ```
 
-### **Doris BloomFilter使用场景**
+## **Doris BloomFilter使用场景**
 
 满足以下几个条件时可以考虑对某列建立Bloom Filter 索引：
 
@@ -123,7 +123,7 @@ ALTER TABLE <db.table_name> SET ("bloom_filter_columns" = "k1,k3");
 2. 查询会根据该列高频过滤，而且查询条件大多是in和 = 过滤.
 3. 不同于Bitmap, BloomFilter适用于高基数列。比如UserID。因为如果创建在低基数的列上，比如”性别“列，则每个Block几乎都会包含所有取值，导致BloomFilter索引失去意义
 
-### **Doris BloomFilter使用注意事项**
+## **Doris BloomFilter使用注意事项**
 
 1. 不支持对Tinyint、Float、Double 类型的列建Bloom Filter索引。
 2. Bloom Filter索引只对in和 = 过滤查询有加速效果。
