@@ -794,6 +794,7 @@ module.exports = [
               "SHOW-SQL-BLOCK-RULE",
               "SHOW-STATUS",
               "SHOW-STREAM-LOAD",
+              "SHOW-SYNC-JOB",
               "SHOW-TABLE-ID",
               "SHOW-TABLE-STATUS",
               "SHOW-TABLET",

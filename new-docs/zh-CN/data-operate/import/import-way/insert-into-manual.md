@@ -35,7 +35,7 @@ Insert Into 语句的使用方式和 MySQL 等数据库中 Insert Into 语句的
 
 其中第二种命令仅用于 Demo，不要使用在测试或生产环境中。
 
-### 导入操作及返回结果
+## 导入操作及返回结果
 
 Insert Into 命令需要通过 MySQL 协议提交，创建导入请求会同步返回导入结果。
 
@@ -118,7 +118,7 @@ Insert Into 本身就是一个 SQL 命令，其**返回结果**会根据执行�
 
       当需要查看被过滤的行时，用户可以通过[SHOW LOAD](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-LOAD.html)语句
 
-      ```
+      ```sql
       show load where label="xxx";
       ```
 
@@ -128,7 +128,7 @@ Insert Into 本身就是一个 SQL 命令，其**返回结果**会根据执行�
 
       可以通过[SHOW TRANSACTION](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-TRANSACTION.html)语句查看这批数据的可见状态：
 
-      ```
+      ```sql
       show transaction where id=4005;
       ```
 
@@ -138,7 +138,7 @@ Insert Into 本身就是一个 SQL 命令，其**返回结果**会根据执行�
 
       执行失败表示没有任何数据被成功导入，并返回如下：
 
-      ```
+      ```sql
       mysql> insert into tbl1 select * from tbl2 where k1 = "a";
       ERROR 1064 (HY000): all partitions have no load data. url: http://10.74.167.16:8042/api/_load_error_log?file=__shard_2/error_log_insert_stmt_ba8bb9e158e4879-ae8de8507c0bf8a2_ba8bb9e158e4879_ae8de8507c0bf8a2
       ```
@@ -226,13 +226,12 @@ Insert Into 对数据量没有限制，大数据量导入也可以支持。但 I
 
 用户有一张表 store\_sales 在数据库 sales 中，用户又创建了一张表叫 bj\_store\_sales 也在数据库 sales 中，用户希望将 store\_sales 中销售记录在 bj 的数据导入到这张新建的表 bj\_store\_sales 中。导入的数据量约为：10G。
 
-```
+```sql
 store_sales schema：
 (id, total, user_id, sale_timestamp, region)
 
 bj_store_sales schema:
 (id, total, user_id, sale_timestamp)
-
 ```
 
 集群情况：用户当前集群的平均导入速度约为 5M/s
@@ -251,7 +250,7 @@ bj_store_sales schema:
 
   由于用户是希望将一张表中的数据做 ETL 并导入到目标表中，所以应该使用 Insert into query\_stmt 方式导入。
 
-  ```
+  ```sql
   INSERT INTO bj_store_sales WITH LABEL `label` SELECT id, total, user_id, sale_timestamp FROM store_sales where region = "bj";
   ```
 
@@ -273,4 +272,4 @@ bj_store_sales schema:
 
 ## 更多帮助
 
-关于 **Insert Into** 使用的更多详细语法，请参阅 [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP INSERT` 获取更多帮助信息。
+关于 **Insert Into** 使用的更多详细语法，请参阅 [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册，也可以在 Mysql 客户端命令行下输入 `HELP INSERT` 获取更多帮助信息。
