@@ -100,8 +100,3 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
 INSTANTIATE_TEST_SUITE_P(Params, AggMinMaxByTest,
                          ::testing::ValuesIn(std::vector<std::string> {"min_by", "max_by"}));
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}
