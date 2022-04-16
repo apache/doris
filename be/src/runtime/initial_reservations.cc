@@ -17,8 +17,6 @@
 
 #include "runtime/initial_reservations.h"
 
-#include <gflags/gflags.h>
-
 #include <limits>
 #include <mutex>
 

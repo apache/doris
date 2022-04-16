@@ -28,7 +28,6 @@
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "gutil/strings/numbers.h"
-#include "runtime/mysql_table_sink.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
