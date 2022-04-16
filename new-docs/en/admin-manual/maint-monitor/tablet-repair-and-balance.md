@@ -28,7 +28,7 @@ under the License.
 
 Beginning with version 0.9.0, Doris introduced an optimized replica management strategy and supported a richer replica status viewing tool. This document focuses on Doris data replica balancing, repair scheduling strategies, and replica management operations and maintenance methods. Help users to more easily master and manage the replica status in the cluster.
 
-> Repairing and balancing copies of tables with Collocation attributes can be referred to [HERE](../../advanced/colocation-join.html)
+> Repairing and balancing copies of tables with Collocation attributes can be referred to [HERE](../../advanced/join-optimization/colocation-join.html)
 
 ## Noun Interpretation
 
