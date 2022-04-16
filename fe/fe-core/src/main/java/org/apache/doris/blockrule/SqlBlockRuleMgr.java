@@ -121,22 +121,21 @@ public class SqlBlockRuleMgr implements Writable {
             if (!existRule(ruleName)) {
                 throw new DdlException("the sql block rule " + ruleName + " not exist");
             }
-            verifyLimitations(sqlBlockRule);
             SqlBlockRule originRule = nameToSqlBlockRuleMap.get(ruleName);
-            SqlBlockUtil.checkAlterValidate(sqlBlockRule, originRule);
-            if (StringUtils.isEmpty(sqlBlockRule.getSql())) {
+
+            if (sqlBlockRule.getSql().equals(CreateSqlBlockRuleStmt.STRING_NOT_SET)) {
                 sqlBlockRule.setSql(originRule.getSql());
             }
-            if (StringUtils.isEmpty(sqlBlockRule.getSqlHash())) {
+            if (sqlBlockRule.getSqlHash().equals(CreateSqlBlockRuleStmt.STRING_NOT_SET)) {
                 sqlBlockRule.setSqlHash(originRule.getSqlHash());
             }
-            if (StringUtils.isEmpty(sqlBlockRule.getPartitionNum().toString())) {
+            if (sqlBlockRule.getPartitionNum().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
                 sqlBlockRule.setPartitionNum(originRule.getPartitionNum());
             }
-            if (StringUtils.isEmpty(sqlBlockRule.getTabletNum().toString())) {
+            if (sqlBlockRule.getTabletNum().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
                 sqlBlockRule.setTabletNum(originRule.getTabletNum());
             }
-            if (StringUtils.isEmpty(sqlBlockRule.getCardinality().toString())) {
+            if (sqlBlockRule.getCardinality().equals(AlterSqlBlockRuleStmt.LONG_NOT_SET)) {
                 sqlBlockRule.setCardinality(originRule.getCardinality());
             }
             if (sqlBlockRule.getGlobal() == null) {
@@ -145,6 +144,9 @@ public class SqlBlockRuleMgr implements Writable {
             if (sqlBlockRule.getEnable() == null) {
                 sqlBlockRule.setEnable(originRule.getEnable());
             }
+            verifyLimitations(sqlBlockRule);
+            SqlBlockUtil.checkAlterValidate(sqlBlockRule);
+
             unprotectedUpdate(sqlBlockRule);
             Catalog.getCurrentCatalog().getEditLog().logAlterSqlBlockRule(sqlBlockRule);
         } finally {
