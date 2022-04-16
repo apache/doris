@@ -90,7 +90,7 @@ mysql> show proc "/";
 9. resources : 查看系统资源，普通账户只能看到自己有 USAGE_PRIV 使用权限的资源。只有root和admin账户可以看到所有的资源。等同于 [SHOW RESOURCES](./SHOW-RESOURCES.html)
 10.  monitor : 显示的是 FE JVM 的资源使用情况     
 11.  transactions ：用于查看指定 transaction id 的事务详情，等同于 [SHOW TRANSACTION](./SHOW-TRANSACTION.html)
-12.  colocation_group :   该命令可以查看集群内已存在的 Group 信息, 具体可以查看 [Colocation Join](../../../advanced/colocation-join.html) 章节
+12.  colocation_group :   该命令可以查看集群内已存在的 Group 信息, 具体可以查看 [Colocation Join](../../../advanced/join-optimization/colocation-join.html) 章节
 13.  backends ：显示集群中 BE 的节点列表  ， 等同于 [SHOW BACKENDS](./SHOW-BACKENDS.html)        
 14.  trash ：该语句用于查看 backend 内的垃圾数据占用空间。 等同于 [SHOW TRASH](./SHOW-TRASH.html)    
 15. cluster_balance  ： 查看集群均衡情况，具体参照 [数据副本管理](../../../admin-manual/maint-monitor/tablet-repair-and-balance.html)
