@@ -180,5 +180,5 @@ RESTORE的更多用法可参考 [这里](../../sql-manual/sql-reference-v2/Show-
 
 ## 更多帮助
 
-关于 RESTORE 使用的更多详细语法及最佳实践，请参阅 [RESTORE](../../sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/RESTORE.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP RESTORE` 获取更多帮助信息。
+关于 RESTORE 使用的更多详细语法及最佳实践，请参阅 [RESTORE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/RESTORE.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP RESTORE` 获取更多帮助信息。
 

@@ -222,7 +222,7 @@ GTID = source_id:transaction_id
 
 ## 配置Canal端
 
-canal是属于阿里巴巴otter项目下的一个子项目，主要用途是基于 MySQL 数据库增量日志解析，提供增量数据订阅和消费，用于解决跨机房同步的业务场景，建议使用canal 1.1.5及以上版本，[下载地址 (opens new window)](https://github.com/alibaba/canal/releases)，下载完成后，请按以下步骤完成部署。
+canal是属于阿里巴巴otter项目下的一个子项目，主要用途是基于 MySQL 数据库增量日志解析，提供增量数据订阅和消费，用于解决跨机房同步的业务场景，建议使用canal 1.1.5及以上版本，[下载地址](https://github.com/alibaba/canal/releases)，下载完成后，请按以下步骤完成部署。
 
 1. 解压canal deployer
 
@@ -506,3 +506,4 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 ## 更多帮助
 
 关于 Binlog Load 使用的更多详细语法及最佳实践，请参阅 [Binlog Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BINLOG` 获取更多帮助信息。
+

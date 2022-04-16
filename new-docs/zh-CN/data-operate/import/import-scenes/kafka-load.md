@@ -59,7 +59,7 @@ Doris 自身能够保证不丢不重的订阅 Kafka 中的消息，即 `Exactly-
   CREATE FILE "client.pem" PROPERTIES("url" = "https://example_url/kafka-key/client.pem", "catalog" = "kafka");
   ```
 
-上传完成后，可以通过 [SHOW FILES]() 命令查看已上传的文件。
+上传完成后，可以通过 [SHOW FILES](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-FILE.html) 命令查看已上传的文件。
 
 ### 创建例行导入作业
 
@@ -68,7 +68,7 @@ Doris 自身能够保证不丢不重的订阅 Kafka 中的消息，即 `Exactly-
 1. 访问无认证的 Kafka 集群
 
    ```sql
-CREATE ROUTINE LOAD demo.my_first_routine_load_job ON test_1
+   CREATE ROUTINE LOAD demo.my_first_routine_load_job ON test_1
    COLUMNS TERMINATED BY ","
    PROPERTIES
    (
