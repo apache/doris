@@ -23,7 +23,6 @@
 #include <string>
 
 #include "exprs/expr.h"
-#include "exprs/expr_context.h"
 #include "olap/hll.h"
 #include "olap/olap_define.h"
 #include "runtime/exec_env.h"

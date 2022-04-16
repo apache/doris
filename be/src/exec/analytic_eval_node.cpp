@@ -930,11 +930,4 @@ void AnalyticEvalNode::debug_string(int indentation_level, std::stringstream* ou
     *out << ")";
 }
 
-//Status AnalyticEvalNode::QueryMaintenance(RuntimeState* state) {
-//  for (int i = 0; i < evaluators_.size(); ++i) {
-//    Expr::FreeLocalAllocations(evaluators_[i]->input_expr_ctxs());
-//  }
-//  return ExecNode::QueryMaintenance(state);
-//}
-
 } // namespace doris

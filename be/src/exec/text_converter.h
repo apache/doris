@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_H
-#define DORIS_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_H
+#pragma once
 
 #include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+
 namespace doris {
 
 class MemPool;
@@ -65,5 +65,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

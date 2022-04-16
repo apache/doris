@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_UTILS_H
-#define DORIS_BE_SRC_QUERY_EXEC_OLAP_UTILS_H
+#pragma once
 
 #include <math.h>
 
@@ -218,4 +217,3 @@ inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
 
 } // namespace doris
 
-#endif

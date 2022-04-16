@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
-#define DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
+#pragma once
 
 #include <stdint.h>
 #include <variant>
@@ -864,6 +863,3 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
 
 } // namespace doris
 
-#endif
-
-/* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

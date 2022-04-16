@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
+#pragma once
 
 #include "exec/scan_node.h"
 #include "exec/schema_scanner.h"
@@ -62,6 +61,7 @@ private:
     void debug_string(int indentation_level, std::stringstream* out) const override;
     // Copy one row from schema table to input tuple
     void copy_one_row();
+
 protected:
     bool _is_init;
     const std::string _table_name;
@@ -89,7 +89,3 @@ protected:
 };
 
 } // namespace doris
-
-#endif //__DORIS_MYSQLSCANNODE_H
-
-/* vim: set ts=4 sw=4 sts=4 tw=100 noet: */

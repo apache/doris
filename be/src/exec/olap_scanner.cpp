@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap_scanner.h"
+#include "exec/olap_scanner.h"
 
 #include <string>
 

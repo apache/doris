@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "csv_scan_node.h"
+#include "exec/csv_scan_node.h"
 
 #include <thrift/protocol/TDebugProtocol.h>
 

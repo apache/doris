@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #include "exec/parquet_reader.h"
 
 #include <arrow/array.h>
@@ -23,19 +24,14 @@
 #include "common/logging.h"
 #include "exec/file_reader.h"
 #include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/TPaloBrokerService.h"
-#include "runtime/broker_mgr.h"
-#include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "runtime/tuple.h"
-#include "util/thrift_util.h"
 
 namespace doris {
 
 // Broker
-
 ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int32_t num_of_columns_from_file)
         : _num_of_columns_from_file(num_of_columns_from_file),
           _total_groups(0),

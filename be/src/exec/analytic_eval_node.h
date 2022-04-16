@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef INF_DORIS_BE_SRC_EXEC_ANALYTIC_EVAL_NODE_H
-#define INF_DORIS_BE_SRC_EXEC_ANALYTIC_EVAL_NODE_H
+#pragma once
 
 #include "exec/exec_node.h"
 #include "exprs/expr.h"
-//#include "exprs/expr_context.h"
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/buffered_tuple_stream2.h"
 #include "runtime/buffered_tuple_stream2.inline.h"
@@ -72,9 +70,6 @@ public:
     virtual Status close(RuntimeState* state);
 
 protected:
-    // Frees local allocations from _evaluators
-    // virtual Status QueryMaintenance(RuntimeState* state);
-
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
 private:
@@ -330,5 +325,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

@@ -23,7 +23,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/expr.h"
 #include "runtime/primitive_type.h"
 #include "util/types.h"
 

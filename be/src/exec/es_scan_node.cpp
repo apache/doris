@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "es_scan_node.h"
+#include "exec/es_scan_node.h"
 
 #include <gutil/strings/substitute.h>
 
@@ -775,7 +775,8 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
             const string& val = col.string_vals[val_idx];
             size_t val_size = val.size();
             Status rst;
-            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size, &rst));
+            char* buffer =
+                    reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size, &rst));
             if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(
                         ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");

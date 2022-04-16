@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "base_scanner.h"
+#include "exec/base_scanner.h"
 
 #include <fmt/format.h>
 

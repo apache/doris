@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_TOPN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_TOPN_NODE_H
+#pragma once
 
 #include <queue>
 
@@ -109,5 +108,3 @@ private:
 };
 
 }; // namespace doris
-
-#endif

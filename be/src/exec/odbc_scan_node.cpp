@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "odbc_scan_node.h"
+#include "exec/odbc_scan_node.h"
 
 #include <sstream>
 

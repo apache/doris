@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
+#pragma once
 
 #include <string>
 #include <thread>
@@ -98,4 +97,3 @@ private:
 
 } // namespace doris
 
-#endif

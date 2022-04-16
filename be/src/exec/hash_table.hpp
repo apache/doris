@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_HPP
-#define DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_HPP
+#pragma once
 
 #include "exec/hash_table.h"
 
@@ -242,5 +241,3 @@ inline void HashTable::Iterator::next() {
 }
 
 } // namespace doris
-
-#endif

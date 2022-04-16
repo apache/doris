@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_H
+#pragma once
 
 #include <string>
 
@@ -96,5 +95,3 @@ protected:
 };
 
 } // namespace doris
-
-#endif

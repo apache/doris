@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include "exec/exec_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 
@@ -24,7 +26,7 @@ namespace doris {
 class AssertNumRowsNode : public ExecNode {
 public:
     AssertNumRowsNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~AssertNumRowsNode(){};
+    virtual ~AssertNumRowsNode() {};
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
     virtual Status prepare(RuntimeState* state);

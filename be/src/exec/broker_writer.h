@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_EXEC_BROKER_WRITER_H
-#define DORIS_BE_SRC_EXEC_BROKER_WRITER_H
+#pragma once
 
 #include <stdint.h>
 
@@ -63,5 +62,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_EXEC_BROKER_WRITER_H

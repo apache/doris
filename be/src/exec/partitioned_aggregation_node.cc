@@ -25,10 +25,7 @@
 
 #include "exec/partitioned_hash_table.h"
 #include "exec/partitioned_hash_table.inline.h"
-#include "exprs/anyval_util.h"
-#include "exprs/expr_context.h"
 #include "exprs/new_agg_fn_evaluator.h"
-// #include "exprs/scalar_expr_evaluator.h"
 #include "exprs/slot_ref.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"

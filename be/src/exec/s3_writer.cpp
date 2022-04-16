@@ -24,7 +24,6 @@
 
 #include "common/logging.h"
 #include "service/backend_options.h"
-#include "util/s3_uri.h"
 #include "util/s3_util.h"
 
 namespace doris {

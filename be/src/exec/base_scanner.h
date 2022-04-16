@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_SRC_EXEC_BASE_SCANNER_H_
-#define BE_SRC_EXEC_BASE_SCANNER_H_
+#pragma once
 
 #include "common/status.h"
 #include "exprs/expr.h"
@@ -54,7 +53,7 @@ public:
     virtual Status open();
 
     // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) = 0;
+    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) = 0;
 
     // Close this scanner
     virtual void close() = 0;
@@ -64,6 +63,7 @@ public:
                                          const std::vector<std::string>& columns_from_path);
 
     void free_expr_local_allocations();
+
 protected:
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
@@ -110,4 +110,3 @@ protected:
 
 } /* namespace doris */
 
-#endif /* BE_SRC_EXEC_BASE_SCANNER_H_ */

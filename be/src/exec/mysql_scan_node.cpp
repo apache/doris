@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "mysql_scan_node.h"
+#include "exec/mysql_scan_node.h"
 
 #include <sstream>
 

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
-#define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -964,4 +963,3 @@ private:
 
 } // namespace doris
 
-#endif

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_ODBC_SCAN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_ODBC_SCAN_NODE_H
+#pragma once
 
 #include <memory>
 
@@ -101,4 +100,3 @@ private:
 };
 } // namespace doris
 
-#endif

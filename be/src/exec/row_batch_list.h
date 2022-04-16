@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_ROW_BATCH_LIST_H
-#define DORIS_BE_SRC_QUERY_EXEC_ROW_BATCH_LIST_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -128,4 +127,3 @@ private:
 
 } // namespace doris
 
-#endif

@@ -17,9 +17,6 @@
 
 #include "exec/olap_common.h"
 
-#include <boost/lexical_cast.hpp>
-#include <set>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -72,4 +69,3 @@ Status OlapScanKeys::get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* 
 
 } // namespace doris
 
-/* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

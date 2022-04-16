@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
+#pragma once
 
 #include <future>
 #include <string>
@@ -130,4 +129,3 @@ private:
 
 } // namespace doris
 
-#endif

@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "schema_scan_node.h"
+#include "exec/schema_scan_node.h"
 
 #include <boost/algorithm/string.hpp>
 
 #include "exec/schema_scanner/schema_helper.h"
-#include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/row_batch.h"
@@ -329,5 +328,3 @@ Status SchemaScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan
 }
 
 } // namespace doris
-
-/* vim: set ts=4 sw=4 sts=4 tw=100 : */

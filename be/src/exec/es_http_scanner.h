@@ -16,8 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_EXEC_ES_HTTP_SCANNER_H
-#define BE_EXEC_ES_HTTP_SCANNER_H
+#pragma once
 
 #include <map>
 #include <memory>
@@ -97,5 +96,3 @@ protected:
 };
 
 } // namespace doris
-
-#endif

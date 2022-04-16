@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_INLINE_H
-#define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_INLINE_H
+#pragma once
 
 #include "exec/partitioned_hash_table.h"
 #include "exprs/expr.h"
@@ -404,5 +403,3 @@ inline int64_t PartitionedHashTable::NumInsertsBeforeResize() const {
 }
 
 } // namespace doris
-
-#endif

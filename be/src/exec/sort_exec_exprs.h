@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef INF_DORIS_QE_SRC_BE_EXEC_SORT_EXEC_EXPRS_H
-#define INF_DORIS_QE_SRC_BE_EXEC_SORT_EXEC_EXPRS_H
+#pragma once
 
 #include "exprs/expr.h"
 #include "runtime/runtime_state.h"
@@ -88,5 +87,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

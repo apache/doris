@@ -172,9 +172,7 @@ private:
         return ptr + sizeof(uint32_t);
     }
 
-    LzoChecksum header_type(int flags) {
-        return (flags & F_H_CRC32) ? CHECK_CRC32 : CHECK_ADLER;
-    }
+    LzoChecksum header_type(int flags) { return (flags & F_H_CRC32) ? CHECK_CRC32 : CHECK_ADLER; }
 
     LzoChecksum input_type(int flags) {
         return (flags & F_CRC32_C) ? CHECK_CRC32 : (flags & F_ADLER32_C) ? CHECK_ADLER : CHECK_NONE;
