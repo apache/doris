@@ -17,35 +17,12 @@
 
 #include "filesystem/s3_read_stream.h"
 
-#include <aws/core/utils/stream/PreallocatedStreamBuf.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>
 
+#include "filesystem/s3_common.h"
+
 namespace doris {
-
-namespace detail {
-
-// A non-copying iostream.
-// See https://stackoverflow.com/questions/35322033/aws-c-sdk-uploadpart-times-out
-// https://stackoverflow.com/questions/13059091/creating-an-input-stream-from-constant-memory
-class StringViewStream : Aws::Utils::Stream::PreallocatedStreamBuf, public std::iostream {
-public:
-    StringViewStream(const void* data, int64_t nbytes)
-            : Aws::Utils::Stream::PreallocatedStreamBuf(
-                      reinterpret_cast<unsigned char*>(const_cast<void*>(data)),
-                      static_cast<size_t>(nbytes)),
-              std::iostream(this) {}
-};
-
-// By default, the AWS SDK reads object data into an auto-growing StringStream.
-// To avoid copies, read directly into our preallocated buffer instead.
-// See https://github.com/aws/aws-sdk-cpp/issues/64 for an alternative but
-// functionally similar recipe.
-Aws::IOStreamFactory AwsWriteableStreamFactory(void* data, int64_t nbytes) {
-    return [=]() { return Aws::New<StringViewStream>("", data, nbytes); };
-}
-
-} // namespace detail
 
 S3ReadStream::S3ReadStream(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket,
                            std::string key, size_t offset, size_t read_until_position,
@@ -70,7 +47,7 @@ Status S3ReadStream::read_retry(char* to, size_t req_n, size_t* read_n) {
     req.SetBucket(_bucket);
     req.SetKey(_key);
     req.SetRange(fmt::format("bytes={}-{}", _offset, _offset + req_n - 1));
-    req.SetResponseStreamFactory(detail::AwsWriteableStreamFactory(to, req_n));
+    req.SetResponseStreamFactory(AwsWriteableStreamFactory(to, req_n));
 
     Aws::S3::Model::GetObjectOutcome outcome;
     for (int attempt = 0; attempt < _max_single_read_retries; ++attempt) {
@@ -85,7 +62,8 @@ Status S3ReadStream::read_retry(char* to, size_t req_n, size_t* read_n) {
 }
 
 Status S3ReadStream::read(char* to, size_t req_n, size_t* read_n) {
-    if (_offset == _read_until_position) {
+    req_n = std::min(req_n, _read_until_position - _offset);
+    if (req_n == 0) {
         *read_n = 0;
         return Status::OK();
     }
@@ -140,6 +118,7 @@ Status S3ReadStream::fill() {
 Status S3ReadStream::close() {
     delete[] _buffer;
     _buffer = nullptr;
+    _client = nullptr;
     return Status::OK();
 }
 

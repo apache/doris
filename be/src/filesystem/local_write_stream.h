@@ -21,7 +21,7 @@
 
 namespace doris {
 
-class LocalWriteStream : public WriteStream {
+class LocalWriteStream final : public WriteStream {
 public:
     LocalWriteStream(int fd, size_t buffer_size);
     ~LocalWriteStream() override;

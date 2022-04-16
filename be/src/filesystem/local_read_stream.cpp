@@ -32,7 +32,8 @@ LocalReadStream::~LocalReadStream() {
 }
 
 Status LocalReadStream::read(char* to, size_t req_n, size_t* read_n) {
-    if (eof()) {
+    req_n = std::min(req_n, _file_size - _offset);
+    if (req_n == 0) {
         *read_n = 0;
         return Status::OK();
     }

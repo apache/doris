@@ -29,7 +29,7 @@ class S3Client;
 
 namespace doris {
 
-class S3ReadStream : public ReadStream {
+class S3ReadStream final : public ReadStream {
 public:
     S3ReadStream(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket, std::string key,
                  size_t offset, size_t read_until_position, size_t buffer_size,

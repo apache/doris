@@ -21,7 +21,7 @@
 
 namespace doris {
 
-class LocalReadStream : public ReadStream {
+class LocalReadStream final : public ReadStream {
 public:
     LocalReadStream(int fd, size_t file_size, size_t buffer_size);
     ~LocalReadStream() override;
