@@ -39,7 +39,7 @@ Doris 可以创建通过 ODBC 协议访问的外部表。创建完成后，可�
 
 ## 创建外部表
 
-创建 ODBC 外部表的详细介绍请参阅 [CREATE ODBC TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) 语法帮助手册。
+创建 ODBC 外部表的详细介绍请参阅 [CREATE EXTERNAL TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) 语法帮助手册。
 
 这里仅通过示例说明使用方式。
 
@@ -120,3 +120,9 @@ PROPERTIES (
 
 - 必须保证外部数据源与 Doris 集群是可以互通，包括BE节点和外部数据源的网络是互通的。
 - ODBC 外部表本质上是通过单一 ODBC 客户端访问数据源，因此并不合适一次性导入大量的数据，建议分批多次导入。
+
+## 更多帮助
+
+关于 CREATE EXTERNAL TABLE 的更多详细语法和最佳实践，请参阅 [CREATE EXTERNAL TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) 命令手册。
+
+Doris ODBC 更多使用示例请参考 [文章列表](https://doris.apache.org/zh-CN/article/article-list.html) 。
