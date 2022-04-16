@@ -96,7 +96,7 @@ Here we recommend using the ext4 file system. When installing the operating syst
 
 > Note 2: Number of FE nodes
 > 
-> 1. FE roles are divided into Follower and Observer. (Leader is an elected role in the Follower group, hereinafter referred to as Follower, for the specific meaning, see [Metadata Design Document](./internal/metadata-design).)
+> 1. FE roles are divided into Follower and Observer. (Leader is an elected role in the Follower group, hereinafter referred to as Follower, for the specific meaning)
 > 2. FE node data is at least 1 (1 Follower). When one Follower and one Observer are deployed, high read availability can be achieved. When three Followers are deployed, read-write high availability (HA) can be achieved.
 > 3. The number of Followers **must be** odd, and the number of Observers is arbitrary.
 > 4. According to past experience, when cluster availability requirements are high (e.g. providing online services), three Followers and one to three Observers can be deployed. For offline business, it is recommended to deploy 1 Follower and 1-3 Observers.
