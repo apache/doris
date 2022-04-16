@@ -90,7 +90,7 @@ illustrate:
 9. resources : View system resources, ordinary accounts can only see resources that they have USAGE_PRIV permission to use. Only the root and admin accounts can see all resources. Equivalent to [SHOW RESOURCES](./SHOW-RESOURCES.html)
 10. monitor : shows the resource usage of FE JVM
 11. transactions : used to view the transaction details of the specified transaction id, equivalent to [SHOW TRANSACTION](./SHOW-TRANSACTION.html)
-12. colocation_group : This command can view the existing Group information in the cluster. For details, please refer to the [Colocation Join](../../../advanced/colocation-join.html) chapter
+12. colocation_group : This command can view the existing Group information in the cluster. For details, please refer to the [Colocation Join](../../../advanced/join-optimization/colocation-join.html) chapter
 13. backends: Displays the node list of BE in the cluster, equivalent to [SHOW BACKENDS](./SHOW-BACKENDS.html)
 14. trash: This statement is used to view the space occupied by garbage data in the backend. Equivalent to [SHOW TRASH](./SHOW-TRASH.html)
 15. cluster_balance : To check the balance of the cluster, please refer to [Data Copy Management](../../../admin-manual/maint-monitor/tablet-repair-and-balance.html)

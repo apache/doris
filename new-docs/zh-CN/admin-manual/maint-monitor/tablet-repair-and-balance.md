@@ -28,7 +28,7 @@ under the License.
 
 从 0.9.0 版本开始，Doris 引入了优化后的副本管理策略，同时支持了更为丰富的副本状态查看工具。本文档主要介绍 Doris 数据副本均衡、修复方面的调度策略，以及副本管理的运维方法。帮助用户更方便的掌握和管理集群中的副本状态。
 
-> Colocation 属性的表的副本修复和均衡可以参阅[这里](../../advanced/colocation-join.html)
+> Colocation 属性的表的副本修复和均衡可以参阅[这里](../../advanced/join-optimization/colocation-join.html)
 
 ## 名词解释
 
