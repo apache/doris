@@ -93,7 +93,7 @@ Linux交换分区会给Doris带来很严重的性能问题，需要在安装之�
 > 5. 所有部署节点关闭 Swap。
 
 > 注2：FE 节点的数量
-> 1. FE 角色分为 Follower 和 Observer，（Leader 为 Follower 组中选举出来的一种角色，以下统称 Follower，具体含义见 [元数据设计文档]()）。
+> 1. FE 角色分为 Follower 和 Observer，（Leader 为 Follower 组中选举出来的一种角色，以下统称 Follower）。
 > 2. FE 节点数据至少为1（1 个 Follower）。当部署 1 个 Follower 和 1 个 Observer 时，可以实现读高可用。当部署 3 个 Follower 时，可以实现读写高可用（HA）。
 > 3. Follower 的数量**必须**为奇数，Observer 数量随意。
 > 4. 根据以往经验，当集群可用性要求很高时（比如提供在线业务），可以部署 3 个 Follower 和 1-3 个 Observer。如果是离线业务，建议部署 1 个 Follower 和 1-3 个 Observer。
