@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_FILE_HELPER_H
-#define DORIS_BE_SRC_OLAP_FILE_HELPER_H
+#pragma once
 
 #include <stdio.h>
 #include <sys/stat.h>
@@ -435,4 +434,3 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::validate(
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_FILE_HELPER_H

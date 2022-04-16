@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
+#pragma once
 
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
@@ -209,4 +208,4 @@ private:
 };
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
+
