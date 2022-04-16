@@ -505,4 +505,5 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 
 ## 更多帮助
 
-关于 Binlog Load 使用的更多详细语法及最佳实践，你也可以在 MySql 客户端命令行下输入 `HELP BINLOG` 获取更多帮助信息。
+关于 Binlog Load 使用的更多详细语法及最佳实践，请参阅 [Binlog Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BINLOG` 获取更多帮助信息。
+
