@@ -70,7 +70,7 @@ PROPERTIES (
 ```
 
 #### 2. 通过ODBC_Resource来创建ODBC外表 (推荐使用的方式)
-```
+```sql
 CREATE EXTERNAL RESOURCE `oracle_odbc`
 PROPERTIES (
 "type" = "odbc_catalog",
