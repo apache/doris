@@ -184,7 +184,7 @@ void Compaction::modify_rowsets() {
     output_rowsets.push_back(_output_rowset);
 
     std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
-    _tablet->modify_rowsets(output_rowsets, _input_rowsets);
+    _tablet->modify_rowsets(output_rowsets, _input_rowsets, true);
     _tablet->save_meta();
 }
 

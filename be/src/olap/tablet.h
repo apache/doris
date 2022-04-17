@@ -101,7 +101,8 @@ public:
     Status add_rowset(RowsetSharedPtr rowset);
     Status create_initial_rowset(const int64_t version);
     void modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
-                        std::vector<RowsetSharedPtr>& to_delete);
+                        std::vector<RowsetSharedPtr>& to_delete,
+                        bool check_delete = false);
 
     // _rs_version_map and _stale_rs_version_map should be protected by _meta_lock
     // The caller must call hold _meta_lock when call this two function.
@@ -280,7 +281,8 @@ private:
     // version: the max continuous version from beginning
     // max_version: the max version of this tablet
     void _max_continuous_version_from_beginning_unlocked(Version* version,
-                                                         Version* max_version) const;
+                                                         Version* max_version,
+                                                         bool* has_version_cross) const;
     RowsetSharedPtr _rowset_with_largest_size();
     /// Delete stale rowset by version. This method not only delete the version in expired rowset map,
     /// but also delete the version in rowset meta vector.
