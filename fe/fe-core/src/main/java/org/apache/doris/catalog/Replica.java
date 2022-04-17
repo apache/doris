@@ -260,22 +260,6 @@ public class Replica implements Writable {
         updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, rowCount);
     }
 
-    public void updateVersionInfoForRecovery(
-            long newVersion,
-            long lastFailedVersion,
-            long lastSuccessVersion) {
-
-        LOG.warn("update replica {} on backend {}'s version for recovery. version: {}:{}."
-                + " last failed version: {}:{}, last success version: {}:{}",
-                this.id, this.backendId, this.version, newVersion,
-                this.lastFailedVersion, lastFailedVersion,
-                this.lastSuccessVersion, lastSuccessVersion);
-
-        this.version = newVersion;
-        this.lastFailedVersion = lastFailedVersion;
-        this.lastSuccessVersion = lastSuccessVersion;
-    }
-
     /* last failed version:  LFV
      * last success version: LSV
      * version:              V
