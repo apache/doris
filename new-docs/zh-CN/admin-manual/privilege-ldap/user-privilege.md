@@ -216,4 +216,4 @@ ADMIN_PRIV 和 GRANT_PRIV 权限同时拥有**授予权限**的权限，较为�
 
 ## 更多帮助
 
- 关于 权限管理 使用的更多详细语法及最佳实践，请参阅 [GRANTS](../sql-manual/sql-reference-v2/Account-Management-Statements/GRANT.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP GRANTS` 获取更多帮助信息。
+ 关于 权限管理 使用的更多详细语法及最佳实践，请参阅 [GRANTS](../../sql-manual/sql-reference-v2/Account-Management-Statements/GRANT.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP GRANTS` 获取更多帮助信息。

@@ -223,4 +223,4 @@ Here are some usage scenarios of Doris privilege system.
 
 ## More help
 
-For more detailed syntax and best practices for permission management use, please refer to the [GRANTS](../sql-manual/sql-reference-v2/Account-Management-Statements/GRANT.html) command manual. Enter `HELP GRANTS` at the command line of the MySql client for more help information.
+For more detailed syntax and best practices for permission management use, please refer to the [GRANTS](../../sql-manual/sql-reference-v2/Account-Management-Statements/GRANT.html) command manual. Enter `HELP GRANTS` at the command line of the MySql client for more help information.
