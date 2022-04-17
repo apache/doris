@@ -112,12 +112,7 @@ public:
               key_type(this->argument_types[1]) {
         if (StringRef(Data::name()) == StringRef("min_by") ||
             StringRef(Data::name()) == StringRef("max_by")) {
-            if (!key_type_->is_comparable()) {
-                LOG(FATAL) << fmt::format(
-                        "Illegal type {} of argument of aggregate function {} because the values "
-                        "of that data type are not comparable",
-                        key_type_->get_name(), get_name());
-            }
+            CHECK(key_type_->is_comparable());
         }
     }
 
