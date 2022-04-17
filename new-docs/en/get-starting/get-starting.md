@@ -226,7 +226,8 @@ FE splits the query plan into fragments and sends them to BE for task execution.
 
 - After executing the SQL statement, you can view the corresponding SQL statement execution report information on the FE's WEB-UI interface
 
-For a complete parameter comparison table, please go to [Profile parameter analysis](https://doris.apache.org/zh-CN/administrator-guide/running-profile.html#profile%E5%8F%82%E6%95%B0%E8%A7%A3%E6%9E%90) View Details
+For a complete parameter comparison table, please go to [Profile parameter analysis](../admin-manual/query-profile.html) View Details
+
 
 #### Library table operations
 
@@ -634,13 +635,13 @@ The current UPDATE statement **only supports** row updates on the Unique model, 
 
    1. Update the v1 column in the 'test' table that satisfies the conditions k1 =1 , k2 =2 to 1
 
-      ```text
+      ```sql
       UPDATE test SET v1 = 1 WHERE k1=1 and k2=2;
       ```
 
    2. Increment the v1 column of the column k1=1 in the 'test' table by 1
 
-      ```text
+      ```sql
       UPDATE test SET v1 = v1+1 WHERE k1=1;
       ```
 
@@ -648,42 +649,55 @@ The current UPDATE statement **only supports** row updates on the Unique model, 
 
 > For more detailed syntax and best practices for Delete use, see [Delete](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/DELETE.html) Command Manual.
 
-1. grammar rules
+1. Grammar rules
 
-   ```mysql
    This statement is used to conditionally delete data in the specified table (base index) partition.
+
    This operation will also delete the data of the rollup index related to this base index.
    grammar:
-       DELETE FROM table_name [PARTITION partition_name | PARTITIONS (p1, p2)]
-       WHERE
-       column_name1 op { value | value_list } [ AND column_name2 op { value | value_list } ...];
-       
+
+   ```sql
+   DELETE FROM table_name [PARTITION partition_name | PARTITIONS (p1, p2)]
+   WHERE
+   column_name1 op { value | value_list } [ AND column_name2 op { value | value_list } ...];
+   ````
+
    illustrate:
-       1) The optional types of op include: =, >, <, >=, <=, !=, in, not in
-       2) Only conditions on the key column can be specified.
-       2) When the selected key column does not exist in a rollup, delete cannot be performed.
-       3) The relationship between conditions can only be "and".
-          If you want to achieve an "or" relationship, you need to write the conditions in two DELETE statements.
-       4) If it is a partitioned table, you can specify a partition. If not specified, and the session variable delete_without_partition is true, it will be applied to all partitions. If it is a single-partition table, it can be left unspecified.
-          
+
+    - Optional types of op include: =, >, <, >=, <=, !=, in, not in
+
+    - Only conditions on the key column can be specified.
+
+    - Cannot delete when the selected key column does not exist in a rollup.
+
+    - Conditions can only have an AND relationship.
+
+      If you want to achieve an "or" relationship, you need to write the conditions in two DELETE statements.
+
+    - If it is a partitioned table, you can specify a partition, if not specified and the session variable delete_without_partition is true, it will be applied to all partitions. If it is a single-partition table, it can be left unspecified.
+
    Notice:
-       This statement may reduce query efficiency for a period of time after execution.
-       The degree of impact depends on the number of delete conditions specified in the statement.
-       The more conditions you specify, the greater the impact.
-   ```
+
+   - This statement may reduce query efficiency for a period of time after execution.
+   - The degree of impact depends on the number of delete conditions specified in the statement.
+   - The more conditions you specify, the greater the impact.
 
 2. Example
 
-   ```mysql
-   1. Delete the data row whose k1 column value is 3 in my_table partition p1
-        DELETE FROM my_table PARTITION p1
-        WHERE k1 = 3;
-       
-   2. Delete the data rows where the value of column k1 is greater than or equal to 3 and the value of column k2 is "abc" in my_table partition p1
-        DELETE FROM my_table PARTITION p1
-        WHERE k1 >= 3 AND k2 = "abc";
-   
-   3. Delete the data rows where the value of column k1 is greater than or equal to 3 and the value of column k2 is "abc" in my_table partition p1, p2
-        DELETE FROM my_table PARTITIONS (p1, p2)
-        WHERE k1 >= 3 AND k2 = "abc";
-   ```
+    1. Delete the data row whose k1 column value is 3 in my_table partition p1
+
+       ```sql
+       DELETE FROM my_table PARTITION p1 WHERE k1 = 3;
+       ````
+
+    2. Delete the data rows where the value of column k1 is greater than or equal to 3 and the value of column k2 is "abc" in my_table partition p1
+
+       ```sql
+       DELETE FROM my_table PARTITION p1 WHERE k1 >= 3 AND k2 = "abc";
+       ````
+
+    3. Delete the data rows where the value of column k1 is greater than or equal to 3 and the value of column k2 is "abc" in my_table partition p1, p2
+
+       ```sql
+       DELETE FROM my_table PARTITIONS (p1, p2) WHERE k1 >= 3 AND k2 = "abc";
+       ````
