@@ -240,9 +240,9 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     return Status::OK();
 }
 
-void Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
-                            std::vector<RowsetSharedPtr>& to_delete,
-                            bool check_delete) {
+Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
+                              std::vector<RowsetSharedPtr>& to_delete,
+                              bool check_delete) {
     // the compaction process allow to compact the single version, eg: version[4-4].
     // this kind of "single version compaction" has same "input version" and "output version".
     // which means "to_add->version()" equals to "to_delete->version()".
@@ -275,13 +275,13 @@ void Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
             if (find_rs == _rs_version_map.end()) {
                 LOG(WARNING) << "try to delete not exist version " << rs->version() << " from "
                              << full_name();
-                return;
+                return Status::OLAPInternalError(OLAP_ERR_DELETE_VERSION_ERROR);
             } else if (find_rs->second->rowset_id() != rs->rowset_id()) {
                 LOG(WARNING) << "try to delete version " << rs->version() << " from "
                              << full_name() << ", but rowset id changed, delete rowset id is "
                              << rs->rowset_id() << ", exists rowsetid is"
                              << find_rs->second->rowset_id();
-                return;
+                return Status::OLAPInternalError(OLAP_ERR_DELETE_VERSION_ERROR);
             }
         }
     }
@@ -322,6 +322,7 @@ void Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
             StorageEngine::instance()->add_unused_rowset(rs);
         }
     }
+    return Status::OK();
 }
 
 // snapshot manager may call this api to check if version exists, so that

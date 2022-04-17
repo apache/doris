@@ -100,9 +100,9 @@ public:
     // operation in rowsets
     Status add_rowset(RowsetSharedPtr rowset);
     Status create_initial_rowset(const int64_t version);
-    void modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
-                        std::vector<RowsetSharedPtr>& to_delete,
-                        bool check_delete = false);
+    Status modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
+                          std::vector<RowsetSharedPtr>& to_delete,
+                          bool check_delete = false);
 
     // _rs_version_map and _stale_rs_version_map should be protected by _meta_lock
     // The caller must call hold _meta_lock when call this two function.
