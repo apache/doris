@@ -32,7 +32,6 @@
 #include "util/debug_util.h"
 #include "util/logging.h"
 #include "util/runtime_profile.h"
-#include "util/uid_util.h"
 
 using std::list;
 using std::vector;

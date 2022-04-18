@@ -18,7 +18,6 @@
 #include "runtime/disk_io_mgr.h"
 #include "runtime/disk_io_mgr_internal.h"
 #include "util/error_util.h"
-// #include "util/hdfs-util.h"
 
 using std::string;
 using std::stringstream;

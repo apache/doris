@@ -19,7 +19,6 @@
 
 #include <boost/algorithm/string/join.hpp>
 #include <fmt/format.h>
-#include <iostream>
 #include <sstream>
 #include <string>
 
@@ -27,22 +26,17 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "exprs/expr.h"
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/bufferpool/reservation_util.h"
-#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/initial_reservations.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_tracker_task_pool.h"
 #include "runtime/runtime_filter_mgr.h"
-#include "util/cpu_info.h"
-#include "util/disk_info.h"
 #include "util/file_utils.h"
 #include "util/load_error_hub.h"
-#include "util/mem_info.h"
 #include "util/pretty_printer.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"

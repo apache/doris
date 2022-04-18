@@ -14,10 +14,10 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #include "runtime/fold_constant_executor.h"
 
 #include <map>
-#include <string>
 
 #include "runtime/tuple_row.h"
 #include "runtime/exec_env.h"

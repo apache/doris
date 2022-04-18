@@ -18,8 +18,6 @@
 #include "runtime/message_body_sink.h"
 
 #include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 #include <algorithm>
 

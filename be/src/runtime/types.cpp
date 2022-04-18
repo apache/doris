@@ -18,7 +18,6 @@
 #include "runtime/types.h"
 
 #include <ostream>
-#include <sstream>
 
 namespace doris {
 

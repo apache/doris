@@ -15,13 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <boost/algorithm/string.hpp>
-
 #include "agent/cgroups_mgr.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "gen_cpp/BackendService.h"
-#include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/TExtDataSourceService.h"
 #include "gen_cpp/TPaloBrokerService.h"
@@ -55,11 +52,9 @@
 #include "runtime/tmp_file_mgr.h"
 #include "util/bfd_parser.h"
 #include "util/brpc_client_cache.h"
-#include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
-#include "util/network_util.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/priority_thread_pool.hpp"
