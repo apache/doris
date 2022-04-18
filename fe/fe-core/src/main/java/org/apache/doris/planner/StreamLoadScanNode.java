@@ -118,6 +118,7 @@ public class StreamLoadScanNode extends LoadScanNode {
                 throw new UserException("unsupported file type, type=" + taskInfo.getFileType());
         }
         rangeDesc.start_offset = 0;
+        rangeDesc.setHeaderType(taskInfo.getHeaderType());
         rangeDesc.size = -1;
         brokerScanRange.addToRanges(rangeDesc);
 
