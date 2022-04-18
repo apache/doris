@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_functions", "query") {
+suite("test_get_json_double", "query") {
     // todo: token recognition error at: '.' @ line 21, column 67.
 
     // qt_select """select get_json_double('{"k1":1.3, "k2":"2"}', "$.k1")"""

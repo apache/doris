@@ -15,6 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_functions", "query") {
+suite("test_btimap_count", "query") {
     order_qt_select "select bitmap_count(bitmap_hash(k2)) from test_query_db.baseall"
 }

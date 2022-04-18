@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_account", "account") {
+suite("test_role", "account") {
     def role= 'account_role_test'
     def user = 'acount_role_user_test'
     def dbName = 'account_role_test_db'

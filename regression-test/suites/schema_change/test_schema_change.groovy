@@ -15,15 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("p0") {
-    sql "DROP TABLE IF EXISTS test_int_hll"
-    sql """
-        CREATE TABLE test_int_hll (`id` int COMMENT "", `hll_set` hll hll_union COMMENT "") 
-        ENGINE=OLAP DISTRIBUTED BY HASH(`id`) BUCKETS 5 
-        """
-    sql "insert into test_int_hll values(1, hll_hash(1)), (2, hll_hash(2)), (3, hll_hash(3))"
-    qt_sql1 "select hll_union_agg(hll_set), count(*) from test_int_hll"
-    // qt_sql2 "select id, hll_candinality(hll_set) from test_int_hll"
-    sql "DROP TABLE test_int_hll"
+suite("test_schema_change", "schema_change") {
+     // todo: test alter table schema change, such as add/drop/modify/order column
+     sql "show alter table column"
 }
-

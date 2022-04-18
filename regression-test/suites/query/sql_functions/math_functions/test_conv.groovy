@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_functions", "query") {
+suite("test_conv", "query") {
     qt_select "SELECT CONV(15,10,2)"
 }
 

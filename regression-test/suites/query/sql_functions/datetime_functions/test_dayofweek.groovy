@@ -15,6 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_functions", "query") {
+suite("test_dayofweek", "query") {
     qt_select "select k1, dayofweek(k10) from test_query_db.baseall order by k1"
 }

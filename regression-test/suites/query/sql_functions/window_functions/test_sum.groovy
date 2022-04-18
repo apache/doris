@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_functions", "query") {
+suite("test_sum", "query") {
     qt_select """
                   select k1, sum(k5) over 
                       (partition by k1 order by k3 range between current row and unbounded following) as w 

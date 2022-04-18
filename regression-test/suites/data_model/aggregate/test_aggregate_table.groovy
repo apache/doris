@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("demo") {
+suite("test_aggregate_table", "data_model") {
     def dbName = "test_aggregate_db"
     List<List<Object>> db = sql """show databases like '${dbName}'"""
     if (db.size() == 0) {

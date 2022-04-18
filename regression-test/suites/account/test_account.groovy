@@ -16,5 +16,5 @@
 // under the License.
 suite("test_account", "account") {
     // todo: test account management, such as role, user, grant, revoke ...
-    sql "help user"
+    sql "show user"
 }

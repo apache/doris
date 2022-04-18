@@ -15,6 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_functions", "query") {
+suite("test_nullif", "query") {
     qt_select "select nullif(k6, \"false\") k from test_query_db.test order by k1"
 }
