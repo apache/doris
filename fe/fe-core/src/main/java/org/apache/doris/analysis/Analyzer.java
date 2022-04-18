@@ -33,6 +33,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
@@ -297,6 +298,17 @@ public class Analyzer {
 
         private final long autoBroadcastJoinThreshold;
 
+        /**
+         * This property is mainly used to store the vectorized switch of the current query.
+         * true: the vectorization of the current query is turned on
+         * false: the vectorization of the current query is turned off.
+         * It is different from the vectorized switch`enableVectorizedEngine` of the session.
+         * It is only valid for a single query, while the session switch is valid for all queries in the session.
+         * It cannot be set directly by the user, only by inheritance from session`enableVectorizedEngine`
+         * or internal adjustment of the system.
+         */
+        private boolean enableQueryVec;
+
         public GlobalState(Catalog catalog, ConnectContext context) {
             this.catalog = catalog;
             this.context = context;
@@ -346,6 +358,9 @@ public class Analyzer {
             } else {
                 // autoBroadcastJoinThreshold is a "final" field, must set an initial value for it
                 autoBroadcastJoinThreshold = 0;
+            }
+            if (context != null) {
+                enableQueryVec = context.getSessionVariable().enableVectorizedEngine();
             }
         }
     }
@@ -643,9 +658,34 @@ public class Analyzer {
         return db.getTableOrAnalysisException(tblName.getTbl());
     }
 
-    public ExprRewriter getExprRewriter() { return globalState.exprRewriter_; }
+    public ExprRewriter getExprRewriter() {
+        return globalState.exprRewriter_;
+    }
 
-    public ExprRewriter getMVExprRewriter() { return globalState.mvExprRewriter; }
+    public ExprRewriter getMVExprRewriter() {
+        return globalState.mvExprRewriter;
+    }
+
+    /**
+     * Only the top-level `query vec` value of the query analyzer represents the value of the entire query.
+     * Other sub-analyzers cannot represent the value of `query vec`.
+     * @return
+     */
+    public boolean enableQueryVec() {
+        if (ancestors.isEmpty()) {
+            return globalState.enableQueryVec;
+        } else {
+            return ancestors.get(ancestors.size() - 1).enableQueryVec();
+        }
+    }
+
+    /**
+     * Since analyzer cannot get sub-analyzers from top to bottom.
+     * So I can only set the `query vec` variable of the top level analyzer of query to true.
+     */
+    public void disableQueryVec() {
+        globalState.enableQueryVec = false;
+    }
 
     /**
      * Return descriptor of registered table/alias.
@@ -890,18 +930,47 @@ public class Analyzer {
     }
 
     /**
-     * All tuple of outer join tuple should be null in slot desc
+     * The main function of this method is to set the column property on the nullable side of the outer join
+     * to nullable in the case of vectorization.
+     * For example:
+     * Query: select * from t1 left join t2 on t1.k1=t2.k1
+     * Origin: t2.k1 not null
+     * Result: t2.k1 is nullable
+     *
+     * @throws VecNotImplException In some cases, it is not possible to directly modify the column property to nullable.
+     *     It will report an error and fall back from vectorized mode to non-vectorized mode for execution.
+     *     If the nullside column of the outer join is a column that must return non-null like count(*)
+     *     then there is no way to force the column to be nullable.
+     *     At this time, vectorization cannot support this situation,
+     *     so it is necessary to fall back to non-vectorization for processing.
+     *     For example:
+     *       Query: select * from t1 left join (select k1, count(k2) as count_k2 from t2 group by k1) tmp on t1.k1=tmp.k1
+     *       Origin: tmp.k1 not null, tmp.count_k2 not null
+     *       Result: throw VecNotImplException
      */
-    public void changeAllOuterJoinTupleToNull() {
+    public void changeAllOuterJoinTupleToNull() throws VecNotImplException {
         for (TupleId tid : globalState.outerJoinedTupleIds.keySet()) {
             for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
-                slotDescriptor.setIsNullable(true);
+                changeSlotToNull(slotDescriptor);
             }
         }
 
         for (TupleId tid : globalState.outerJoinedMaterializedTupleIds) {
             for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
-                slotDescriptor.setIsNullable(true);
+                changeSlotToNull(slotDescriptor);
+            }
+        }
+    }
+
+    private void changeSlotToNull(SlotDescriptor slotDescriptor) throws VecNotImplException {
+        if (slotDescriptor.getSourceExprs().isEmpty()) {
+            slotDescriptor.setIsNullable(true);
+            return;
+        }
+        for (Expr sourceExpr : slotDescriptor.getSourceExprs()) {
+            if (!sourceExpr.isNullable()) {
+                throw new VecNotImplException("The slot (" + slotDescriptor.toString()
+                        + ") could not be changed to nullable");
             }
         }
     }
