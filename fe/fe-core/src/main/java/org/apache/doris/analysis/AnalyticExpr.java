@@ -478,11 +478,13 @@ public class AnalyticExpr extends Expr {
 
         // min/max is not currently supported on sliding windows (i.e. start bound is not
         // unbounded).
-        if (window != null && isMinMax(fn) &&
-                window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
-            throw new AnalysisException(
-                "'" + getFnCall().toSql() + "' is only supported with an "
-                + "UNBOUNDED PRECEDING start bound.");
+        if (!VectorizedUtil.isVectorized()) {
+            if (window != null && isMinMax(fn) &&
+                    window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
+                throw new AnalysisException(
+                    "'" + getFnCall().toSql() + "' is only supported with an "
+                    + "UNBOUNDED PRECEDING start bound.");
+            }
         }
 
         setChildren();

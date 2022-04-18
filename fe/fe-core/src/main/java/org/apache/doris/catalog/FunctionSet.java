@@ -2412,13 +2412,13 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     "lag", Lists.newArrayList(t, Type.BIGINT, t), t, t,
                     prefix + OFFSET_FN_INIT_SYMBOL.get(t),
                     prefix + OFFSET_FN_UPDATE_SYMBOL.get(t),
-                    null, null, null));
+                    null, t.isStringType() ? stringValGetValue : null, null));
                     
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "lead", Lists.newArrayList(t, Type.BIGINT, t), t, t,
                     prefix + OFFSET_FN_INIT_SYMBOL.get(t),
                     prefix + OFFSET_FN_UPDATE_SYMBOL.get(t),
-                    null, null, null));
+                    null, t.isStringType() ? stringValGetValue : null, null));
             //vec
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "lag", Lists.newArrayList(t, Type.BIGINT, t), t, t,
