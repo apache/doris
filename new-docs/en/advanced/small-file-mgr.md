@@ -129,4 +129,4 @@ Because the file meta-information and content are stored in FE memory. So by def
 
 ## More Help
 
-For more detailed syntax and best practices used by the file manager, see [CREATE FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.html), [DROP FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.html) and [SHOW FILE](../sql-manual/sql-reference-v2 /Show-Statements/SHOW-FILE.md) command manual, you can also enter `HELP CREATE FILE`, `HELP DROP FILE` and `HELP SHOW FILE` in the MySql client command line to get more help information.
+For more detailed syntax and best practices used by the file manager, see [CREATE FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.html), [DROP FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.html) and [SHOW FILE](../sql-manual/sql-reference-v2/Show-Statements/SHOW-FILE.md) command manual, you can also enter `HELP CREATE FILE`, `HELP DROP FILE` and `HELP SHOW FILE` in the MySql client command line to get more help information.

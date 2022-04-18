@@ -44,7 +44,7 @@ Because Uniq is only a special case of the Aggregate model, we do not distinguis
 
 Example 1: Get the total consumption per user
 
-Following [Data Model Aggregate Model](data-model.html#Aggregate Model) in the **Aggregate Model** section, the Base table structure is as follows:
+Following [Data Model Aggregate Model](./data-model.html) in the **Aggregate Model** section, the Base table structure is as follows:
 
 | ColumnName        | Type         | AggregationType | Comment                                |
 |-------------------| ------------ | --------------- | -------------------------------------- |
@@ -128,7 +128,7 @@ Doris automatically hits the ROLLUP table.
 
 #### ROLLUP in Duplicate Model
 
-Because the Duplicate model has no aggregate semantics. So the ROLLLUP in this model has lost the meaning of "scroll up". It's just to adjust the column order to hit the prefix index. In the next section, we will introduce prefix index in [data model prefix index](data-model.html#prefix index), and how to use ROLLUP to change prefix index in order to achieve better query efficiency.
+Because the Duplicate model has no aggregate semantics. So the ROLLLUP in this model has lost the meaning of "scroll up". It's just to adjust the column order to hit the prefix index. In the next section, we will introduce prefix index in [data model prefix index](./data-model.html), and how to use ROLLUP to change prefix index in order to achieve better query efficiency.
 
 ## ROLLUP adjusts prefix index
 

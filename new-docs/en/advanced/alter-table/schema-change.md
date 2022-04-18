@@ -97,20 +97,20 @@ TransactionId: 10023
 * JobId: A unique ID for each Schema Change job.
 * TableName: The table name of the base table corresponding to Schema Change.
 * CreateTime: Job creation time.
-* FinishedTime: The end time of the job. If it is not finished, "N / A" is displayed.
+* FinishedTime: The end time of the job. If it is not finished, "N/A" is displayed.
 * IndexName: The name of an Index involved in this modification.
 * IndexId: The unique ID of the new Index.
 * OriginIndexId: The unique ID of the old Index.
 * SchemaVersion: Displayed in M: N format. M is the version of this Schema Change, and N is the corresponding hash value. With each Schema Change, the version is incremented.
 * TransactionId: the watershed transaction ID of the conversion history data.
 * State: The phase of the operation.
-    * PENDING: The job is waiting in the queue to be scheduled.
-    * WAITING_TXN: Wait for the import task before the watershed transaction ID to complete.
-        * RUNNING: Historical data conversion.
-        * FINISHED: The operation was successful.
-            * CANCELLED: The job failed.
+  * PENDING: The job is waiting in the queue to be scheduled.
+  * WAITING_TXN: Wait for the import task before the watershed transaction ID to complete.
+  * RUNNING: Historical data conversion.
+  * FINISHED: The operation was successful.
+  * CANCELLED: The job failed.
 * Msg: If the job fails, a failure message is displayed here.
-* Progress: operation progress. Progress is displayed only in the RUNNING state. Progress is displayed in M ​​/ N. Where N is the total number of copies involved in the Schema Change. M is the number of copies of historical data conversion completed.
+* Progress: operation progress. Progress is displayed only in the RUNNING state. Progress is displayed in M/N. Where N is the total number of copies involved in the Schema Change. M is the number of copies of historical data conversion completed.
 * Timeout: Job timeout time. Unit of second.
 
 ## Cancel Job

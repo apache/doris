@@ -126,7 +126,7 @@ The restore operation needs to specify an existing backup in the remote warehous
    1 row in set (0.01 sec)
    ```
 
-For detailed usage of RESTORE, please refer to [here](../../sql-manual/sql-reference-v2/Show-Statements/RESTORE.html).
+For detailed usage of RESTORE, please refer to [here](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/RESTORE.html).
 
 ## Related Commands
 
@@ -180,4 +180,4 @@ The commands related to the backup and restore function are as follows. For the 
 
 ## More Help
 
-For more detailed syntax and best practices used by RESTORE, please refer to the [RESTORE](../../sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/RESTORE.html) command manual, You can also type `HELP RESTORE` on the MySql client command line for more help.
+For more detailed syntax and best practices used by RESTORE, please refer to the [RESTORE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/RESTORE.html) command manual, You can also type `HELP RESTORE` on the MySql client command line for more help.
