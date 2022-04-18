@@ -54,15 +54,23 @@ class OutputUtils {
     }
 
     static String checkCell(String info, int line, String expectCell, String realCell, String dataType) {
-        if(dataType == "FLOAT" || dataType == "DOUBLE") {
-            double expectDouble = Double.parseDouble(expectCell)
-            double realDouble = Double.parseDouble(realCell)
+        if (dataType == "FLOAT" || dataType == "DOUBLE") {
+            Boolean expectNull = expectCell.equals("\\\\N")
+            Boolean actualNull = realCell.equals("\\\\N")
 
-            double realRelativeError = Math.abs(expectDouble - realDouble) / realDouble
-            double expectRelativeError = 1e-10
+            if (expectNull != actualNull) {
+                return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell: ${expectCell}\nBut real is: ${realCell}"
+            } else if (!expectNull) {
+                // both are not null
+                double expectDouble = Double.parseDouble(expectCell)
+                double realDouble = Double.parseDouble(realCell)
 
-            if(expectRelativeError < realRelativeError) {
-                return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell is: ${expectCell}\nBut real is: ${realCell}\nrelative error is: ${realRelativeError}, bigger than ${expectRelativeError}"
+                double realRelativeError = Math.abs(expectDouble - realDouble) / realDouble
+                double expectRelativeError = 1e-10
+
+                if(expectRelativeError < realRelativeError) {
+                    return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell is: ${expectCell}\nBut real is: ${realCell}\nrelative error is: ${realRelativeError}, bigger than ${expectRelativeError}"
+                }
             }
         } else if(dataType == "DATE" || dataType =="DATETIME") {
             expectCell = expectCell.replace("T", " ")
