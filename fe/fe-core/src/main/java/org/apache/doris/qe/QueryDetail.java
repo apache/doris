@@ -23,7 +23,7 @@ public class QueryDetail {
         FINISHED,
         FAILED,
         CANCELLED 
-    };
+    }
 
     // When query received, FE will construct a QueryDetail
     // object. This object will set queryId, startTime, sql

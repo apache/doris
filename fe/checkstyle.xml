@@ -29,5 +29,12 @@
     <module name="TreeWalker">
         <module name="AvoidStarImport"/>
         <module name="UnusedImports"/>
+
+        <module name="RedundantImport">
+            <property name="severity" value="error"/>
+            <message key="import.redundancy" value="Redundant import {0}."/>
+        </module>
+
+        <module name="EmptyStatement"/>
     </module>
 </module>

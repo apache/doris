@@ -79,7 +79,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         SECOND_MERGE;
 
         public boolean isMerge() { return this == FIRST_MERGE || this == SECOND_MERGE; }
-    };
+    }
 
     // created by createMergeAggInfo()
     private AggregateInfo mergeAggInfo_;
