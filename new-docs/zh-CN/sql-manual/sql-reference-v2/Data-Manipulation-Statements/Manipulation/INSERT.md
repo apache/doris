@@ -32,7 +32,7 @@ INSERT
 
 ### Description
 
-改语句是完成数据插入操作。
+该语句是完成数据插入操作。
 
 ```sql
 INSERT INTO table_name

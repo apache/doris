@@ -122,7 +122,7 @@ ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
    1 row in set (0.15 sec)
    ```
 
-For the detailed usage of BACKUP, please refer to [here](../../sql-manual/sql-reference-v2/Show-Statements/BACKUP.html).
+For the detailed usage of BACKUP, please refer to [here](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/BACKUP.html).
 
 ## Best Practices
 
