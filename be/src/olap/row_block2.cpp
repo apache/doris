@@ -238,11 +238,12 @@ Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColum
                 value |= *(unsigned char*)(ptr + 1);
                 value <<= 8;
                 value |= *(unsigned char*)(ptr);
-                vectorized::VecDateTimeValue date;
-                date.from_olap_date(value);
+                vectorized::VecDateTimeValue date =
+                        vectorized::VecDateTimeValue::create_from_olap_date(value);
                 (column_int)->insert_data(reinterpret_cast<char*>(&date), 0);
-            } else
+            } else {
                 column_int->insert_default();
+            }
         }
         break;
     }
@@ -255,9 +256,9 @@ Status RowBlockV2::_copy_data_to_column(int cid, doris::vectorized::MutableColum
                 auto ptr = reinterpret_cast<const char*>(column_block(cid).cell_ptr(row_idx));
 
                 uint64_t value = *reinterpret_cast<const uint64_t*>(ptr);
-                vectorized::VecDateTimeValue data;
-                data.from_olap_datetime(value);
-                (column_int)->insert_data(reinterpret_cast<char*>(&data), 0);
+                vectorized::VecDateTimeValue datetime =
+                        vectorized::VecDateTimeValue::create_from_olap_datetime(value);
+                (column_int)->insert_data(reinterpret_cast<char*>(&datetime), 0);
             } else {
                 column_int->insert_default();
             }
