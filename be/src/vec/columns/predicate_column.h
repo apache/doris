@@ -58,8 +58,7 @@ private:
     void insert_date_to_res_column(const uint16_t* sel, size_t sel_size,
                                    vectorized::ColumnVector<Int64>* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
-            VecDateTimeValue date;
-            date.from_olap_date(get_date_at(sel[i]));
+            VecDateTimeValue date = VecDateTimeValue::create_from_olap_date(get_date_at(sel[i]));
             res_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
         }
     }
@@ -68,8 +67,9 @@ private:
                                        vectorized::ColumnVector<Int64>* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
             uint64_t value = data[sel[i]];
-            vectorized::VecDateTimeValue date(value);
-            res_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
+            vectorized::VecDateTimeValue datetime =
+                    VecDateTimeValue::create_from_olap_datetime(value);
+            res_ptr->insert_data(reinterpret_cast<char*>(&datetime), 0);
         }
     }
 
