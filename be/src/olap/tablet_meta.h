@@ -211,6 +211,7 @@ private:
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
     std::string _remote_storage_name;
+    StorageMediumPB _storage_medium;
 
     std::shared_mutex _meta_lock;
 };
