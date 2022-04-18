@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("query_load") {
+suite("load") {
     // init query case data
     def dbName = "test_query_db"
     sql "DROP DATABASE IF EXISTS ${dbName}"
