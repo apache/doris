@@ -199,6 +199,7 @@ class StreamLoadAction implements SuiteAction {
                 def file = new File(fileName)
                 if (!file.exists()) {
                     log.warn("Stream load input file not exists: ${file}".toString())
+                    throw new IllegalStateException("Stream load input file not exists: ${file}");
                 }
                 log.info("Set stream load input: ${file.canonicalPath}".toString())
                 entity = new FileEntity(file)
