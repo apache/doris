@@ -71,7 +71,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                                            : TabletTypePB::TABLET_TYPE_MEMORY);
     tablet_meta_pb.set_storage_medium(fs::fs_util::get_storage_medium_pb(t_storage_medium));
     tablet_meta_pb.set_remote_storage_name(storage_name);
-    StorageMediumPB _storage_medium;
     TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
     schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
     schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
@@ -454,8 +453,8 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
         tablet_meta_pb->set_preferred_rowset_type(_preferred_rowset_type);
     }
 
-    tablet_meta_pb.set_remote_storage_name(_remote_storage_name);
-    tablet_meta_pb.set_storage_medium(_storage_medium);
+    tablet_meta_pb->set_remote_storage_name(_remote_storage_name);
+    tablet_meta_pb->set_storage_medium(_storage_medium);
 
 }
 

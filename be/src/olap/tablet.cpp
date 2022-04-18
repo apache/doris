@@ -1276,7 +1276,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->version_hash = 0;
     tablet_info->__set_partition_id(_tablet_meta->partition_id());
     if (FilePathDesc::is_remote(_data_dir->storage_medium())) {
-        tablet_info->__set_storage_medium(_tablet_meta->storage_medium());
+        tablet_info->__set_storage_medium((fs::fs_util::get_t_storage_medium(_tablet_meta->storage_medium()));
     } else {
         tablet_info->__set_storage_medium(_data_dir->storage_medium());
     }

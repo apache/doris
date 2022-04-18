@@ -177,6 +177,10 @@ public:
         return _remote_storage_name;
     }
 
+    StorageMediumPB storage_medium() const {
+        return _storage_medium;
+    }
+
 private:
     OLAPStatus _save_meta(DataDir* data_dir);
     void _init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column);
