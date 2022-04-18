@@ -36,11 +36,7 @@
 namespace doris {
 
 ExprContext::ExprContext(Expr* root)
-        : _root(root),
-          _is_clone(false),
-          _prepared(false),
-          _opened(false),
-          _closed(false) {}
+        : _root(root), _is_clone(false), _prepared(false), _opened(false), _closed(false) {}
 
 ExprContext::~ExprContext() {
     DCHECK(!_prepared || _closed);

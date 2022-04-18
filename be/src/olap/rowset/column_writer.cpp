@@ -672,8 +672,8 @@ Status VarStringColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     }
 
     // id_writer is practical to data_stream, it doesn't matter if you repeat flush
-    if (!_length_writer->flush() || !_id_writer->flush() ||
-        !_dict_stream->flush() || !_data_stream->flush()) {
+    if (!_length_writer->flush() || !_id_writer->flush() || !_dict_stream->flush() ||
+        !_data_stream->flush()) {
         OLAP_LOG_WARNING("fail to flush stream.");
         return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
     }

@@ -178,7 +178,8 @@ Status ChunkAllocator::allocate(size_t size, Chunk* chunk, MemTracker* tracker, 
         chunk->data = SystemAllocator::allocate(size);
         // The allocated chunk is consumed in the tls mem tracker, we want to consume in the ChunkAllocator tracker,
         // transfer memory ownership. TODO(zxy) replace with switch tls tracker
-        thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(), size);
+        thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(
+                _mem_tracker.get(), size);
     }
     chunk_pool_system_alloc_count->increment(1);
     chunk_pool_system_alloc_cost_ns->increment(cost_ns);

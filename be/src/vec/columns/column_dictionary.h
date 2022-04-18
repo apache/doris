@@ -22,7 +22,10 @@
 #include <algorithm>
 
 #include "gutil/hash/string_hash.h"
+#include "olap/column_predicate.h"
+#include "olap/comparison_predicate.h"
 #include "olap/decimal12.h"
+#include "olap/in_list_predicate.h"
 #include "olap/uint24.h"
 #include "runtime/string_value.h"
 #include "util/slice.h"
@@ -32,11 +35,8 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
-#include "vec/core/types.h"
 #include "vec/common/typeid_cast.h"
-#include "olap/column_predicate.h"
-#include "olap/comparison_predicate.h"
-#include "olap/in_list_predicate.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 
@@ -55,6 +55,7 @@ namespace doris::vectorized {
 template <typename T>
 class ColumnDictionary final : public COWHelper<IColumn, ColumnDictionary<T>> {
     static_assert(IsNumber<T>);
+
 private:
     friend class COWHelper<IColumn, ColumnDictionary>;
 

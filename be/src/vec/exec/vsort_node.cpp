@@ -21,7 +21,6 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
-
 #include "vec/core/sort_block.h"
 
 namespace doris::vectorized {
@@ -66,7 +65,7 @@ Status VSortNode::open(RuntimeState* state) {
     // Unless we are inside a subplan expecting to call open()/get_next() on the child
     // again, the child can be closed at this point.
     // if (!IsInSubplan()) {
-//    child(0)->close(state);
+    //    child(0)->close(state);
     // }
     return Status::OK();
 }
@@ -135,7 +134,7 @@ Status VSortNode::sort_input(RuntimeState* state) {
             size_t mem_usage = block.allocated_bytes();
 
             // dispose TOP-N logic
-            if (_limit != -1 ) {
+            if (_limit != -1) {
                 // Here is a little opt to reduce the mem uasge, we build a max heap
                 // to order the block in _block_priority_queue.
                 // if one block totally greater the heap top of _block_priority_queue
@@ -144,8 +143,8 @@ Status VSortNode::sort_input(RuntimeState* state) {
                     _total_mem_usage += mem_usage;
                     _sorted_blocks.emplace_back(std::move(block));
                     _num_rows_in_block += rows;
-                    _block_priority_queue.emplace(
-                            _pool->add(new SortCursorImpl(_sorted_blocks.back(), _sort_description)));
+                    _block_priority_queue.emplace(_pool->add(
+                            new SortCursorImpl(_sorted_blocks.back(), _sort_description)));
                 } else {
                     SortBlockCursor block_cursor(
                             _pool->add(new SortCursorImpl(block, _sort_description)));
@@ -204,17 +203,17 @@ Status VSortNode::pretreat_block(doris::vectorized::Block& block) {
 }
 
 void VSortNode::build_merge_tree() {
-    for (const auto &block : _sorted_blocks) {
+    for (const auto& block : _sorted_blocks) {
         _cursors.emplace_back(block, _sort_description);
     }
 
     if (_sorted_blocks.size() > 1) {
-        for (auto& _cursor : _cursors)
-            _priority_queue.push(SortCursor(&_cursor));
+        for (auto& _cursor : _cursors) _priority_queue.push(SortCursor(&_cursor));
     }
 }
 
-Status VSortNode::merge_sort_read(doris::RuntimeState *state, doris::vectorized::Block *block, bool *eos) {
+Status VSortNode::merge_sort_read(doris::RuntimeState* state, doris::vectorized::Block* block,
+                                  bool* eos) {
     size_t num_columns = _sorted_blocks[0].columns();
 
     bool mem_reuse = block->mem_reuse();
@@ -240,8 +239,7 @@ Status VSortNode::merge_sort_read(doris::RuntimeState *state, doris::vectorized:
             _priority_queue.push(current);
         }
 
-        if (merged_rows == state->batch_size())
-            break;
+        if (merged_rows == state->batch_size()) break;
     }
 
     if (merged_rows == 0) {
@@ -257,4 +255,4 @@ Status VSortNode::merge_sort_read(doris::RuntimeState *state, doris::vectorized:
     return Status::OK();
 }
 
-} // end namespace doris
+} // namespace doris::vectorized

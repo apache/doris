@@ -42,8 +42,8 @@ public:
     Status create_reader(std::shared_ptr<RowsetReader>* result) override;
 
     Status split_range(const RowCursor& start_key, const RowCursor& end_key,
-                           uint64_t request_block_row_count, size_t key_num,
-                           std::vector<OlapTuple>* ranges) override;
+                       uint64_t request_block_row_count, size_t key_num,
+                       std::vector<OlapTuple>* ranges) override;
 
     Status remove() override;
 
@@ -52,10 +52,10 @@ public:
     Status copy_files_to(const std::string& dir) override;
 
     Status convert_from_old_files(const std::string& snapshot_path,
-                                      std::vector<std::string>* success_files);
+                                  std::vector<std::string>* success_files);
 
     Status convert_to_old_files(const std::string& snapshot_path,
-                                    std::vector<std::string>* success_files);
+                                std::vector<std::string>* success_files);
 
     Status remove_old_files(std::vector<std::string>* files_to_remove) override;
 

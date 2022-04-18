@@ -47,6 +47,7 @@ class VectorizedRowBatch;
                          bool* flags) const override;                                              \
         void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override; \
         void set_dict_code_if_necessary(vectorized::IColumn& column) override;                     \
+                                                                                                   \
     private:                                                                                       \
         T _value;                                                                                  \
         bool _dict_code_inited = false;                                                            \
@@ -61,4 +62,3 @@ COMPARISON_PRED_CLASS_DEFINE(GreaterPredicate, GT)
 COMPARISON_PRED_CLASS_DEFINE(GreaterEqualPredicate, GE)
 
 } //namespace doris
-

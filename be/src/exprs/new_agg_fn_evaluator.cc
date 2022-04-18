@@ -113,8 +113,7 @@ Status NewAggFnEvaluator::Create(const AggFn& agg_fn, RuntimeState* state, Objec
     *result = nullptr;
 
     // Create a new AggFn evaluator.
-    NewAggFnEvaluator* agg_fn_eval =
-            pool->add(new NewAggFnEvaluator(agg_fn, mem_pool, false));
+    NewAggFnEvaluator* agg_fn_eval = pool->add(new NewAggFnEvaluator(agg_fn, mem_pool, false));
 
     agg_fn_eval->agg_fn_ctx_.reset(FunctionContextImpl::create_context(
             state, mem_pool, agg_fn.GetIntermediateTypeDesc(), agg_fn.GetOutputTypeDesc(),

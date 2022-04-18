@@ -57,12 +57,13 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(flush_count, MetricUnit::OPERATIONS);
 
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-        const StorageParamPB& storage_param, DataDir* data_dir) {
+                                                const StorageParamPB& storage_param,
+                                                DataDir* data_dir) {
     return std::make_shared<Tablet>(tablet_meta, storage_param, data_dir);
 }
 
-Tablet::Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir,
-               const std::string& cumulative_compaction_type)
+Tablet::Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param,
+               DataDir* data_dir, const std::string& cumulative_compaction_type)
         : BaseTablet(tablet_meta, storage_param, data_dir),
           _is_bad(false),
           _last_cumu_compaction_failure_millis(0),
@@ -139,7 +140,7 @@ void Tablet::save_meta() {
 }
 
 Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
-                                      const std::vector<Version>& versions_to_delete) {
+                                  const std::vector<Version>& versions_to_delete) {
     LOG(INFO) << "begin to revise tablet. tablet=" << full_name()
               << ", rowsets_to_clone=" << rowsets_to_clone.size()
               << ", versions_to_delete=" << versions_to_delete.size();
@@ -552,8 +553,7 @@ bool Tablet::_reconstruct_version_tracker_if_necessary() {
 }
 
 Status Tablet::capture_consistent_versions(const Version& spec_version,
-                                               std::vector<Version>* version_path,
-                                               bool quiet) const {
+                                           std::vector<Version>* version_path, bool quiet) const {
     Status status =
             _timestamped_version_tracker.capture_consistent_versions(spec_version, version_path);
     if (!status.ok() && !quiet) {
@@ -602,15 +602,15 @@ void Tablet::acquire_version_and_rowsets(
 }
 
 Status Tablet::capture_consistent_rowsets(const Version& spec_version,
-                                              std::vector<RowsetSharedPtr>* rowsets) const {
+                                          std::vector<RowsetSharedPtr>* rowsets) const {
     std::vector<Version> version_path;
     RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
     RETURN_NOT_OK(_capture_consistent_rowsets_unlocked(version_path, rowsets));
     return Status::OK();
 }
 
-Status Tablet::_capture_consistent_rowsets_unlocked(
-        const std::vector<Version>& version_path, std::vector<RowsetSharedPtr>* rowsets) const {
+Status Tablet::_capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
+                                                    std::vector<RowsetSharedPtr>* rowsets) const {
     DCHECK(rowsets != nullptr && rowsets->empty());
     rowsets->reserve(version_path.size());
     for (auto& version : version_path) {
@@ -641,7 +641,7 @@ Status Tablet::_capture_consistent_rowsets_unlocked(
 }
 
 Status Tablet::capture_rs_readers(const Version& spec_version,
-                                      std::vector<RowsetReaderSharedPtr>* rs_readers) const {
+                                  std::vector<RowsetReaderSharedPtr>* rs_readers) const {
     std::vector<Version> version_path;
     RETURN_NOT_OK(capture_consistent_versions(spec_version, &version_path));
     RETURN_NOT_OK(capture_rs_readers(version_path, rs_readers));
@@ -649,7 +649,7 @@ Status Tablet::capture_rs_readers(const Version& spec_version,
 }
 
 Status Tablet::capture_rs_readers(const std::vector<Version>& version_path,
-                                      std::vector<RowsetReaderSharedPtr>* rs_readers) const {
+                                  std::vector<RowsetReaderSharedPtr>* rs_readers) const {
     DCHECK(rs_readers != nullptr && rs_readers->empty());
     for (auto version : version_path) {
         auto it = _rs_version_map.find(version);
@@ -853,7 +853,7 @@ void Tablet::calculate_cumulative_point() {
 }
 
 Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
-                               uint64_t request_block_row_count, std::vector<OlapTuple>* ranges) {
+                           uint64_t request_block_row_count, std::vector<OlapTuple>* ranges) {
     DCHECK(ranges != nullptr);
 
     size_t key_num = 0;
@@ -1337,7 +1337,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
             *permits = 0;
             if (res != Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION)) {
                 DorisMetrics::instance()->cumulative_compaction_request_failed->increment(1);
-                return Status::InternalError(fmt::format("prepare cumulative compaction with err: {}", res));
+                return Status::InternalError(
+                        fmt::format("prepare cumulative compaction with err: {}", res));
             }
             // return OK if OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.
@@ -1366,7 +1367,8 @@ Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compactio
             *permits = 0;
             if (res != Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION)) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
-                return Status::InternalError(fmt::format("prepare base compaction with err: {}", res));
+                return Status::InternalError(
+                        fmt::format("prepare base compaction with err: {}", res));
             }
             // return OK if OLAP_ERR_BE_NO_SUITABLE_VERSION, so that we don't need to
             // print too much useless logs.

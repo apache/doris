@@ -38,7 +38,8 @@ class IndexedColumnIterator;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(const FilePathDesc& path_desc, const BitmapIndexPB* bitmap_index_meta)
+    explicit BitmapIndexReader(const FilePathDesc& path_desc,
+                               const BitmapIndexPB* bitmap_index_meta)
             : _path_desc(path_desc), _bitmap_index_meta(bitmap_index_meta) {
         _typeinfo = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
     }

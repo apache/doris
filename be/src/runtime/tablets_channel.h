@@ -61,7 +61,8 @@ public:
     Status open(const PTabletWriterOpenRequest& request);
 
     // no-op when this channel has been closed or cancelled
-    Status add_batch(const PTabletWriterAddBatchRequest& request, PTabletWriterAddBatchResult* response);
+    Status add_batch(const PTabletWriterAddBatchRequest& request,
+                     PTabletWriterAddBatchResult* response);
 
     // Mark sender with 'sender_id' as closed.
     // If all senders are closed, close this channel, set '*finished' to true, update 'tablet_vec'

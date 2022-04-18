@@ -55,7 +55,8 @@ public:
            const std::shared_ptr<MemTracker>& tracker, RuntimeState* state)
             : _mgr(mgr),
               _state(state),
-              _tracker(MemTracker::create_virtual_tracker(-1, "BufferedBlockMgr2::Client", tracker)),
+              _tracker(
+                      MemTracker::create_virtual_tracker(-1, "BufferedBlockMgr2::Client", tracker)),
               _num_reserved_buffers(num_reserved_buffers),
               _num_tmp_reserved_buffers(0),
               _num_pinned_buffers(0) {

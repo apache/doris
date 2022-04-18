@@ -20,12 +20,12 @@
 
 #include "vec/columns/column_decimal.h"
 
+#include "util/simd/bits.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/exception.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
-#include "util/simd/bits.h"
 
 template <typename T>
 bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);
@@ -222,7 +222,8 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size,
+                                 IColumn& column) const {
     size_t size = data.size();
     if (0 == size) return;
 

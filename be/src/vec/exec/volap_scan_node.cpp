@@ -206,8 +206,8 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     bool get_free_block = true;
 
-    while (!eos && raw_rows_read < raw_rows_threshold &&
-           raw_bytes_read < raw_bytes_threshold && get_free_block) {
+    while (!eos && raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold &&
+           get_free_block) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
@@ -233,7 +233,8 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
             _free_blocks.emplace_back(block);
         } else {
-            if (!blocks.empty() && blocks.back()->rows() + block->rows() <= _runtime_state->batch_size()) {
+            if (!blocks.empty() &&
+                blocks.back()->rows() + block->rows() <= _runtime_state->batch_size()) {
                 MutableBlock(blocks.back()).merge(*block);
                 block->clear_column_data();
                 std::lock_guard<std::mutex> l(_free_blocks_lock);
@@ -339,8 +340,8 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
     for (auto& scan_range : _scan_ranges) {
         auto tablet_id = scan_range->tablet_id;
         std::string err;
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                tablet_id, true, &err);
+        TabletSharedPtr tablet =
+                StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
         if (tablet == nullptr) {
             std::stringstream ss;
             ss << "failed to get tablet: " << tablet_id << ", reason: " << err;
@@ -555,7 +556,7 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
     std::list<VOlapScanner*> olap_scanners;
     int assigned_thread_num = _running_thread;
     size_t max_thread = std::min(_volap_scanners.size(),
-                     static_cast<size_t>(config::doris_scanner_thread_pool_thread_num));
+                                 static_cast<size_t>(config::doris_scanner_thread_pool_thread_num));
     // copy to local
     {
         // How many thread can apply to this query

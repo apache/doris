@@ -18,8 +18,9 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_HTTP_PARSER_H
 #define DORIS_BE_SRC_COMMON_UTIL_HTTP_PARSER_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
+
 #include <ostream>
 
 namespace doris {

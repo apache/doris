@@ -49,7 +49,7 @@ public:
     /// snapshot_path: out param, the dir of snapshot
     /// allow_incremental_clone: out param, true if it is an incremental clone
     Status make_snapshot(const TSnapshotRequest& request, std::string* snapshot_path,
-                             bool* allow_incremental_clone);
+                         bool* allow_incremental_clone);
 
     FilePathDesc get_schema_hash_full_path(const TabletSharedPtr& ref_tablet,
                                            const FilePathDesc& location_desc) const;
@@ -61,7 +61,7 @@ public:
     static SnapshotManager* instance();
 
     Status convert_rowset_ids(const FilePathDesc& clone_dir_desc, int64_t tablet_id,
-                                  const int32_t& schema_hash);
+                              const int32_t& schema_hash);
 
 private:
     SnapshotManager() : _snapshot_base_id(0) {
@@ -70,25 +70,24 @@ private:
     }
 
     Status _calc_snapshot_id_path(const TabletSharedPtr& tablet, int64_t timeout_s,
-                                      std::string* out_path);
+                                  std::string* out_path);
 
     std::string _get_header_full_path(const TabletSharedPtr& ref_tablet,
                                       const std::string& schema_hash_path) const;
 
     Status _link_index_and_data_files(const FilePathDesc& header_path_desc,
-                                          const TabletSharedPtr& ref_tablet,
-                                          const std::vector<RowsetSharedPtr>& consistent_rowsets);
+                                      const TabletSharedPtr& ref_tablet,
+                                      const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
     Status _create_snapshot_files(const TabletSharedPtr& ref_tablet,
-                                      const TSnapshotRequest& request, std::string* snapshot_path,
-                                      bool* allow_incremental_clone);
+                                  const TSnapshotRequest& request, std::string* snapshot_path,
+                                  bool* allow_incremental_clone);
 
-    Status _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet,
-                                     std::string* snapshot_id_path);
+    Status _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet, std::string* snapshot_id_path);
 
     Status _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const FilePathDesc& new_path_desc,
-                                 TabletSchema& tablet_schema, const RowsetId& next_id,
-                                 RowsetMetaPB* new_rs_meta_pb);
+                             TabletSchema& tablet_schema, const RowsetId& next_id,
+                             RowsetMetaPB* new_rs_meta_pb);
 
 private:
     static SnapshotManager* _s_instance;
@@ -102,4 +101,3 @@ private:
 }; // SnapshotManager
 
 } // namespace doris
-

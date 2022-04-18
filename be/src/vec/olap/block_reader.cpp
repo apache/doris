@@ -37,7 +37,7 @@ BlockReader::~BlockReader() {
 }
 
 Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
-                                           std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
+                                       std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     _vcollect_iter.init(this);
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto res = _capture_rs_readers(read_params, &rs_readers);
@@ -78,8 +78,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         return;
     }
 
-    _stored_data_columns =
-            _next_row.block->create_same_struct_block(_batch_size)->mutate_columns();
+    _stored_data_columns = _next_row.block->create_same_struct_block(_batch_size)->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_string_tag.resize(_stored_data_columns.size());
@@ -171,7 +170,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
 }
 
 Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                           bool* eof) {
+                                       bool* eof) {
     auto res = _vcollect_iter.next(block);
     if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
         return res;
@@ -181,12 +180,12 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
 }
 
 Status BlockReader::_direct_agg_key_next_block(Block* block, MemPool* mem_pool,
-                                                   ObjectPool* agg_pool, bool* eof) {
+                                               ObjectPool* agg_pool, bool* eof) {
     return Status::OK();
 }
 
 Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                            bool* eof) {
+                                        bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
         return Status::OK();
@@ -232,8 +231,8 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     return Status::OK();
 }
 
-Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
+                                           bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
         return Status::OK();
@@ -330,7 +329,7 @@ size_t BlockReader::_copy_agg_data() {
             for (auto& it : _temp_ref_map) {
                 if (!it.second.empty()) {
                     auto& src_column = *it.first->get_by_position(idx).column;
-                    for (auto &pos : it.second) {
+                    for (auto& pos : it.second) {
                         dst_column->replace_column_data(src_column, pos.first, pos.second);
                     }
                 }

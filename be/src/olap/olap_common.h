@@ -388,4 +388,3 @@ struct RowsetId {
 };
 
 } // namespace doris
-

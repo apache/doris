@@ -149,7 +149,7 @@ struct ReceiveQueueSortCursorImpl : public SortCursorImpl {
 
     const std::vector<VExprContext*>& _ordering_expr;
     Block* _block_ptr = nullptr;
-    BlockSupplier _block_supplier{};
+    BlockSupplier _block_supplier {};
     bool _is_eof = false;
 };
 

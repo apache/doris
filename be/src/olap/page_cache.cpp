@@ -16,6 +16,7 @@
 // under the License.
 
 #include "olap/page_cache.h"
+
 #include "runtime/thread_context.h"
 
 namespace doris {

@@ -39,12 +39,12 @@ public:
 
     Status create_reader(RowsetReaderSharedPtr* result) override;
 
-    static FilePathDesc segment_file_path(const FilePathDesc& segment_dir_desc, const RowsetId& rowset_id,
-                                         int segment_id);
+    static FilePathDesc segment_file_path(const FilePathDesc& segment_dir_desc,
+                                          const RowsetId& rowset_id, int segment_id);
 
     Status split_range(const RowCursor& start_key, const RowCursor& end_key,
-                           uint64_t request_block_row_count, size_t key_num,
-                           std::vector<OlapTuple>* ranges) override;
+                       uint64_t request_block_row_count, size_t key_num,
+                       std::vector<OlapTuple>* ranges) override;
 
     Status remove() override;
 

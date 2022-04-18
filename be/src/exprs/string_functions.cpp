@@ -489,7 +489,7 @@ bool StringFunctions::set_re2_options(const StringVal& match_parameter, std::str
 
 // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
 re2::RE2* StringFunctions::compile_regex(const StringVal& pattern, std::string* error_str,
-                               const StringVal& match_parameter) {
+                                         const StringVal& match_parameter) {
     re2::StringPiece pattern_sp(reinterpret_cast<char*>(pattern.ptr), pattern.len);
     re2::RE2::Options options;
     // Disable error logging in case e.g. every row causes an error
@@ -512,7 +512,7 @@ re2::RE2* StringFunctions::compile_regex(const StringVal& pattern, std::string* 
         return nullptr;
     }
     return re;
-} 
+}
 
 void StringFunctions::regexp_prepare(FunctionContext* context,
                                      FunctionContext::FunctionStateScope scope) {

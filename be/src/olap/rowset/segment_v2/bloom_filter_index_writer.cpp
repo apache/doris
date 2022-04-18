@@ -153,7 +153,8 @@ public:
 private:
     // supported slice types are: OLAP_FIELD_TYPE_CHAR|OLAP_FIELD_TYPE_VARCHAR
     static constexpr bool _is_slice_type() {
-        return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_STRING;
+        return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
+               field_type == OLAP_FIELD_TYPE_STRING;
     }
 
     static constexpr bool _is_int128() { return field_type == OLAP_FIELD_TYPE_LARGEINT; }

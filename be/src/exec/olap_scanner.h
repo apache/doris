@@ -33,9 +33,9 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
-#include "olap/tuple_reader.h"
 #include "olap/rowset/column_data.h"
 #include "olap/storage_engine.h"
+#include "olap/tuple_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
 #include "runtime/vectorized_row_batch.h"
@@ -93,13 +93,13 @@ public:
 
     const std::vector<SlotDescriptor*>& get_query_slots() const { return _query_slots; }
 
-    const std::shared_ptr<MemTracker>& mem_tracker() const {return _mem_tracker;}
+    const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
 
 protected:
-    Status _init_tablet_reader_params(const std::vector<OlapScanRange*>& key_ranges,
-                        const std::vector<TCondition>& filters,
-                        const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
-                                bloom_filters);
+    Status _init_tablet_reader_params(
+            const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
+            const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
+                    bloom_filters);
     Status _init_return_columns();
     void _convert_row_to_tuple(Tuple* tuple);
 

@@ -23,9 +23,9 @@
 #include "util/slice.h" // for Slice
 #include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
 
 namespace doris {
@@ -208,7 +208,8 @@ Status BinaryDictPageDecoder::init() {
         // And then copy the strings corresponding to the codewords to the destination buffer
         const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_INT>();
         RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
-        _data_page_decoder.reset(_bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
+        _data_page_decoder.reset(
+                _bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
         _data_page_decoder.reset(new BinaryPlainPageDecoder(_data, _options));
@@ -237,7 +238,7 @@ void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRe
     _dict_word_info = dict_word_info;
 };
 
-Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
+Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
     if (_encoding_type == PLAIN_ENCODING) {
         dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->next_batch(n, dst);
@@ -245,22 +246,24 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     // dictionary encoding
     DCHECK(_parsed);
     DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
- 
+
     if (PREDICT_FALSE(*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements)) {
         *n = 0;
         return Status::OK();
     }
- 
-    size_t max_fetch = std::min(*n, static_cast<size_t>(_bit_shuffle_ptr->_num_elements - _bit_shuffle_ptr->_cur_index));
+
+    size_t max_fetch = std::min(*n, static_cast<size_t>(_bit_shuffle_ptr->_num_elements -
+                                                        _bit_shuffle_ptr->_cur_index));
     *n = max_fetch;
- 
+
     const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->_chunk.data);
     size_t start_index = _bit_shuffle_ptr->_cur_index;
 
-    dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch, _dict_decoder->_num_elems);
+    dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
+                               _dict_decoder->_num_elems);
 
     _bit_shuffle_ptr->_cur_index += max_fetch;
- 
+
     return Status::OK();
 }
 

@@ -98,7 +98,8 @@ public:
     std::string to_json() const;
 
     std::string prepare_stream_load_record(const std::string& stream_load_record);
-    static void parse_stream_load_record(const std::string& stream_load_record, TStreamLoadRecord& stream_load_item);
+    static void parse_stream_load_record(const std::string& stream_load_record,
+                                         TStreamLoadRecord& stream_load_item);
 
     // the old mini load result format is not same as stream load.
     // add this function for compatible with old mini load result format.

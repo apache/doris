@@ -195,10 +195,11 @@ private:
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                             int64_t signature, TTabletInfo* tablet_info);
 
-    Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id, bool overwrite);
+    Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id,
+                     bool overwrite);
 
     Status _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
-                                      DataDir** dest_store);
+                                  DataDir** dest_store);
 
     // random sleep 1~second seconds
     void _random_sleep(int second);

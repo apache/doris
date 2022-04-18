@@ -21,12 +21,12 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "util/string_parser.hpp"
+#include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/functions/function_always_not_nullable.h"
 
 namespace doris::vectorized {
 
@@ -142,7 +142,7 @@ struct BitmapHash {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t str_size = offsets[i] - offsets[i - 1] - 1;
             uint32_t hash_value =
-                        HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
+                    HashUtil::murmur_hash3_32(raw_str, str_size, HashUtil::MURMUR3_32_SEED);
             res_data[i].add(hash_value);
         }
     }

@@ -72,9 +72,9 @@ using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 class TabletMeta {
 public:
     static Status create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
-                             uint64_t shard_id, uint32_t next_unique_id,
-                             const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                             TabletMetaSharedPtr* tablet_meta);
+                         uint64_t shard_id, uint32_t next_unique_id,
+                         const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
+                         TabletMetaSharedPtr* tablet_meta);
 
     TabletMeta();
     // Only remote_storage_name is needed in meta, it is a key used to get remote params from fe.
@@ -82,8 +82,8 @@ public:
     TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id, int32_t schema_hash,
                uint64_t shard_id, const TTabletSchema& tablet_schema, uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-               TabletUid tablet_uid, TTabletType::type tabletType, TStorageMedium::type t_storage_medium,
-               const std::string& remote_storage_name);
+               TabletUid tablet_uid, TTabletType::type tabletType,
+               TStorageMedium::type t_storage_medium, const std::string& remote_storage_name);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -111,13 +111,13 @@ public:
     int64_t table_id() const;
     int64_t partition_id() const;
     int64_t tablet_id() const;
-     int32_t schema_hash() const;
-     int16_t shard_id() const;
-     void set_shard_id(int32_t shard_id);
-     int64_t creation_time() const;
-     void set_creation_time(int64_t creation_time);
-     int64_t cumulative_layer_point() const;
-     void set_cumulative_layer_point(int64_t new_point);
+    int32_t schema_hash() const;
+    int16_t shard_id() const;
+    void set_shard_id(int32_t shard_id);
+    int64_t creation_time() const;
+    void set_creation_time(int64_t creation_time);
+    int64_t cumulative_layer_point() const;
+    void set_cumulative_layer_point(int64_t new_point);
 
     size_t num_rows() const;
     // disk space occupied by tablet
@@ -171,9 +171,7 @@ public:
 
     bool all_beta() const;
 
-    std::string remote_storage_name() const {
-        return _remote_storage_name;
-    }
+    std::string remote_storage_name() const { return _remote_storage_name; }
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -330,4 +328,3 @@ bool operator==(const TabletMeta& a, const TabletMeta& b);
 bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
 } // namespace doris
-

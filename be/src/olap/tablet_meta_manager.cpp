@@ -17,8 +17,9 @@
 
 #include "olap/tablet_meta_manager.h"
 
-#include <boost/algorithm/string/trim.hpp>
 #include <fmt/format.h>
+
+#include <boost/algorithm/string/trim.hpp>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -49,7 +50,7 @@ namespace doris {
 // there are some rowset meta in local meta store and in in-memory tablet meta
 // but not in tablet meta in local meta store
 Status TabletMetaManager::get_meta(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                                       TabletMetaSharedPtr tablet_meta) {
+                                   TabletMetaSharedPtr tablet_meta) {
     OlapMeta* meta = store->get_meta();
     std::stringstream key_stream;
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
@@ -69,7 +70,7 @@ Status TabletMetaManager::get_meta(DataDir* store, TTabletId tablet_id, TSchemaH
 }
 
 Status TabletMetaManager::get_json_meta(DataDir* store, TTabletId tablet_id,
-                                            TSchemaHash schema_hash, std::string* json_meta) {
+                                        TSchemaHash schema_hash, std::string* json_meta) {
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     Status s = get_meta(store, tablet_id, schema_hash, tablet_meta);
     if (!s.ok()) {
@@ -85,20 +86,22 @@ Status TabletMetaManager::get_json_meta(DataDir* store, TTabletId tablet_id,
 // 1. if term > 0 then save to remote meta store first using term
 // 2. save to local meta store
 Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                                   TabletMetaSharedPtr tablet_meta, const string& header_prefix) {
+                               TabletMetaSharedPtr tablet_meta, const string& header_prefix) {
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     std::string value;
     tablet_meta->serialize(&value);
     OlapMeta* meta = store->get_meta();
-    VLOG_NOTICE << "save tablet meta" << ", key:" << key << ", meta length:" << value.length();
+    VLOG_NOTICE << "save tablet meta"
+                << ", key:" << key << ", meta length:" << value.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
 }
 
 Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                                   const std::string& meta_binary, const string& header_prefix) {
+                               const std::string& meta_binary, const string& header_prefix) {
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     OlapMeta* meta = store->get_meta();
-    VLOG_NOTICE << "save tablet meta " << ", key:" << key << " meta_size=" << meta_binary.length();
+    VLOG_NOTICE << "save tablet meta "
+                << ", key:" << key << " meta_size=" << meta_binary.length();
     return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
@@ -106,7 +109,7 @@ Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash 
 // 1. remove load data first
 // 2. remove from load meta store using term if term > 0
 Status TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
-                                     const string& header_prefix) {
+                                 const string& header_prefix) {
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     OlapMeta* meta = store->get_meta();
     Status res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
@@ -130,8 +133,7 @@ Status TabletMetaManager::traverse_headers(
         TSchemaHash schema_hash = std::stol(parts[2].c_str(), nullptr, 10);
         return func(tablet_id, schema_hash, value);
     };
-    Status status =
-            meta->iterate(META_COLUMN_FAMILY_INDEX, header_prefix, traverse_header_func);
+    Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, header_prefix, traverse_header_func);
     return status;
 }
 

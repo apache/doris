@@ -111,8 +111,7 @@ public:
         //      `select b from table;`
         // a column only effective in segment iterator, the block from query engine only contain the b column.
         // so the `block_cid >= data.size()` is true
-        if (block_cid >= data.size())
-            return Status::OK();
+        if (block_cid >= data.size()) return Status::OK();
 
         if (is_block_mem_reuse) {
             auto* raw_res_ptr = this->get_by_position(block_cid).column.get();
@@ -311,9 +310,8 @@ public:
 private:
     void erase_impl(size_t position);
     void initialize_index_by_name();
-    bool is_column_data_null(const doris::TypeDescriptor& type_desc,
-                                    const StringRef& data_ref,
-                                    const IColumn* column_with_type_and_name, int row);
+    bool is_column_data_null(const doris::TypeDescriptor& type_desc, const StringRef& data_ref,
+                             const IColumn* column_with_type_and_name, int row);
     void deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor& type_desc,
                         const StringRef& data_ref, const IColumn* column, int row,
                         bool padding_char);

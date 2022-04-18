@@ -20,17 +20,16 @@
 #include <functional>
 
 #include "olap/memtable.h"
+#include "runtime/thread_context.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
-#include "runtime/thread_context.h"
 
 namespace doris {
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     os << "(flush time(ms)=" << stat.flush_time_ns / NANOS_PER_MILLIS
        << ", flush wait time(ms)=" << stat.flush_wait_time_ns / NANOS_PER_MILLIS
-       << ", flush count=" << stat.flush_count
-       << ", flush bytes: " << stat.flush_size_bytes
+       << ", flush count=" << stat.flush_count << ", flush bytes: " << stat.flush_size_bytes
        << ", flush disk bytes: " << stat.flush_disk_size_bytes << ")";
     return os;
 }
@@ -46,7 +45,8 @@ Status FlushToken::submit(const std::shared_ptr<MemTable>& memtable) {
         return Status::OLAPInternalError(s);
     }
     int64_t submit_task_time = MonotonicNanos();
-    _flush_token->submit_func(std::bind(&FlushToken::_flush_memtable, this, memtable, submit_task_time));
+    _flush_token->submit_func(
+            std::bind(&FlushToken::_flush_memtable, this, memtable, submit_task_time));
     return Status::OK();
 }
 
@@ -82,9 +82,8 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable, int64_t sub
     }
 
     VLOG_CRITICAL << "flush memtable cost: " << timer.elapsed_time()
-            << ", count: " << _stats.flush_count
-            << ", mem size: " << memtable->memory_usage()
-            << ", disk size: " << memtable->flush_size();
+                  << ", count: " << _stats.flush_count << ", mem size: " << memtable->memory_usage()
+                  << ", disk size: " << memtable->flush_size();
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_count++;
     _stats.flush_size_bytes += memtable->memory_usage();
@@ -109,24 +108,27 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
-Status MemTableFlushExecutor::create_flush_token(
-        std::unique_ptr<FlushToken>* flush_token,
-        RowsetTypePB rowset_type, bool is_high_priority) {
+Status MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>* flush_token,
+                                                 RowsetTypePB rowset_type, bool is_high_priority) {
     if (!is_high_priority) {
         if (rowset_type == BETA_ROWSET) {
             // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
-            flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
+            flush_token->reset(
+                    new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
         } else {
             // alpha rowset do not support flush in CONCURRENT.
-            flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
+            flush_token->reset(
+                    new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
         }
     } else {
         if (rowset_type == BETA_ROWSET) {
             // beta rowset can be flush in CONCURRENT, because each memtable using a new segment writer.
-            flush_token->reset(new FlushToken(_high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
+            flush_token->reset(new FlushToken(
+                    _high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT)));
         } else {
             // alpha rowset do not support flush in CONCURRENT.
-            flush_token->reset(new FlushToken(_high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
+            flush_token->reset(new FlushToken(
+                    _high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
         }
     }
     return Status::OK();

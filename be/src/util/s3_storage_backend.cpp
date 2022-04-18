@@ -24,8 +24,8 @@
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/ListObjectsRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
-#include <boost/algorithm/string.hpp>
 
+#include <boost/algorithm/string.hpp>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -126,8 +126,8 @@ Status S3StorageBackend::upload(const std::string& local, const std::string& rem
     RETRUN_S3_STATUS(response);
 }
 
-Status S3StorageBackend::list(const std::string& remote_path, bool contain_md5,
-                              bool recursion, std::map<std::string, FileStat>* files) {
+Status S3StorageBackend::list(const std::string& remote_path, bool contain_md5, bool recursion,
+                              std::map<std::string, FileStat>* files) {
     std::string normal_str(remote_path);
     if (!normal_str.empty() && normal_str.at(normal_str.size() - 1) != '/') {
         normal_str += '/';
@@ -156,7 +156,8 @@ Status S3StorageBackend::list(const std::string& remote_path, bool contain_md5,
                     // Not found checksum separator, ignore this file
                     continue;
                 }
-                FileStat stat = {std::string(key, 0, pos), std::string(key, pos + 1), object.GetSize()};
+                FileStat stat = {std::string(key, 0, pos), std::string(key, pos + 1),
+                                 object.GetSize()};
                 files->emplace(std::string(key, 0, pos), stat);
             } else {
                 FileStat stat = {key, "", object.GetSize()};
@@ -221,7 +222,7 @@ Status S3StorageBackend::rmdir(const std::string& remote) {
     LOG(INFO) << "Remove S3 dir: " << remote;
     RETURN_IF_ERROR(list(normal_path, false, true, &files));
 
-    for (auto &file : files) {
+    for (auto& file : files) {
         std::string file_path = normal_path + file.second.name;
         RETURN_IF_ERROR(rm(file_path));
     }
@@ -250,7 +251,7 @@ Status S3StorageBackend::copy_dir(const std::string& src, const std::string& dst
         LOG(WARNING) << "Nothing need to copy: " << src << " -> " << dst;
         return Status::OK();
     }
-    for (auto &kv : files) {
+    for (auto& kv : files) {
         RETURN_IF_ERROR(copy(src + "/" + kv.first, dst + "/" + kv.first));
     }
     return Status::OK();

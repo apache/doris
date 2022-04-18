@@ -83,7 +83,7 @@ Status DeltaWriter::close() {
 }
 
 Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                                   bool is_broken) {
+                               bool is_broken) {
     return close_status;
 }
 

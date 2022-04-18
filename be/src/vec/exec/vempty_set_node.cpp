@@ -19,12 +19,12 @@
 
 namespace doris {
 namespace vectorized {
-    VEmptySetNode::VEmptySetNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+VEmptySetNode::VEmptySetNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs) {}
 
-    Status VEmptySetNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-        *eos = true;
-        return Status::OK();
-    }
+Status VEmptySetNode::get_next(RuntimeState* state, Block* block, bool* eos) {
+    *eos = true;
+    return Status::OK();
+}
 } // namespace vectorized
 } // namespace doris

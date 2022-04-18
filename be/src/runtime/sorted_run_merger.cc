@@ -125,8 +125,8 @@ public:
     Status init(bool* done) override {
         *done = false;
         _pull_task_thread =
-        std::thread(&SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task,
-                    this, thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker());
+                std::thread(&SortedRunMerger::ParallelBatchedRowSupplier::process_sorted_run_task,
+                            this, thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker());
 
         RETURN_IF_ERROR(next(nullptr, done));
         return Status::OK();

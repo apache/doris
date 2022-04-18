@@ -193,7 +193,7 @@ void Compaction::gc_output_rowset() {
 // Two versions before and after the missing version will be saved in missing_version,
 // if missing_version is not null.
 Status Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                                        std::vector<Version>* missing_version) {
+                                                    std::vector<Version>* missing_version) {
     if (rowsets->empty()) {
         return Status::OK();
     }

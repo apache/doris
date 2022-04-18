@@ -18,9 +18,10 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_BLOCKING_QUEUE_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_BLOCKING_QUEUE_HPP
 
-#include <list>
 #include <unistd.h>
+
 #include <condition_variable>
+#include <list>
 #include <mutex>
 
 #include "common/logging.h"
@@ -33,12 +34,11 @@ namespace doris {
 template <typename T>
 class BlockingQueue {
 public:
-    BlockingQueue(size_t max_elements) :
-            _shutdown(false),
-            _max_elements(max_elements),
-            _total_get_wait_time(0),
-            _total_put_wait_time(0) {
-    }
+    BlockingQueue(size_t max_elements)
+            : _shutdown(false),
+              _max_elements(max_elements),
+              _total_get_wait_time(0),
+              _total_put_wait_time(0) {}
 
     // Get an element from the queue, waiting indefinitely for one to become available.
     // Returns false if we were shut down prior to getting the element, and there
@@ -152,7 +152,6 @@ public:
     }
 
 private:
-
     uint32_t SizeLocked(const std::unique_lock<std::mutex>& lock) const {
         // The size of 'get_list_' is read racily to avoid getting 'get_lock_' in write path.
         DCHECK(lock.owns_lock());
@@ -161,8 +160,8 @@ private:
 
     bool _shutdown;
     const int _max_elements;
-    std::condition_variable _get_cv;   // 'get' callers wait on this
-    std::condition_variable _put_cv;   // 'put' callers wait on this
+    std::condition_variable _get_cv; // 'get' callers wait on this
+    std::condition_variable _put_cv; // 'put' callers wait on this
     // _lock guards access to _list, total_get_wait_time, and total_put_wait_time
     mutable std::mutex _lock;
     std::list<T> _list;
@@ -170,6 +169,6 @@ private:
     uint64_t _total_put_wait_time;
 };
 
-}
+} // namespace doris
 
 #endif

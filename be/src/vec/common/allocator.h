@@ -100,9 +100,7 @@ template <bool clear_memory_, bool mmap_populate>
 class Allocator {
 public:
     /// Allocate memory range.
-    void* alloc(size_t size, size_t alignment = 0) {
-        return alloc_no_track(size, alignment);
-    }
+    void* alloc(size_t size, size_t alignment = 0) { return alloc_no_track(size, alignment); }
 
     /// Free memory range.
     void free(void* buf, size_t size) {

@@ -20,7 +20,6 @@
 #include <string_view>
 
 #include "exprs/create_predicate_function.h"
-
 #include "vec/columns/column_set.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -30,9 +29,7 @@
 namespace doris::vectorized {
 
 VInPredicate::VInPredicate(const TExprNode& node)
-        : VExpr(node),
-          _is_not_in(node.in_predicate.is_not_in),
-          _is_prepare(false) {}
+        : VExpr(node), _is_not_in(node.in_predicate.is_not_in), _is_prepare(false) {}
 
 Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                              VExprContext* context) {

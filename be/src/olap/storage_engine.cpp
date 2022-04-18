@@ -139,9 +139,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
     });
-    REGISTER_HOOK_METRIC(compaction_mem_consumption, [this]() {
-        return _compaction_mem_tracker->consumption();
-    });
+    REGISTER_HOOK_METRIC(compaction_mem_consumption,
+                         [this]() { return _compaction_mem_tracker->consumption(); });
     REGISTER_HOOK_METRIC(schema_change_mem_consumption,
                          [this]() { return _schema_change_mem_tracker->consumption(); });
 }
@@ -341,7 +340,7 @@ template std::vector<DataDir*> StorageEngine::get_stores<false>();
 template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
 Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos,
-                                                bool need_update) {
+                                            bool need_update) {
     Status res = Status::OK();
     data_dir_infos->clear();
 
@@ -790,7 +789,8 @@ void StorageEngine::_clean_unused_txns() {
     std::set<TabletInfo> tablet_infos;
     _txn_manager->get_all_related_tablets(&tablet_infos);
     for (auto& tablet_info : tablet_infos) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.tablet_uid, true);
+        TabletSharedPtr tablet =
+                _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.tablet_uid, true);
         if (tablet == nullptr) {
             // TODO(ygl) :  should check if tablet still in meta, it's a improvement
             // case 1: tablet still in meta, just remove from memory
@@ -805,7 +805,7 @@ void StorageEngine::_clean_unused_txns() {
 }
 
 Status StorageEngine::_do_sweep(const string& scan_root, const time_t& local_now,
-                                    const int32_t expire) {
+                                const int32_t expire) {
     Status res = Status::OK();
     if (!FileUtils::check_exist(scan_root)) {
         // dir not existed. no need to sweep trash.
@@ -923,7 +923,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
 }
 
 Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
-                                            std::string* shard_path, DataDir** store) {
+                                        std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
     if (shard_path == nullptr) {
@@ -955,7 +955,7 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
 }
 
 Status StorageEngine::load_header(const string& shard_path, const TCloneReq& request,
-                                      bool restore) {
+                                  bool restore) {
     LOG(INFO) << "begin to process load headers."
               << "tablet_id=" << request.tablet_id << ", schema_hash=" << request.schema_hash;
     Status res = Status::OK();
@@ -1026,8 +1026,7 @@ Status StorageEngine::execute_task(EngineTask* task) {
         std::vector<TabletSharedPtr> related_tablets;
         std::vector<std::unique_lock<std::shared_mutex>> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
-            TabletSharedPtr tablet =
-                    _tablet_manager->get_tablet(tablet_info.tablet_id);
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 wrlocks.push_back(std::unique_lock<std::shared_mutex>(tablet->get_header_lock()));
@@ -1057,8 +1056,7 @@ Status StorageEngine::execute_task(EngineTask* task) {
         std::vector<TabletSharedPtr> related_tablets;
         std::vector<std::unique_lock<std::shared_mutex>> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
-            TabletSharedPtr tablet =
-                    _tablet_manager->get_tablet(tablet_info.tablet_id);
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 wrlocks.push_back(std::unique_lock<std::shared_mutex>(tablet->get_header_lock()));

@@ -61,7 +61,7 @@ public:
     const SchemaMapping& get_schema_mapping() const { return _schema_mapping; }
 
     Status change_row_block(const RowBlock* ref_block, int32_t data_version,
-                                RowBlock* mutable_block, uint64_t* filtered_rows) const;
+                            RowBlock* mutable_block, uint64_t* filtered_rows) const;
 
 private:
     // @brief column-mapping specification of new schema
@@ -94,9 +94,8 @@ public:
     SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
     virtual ~SchemaChange() = default;
 
-    virtual Status process(RowsetReaderSharedPtr rowset_reader,
-                               RowsetWriter* new_rowset_builder, TabletSharedPtr tablet,
-                               TabletSharedPtr base_tablet) = 0;
+    virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_builder,
+                           TabletSharedPtr tablet, TabletSharedPtr base_tablet) = 0;
 
     void add_filtered_rows(uint64_t filtered_rows) { _filtered_rows += filtered_rows; }
 
@@ -122,7 +121,7 @@ public:
     ~LinkedSchemaChange() {}
 
     virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
-                               TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
+                           TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
 private:
     const RowBlockChanger& _row_block_changer;
@@ -138,7 +137,7 @@ public:
     virtual ~SchemaChangeDirectly();
 
     virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer,
-                               TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
+                           TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
 private:
     const RowBlockChanger& _row_block_changer;
@@ -157,9 +156,8 @@ public:
                                      size_t memory_limitation);
     virtual ~SchemaChangeWithSorting();
 
-    virtual Status process(RowsetReaderSharedPtr rowset_reader,
-                               RowsetWriter* new_rowset_builder, TabletSharedPtr new_tablet,
-                               TabletSharedPtr base_tablet) override;
+    virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_builder,
+                           TabletSharedPtr new_tablet, TabletSharedPtr base_tablet) override;
 
 private:
     bool _internal_sorting(const std::vector<RowBlock*>& row_block_arr,
@@ -186,23 +184,22 @@ public:
     }
 
     Status schema_version_convert(TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
-                                      RowsetSharedPtr* base_rowset, RowsetSharedPtr* new_rowset);
+                                  RowsetSharedPtr* base_rowset, RowsetSharedPtr* new_rowset);
 
     // schema change v2, it will not set alter task in base tablet
     Status process_alter_tablet_v2(const TAlterTabletReqV2& request);
 
 private:
-
     // Check the status of schema change and clear information between "a pair" of Schema change tables
     // Since A->B's schema_change information for A will be overwritten in subsequent processing (no extra cleanup here)
     // Returns:
     //  Success: If there is historical information, then clear it if there is no problem; or no historical information
     //  Failure: otherwise, if there is history information and it cannot be emptied (version has not been completed)
     Status _check_and_clear_schema_change_info(TabletSharedPtr tablet,
-                                                   const TAlterTabletReq& request);
+                                               const TAlterTabletReq& request);
 
     Status _get_versions_to_be_changed(TabletSharedPtr base_tablet,
-                                           std::vector<Version>* versions_to_be_changed);
+                                       std::vector<Version>* versions_to_be_changed);
 
     struct AlterMaterializedViewParam {
         std::string column_name;
@@ -225,16 +222,14 @@ private:
 
     Status _convert_historical_rowsets(const SchemaChangeParams& sc_params);
 
-    static Status _parse_request(
-            TabletSharedPtr base_tablet, TabletSharedPtr new_tablet, RowBlockChanger* rb_changer,
-            bool* sc_sorting, bool* sc_directly,
-            const std::unordered_map<std::string, AlterMaterializedViewParam>&
-                    materialized_function_map);
+    static Status _parse_request(TabletSharedPtr base_tablet, TabletSharedPtr new_tablet,
+                                 RowBlockChanger* rb_changer, bool* sc_sorting, bool* sc_directly,
+                                 const std::unordered_map<std::string, AlterMaterializedViewParam>&
+                                         materialized_function_map);
 
     // Initialization Settings for creating a default value
     static Status _init_column_mapping(ColumnMapping* column_mapping,
-                                           const TabletColumn& column_schema,
-                                           const std::string& value);
+                                       const TabletColumn& column_schema, const std::string& value);
 
 private:
     SchemaChangeHandler();
@@ -245,4 +240,3 @@ private:
 
 using RowBlockDeleter = std::function<void(RowBlock*)>;
 } // namespace doris
-

@@ -32,8 +32,7 @@ public:
     JavaFunctionCall(const TFunction& fn, const DataTypes& argument_types,
                      const DataTypePtr& return_type);
 
-    static FunctionBasePtr create(const TFunction& fn,
-                                  const ColumnsWithTypeAndName& argument_types,
+    static FunctionBasePtr create(const TFunction& fn, const ColumnsWithTypeAndName& argument_types,
                                   const DataTypePtr& return_type) {
         DataTypes data_types(argument_types.size());
         for (size_t i = 0; i < argument_types.size(); ++i) {
@@ -96,16 +95,16 @@ private:
         // intermediate_state includes two parts: reserved / used buffer size and rows
         std::unique_ptr<IntermediateState> output_intermediate_state_ptr;
 
-        JniContext(int64_t num_args, JavaFunctionCall* parent):
-                  parent(parent) {
+        JniContext(int64_t num_args, JavaFunctionCall* parent) : parent(parent) {
             input_values_buffer_ptr.reset(new int64_t[num_args]);
             input_nulls_buffer_ptr.reset(new int64_t[num_args]);
             input_offsets_ptrs.reset(new int64_t[num_args]);
-            output_value_buffer.reset((int64_t*) malloc(sizeof(int64_t)));
-            output_null_value.reset((int64_t*) malloc(sizeof(int64_t)));
-            batch_size_ptr.reset((int32_t*) malloc(sizeof(int32_t)));
-            output_offsets_ptr.reset((int64_t*) malloc(sizeof(int64_t)));
-            output_intermediate_state_ptr.reset((IntermediateState*) malloc(sizeof(IntermediateState)));
+            output_value_buffer.reset((int64_t*)malloc(sizeof(int64_t)));
+            output_null_value.reset((int64_t*)malloc(sizeof(int64_t)));
+            batch_size_ptr.reset((int32_t*)malloc(sizeof(int32_t)));
+            output_offsets_ptr.reset((int64_t*)malloc(sizeof(int64_t)));
+            output_intermediate_state_ptr.reset(
+                    (IntermediateState*)malloc(sizeof(IntermediateState)));
         }
 
         ~JniContext() {
@@ -113,16 +112,15 @@ private:
             JNIEnv* env;
             Status status;
             RETURN_IF_STATUS_ERROR(status, JniUtil::GetJNIEnv(&env));
-            env->CallNonvirtualVoidMethodA(
-                    executor, parent->executor_cl_, parent->executor_close_id_, NULL);
+            env->CallNonvirtualVoidMethodA(executor, parent->executor_cl_,
+                                           parent->executor_close_id_, NULL);
             Status s = JniUtil::GetJniExceptionMsg(env);
             if (!s.ok()) LOG(WARNING) << s.get_error_msg();
             env->DeleteGlobalRef(executor);
         }
 
         /// These functions are cross-compiled to IR and used by codegen.
-        static void SetInputNullsBufferElement(
-                JniContext* jni_ctx, int index, uint8_t value);
+        static void SetInputNullsBufferElement(JniContext* jni_ctx, int index, uint8_t value);
         static uint8_t* GetInputValuesBufferAtOffset(JniContext* jni_ctx, int offset);
     };
 

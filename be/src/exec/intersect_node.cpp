@@ -60,8 +60,7 @@ Status IntersectNode::open(RuntimeState* state) {
 
         _valid_element_in_hash_tbl = 0;
         // probe
-        _probe_batch.reset(
-                new RowBatch(child(i)->row_desc(), state->batch_size()));
+        _probe_batch.reset(new RowBatch(child(i)->row_desc(), state->batch_size()));
         ScopedTimer<MonotonicStopWatch> probe_timer(_probe_timer);
         RETURN_IF_ERROR(child(i)->open(state));
         eos = false;

@@ -46,30 +46,29 @@ namespace doris {
         if (!_index_loaded) {                                                            \
             OLAP_LOG_WARNING("fail to find, index is not loaded. [segment_group_id=%d]", \
                              _segment_group_id);                                         \
-            return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);                                                  \
+            return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);                       \
         }                                                                                \
     } while (0);
 
-#define POS_PARAM_VALIDATE(pos)                                            \
-    do {                                                                   \
-        if (nullptr == pos) {                                              \
-            OLAP_LOG_WARNING("fail to find, nullptr position parameter."); \
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);                         \
-        }                                                                  \
+#define POS_PARAM_VALIDATE(pos)                                               \
+    do {                                                                      \
+        if (nullptr == pos) {                                                 \
+            OLAP_LOG_WARNING("fail to find, nullptr position parameter.");    \
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR); \
+        }                                                                     \
     } while (0);
 
-#define SLICE_PARAM_VALIDATE(slice)                                     \
-    do {                                                                \
-        if (nullptr == slice) {                                         \
-            OLAP_LOG_WARNING("fail to find, nullptr slice parameter."); \
-            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);                      \
-        }                                                               \
+#define SLICE_PARAM_VALIDATE(slice)                                           \
+    do {                                                                      \
+        if (nullptr == slice) {                                               \
+            OLAP_LOG_WARNING("fail to find, nullptr slice parameter.");       \
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR); \
+        }                                                                     \
     } while (0);
 
 SegmentGroup::SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* schema,
-                           const std::string& rowset_path_prefix, Version version,
-                           bool delete_flag, int32_t segment_group_id,
-                           int32_t num_segments)
+                           const std::string& rowset_path_prefix, Version version, bool delete_flag,
+                           int32_t segment_group_id, int32_t num_segments)
         : _tablet_id(tablet_id),
           _rowset_id(rowset_id),
           _schema(schema),
@@ -408,16 +407,14 @@ Status SegmentGroup::load_pb(const char* file, uint32_t seg_id) {
     FileHandler seg_file_handler;
     res = seg_file_handler.open(file, O_RDONLY);
     if (!res.ok()) {
-        LOG(WARNING) << "failed to open segment file. err=" << res 
-                     << ", file=" << file;
+        LOG(WARNING) << "failed to open segment file. err=" << res << ", file=" << file;
         return res;
     }
 
     res = seg_file_header.unserialize(&seg_file_handler);
     if (!res.ok()) {
         seg_file_handler.close();
-        LOG(WARNING) << "fail to unserialize header. err=" << res 
-                     << ", path=" << file;
+        LOG(WARNING) << "fail to unserialize header. err=" << res << ", path=" << file;
         return res;
     }
 
@@ -470,8 +467,8 @@ bool SegmentGroup::check() {
     return true;
 }
 
-Status SegmentGroup::find_short_key(const RowCursor& key, RowCursor* helper_cursor,
-                                        bool find_last, RowBlockPosition* pos) const {
+Status SegmentGroup::find_short_key(const RowCursor& key, RowCursor* helper_cursor, bool find_last,
+                                    RowBlockPosition* pos) const {
     SEGMENT_GROUP_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(pos);
 
@@ -530,7 +527,7 @@ Status SegmentGroup::find_next_row_block(RowBlockPosition* pos, bool* eof) const
 }
 
 Status SegmentGroup::find_mid_point(const RowBlockPosition& low, const RowBlockPosition& high,
-                                        RowBlockPosition* output, uint32_t* dis) const {
+                                    RowBlockPosition* output, uint32_t* dis) const {
     *dis = compute_distance(low, high);
     if (*dis >= _index.count()) {
         return Status::OLAPInternalError(OLAP_ERR_INDEX_EOF);
@@ -545,15 +542,14 @@ Status SegmentGroup::find_mid_point(const RowBlockPosition& low, const RowBlockP
 }
 
 Status SegmentGroup::find_prev_point(const RowBlockPosition& current,
-                                         RowBlockPosition* prev) const {
+                                     RowBlockPosition* prev) const {
     OLAPIndexOffset current_offset = _index.get_offset(current);
     OLAPIndexOffset prev_offset = _index.prev(current_offset);
 
     return _index.get_row_block_position(prev_offset, prev);
 }
 
-Status SegmentGroup::advance_row_block(int64_t num_row_blocks,
-                                           RowBlockPosition* position) const {
+Status SegmentGroup::advance_row_block(int64_t num_row_blocks, RowBlockPosition* position) const {
     SEGMENT_GROUP_PARAM_VALIDATE();
     POS_PARAM_VALIDATE(position);
 
@@ -791,7 +787,7 @@ Status SegmentGroup::copy_files_to(const std::string& dir) {
 //  case 1: clone from old version be
 //  case 2: upgrade to new version be
 Status SegmentGroup::convert_from_old_files(const std::string& snapshot_path,
-                                                std::vector<std::string>* success_links) {
+                                            std::vector<std::string>* success_links) {
     if (_empty) {
         // the segment group is empty, it does not have files, just return
         return Status::OK();
@@ -839,7 +835,7 @@ Status SegmentGroup::convert_from_old_files(const std::string& snapshot_path,
 }
 
 Status SegmentGroup::convert_to_old_files(const std::string& snapshot_path,
-                                              std::vector<std::string>* success_links) {
+                                          std::vector<std::string>* success_links) {
     if (_empty) {
         return Status::OK();
     }
@@ -926,7 +922,7 @@ Status SegmentGroup::remove_old_files(std::vector<std::string>* links_to_remove)
 }
 
 Status SegmentGroup::link_segments_to_path(const std::string& dest_path,
-                                               const RowsetId& rowset_id) {
+                                           const RowsetId& rowset_id) {
     if (dest_path.empty()) {
         LOG(WARNING) << "dest path is empty, return error";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
@@ -1009,12 +1005,11 @@ std::string SegmentGroup::_construct_old_file_path(const std::string& path_prefi
     char file_path[OLAP_MAX_PATH_LEN];
     if (_segment_group_id == -1) {
         snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%d%s", path_prefix.c_str(),
-                 _tablet_id, _version.first, _version.second, segment_id,
-                 suffix.c_str());
+                 _tablet_id, _version.first, _version.second, segment_id, suffix.c_str());
     } else {
         snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%d_%d%s", path_prefix.c_str(),
-                 _tablet_id, _version.first, _version.second, _segment_group_id,
-                 segment_id, suffix.c_str());
+                 _tablet_id, _version.first, _version.second, _segment_group_id, segment_id,
+                 suffix.c_str());
     }
 
     return file_path;
@@ -1025,9 +1020,8 @@ std::string SegmentGroup::_construct_err_sg_file_path(const std::string& path_pr
                                                       int32_t segment_id,
                                                       const std::string& suffix) const {
     char file_path[OLAP_MAX_PATH_LEN];
-    snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%d%s", path_prefix.c_str(),
-             _tablet_id, _version.first, _version.second, segment_id,
-             suffix.c_str());
+    snprintf(file_path, sizeof(file_path), "%s/%ld_%ld_%ld_%d%s", path_prefix.c_str(), _tablet_id,
+             _version.first, _version.second, segment_id, suffix.c_str());
 
     return file_path;
 }

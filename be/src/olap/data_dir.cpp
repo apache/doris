@@ -23,8 +23,8 @@
 #include <sys/file.h>
 #include <sys/statfs.h>
 #include <utime.h>
-#include <atomic>
 
+#include <atomic>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -47,7 +47,6 @@
 #include "util/file_utils.h"
 #include "util/storage_backend.h"
 #include "util/storage_backend_mgr.h"
-
 #include "util/string_util.h"
 
 using strings::Substitute;
@@ -64,8 +63,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(disks_compaction_num, MetricUnit::NOUNIT);
 static const char* const kTestFilePath = "/.testfile";
 
 DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
-                 TStorageMedium::type storage_medium,
-                 TabletManager* tablet_manager, TxnManager* txn_manager)
+                 TStorageMedium::type storage_medium, TabletManager* tablet_manager,
+                 TxnManager* txn_manager)
         : _path_desc(path),
           _capacity_bytes(capacity_bytes),
           _available_bytes(0),
@@ -260,7 +259,8 @@ Status DataDir::get_shard(uint64_t* shard) {
     }
     shard_path_stream << _path_desc.filepath << DATA_PREFIX << "/" << next_shard;
     std::string shard_path = shard_path_stream.str();
-    RETURN_WITH_WARN_IF_ERROR(Env::Default()->create_dirs(shard_path), Status::OLAPInternalError(OLAP_ERR_CANNOT_CREATE_DIR),
+    RETURN_WITH_WARN_IF_ERROR(Env::Default()->create_dirs(shard_path),
+                              Status::OLAPInternalError(OLAP_ERR_CANNOT_CREATE_DIR),
                               "fail to create path. path=" + shard_path);
 
     *shard = next_shard;
@@ -361,8 +361,9 @@ Status DataDir::_check_incompatible_old_format_tablet() {
 Status DataDir::load() {
     LOG(INFO) << "start to load tablets from " << _path_desc.filepath;
     if (is_remote()) {
-        RETURN_WITH_WARN_IF_ERROR(StorageBackendMgr::instance()->init(_path_desc.filepath + STORAGE_PARAM_PREFIX),
-                                  Status::OLAPInternalError(OLAP_ERR_INIT_FAILED), "DataDir init failed.");
+        RETURN_WITH_WARN_IF_ERROR(
+                StorageBackendMgr::instance()->init(_path_desc.filepath + STORAGE_PARAM_PREFIX),
+                Status::OLAPInternalError(OLAP_ERR_INIT_FAILED), "DataDir init failed.");
     }
     // load rowset meta from meta env and create rowset
     // COMMITTED: add to txn manager
@@ -386,8 +387,7 @@ Status DataDir::load() {
         dir_rowset_metas.push_back(rowset_meta);
         return true;
     };
-    Status load_rowset_status =
-            RowsetMetaManager::traverse_rowset_metas(_meta, load_rowset_func);
+    Status load_rowset_status = RowsetMetaManager::traverse_rowset_metas(_meta, load_rowset_func);
 
     if (!load_rowset_status) {
         LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:"
@@ -404,9 +404,10 @@ Status DataDir::load() {
     auto load_tablet_func = [this, &tablet_ids, &failed_tablet_ids](
                                     int64_t tablet_id, int32_t schema_hash,
                                     const std::string& value) -> bool {
-        Status status = _tablet_manager->load_tablet_from_meta(
-                this, tablet_id, schema_hash, value, false, false, false, false);
-        if (!status.ok() && status != Status::OLAPInternalError(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR) &&
+        Status status = _tablet_manager->load_tablet_from_meta(this, tablet_id, schema_hash, value,
+                                                               false, false, false, false);
+        if (!status.ok() &&
+            status != Status::OLAPInternalError(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR) &&
             status != Status::OLAPInternalError(OLAP_ERR_ENGINE_INSERT_OLD_TABLET)) {
             // load_tablet_from_meta() may return Status::OLAPInternalError(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR)
             // which means the tablet status is DELETED
@@ -486,7 +487,8 @@ Status DataDir::load() {
                     rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
                     rowset_meta->tablet_uid(), rowset_meta->load_id(), rowset, true);
             if (!commit_txn_status &&
-                commit_txn_status != Status::OLAPInternalError(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST)) {
+                commit_txn_status !=
+                        Status::OLAPInternalError(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST)) {
                 LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
                              << " to tablet: " << rowset_meta->tablet_id()
                              << " for txn: " << rowset_meta->txn_id();
@@ -711,7 +713,8 @@ bool DataDir::_check_pending_ids(const std::string& id) {
 
 Status DataDir::update_capacity() {
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            Env::Default()->get_space_info(_path_desc.filepath, &_disk_capacity_bytes, &_available_bytes),
+            Env::Default()->get_space_info(_path_desc.filepath, &_disk_capacity_bytes,
+                                           &_available_bytes),
             strings::Substitute("get_space_info failed: $0", _path_desc.filepath));
     if (_disk_capacity_bytes < 0) {
         _disk_capacity_bytes = _capacity_bytes;
@@ -763,8 +766,10 @@ void DataDir::disks_compaction_num_increment(int64_t delta) {
 Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     Status res = Status::OK();
     FilePathDesc storage_root_desc = _path_desc;
-    if (is_remote() && !StorageBackendMgr::instance()->get_root_path(
-            segment_path_desc.storage_name, &(storage_root_desc.remote_path)).ok()) {
+    if (is_remote() &&
+        !StorageBackendMgr::instance()
+                 ->get_root_path(segment_path_desc.storage_name, &(storage_root_desc.remote_path))
+                 .ok()) {
         LOG(WARNING) << "get_root_path failed for storage_name: " << segment_path_desc.storage_name;
         return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
     }
@@ -777,26 +782,29 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     }
 
     // 2. generate new file path desc
-    static std::atomic<uint64_t> delete_counter(0); // a global counter to avoid file name duplication.
+    static std::atomic<uint64_t> delete_counter(
+            0); // a global counter to avoid file name duplication.
     // when file_path points to a schema_path, we need to save tablet info in trash_path,
     // so we add file_path.parent_path().filename() in new_file_path.
     // other conditions are not considered, for they are nothing serious.
     FilePathDescStream trash_root_desc_s;
-    trash_root_desc_s << storage_root_desc << TRASH_PREFIX << "/" << time_str << "." << delete_counter++;
+    trash_root_desc_s << storage_root_desc << TRASH_PREFIX << "/" << time_str << "."
+                      << delete_counter++;
     std::stringstream trash_local_file_stream;
     std::filesystem::path old_local_path(segment_path_desc.filepath);
     trash_local_file_stream << trash_root_desc_s.path_desc().filepath << "/"
-                            << old_local_path.parent_path().filename().string()  // tablet_path
-                            << "/" << old_local_path.filename().string();        // segment_path
+                            << old_local_path.parent_path().filename().string() // tablet_path
+                            << "/" << old_local_path.filename().string();       // segment_path
     FilePathDesc trash_path_desc(trash_local_file_stream.str());
     trash_path_desc.storage_medium = segment_path_desc.storage_medium;
     if (is_remote()) {
         std::stringstream trash_remote_file_stream;
         std::filesystem::path old_remote_path(segment_path_desc.remote_path);
-        trash_remote_file_stream << trash_root_desc_s.path_desc().remote_path
-                                 << "/" << old_remote_path.parent_path().parent_path().filename().string()  // tablet_path
-                                 << "/" << old_remote_path.parent_path().filename().string()                // segment_path
-                                 << "/" << old_remote_path.filename().string();                             // tablet_uid
+        trash_remote_file_stream
+                << trash_root_desc_s.path_desc().remote_path << "/"
+                << old_remote_path.parent_path().parent_path().filename().string() // tablet_path
+                << "/" << old_remote_path.parent_path().filename().string()        // segment_path
+                << "/" << old_remote_path.filename().string();                     // tablet_uid
         trash_path_desc.remote_path = trash_remote_file_stream.str();
         trash_path_desc.storage_name = segment_path_desc.storage_name;
     }
@@ -813,7 +821,8 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
 
     // 4. move remote file to trash if needed
     if (is_remote()) {
-        std::string trash_storage_name_path = trash_root_desc_s.path_desc().filepath + "/" + STORAGE_NAME;
+        std::string trash_storage_name_path =
+                trash_root_desc_s.path_desc().filepath + "/" + STORAGE_NAME;
         Status st = env_util::write_string_to_file(
                 Env::Default(), Slice(segment_path_desc.storage_name), trash_storage_name_path);
         if (!st.ok()) {
@@ -821,20 +830,22 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
                          << ", error:" << st.to_string();
             return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }
-        std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
-                get_storage_backend(segment_path_desc.storage_name);
+        std::shared_ptr<StorageBackend> storage_backend =
+                StorageBackendMgr::instance()->get_storage_backend(segment_path_desc.storage_name);
         if (storage_backend == nullptr) {
             LOG(WARNING) << "storage_backend is invalid: " << segment_path_desc.storage_name;
             return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }
         Status status = storage_backend->exist_dir(segment_path_desc.remote_path);
         if (status.ok()) {
-            VLOG_NOTICE << "Move remote file to trash. " << segment_path_desc.remote_path
-                        << " -> " << trash_path_desc.remote_path;
-            Status rename_status = storage_backend->rename_dir(segment_path_desc.remote_path, trash_path_desc.remote_path);
+            VLOG_NOTICE << "Move remote file to trash. " << segment_path_desc.remote_path << " -> "
+                        << trash_path_desc.remote_path;
+            Status rename_status = storage_backend->rename_dir(segment_path_desc.remote_path,
+                                                               trash_path_desc.remote_path);
             if (!rename_status.ok()) {
                 OLAP_LOG_WARNING("Move remote file to trash failed. [file=%s target='%s']",
-                                 segment_path_desc.remote_path.c_str(), trash_path_desc.remote_path.c_str());
+                                 segment_path_desc.remote_path.c_str(),
+                                 trash_path_desc.remote_path.c_str());
                 return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
             }
         } else if (status.is_not_found()) {
@@ -846,7 +857,8 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     }
 
     // 5. move file to trash
-    VLOG_NOTICE << "move file to trash. " << segment_path_desc.filepath << " -> " << trash_local_file;
+    VLOG_NOTICE << "move file to trash. " << segment_path_desc.filepath << " -> "
+                << trash_local_file;
     if (rename(segment_path_desc.filepath.c_str(), trash_local_file.c_str()) < 0) {
         OLAP_LOG_WARNING("move file to trash failed. [file=%s target='%s' err='%m']",
                          segment_path_desc.filepath.c_str(), trash_local_file.c_str());

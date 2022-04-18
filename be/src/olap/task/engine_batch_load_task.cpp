@@ -35,9 +35,9 @@
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
-#include "runtime/thread_context.h"
 
 using apache::thrift::ThriftDebugString;
 using std::list;
@@ -82,7 +82,8 @@ Status EngineBatchLoadTask::execute() {
     } else if (_push_req.push_type == TPushType::DELETE) {
         Status delete_data_status = _delete_data(_push_req, _tablet_infos);
         if (delete_data_status != Status::OK()) {
-            LOG(WARNING) << "delete data failed. status:" << delete_data_status << " signature:" << _signature;
+            LOG(WARNING) << "delete data failed. status:" << delete_data_status
+                         << " signature:" << _signature;
             status = delete_data_status;
         }
     } else {
@@ -277,7 +278,7 @@ Status EngineBatchLoadTask::_process() {
 }
 
 Status EngineBatchLoadTask::_push(const TPushReq& request,
-                                      std::vector<TTabletInfo>* tablet_info_vec) {
+                                  std::vector<TTabletInfo>* tablet_info_vec) {
     Status res = Status::OK();
     LOG(INFO) << "begin to process push. "
               << " transaction_id=" << request.transaction_id << " tablet_id=" << request.tablet_id
@@ -339,7 +340,7 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
 }
 
 Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
-                                             std::vector<TTabletInfo>* tablet_info_vec) {
+                                         std::vector<TTabletInfo>* tablet_info_vec) {
     VLOG_DEBUG << "begin to process delete data. request=" << ThriftDebugString(request);
     DorisMetrics::instance()->delete_requests_total->increment(1);
 
@@ -370,7 +371,7 @@ Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
 
     if (!res.ok()) {
         LOG(WARNING) << "fail to push empty version for delete data. "
-                    << "res=" << res << "tablet=" << tablet->full_name();
+                     << "res=" << res << "tablet=" << tablet->full_name();
         DorisMetrics::instance()->delete_requests_failed->increment(1);
         return res;
     }

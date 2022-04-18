@@ -145,7 +145,7 @@ bool TabletReader::_optimize_for_single_rowset(
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
-                                       std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
+                                         std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
     if (rs_readers->empty()) {
         LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name();
@@ -408,8 +408,8 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
-        Status res = _keys_param.end_keys[i].init_scan_key(
-                _tablet->tablet_schema(), read_params.end_key[i].values(), schema);
+        Status res = _keys_param.end_keys[i].init_scan_key(_tablet->tablet_schema(),
+                                                           read_params.end_key[i].values(), schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;

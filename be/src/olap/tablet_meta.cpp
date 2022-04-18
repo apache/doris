@@ -35,9 +35,9 @@ using std::vector;
 namespace doris {
 
 Status TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
-                              uint64_t shard_id, uint32_t next_unique_id,
-                              const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                              TabletMetaSharedPtr* tablet_meta) {
+                          uint64_t shard_id, uint32_t next_unique_id,
+                          const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
+                          TabletMetaSharedPtr* tablet_meta) {
     tablet_meta->reset(new TabletMeta(
             request.table_id, request.partition_id, request.tablet_id,
             request.tablet_schema.schema_hash, shard_id, request.tablet_schema, next_unique_id,

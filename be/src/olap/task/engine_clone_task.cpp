@@ -246,7 +246,8 @@ void EngineCloneTask::_set_tablet_info(Status status, bool is_new_tablet) {
                              << ", expected_version: " << _clone_req.committed_version;
                 Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
                         _clone_req.tablet_id, _clone_req.schema_hash);
-                if (drop_status != Status::OK() && drop_status != Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND)) {
+                if (drop_status != Status::OK() &&
+                    drop_status != Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND)) {
                     // just log
                     LOG(WARNING) << "drop stale cloned table failed! tablet id: "
                                  << _clone_req.tablet_id;
@@ -288,9 +289,9 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         // Make snapshot in remote olap engine
         *src_host = src;
         // make snapshot
-        auto st = _make_snapshot(src.host, src.be_port, _clone_req.tablet_id,
-                                 _clone_req.schema_hash, timeout_s, missed_versions, snapshot_path,
-                                 allow_incremental_clone);
+        auto st =
+                _make_snapshot(src.host, src.be_port, _clone_req.tablet_id, _clone_req.schema_hash,
+                               timeout_s, missed_versions, snapshot_path, allow_incremental_clone);
         if (st.ok()) {
             LOG(INFO) << "success to make snapshot. ip=" << src.host << ", port=" << src.be_port
                       << ", tablet=" << _clone_req.tablet_id
@@ -522,7 +523,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 /// 1. Linke all files from CLONE dir to tablet dir if file does not exist in tablet dir
 /// 2. Call _finish_xx_clone() to revise the tablet meta.
 Status EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_dir,
-                                          int64_t committed_version, bool is_incremental_clone) {
+                                      int64_t committed_version, bool is_incremental_clone) {
     Status res = Status::OK();
     std::vector<string> linked_success_files;
     // clone and compaction operation should be performed sequentially
@@ -636,8 +637,8 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_dir,
 /// 1. Get missing version from local tablet again and check if they exist in cloned tablet.
 /// 2. Revise the local tablet meta to add all incremental cloned rowset's meta.
 Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
-                                                      const TabletMeta& cloned_tablet_meta,
-                                                      int64_t committed_version) {
+                                                  const TabletMeta& cloned_tablet_meta,
+                                                  int64_t committed_version) {
     LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->full_name()
               << ", clone version=" << committed_version;
 
@@ -762,10 +763,9 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet, TabletMeta* cloned_ta
     // but some rowset is useless, so that remove them here
     for (auto& rs_meta_ptr : rs_metas_found_in_src) {
         RowsetSharedPtr rowset_to_remove;
-        auto s =
-                RowsetFactory::create_rowset(&(cloned_tablet_meta->tablet_schema()),
-                                             tablet->tablet_path_desc().filepath, rs_meta_ptr, 
-                                             &rowset_to_remove);
+        auto s = RowsetFactory::create_rowset(&(cloned_tablet_meta->tablet_schema()),
+                                              tablet->tablet_path_desc().filepath, rs_meta_ptr,
+                                              &rowset_to_remove);
         if (!s.ok()) {
             LOG(WARNING) << "failed to init rowset to remove: "
                          << rs_meta_ptr->rowset_id().to_string();

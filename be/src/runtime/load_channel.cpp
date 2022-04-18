@@ -26,10 +26,12 @@ namespace doris {
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
                          bool is_high_priority, const std::string& sender_ip)
-        : _load_id(load_id), _timeout_s(timeout_s), _is_high_priority(is_high_priority),
+        : _load_id(load_id),
+          _timeout_s(timeout_s),
+          _is_high_priority(is_high_priority),
           _sender_ip(sender_ip) {
-    _mem_tracker = MemTracker::create_tracker(
-            mem_limit, "LoadChannel:" + _load_id.to_string(), nullptr, MemTrackerLevel::TASK);
+    _mem_tracker = MemTracker::create_tracker(mem_limit, "LoadChannel:" + _load_id.to_string(),
+                                              nullptr, MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -99,9 +101,8 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
     Status st;
     if (request.has_eos() && request.eos()) {
         bool finished = false;
-        RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
-                                       &finished, request.partition_ids(),
-                                       response->mutable_tablet_vec()));
+        RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), &finished,
+                                       request.partition_ids(), response->mutable_tablet_vec()));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(index_id);

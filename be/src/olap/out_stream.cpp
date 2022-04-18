@@ -106,7 +106,7 @@ Status OutStream::_create_new_input_buffer() {
 }
 
 Status OutStream::_write_head(StorageByteBuffer* buf, uint64_t position,
-                                  StreamHead::StreamType type, uint32_t length) {
+                              StreamHead::StreamType type, uint32_t length) {
     if (buf->limit() < sizeof(StreamHead) + length) {
         return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
     }
@@ -119,7 +119,7 @@ Status OutStream::_write_head(StorageByteBuffer* buf, uint64_t position,
 }
 
 Status OutStream::_compress(StorageByteBuffer* input, StorageByteBuffer* output,
-                                StorageByteBuffer* overflow, bool* smaller) {
+                            StorageByteBuffer* overflow, bool* smaller) {
     Status res = Status::OK();
 
     res = _compressor(input, overflow, smaller);

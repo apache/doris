@@ -365,7 +365,8 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         } else {
             ++_s_report_version;
             // get path hash of the created tablet
-            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(create_tablet_req.tablet_id);
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                    create_tablet_req.tablet_id);
             DCHECK(tablet != nullptr);
             TTabletInfo tablet_info;
             tablet_info.tablet_id = tablet->table_id();
@@ -957,7 +958,7 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
 }
 
 Status TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& req,
-                                                  TabletSharedPtr& tablet, DataDir** dest_store) {
+                                              TabletSharedPtr& tablet, DataDir** dest_store) {
     int64_t tablet_id = req.tablet_id;
     tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
@@ -1002,7 +1003,7 @@ Status TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& re
     }
     if (tablet->data_dir()->path() == (*dest_store)->path()) {
         LOG(INFO) << "tablet is already on specified path. "
-                    << "path=" << tablet->data_dir()->path();
+                  << "path=" << tablet->data_dir()->path();
         return Status::OLAPInternalError(OLAP_REQUEST_FAILED);
     }
 
@@ -1373,7 +1374,8 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
                          << ", schema_hash:" << snapshot_request.schema_hash
                          << ", version:" << snapshot_request.version
                          << ", status: " << make_snapshot_status.to_string();
-            error_msgs.push_back("make_snapshot failed. status: " + make_snapshot_status.get_error_msg());
+            error_msgs.push_back("make_snapshot failed. status: " +
+                                 make_snapshot_status.get_error_msg());
         } else {
             LOG(INFO) << "make_snapshot success. tablet_id:" << snapshot_request.tablet_id
                       << ", schema_hash:" << snapshot_request.schema_hash
@@ -1393,7 +1395,8 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
                                  << ", schema_hash:" << snapshot_request.schema_hash
                                  << ", version:" << snapshot_request.version
                                  << ",list file failed: " << st.to_string();
-                    error_msgs.push_back("make_snapshot failed. list file failed: " + st.get_error_msg());
+                    error_msgs.push_back("make_snapshot failed. list file failed: " +
+                                         st.get_error_msg());
                 }
             }
         }
@@ -1465,9 +1468,8 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
     }
 }
 
-Status TaskWorkerPool::_get_tablet_info(const TTabletId tablet_id,
-                                        const TSchemaHash schema_hash, int64_t signature,
-                                        TTabletInfo* tablet_info) {
+Status TaskWorkerPool::_get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
+                                        int64_t signature, TTabletInfo* tablet_info) {
     Status status = Status::OK();
     tablet_info->__set_tablet_id(tablet_id);
     tablet_info->__set_schema_hash(schema_hash);
@@ -1500,8 +1502,8 @@ void TaskWorkerPool::_move_dir_thread_callback() {
         }
         LOG(INFO) << "get move dir task, signature:" << agent_task_req.signature
                   << ", job id:" << move_dir_req.job_id;
-        Status status =
-                _move_dir(move_dir_req.tablet_id, move_dir_req.src, move_dir_req.job_id, true /* TODO */);
+        Status status = _move_dir(move_dir_req.tablet_id, move_dir_req.src, move_dir_req.job_id,
+                                  true /* TODO */);
 
         if (!status.ok()) {
             LOG(WARNING) << "failed to move dir: " << move_dir_req.src
@@ -1526,9 +1528,9 @@ void TaskWorkerPool::_move_dir_thread_callback() {
     }
 }
 
-Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id, bool overwrite) {
-    TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id,
+                                 bool overwrite) {
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id;
         return Status::InvalidArgument("Could not find tablet");

@@ -235,7 +235,6 @@ StringVal AggregateFunctions::percentile_serialize(FunctionContext* ctx, const S
 }
 
 DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const StringVal& src) {
-
     PercentileState* percentile = reinterpret_cast<PercentileState*>(src.ptr);
     double quantile = percentile->quantile;
     auto result = percentile->counts.terminate(quantile);
@@ -340,7 +339,6 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
 
 DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx,
                                                          const StringVal& src) {
-
     PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(src.ptr);
     double quantile = percentile->targetQuantile;
     double result = percentile->digest->quantile(quantile);
@@ -1109,7 +1107,7 @@ void AggregateFunctions::hll_merge(FunctionContext* ctx, const StringVal& src, S
     DCHECK(!src.is_null);
     DCHECK_EQ(dst->len, std::pow(2, HLL_COLUMN_PRECISION));
     DCHECK_EQ(src.len, std::pow(2, HLL_COLUMN_PRECISION));
-    
+
     for (int i = 0; i < src.len; ++i) {
         dst->ptr[i] = (dst->ptr[i] < src.ptr[i] ? src.ptr[i] : dst->ptr[i]);
     }
@@ -2421,7 +2419,7 @@ struct WindowFunnelState {
         return 0;
     }
 
-    void merge(WindowFunnelState *other) {
+    void merge(WindowFunnelState* other) {
         if (other->events.empty()) {
             return;
         }
@@ -2450,7 +2448,7 @@ struct WindowFunnelState {
                events.size() * (sizeof(int64_t) + sizeof(int));
     }
 
-    void serialize(uint8_t *buf) {
+    void serialize(uint8_t* buf) {
         memcpy(buf, &max_event_level, sizeof(int));
         buf += sizeof(int);
         memcpy(buf, &window, sizeof(int64_t));
@@ -2469,7 +2467,7 @@ struct WindowFunnelState {
         }
     }
 
-    void deserialize(uint8_t *buf) {
+    void deserialize(uint8_t* buf) {
         uint64_t size;
 
         memcpy(&max_event_level, buf, sizeof(int));
@@ -2506,8 +2504,9 @@ void AggregateFunctions::window_funnel_init(FunctionContext* ctx, StringVal* dst
 }
 
 void AggregateFunctions::window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
-                                             const StringVal& mode, const DateTimeVal& timestamp,
-                                             int num_cond, const BooleanVal* conds, StringVal* dst) {
+                                              const StringVal& mode, const DateTimeVal& timestamp,
+                                              int num_cond, const BooleanVal* conds,
+                                              StringVal* dst) {
     DCHECK(dst->ptr != nullptr);
     DCHECK_EQ(sizeof(WindowFunnelState), dst->len);
 
@@ -2527,8 +2526,7 @@ void AggregateFunctions::window_funnel_update(FunctionContext* ctx, const BigInt
     }
 }
 
-StringVal AggregateFunctions::window_funnel_serialize(FunctionContext* ctx,
-                                                const StringVal& src) {
+StringVal AggregateFunctions::window_funnel_serialize(FunctionContext* ctx, const StringVal& src) {
     WindowFunnelState* state = reinterpret_cast<WindowFunnelState*>(src.ptr);
     int64_t serialized_size = state->serialized_size();
     StringVal result(ctx, sizeof(double) + serialized_size);
@@ -2539,7 +2537,7 @@ StringVal AggregateFunctions::window_funnel_serialize(FunctionContext* ctx,
 }
 
 void AggregateFunctions::window_funnel_merge(FunctionContext* ctx, const StringVal& src,
-                                            StringVal* dst) {
+                                             StringVal* dst) {
     DCHECK(dst->ptr != nullptr);
     DCHECK_EQ(sizeof(WindowFunnelState), dst->len);
     WindowFunnelState* dst_state = reinterpret_cast<WindowFunnelState*>(dst->ptr);

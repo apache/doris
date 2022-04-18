@@ -52,16 +52,14 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     // to make code to be more readable.
 
 #ifndef BE_TEST
-#define CREATE_AND_START_POOL(type, pool_name)                                                 \
-    pool_name.reset(                                                                           \
-            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env, master_info,   \
-                               TaskWorkerPool::ThreadModel::MULTI_THREADS));                   \
+#define CREATE_AND_START_POOL(type, pool_name)                                                    \
+    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env,           \
+                                       master_info, TaskWorkerPool::ThreadModel::MULTI_THREADS)); \
     pool_name->start();
 
-#define CREATE_AND_START_THREAD(type, pool_name)                                               \
-    pool_name.reset(                                                                           \
-            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env, master_info,   \
-                               TaskWorkerPool::ThreadModel::SINGLE_THREAD));                   \
+#define CREATE_AND_START_THREAD(type, pool_name)                                                  \
+    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, _exec_env,           \
+                                       master_info, TaskWorkerPool::ThreadModel::SINGLE_THREAD)); \
     pool_name->start();
 #else
 #define CREATE_AND_START_POOL(type, pool_name)
@@ -210,8 +208,8 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
                                 const TSnapshotRequest& snapshot_request) {
     string snapshot_path;
     bool allow_incremental_clone = false;
-    Status err_code =
-            SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path, &allow_incremental_clone);
+    Status err_code = SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path,
+                                                                 &allow_incremental_clone);
     if (!err_code) {
         LOG(WARNING) << "fail to make_snapshot. tablet_id=" << snapshot_request.tablet_id
                      << ", schema_hash=" << snapshot_request.schema_hash

@@ -17,12 +17,13 @@
 
 #include "olap/rowset/alpha_rowset.h"
 
+#include <util/file_utils.h>
+
 #include "olap/row.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "util/hash_util.hpp"
-#include <util/file_utils.h>
 
 namespace doris {
 
@@ -56,8 +57,9 @@ Status AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
 }
 
 Status AlphaRowset::remove() {
-    VLOG_NOTICE << "begin to remove files in rowset " << unique_id() << ", version:" << start_version()
-            << "-" << end_version() << ", tabletid:" << _rowset_meta->tablet_id();
+    VLOG_NOTICE << "begin to remove files in rowset " << unique_id()
+                << ", version:" << start_version() << "-" << end_version()
+                << ", tabletid:" << _rowset_meta->tablet_id();
     for (auto segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
@@ -114,7 +116,7 @@ Status AlphaRowset::copy_files_to(const std::string& dir) {
 }
 
 Status AlphaRowset::convert_from_old_files(const std::string& snapshot_path,
-                                               std::vector<std::string>* success_files) {
+                                           std::vector<std::string>* success_files) {
     for (auto& segment_group : _segment_groups) {
         Status status = segment_group->convert_from_old_files(snapshot_path, success_files);
         if (!status.ok()) {
@@ -127,7 +129,7 @@ Status AlphaRowset::convert_from_old_files(const std::string& snapshot_path,
 }
 
 Status AlphaRowset::convert_to_old_files(const std::string& snapshot_path,
-                                             std::vector<std::string>* success_files) {
+                                         std::vector<std::string>* success_files) {
     for (auto& segment_group : _segment_groups) {
         Status status = segment_group->convert_to_old_files(snapshot_path, success_files);
         if (!status.ok()) {
@@ -152,14 +154,15 @@ Status AlphaRowset::remove_old_files(std::vector<std::string>* files_to_remove) 
 }
 
 Status AlphaRowset::split_range(const RowCursor& start_key, const RowCursor& end_key,
-                                    uint64_t request_block_row_count, size_t key_num,
-                                    std::vector<OlapTuple>* ranges) {
+                                uint64_t request_block_row_count, size_t key_num,
+                                std::vector<OlapTuple>* ranges) {
     if (key_num > _schema->num_short_key_columns()) {
         // should not happen
         // But since aloha rowset is deprecated in future and it will not fail the query,
         // just use VLOG to avoid too many warning logs.
-        VLOG_NOTICE << "key num " << key_num << " should less than or equal to short key column number: "
-                << _schema->num_short_key_columns();
+        VLOG_NOTICE << "key num " << key_num
+                    << " should less than or equal to short key column number: "
+                    << _schema->num_short_key_columns();
         return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
     }
     EntrySlice entry;
@@ -171,8 +174,8 @@ Status AlphaRowset::split_range(const RowCursor& start_key, const RowCursor& end
     if (largest_segment_group == nullptr ||
         largest_segment_group->current_num_rows_per_row_block() == 0) {
         VLOG_NOTICE << "failed to get largest_segment_group. is null: "
-                     << (largest_segment_group == nullptr) << ". version: " << start_version()
-                     << "-" << end_version() << ". tablet: " << rowset_meta()->tablet_id();
+                    << (largest_segment_group == nullptr) << ". version: " << start_version() << "-"
+                    << end_version() << ". tablet: " << rowset_meta()->tablet_id();
         ranges->emplace_back(start_key.to_tuple());
         ranges->emplace_back(end_key.to_tuple());
         return Status::OK();
@@ -282,12 +285,14 @@ bool AlphaRowset::check_file_exist() {
         for (int i = 0; i < segment_group->num_segments(); ++i) {
             std::string data_path = segment_group->construct_data_file_path(i);
             if (!FileUtils::check_exist(data_path)) {
-                LOG(WARNING) << "data file not existed: " << data_path << " for rowset_id: " << rowset_id();
+                LOG(WARNING) << "data file not existed: " << data_path
+                             << " for rowset_id: " << rowset_id();
                 return false;
             }
             std::string index_path = segment_group->construct_index_file_path(i);
             if (!FileUtils::check_exist(index_path)) {
-                LOG(WARNING) << "index file not existed: " << index_path << " for rowset_id: " << rowset_id();
+                LOG(WARNING) << "index file not existed: " << index_path
+                             << " for rowset_id: " << rowset_id();
                 return false;
             }
         }
@@ -304,13 +309,14 @@ Status AlphaRowset::init() {
         std::shared_ptr<SegmentGroup> segment_group;
         if (_is_pending) {
             segment_group.reset(new SegmentGroup(
-                    _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema, _rowset_path_desc.filepath,
-                    false, segment_group_meta.segment_group_id(), segment_group_meta.num_segments(),
-                    true, _rowset_meta->partition_id(), _rowset_meta->txn_id()));
+                    _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema,
+                    _rowset_path_desc.filepath, false, segment_group_meta.segment_group_id(),
+                    segment_group_meta.num_segments(), true, _rowset_meta->partition_id(),
+                    _rowset_meta->txn_id()));
         } else {
             segment_group.reset(new SegmentGroup(
-                    _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema, _rowset_path_desc.filepath,
-                    _rowset_meta->version(), false,
+                    _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema,
+                    _rowset_path_desc.filepath, _rowset_meta->version(), false,
                     segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));
         }
         if (segment_group == nullptr) {
@@ -345,7 +351,8 @@ Status AlphaRowset::init() {
             // table value column, so when first start the two number is not the same,
             // it causes start failed. When `expect_zone_maps_num > zone_maps_size` it may be the first start after upgrade
             if (expect_zone_maps_num > zone_maps_size) {
-                VLOG_CRITICAL << "tablet: " << _rowset_meta->tablet_id() << " expect zone map size is "
+                VLOG_CRITICAL
+                        << "tablet: " << _rowset_meta->tablet_id() << " expect zone map size is "
                         << expect_zone_maps_num << ", actual num is " << zone_maps_size
                         << ". If this is not the first start after upgrade, please pay attention!";
             }

@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/olap/vcollect_iterator.h"
+
 #include <memory>
 
 #include "olap/rowset/beta_rowset_reader.h"
@@ -168,10 +169,12 @@ Status VCollectIterator::next(Block* block) {
     }
 }
 
-VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader)
+VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
+                                                 TabletReader* reader)
         : LevelIterator(reader), _rs_reader(rs_reader), _reader(reader) {
     DCHECK_EQ(RowsetTypePB::BETA_ROWSET, rs_reader->type());
-    _block = std::make_shared<Block>(_schema.create_block(_reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+    _block = std::make_shared<Block>(_schema.create_block(
+            _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
     _ref.block = _block;
     _ref.row_pos = 0;
     _ref.is_same = false;
@@ -216,8 +219,8 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(
-        const std::list<VCollectIterator::LevelIterator*>& children, TabletReader* reader, bool merge,
-        bool skip_same)
+        const std::list<VCollectIterator::LevelIterator*>& children, TabletReader* reader,
+        bool merge, bool skip_same)
         : LevelIterator(reader),
           _children(children),
           _reader(reader),

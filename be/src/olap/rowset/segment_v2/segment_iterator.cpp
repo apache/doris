@@ -662,8 +662,10 @@ void SegmentIterator::_vec_init_lazy_materialization() {
                     // todo(wb) make a cost-based lazy-materialization framework
                     // check non-pred column type to decide whether using lazy-materialization
                     FieldType type = _schema.column(cid)->type();
-                    if (_is_all_column_basic_type && (type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT 
-                            || type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_STRING)) {
+                    if (_is_all_column_basic_type &&
+                        (type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
+                         type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
+                         type == OLAP_FIELD_TYPE_STRING)) {
                         _is_all_column_basic_type = false;
                     }
                 }

@@ -303,9 +303,7 @@ public:
 private:
     Status put_extra_info_in_page(DataPageFooterPB* header) override;
     Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
-    bool has_empty_items() const {
-        return _item_writer->get_next_rowid() == 0;
-    }
+    bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
     std::unique_ptr<ScalarColumnWriter> _length_writer;

@@ -145,8 +145,7 @@ std::string BrokerTableDescriptor::debug_string() const {
     return out.str();
 }
 
-HiveTableDescriptor::HiveTableDescriptor(const TTableDescriptor& tdesc)
-        : TableDescriptor(tdesc) {}
+HiveTableDescriptor::HiveTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
 HiveTableDescriptor::~HiveTableDescriptor() {}
 

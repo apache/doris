@@ -54,8 +54,8 @@ namespace doris {
 //           tablets, finally we will only push for current tablets. this is
 //           very useful in rollup action.
 Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
-                                                    PushType push_type,
-                                                    std::vector<TTabletInfo>* tablet_info_vec) {
+                                                PushType push_type,
+                                                std::vector<TTabletInfo>* tablet_info_vec) {
     LOG(INFO) << "begin to realtime push. tablet=" << tablet->full_name()
               << ", transaction_id=" << request.transaction_id;
 
@@ -78,9 +78,9 @@ Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TP
 }
 
 Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
-                                                PushType push_type,
-                                                std::vector<TabletVars>* tablet_vars,
-                                                std::vector<TTabletInfo>* tablet_info_vec) {
+                                            PushType push_type,
+                                            std::vector<TabletVars>* tablet_vars,
+                                            std::vector<TTabletInfo>* tablet_info_vec) {
     // add transaction in engine, then check sc status
     // lock, prevent sc handler checking transaction concurrently
     if (tablet == nullptr) {
@@ -208,7 +208,7 @@ void PushHandler::_get_tablet_infos(const std::vector<TabletVars>& tablet_vars,
 }
 
 Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
-                                    RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset) {
+                                RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset) {
     Status res = Status::OK();
     uint32_t num_rows = 0;
     PUniqueId load_id;
@@ -273,7 +273,8 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
             }
 
             // init Reader
-            if (!(res = reader->init(schema.get(), _request.broker_scan_range, _request.desc_tbl))) {
+            if (!(res = reader->init(schema.get(), _request.broker_scan_range,
+                                     _request.desc_tbl))) {
                 LOG(WARNING) << "fail to init reader. res=" << res
                              << ", tablet=" << cur_tablet->full_name();
                 res = Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
@@ -349,7 +350,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
 }
 
 Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
-                                 RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset) {
+                             RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset) {
     Status res = Status::OK();
     RowCursor row;
     BinaryFile raw_file;
@@ -862,8 +863,8 @@ Status LzoBinaryReader::_next_block() {
     size_t written_len = 0;
     size_t block_header_size = 5;
     if (!(res = olap_decompress(_row_compressed_buf + block_header_size,
-                               compressed_size - block_header_size, _row_buf, _max_row_buf_size,
-                               &written_len, OLAP_COMP_TRANSPORT))) {
+                                compressed_size - block_header_size, _row_buf, _max_row_buf_size,
+                                &written_len, OLAP_COMP_TRANSPORT))) {
         LOG(WARNING) << "olap decompress fail. res=" << res;
         return res;
     }
@@ -874,7 +875,7 @@ Status LzoBinaryReader::_next_block() {
 }
 
 Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_scan_range,
-                                  const TDescriptorTable& t_desc_tbl) {
+                              const TDescriptorTable& t_desc_tbl) {
     // init schema
     _schema = schema;
 
@@ -950,7 +951,7 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
 }
 
 Status PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src, bool src_null,
-                                            MemPool* mem_pool, FieldType type) {
+                                        MemPool* mem_pool, FieldType type) {
     switch (type) {
     case OLAP_FIELD_TYPE_DECIMAL: {
         dst->set_is_null(src_null);

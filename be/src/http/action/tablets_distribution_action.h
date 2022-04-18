@@ -17,9 +17,10 @@
 
 #pragma once
 
+#include <string>
+
 #include "http/http_handler.h"
 #include "util/easy_json.h"
-#include <string>
 
 namespace doris {
 
@@ -27,7 +28,7 @@ namespace doris {
 class TabletsDistributionAction : public HttpHandler {
 public:
     TabletsDistributionAction();
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
     EasyJson get_tablets_distribution_group_by_partition(uint64_t partition_id);
     std::string host() { return _host; }
 
@@ -35,4 +36,3 @@ private:
     std::string _host;
 };
 } // namespace doris
-

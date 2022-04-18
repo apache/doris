@@ -85,7 +85,7 @@ void BloomFilterColumnPredicate<T>::evaluate(VectorizedRowBatch* batch) const {
 
 template <PrimitiveType T>
 void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
-                                                uint16_t* size) const {
+                                             uint16_t* size) const {
     uint16_t new_size = 0;
     if (block->is_nullable()) {
         for (uint16_t i = 0; i < *size; ++i) {
@@ -108,7 +108,7 @@ void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
 
 template <PrimitiveType T>
 void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel,
-                                                uint16_t* size) const {
+                                             uint16_t* size) const {
     uint16_t new_size = 0;
     using FT = typename PredicatePrimitiveTypeTraits<T>::PredicateFieldType;
 
@@ -146,4 +146,3 @@ public:
 };
 
 } //namespace doris
-

@@ -117,7 +117,7 @@ public:
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
     Status obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
-                                 DataDir** store);
+                             DataDir** store);
 
     // Load new tablet to make it effective.
     //
@@ -126,7 +126,7 @@ public:
     // @param [in] restore whether we're restoring a tablet from trash
     // @return OLAP_SUCCESS if load tablet success
     Status load_header(const std::string& shard_path, const TCloneReq& request,
-                           bool restore = false);
+                       bool restore = false);
 
     void register_report_listener(TaskWorkerPool* listener);
     void deregister_report_listener(TaskWorkerPool* listener);
@@ -215,7 +215,7 @@ private:
     void _clean_unused_rowset_metas();
 
     Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
-                         const int32_t expire);
+                     const int32_t expire);
 
     // All these xxx_callback() functions are for Background threads
     // unused rowset monitor thread
@@ -394,4 +394,3 @@ private:
 };
 
 } // namespace doris
-

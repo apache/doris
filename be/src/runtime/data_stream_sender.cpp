@@ -148,8 +148,8 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
 
     if (_parent->_transfer_data_by_brpc_attachment && _brpc_request.has_row_batch()) {
         request_row_batch_transfer_attachment<PTransmitDataParams,
-            RefCountClosure<PTransmitDataResult>>(&_brpc_request, _parent->_tuple_data_buffer,
-                    _closure);
+                                              RefCountClosure<PTransmitDataResult>>(
+                &_brpc_request, _parent->_tuple_data_buffer, _closure);
     }
     _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
     if (batch != nullptr) {
@@ -273,9 +273,8 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
           _bytes_sent_counter(nullptr),
           _local_bytes_send_counter(nullptr),
           _transfer_data_by_brpc_attachment(config::transfer_data_by_brpc_attachment) {
-
     if (_transfer_data_by_brpc_attachment) {
-        _tuple_data_buffer_ptr = &_tuple_data_buffer; 
+        _tuple_data_buffer_ptr = &_tuple_data_buffer;
     }
 }
 
@@ -297,9 +296,8 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
           _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
           _dest_node_id(sink.dest_node_id),
           _transfer_data_by_brpc_attachment(config::transfer_data_by_brpc_attachment) {
-
     if (_transfer_data_by_brpc_attachment) {
-        _tuple_data_buffer_ptr = &_tuple_data_buffer; 
+        _tuple_data_buffer_ptr = &_tuple_data_buffer;
     }
 
     DCHECK_GT(destinations.size(), 0);
@@ -388,8 +386,8 @@ Status DataStreamSender::prepare(RuntimeState* state) {
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker = MemTracker::create_tracker(
-            -1, "DataStreamSender:" + print_id(state->fragment_instance_id()),
-            nullptr, MemTrackerLevel::VERBOSE, _profile);
+            -1, "DataStreamSender:" + print_id(state->fragment_instance_id()), nullptr,
+            MemTrackerLevel::VERBOSE, _profile);
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
@@ -670,7 +668,8 @@ Status DataStreamSender::serialize_batch(RowBatch* src, PRowBatch* dest, int num
     {
         SCOPED_TIMER(_serialize_batch_timer);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes, _tuple_data_buffer_ptr));
+        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes,
+                                       _tuple_data_buffer_ptr));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }

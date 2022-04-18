@@ -39,6 +39,7 @@ public:
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     Status close(RuntimeState* state) override;
+
 private:
     void transfer_thread(RuntimeState* state);
     void scanner_thread(VOlapScanner* scanner);

@@ -69,9 +69,9 @@ shared_ptr<DataStreamRecvr> DataStreamMgr::create_recvr(
     DCHECK(profile != nullptr);
     VLOG_FILE << "creating receiver for fragment=" << fragment_instance_id
               << ", node=" << dest_node_id;
-    shared_ptr<DataStreamRecvr> recvr(new DataStreamRecvr(
-            this, row_desc, fragment_instance_id, dest_node_id,
-            num_senders, is_merging, buffer_size, profile, sub_plan_query_statistics_recvr));
+    shared_ptr<DataStreamRecvr> recvr(
+            new DataStreamRecvr(this, row_desc, fragment_instance_id, dest_node_id, num_senders,
+                                is_merging, buffer_size, profile, sub_plan_query_statistics_recvr));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
     lock_guard<mutex> l(_lock);
     _fragment_stream_set.insert(std::make_pair(fragment_instance_id, dest_node_id));

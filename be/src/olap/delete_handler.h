@@ -40,8 +40,8 @@ public:
 
     // generated DeletePredicatePB by TCondition
     Status generate_delete_predicate(const TabletSchema& schema,
-                                         const std::vector<TCondition>& conditions,
-                                         DeletePredicatePB* del_pred);
+                                     const std::vector<TCondition>& conditions,
+                                     DeletePredicatePB* del_pred);
 
     // construct sub condition from TCondition
     std::string construct_sub_predicates(const TCondition& condition);
@@ -97,7 +97,7 @@ public:
     //     * Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS): input parameters are not valid
     //     * Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR): alloc memory failed
     Status init(const TabletSchema& schema, const DelPredicateArray& delete_conditions,
-                    int64_t version, const doris::TabletReader* = nullptr);
+                int64_t version, const doris::TabletReader* = nullptr);
 
     // Check whether a row should be deleted.
     //
@@ -139,4 +139,3 @@ private:
 };
 
 } // namespace doris
-

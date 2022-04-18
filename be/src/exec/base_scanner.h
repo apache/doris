@@ -54,7 +54,7 @@ public:
     virtual Status open();
 
     // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) = 0;
+    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) = 0;
 
     // Close this scanner
     virtual void close() = 0;
@@ -64,6 +64,7 @@ public:
                                          const std::vector<std::string>& columns_from_path);
 
     void free_expr_local_allocations();
+
 protected:
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;

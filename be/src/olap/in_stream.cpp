@@ -257,8 +257,8 @@ Status InStream::seek(PositionProvider* position) {
         res = _uncompressed->set_position(uncompressed_bytes);
 
         if (!res.ok()) {
-            LOG(WARNING) << "fail to set position. res= " << res 
-                        << ", position=" << (_uncompressed->position() + uncompressed_bytes);
+            LOG(WARNING) << "fail to set position. res= " << res
+                         << ", position=" << (_uncompressed->position() + uncompressed_bytes);
             return res;
         }
     } else if (_uncompressed != nullptr) {
@@ -266,7 +266,8 @@ Status InStream::seek(PositionProvider* position) {
         res = _uncompressed->set_position(_uncompressed->limit());
 
         if (!res.ok()) {
-            LOG(WARNING) << "fail to set position.res=" << res << ", position=" << _uncompressed->limit();
+            LOG(WARNING) << "fail to set position.res=" << res
+                         << ", position=" << _uncompressed->limit();
             return res;
         }
     }
