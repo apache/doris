@@ -434,4 +434,4 @@ Currently the Profile can only be viewed after the job has been successfully exe
 
 ## more help
 
-For more detailed syntax and best practices used by Broker Load, see [Broker Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER- LOAD.html) command manual, you can also enter `HELP BROKER LOAD` in the MySql client command line for more help information.
+For more detailed syntax and best practices used by Broker Load, see [Broker Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) command manual, you can also enter `HELP BROKER LOAD` in the MySql client command line for more help information.
