@@ -37,6 +37,7 @@ import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -514,7 +515,9 @@ public class SelectStmt extends QueryStmt {
         // Change all outer join tuple to null here after analyze where and from clause
         // all solt desc of join tuple is ready. Before analyze sort info/agg info/analytic info
         // the solt desc nullable mark must be corrected to make sure BE exec query right.
-        analyzer.changeAllOuterJoinTupleToNull();
+        if (VectorizedUtil.isVectorized()) {
+            analyzer.changeAllOuterJoinTupleToNull();
+        }
 
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
