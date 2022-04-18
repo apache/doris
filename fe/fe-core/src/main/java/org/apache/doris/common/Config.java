@@ -727,6 +727,12 @@ public class Config extends ConfigBase {
     public static boolean disable_show_stream_load = false;
 
     /**
+     * Whether to enable to write single replica for stream load and broker load.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_single_replica_load = false;
+
+    /**
      * maximum concurrent running txn num including prepare, commit txns under a single db
      * txn manager will reject coming txns
      */

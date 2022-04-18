@@ -25,6 +25,7 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "olap/delta_writer.h"
 #include "olap/field.h"
 #include "olap/options.h"
@@ -191,7 +192,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait();
+    res = delta_writer->close_wait(PSlaveTabletNodes(), false);
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
