@@ -281,6 +281,11 @@ class Suite implements GroovyInterceptable {
         return hdfs.genRemoteDataDir()
     }
 
+    boolean enableHdfs() {
+        String enableHdfs =  context.config.otherConfigs.get("enableHdfs");
+        return enableHdfs.equals("true");
+    }
+
     String uploadToHdfs(String localFile) {
         String dataDir = context.config.dataPath + "/" + group + "/"
         localFile = dataDir + localFile
