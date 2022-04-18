@@ -68,7 +68,7 @@ The basic process of executing a Schema Change is to generate a copy of the inde
 Before starting the conversion of historical data, Doris will obtain a latest transaction ID. And wait for all import transactions before this Transaction ID to complete. This Transaction ID becomes a watershed. This means that Doris guarantees that all import tasks after the watershed will generate data for both the original Index and the new Index. In this way, when the historical data conversion is completed, the data in the new Index can be guaranteed to be complete.
 ## Create Job
 
-The specific syntax for creating a Schema Change can be found in the help [ALTER TABLE COLUMN](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md) for the description of the Schema Change section .
+The specific syntax for creating a Schema Change can be found in the help [ALTER TABLE COLUMN](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md) for the description of the Schema Change section .
 
 The creation of Schema Change is an asynchronous process. After the job is submitted successfully, the user needs to view the job progress through the `SHOW ALTER TABLE COLUMN` command.
 ## View Job
@@ -237,5 +237,5 @@ At the same time, columns that already exist in the Base table are not allowed t
 
 ## More Help
 
-For more detailed syntax and best practices used by Schema Change, see [ALTER TABLE COLUMN](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md ) command manual, you can also enter `HELP ALTER TABLE COLUMN` in the MySql client command line for more help information.
+For more detailed syntax and best practices used by Schema Change, see [ALTER TABLE COLUMN](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.md ) command manual, you can also enter `HELP ALTER TABLE COLUMN` in the MySql client command line for more help information.
 
