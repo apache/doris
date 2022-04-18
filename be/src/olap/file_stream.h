@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_FILE_STREAM_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_FILE_STREAM_H
+#pragma once
 
 #include <gen_cpp/column_data_file.pb.h>
 
@@ -274,4 +273,3 @@ inline Status ReadOnlyFileStream::read_all(char* buffer, uint64_t* buffer_size) 
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_FILE_STREAM_H

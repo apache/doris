@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_HLL_H
-#define DORIS_BE_SRC_OLAP_HLL_H
+#pragma once
 
 #include <math.h>
 #include <stdio.h>
@@ -383,4 +382,3 @@ public:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_HLL_H

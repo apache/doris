@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef DORIS_BE_SRC_OLAP_SKIPLIST_H
-#define DORIS_BE_SRC_OLAP_SKIPLIST_H
+#pragma once
 
 // Thread safety
 // -------------
@@ -462,4 +461,3 @@ bool SkipList<Key, Comparator>::Find(const Key& key, Hint* hint) const {
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_SKIPLIST_H

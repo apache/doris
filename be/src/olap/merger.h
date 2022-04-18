@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_MERGER_H
-#define DORIS_BE_SRC_OLAP_MERGER_H
+#pragma once
 
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_writer.h"
@@ -43,4 +42,3 @@ public:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_MERGER_H

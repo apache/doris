@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_DELTA_WRITER_H
-#define DORIS_BE_SRC_DELTA_WRITER_H
+#pragma once
 
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/rowset/rowset_writer.h"
@@ -122,4 +121,3 @@ private:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_DELTA_WRITER_H

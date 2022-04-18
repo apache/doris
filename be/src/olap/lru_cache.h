@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef DORIS_BE_SRC_OLAP_LRU_CACHE_H
-#define DORIS_BE_SRC_OLAP_LRU_CACHE_H
+#pragma once
 
 #include <gtest/gtest_prod.h>
 #include <rapidjson/document.h>
@@ -397,4 +396,3 @@ private:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_LRU_CACHE_H
