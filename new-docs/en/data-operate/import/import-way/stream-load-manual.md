@@ -312,7 +312,7 @@ Timeout = 1000s -31561;. 20110G / 10M /s
 ```
 
 ### Complete examples
-Data situation: In the local disk path / home / store_sales of the sending and importing requester, the imported data is about 15G, and it is hoped to be imported into the table store\_sales of the database bj_sales.
+Data situation: In the local disk path /home/store_sales of the sending and importing requester, the imported data is about 15G, and it is hoped to be imported into the table store\_sales of the database bj_sales.
 
 Cluster situation: The concurrency of Stream load is not affected by cluster size.
 

@@ -206,4 +206,4 @@ It is recommended to import the new and old clusters in parallel for a period of
 
 ## More Help
 
- For more detailed syntax and best practices used by BACKUP, please refer to the [BACKUP](../../sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/BACKUP.html) command manual, You can also type `HELP BACKUP` on the MySql client command line for more help.
+ For more detailed syntax and best practices used by BACKUP, please refer to the [BACKUP](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/BACKUP.html) command manual, You can also type `HELP BACKUP` on the MySql client command line for more help.

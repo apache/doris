@@ -38,7 +38,7 @@ This document describes how to create external tables accessed through the ODBC 
 
 ## create external table
 
-For a detailed introduction to creating ODBC external tables, please refer to the [CREATE ODBC TABLE]((../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) syntax help manual.
+For a detailed introduction to creating ODBC external tables, please refer to the [CREATE ODBC TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) syntax help manual.
 
 Here is just an example of how to use it.
 
