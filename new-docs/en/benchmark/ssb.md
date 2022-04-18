@@ -178,4 +178,4 @@ The following test report is based on Doris [branch-0.15](https://github.com/apa
     >
     > Note 4: Parallelism means query concurrency, which is set by `set parallel_fragment_exec_instance_num=8`.
     >
-    > Note 5: Runtime Filter Mode is the type of Runtime Filter, set by `set runtime_filter_type="BLOOM_FILTER"`. ([Runtime Filter](http://doris.incubator.apache.org/master/en/administrator-guide/runtime-filter.html) function has a significant effect on the SSB test set. Because in this test set, The data from the right table of Join can filter the left table very well. You can try to turn off this function through `set runtime_filter_mode=off` to see the change in query latency.)
+    > Note 5: Runtime Filter Mode is the type of Runtime Filter, set by `set runtime_filter_type="BLOOM_FILTER"`. ([Runtime Filter](../../advanced/join-optimization/runtime-filter.html) function has a significant effect on the SSB test set. Because in this test set, The data from the right table of Join can filter the left table very well. You can try to turn off this function through `set runtime_filter_mode=off` to see the change in query latency.)

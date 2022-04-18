@@ -77,7 +77,7 @@ Base Compaction 时要将标记为删除的行的删掉，以减少数据占用�
 
 `Broker Load` 的写法在 `PROPERTIES` 处设置删除标记列的字段，语法如下：
 
-```text
+```sql
 LOAD LABEL db1.label1
 (
     [MERGE|APPEND|DELETE] DATA INFILE("hdfs://abc.com:8888/user/palo/test/ml/file1")
@@ -106,27 +106,27 @@ PROPERTIES
 
 `Routine Load`的写法在  `columns`字段增加映射，映射方式同上，语法如下：
 
-```text
-   CREATE ROUTINE LOAD example_db.test1 ON example_tbl 
-    [WITH MERGE|APPEND|DELETE]
-    COLUMNS(k1, k2, k3, v1, v2, label),
-    WHERE k1 > 100 and k2 like "%doris%"
-    [DELETE ON label=true]
-    PROPERTIES
-    (
-        "desired_concurrent_number"="3",
-        "max_batch_interval" = "20",
-        "max_batch_rows" = "300000",
-        "max_batch_size" = "209715200",
-        "strict_mode" = "false"
-    )
-    FROM KAFKA
-    (
-        "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
-        "kafka_topic" = "my_topic",
-        "kafka_partitions" = "0,1,2,3",
-        "kafka_offsets" = "101,0,0,200"
-    );
+```sql
+CREATE ROUTINE LOAD example_db.test1 ON example_tbl 
+ [WITH MERGE|APPEND|DELETE]
+ COLUMNS(k1, k2, k3, v1, v2, label),
+ WHERE k1 > 100 and k2 like "%doris%"
+ [DELETE ON label=true]
+ PROPERTIES
+ (
+     "desired_concurrent_number"="3",
+     "max_batch_interval" = "20",
+     "max_batch_rows" = "300000",
+     "max_batch_size" = "209715200",
+     "strict_mode" = "false"
+ )
+ FROM KAFKA
+ (
+     "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+     "kafka_topic" = "my_topic",
+     "kafka_partitions" = "0,1,2,3",
+     "kafka_offsets" = "101,0,0,200"
+ );
 ```
 
 ## 注意事项
@@ -138,7 +138,7 @@ PROPERTIES
 
 ### 查看是否启用批量删除支持
 
-```text
+```sql
 mysql> SET show_hidden_columns=true;
 Query OK, 0 rows affected (0.00 sec)
 
@@ -158,19 +158,19 @@ mysql> DESC test;
 
 1. 正常导入数据：
 
-```text
+```bash
 curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv" -H "merge_type: APPEND"  -T ~/table1_data http://127.0.0.1:8130/api/test/table1/_stream_load
 ```
 
 其中的APPEND 条件可以省略，与下面的语句效果相同：
 
-```text
+```bash
 curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv" -T ~/table1_data http://127.0.0.1:8130/api/test/table1/_stream_load
 ```
 
 2. 将与导入数据key 相同的数据全部删除
 
-```text
+```bash
 curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv" -H "merge_type: DELETE"  -T ~/table1_data http://127.0.0.1:8130/api/test/table1/_stream_load
 ```
 
@@ -205,7 +205,7 @@ curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, ci
 
 3. 将导入数据中与`site_id=1` 的行的key列相同的行
 
-```text
+```bash
 curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv" -H "merge_type: MERGE" -H "delete: siteid=1"  -T ~/table1_data http://127.0.0.1:8130/api/test/table1/_stream_load
 ```
 

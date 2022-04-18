@@ -40,7 +40,7 @@ Delete命令是一个SQL命令，返回结果是同步的，分为以下几种�
 
    如果Delete顺利执行完成并可见，将返回下列结果，`Query OK`表示成功
 
-   ```text
+   ```sql
    mysql> delete from test_tbl PARTITION p1 where k1 = 1;
    Query OK, 0 rows affected (0.04 sec)
    {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005'}
@@ -50,7 +50,7 @@ Delete命令是一个SQL命令，返回结果是同步的，分为以下几种�
 
    Doris的事务提交分为两步：提交和发布版本，只有完成了发布版本步骤，结果才对用户是可见的。若已经提交成功了，那么就可以认为最终一定会发布成功，Doris会尝试在提交完后等待发布一段时间，如果超时后即使发布版本还未完成也会优先返回给用户，提示用户提交已经完成。若如果Delete已经提交并执行，但是仍未发布版本和可见，将返回下列结果
 
-   ```text
+   ```sql
    mysql> delete from test_tbl PARTITION p1 where k1 = 1;
    Query OK, 0 rows affected (0.04 sec)
    {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'COMMITTED', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
@@ -72,7 +72,7 @@ Delete命令是一个SQL命令，返回结果是同步的，分为以下几种�
 
    如果Delete语句没有提交成功，将会被Doris自动中止，返回下列结果
 
-   ```text
+   ```sql
    mysql> delete from test_tbl partition p1 where k1 > 80;
    ERROR 1064 (HY000): errCode = 2, detailMessage = {错误原因}
    ```
@@ -81,7 +81,7 @@ Delete命令是一个SQL命令，返回结果是同步的，分为以下几种�
 
    比如说一个超时的删除，将会返回timeout时间和未完成的`(tablet=replica)`
 
-   ```text
+   ```sql
    mysql> delete from test_tbl partition p1 where k1 > 80;
    ERROR 1064 (HY000): errCode = 2, detailMessage = failed to delete replicas from job: 4005, Unfinished replicas:10000=60000, 10001=60000, 10002=60000
    ```
@@ -129,13 +129,13 @@ Delete命令是一个SQL命令，返回结果是同步的，分为以下几种�
 
 语法如下
 
-```text
+```sql
 SHOW DELETE [FROM db_name]
 ```
 
 使用示例
 
-```text
+```sql
 mysql> show delete from test_db;
 +-----------+---------------+---------------------+-----------------+----------+
 | TableName | PartitionName | CreateTime          | DeleteCondition | State    |
