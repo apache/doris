@@ -3080,9 +3080,9 @@ describe_stmt ::=
         query.setIsExplain(options);
         RESULT = query;
     :}   
-    | describe_command insert_stmt:stmt
+    | describe_command opt_explain_options:options insert_stmt:stmt
     {:
-        stmt.getQueryStmt().setIsExplain(new ExplainOptions(true, false));
+        stmt.getQueryStmt().setIsExplain(options);
         RESULT = stmt;
     :}
     ;
