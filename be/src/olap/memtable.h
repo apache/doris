@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_MEMTABLE_H
-#define DORIS_BE_SRC_OLAP_MEMTABLE_H
+#pragma once
 
 #include <ostream>
 
@@ -135,4 +134,3 @@ inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_MEMTABLE_H

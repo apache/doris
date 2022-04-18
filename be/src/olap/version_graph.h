@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_VERSION_GRAPH_H
-#define DORIS_BE_SRC_OLAP_VERSION_GRAPH_H
+#pragma once
 
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
@@ -214,4 +213,3 @@ private:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_OLAP_VERSION_GRAPH_H

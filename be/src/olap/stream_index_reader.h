@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_READER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_READER_H
+#pragma once
 
 #include "olap/olap_define.h"
 #include "olap/stream_index_common.h"
@@ -90,4 +89,4 @@ private:
 };
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_STREAM_INDEX_READER_H
+

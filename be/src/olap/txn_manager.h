@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TXN_MANAGER_H
-#define DORIS_BE_SRC_OLAP_TXN_MANAGER_H
+#pragma once
 
 #include <pthread.h>
 #include <rapidjson/document.h>
@@ -210,4 +209,4 @@ inline std::mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
 }
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_TXN_MANAGER_H
+

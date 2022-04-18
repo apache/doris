@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_UTILS_H
-#define DORIS_BE_SRC_OLAP_UTILS_H
+#pragma once
 
 #include <fcntl.h>
 #include <pthread.h>
@@ -316,4 +315,3 @@ bool valid_bool(const std::string& value_str);
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_UTILS_H

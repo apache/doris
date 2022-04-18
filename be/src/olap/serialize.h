@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_SERIALIZE_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_SERIALIZE_H
+#pragma once
 
 #include "olap/byte_buffer.h"
 #include "olap/olap_define.h"
@@ -184,4 +183,3 @@ inline bool is_safe_subtract(int64_t left, int64_t right) {
 } // namespace ser
 } // namespace doris
 
-#endif
