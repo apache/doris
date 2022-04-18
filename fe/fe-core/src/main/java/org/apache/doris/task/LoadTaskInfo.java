@@ -61,6 +61,7 @@ public interface LoadTaskInfo {
     public Separator getLineDelimiter();
     public int getSendBatchParallelism();
     public boolean isLoadToSingleTablet();
+    public String getHeaderType();
 
     public static class ImportColumnDescs {
         public List<ImportColumnDesc> descs = Lists.newArrayList();

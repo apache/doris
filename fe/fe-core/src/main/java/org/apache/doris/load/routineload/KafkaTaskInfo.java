@@ -126,4 +126,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
         return tExecPlanFragmentParams;
     }
+    // implement method for compatibility
+    public String getHeaderType() {
+        return "";
+    }
 }
