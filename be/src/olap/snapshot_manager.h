@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_SNAPSHOT_MANAGER_H
-#define DORIS_BE_SRC_OLAP_SNAPSHOT_MANAGER_H
+#pragma once
 
 #include <condition_variable>
 #include <ctime>
@@ -104,4 +103,3 @@ private:
 
 } // namespace doris
 
-#endif

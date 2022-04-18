@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TUPLE_READER_H
-#define DORIS_BE_SRC_OLAP_TUPLE_READER_H
+#pragma once
 
 #include <gen_cpp/PaloInternalService_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
@@ -90,4 +89,3 @@ private:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_TUPLE_READER_H

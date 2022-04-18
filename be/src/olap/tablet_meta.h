@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TABLET_META_H
-#define DORIS_BE_SRC_OLAP_TABLET_META_H
+#pragma once
 
 #include <mutex>
 #include <shared_mutex>
@@ -332,4 +331,3 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_OLAP_TABLET_META_H

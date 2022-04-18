@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_READER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_READER_H
+#pragma once
 
 #include <vector>
 
@@ -65,4 +64,4 @@ private:
 };
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_READER_H
+
