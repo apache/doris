@@ -63,10 +63,10 @@ This article is applicable to multi-platform (Win|Mac|Linux) and multi-mode (bar
 2. Download binary package / self-compile FE / BE files
 
    ```shell
-   wget https://doris.apache.org/apache-doris-release/version to deploy
+   wget https://dist.apache.org/repos/dist/dev/incubator/doris to deploy
    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/version to deploy
    # For example the following link
-   wget https://doris.apache.org/release/doris-1.0.0.tar.gz
+   wget https://dist.apache.org/repos/dist/dev/incubator/doris/1.0/1.0.0-rc03/apache-doris-1.0.0-incubating-bin.tar.gz
    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/PALO-1.0.0-preview2-no-avx2-binary.tar.gz
    ```
 
@@ -75,7 +75,7 @@ This article is applicable to multi-platform (Win|Mac|Linux) and multi-mode (bar
    ```shell
    tar -zxvf Downloaded binary archive
    # example
-   tar -zxvf PALO-1.0.0-preview2-no-avx2-binary.tar.gz
+   tar -zxvf apache-doris-1.0.0-incubating-bin.tar.gz
    ```
 
 4. Migrate the decompressed program files to the specified directory and rename them
@@ -84,7 +84,7 @@ This article is applicable to multi-platform (Win|Mac|Linux) and multi-mode (bar
    mv [unzipped root directory] [Target path]
    cd [Target path]
    # example
-   mv PALO-1.0.0-preview2-no-avx2-binary /opt/doris
+   mv apache-doris-1.0.0-incubating-bin /opt/doris
    cd /opt/doris
    ```
 

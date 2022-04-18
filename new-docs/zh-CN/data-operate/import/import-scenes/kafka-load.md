@@ -121,7 +121,7 @@ Doris 自身能够保证不丢不重的订阅 Kafka 中的消息，即 `Exactly-
 
 ### 修改作业属性
 
-用户可以修改已经创建的作业的部分属性。具体说明请参阅 [ALTER ROUTINE LOAD]() 命令手册。
+用户可以修改已经创建的作业的部分属性。具体说明请参阅 [ALTER ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/ALTER-ROUTINE-LOAD.html) 命令手册。
 
 ### 作业控制
 
