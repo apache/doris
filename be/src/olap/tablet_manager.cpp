@@ -224,10 +224,10 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         FilePathDesc path_desc;
         path_desc.storage_medium = request.storage_medium;
         path_desc.storage_name = request.storage_param.storage_name;
-        std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
-                get_storage_backend(path_desc.storage_name);
-        if (storage_backend == nullptr) {
-            LOG(INFO) << "remote storage is not exist, create it. storage_name: " << request.storage_param.storage_name;
+        StorageParamPB storage_param;
+        Status st = StorageBackendMgr::instance()->get_storage_param(request.storage_param.storage_name, &storage_param);
+        if (!st.ok() || storage_param.DebugString() != fs::fs_util::get_storage_param_pb(request.storage_param).DebugString()) {
+            LOG(INFO) << "remote storage need to change, create it. storage_name: " << request.storage_param.storage_name;
             RETURN_WITH_WARN_IF_ERROR(StorageBackendMgr::instance()->create_remote_storage(
                     fs::fs_util::get_storage_param_pb(request.storage_param)), OLAP_ERR_OS_ERROR,
                             "remote storage create failed. storage_name: " + request.storage_param.storage_name);
@@ -264,8 +264,11 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         // If we are doing schema-change, we should use the same data dir
         // TODO(lingbin): A litter trick here, the directory should be determined before
         // entering this method
-        stores.clear();
-        stores.push_back(base_tablet->data_dir());
+        if (request.storage_medium == base_tablet->data_dir()->path_desc().storage_medium
+                || (FilePathDesc::is_remote(request.storage_medium) && base_tablet->data_dir()->is_remote())) {
+            stores.clear();
+            stores.push_back(base_tablet->data_dir());
+        }
     }
 
     // set alter type to schema-change. it is useless
