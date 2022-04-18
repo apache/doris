@@ -76,6 +76,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private int sendBatchParallelism = 1;
     private double maxFilterRatio = 0.0;
     private boolean loadToSingleTablet = false;
+    private String headerType = "";
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -120,6 +121,10 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     public Separator getColumnSeparator() {
         return columnSeparator;
+    }
+
+    public String getHeaderType() {
+        return headerType;
     }
 
     public Separator getLineDelimiter() {
@@ -242,6 +247,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetLineDelimiter()) {
             setLineDelimiter(request.getLineDelimiter());
+        }
+        if (request.isSetHeaderType()) {
+            headerType = request.getHeaderType();
         }
         if (request.isSetPartitions()) {
             String[] partNames = request.getPartitions().trim().split("\\s*,\\s*");

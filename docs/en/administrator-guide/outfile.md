@@ -57,9 +57,9 @@ INTO OUTFILE "file_path"
     FORMAT AS CSV
     ```
     
-    Specify the export format. The default is CSV.
+    Specify the export format. support csv、parquet、csv_with_names、csv_with_names_and_types. The default is CSV.
 
-* `[properties]`
+* `[properties]`  
 
     Specify the relevant attributes. Currently it supports exporting through the Broker process, or through the S3, HDFS protocol.
 
