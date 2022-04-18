@@ -598,6 +598,7 @@ struct TStreamLoadPutRequest {
     35: optional i32 send_batch_parallelism
     36: optional double max_filter_ratio
     37: optional bool load_to_single_tablet
+    38: optional string header_type
 }
 
 struct TStreamLoadPutResult {

@@ -200,6 +200,10 @@ public:
 
     // If this is an tranactional insert operation, this will be true
     bool need_commit_self = false;
+
+    // csv with header type
+    std::string header_type = "";
+
 public:
     ExecEnv* exec_env() { return _exec_env; }
 

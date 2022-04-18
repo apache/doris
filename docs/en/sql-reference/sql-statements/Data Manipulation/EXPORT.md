@@ -109,5 +109,17 @@ under the License.
     8. Export all data in the testTbl table to hdfs, using the invisible character "\x07" as the column and row separator. 
         EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"="\\x07", "line_delimiter" = "\\x07") WITH HDFS ("fs.defaultFS"="hdfs://hdfs_host:port", "hdfs_user"="yyy")
 
+    9. Export all data in the testTbl table  to the local , the first line represents the field name
+        EXPORT TABLE testTbl TO "file:///home/data/a"  PROPERTIES ("label" = "mylabel", "format"="csv_with_names");
+    
+    10. Export all data in the testTbl table  to the local, the first two lines represent the field name and type
+        EXPORT TABLE testTbl TO "file:///home/data/a"  PROPERTIES ("label" = "mylabel", "format"="csv_with_names_and_types");
+        
+    11. Export all data in the testTbl table  to the hdfs , the first line represents the field name
+        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c"  PROPERTIES ("label" = "mylabel", "format"="csv_with_names") WITH BROKER "broker_name" ("username"="myname", "password"="mypassword");
+    
+    12. Export all data in the testTbl table  to the hdfs, the first two lines represent the field name and type
+        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c"  PROPERTIES ("label" = "mylabel", "format"="csv_with_names_and_types") WITH BROKER "broker_name" ("username"="myname", "password"="mypassword");
+
 ## keyword
     EXPORT

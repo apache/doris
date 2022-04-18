@@ -108,6 +108,18 @@ under the License.
 
     8. 将 testTbl 表中的所有数据导出到 hdfs 上，以不可见字符 "\x07" 作为列或者行分隔符。
         EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" PROPERTIES ("column_separator"="\\x07", "line_delimiter" = "\\x07") WITH HDFS ("fs.defaultFS"="hdfs://hdfs_host:port", "hdfs_user"="yyy")
+        
+    9. 将 testTbl 表中的所有数据导出到本地, 第一行表示字段名称
+        EXPORT TABLE testTbl TO "file:///home/data/a"  PROPERTIES ("label" = "mylabel", "format"="csv_with_names");
+
+    10. 将 testTbl 表中的所有数据导出到本地, 前两行表示字段名称和类型
+        EXPORT TABLE testTbl TO "file:///home/data/a"  PROPERTIES ("label" = "mylabel", "format"="csv_with_names_and_types");
+
+    11. 将 testTbl 表中的所有数据导出到 hdfs, 第一行表示字段名称
+        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c"  PROPERTIES ("label" = "mylabel", "format"="csv_with_names") WITH BROKER "broker_name" ("username"="myname", "password"="mypassword");
+
+    12. 将 testTbl 表中的所有数据导出到 hdfs, 前两行表示字段名称和类型
+        EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c"  PROPERTIES ("label" = "mylabel", "format"="csv_with_names_and_types") WITH BROKER "broker_name" ("username"="myname", "password"="mypassword");
 
 ## keyword
     EXPORT
