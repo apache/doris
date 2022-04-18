@@ -26,8 +26,173 @@
         <property name="fileExtensions" value="java"/>
     </module>
     <module name="SuppressWarningsFilter"/>
+    <module name="FileTabCharacter"/>
+    <module name="NewlineAtEndOfFile">
+        <property name="lineSeparator" value="lf"/>
+    </module>
+    <property name="charset" value="UTF-8"/>
+    <!-- Checks if a line is too long. -->
+    <module name="LineLength">
+        <property name="max" value="150"/>
+        <property name="severity" value="error"/>
+        <property name="ignorePattern" value="^(package .*;\s*)|(import .*;\s*)|( *\* .*https?://.*)$"/>
+    </module>
+
     <module name="TreeWalker">
-        <module name="AvoidStarImport"/>
-        <module name="UnusedImports"/>
+        <module name="PackageDeclaration"/>
+        <module name="UnnecessaryParentheses"/>
+        <module name="SuppressWarningsHolder"/>
+        <module name="EmptyBlock">
+            <property name="option" value="text"/>
+            <property name="tokens" value="
+                        LITERAL_DO, LITERAL_ELSE, LITERAL_FINALLY, LITERAL_IF,
+                        LITERAL_FOR, LITERAL_TRY, LITERAL_WHILE, INSTANCE_INIT, STATIC_INIT"/>
+        </module>
+        <module name="EmptyStatement"/>
+        <module name="EmptyForInitializerPad"/>
+        <module name="EmptyForIteratorPad">
+            <property name="option" value="space"/>
+        </module>
+        <module name="MethodParamPad">
+            <property name="allowLineBreaks" value="true"/>
+            <property name="option" value="nospace"/>
+        </module>
+        <module name="ParenPad"/>
+        <module name="TypecastParenPad"/>
+
+        <!-- Checks for braces around if and else blocks -->
+        <module name="NeedBraces">
+            <property name="severity" value="error"/>
+            <property name="tokens" value="LITERAL_IF, LITERAL_ELSE, LITERAL_FOR, LITERAL_WHILE, LITERAL_DO"/>
+        </module>
+
+        <!-- check { and } -->
+        <module name="LeftCurly">
+            <property name="tokens" value="ANNOTATION_DEF, CLASS_DEF, CTOR_DEF, ENUM_CONSTANT_DEF, ENUM_DEF,
+                            INTERFACE_DEF, LAMBDA, LITERAL_CASE, LITERAL_CATCH, LITERAL_DEFAULT,
+                            LITERAL_DO, LITERAL_ELSE, LITERAL_FINALLY, LITERAL_FOR, LITERAL_IF,
+                            LITERAL_SWITCH, LITERAL_SYNCHRONIZED, LITERAL_TRY, LITERAL_WHILE, METHOD_DEF,
+                            OBJBLOCK, STATIC_INIT, RECORD_DEF, COMPACT_CTOR_DEF"/>
+        </module>
+        <module name="RightCurly">
+            <property name="option" value="same"/>
+            <property name="severity" value="error"/>
+        </module>
+
+        <module name="GenericWhitespace"/>
+        <module name="WhitespaceAfter"/>
+        <module name="NoWhitespaceAfter"/>
+        <module name="NoWhitespaceBefore"/>
+        <module name="SingleSpaceSeparator"/>
+        <module name="Indentation">
+            <property name="throwsIndent" value="8"/>
+            <property name="lineWrappingIndentation" value="8"/>
+        </module>
+
+        <module name="UpperEll"/>
+        <module name="DefaultComesLast"/>
+        <module name="ArrayTypeStyle"/>
+        <module name="MultipleVariableDeclarations"/>
+        <module name="ModifierOrder"/>
+        <module name="OneStatementPerLine"/>
+        <module name="StringLiteralEquality"/>
+        <module name="MutableException"/>
+        <module name="EqualsHashCode"/>
+        <module name="InnerAssignment"/>
+        <module name="InterfaceIsType"/>
+        <module name="HideUtilityClassConstructor"/>
+        <module name="ExplicitInitialization"/>
+        <module name="OneTopLevelClass"/>
+
+        <!-- name check -->
+        <module name="TypeNameCheck">
+            <metadata name="altname" value="TypeName"/>
+            <property name="severity" value="error"/>
+        </module>
+        <module name="ConstantNameCheck">
+            <metadata name="altname" value="ConstantName"/>
+            <property name="applyToPublic" value="true"/>
+            <property name="applyToProtected" value="true"/>
+            <property name="applyToPackage" value="true"/>
+            <property name="applyToPrivate" value="false"/>
+            <property name="format" value="^([A-Z][A-Za-z0-9_]*|FLAG_.*)$"/>
+            <message key="name.invalidPattern"
+                     value="Variable ''{0}'' should be in ALL_CAPS (if it is a constant) or be private (otherwise)."/>
+            <property name="severity" value="error"/>
+        </module>
+        <module name="StaticVariableNameCheck">
+            <metadata name="altname" value="StaticVariableName"/>
+            <property name="applyToPublic" value="true"/>
+            <property name="applyToProtected" value="true"/>
+            <property name="applyToPackage" value="true"/>
+            <property name="applyToPrivate" value="true"/>
+            <property name="format" value="^[a-z][a-zA-Z0-9]*_?$"/>
+            <property name="severity" value="error"/>
+        </module>
+        <module name="MemberNameCheck">
+            <metadata name="altname" value="MemberName"/>
+            <property name="applyToPublic" value="true"/>
+            <property name="applyToProtected" value="true"/>
+            <property name="applyToPackage" value="true"/>
+            <property name="applyToPrivate" value="true"/>
+            <property name="format" value="^[a-z][a-zA-Z0-9]*$"/>
+            <property name="severity" value="error"/>
+        </module>
+        <module name="MethodNameCheck">
+            <metadata name="altname" value="MethodName"/>
+            <property name="format" value="(^[a-z][a-zA-Z0-9]*(_[a-zA-Z0-9]+)*$|Void)"/>
+            <property name="severity" value="error"/>
+        </module>
+        <module name="ParameterName">
+            <property name="severity" value="error"/>
+        </module>
+        <module name="LocalFinalVariableName">
+            <property name="severity" value="error"/>
+        </module>
+        <module name="LocalVariableName">
+            <property name="severity" value="error"/>
+        </module>
+
+        <!-- import -->
+        <module name="AvoidStarImport">
+            <property name="severity" value="error"/>
+        </module>
+        <module name="RedundantImport">
+            <property name="severity" value="error"/>
+            <message key="import.redundancy"
+                     value="Redundant import {0}."/>
+        </module>
+        <module name="UnusedImports">
+            <property name="severity" value="error"/>
+            <message key="import.unused"
+                     value="Unused import: {0}."/>
+        </module>
+        <module name="ImportOrder">
+            <property name="groups" value="org.apache.doris,org.apache,*,javax,java"/>
+            <property name="separated" value="true"/>
+            <property name="option" value="bottom"/>
+            <property name="sortStaticImportsAlphabetically" value="true"/>
+        </module>
+
+        <!-- white space -->
+        <module name="WhitespaceAround">
+            <property name="allowEmptyConstructors" value="true"/>
+            <property name="allowEmptyMethods" value="true"/>
+            <property name="allowEmptyLambdas" value="true"/>
+            <property name="ignoreEnhancedForColon" value="false"/>
+            <property name="tokens" value="
+                        ASSIGN, BAND, BAND_ASSIGN, BOR, BOR_ASSIGN, BSR, BSR_ASSIGN,
+                        BXOR, BXOR_ASSIGN, COLON, DIV, DIV_ASSIGN, DO_WHILE, EQUAL, GE, GT, LAND,
+                        LAMBDA, LE, LITERAL_ASSERT, LITERAL_CATCH, LITERAL_DO, LITERAL_ELSE,
+                        LITERAL_FINALLY, LITERAL_FOR, LITERAL_IF, LITERAL_RETURN, LITERAL_SWITCH,
+                        LITERAL_SYNCHRONIZED, LITERAL_TRY, LITERAL_WHILE,
+                        LOR, LT, MINUS, MINUS_ASSIGN, MOD, MOD_ASSIGN, NOT_EQUAL,
+                        PLUS, PLUS_ASSIGN, QUESTION, SL, SLIST, SL_ASSIGN, SR, SR_ASSIGN,
+                        STAR, STAR_ASSIGN, TYPE_EXTENSION_AND"/>
+        </module>
+        <module name="WhitespaceAfter">
+            <property name="tokens" value="COMMA, SEMI, TYPECAST, LITERAL_IF, LITERAL_ELSE,
+                            LITERAL_WHILE, LITERAL_DO, LITERAL_FOR, DO_WHILE"/>
+        </module>
     </module>
 </module>
