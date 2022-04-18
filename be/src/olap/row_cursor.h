@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROW_CURSOR_H
-#define DORIS_BE_SRC_OLAP_ROW_CURSOR_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -172,4 +171,3 @@ private:
 };
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_ROW_CURSOR_H

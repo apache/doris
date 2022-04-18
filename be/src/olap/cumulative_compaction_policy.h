@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef OLAP_CUMULATIVE_COMPACTION_POLICY_H
-#define OLAP_CUMULATIVE_COMPACTION_POLICY_H
+#pragma once
 
 #include <string>
 
@@ -261,4 +260,4 @@ private:
 };
 
 } // namespace doris
-#endif // OLAP_CUMULATIVE_COMPACTION_POLICY_H
+
