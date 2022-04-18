@@ -63,10 +63,10 @@ under the License.
 2. 下载二进制包/自主编译 FE / BE 文件
 
    ```shell
-   wget https://doris.apache.org/apache-doris-release/要部署的版本
+   wget https://dist.apache.org/repos/dist/dev/incubator/doris/要部署的版本
    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/要部署的版本
    # 例如如下链接
-   wget https://doris.apache.org/release/doris-1.0.0.tar.gz
+   wget https://dist.apache.org/repos/dist/dev/incubator/doris/1.0/1.0.0-rc03/apache-doris-1.0.0-incubating-bin.tar.gz
    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/PALO-1.0.0-preview2-no-avx2-binary.tar.gz
    ```
 
@@ -75,7 +75,7 @@ under the License.
    ```shell
    tar -zxvf 下载好的二进制压缩包
    # 例如
-   tar -zxvf PALO-1.0.0-preview2-no-avx2-binary.tar.gz
+   tar -zxvf apache-doris-1.0.0-incubating-bin.tar.gz
    ```
 
 4. 迁移解压缩后的程序文件至指定目录并重命名
@@ -84,7 +84,7 @@ under the License.
    mv 解压后的根目录 目标路径
    cd 目标路径
    # 例如
-   mv PALO-1.0.0-preview2-no-avx2-binary /opt/doris
+   mv apache-doris-1.0.0-incubating-bin /opt/doris
    cd /opt/doris
    ```
 

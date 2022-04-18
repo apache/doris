@@ -122,7 +122,7 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
    1 row in set (0.15 sec)
    ```
 
-BACKUP的更多用法可参考 [这里](../../sql-manual/sql-reference-v2/Show-Statements/BACKUP.html)。
+BACKUP的更多用法可参考 [这里](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/BACKUP.html)。
 
 ## 最佳实践
 
