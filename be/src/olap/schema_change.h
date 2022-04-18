@@ -239,8 +239,6 @@ private:
     SchemaChangeHandler(const SchemaChangeHandler&) = delete;
     SchemaChangeHandler& operator=(const SchemaChangeHandler&) = delete;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
-
     std::shared_mutex _mutex;
     std::unordered_set<int64_t> _tablet_ids_in_converting;
 };
