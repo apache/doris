@@ -58,7 +58,7 @@ Accessing an SSL-authenticated Kafka cluster requires the user to provide a cert
   CREATE FILE "client.pem" PROPERTIES("url" = "https://example_url/kafka-key/client.pem", "catalog" = "kafka");
   ````
 
-After the upload is complete, you can view the uploaded files through the [SHOW FILES]() command.
+After the upload is complete, you can view the uploaded files through the [SHOW FILES](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-FILE.html) command.
 
 ### Create a routine import job
 
@@ -112,9 +112,9 @@ For specific commands to create routine import tasks, see [ROUTINE LOAD](../../.
 
 ### View import job status
 
-See [SHOW ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-ROUTINE-LOAD.html for specific commands and examples for checking the status of a **job** ) command documentation.
+See [SHOW ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-ROUTINE-LOAD.html) for specific commands and examples for checking the status of a **job** ) command documentation.
 
-See [SHOW ROUTINE LOAD TASK](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW -ROUTINE-LOAD-TASK.html) command documentation.
+See [SHOW ROUTINE LOAD TASK](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-ROUTINE-LOAD-TASK.html) command documentation.
 
 Only the currently running tasks can be viewed, and the completed and unstarted tasks cannot be viewed.
 
@@ -126,8 +126,8 @@ The user can modify some properties of the job that has been created. For detail
 
 The user can control the stop, pause and restart of the job through the `STOP/PAUSE/RESUME` three commands.
 
-For specific commands, please refer to [STOP ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STOP-ROUTINE-LOAD.html) , [PAUSE ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/PAUSE-ROUTINE-LOAD.html), [RESUME ROUTINE LOAD](../../ ../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/RESUME-ROUTINE-LOAD.html) command documentation.
+For specific commands, please refer to [STOP ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STOP-ROUTINE-LOAD.html) , [PAUSE ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/PAUSE-ROUTINE-LOAD.html), [RESUME ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/RESUME-ROUTINE-LOAD.html) command documentation.
 
 ## more help
 
-For more detailed syntax and best practices for ROUTINE LOAD, see [ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-ROUTINE -LOAD.html) command manual.
+For more detailed syntax and best practices for ROUTINE LOAD, see [ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html) command manual.
