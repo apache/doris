@@ -144,7 +144,7 @@ This article is applicable to multi-platform (Win|Mac|Linux) and multi-mode (bar
    > 5. At the same time, if there is a data query, you should be able to see the log that keeps scrolling, and there is a log of execute time is xxx, indicating that the BE has been started successfully and the query is normal.
    > 6. You can also check whether the startup is successful through the following connection: http://be_host:be_http_port/api/health If it returns: {"status": "OK","msg": "To Be Added"}, it means the startup is successful, In other cases, there may be problems.
    >
-   > **Note: If you can't see the startup failure information in be.INFO, maybe you can see it in be.out. **
+   > **Note: If you can't see the startup failure information in be.INFO, maybe you can see it in be.out.**
 
    Register BE to FE (using MySQL-Client, you need to install it yourself)
 
