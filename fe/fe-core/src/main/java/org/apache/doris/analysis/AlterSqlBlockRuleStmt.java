@@ -34,6 +34,8 @@ import java.util.Map;
 
 public class AlterSqlBlockRuleStmt extends DdlStmt {
 
+    public static final Long LONG_NOT_SET = SqlBlockUtil.LONG_MINUS_ONE;
+
     private final String ruleName;
 
     private String sql;
@@ -78,9 +80,9 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
         SqlBlockUtil.checkSqlAndLimitationsSetBoth(sql, sqlHash, partitionNumString, tabletNumString, cardinalityString);
-        this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, 0L, null, CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM + " should be a long");
-        this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, 0L, null, CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM + " should be a long");
-        this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, 0L, null, CreateSqlBlockRuleStmt.SCANNED_CARDINALITY + " should be a long");
+        this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, LONG_NOT_SET, null, CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM + " should be a long");
+        this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, LONG_NOT_SET, null, CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM + " should be a long");
+        this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, LONG_NOT_SET, null, CreateSqlBlockRuleStmt.SCANNED_CARDINALITY + " should be a long");
         // allow null, represents no modification
         String globalStr = properties.get(CreateSqlBlockRuleStmt.GLOBAL_PROPERTY);
         this.global = StringUtils.isNotEmpty(globalStr) ? Boolean.parseBoolean(globalStr) : null;

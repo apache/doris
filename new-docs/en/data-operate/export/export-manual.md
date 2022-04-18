@@ -95,6 +95,11 @@ Among them, `c69fcf2b6db5420f-a96b94c1ff8bccef` is the query ID of the query pla
 
 When all data is exported, Doris will rename these files to the user-specified path.
 
+### Broker parameter
+
+Export needs to use the Broker process to access remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../advanced/broker.html)
+
+
 ## Start Export
 
 For detailed usage of Export, please refer to [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html).

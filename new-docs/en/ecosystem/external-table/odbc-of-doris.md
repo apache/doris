@@ -329,7 +329,7 @@ There are different data types among different databases. Here, the types in eac
 
 Sync for small amounts of data
 
-For example, a table in Mysql has 1 million data. If you want to synchronize to doris, you can use ODBC to map the data. When using[insert into](http://localhost:8080/zh-CN/data-operate/import/import-way/insert-into-manual.html)way to synchronize data to Doris, if you want to synchronize large batches of data,Can be used in batches[insert into](http://localhost:8080/zh-CN/data-operate/import/import-way/insert-into-manual.html)Sync (deprecated)
+For example, a table in Mysql has 1 million data. If you want to synchronize to doris, you can use ODBC to map the data. When using[insert into](../../data-operate/import/import-way/insert-into-manual.html)way to synchronize data to Doris, if you want to synchronize large batches of data,Can be used in batches[insert into](../../data-operate/import/import-way/insert-into-manual.html)Sync (deprecated)
 
 ## Q&A
 

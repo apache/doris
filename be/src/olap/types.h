@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TYPES_H
-#define DORIS_BE_SRC_OLAP_TYPES_H
+#pragma once
 
 #include <math.h>
 #include <stdio.h>
@@ -1282,4 +1281,3 @@ inline const TypeInfo* get_collection_type_info<OLAP_FIELD_TYPE_ARRAY>() {
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_TYPES_H

@@ -35,7 +35,7 @@ INSERT 语句的使用方式和 MySQL 等数据库中 INSERT 语句的使用方�
 * INSERT INTO table VALUES(...)
 ```
 
-这里我们仅介绍第二种方式。关于 INSERT 命令的详细说明，请参阅 [INSERT]() 命令文档。
+这里我们仅介绍第二种方式。关于 INSERT 命令的详细说明，请参阅 [INSERT](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令文档。
 
 ## 单次写入
 
@@ -160,4 +160,4 @@ public class DorisJDBCDemo {
 
    前面提到，我们建议在使用 INSERT 导入数据时，采用 ”批“ 的方式进行导入，而不是单条插入。
 
-   同时，我们可以为每次 INSERT 操作设置一个 Label。通过 [Label 机制](./load-atomicity.html#label-机制) 可以保证操作的幂等性和原子性，最终做到数据的不丢不重。关于 INSERT 中 Label 的具体用法，可以参阅 [INSERT](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html#insert) 文档。
+   同时，我们可以为每次 INSERT 操作设置一个 Label。通过 [Label 机制](./load-atomicity.html#label-机制) 可以保证操作的幂等性和原子性，最终做到数据的不丢不重。关于 INSERT 中 Label 的具体用法，可以参阅 [INSERT](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 文档。

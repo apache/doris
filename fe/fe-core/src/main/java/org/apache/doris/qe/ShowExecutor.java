@@ -1422,7 +1422,7 @@ public class ShowExecutor {
                 }
                 dbName = db.getFullName();
                 Table table = db.getTableNullable(tableId);
-                if (table == null || !(table instanceof OlapTable)) {
+                if (!(table instanceof OlapTable)) {
                     isSync = false;
                     break;
                 }

@@ -63,10 +63,10 @@ under the License.
 2. 下载二进制包/自主编译 FE / BE 文件
 
    ```shell
-   wget https://doris.apache.org/apache-doris-release/要部署的版本
+   wget https://dist.apache.org/repos/dist/dev/incubator/doris/要部署的版本
    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/要部署的版本
    # 例如如下链接
-   wget https://doris.apache.org/release/doris-1.0.0.tar.gz
+   wget https://dist.apache.org/repos/dist/dev/incubator/doris/1.0/1.0.0-rc03/apache-doris-1.0.0-incubating-bin.tar.gz
    wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/PALO-1.0.0-preview2-no-avx2-binary.tar.gz
    ```
 
@@ -75,7 +75,7 @@ under the License.
    ```shell
    tar -zxvf 下载好的二进制压缩包
    # 例如
-   tar -zxvf PALO-1.0.0-preview2-no-avx2-binary.tar.gz
+   tar -zxvf apache-doris-1.0.0-incubating-bin.tar.gz
    ```
 
 4. 迁移解压缩后的程序文件至指定目录并重命名
@@ -84,7 +84,7 @@ under the License.
    mv 解压后的根目录 目标路径
    cd 目标路径
    # 例如
-   mv PALO-1.0.0-preview2-no-avx2-binary /opt/doris
+   mv apache-doris-1.0.0-incubating-bin /opt/doris
    cd /opt/doris
    ```
 
@@ -226,7 +226,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
 - 执行 SQL 语句后，可在 FE 的 WEB-UI 界面查看对应的 SQL 语句执行 Report 信息
 
-如需获取完整的参数对照表，请至 [Profile 参数解析](https://doris.apache.org/zh-CN/administrator-guide/running-profile.html#profile%E5%8F%82%E6%95%B0%E8%A7%A3%E6%9E%90 ) 查看详情
+如需获取完整的参数对照表，请至 [Profile 参数解析](../admin-manual/query-profile.html) 查看详情
 
 #### 库表操作
 
@@ -242,7 +242,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
   CREATE DATABASE 数据库名;
   ```
 
-  > 关于 Create-DataBase 使用的更多详细语法及最佳实践，请参阅 [Create-DataBase](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-DATABASE.html) 命令手册。
+  > 关于 Create-DataBase 使用的更多详细语法及最佳实践，请参阅 [Create-DataBase](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-DATABASE.html) 命令手册。
   >
   > 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入 'HELP CREATE'，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
 
@@ -263,7 +263,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
 - 创建数据表
 
-  > 关于 Create-Table 使用的更多详细语法及最佳实践，请参阅 [Create-Table](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册。
+  > 关于 Create-Table 使用的更多详细语法及最佳实践，请参阅 [Create-Table](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册。
 
   使用 `CREATE TABLE` 命令建立一个表(Table)。更多详细参数可以查看:
 
@@ -277,7 +277,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
   USE example_db;
   ```
 
-  Doris 支持支持单分区和复合分区两种建表方式（详细区别请参阅 [Create-Table](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册） 。
+  Doris 支持支持单分区和复合分区两种建表方式（详细区别请参阅 [Create-Table](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册） 。
 
   下面以聚合模型为例，演示两种分区的建表语句。
 
@@ -402,7 +402,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
 1. Insert Into 插入
 
-   > 关于 Insert 使用的更多详细语法及最佳实践，请参阅 [Insert](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册。
+   > 关于 Insert 使用的更多详细语法及最佳实践，请参阅 [Insert](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册。
 
    Insert Into 语句的使用方式和 MySQL 等数据库中 Insert Into 语句的使用方式类似。但在 Doris 中，所有的数据写入都是一个独立的导入作业。所以这里将 Insert Into 也作为一种导入方式介绍。
 
@@ -452,7 +452,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
          - 如果 `status` 为 `visible`，表示数据导入成功。
       - 如果 `warnings` 大于 0，表示有数据被过滤，可以通过 `show load` 语句获取 url 查看被过滤的行。
 
-   更多详细说明，请参阅 [Insert](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册。
+   更多详细说明，请参阅 [Insert](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册。
 
 2. 批量导入
 
@@ -460,7 +460,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
    - Stream-Load
 
-     > 关于 Stream-Load 使用的更多详细语法及最佳实践，请参阅 [Stream-Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令手册。
+     > 关于 Stream-Load 使用的更多详细语法及最佳实践，请参阅 [Stream-Load](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令手册。
 
      流式导入通过 HTTP 协议向 Doris 传输数据，可以不依赖其他系统或组件直接导入本地数据。详细语法帮助可以参阅 `HELP STREAM LOAD;`。
 
@@ -509,7 +509,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
      Broker 导入通过部署的 Broker 进程，读取外部存储上的数据进行导入。
 
-     > 关于 Broker Load 使用的更多详细语法及最佳实践，请参阅 [Broker Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BROKER LOAD` 获取更多帮助信息。
+     > 关于 Broker Load 使用的更多详细语法及最佳实践，请参阅 [Broker Load](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BROKER LOAD` 获取更多帮助信息。
 
      示例：以 "table1_20170708" 为 Label，将 HDFS 上的文件导入 table1 表
 
@@ -601,7 +601,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
 #### 更新数据
 
-> 关于 Update 使用的更多详细语法及最佳实践，请参阅 [Update](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/UPDATE.html) 命令手册。
+> 关于 Update 使用的更多详细语法及最佳实践，请参阅 [Update](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/UPDATE.html) 命令手册。
 
 当前 UPDATE 语句**仅支持**在 Unique 模型上的行更新，存在并发更新导致的数据冲突可能。 目前 Doris 并不处理这类问题，需要用户从业务侧规避这类问题。
 
@@ -634,56 +634,71 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
    1. 将 'test' 表中满足条件 k1 =1 , k2 =2 的 v1 列更新为 1
 
-      ```text
+      ```sql
       UPDATE test SET v1 = 1 WHERE k1=1 and k2=2;
       ```
 
    2. 将 'test' 表中 k1=1 的列的 v1 列自增1
 
-      ```text
+      ```sql
       UPDATE test SET v1 = v1+1 WHERE k1=1;
       ```
 
 #### 删除数据
 
-> 关于 Delete 使用的更多详细语法及最佳实践，请参阅 [Delete](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/DELETE.html) 命令手册。
+> 关于 Delete 使用的更多详细语法及最佳实践，请参阅 [Delete](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/DELETE.html) 命令手册。
 
 1. 语法规则
 
-   ```mysql
    该语句用于按条件删除指定 table（base index） partition 中的数据。
+
    该操作会同时删除和此 base index 相关的 rollup index 的数据。
    语法：
-       DELETE FROM table_name [PARTITION partition_name | PARTITIONS (p1, p2)]
-       WHERE
-       column_name1 op { value | value_list } [ AND column_name2 op { value | value_list } ...];
-       
-   说明：
-       1) op 的可选类型包括：=, >, <, >=, <=, !=, in, not in
-       2) 只能指定 key 列上的条件。
-       2) 当选定的 key 列不存在于某个 rollup 中时，无法进行 delete。
-       3) 条件之间只能是“与”的关系。
-          若希望达成“或”的关系，需要将条件分写在两个 DELETE 语句中。
-       4) 如果为分区表，可以指定分区，如不指定，且会话变量 delete_without_partition 为 true，则会应用到所有分区。如果是单分区表，可以不指定。
-          
-   注意：
-       该语句可能会降低执行后一段时间内的查询效率。
-       影响程度取决于语句中指定的删除条件的数量。
-       指定的条件越多，影响越大。
+
+   ```sql
+   DELETE FROM table_name [PARTITION partition_name | PARTITIONS (p1, p2)]
+   WHERE
+   column_name1 op { value | value_list } [ AND column_name2 op { value | value_list } ...];
    ```
+
+   说明：
+
+   - op 的可选类型包括：=, >, <, >=, <=, !=, in, not in
+
+   - 只能指定 key 列上的条件。
+
+   - 当选定的 key 列不存在于某个 rollup 中时，无法进行 delete。
+
+   - 条件之间只能是“与”的关系。
+
+     若希望达成“或”的关系，需要将条件分写在两个 DELETE 语句中。
+
+   - 如果为分区表，可以指定分区，如不指定，且会话变量 delete_without_partition 为 true，则会应用到所有分区。如果是单分区表，可以不指定。
+
+   注意：
+
+   - 该语句可能会降低执行后一段时间内的查询效率。
+   - 影响程度取决于语句中指定的删除条件的数量。
+   - 指定的条件越多，影响越大。
 
 2. 示例
 
-   ```mysql
    1. 删除 my_table partition p1 中 k1 列值为 3 的数据行
-       DELETE FROM my_table PARTITION p1
-       WHERE k1 = 3;
-       
+   
+      ```sql
+      DELETE FROM my_table PARTITION p1 WHERE k1 = 3;
+      ```
+   
    2. 删除 my_table partition p1 中 k1 列值大于等于 3 且 k2 列值为 "abc" 的数据行
-       DELETE FROM my_table PARTITION p1
-       WHERE k1 >= 3 AND k2 = "abc";
+   
+      ```sql
+      DELETE FROM my_table PARTITION p1 WHERE k1 >= 3 AND k2 = "abc";
+      ```
    
    3. 删除 my_table partition p1, p2 中 k1 列值大于等于 3 且 k2 列值为 "abc" 的数据行
-       DELETE FROM my_table PARTITIONS (p1, p2)
-       WHERE k1 >= 3 AND k2 = "abc";
-   ```
+   
+      ```sql
+      DELETE FROM my_table PARTITIONS (p1, p2)  WHERE k1 >= 3 AND k2 = "abc";
+      ```
+   
+      

@@ -15,30 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.common;
 
-#include <gen_cpp/column_data_file.pb.h>
-
-namespace doris {
-
-// 定义流的名字，是流的唯一标识符
-// 实现比较函数，将流在文件中的顺序进行约定：
-// 1. 首先排列Index流：Index流按Column unique Id排序
-// 2. 再排列非Index流：首先按照column unique id，再按kind排序
-class StreamName {
-public:
-    StreamName(uint32_t unique_column_id, StreamInfoMessage::Kind kind);
-
-    uint32_t unique_column_id() const { return _unique_column_id; }
-    StreamInfoMessage::Kind kind() const { return _kind; }
-
-    bool operator<(const StreamName& another) const;
-    bool operator==(const StreamName& another) const;
-
-private:
-    uint32_t _unique_column_id;
-    StreamInfoMessage::Kind _kind;
-};
-
-} // namespace doris
-
+public class VecNotImplException extends UserException {
+    public VecNotImplException(String msg) {
+        super(msg);
+    }
+}

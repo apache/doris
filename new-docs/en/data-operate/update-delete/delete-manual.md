@@ -42,7 +42,7 @@ The delete command is an SQL command, and the returned results are synchronous. 
 
    If delete completes successfully and is visible, the following results will be returned, `query OK` indicates success.
 
-   ```
+   ```sql
    mysql> delete from test_tbl PARTITION p1 where k1 = 1;
     Query OK, 0 rows affected (0.04 sec)
     {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005'}
@@ -50,28 +50,25 @@ The delete command is an SQL command, and the returned results are synchronous. 
 
 2. Submitted successfully, but not visible
 
+   The transaction submission of Doris is divided into two steps: submission and publish version. Only after the publish version step is completed, the result will be visible to the user. If it has been submitted successfully, then it can be considered that the publish version step will eventually success. Doris will try to wait for publishing for a period of time after submitting. If it has timed out, even if the publishing version has not been completed, it will return to the user in priority and prompt the user that the submission has been completed but not visible. If delete has been committed and executed, but has not been published and visible, the following results will be returned.
 
-~~~text
-The transaction submission of Doris is divided into two steps: submission and publish version. Only after the publish version step is completed, the result will be visible to the user. If it has been submitted successfully, then it can be considered that the publish version step will eventually success. Doris will try to wait for publishing for a period of time after submitting. If it has timed out, even if the publishing version has not been completed, it will return to the user in priority and prompt the user that the submission has been completed but not visible. If delete has been committed and executed, but has not been published and visible, the following results will be returned.
+   ```sql
+   mysql> delete from test_tbl PARTITION p1 where k1 = 1;
+   Query OK, 0 rows affected (0.04 sec)
+   {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'COMMITTED', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
+   ```
 
-```
-mysql> delete from test_tbl PARTITION p1 where k1 = 1;
-Query OK, 0 rows affected (0.04 sec)
-{'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'COMMITTED', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
-```
+    The result will return a JSON string at the same time:
 
- The result will return a JSON string at the same time:
+   `affected rows`: Indicates the row affected by this deletion. Since the deletion of Doris is currently a logical deletion, the value is always 0.
 
-`affected rows`: Indicates the row affected by this deletion. Since the deletion of Doris is currently a logical deletion, the value is always 0.
+   `label`: The label generated automatically to be the signature of the delete jobs. Each job has a unique label within a single database.
 
-`label`: The label generated automatically to be the signature of the delete jobs. Each job has a unique label within a single database.
+   `status`: Indicates whether the data deletion is visible. If it is visible, `visible` will be displayed. If it is not visible, `committed` will be displayed.
 
-`status`: Indicates whether the data deletion is visible. If it is visible, `visible` will be displayed. If it is not visible, `committed` will be displayed.
+   `txnId`: The transaction ID corresponding to the delete job
 
-`txnId`: The transaction ID corresponding to the delete job
-
-`err`: Field will display some details of this deletion
-~~~
+   `err`: Field will display some details of this deletion
 
 3. Commit failed, transaction cancelled
 
@@ -138,7 +135,7 @@ The user can view the deletion completed in history through the show delete stat
 
 Syntax
 
-```
+```sql
 SHOW DELETE [FROM db_name]
 ```
 

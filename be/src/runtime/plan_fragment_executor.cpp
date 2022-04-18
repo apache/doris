@@ -21,7 +21,6 @@
 
 #include <unordered_map>
 
-#include "common/object_pool.h"
 #include "exec/data_sink.h"
 #include "exec/exchange_node.h"
 #include "exec/exec_node.h"
@@ -36,7 +35,6 @@
 #include "runtime/row_batch.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
-#include "util/cpu_info.h"
 #include "util/logging.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
