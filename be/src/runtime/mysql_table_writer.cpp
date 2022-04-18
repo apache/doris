@@ -21,7 +21,6 @@
 
 #include <sstream>
 
-#include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"

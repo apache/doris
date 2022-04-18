@@ -21,7 +21,6 @@
 
 #include <vector>
 
-#include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "olap/utils.h"
 #include "runtime/primitive_type.h"
