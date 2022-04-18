@@ -39,13 +39,17 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
+import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.task.AlterReplicaTask;
+import org.apache.doris.task.StorageMediaMigrationV2Task;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -407,4 +411,49 @@ public class MigrationHandler extends AlterHandler {
         }
         super.replayAlterJobV2(alterJob);
     }
+
+    public void handleFinishAlterTask(StorageMediaMigrationV2Task task) throws MetaNotFoundException {
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(task.getDbId());
+
+        OlapTable tbl = db.getTableOrMetaException(task.getTableId(), Table.TableType.OLAP);
+        tbl.writeLockOrMetaException();
+        try {
+            Partition partition = tbl.getPartition(task.getPartitionId());
+            if (partition == null) {
+                throw new MetaNotFoundException("partition " + task.getPartitionId() + " does not exist");
+            }
+            MaterializedIndex index = partition.getIndex(task.getIndexId());
+            if (index == null) {
+                throw new MetaNotFoundException("index " + task.getIndexId() + " does not exist");
+            }
+            Tablet tablet = index.getTablet(task.getTabletId());
+            Preconditions.checkNotNull(tablet, task.getTabletId());
+            Replica replica = tablet.getReplicaById(task.getNewReplicaId());
+            if (replica == null) {
+                throw new MetaNotFoundException("replica " + task.getNewReplicaId() + " does not exist");
+            }
+
+            LOG.info("before handle alter task tablet {}, replica: {}, task version: {}",
+                    task.getSignature(), replica, task.getVersion());
+            boolean versionChanged = false;
+            if (replica.getVersion() < task.getVersion()) {
+                replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRowCount());
+                versionChanged = true;
+            }
+
+            if (versionChanged) {
+                ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
+                        task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
+                        replica.getId(), replica.getVersion(), -1,
+                        replica.getDataSize(), replica.getRowCount(),
+                        replica.getLastFailedVersion(), replica.getLastSuccessVersion());
+                Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
+            }
+
+            LOG.info("after handle migration task tablet: {}, replica: {}", task.getSignature(), replica);
+        } finally {
+            tbl.writeUnlock();
+        }
+    }
+
 }

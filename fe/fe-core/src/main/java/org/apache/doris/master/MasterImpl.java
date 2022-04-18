@@ -48,6 +48,7 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
+import org.apache.doris.task.StorageMediaMigrationV2Task;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TBackend;
@@ -203,6 +204,9 @@ public class MasterImpl {
                     break;
                 case UPDATE_TABLET_META_INFO:
                     finishUpdateTabletMeta(task, request);
+                    break;
+                case STORAGE_MEDIUM_MIGRATE_V2:
+                    finishMigrationV2Task(task);
                     break;
                 default:
                     break;
@@ -781,4 +785,16 @@ public class MasterImpl {
         }
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
     }
+
+    private void finishMigrationV2Task(AgentTask task) {
+        StorageMediaMigrationV2Task migrationV2Task = (StorageMediaMigrationV2Task) task;
+        try {
+            Catalog.getCurrentCatalog().getMigrationHandler().handleFinishAlterTask(migrationV2Task);
+            migrationV2Task.setFinished(true);
+        } catch (MetaNotFoundException e) {
+            LOG.warn("failed to handle finish alter task: {}, {}", task.getSignature(), e.getMessage());
+        }
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.STORAGE_MEDIUM_MIGRATE_V2, task.getSignature());
+    }
+
 }
