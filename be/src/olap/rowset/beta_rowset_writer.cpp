@@ -99,6 +99,72 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     return Status::OK();
 }
 
+Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
+    if (UNLIKELY(_segment_writer == nullptr)) {
+        RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
+    }
+    size_t block_size_in_bytes = block->bytes();
+    size_t block_row_num = block->rows();
+    if (UNLIKELY(block_row_num == 0)) {
+        return Status::OK();
+    }
+    size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
+    size_t row_offset = 0;
+    int64_t segment_capacity_in_bytes = 0;
+    int64_t segment_capacity_in_rows = 0;
+    auto refresh_segment_capacity = [&]() {
+        segment_capacity_in_bytes =
+                (int64_t)MAX_SEGMENT_SIZE - (int64_t)_segment_writer->estimate_segment_size();
+        segment_capacity_in_rows = (int64_t)_context.max_rows_per_segment -
+                                   (int64_t)_segment_writer->num_rows_written();
+    };
+
+    refresh_segment_capacity();
+    if (UNLIKELY(segment_capacity_in_bytes <= 0 || segment_capacity_in_rows <= 0)) {
+        // no space for another single row, need flush now
+        RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
+        RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
+        refresh_segment_capacity();
+    }
+
+    if (block_size_in_bytes > segment_capacity_in_bytes ||
+        block_row_num > segment_capacity_in_rows) {
+        size_t segment_max_row_num;
+        size_t input_row_num;
+        do {
+            assert(row_offset < block_row_num);
+            segment_max_row_num =
+                    std::max(std::min((size_t)segment_capacity_in_bytes / row_avg_size_in_bytes,
+                             (size_t)segment_capacity_in_rows), (size_t)1);
+            input_row_num = std::min(segment_max_row_num, block_row_num - row_offset);
+            assert(input_row_num > 0);
+            auto s = _segment_writer->append_block(block, row_offset, input_row_num);
+            if (UNLIKELY(!s.ok())) {
+                LOG(WARNING) << "failed to append block: " << s.to_string();
+                return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
+            }
+
+            refresh_segment_capacity();
+            if (LIKELY(segment_capacity_in_bytes <= 0 || segment_capacity_in_rows <= 0)) {
+                RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
+                RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
+                refresh_segment_capacity();
+            }
+            row_offset += input_row_num;
+            _num_rows_written += input_row_num;
+        } while (row_offset < block_row_num);
+    } else {
+        auto s = _segment_writer->append_block(block, 0, block_row_num);
+        if (UNLIKELY(!s.ok())) {
+            LOG(WARNING) << "failed to append block: " << s.to_string();
+            return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
+        }
+        refresh_segment_capacity();
+        _num_rows_written += block_row_num;
+    }
+    return Status::OK();
+}
+
 template <typename RowType>
 Status BetaRowsetWriter::_add_row(const RowType& row) {
     if (PREDICT_FALSE(_segment_writer == nullptr)) {

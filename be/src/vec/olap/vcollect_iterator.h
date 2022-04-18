@@ -161,7 +161,9 @@ private:
 
         Status _normal_next(IteratorRowRef* ref);
 
-        Status _normal_next(Block* block);
+        inline Status _normal_next(Block* block);
+
+        inline Status _merge_next(Block* block);
 
         // Each LevelIterator corresponds to a rowset reader,
         // it will be cleared after '_heap' has been initialized when '_merge == true'.
@@ -181,6 +183,9 @@ private:
         bool _skip_same;
         // used when `_merge == true`
         std::unique_ptr<MergeHeap> _heap;
+
+        // batch size, get from TabletReader
+        int _batch_size; 
     };
 
     std::unique_ptr<LevelIterator> _inner_iter;
