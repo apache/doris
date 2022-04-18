@@ -28,7 +28,6 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
-#include "util/uid_util.h"
 
 namespace doris {
 

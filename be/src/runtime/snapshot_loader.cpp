@@ -21,8 +21,6 @@
 
 #include "common/logging.h"
 #include "env/env.h"
-#include "exec/broker_reader.h"
-#include "exec/broker_writer.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"

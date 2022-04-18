@@ -21,7 +21,6 @@
 
 #include "exprs/expr.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/mysql_table_sink.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"

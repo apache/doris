@@ -21,8 +21,6 @@
 
 #include "common/logging.h"
 #include "common/utils.h"
-#include "exprs/anyval_util.h"
-#include "exprs/literal.h"
 #include "runtime/descriptors.h"
 #include "util//mem_util.hpp"
 

@@ -20,7 +20,6 @@
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
-// #include "util/collection_metrics.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
 

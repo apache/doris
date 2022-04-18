@@ -19,11 +19,9 @@
 
 #include "exec/broker_writer.h"
 #include "exec/hdfs_reader_writer.h"
-#include "exec/hdfs_writer.h"
 #include "exec/local_file_writer.h"
 #include "exec/parquet_writer.h"
 #include "exec/s3_writer.h"
-#include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "runtime/buffer_control_block.h"

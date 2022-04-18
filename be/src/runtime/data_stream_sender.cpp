@@ -18,12 +18,10 @@
 #include "runtime/data_stream_sender.h"
 
 #include <arpa/inet.h>
-#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <iostream>
 #include <random>
-#include <thread>
 
 #include "common/config.h"
 #include "common/logging.h"

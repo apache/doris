@@ -26,7 +26,6 @@
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
 #include "http/action/mini_load.h"
-#include "http/action/monitor_action.h"
 #include "http/action/pprof_actions.h"
 #include "http/action/reload_tablet_action.h"
 #include "http/action/reset_rpc_channel_action.h"

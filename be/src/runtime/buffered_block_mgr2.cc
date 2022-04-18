@@ -19,7 +19,6 @@
 
 #include "exec/exec_node.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tmp_file_mgr.h"
@@ -27,7 +26,6 @@
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/doris_metrics.h"
-#include "util/filesystem_util.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/stack_util.h"
