@@ -26,14 +26,13 @@ namespace doris {
 
 S3ReadStream::S3ReadStream(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket,
                            std::string key, size_t offset, size_t read_until_position,
-                           size_t buffer_size, int max_single_read_retries)
+                           size_t buffer_size)
         : _client(std::move(client)),
           _bucket(std::move(bucket)),
           _key(std::move(key)),
           _offset(offset),
           _read_until_position(read_until_position),
-          _buffer_size(buffer_size),
-          _max_single_read_retries(max_single_read_retries) {
+          _buffer_size(buffer_size) {
     _buffer = buffer_size ? new char[buffer_size] : nullptr;
 }
 
@@ -49,14 +48,10 @@ Status S3ReadStream::read_retry(char* to, size_t req_n, size_t* read_n) {
     req.SetRange(fmt::format("bytes={}-{}", _offset, _offset + req_n - 1));
     req.SetResponseStreamFactory(AwsWriteableStreamFactory(to, req_n));
 
-    Aws::S3::Model::GetObjectOutcome outcome;
-    for (int attempt = 0; attempt < _max_single_read_retries; ++attempt) {
-        outcome = _client->GetObject(req);
-        if (outcome.IsSuccess()) {
-            *read_n = outcome.GetResult().GetContentLength();
-            return Status::OK();
-        }
-        // TODO(cyx): sleepForMilliseconds backoff
+    auto outcome = _client->GetObject(req);
+    if (outcome.IsSuccess()) {
+        *read_n = outcome.GetResult().GetContentLength();
+        return Status::OK();
     }
     return Status::IOError(outcome.GetError().GetMessage());
 }

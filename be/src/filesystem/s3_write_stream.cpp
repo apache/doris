@@ -50,7 +50,6 @@ Status S3WriteStream::create_multipart_upload() {
     // If we don't do it, AWS SDK can mistakenly set it to application/xml, see https://github.com/aws/aws-sdk-cpp/issues/1840
     req.SetContentType("binary/octet-stream");
 
-    // TODO(cyx): retry
     auto outcome = _client->CreateMultipartUpload(req);
     if (outcome.IsSuccess()) {
         _upload_id = outcome.GetResult().GetUploadId();
@@ -72,7 +71,6 @@ Status S3WriteStream::complete_multipart_upload() {
     }
     req.SetMultipartUpload(std::move(completed_upload));
 
-    // TODO(cyx): retry
     auto outcome = _client->CompleteMultipartUpload(req);
     if (outcome.IsSuccess()) {
         return Status::OK();
@@ -95,7 +93,6 @@ Status S3WriteStream::upload_part(const char* from, size_t put_n) {
 
     req.SetBody(std::make_shared<StringViewStream>(from, put_n));
 
-    // TODO(cyx): retry
     auto outcome = _client->UploadPart(req);
     if (outcome.IsSuccess()) {
         _part_tags.push_back(outcome.GetResult().GetETag());
@@ -114,7 +111,6 @@ Status S3WriteStream::upload_object() {
     // If we don't do it, AWS SDK can mistakenly set it to application/xml, see https://github.com/aws/aws-sdk-cpp/issues/1840
     req.SetContentType("binary/octet-stream");
 
-    // TODO(cyx): retry
     auto outcome = _client->PutObject(req);
     if (outcome.IsSuccess()) {
         return Status::OK();
@@ -123,11 +119,15 @@ Status S3WriteStream::upload_object() {
 }
 
 Status S3WriteStream::write(const char* from, size_t put_n) {
-    if (_buffer.empty() && put_n > _singlepart_threshold) {
-        if (_upload_id.empty()) {
+    // If buffer is empty and `put_n` > threshold, do not copy data into buffer.
+    if (_buffer.empty()) {
+        if (_upload_id.empty() && put_n > _singlepart_threshold) {
             RETURN_IF_ERROR(create_multipart_upload());
         }
-        RETURN_IF_ERROR(upload_part(from, put_n));
+        if (!_upload_id.empty() && put_n > _part_upload_threshold) {
+            // TODO(cyx): If data amount is too large, we should upload it in parallel.
+            RETURN_IF_ERROR(upload_part(from, put_n));
+        }
     }
     _buffer.append(from, put_n);
     if (_upload_id.empty() && _buffer.size() > _singlepart_threshold) {

@@ -27,6 +27,9 @@ namespace Aws {
 namespace S3 {
 class S3Client;
 } // namespace S3
+namespace Client {
+class RetryStrategy;
+} // namespace Client
 } // namespace Aws
 
 namespace doris {
@@ -45,9 +48,12 @@ public:
 
     static ClientFactory& instance();
 
-    std::shared_ptr<Aws::S3::S3Client> create(const std::map<std::string, std::string>& prop);
+    std::shared_ptr<Aws::S3::S3Client> create(
+            const std::map<std::string, std::string>& prop,
+            std::shared_ptr<Aws::Client::RetryStrategy> retry_strategy = nullptr);
 
     static bool is_s3_conf_valid(const std::map<std::string, std::string>& prop);
+
 private:
     ClientFactory();
 

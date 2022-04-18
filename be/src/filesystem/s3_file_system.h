@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <aws/core/client/RetryStrategy.h>
+
 #include <memory>
 
 #include "filesystem/file_system.h"
@@ -30,7 +32,8 @@ namespace doris {
 class S3FileSystem final : public FileSystem {
 public:
     S3FileSystem(std::string root_path, std::string bucket,
-                 const std::map<std::string, std::string>& properties);
+                 const std::map<std::string, std::string>& properties,
+                 std::shared_ptr<Aws::Client::RetryStrategy> retry_strategy = nullptr);
     ~S3FileSystem() override;
 
     Status exists(const std::string& path, bool* res) const override;

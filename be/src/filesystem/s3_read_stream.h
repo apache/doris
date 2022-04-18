@@ -32,8 +32,7 @@ namespace doris {
 class S3ReadStream final : public ReadStream {
 public:
     S3ReadStream(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket, std::string key,
-                 size_t offset, size_t read_until_position, size_t buffer_size,
-                 int max_single_read_retries);
+                 size_t offset, size_t read_until_position, size_t buffer_size);
     ~S3ReadStream() override;
 
     Status read(char* to, size_t req_n, size_t* read_n) override;
@@ -64,8 +63,6 @@ private:
     size_t _buffer_begin = 0;
     // Buffered end offset relative to file.
     size_t _buffer_end = 0;
-
-    int _max_single_read_retries;
 };
 
 } // namespace doris

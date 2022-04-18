@@ -30,10 +30,11 @@ namespace fs = std::filesystem;
 namespace doris {
 
 S3FileSystem::S3FileSystem(std::string root_path, std::string bucket,
-                           const std::map<std::string, std::string>& properties)
+                           const std::map<std::string, std::string>& properties,
+                           std::shared_ptr<Aws::Client::RetryStrategy> retry_strategy)
         : _root_path(std::move(root_path)),
           _bucket(std::move(bucket)),
-          _client(ClientFactory::instance().create(properties)) {}
+          _client(ClientFactory::instance().create(properties, std::move(retry_strategy))) {}
 
 S3FileSystem::~S3FileSystem() = default;
 
