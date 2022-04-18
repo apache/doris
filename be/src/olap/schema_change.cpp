@@ -1750,7 +1750,7 @@ SCHEMA_VERSION_CONVERT_ERR:
     return res;
 }
 
-    Status SchemaChangeHandler::_get_versions_to_be_changed(
+Status SchemaChangeHandler::_get_versions_to_be_changed(
         TabletSharedPtr base_tablet, std::vector<Version>* versions_to_be_changed, RowsetSharedPtr* max_rowset) {
     RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
     if (rowset == nullptr) {
