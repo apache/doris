@@ -15,6 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_functions", "query") {
+suite("test_st_astext", "query") {
     qt_select "SELECT ST_AsText(ST_Point(24.7, 56.7))"
 }

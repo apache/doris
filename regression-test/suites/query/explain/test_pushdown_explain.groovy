@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_explain", "query") {
+suite("test_pushdown_explain", "query") {
     sql "use test_query_db"
     
     explain {

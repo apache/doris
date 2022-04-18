@@ -15,6 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_functions", "query") {
+suite("test_approx_count_distinct", "query") {
     qt_select "select approx_count_distinct(k1) from test_query_db.baseall"
 }

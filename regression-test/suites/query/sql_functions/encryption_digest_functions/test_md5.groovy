@@ -15,6 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_sql_functions", "query") {
+suite("test_md5", "query") {
     qt_select "select md5(k6) from test_query_db.test order by k6"
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_bloom_filter", "bloom_filter") {
+suite("test_create_table_with_bloom_filter", "bloom_filter") {
     sql """DROP TABLE IF EXISTS test_bloom_filter"""
     sql """
         CREATE TABLE test_bloom_filter( 

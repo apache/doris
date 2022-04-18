@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("backup_restore") {
+suite("test_backup_restore", "backup_restore") {
     // todo: test repository/backup/restore/cancel backup ...
     sql "SHOW REPOSITORIES"
 }

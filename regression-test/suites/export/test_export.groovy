@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_export") {
+suite("test_export", "export") {
     // todo: test export, select into outfile
     sql "show export"
 }

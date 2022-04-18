@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("p0") {
+suite("test_string_basic", "datatype") {
     sql "drop table if exists fail_tb1"
     // first column could not be string
     test {
