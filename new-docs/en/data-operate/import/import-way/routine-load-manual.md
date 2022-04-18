@@ -232,7 +232,7 @@ Accessing the SSL-certified Kafka cluster requires the user to provide a certifi
 
 ### Viewing the status of the load job
 
-Specific commands and examples for viewing the status of the ** job** can be viewed with the `HELP SHOW ROUTINE LOAD;` command.
+Specific commands and examples for viewing the status of the **job** can be viewed with the `HELP SHOW ROUTINE LOAD;` command.
 
 Specific commands and examples for viewing the **Task** status can be viewed with the `HELP SHOW ROUTINE LOAD TASK;` command.
 

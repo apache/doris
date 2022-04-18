@@ -332,7 +332,7 @@ It is also possible to use only one layer of partitioning. When using a layer pa
     * Once the number of Buckets for a Partition is specified, it cannot be changed. Therefore, when determining the number of Buckets, you need to consider the expansion of the cluster in advance. For example, there are currently only 3 hosts, and each host has 1 disk. If the number of Buckets is only set to 3 or less, then even if you add more machines later, you can't increase the concurrency.
     * Give some examples: Suppose there are 10 BEs, one for each BE disk. If the total size of a table is 500MB, you can consider 4-8 shards. 5GB: 8-16. 50GB: 32. 500GB: Recommended partitions, each partition is about 50GB in size, with 16-32 shards per partition. 5TB: Recommended partitions, each with a size of around 50GB and 16-32 shards per partition.
     
-    > Note: The amount of data in the table can be viewed by the `[show data](../sql-manual/sql-reference-v2/Show-Statements/SHOW-DATA.html)` command. The result is divided by the number of copies, which is the amount of data in the table.
+    > Note: The amount of data in the table can be viewed by the [show data](../sql-manual/sql-reference-v2/Show-Statements/SHOW-DATA.html) command. The result is divided by the number of copies, which is the amount of data in the table.
     
 
 #### Compound Partitions vs Single Partitions
@@ -352,7 +352,7 @@ The user can also use a single partition without using composite partitions. The
 
 ### PROPERTIES
 
-In the last PROPERTIES of the table building statement, for the relevant parameters that can be set in PROPERTIES, we can check [CREATE TABLE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE .html) for a detailed introduction.
+In the last PROPERTIES of the table building statement, for the relevant parameters that can be set in PROPERTIES, we can check [CREATE TABLE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) for a detailed introduction.
 
 ### ENGINE
 
