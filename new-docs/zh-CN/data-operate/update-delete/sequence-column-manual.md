@@ -78,7 +78,7 @@ sequence_type用来指定sequence列的类型，可以为整型和时间类型�
 
 stream load 的写法是在header中的`function_column.sequence_col`字段添加隐藏列对应的source_sequence的映射， 示例
 
-```text
+```bash
 curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/_stream_load
 ```
 
@@ -86,7 +86,7 @@ curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "fu
 
 在`ORDER BY` 处设置隐藏列映射的source_sequence字段
 
-```text
+```sql
 LOAD LABEL db1.label1
 (
     DATA INFILE("hdfs://host:port/user/data/*/test.txt")
@@ -110,7 +110,7 @@ PROPERTIES
 
 映射方式同上，示例如下
 
-```text
+```sql
    CREATE ROUTINE LOAD example_db.test1 ON example_tbl 
     [WITH MERGE|APPEND|DELETE]
     COLUMNS(k1, k2, source_sequence, v1, v2),
@@ -145,7 +145,7 @@ PROPERTIES
 
 表结构如下：
 
-```text
+```sql
 MySQL > desc test_table;
 +-------------+--------------+------+-------+---------+---------+
 | Field       | Type         | Null | Key   | Default | Extra   |
@@ -173,13 +173,13 @@ MySQL > desc test_table;
 
 此处以stream load为例， 将sequence column映射为modify_date列
 
-```text
+```bash
 curl --location-trusted -u root: -H "function_column.sequence_col: modify_date" -T testData http://host:port/api/test/test_table/_stream_load
 ```
 
 结果为
 
-```text
+```sql
 MySQL > select * from test_table;
 +---------+------------+----------+-------------+---------+
 | user_id | date       | group_id | modify_date | keyword |
@@ -201,7 +201,7 @@ MySQL > select * from test_table;
 
 查询数据
 
-```text
+```sql
 MySQL [test]> select * from test_table;
 +---------+------------+----------+-------------+---------+
 | user_id | date       | group_id | modify_date | keyword |
@@ -219,7 +219,7 @@ MySQL [test]> select * from test_table;
 
 查询数据
 
-```text
+```sql
 MySQL [test]> select * from test_table;
 +---------+------------+----------+-------------+---------+
 | user_id | date       | group_id | modify_date | keyword |

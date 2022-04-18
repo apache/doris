@@ -68,7 +68,7 @@ However, in practice, the concurrency limit can be turned on manually if the use
 
 Since Doris currently supports row updates and uses a two-step read-and-write operation, there is uncertainty about the outcome of an Update statement if it modifies the same row as another Import or Delete statement.
 
-Therefore, when using Doris, you must be careful to control the concurrency of Update statements and other DML statements on the *user side itself*.
+Therefore, when using Doris, you must be careful to control the concurrency of Update statements and other DML statements on the **user side itself**.
 
 ## Usage example
 

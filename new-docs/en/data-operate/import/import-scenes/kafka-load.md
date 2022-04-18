@@ -120,7 +120,7 @@ Only the currently running tasks can be viewed, and the completed and unstarted 
 
 ### Modify job properties
 
-The user can modify some properties of the job that has been created. For details, please refer to the [ALTER ROUTINE LOAD]() command manual.
+The user can modify some properties of the job that has been created. For details, please refer to the [ALTER ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/ALTER-ROUTINE-LOAD.html) command manual.
 
 ### Job Control
 

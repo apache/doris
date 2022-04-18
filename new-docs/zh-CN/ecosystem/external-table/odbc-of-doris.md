@@ -70,7 +70,7 @@ PROPERTIES (
 ```
 
 #### 2. 通过ODBC_Resource来创建ODBC外表 (推荐使用的方式)
-```
+```sql
 CREATE EXTERNAL RESOURCE `oracle_odbc`
 PROPERTIES (
 "type" = "odbc_catalog",
@@ -323,7 +323,7 @@ sudo alien -i  oracle-instantclient19.13-sqlplus-19.13.0.0.0-2.x86_64.rpm
 
 适用于少数据量的同步
 
-例如Mysql中一张表有100万数据，想同步到doris，就可以采用ODBC的方式将数据映射过来，在使用[insert into](http://localhost:8080/zh-CN/data-operate/import/import-way/insert-into-manual.html) 方式将数据同步到Doris中，如果想同步大批量数据，可以分批次使用[insert into](http://localhost:8080/zh-CN/data-operate/import/import-way/insert-into-manual.html)同步（不建议使用）
+例如Mysql中一张表有100万数据，想同步到doris，就可以采用ODBC的方式将数据映射过来，在使用[insert into](../../data-operate/import/import-way/insert-into-manual.html) 方式将数据同步到Doris中，如果想同步大批量数据，可以分批次使用[insert into](../../data-operate/import/import-way/insert-into-manual.html)同步（不建议使用）
 
 ## Q&A
 
