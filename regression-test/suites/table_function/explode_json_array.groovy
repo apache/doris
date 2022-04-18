@@ -58,6 +58,10 @@ suite("explode_json_array") {
                         LATERAL VIEW EXPLODE_JSON_ARRAY_DOUBLE('[1.23, 22.214, 214.1]') t2 as d 
                         ORDER BY id, c, d """
 
+    qt_outer_join_explode_json_array """SELECT id, age, e1 FROM (SELECT id, age, e1 FROM (SELECT b.id, a.age FROM 
+                                        ${tableName} a LEFT JOIN ${tableName} b ON a.id=b.age)T LATERAL VIEW EXPLODE_JSON_ARRAY_STRING('[1, "b", 3]')
+                                        TMP AS e1) AS T ORDER BY age, e1"""
+
     // vectorized
     sql """ set enable_vectorized_engine = true """
 
