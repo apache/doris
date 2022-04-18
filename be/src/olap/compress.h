@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_COMPRESS_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_COMPRESS_H
+#pragma once
 
 #include "olap/olap_define.h"
 
@@ -54,4 +53,4 @@ Status lz4_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller
 Status lz4_decompress(StorageByteBuffer* in, StorageByteBuffer* out);
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_COMPRESS_H
+

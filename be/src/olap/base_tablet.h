@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_BASE_TABLET_H
-#define DORIS_BE_SRC_OLAP_BASE_TABLET_H
+#pragma once
 
 #include <memory>
 
@@ -151,4 +150,3 @@ inline const TabletSchema& BaseTablet::tablet_schema() const {
 
 } /* namespace doris */
 
-#endif /* DORIS_BE_SRC_OLAP_BASE_TABLET_H */
