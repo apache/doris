@@ -136,7 +136,7 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 
 ### Add FE
 
-Adding FE processes is described in detail in the [Elastic Expansion Documents](../elastic-expansion.html) and will not be repeated. Here are some points for attention, as well as common problems.
+Adding FE processes is described in detail in the [Elastic Expansion Documents](../../admin-manual/cluster-management/elastic-expansion.html) and will not be repeated. Here are some points for attention, as well as common problems.
 
 1. Notes
 

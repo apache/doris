@@ -228,6 +228,7 @@ FE splits the query plan into fragments and sends them to BE for task execution.
 
 For a complete parameter comparison table, please go to [Profile parameter analysis](../admin-manual/query-profile.html) View Details
 
+
 #### Library table operations
 
 - View database list

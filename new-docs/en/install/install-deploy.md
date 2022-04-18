@@ -158,7 +158,7 @@ BROKER does not currently have, nor does it need, priority\_networks. Broker's s
 
 By default, doris is case-sensitive. If there is a need for case-insensitive table names, you need to set it before cluster initialization. The table name case sensitivity cannot be changed after cluster initialization is completed.
 
-See the section on `lower_case_table_names` variables in [Variables](../administrator-guide/variables.md) for details.
+See the section on `lower_case_table_names` variables in [Variables](../advanced/variables.html#variable-setting-and-viewing) for details.
 
 ## Cluster deployment
 
@@ -351,7 +351,7 @@ You can also view the BE node through the front-end page connection: ``http://fe
 
 All of the above methods require Doris's root user rights.
 
-The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document](../administrator-guide/operation/tablet-repair-and-balance.md).
+The expansion and scaling process of BE nodes does not affect the current system operation and the tasks being performed, and does not affect the performance of the current system. Data balancing is done automatically. Depending on the amount of data available in the cluster, the cluster will be restored to load balancing in a few hours to a day. For cluster load, see the [Tablet Load Balancing Document](../admin-manual/maint-monitor/tablet-meta-tool.html).
 
 #### Add BE nodes
 
@@ -385,7 +385,7 @@ DECOMMISSION clause:
 > 		```CANCEL ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```
 > 	The order was cancelled. When cancelled, the data on the BE will maintain the current amount of data remaining. Follow-up Doris re-load balancing
 
-**For expansion and scaling of BE nodes in multi-tenant deployment environments, please refer to the [Multi-tenant Design Document] (./administrator-guide/operation/multi-tenant.md).**
+**For expansion and scaling of BE nodes in multi-tenant deployment environments, please refer to the [Multi-tenant Design Document](../admin-manual/maint-monitor/multi-tenant.html).**
 
 ### Broker Expansion and Shrinkage
 
