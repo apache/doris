@@ -17,11 +17,9 @@
 
 #include "runtime/memory/chunk_allocator.h"
 
-#include <atomic>
 #include <list>
 #include <mutex>
 
-#include "gutil/dynamic_annotations.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/memory/chunk.h"
 #include "runtime/memory/system_allocator.h"
