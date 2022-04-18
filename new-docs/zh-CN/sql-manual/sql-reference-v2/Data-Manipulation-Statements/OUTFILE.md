@@ -50,16 +50,13 @@ INTO OUTFILE "file_path"
     ​    file_path 指向文件存储的路径以及文件前缀。如 `hdfs://path/to/my_file_`。
     
     ​    最终的文件名将由 `my_file_`，文件序号以及文件格式后缀组成。其中文件序号由0开始，数量为文件被分割的数量。如：
-    
     ​        my_file_abcdefg_0.csv
     ​        my_file_abcdefg_1.csv
     ​        my_file_abcdegf_2.csv
     
 2. format_as
-   
     ​    FORMAT AS CSV
-
-    ​    指定导出格式。默认为 CSV。
+    ​    指定导出格式. 支持csv、parquet、csv_with_names、csv_with_names_and_types. 默认为 CSV。
     
 3. properties
    

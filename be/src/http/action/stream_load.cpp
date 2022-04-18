@@ -59,6 +59,7 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/uid_util.h"
+#include "common/consts.h"
 
 namespace doris {
 
@@ -265,8 +266,14 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     if (!http_req->header(HTTP_COMPRESS_TYPE).empty() && boost::iequals(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
         return Status::InternalError("compress data of JSON format is not supported.");
     }
-    ctx->format =
-            parse_format(http_req->header(HTTP_FORMAT_KEY), http_req->header(HTTP_COMPRESS_TYPE));
+    std::string format_str = http_req->header(HTTP_FORMAT_KEY);
+    if (boost::iequals(format_str, BeConsts::CSV_WITH_NAMES) ||
+        boost::iequals(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
+        ctx->header_type = format_str;
+        //treat as CSV
+        format_str = BeConsts::CSV;
+    }
+    ctx->format = parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE));
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
         std::stringstream ss;
         ss << "unknown data format, format=" << http_req->header(HTTP_FORMAT_KEY);
@@ -381,6 +388,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
     request.formatType = ctx->format;
+    request.__set_header_type(ctx->header_type);
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
         auto pipe = std::make_shared<StreamLoadPipe>(1024 * 1024 /* max_buffered_bytes */,

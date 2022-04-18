@@ -120,7 +120,7 @@ Specifies the time zone used for this load. The default is East Eight District. 
 Memory limit. Default is 2GB. Unit is Bytes.
 
 `format`
-Specifies the format of the imported data. Support csv and json, the default is csv.
+Specifies the format of the imported data. Support csv、csv_with_names、csv_with_names_and_types、json, the default is csv
 
 `jsonpaths`
 There are two ways to import json: simple mode and matched mode. If jsonpath is set, it will be the matched mode import, otherwise it will be the simple mode import, please refer to the example for details.

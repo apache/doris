@@ -35,6 +35,7 @@ public class ExportSink extends DataSink {
     private final String columnSeparator;
     private final String lineDelimiter;
     private BrokerDesc brokerDesc;
+    private String header = "";
 
     public ExportSink(String exportPath, String columnSeparator,
                       String lineDelimiter, BrokerDesc brokerDesc) {
@@ -42,6 +43,12 @@ public class ExportSink extends DataSink {
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
         this.brokerDesc = brokerDesc;
+    }
+
+    public ExportSink(String exportPath, String columnSeparator,
+                      String lineDelimiter, BrokerDesc brokerDesc, String header) {
+        this(exportPath, columnSeparator, lineDelimiter, brokerDesc);
+        this.header = header;
     }
 
     @Override
@@ -76,7 +83,7 @@ public class ExportSink extends DataSink {
             }
         }
         tExportSink.setProperties(brokerDesc.getProperties());
-
+        tExportSink.setHeader(header);
         result.setExportSink(tExportSink);
         return result;
     }

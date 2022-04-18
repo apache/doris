@@ -238,7 +238,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             }
             Preconditions.checkState(sink == null);
             if (queryStmt != null && queryStmt.hasOutFileClause()) {
-                sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause());
+                sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause(), queryStmt.getColLabels());
             } else {
                 // add ResultSink
                 // we're streaming to an result sink

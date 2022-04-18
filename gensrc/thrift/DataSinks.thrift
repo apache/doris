@@ -83,6 +83,8 @@ struct TResultFileSink {
     2: optional Types.TStorageBackendType storage_backend_type;
     3: optional Types.TPlanNodeId dest_node_id;
     4: optional Types.TTupleId output_tuple_id;
+    5: optional string header;
+    6: optional string header_type;
 }
 
 struct TMysqlTableSink {
@@ -108,6 +110,7 @@ struct TExportSink {
     // properties need to access broker.
     5: optional list<Types.TNetworkAddress> broker_addresses
     6: optional map<string, string> properties
+    7: optional string header
 }
 
 struct TOlapTableSink {

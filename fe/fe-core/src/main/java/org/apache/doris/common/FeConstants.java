@@ -57,4 +57,7 @@ public class FeConstants {
     public static String null_string = "\\N";
 
     public static long tablet_checker_interval_ms = 20 * 1000L;
+    public static String csv = "csv";
+    public static String csv_with_names = "csv_with_names";
+    public static String csv_with_names_and_types = "csv_with_names_and_types";
 }
