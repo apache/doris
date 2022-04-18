@@ -1204,7 +1204,7 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 std::string is_null_str;
                 // 1. dispose the where pred "A is null" and "A is not null"
                 if (root_expr->is_null_scalar_function(is_null_str) &&
-                    normalize_is_null_predicate(root_expr, slot, is_null_str, range)) {
+                    normalize_is_null_predicate(root_expr->get_child(0), slot, is_null_str, range)) {
                     // if column is key column should push down conjunct storage engine
                     if (is_key_column(slot->col_name())) {
                         filter_conjuncts_index.emplace_back(conj_idx);
