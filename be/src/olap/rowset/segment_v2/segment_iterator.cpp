@@ -810,12 +810,13 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
                 _read_columns(_first_read_column_ids, _current_return_columns, rows_to_read));
         _cur_rowid += rows_to_read;
         if (set_block_rowid) {
-            for (uint32_t rid = range_from; rid < range_to; rid++) {
-                _block_rowids[nrows_read++] = rid;
+            auto* data_begin = _block_rowids.data();
+            auto* current_ptr = data_begin + nrows_read;
+            for (uint32_t i = 0; i < rows_to_read; i++) {
+                current_ptr[i] = range_from++;
             }
-        } else {
-            nrows_read += rows_to_read;
         }
+        nrows_read += rows_to_read;
     } while (nrows_read < nrows_read_limit);
     return Status::OK();
 }
