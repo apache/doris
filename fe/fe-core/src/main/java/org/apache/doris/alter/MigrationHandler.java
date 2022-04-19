@@ -48,7 +48,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.StorageMediaMigrationV2Task;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -198,7 +197,7 @@ public class MigrationHandler extends AlterHandler {
         } // end for index
 
         // set table state
-        olapTable.setState(OlapTableState.SCHEMA_CHANGE);
+        olapTable.setState(OlapTableState.MIGRATION);
 
         // 2. add migrationJob
         addMigrationJob(migrationJob);
