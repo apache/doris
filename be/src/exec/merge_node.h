@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/merge-node.h
+// https://github.com/cloudera/Impala/blob/v0.7refresh/be/src/exec/merge-node.h
 // and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_EXEC_MERGE_NODE_H

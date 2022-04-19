@@ -16,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/block-bloom-filter-impl.cc
+// https://github.com/apache/kudu/blob/master/src/kudu/util/block_bloom_filter.cc
 // and modified by Doris
 
 #ifdef __aarch64__

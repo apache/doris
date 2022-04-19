@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/plan-fragment-executor.h
+// https://github.com/cloudera/Impala/blob/v0.7refresh/be/src/runtime/plan-fragment-executor.h
 // and modified by Doris
 
 #ifndef DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H

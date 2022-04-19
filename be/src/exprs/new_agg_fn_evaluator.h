@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/new-agg-fn-evaluator.h
+// https://github.com/apache/impala/blob/branch-2.10.0/be/src/exprs/agg-fn-evaluator.h
 // and modified by Doris
 
 #ifndef IMPALA_EXPRS_AGG_FN_EVALUATOR_H

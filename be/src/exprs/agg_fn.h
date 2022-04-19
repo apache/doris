@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/agg-fn.h
+// https://github.com/apache/impala/blob/branch-2.10.0/be/src/exprs/agg-fn.h
 // and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_NEW_EXPRS_AGG_FN_H

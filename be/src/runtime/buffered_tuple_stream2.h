@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/buffered-tuple-stream2.h
+// https://github.com/apache/impala/blob/branch-2.10.0/be/src/runtime/buffered-tuple-stream.h
 // and modified by Doris
 
 #ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H

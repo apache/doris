@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/buffered-tuple-stream3.cc
+// https://github.com/apache/impala/blob/branch-3.0.0/be/src/runtime/buffered-tuple-stream.cc
 // and modified by Doris
 
 #include <gutil/strings/substitute.h>
