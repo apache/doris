@@ -53,6 +53,7 @@ import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.spark.rdd.;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -633,18 +634,18 @@ public class SelectStmt extends QueryStmt {
         }
 
         // Find tables which is in not-null predicate
-        for (Expr expr : flatExprs) {
+        flatExprs.forEach(expr -> {
             if (expr instanceof Predicate && ((Predicate) expr).isNotNullPred()) {
-                for (Expr child : expr.getChildren()) {
+                expr.getChildren().forEach(child -> {
                     if (child instanceof SlotRef) {
                         SlotRef slotRef = (SlotRef) child;
                         if (slotRef.getTableName() != null) {
                             notNullTables.add(slotRef.getTableName().getTbl());
                         }
                     }
-                }
+                });
             }
-        }
+        });
 
         // For each not null predicate, find the table transfer outer join:
         // self table:
@@ -692,10 +693,9 @@ public class SelectStmt extends QueryStmt {
         // Make predicate can be pushed down after conversion.
         ArrayList<ExprId> conjunctIds = Lists.newArrayList();
         analyzer.getFullOuterJoinedConjuncts().forEach((id, tableRef) -> {
-            if (tableRef != null && tableRef.joinOp.isRightOuterJoin() || tableRef.joinOp.isInnerJoin()
+            if (tableRef != null && (tableRef.joinOp.isRightOrInnerJoin() 
                     || (tableRef.leftTblRef != null
-                            && (tableRef.leftTblRef.joinOp.isLeftOuterJoin()
-                                    || tableRef.joinOp.isInnerJoin())))
+                            && tableRef.leftTblRef.joinOp.isLeftOrInnerJoin())))
                 conjunctIds.add(id);
         });
         conjunctIds.forEach(analyzer.getFullOuterJoinedConjuncts()::remove);
@@ -703,10 +703,9 @@ public class SelectStmt extends QueryStmt {
         Consumer<Map<TupleId, TableRef>> remove = (tupleIds) -> {
             ArrayList<TupleId> ids = Lists.newArrayList();
             tupleIds.forEach((id, tableRef) -> {
-                if (tableRef != null && tableRef.joinOp.isRightOuterJoin() || tableRef.joinOp.isInnerJoin()
+                if (tableRef != null && (tableRef.joinOp.isRightOrInnerJoin() 
                         || (tableRef.leftTblRef != null
-                                && (tableRef.leftTblRef.joinOp.isLeftOuterJoin()
-                                        || tableRef.joinOp.isInnerJoin())))
+                                && tableRef.leftTblRef.joinOp.isLeftOrInnerJoin())))
                     ids.add(id);
             });
             ids.forEach(tupleIds::remove);

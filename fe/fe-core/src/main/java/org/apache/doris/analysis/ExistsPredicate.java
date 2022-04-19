@@ -75,8 +75,8 @@ public class ExistsPredicate extends Predicate {
     }
 
     @Override
-    public Expr clone() {
-        return new ExistsPredicate(this);
+    public boolean isNotNullPred() {
+        return true;
     }
 }
 

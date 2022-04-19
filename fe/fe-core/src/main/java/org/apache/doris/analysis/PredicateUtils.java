@@ -91,6 +91,10 @@ public class PredicateUtils {
         if (expr instanceof CompoundPredicate && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
             return true;
         } else {
+            // Operator is NOT
+            if (expr.getChild(1) == null) {
+                return false;
+            }
             return existOr(expr.getChild(0)) || existOr(expr.getChild(1));
         }
     }

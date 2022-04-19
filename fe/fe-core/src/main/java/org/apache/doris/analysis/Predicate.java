@@ -41,8 +41,10 @@ public abstract class Predicate extends Expr {
         return isEqJoinConjunct;
     }
 
-    // It's used for judging predicate output not-null value (and column is in a
-    // tableRef)
+    /**
+     * It's used for judging predicate output not-null value (and column is in a
+     * tableRef)
+     */
     public abstract boolean isNotNullPred();
 
     public void setIsEqJoinConjunct(boolean v) {
