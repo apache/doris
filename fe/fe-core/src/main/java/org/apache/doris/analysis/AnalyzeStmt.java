@@ -49,15 +49,15 @@ import java.util.function.Predicate;
 
 /**
  * Collect statistics about a database
- * <p>
+ *
  * syntax:
  * ANALYZE [[ db_name.tb_name ] [( column_name [, ...] )], ...] [ PROPERTIES(...) ]
- * <p>
- * db_name.tb_name: collect table and column statistics from tb_name
- * <p>
- * column_name: collect column statistics from column_name
- * <p>
- * properties: properties of statistics jobs
+ *
+ *      db_name.tb_name: collect table and column statistics from tb_name
+ *
+ *      column_name: collect column statistics from column_name
+ *
+ *      properties: properties of statistics jobs
  */
 public class AnalyzeStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmt.class);
