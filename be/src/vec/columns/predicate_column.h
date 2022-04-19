@@ -23,6 +23,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_impl.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/core/types.h"
@@ -348,6 +349,13 @@ public:
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+        if (col_ptr->is_nullable()) {
+            auto col_ptr_nullable = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
+            col_ptr_nullable->get_null_map_column().insert_many_defaults(sel_size);
+            filter_by_selector(sel, sel_size, col_ptr_nullable->get_nested_column_ptr().get());
+            return Status::OK();
+        }
+
         if constexpr (std::is_same_v<T, StringValue>) {
             insert_string_to_res_column(sel, sel_size,
                                         reinterpret_cast<vectorized::ColumnString*>(col_ptr));
