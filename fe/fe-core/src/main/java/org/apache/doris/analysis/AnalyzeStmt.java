@@ -21,26 +21,31 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
-import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Collect statistics about a database
@@ -55,37 +60,95 @@ import java.util.Map;
  * properties: properties of statistics jobs
  */
 public class AnalyzeStmt extends DdlStmt {
+    private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmt.class);
+
+    // time to wait for collect  statistics
+    public static final String CBO_STATISTICS_TASK_TIMEOUT_SEC = "cbo_statistics_task_timeout_sec";
+
+    private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
+            .add(CBO_STATISTICS_TASK_TIMEOUT_SEC)
+            .build();
+
+    public static final Predicate<Long> DESIRED_TASK_TIMEOUT_SEC = (v) -> v > 0L;
+
     private final TableName dbTableName;
     private final List<String> columnNames;
-    private Map<String, String> properties;
+    private final Map<String, String> properties;
 
     // after analyzed
-    private Database db;
-    private List<Table> tables;
-    private final Map<Long, List<String>> tableIdToColumnName = Maps.newHashMap();
+    private long dbId;
+    private final Set<Long> tblIds = Sets.newHashSet();
+
+    private long taskTimeout = 60L;
 
     public AnalyzeStmt(TableName dbTableName, List<String> columns, Map<String, String> properties) {
         this.dbTableName = dbTableName;
         this.columnNames = columns;
-        this.properties = properties;
+        this.properties = properties == null ? Maps.newHashMap() : properties;
     }
 
-    public Database getDb() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The db name must be obtained after the parsing is complete");
-        return this.db;
+    public long getDbId() {
+        return this.dbId;
     }
 
-    public List<Table> getTables() {
-        Preconditions.checkArgument(isAnalyzed(),
-                "The db name must be obtained after the parsing is complete");
-        return this.tables;
+    public Set<Long> getTblIds() {
+        return this.tblIds;
     }
 
-    public Map<Long, List<String>> getTableIdToColumnName() {
+    public long getTaskTimeout() {
+        return this.taskTimeout;
+    }
+
+    public Database getDb() throws AnalysisException {
         Preconditions.checkArgument(isAnalyzed(),
                 "The db name must be obtained after the parsing is complete");
-        return this.tableIdToColumnName;
+        return this.analyzer.getCatalog().getDbOrAnalysisException(this.dbId);
+    }
+
+    public List<Table> getTables() throws AnalysisException {
+        Preconditions.checkArgument(isAnalyzed(),
+                "The db name must be obtained after the parsing is complete");
+        Database db = getDb();
+        List<Table> tables = Lists.newArrayList();
+
+        db.readLock();
+        try {
+            for (Long tblId : this.tblIds) {
+                Table table = db.getTableOrAnalysisException(tblId);
+                tables.add(table);
+            }
+        } finally {
+            db.readUnlock();
+        }
+
+        return tables;
+    }
+
+    public Map<Long, List<String>> getTableIdToColumnName() throws AnalysisException {
+        Preconditions.checkArgument(isAnalyzed(),
+                "The db name must be obtained after the parsing is complete");
+        Map<Long, List<String>> tableIdToColumnName = Maps.newHashMap();
+        List<Table> tables = getTables();
+        if (this.columnNames == null || this.columnNames.isEmpty()) {
+            for (Table table : tables) {
+                table.readLock();
+                try {
+                    long tblId = table.getId();
+                    List<Column> baseSchema = table.getBaseSchema();
+                    List<String> colNames = Lists.newArrayList();
+                    baseSchema.stream().map(Column::getName).forEach(colNames::add);
+                    tableIdToColumnName.put(tblId, colNames);
+                } finally {
+                    table.readUnlock();
+                }
+            }
+        } else {
+            for (Long tblId : this.tblIds) {
+                tableIdToColumnName.put(tblId, this.columnNames);
+            }
+        }
+
+        return tableIdToColumnName;
     }
 
     public Map<String, String> getProperties() {
@@ -96,46 +159,63 @@ public class AnalyzeStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
 
-        // step1: analyze database and table
+        // step1: analyze db, table and column
         if (this.dbTableName != null) {
-            String dbName;
-            if (Strings.isNullOrEmpty(this.dbTableName.getDb())) {
-                dbName = analyzer.getDefaultDb();
-            } else {
-                dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), this.dbTableName.getDb());
-            }
+            // check database
+            this.dbTableName.analyze(analyzer);
+            String dbName = this.dbTableName.getDb();
+            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+            this.dbId = db.getId();
 
-            // check db
-            if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-            this.db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
-
-            // check table
             String tblName = this.dbTableName.getTbl();
-            if (Strings.isNullOrEmpty(tblName)) {
-                this.tables = this.db.getTables();
-                for (Table table : this.tables) {
-                    checkAnalyzePriv(dbName, table.getName());
+
+            db.readLock();
+            try {
+                // check table
+                if (!Strings.isNullOrEmpty(tblName)) {
+                    Table table = db.getTableOrAnalysisException(tblName);
+                    this.tblIds.add(table.getId());
+                } else {
+                    List<Table> tables = db.getTables();
+                    for (Table table : tables) {
+                        long tblId = table.getId();
+                        this.tblIds.add(tblId);
+                    }
                 }
-            } else {
-                Table table = this.db.getTableOrAnalysisException(tblName);
-                this.tables = Collections.singletonList(table);
-                checkAnalyzePriv(dbName, table.getName());
+            } finally {
+                db.readUnlock();
             }
 
             // check column
-            if (this.columnNames == null || this.columnNames.isEmpty()) {
-                setTableIdToColumnName();
-            } else {
-                Table table = this.db.getTableOrAnalysisException(tblName);
-                for (String columnName : this.columnNames) {
-                    Column column = table.getColumn(columnName);
-                    if (column == null) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+            if (this.columnNames != null && !this.columnNames.isEmpty()) {
+                Table table = db.getTableOrAnalysisException(tblName);
+                table.readLock();
+                try {
+                    for (String columnName : this.columnNames) {
+                        Column column = table.getColumn(columnName);
+                        if (column == null) {
+                            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+                        }
+                    }
+                } finally {
+                    table.readUnlock();
+                }
+            }
+
+            db.readLock();
+            try {
+                // check privilege
+                if (!Strings.isNullOrEmpty(this.dbTableName.getTbl())) {
+                    Table table = db.getTableOrAnalysisException(this.dbTableName.getTbl());
+                    checkAnalyzePriv(dbName, table.getName());
+                } else {
+                    List<Table> tables = db.getTables();
+                    for (Table table : tables) {
+                        checkAnalyzePriv(dbName, table.getName());
                     }
                 }
-                this.tableIdToColumnName.put(table.getId(), this.columnNames);
+            } finally {
+                db.readUnlock();
             }
         } else {
             // analyze the current default db
@@ -143,28 +223,29 @@ public class AnalyzeStmt extends DdlStmt {
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            this.db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
-            this.tables = this.db.getTables();
-            for (Table table : this.tables) {
-                checkAnalyzePriv(dbName, table.getName());
+
+            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+            this.dbId = db.getId();
+
+            db.readLock();
+            try {
+                List<Table> tables = db.getTables();
+                for (Table table : tables) {
+                    long tblId = table.getId();
+                    this.tblIds.add(tblId);
+                }
+
+                // check privilege
+                for (Table table : tables) {
+                    checkAnalyzePriv(dbName, table.getName());
+                }
+            } finally {
+                db.readUnlock();
             }
-            setTableIdToColumnName();
         }
 
         // step2: analyze properties
-        if (this.properties != null) {
-            for (Map.Entry<String, String> pros : this.properties.entrySet()) {
-                if (!"cbo_statistics_task_timeout_sec".equals(pros.getKey())) {
-                    throw new AnalysisException("Unsupported property: " + pros.getKey());
-                }
-                if (!StringUtils.isNumeric(pros.getValue()) || Integer.parseInt(pros.getValue()) <= 0) {
-                    throw new AnalysisException("Invalid property value: " + pros.getValue());
-                }
-            }
-        } else {
-            this.properties = Maps.newHashMap();
-            this.properties.put("cbo_statistics_task_timeout_sec", String.valueOf(Config.cbo_statistics_task_timeout_sec));
-        }
+        checkProperties();
     }
 
     @Override
@@ -184,14 +265,16 @@ public class AnalyzeStmt extends DdlStmt {
         }
     }
 
-    private void setTableIdToColumnName() {
-        for (Table table : this.tables) {
-            long tableId = table.getId();
-            List<Column> baseSchema = table.getBaseSchema();
-            List<String> colNames = Lists.newArrayList();
-            baseSchema.stream().map(Column::getName).forEach(colNames::add);
-            this.tableIdToColumnName.put(tableId, colNames);
+    private void checkProperties() throws UserException {
+        Optional<String> optional = this.properties.keySet().stream().filter(
+                entity -> !PROPERTIES_SET.contains(entity)).findFirst();
+        if (optional.isPresent()) {
+            throw new AnalysisException(optional.get() + " is invalid property");
         }
+
+        this.taskTimeout = ((Long) Util.getLongPropertyOrDefault(this.properties.get(CBO_STATISTICS_TASK_TIMEOUT_SEC),
+                Config.max_cbo_statistics_task_timeout_sec, DESIRED_TASK_TIMEOUT_SEC,
+                CBO_STATISTICS_TASK_TIMEOUT_SEC + " should > 0")).intValue();
     }
 }
 
