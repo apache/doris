@@ -122,6 +122,7 @@ public:
     size_t num_rows() const;
     // disk space occupied by tablet
     size_t tablet_footprint() const;
+    size_t tablet_stale_data_footprint() const;
     size_t version_count() const;
     Version max_version() const;
 
@@ -270,6 +271,14 @@ inline size_t TabletMeta::num_rows() const {
 inline size_t TabletMeta::tablet_footprint() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
+        total_size += rs->data_disk_size();
+    }
+    return total_size;
+}
+
+inline size_t TabletMeta::tablet_stale_data_footprint() const {
+    size_t total_size = 0;
+    for (auto& rs : _stale_rs_metas) {
         total_size += rs->data_disk_size();
     }
     return total_size;

@@ -1034,12 +1034,14 @@ void TabletManager::update_root_path_info(std::map<string, DataDirInfo>* path_ma
             TabletSharedPtr tablet = item.second;
             ++(*tablet_count);
             int64_t data_size = tablet->tablet_footprint();
+            int64_t stale_data_size = tablet->tablet_stale_data_footprint();
             auto iter = path_map->find(tablet->data_dir()->path());
             if (iter == path_map->end()) {
                 continue;
             }
             if (iter->second.is_used) {
                 iter->second.data_used_capacity += data_size;
+                iter->second.data_used_capacity += stale_data_size;
             }
         }
     }

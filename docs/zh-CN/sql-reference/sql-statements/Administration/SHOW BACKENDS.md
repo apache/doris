@@ -37,7 +37,7 @@ under the License.
         4. SystemDecommissioned 为 true 表示节点正在安全下线中。
         5. ClusterDecommissioned 为 true 表示节点正在冲当前cluster中下线。
         6. TabletNum 表示该节点上分片数量。
-        7. DataUsedCapacity 表示实际用户数据所占用的空间。
+        7. DataUsedCapacity 表示实际用户数据所占用的空间，没有包含垃圾数据所占用空间，查询垃圾数据占用空间请使用show trash语句。
         8. AvailCapacity 表示磁盘的可使用空间。
         9. TotalCapacity 表示总磁盘空间。TotalCapacity = AvailCapacity + DataUsedCapacity + 其他非用户数据文件占用空间。
        10. UsedPct 表示磁盘已使用量百分比。

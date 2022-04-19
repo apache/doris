@@ -75,6 +75,7 @@ public:
     void set_cumulative_layer_point(int64_t new_point);
 
     size_t tablet_footprint(); // disk space occupied by tablet
+    size_t tablet_stale_data_footprint();
     size_t num_rows();
     int version_count() const;
     Version max_version() const;
@@ -383,6 +384,11 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
 inline size_t Tablet::tablet_footprint() {
     std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->tablet_footprint();
+}
+
+inline size_t Tablet::tablet_stale_data_footprint() {
+    std::shared_lock rdlock(_meta_lock);
+    return _tablet_meta->tablet_stale_data_footprint();
 }
 
 // TODO(lingbin): Why other methods which need to get information from _tablet_meta
