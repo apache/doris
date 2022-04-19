@@ -17,6 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Catalog;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,7 +46,7 @@ public class StatisticsTask implements Callable<StatisticsTaskResult> {
         FAILED
     }
 
-    protected long id = -1;
+    protected long id = Catalog.getCurrentCatalog().getNextId();;
     protected long jobId;
     protected StatsGranularityDesc granularityDesc;
     protected StatsCategoryDesc categoryDesc;
@@ -93,10 +95,6 @@ public class StatisticsTask implements Callable<StatisticsTaskResult> {
         return this.taskState;
     }
 
-    public void setTaskState(TaskState taskState) {
-        this.taskState = taskState;
-    }
-
     public long getCreateTime() {
         return this.createTime;
     }
@@ -121,5 +119,26 @@ public class StatisticsTask implements Callable<StatisticsTaskResult> {
     public StatisticsTaskResult call() throws Exception {
         LOG.warn("execute invalid statistics task.");
         return null;
+    }
+
+    public synchronized void updateTaskState(StatisticsTask.TaskState taskState) {
+        // PENDING -> RUNNING/FAILED
+        if (this.taskState == TaskState.PENDING) {
+            if (taskState == TaskState.RUNNING) {
+                this.taskState = TaskState.RUNNING;
+            } else if (taskState == TaskState.FAILED) {
+                this.taskState = TaskState.FAILED;
+            }
+            return;
+        }
+
+        // RUNNING -> FINISHED/FAILED
+        if (this.taskState == TaskState.RUNNING) {
+            if (taskState == TaskState.FINISHED) {
+                this.taskState = TaskState.FINISHED;
+            } else if (taskState == TaskState.FAILED) {
+                this.taskState = TaskState.FAILED;
+            }
+        }
     }
 }

@@ -23,6 +23,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.statistics.StatisticsJob.JobState;
+import org.apache.doris.statistics.StatisticsTask.TaskState;
 import org.apache.doris.statistics.StatsCategoryDesc.StatsCategory;
 
 import com.clearspring.analytics.util.Lists;
@@ -75,11 +76,9 @@ public class StatisticsTaskScheduler extends MasterDaemon {
                     taskMap.clear();
                     taskSize = 0;
                 }
-                // assign the id when the task is ready to run
-                task.setId(Catalog.getCurrentCatalog().getNextId());
-                task.setStartTime(System.currentTimeMillis());
-                task.setTaskState(StatisticsTask.TaskState.RUNNING);
                 Future<StatisticsTaskResult> future = executor.submit(task);
+                task.setStartTime(System.currentTimeMillis());
+                task.updateTaskState(TaskState.RUNNING);
                 long taskId = task.getId();
                 taskMap.put(taskId, future);
                 // update job state

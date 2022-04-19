@@ -162,10 +162,10 @@ public class StatisticsJobManager {
                             statisticsJob.updateJobState(StatisticsJob.JobState.FINISHED);
                         }
                         task.setFinishTime(System.currentTimeMillis());
-                        task.setTaskState(StatisticsTask.TaskState.FINISHED);
+                        task.updateTaskState(StatisticsTask.TaskState.FINISHED);
                     } else {
                         statisticsJob.getErrorMsgs().add(errorMsg);
-                        task.setTaskState(StatisticsTask.TaskState.FAILED);
+                        task.updateTaskState(StatisticsTask.TaskState.FAILED);
                         statisticsJob.updateJobState(StatisticsJob.JobState.FAILED);
                     }
                     return;
