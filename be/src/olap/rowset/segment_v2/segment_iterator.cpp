@@ -463,6 +463,13 @@ void SegmentIterator::_init_lazy_materialization() {
         }
         _opts.delete_condition_predicates->get_all_column_ids(predicate_columns);
 
+        // ARRAY column do not support lazy materialization read
+        for (auto cid : _schema.column_ids()) {
+            if (_schema.column(cid)->type() == OLAP_FIELD_TYPE_ARRAY) {
+                predicate_columns.insert(cid);
+            }
+        }
+
         // when all return columns have predicates, disable lazy materialization to avoid its overhead
         if (_schema.column_ids().size() > predicate_columns.size()) {
             _lazy_materialization_read = true;
