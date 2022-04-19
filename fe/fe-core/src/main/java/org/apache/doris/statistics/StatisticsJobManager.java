@@ -54,19 +54,19 @@ public class StatisticsJobManager {
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     public void readLock() {
-        this.lock.readLock().lock();
+        lock.readLock().lock();
     }
 
     public void readUnlock() {
-        this.lock.readLock().unlock();
+        lock.readLock().unlock();
     }
 
     private void writeLock() {
-        this.lock.writeLock().lock();
+        lock.writeLock().lock();
     }
 
     private void writeUnlock() {
-        this.lock.writeLock().unlock();
+        lock.writeLock().unlock();
     }
 
     public Map<Long, StatisticsJob> getIdToStatisticsJob() {
@@ -79,7 +79,7 @@ public class StatisticsJobManager {
         writeLock();
         try {
             // step2: check restrict
-            this.checkRestrict(analyzeStmt.getDb(), statisticsJob.getTblIds());
+            this.checkRestrict(analyzeStmt.getDbId(), statisticsJob.getTblIds());
             // step3: create it
             this.createStatisticsJob(statisticsJob);
         } finally {
@@ -88,8 +88,6 @@ public class StatisticsJobManager {
     }
 
     public void createStatisticsJob(StatisticsJob statisticsJob) throws DdlException {
-        // assign the id when the job is ready to run
-        statisticsJob.setId(Catalog.getCurrentCatalog().getNextId());
         this.idToStatisticsJob.put(statisticsJob.getId(), statisticsJob);
         try {
             Catalog.getCurrentCatalog().getStatisticsJobScheduler().addPendingJob(statisticsJob);
@@ -102,17 +100,24 @@ public class StatisticsJobManager {
     /**
      * The statistical job has the following restrict:
      * - Rule1: The same table cannot have two unfinished statistics jobs
-     * - Rule2: The unfinished statistics job could not more then Config.max_statistics_job_num
+     * - Rule2: The unfinished statistics job could not more than Config.max_statistics_job_num
      * - Rule3: The job for external table is not supported
      */
-    private void checkRestrict(Database db, Set<Long> tableIds) throws AnalysisException {
-        // check table type
-        for (Long tableId : tableIds) {
-            Table table = db.getTableOrAnalysisException(tableId);
-            if (table.getType() != Table.TableType.OLAP) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, db.getFullName(), table.getName(), "ANALYZE");
+    private void checkRestrict(long dbId, Set<Long> tableIds) throws AnalysisException {
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+        db.readLock();
+        try {
+            // check table type
+            for (Long tableId : tableIds) {
+                Table table = db.getTableOrAnalysisException(tableId);
+                if (table.getType() != Table.TableType.OLAP) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, db.getFullName(), table.getName(), "ANALYZE");
+                }
             }
+        } finally {
+            db.readUnlock();
         }
+
 
         int unfinishedJobs = 0;
 
@@ -154,14 +159,14 @@ public class StatisticsJobManager {
                         statisticsJob.setProgress(progress);
                         if (progress == statisticsJob.getTasks().size()) {
                             statisticsJob.setFinishTime(System.currentTimeMillis());
-                            statisticsJob.setJobState(StatisticsJob.JobState.FINISHED);
+                            statisticsJob.updateJobState(StatisticsJob.JobState.FINISHED);
                         }
                         task.setFinishTime(System.currentTimeMillis());
                         task.setTaskState(StatisticsTask.TaskState.FINISHED);
                     } else {
                         statisticsJob.getErrorMsgs().add(errorMsg);
                         task.setTaskState(StatisticsTask.TaskState.FAILED);
-                        statisticsJob.setJobState(StatisticsJob.JobState.FAILED);
+                        statisticsJob.updateJobState(StatisticsJob.JobState.FAILED);
                     }
                     return;
                 }

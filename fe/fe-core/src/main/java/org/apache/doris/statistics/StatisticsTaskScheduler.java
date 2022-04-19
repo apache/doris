@@ -87,7 +87,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
                 StatisticsJob statisticsJob = statisticsJobs.get(jobId);
                 if (statisticsJob.getJobState() == JobState.SCHEDULING) {
                     statisticsJob.setStartTime(System.currentTimeMillis());
-                    statisticsJob.setJobState(JobState.RUNNING);
+                    statisticsJob.updateJobState(JobState.RUNNING);
                 }
                 taskSize++;
             }
@@ -120,8 +120,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
         StatisticsManager statsManager = Catalog.getCurrentCatalog().getStatisticsManager();
         StatisticsJobManager jobManager = Catalog.getCurrentCatalog().getStatisticsJobManager();
 
-        Map<String, String> properties = jobManager.getIdToStatisticsJob().get(jobId).getProperties();
-        int timeout = Integer.parseInt(properties.get("cbo_statistics_task_timeout_sec"));
+        long timeout = jobManager.getIdToStatisticsJob().get(jobId).getTaskTimeout();
 
         for (Map.Entry<Long, Future<StatisticsTaskResult>> entry : taskMap.entrySet()) {
             String errorMsg = "";
