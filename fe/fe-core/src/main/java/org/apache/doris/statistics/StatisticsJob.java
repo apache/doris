@@ -18,6 +18,8 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
 
 import com.clearspring.analytics.util.Lists;
 
@@ -44,7 +46,7 @@ public class StatisticsJob {
         CANCELLED
     }
 
-    private long id = -1;
+    private long id = Catalog.getCurrentCatalog().getNextId();
 
     /**
      * to be collected database stats.
@@ -61,7 +63,10 @@ public class StatisticsJob {
      */
     private final Map<Long, List<String>> tableIdToColumnName;
 
-    private final Map<String, String> properties;
+    /**
+     * timeout of a statistics task
+     */
+    private long taskTimeout;
 
     /**
      * to be executed tasks.
@@ -69,6 +74,7 @@ public class StatisticsJob {
     private List<StatisticsTask> tasks = Lists.newArrayList();
 
     private JobState jobState = JobState.PENDING;
+    private final List<String> errorMsgs = Lists.newArrayList();
 
     private final long createTime = System.currentTimeMillis();
     private long startTime = -1L;
@@ -77,12 +83,10 @@ public class StatisticsJob {
 
     public StatisticsJob(Long dbId,
                          Set<Long> tblIds,
-                         Map<Long, List<String>> tableIdToColumnName,
-                         Map<String, String> properties) {
+                         Map<Long, List<String>> tableIdToColumnName) {
         this.dbId = dbId;
         this.tblIds = tblIds;
         this.tableIdToColumnName = tableIdToColumnName;
-        this.properties = properties;
     }
 
     public long getId() {
@@ -105,8 +109,8 @@ public class StatisticsJob {
         return this.tableIdToColumnName;
     }
 
-    public Map<String, String> getProperties() {
-        return this.properties;
+    public long getTaskTimeout() {
+        return taskTimeout;
     }
 
     public List<StatisticsTask> getTasks() {
@@ -117,12 +121,12 @@ public class StatisticsJob {
         this.tasks = tasks;
     }
 
-    public JobState getJobState() {
-        return this.jobState;
+    public List<String> getErrorMsgs() {
+        return errorMsgs;
     }
 
-    public void setJobState(JobState jobState) {
-        this.jobState = jobState;
+    public JobState getJobState() {
+        return this.jobState;
     }
 
     public long getCreateTime() {
@@ -153,17 +157,61 @@ public class StatisticsJob {
         this.progress = progress;
     }
 
+    private void setOptional(AnalyzeStmt stmt) {
+        if (stmt.getTaskTimeout() != -1) {
+            this.taskTimeout = stmt.getTaskTimeout();
+        }
+    }
+
+    public synchronized void updateJobState(JobState jobState) {
+        // PENDING -> SCHEDULING/FAILED/CANCELLED
+        if (this.jobState == JobState.PENDING) {
+            if (jobState == JobState.SCHEDULING) {
+                this.jobState = JobState.SCHEDULING;
+            } else if (jobState == JobState.FAILED) {
+                this.jobState = JobState.FAILED;
+            } else if (jobState == JobState.CANCELLED) {
+                this.jobState = JobState.CANCELLED;
+            }
+            return;
+        }
+
+        // SCHEDULING -> RUNNING/FAILED/CANCELLED
+        if (this.jobState == JobState.SCHEDULING) {
+            if (jobState == JobState.RUNNING) {
+                this.jobState = JobState.RUNNING;
+            } else if (jobState == JobState.FAILED) {
+                this.jobState = JobState.FAILED;
+            } else if (jobState == JobState.CANCELLED) {
+                this.jobState = JobState.CANCELLED;
+            }
+            return;
+        }
+
+        // RUNNING -> FINISHED/FAILED/CANCELLED
+        if (this.jobState == JobState.RUNNING) {
+            if (jobState == JobState.FINISHED) {
+                this.jobState = JobState.FINISHED;
+            } else if (jobState == JobState.FAILED) {
+                this.jobState = JobState.FAILED;
+            } else if (jobState == JobState.CANCELLED) {
+                this.jobState = JobState.CANCELLED;
+            }
+        }
+    }
+
     /**
      * get statisticsJob from analyzeStmt.
      * AnalyzeStmt: analyze t1(c1,c2,c3)
      * tableId: [t1]
      * tableIdToColumnName <t1, [c1,c2,c3]>
      */
-    public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt analyzeStmt) {
-        long dbId = analyzeStmt.getDb().getId();
+    public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt analyzeStmt) throws AnalysisException {
+        long dbId = analyzeStmt.getDbId();
         Map<Long, List<String>> tableIdToColumnName = analyzeStmt.getTableIdToColumnName();
-        Set<Long> tblIds = tableIdToColumnName.keySet();
-        Map<String, String> properties = analyzeStmt.getProperties();
-        return new StatisticsJob(dbId, tblIds, tableIdToColumnName, properties);
+        Set<Long> tblIds = analyzeStmt.getTblIds();
+        StatisticsJob statisticsJob = new StatisticsJob(dbId, tblIds, tableIdToColumnName);
+        statisticsJob.setOptional(analyzeStmt);
+        return statisticsJob;
     }
 }
