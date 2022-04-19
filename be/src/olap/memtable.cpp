@@ -28,8 +28,10 @@
 #include "util/doris_metrics.h"
 #include "vec/core/field.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/aggregate_functions/aggregate_function_reader.h"
 
 namespace doris {
+
 MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    KeysType keys_type, RowsetWriter* rowset_writer,
@@ -77,13 +79,7 @@ void MemTable::_init_agg_functions(const vectorized::Block* block)
                         ->column(cid)
                         .aggregation();
         std::string agg_name =
-                TabletColumn::get_string_by_aggregation_type(agg_method);
-        if (agg_name=="REPLACE"){
-            agg_name = "last_value";
-        }else{
-            agg_name += "_reader";
-        }
-        
+                TabletColumn::get_string_by_aggregation_type(agg_method) + vectorized::AGG_LOAD_SUFFIX;
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                         [](unsigned char c) { return std::tolower(c); });
 

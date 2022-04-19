@@ -23,7 +23,7 @@
 #include "common/logging.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/factory_helpers.h"
-#include "vec/aggregate_functions/helpers.h"
+
 namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_dense_rank(const std::string& name,
@@ -53,44 +53,6 @@ AggregateFunctionPtr create_aggregate_function_row_number(const std::string& nam
     return std::make_shared<WindowFunctionRowNumber>(argument_types);
 }
 
-template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
-          bool is_nullable, bool is_copy = false>
-static IAggregateFunction* create_function_single_value(const String& name,
-                                                        const DataTypes& argument_types,
-                                                        const Array& parameters) {
-    using StoreType = CopiedValue;
-
-    assert_arity_at_most<3>(name, argument_types);
-
-    auto type = argument_types[0].get();
-    if (type->is_nullable()) {
-        type = assert_cast<const DataTypeNullable*>(type)->get_nested_type().get();
-    }
-    WhichDataType which(*type);
-
-#define DISPATCH(TYPE)                        \
-    if (which.idx == TypeIndex::TYPE)         \
-        return new AggregateFunctionTemplate< \
-                Data<LeadAndLagData<TYPE, is_nullable, false, StoreType>>>(argument_types);
-    FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-
-    if (which.is_decimal()) {
-        return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<Int128, is_nullable, false, StoreType>>>(argument_types);
-    }
-    if (which.is_date_or_datetime()) {
-        return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<Int64, is_nullable, false, StoreType>>>(argument_types);
-    }
-    if (which.is_string_or_fixed_string()) {
-        return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<StringRef, is_nullable, true, StoreType>>>(argument_types);
-    }
-    DCHECK(false) << "with unknowed type, failed in  create_aggregate_function_leadlag";
-    return nullptr;
-}
-
 template <bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_lag(const std::string& name,
                                                    const DataTypes& argument_types,
@@ -111,53 +73,6 @@ AggregateFunctionPtr create_aggregate_function_lead(const std::string& name,
                     name, argument_types, parameters));
 }
 
-template <bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_first(const std::string& name,
-                                                     const DataTypes& argument_types,
-                                                     const Array& parameters,
-                                                     const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, is_nullable>(
-                    name, argument_types, parameters));
-}
-
-template <bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_last(const std::string& name,
-                                                    const DataTypes& argument_types,
-                                                    const Array& parameters,
-                                                    const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionLastData, is_nullable>(
-                    name, argument_types, parameters));
-}
-
-AggregateFunctionPtr create_aggregate_function_replace_if_not_null(const std::string& name,
-                                                                   const DataTypes& argument_types,
-                                                                   const Array& parameters,
-                                                                   const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, false, true>(
-                    name, argument_types, parameters));
-}
-
-AggregateFunctionPtr create_aggregate_function_replace(const std::string& name,
-                                                       const DataTypes& argument_types,
-                                                       const Array& parameters,
-                                                       const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, false, true>(
-                    name, argument_types, parameters));
-}
-
-AggregateFunctionPtr create_aggregate_function_replace_nullable(const std::string& name,
-                                                                const DataTypes& argument_types,
-                                                                const Array& parameters,
-                                                                const bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, true, true>(
-                    name, argument_types, parameters));
-}
-
 void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("dense_rank", create_aggregate_function_dense_rank);
     factory.register_function("rank", create_aggregate_function_rank);
@@ -169,9 +84,10 @@ void register_aggregate_function_window_lead_lag(AggregateFunctionSimpleFactory&
     factory.register_function("lead", create_aggregate_function_lead<true>, true);
     factory.register_function("lag", create_aggregate_function_lag<false>);
     factory.register_function("lag", create_aggregate_function_lag<true>, true);
-    factory.register_function("first_value", create_aggregate_function_first<false>);
-    factory.register_function("first_value", create_aggregate_function_first<true>, true);
-    factory.register_function("last_value", create_aggregate_function_last<false>);
-    factory.register_function("last_value", create_aggregate_function_last<true>, true);
+    factory.register_function("first_value", create_aggregate_function_first<false, false>);
+    factory.register_function("first_value", create_aggregate_function_first<true, false>, true);
+    factory.register_function("last_value", create_aggregate_function_last<false, false>);
+    factory.register_function("last_value", create_aggregate_function_last<true, false>, true);
 }
+
 } // namespace doris::vectorized
