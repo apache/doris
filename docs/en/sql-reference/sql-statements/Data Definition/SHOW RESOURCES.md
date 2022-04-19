@@ -25,17 +25,19 @@ under the License.
 -->
 
 # SHOW RESOURCES
-## description
 
-    This statement is used to display the resources that the user has permission to use. Ordinary users can only display the resources with permission, while root or admin users can display all the resources.
+## Description
+
+    This statement is used to display the resources that the user has permission to use. 
+    Ordinary users can only display the resources with permission, while root or admin users can display all the resources.
     
-    Grammar
+    Syntax:
     
         SHOW RESOURCES
         [
             WHERE 
             [NAME [ = "your_resource_name" | LIKE "name_matcher"]]
-            [RESOURCETYPE = ["SPARK"]]
+            [RESOURCETYPE = ["[spark|odbc_catalog|s3]"]]
         ]
         [ORDER BY ...]
         [LIMIT limit][OFFSET offset];
@@ -48,7 +50,8 @@ under the License.
         5) If LIMIT is specified, limit matching records are displayed. Otherwise, it is all displayed.
         6) If OFFSET is specified, the query results are displayed starting with the offset offset. The offset is 0 by default.
 
-## example
+## Example
+
     1. Display all resources that the current user has permissions on
         SHOW RESOURCES;
     
@@ -60,5 +63,5 @@ under the License.
 
 
 ## keyword
-    SHOW, RESOURCES
 
+    SHOW RESOURCES, RESOURCES

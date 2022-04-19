@@ -30,40 +30,40 @@ BitFieldReader::~BitFieldReader() {
     SAFE_DELETE(_byte_reader);
 }
 
-OLAPStatus BitFieldReader::init() {
+Status BitFieldReader::init() {
     if (nullptr == _byte_reader) {
         _byte_reader = new (std::nothrow) RunLengthByteReader(_input);
 
         if (nullptr == _byte_reader) {
             OLAP_LOG_WARNING("fail to create RunLengthByteReader");
-            return OLAP_ERR_MALLOC_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BitFieldReader::_read_byte() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status BitFieldReader::_read_byte() {
+    Status res = Status::OK();
 
     if (_byte_reader->has_next()) {
-        if (OLAP_SUCCESS != (res = _byte_reader->next(&_current))) {
+        if (!(res = _byte_reader->next(&_current))) {
             return res;
         }
 
         _bits_left = 8;
     } else {
-        return OLAP_ERR_DATA_EOF;
+        return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BitFieldReader::next(char* value) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status BitFieldReader::next(char* value) {
+    Status res = Status::OK();
 
     if (0 == _bits_left) {
-        if (OLAP_SUCCESS != (res = _read_byte())) {
+        if (!(res = _read_byte())) {
             return res;
         }
     }
@@ -72,13 +72,13 @@ OLAPStatus BitFieldReader::next(char* value) {
 
     *value = (_current >> _bits_left) & 0x01;
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BitFieldReader::seek(PositionProvider* position) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status BitFieldReader::seek(PositionProvider* position) {
+    Status res = Status::OK();
 
-    if (OLAP_SUCCESS != (res = _byte_reader->seek(position))) {
+    if (!(res = _byte_reader->seek(position))) {
         return res;
     }
 
@@ -86,9 +86,9 @@ OLAPStatus BitFieldReader::seek(PositionProvider* position) {
 
     if (consumed > 8) {
         OLAP_LOG_WARNING("read past end of bit field");
-        return OLAP_ERR_DATA_EOF;
+        return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
     } else if (consumed != 0) {
-        if (OLAP_SUCCESS != (res = _read_byte())) {
+        if (!(res = _read_byte())) {
             return res;
         }
 
@@ -97,11 +97,11 @@ OLAPStatus BitFieldReader::seek(PositionProvider* position) {
         _bits_left = 0;
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BitFieldReader::skip(uint64_t num_values) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status BitFieldReader::skip(uint64_t num_values) {
+    Status res = Status::OK();
 
     uint64_t total_bits = num_values;
 
@@ -110,18 +110,18 @@ OLAPStatus BitFieldReader::skip(uint64_t num_values) {
     } else {
         total_bits -= _bits_left;
 
-        if (OLAP_SUCCESS != (res = _byte_reader->skip(total_bits / 8))) {
+        if (!(res = _byte_reader->skip(total_bits / 8))) {
             return res;
         }
 
-        if (OLAP_SUCCESS != (res = _byte_reader->next(&_current))) {
+        if (!(res = _byte_reader->next(&_current))) {
             return res;
         }
 
         _bits_left = 8 - (total_bits % 8);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

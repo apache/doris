@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_IN_STREAM_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_IN_STREAM_H
+#pragma once
 
 #include <gen_cpp/column_data_file.pb.h>
 
@@ -63,21 +62,21 @@ public:
     ~InStream();
 
     // 从数据流中读取一个字节,内部指针后移
-    // 如果数据流结束, 返回OLAP_ERR_COLUMN_STREAM_EOF
-    inline OLAPStatus read(char* byte);
+    // 如果数据流结束, 返回Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF)
+    Status read(char* byte);
 
     // 从数据流读入一段数据
     // Input:
     //     buffer - 存储读入的数据
     //     buf_size - 输入时给出buffer的大小,返回时给出实际读取的字节数
-    // 如果数据流结束, 返回OLAP_ERR_COLUMN_STREAM_EOF
-    inline OLAPStatus read(char* buffer, uint64_t* buf_size);
+    // 如果数据流结束, 返回Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF)
+    Status read(char* buffer, uint64_t* buf_size);
 
     // 设置读取的位置
-    OLAPStatus seek(PositionProvider* position);
+    Status seek(PositionProvider* position);
 
     // 跳过指定size的流
-    OLAPStatus skip(uint64_t skip_length);
+    Status skip(uint64_t skip_length);
 
     // 返回流的總長度
     uint64_t stream_length() {
@@ -99,7 +98,7 @@ public:
 
     // 返回当前块剩余的内存
     const char* available_buffer() {
-        if (OLAP_SUCCESS == _assure_data()) {
+        if (_assure_data()) {
             size_t offset = _uncompressed->position();
             return _uncompressed->array(offset);
         }
@@ -108,9 +107,9 @@ public:
     }
 
 private:
-    OLAPStatus _assure_data();
-    OLAPStatus _slice(uint64_t chunk_size, StorageByteBuffer** out_slice);
-    OLAPStatus _seek(uint64_t position);
+    Status _assure_data();
+    Status _slice(uint64_t chunk_size, StorageByteBuffer** out_slice);
+    Status _seek(uint64_t position);
 
     std::vector<StorageByteBuffer*> _inputs;
     std::vector<uint64_t> _offsets;
@@ -133,7 +132,7 @@ public:
     virtual ~InStreamBufferWrapper() {}
     virtual int_type underflow() {
         if (nullptr != _stream) {
-            if (OLAP_SUCCESS == _stream->skip(_skip_size)) {
+            if (_stream->skip(_skip_size)) {
                 char* buf = const_cast<char*>(_stream->available_buffer());
 
                 if (nullptr != buf) {
@@ -153,32 +152,32 @@ protected:
     size_t _skip_size;
 };
 
-inline OLAPStatus InStream::read(char* byte) {
-    OLAPStatus res;
+inline Status InStream::read(char* byte) {
+    Status res;
 
-    if (OLAP_SUCCESS != (res = _assure_data())) {
+    if (!(res = _assure_data())) {
         return res;
     }
 
     return _uncompressed->get(byte);
 }
 
-inline OLAPStatus InStream::read(char* buffer, uint64_t* buf_size) {
-    OLAPStatus res;
+inline Status InStream::read(char* buffer, uint64_t* buf_size) {
+    Status res;
 
     uint64_t read_length = *buf_size;
     *buf_size = 0;
 
     do {
         res = _assure_data();
-        if (OLAP_SUCCESS != res) {
+        if (!res.ok()) {
             break;
         }
 
         uint64_t actual_length = std::min(read_length - *buf_size, _uncompressed->remaining());
 
         res = _uncompressed->get(buffer, actual_length);
-        if (OLAP_SUCCESS != res) {
+        if (!res.ok()) {
             break;
         }
 
@@ -191,4 +190,3 @@ inline OLAPStatus InStream::read(char* buffer, uint64_t* buf_size) {
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_IN_STREAM_H

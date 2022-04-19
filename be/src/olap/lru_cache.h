@@ -2,8 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef DORIS_BE_SRC_OLAP_LRU_CACHE_H
-#define DORIS_BE_SRC_OLAP_LRU_CACHE_H
+#pragma once
 
 #include <gtest/gtest_prod.h>
 #include <rapidjson/document.h>
@@ -17,7 +16,6 @@
 #include "olap/olap_common.h"
 #include "runtime/mem_tracker.h"
 #include "util/metrics.h"
-#include "util/mutex.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -106,13 +104,13 @@ public:
     // Return a string that contains the copy of the referenced data.
     std::string to_string() const { return std::string(_data, _size); }
 
-    inline bool operator==(const CacheKey& other) const {
+    bool operator==(const CacheKey& other) const {
         return ((size() == other.size()) && (memcmp(data(), other.data(), size()) == 0));
     }
 
-    inline bool operator!=(const CacheKey& other) const { return !(*this == other); }
+    bool operator!=(const CacheKey& other) const { return !(*this == other); }
 
-    inline int compare(const CacheKey& b) const {
+    int compare(const CacheKey& b) const {
         const size_t min_len = (_size < b._size) ? _size : b._size;
         int r = memcmp(_data, b._data, min_len);
         if (r == 0) {
@@ -316,7 +314,7 @@ public:
                           CachePriority priority = CachePriority::NORMAL);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
-    void erase(const CacheKey& key, uint32_t hash, MemTracker* tracker);
+    void erase(const CacheKey& key, uint32_t hash);
     int64_t prune();
     int64_t prune_if(CacheValuePredicate pred);
 
@@ -379,7 +377,7 @@ private:
     void update_cache_metrics() const;
 
 private:
-    static inline uint32_t _hash_slice(const CacheKey& s);
+    static uint32_t _hash_slice(const CacheKey& s);
     static uint32_t _shard(uint32_t hash);
 
     std::string _name;
@@ -398,4 +396,3 @@ private:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_LRU_CACHE_H

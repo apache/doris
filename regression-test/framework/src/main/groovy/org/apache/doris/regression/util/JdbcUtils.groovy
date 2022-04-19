@@ -18,34 +18,36 @@
 package org.apache.doris.regression.util
 
 import com.google.common.collect.ImmutableList
+import groovy.lang.Tuple2
 
 import java.sql.Connection
 import java.sql.ResultSet
+import java.sql.ResultSetMetaData
 
 class JdbcUtils {
-    static List<List<Object>> executeToList(Connection conn, String sql) {
+    static Tuple2<List<List<Object>>, ResultSetMetaData> executeToList(Connection conn, String sql) {
         conn.prepareStatement(sql).withCloseable { stmt ->
             boolean hasResultSet = stmt.execute()
             if (!hasResultSet) {
-                return ImmutableList.of(ImmutableList.of(stmt.getUpdateCount()))
+                return [ImmutableList.of(ImmutableList.of(stmt.getUpdateCount())), null]
             } else {
-                toList(stmt.resultSet)
+                return toList(stmt.resultSet)
             }
         }
     }
 
-    static List<List<Object>> executorToStringList(Connection conn, String sql) {
+    static Tuple2<List<List<Object>>, ResultSetMetaData> executeToStringList(Connection conn, String sql) {
         conn.prepareStatement(sql).withCloseable { stmt ->
             boolean hasResultSet = stmt.execute()
             if (!hasResultSet) {
-                return ImmutableList.of(ImmutableList.of(stmt.getUpdateCount()))
+                return [ImmutableList.of(ImmutableList.of(stmt.getUpdateCount())), null]
             } else {
-                toStringList(stmt.resultSet)
+                return toStringList(stmt.resultSet)
             }
         }
     }
 
-    static List<List<Object>> toList(ResultSet resultSet) {
+    static Tuple2<List<List<Object>>, ResultSetMetaData> toList(ResultSet resultSet) {
         resultSet.withCloseable {
             List<List<Object>> rows = new ArrayList<>()
             def columnCount = resultSet.metaData.columnCount
@@ -56,19 +58,17 @@ class JdbcUtils {
                 }
                 rows.add(row)
             }
-            return rows
+            return [rows, resultSet.metaData]
         }
     }
 
-    static List<List<Object>> toStringList(ResultSet resultSet) {
+    static Tuple2<List<List<Object>>, ResultSetMetaData> toStringList(ResultSet resultSet) {
         resultSet.withCloseable {
             List<List<Object>> rows = new ArrayList<>()
             def columnCount = resultSet.metaData.columnCount
             while (resultSet.next()) {
                 def row = new ArrayList<>()
                 for (int i = 1; i <= columnCount; ++i) {
-                    // row.add(resultSet.getObject(i))
-                    // row.add(resultSet.getString(i))
                     try {
                         row.add(resultSet.getObject(i))
                     } catch (Throwable t) {
@@ -81,7 +81,7 @@ class JdbcUtils {
                 }
                 rows.add(row)
             }
-            return rows
+            return [rows, resultSet.metaData]
         }
     }
 }

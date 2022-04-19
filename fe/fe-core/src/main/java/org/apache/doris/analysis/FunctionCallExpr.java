@@ -89,8 +89,6 @@ public class FunctionCallExpr extends Expr {
 
     private boolean isRewrote = false;
 
-    public static final String UNKNOWN_TABLE_FUNCTION_MSG = "This table function not supported now";
-
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
     }
@@ -236,17 +234,17 @@ public class FunctionCallExpr extends Expr {
                 && fnParams.isStar() == o.fnParams.isStar();
     }
 
-    private String paramsToSql(FunctionParams params) {
+    private String paramsToSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("(");
 
-        if (params.isStar()) {
+        if (fnParams.isStar()) {
             sb.append("*");
         }
-        if (params.isDistinct()) {
+        if (fnParams.isDistinct()) {
             sb.append("DISTINCT ");
         }
-        int len = params.exprs().size();
+        int len = children.size();
         List<String> result = Lists.newArrayList();
         if (fnName.getFunction().equalsIgnoreCase("json_array") ||
                 fnName.getFunction().equalsIgnoreCase("json_object")) {
@@ -265,7 +263,7 @@ public class FunctionCallExpr extends Expr {
                     fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
                 result.add("\'***\'");
             } else {
-                result.add(params.exprs().get(i).toSql());
+                result.add(children.get(i).toSql());
             }
         }
         sb.append(Joiner.on(", ").join(result)).append(")");
@@ -282,7 +280,7 @@ public class FunctionCallExpr extends Expr {
         }
         StringBuilder sb = new StringBuilder();
         sb.append(((FunctionCallExpr) expr).fnName);
-        sb.append(paramsToSql(fnParams));
+        sb.append(paramsToSql());
         if (fnName.getFunction().equalsIgnoreCase("json_quote") ||
             fnName.getFunction().equalsIgnoreCase("json_array") ||
             fnName.getFunction().equalsIgnoreCase("json_object")) {
@@ -827,7 +825,7 @@ public class FunctionCallExpr extends Expr {
                 fn = getTableFunction(fnName.getFunction(), childTypes,
                         Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                 if (fn == null) {
-                    throw new AnalysisException(UNKNOWN_TABLE_FUNCTION_MSG);
+                    throw new AnalysisException(getFunctionNotFoundError(argTypes));
                 }
             } else {
                 // now first find function in built-in functions

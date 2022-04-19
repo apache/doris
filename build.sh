@@ -158,7 +158,7 @@ else
             *) echo "Internal error" ; exit 1 ;;
         esac
     done
-    #only ./build.sh -j xx then build all 
+    #only ./build.sh -j xx then build all
     if [[ ${PARAMETER_COUNT} -eq 3 ]] && [[ ${PARAMETER_FLAG} -eq 1 ]];then
         BUILD_FE=1
         BUILD_BE=1
@@ -263,7 +263,7 @@ if [ ${BUILD_HIVE_UDF} -eq 1 ]; then
     modules+=("hive-udf")
 fi
 FE_MODULES=$(IFS=, ; echo "${modules[*]}")
-    
+
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
@@ -305,9 +305,6 @@ if [ "${BUILD_DOCS}" = "ON" ] ; then
 fi
 
 function build_ui() {
-    # check NPM env here, not in env.sh.
-    # Because UI should be considered a non-essential component at runtime.
-    # Only when the compilation is required, check the relevant compilation environment.
     NPM=npm
     if ! ${NPM} --version; then
         echo "Error: npm is not found"
@@ -390,7 +387,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
     cp -r -p ${DORIS_HOME}/be/output/conf/* ${DORIS_OUTPUT}/be/conf/
     cp -r -p ${DORIS_HOME}/be/output/lib/palo_be ${DORIS_OUTPUT}/be/lib/
 
-    if [ "${BUILD_META_TOOL}" = "ON" ] ; then
+    if [ "${BUILD_META_TOOL}" = "ON" ]; then
         cp -r -p ${DORIS_HOME}/be/output/lib/meta_tool ${DORIS_OUTPUT}/be/lib/
     fi
 
@@ -400,7 +397,7 @@ if [ ${BUILD_BE} -eq 1 ]; then
     if [ "${STRIP_DEBUG_INFO}" = "ON" ]; then
         cp -r -p ${DORIS_HOME}/be/output/lib/debug_info ${DORIS_OUTPUT}/be/lib/
     fi
-    
+
     java_udf_path=${DORIS_HOME}/fe/java-udf/target/java-udf-jar-with-dependencies.jar
     if [ -f ${java_udf_path} ];then
         cp ${java_udf_path} ${DORIS_OUTPUT}/be/lib/

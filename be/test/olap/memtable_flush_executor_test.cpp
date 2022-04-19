@@ -57,7 +57,7 @@ void set_up() {
     doris::EngineOptions options;
     options.store_paths = paths;
     Status s = doris::StorageEngine::open(options, &k_engine);
-    ASSERT_TRUE(s.ok()) << s.to_string();
+    EXPECT_TRUE(s.ok()) << s.to_string();
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_storage_engine(k_engine);
@@ -85,10 +85,6 @@ class TestMemTableFlushExecutor : public ::testing::Test {
 public:
     TestMemTableFlushExecutor() {}
     ~TestMemTableFlushExecutor() {}
-
-    void SetUp() { std::cout << "setup" << std::endl; }
-
-    void TearDown() { std::cout << "tear down" << std::endl; }
 };
 
 TEST_F(TestMemTableFlushExecutor, create_flush_handler) {
@@ -97,41 +93,24 @@ TEST_F(TestMemTableFlushExecutor, create_flush_handler) {
 
     std::shared_ptr<FlushHandler> flush_handler;
     k_flush_executor->create_flush_handler(path_hash, &flush_handler);
-    ASSERT_NE(nullptr, flush_handler.get());
+    EXPECT_NE(nullptr, flush_handler.get());
 
     FlushResult res;
-    res.flush_status = OLAP_SUCCESS;
+    res.flush_status = Status::OK();
     res.flush_time_ns = 100;
     flush_handler->on_flush_finished(res);
-    ASSERT_FALSE(flush_handler->is_cancelled());
-    ASSERT_EQ(100, flush_handler->get_stats().flush_time_ns);
-    ASSERT_EQ(1, flush_handler->get_stats().flush_count);
+    EXPECT_FALSE(flush_handler->is_cancelled());
+    EXPECT_EQ(100, flush_handler->get_stats().flush_time_ns);
+    EXPECT_EQ(1, flush_handler->get_stats().flush_count);
 
     FlushResult res2;
-    res2.flush_status = OLAP_ERR_OTHER_ERROR;
+    res2.flush_status = Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
     flush_handler->on_flush_finished(res2);
-    ASSERT_TRUE(flush_handler->is_cancelled());
-    ASSERT_EQ(100, flush_handler->get_stats().flush_time_ns);
-    ASSERT_EQ(1, flush_handler->get_stats().flush_count);
+    EXPECT_TRUE(flush_handler->is_cancelled());
+    EXPECT_EQ(100, flush_handler->get_stats().flush_time_ns);
+    EXPECT_EQ(1, flush_handler->get_stats().flush_count);
 
-    ASSERT_EQ(OLAP_ERR_OTHER_ERROR, flush_handler->wait());
+    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR), flush_handler->wait());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    int ret = doris::OLAP_SUCCESS;
-    testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    doris::set_up();
-    ret = RUN_ALL_TESTS();
-    doris::tear_down();
-    google::protobuf::ShutdownProtobufLibrary();
-    return ret;
-}

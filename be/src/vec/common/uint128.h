@@ -58,35 +58,35 @@ struct UInt128 {
         return String(os.str());
     }
 
-    bool inline operator==(const UInt128 rhs) const { return tuple() == rhs.tuple(); }
-    bool inline operator!=(const UInt128 rhs) const { return tuple() != rhs.tuple(); }
-    bool inline operator<(const UInt128 rhs) const { return tuple() < rhs.tuple(); }
-    bool inline operator<=(const UInt128 rhs) const { return tuple() <= rhs.tuple(); }
-    bool inline operator>(const UInt128 rhs) const { return tuple() > rhs.tuple(); }
-    bool inline operator>=(const UInt128 rhs) const { return tuple() >= rhs.tuple(); }
+    bool operator==(const UInt128 rhs) const { return tuple() == rhs.tuple(); }
+    bool operator!=(const UInt128 rhs) const { return tuple() != rhs.tuple(); }
+    bool operator<(const UInt128 rhs) const { return tuple() < rhs.tuple(); }
+    bool operator<=(const UInt128 rhs) const { return tuple() <= rhs.tuple(); }
+    bool operator>(const UInt128 rhs) const { return tuple() > rhs.tuple(); }
+    bool operator>=(const UInt128 rhs) const { return tuple() >= rhs.tuple(); }
 
     template <typename T>
-    bool inline operator==(const T rhs) const {
+    bool operator==(const T rhs) const {
         return *this == UInt128(rhs);
     }
     template <typename T>
-    bool inline operator!=(const T rhs) const {
+    bool operator!=(const T rhs) const {
         return *this != UInt128(rhs);
     }
     template <typename T>
-    bool inline operator>=(const T rhs) const {
+    bool operator>=(const T rhs) const {
         return *this >= UInt128(rhs);
     }
     template <typename T>
-    bool inline operator>(const T rhs) const {
+    bool operator>(const T rhs) const {
         return *this > UInt128(rhs);
     }
     template <typename T>
-    bool inline operator<=(const T rhs) const {
+    bool operator<=(const T rhs) const {
         return *this <= UInt128(rhs);
     }
     template <typename T>
-    bool inline operator<(const T rhs) const {
+    bool operator<(const T rhs) const {
         return *this < UInt128(rhs);
     }
 

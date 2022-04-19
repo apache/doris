@@ -37,9 +37,9 @@
 
 namespace doris {
 
-class JsonScannerTest : public testing::Test {
+class JsonScannerWithJsonPathTest : public testing::Test {
 public:
-    JsonScannerTest() : _runtime_state(TQueryGlobals()) {
+    JsonScannerWithJsonPathTest() : _runtime_state(TQueryGlobals()) {
         init();
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
         _runtime_state._exec_env = ExecEnv::GetInstance();
@@ -73,7 +73,8 @@ private:
 #define COLUMN_NUMBERS 4
 #define DST_TUPLE_SLOT_ID_START 1
 #define SRC_TUPLE_SLOT_ID_START 5
-int JsonScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
+int JsonScannerWithJsonPathTest::create_src_tuple(TDescriptorTable& t_desc_table,
+                                                  int next_slot_id) {
     const char* columnNames[] = {"k1", "kind", "ip", "value"};
     for (int i = 0; i < COLUMN_NUMBERS; i++) {
         TSlotDescriptor slot_desc;
@@ -115,7 +116,8 @@ int JsonScannerTest::create_src_tuple(TDescriptorTable& t_desc_table, int next_s
     return next_slot_id;
 }
 
-int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_slot_id) {
+int JsonScannerWithJsonPathTest::create_dst_tuple(TDescriptorTable& t_desc_table,
+                                                  int next_slot_id) {
     int32_t byteOffset = 8;
     { //k1
         TSlotDescriptor slot_desc;
@@ -237,7 +239,7 @@ int JsonScannerTest::create_dst_tuple(TDescriptorTable& t_desc_table, int next_s
     return next_slot_id;
 }
 
-void JsonScannerTest::init_desc_table() {
+void JsonScannerWithJsonPathTest::init_desc_table() {
     TDescriptorTable t_desc_table;
 
     // table descriptors
@@ -261,7 +263,7 @@ void JsonScannerTest::init_desc_table() {
     _runtime_state.set_desc_tbl(_desc_tbl);
 }
 
-void JsonScannerTest::create_expr_info() {
+void JsonScannerWithJsonPathTest::create_expr_info() {
     TTypeDesc varchar_type;
     {
         TTypeNode node;
@@ -342,7 +344,7 @@ void JsonScannerTest::create_expr_info() {
     _params.__set_src_tuple_id(TUPLE_ID_SRC);
 }
 
-void JsonScannerTest::init() {
+void JsonScannerWithJsonPathTest::init() {
     create_expr_info();
     init_desc_table();
 
@@ -357,11 +359,11 @@ void JsonScannerTest::init() {
     _tnode.__isset.broker_scan_node = true;
 }
 
-TEST_F(JsonScannerTest, normal) {
+TEST_F(JsonScannerWithJsonPathTest, normal) {
     BrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     // set scan range
     std::vector<TScanRangeParams> scan_ranges;
@@ -389,21 +391,21 @@ TEST_F(JsonScannerTest, normal) {
 
     scan_node.set_scan_ranges(scan_ranges);
     status = scan_node.open(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     // Get batch
     RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size());
     bool eof = false;
     status = scan_node.get_next(&_runtime_state, &batch, &eof);
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ(2, batch.num_rows());
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(2, batch.num_rows());
+    EXPECT_FALSE(eof);
     batch.reset();
 
     status = scan_node.get_next(&_runtime_state, &batch, &eof);
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ(0, batch.num_rows());
-    ASSERT_TRUE(eof);
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ(0, batch.num_rows());
+    EXPECT_TRUE(eof);
 
     scan_node.close(&_runtime_state);
     {
@@ -414,9 +416,3 @@ TEST_F(JsonScannerTest, normal) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

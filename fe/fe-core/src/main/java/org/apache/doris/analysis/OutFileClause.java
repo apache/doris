@@ -27,6 +27,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
@@ -120,6 +121,7 @@ public class OutFileClause {
     private Map<String, String> fileProperties = new HashMap<>();
 
     private boolean isAnalyzed = false;
+    private String headerType = "";
 
     public OutFileClause(String filePath, String format, Map<String, String> properties) {
         this.filePath = filePath;
@@ -141,6 +143,10 @@ public class OutFileClause {
 
     public String getLineDelimiter() {
         return lineDelimiter;
+    }
+
+    public String getHeaderType() {
+        return headerType;
     }
 
     public TFileFormatType getFileFormatType() {
@@ -175,6 +181,14 @@ public class OutFileClause {
                 break;
             case "parquet":
                 fileFormatType = TFileFormatType.FORMAT_PARQUET;
+                break;
+            case "csv_with_names":
+                headerType = FeConstants.csv_with_names;
+                fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+                break;
+            case "csv_with_names_and_types":
+                headerType = FeConstants.csv_with_names_and_types;
+                fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
                 break;
             default:
                 throw new AnalysisException("format:" + this.format + " is not supported.");

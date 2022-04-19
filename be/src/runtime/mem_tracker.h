@@ -95,7 +95,7 @@ public:
     static std::shared_ptr<MemTracker> get_process_tracker();
     static MemTracker* get_raw_process_tracker();
 
-    inline Status check_sys_mem_info(int64_t bytes) {
+    Status check_sys_mem_info(int64_t bytes) {
         if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
             return Status::MemoryLimitExceeded(fmt::format(
                     "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
@@ -402,7 +402,7 @@ public:
         return tracker == nullptr ? false : true;
     }
 
-    std::string id() { return _id; }
+    int64_t id() { return _id; }
 
     std::string debug_string() {
         std::stringstream msg;
@@ -467,7 +467,7 @@ private:
 
     std::string _label;
 
-    std::string _id;
+    int64_t _id;
 
     std::shared_ptr<MemTracker> _parent; // The parent of this tracker.
 

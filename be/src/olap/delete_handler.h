@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_DELETE_HANDLER_H
-#define DORIS_BE_SRC_OLAP_DELETE_HANDLER_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -40,7 +39,7 @@ public:
     ~DeleteConditionHandler() {}
 
     // generated DeletePredicatePB by TCondition
-    OLAPStatus generate_delete_predicate(const TabletSchema& schema,
+    Status generate_delete_predicate(const TabletSchema& schema,
                                          const std::vector<TCondition>& conditions,
                                          DeletePredicatePB* del_pred);
 
@@ -49,9 +48,7 @@ public:
 
 private:
     // Validate the condition on the schema.
-    // Return OLAP_SUCCESS, if valid
-    //        OLAP_ERR_DELETE_INVALID_CONDITION, otherwise
-    OLAPStatus check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
+    Status check_condition_valid(const TabletSchema& tablet_schema, const TCondition& cond);
 
     // Check whether the condition value is valid according to its type.
     // 1. For integers(int8,int16,in32,int64,uint8,uint16,uint32,uint64), check whether they are overflow
@@ -72,7 +69,7 @@ struct DeleteConditions {
 // This class is used for checking whether a row should be deleted.
 // It is used in the following processes：
 // 1. Create and initialize a DeleteHandler object:
-//    OLAPStatus res;
+//    Status res;
 //    DeleteHandler delete_handler;
 //    res = delete_handler.init(tablet, condition_version);
 // 2. Use it to check whether a row should be deleted:
@@ -97,10 +94,9 @@ public:
     //     * schema: tablet's schema, the delete conditions and data rows are in this schema
     //     * version: maximum version
     // return:
-    //     * OLAP_SUCCESS: succeed
-    //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: input parameters are not valid
-    //     * OLAP_ERR_MALLOC_ERROR: alloc memory failed
-    OLAPStatus init(const TabletSchema& schema, const DelPredicateArray& delete_conditions,
+    //     * Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS): input parameters are not valid
+    //     * Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR): alloc memory failed
+    Status init(const TabletSchema& schema, const DelPredicateArray& delete_conditions,
                     int64_t version, const doris::TabletReader* = nullptr);
 
     // Check whether a row should be deleted.
@@ -143,4 +139,4 @@ private:
 };
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_DELETE_HANDLER_H
+

@@ -21,8 +21,6 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <filesystem>
-// #include <gutil/strings/substitute.h>
-// #include <gutil/strings/join.h>
 
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"

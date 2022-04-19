@@ -106,14 +106,6 @@ StringVal GeoFunctions::st_as_wkt(doris_udf::FunctionContext* ctx,
     return result;
 }
 
-struct StConstructState {
-    StConstructState() : is_null(false) {}
-    ~StConstructState() {}
-
-    bool is_null;
-    std::string encoded_buf;
-};
-
 void GeoFunctions::st_from_wkt_close(FunctionContext* ctx,
                                      FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
@@ -229,16 +221,6 @@ doris_udf::StringVal GeoFunctions::st_circle(FunctionContext* ctx, const DoubleV
     }
 }
 
-struct StContainsState {
-    StContainsState() : is_null(false), shapes{nullptr, nullptr} {}
-    ~StContainsState() {
-        delete shapes[0];
-        delete shapes[1];
-    }
-    bool is_null;
-    GeoShape* shapes[2];
-};
-
 void GeoFunctions::st_contains_prepare(doris_udf::FunctionContext* ctx,
                                        doris_udf::FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
@@ -254,7 +236,8 @@ void GeoFunctions::st_contains_prepare(doris_udf::FunctionContext* ctx,
             if (str->is_null) {
                 contains_ctx->is_null = true;
             } else {
-                contains_ctx->shapes[i] = GeoShape::from_encoded(str->ptr, str->len);
+                contains_ctx->shapes[i] =
+                        std::shared_ptr<GeoShape>(GeoShape::from_encoded(str->ptr, str->len));
                 if (contains_ctx->shapes[i] == nullptr) {
                     contains_ctx->is_null = true;
                 }
@@ -285,22 +268,21 @@ doris_udf::BooleanVal GeoFunctions::st_contains(doris_udf::FunctionContext* ctx,
     if (state != nullptr && state->is_null) {
         return BooleanVal::null();
     }
-    GeoShape* shapes[2] = {nullptr, nullptr};
+    std::vector<std::shared_ptr<GeoShape>> shapes = {nullptr, nullptr};
     const StringVal* strs[2] = {&lhs, &rhs};
-    // use this to delete new
-    StContainsState local_state;
     for (int i = 0; i < 2; ++i) {
         if (state != nullptr && state->shapes[i] != nullptr) {
             shapes[i] = state->shapes[i];
         } else {
-            shapes[i] = local_state.shapes[i] = GeoShape::from_encoded(strs[i]->ptr, strs[i]->len);
+            shapes[i] =
+                    std::shared_ptr<GeoShape>(GeoShape::from_encoded(strs[i]->ptr, strs[i]->len));
             if (shapes[i] == nullptr) {
                 return BooleanVal::null();
             }
         }
     }
 
-    return shapes[0]->contains(shapes[1]);
+    return shapes[0]->contains(shapes[1].get());
 }
 
 } // namespace doris

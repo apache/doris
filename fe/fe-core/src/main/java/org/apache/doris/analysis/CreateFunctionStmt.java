@@ -375,6 +375,7 @@ public class CreateFunctionStmt extends DdlStmt {
                     .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
                     .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
+                    .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
                     .build();
 
     private void checkUdfType(Class clazz, Method method, Type expType, Class pType, String pname)

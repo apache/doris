@@ -245,7 +245,7 @@ public:
 
     static Status filter_block(Block* block, int filter_conlumn_id, int column_to_keep);
 
-    static inline void erase_useless_column(Block* block, int column_to_keep) {
+    static void erase_useless_column(Block* block, int column_to_keep) {
         for (int i = block->columns() - 1; i >= column_to_keep; --i) {
             block->erase(i);
         }
@@ -311,7 +311,7 @@ public:
 private:
     void erase_impl(size_t position);
     void initialize_index_by_name();
-    inline bool is_column_data_null(const doris::TypeDescriptor& type_desc,
+    bool is_column_data_null(const doris::TypeDescriptor& type_desc,
                                     const StringRef& data_ref,
                                     const IColumn* column_with_type_and_name, int row);
     void deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor& type_desc,

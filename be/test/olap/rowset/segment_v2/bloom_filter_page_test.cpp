@@ -47,22 +47,22 @@ public:
         PageBuilderOptions builder_options;
         builder_options.data_page_size = 256 * 1024;
         PageBuilderType bf_page_builder(builder_options);
-        ASSERT_FALSE(bf_page_builder.is_page_full());
+        EXPECT_FALSE(bf_page_builder.is_page_full());
         bf_page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
         if (has_null) {
             size_t num = 1;
             bf_page_builder.add(nullptr, &num);
         }
         OwnedSlice s = bf_page_builder.finish();
-        ASSERT_EQ(size + has_null, bf_page_builder.count());
+        EXPECT_EQ(size + has_null, bf_page_builder.count());
 
         BloomFilterPageDecoder bf_page_decoder(s.slice());
         auto status = bf_page_decoder.init();
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(0, bf_page_decoder.current_index());
-        ASSERT_EQ(1, bf_page_decoder.count());
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(0, bf_page_decoder.current_index());
+        EXPECT_EQ(1, bf_page_decoder.count());
         status = bf_page_decoder.seek_to_position_in_page(0);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
@@ -72,21 +72,21 @@ public:
         ColumnBlockView column_block_view(&block);
         size_t size_to_fetch = 1;
         status = bf_page_decoder.next_batch(&size_to_fetch, &column_block_view);
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(1, size_to_fetch);
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(1, size_to_fetch);
 
         std::unique_ptr<BloomFilter> bf;
         BloomFilter::create(BLOCK_BLOOM_FILTER, &bf);
-        ASSERT_NE(nullptr, bf);
+        EXPECT_NE(nullptr, bf);
         auto ret = bf->init(values->data, values->size, HASH_MURMUR3_X64_64);
-        ASSERT_TRUE(ret);
-        ASSERT_EQ(has_null, bf->has_null());
+        EXPECT_TRUE(ret);
+        EXPECT_EQ(has_null, bf->has_null());
         for (size_t i = 0; i < size; ++i) {
             if (is_slice_type) {
                 Slice* value = (Slice*)(src + i);
-                ASSERT_TRUE(bf->test_bytes(value->data, value->size));
+                EXPECT_TRUE(bf->test_bytes(value->data, value->size));
             } else {
-                ASSERT_TRUE(bf->test_bytes((char*)(src + i), sizeof(CppType)));
+                EXPECT_TRUE(bf->test_bytes((char*)(src + i), sizeof(CppType)));
             }
         }
     }
@@ -179,8 +179,3 @@ TEST_F(BloomFilterPageTest, TestCharFieldBloomFilterPage) {
 
 } // namespace segment_v2
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

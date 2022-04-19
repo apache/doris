@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TYPES_H
-#define DORIS_BE_SRC_OLAP_TYPES_H
+#pragma once
 
 #include <math.h>
 #include <stdio.h>
@@ -66,10 +65,10 @@ public:
     virtual void direct_copy_may_cut(void* dest, const void* src) const = 0;
 
     // Convert and deep copy value from other type's source.
-    virtual OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+    virtual Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                     MemPool* mem_pool, size_t variable_len = 0) const = 0;
 
-    virtual OLAPStatus from_string(void* buf, const std::string& scan_key) const = 0;
+    virtual Status from_string(void* buf, const std::string& scan_key) const = 0;
 
     virtual std::string to_string(const void* src) const = 0;
 
@@ -84,53 +83,53 @@ public:
 
 class ScalarTypeInfo : public TypeInfo {
 public:
-    inline bool equal(const void* left, const void* right) const override {
+    bool equal(const void* left, const void* right) const override {
         return _equal(left, right);
     }
 
-    inline int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
+    int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
-    inline void shallow_copy(void* dest, const void* src) const override {
+    void shallow_copy(void* dest, const void* src) const override {
         _shallow_copy(dest, src);
     }
 
-    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
+    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
         _deep_copy(dest, src, mem_pool);
     }
 
     // See `copy_row_in_memtable()` in olap/row.h, will be removed in the future.
     // It is same with `deep_copy()` for all type except for HLL and OBJECT type.
-    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
+    void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
         _copy_object(dest, src, mem_pool);
     }
 
-    inline void direct_copy(void* dest, const void* src) const override { _direct_copy(dest, src); }
+    void direct_copy(void* dest, const void* src) const override { _direct_copy(dest, src); }
 
-    inline void direct_copy_may_cut(void* dest, const void* src) const override {
+    void direct_copy_may_cut(void* dest, const void* src) const override {
         _direct_copy_may_cut(dest, src);
     }
 
     // Convert and deep copy value from other type's source.
-    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+    Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
                             MemPool* mem_pool, size_t variable_len = 0) const override {
         return _convert_from(dest, src, src_type, mem_pool, variable_len);
     }
 
-    OLAPStatus from_string(void* buf, const std::string& scan_key) const override {
+    Status from_string(void* buf, const std::string& scan_key) const override {
         return _from_string(buf, scan_key);
     }
 
     std::string to_string(const void* src) const override { return _to_string(src); }
 
-    inline void set_to_max(void* buf) const override { _set_to_max(buf); }
-    inline void set_to_min(void* buf) const override { _set_to_min(buf); }
+    void set_to_max(void* buf) const override { _set_to_max(buf); }
+    void set_to_min(void* buf) const override { _set_to_min(buf); }
 
-    inline uint32_t hash_code(const void* data, uint32_t seed) const override {
+    uint32_t hash_code(const void* data, uint32_t seed) const override {
         return _hash_code(data, seed);
     }
-    inline const size_t size() const override { return _size; }
+    const size_t size() const override { return _size; }
 
-    inline FieldType type() const override { return _field_type; }
+    FieldType type() const override { return _field_type; }
 
     template <typename TypeTraitsClass>
     ScalarTypeInfo(TypeTraitsClass t)
@@ -159,10 +158,10 @@ private:
     void (*_copy_object)(void* dest, const void* src, MemPool* mem_pool);
     void (*_direct_copy)(void* dest, const void* src);
     void (*_direct_copy_may_cut)(void* dest, const void* src);
-    OLAPStatus (*_convert_from)(void* dest, const void* src, const TypeInfo* src_type,
+    Status (*_convert_from)(void* dest, const void* src, const TypeInfo* src_type,
                                 MemPool* mem_pool, size_t variable_len);
 
-    OLAPStatus (*_from_string)(void* buf, const std::string& scan_key);
+    Status (*_from_string)(void* buf, const std::string& scan_key);
     std::string (*_to_string)(const void* src);
 
     void (*_set_to_max)(void* buf);
@@ -181,7 +180,7 @@ public:
     explicit ArrayTypeInfo(const TypeInfo* item_type_info)
             : _item_type_info(item_type_info), _item_size(item_type_info->size()) {}
     ~ArrayTypeInfo() = default;
-    inline bool equal(const void* left, const void* right) const override {
+    bool equal(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const CollectionValue*>(left);
         auto r_value = reinterpret_cast<const CollectionValue*>(right);
         if (l_value->length() != r_value->length()) {
@@ -216,7 +215,7 @@ public:
         return true;
     }
 
-    inline int cmp(const void* left, const void* right) const override {
+    int cmp(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const CollectionValue*>(left);
         auto r_value = reinterpret_cast<const CollectionValue*>(right);
         size_t l_length = l_value->length();
@@ -261,13 +260,13 @@ public:
         }
     }
 
-    inline void shallow_copy(void* dest, const void* src) const override {
+    void shallow_copy(void* dest, const void* src) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
         dest_value->shallow_copy(src_value);
     }
 
-    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
+    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
@@ -300,18 +299,18 @@ public:
         }
     }
 
-    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
+    void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
         deep_copy(dest, src, mem_pool);
     }
 
-    inline void direct_copy(void* dest, const void* src) const override {
+    void direct_copy(void* dest, const void* src) const override {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         // NOTICE: The address pointed by null_signs of the dest_value can NOT be modified here.
         auto base = reinterpret_cast<uint8_t*>(dest_value->mutable_null_signs());
         direct_copy(&base, dest, src);
     }
 
-    inline void direct_copy(uint8_t** base, void* dest, const void* src) const {
+    void direct_copy(uint8_t** base, void* dest, const void* src) const {
         auto dest_value = reinterpret_cast<CollectionValue*>(dest);
         auto src_value = reinterpret_cast<const CollectionValue*>(src);
 
@@ -351,17 +350,17 @@ public:
         }
     }
 
-    inline void direct_copy_may_cut(void* dest, const void* src) const override {
+    void direct_copy_may_cut(void* dest, const void* src) const override {
         direct_copy(dest, src);
     }
 
-    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+    Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
                             MemPool* mem_pool, size_t variable_len = 0) const override {
-        return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
     }
 
-    OLAPStatus from_string(void* buf, const std::string& scan_key) const override {
-        return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+    Status from_string(void* buf, const std::string& scan_key) const override {
+        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
     }
 
     std::string to_string(const void* src) const override {
@@ -380,15 +379,15 @@ public:
         return result;
     }
 
-    inline void set_to_max(void* buf) const override {
+    void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
     }
 
-    inline void set_to_min(void* buf) const override {
+    void set_to_min(void* buf) const override {
         DCHECK(false) << "set_to_min of list is not implemented.";
     }
 
-    inline uint32_t hash_code(const void* data, uint32_t seed) const override {
+    uint32_t hash_code(const void* data, uint32_t seed) const override {
         auto value = reinterpret_cast<const CollectionValue*>(data);
         auto len = value->length();
         uint32_t result = HashUtil::hash(&len, sizeof(len), seed);
@@ -403,11 +402,11 @@ public:
         return result;
     }
 
-    inline const size_t size() const override { return sizeof(CollectionValue); }
+    const size_t size() const override { return sizeof(CollectionValue); }
 
-    inline FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
+    FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 
-    inline const TypeInfo* item_type_info() const { return _item_type_info; }
+    const TypeInfo* item_type_info() const { return _item_type_info; }
 
 private:
     const TypeInfo* _item_type_info;
@@ -562,9 +561,9 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 
     static inline void direct_copy_may_cut(void* dest, const void* src) { direct_copy(dest, src); }
 
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+    static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool, size_t variable_len = 0) {
-        return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+        return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
     }
 
     static inline void set_to_max(void* buf) {
@@ -583,13 +582,13 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
         return std::to_string(*reinterpret_cast<const CppType*>(src));
     }
 
-    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key) {
         CppType value = 0;
         if (scan_key.length() > 0) {
             value = static_cast<CppType>(strtol(scan_key.c_str(), nullptr, 10));
         }
         *reinterpret_cast<CppType*>(buf) = value;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 };
 
@@ -617,20 +616,20 @@ T convert_from_varchar(const Slice* src_value, StringParser::ParseResult& parse_
 }
 
 template <typename T>
-OLAPStatus arithmetic_convert_from_varchar(void* dest, const void* src) {
+Status arithmetic_convert_from_varchar(void* dest, const void* src) {
     auto src_value = reinterpret_cast<const Slice*>(src);
     StringParser::ParseResult parse_res;
     //TODO: use C++17 if constexpr to replace label assignment
     auto result = convert_from_varchar<T>(src_value, parse_res, std::is_integral<T>());
     if (UNLIKELY(parse_res != StringParser::PARSE_SUCCESS)) {
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+        return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
     }
     memcpy(dest, &result, sizeof(T));
-    return OLAPStatus::OLAP_SUCCESS;
+    return Status::OK();
 }
 
 template <typename T>
-OLAPStatus numeric_convert_from_char(void* dest, const void* src) {
+Status numeric_convert_from_char(void* dest, const void* src) {
     prepare_char_before_convert(src);
     return arithmetic_convert_from_varchar<T>(dest, src);
 }
@@ -645,7 +644,7 @@ struct NumericFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
         return std::to_string(*reinterpret_cast<const CppType*>(src));
     }
 
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+    static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool, size_t variable_len = 0) {
         if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR ||
             src_type->type() == OLAP_FIELD_TYPE_STRING) {
@@ -653,7 +652,7 @@ struct NumericFieldtypeTraits : public BaseFieldtypeTraits<fieldType> {
         } else if (src_type->type() == OLAP_FIELD_TYPE_CHAR) {
             return numeric_convert_from_char<CppType>(dest, src);
         }
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+        return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
     }
 };
 
@@ -682,7 +681,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_BOOL> : public BaseFieldtypeTraits<OLAP_F
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
         : public NumericFieldtypeTraits<OLAP_FIELD_TYPE_LARGEINT, true> {
-    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key) {
         int128_t value = 0;
 
         const char* value_string = scan_key.c_str();
@@ -719,7 +718,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
 
         *reinterpret_cast<PackedInt128*>(buf) = value;
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     static std::string to_string(const void* src) {
         char buf[1024];
@@ -787,13 +786,13 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_LARGEINT>
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT>
         : public NumericFieldtypeTraits<OLAP_FIELD_TYPE_FLOAT, true> {
-    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key) {
         CppType value = 0.0f;
         if (scan_key.length() > 0) {
             value = static_cast<CppType>(atof(scan_key.c_str()));
         }
         *reinterpret_cast<CppType*>(buf) = value;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
@@ -808,13 +807,13 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT>
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE>
         : public NumericFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE, true> {
-    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key) {
         CppType value = 0.0;
         if (scan_key.length() > 0) {
             value = atof(scan_key.c_str());
         }
         *reinterpret_cast<CppType*>(buf) = value;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
@@ -824,7 +823,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE>
                             << *reinterpret_cast<const CppType*>(src);
         return std::string(buf);
     }
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+    static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool, size_t variable_len = 0) {
         //only support float now
         if (src_type->type() == OLAP_FIELD_TYPE_FLOAT) {
@@ -843,7 +842,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE>
             snprintf(buf, 64, "%f", *reinterpret_cast<const SrcType*>(src));
             char* tg;
             *reinterpret_cast<CppType*>(dest) = strtod(buf, &tg);
-            return OLAPStatus::OLAP_SUCCESS;
+            return Status::OK();
         }
 
         return NumericFieldtypeTraits<OLAP_FIELD_TYPE_DOUBLE, true>::convert_from(
@@ -854,7 +853,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE>
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>
         : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL> {
-    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key) {
         CppType* data_ptr = reinterpret_cast<CppType*>(buf);
         return data_ptr->from_string(scan_key);
     }
@@ -876,7 +875,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>
 
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DATE> {
-    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key) {
         tm time_tm;
         char* res = strptime(scan_key.c_str(), "%Y-%m-%d", &time_tm);
 
@@ -889,12 +888,12 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             *reinterpret_cast<CppType*>(buf) = 716833;
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     static std::string to_string(const void* src) {
         return reinterpret_cast<const CppType*>(src)->to_string();
     }
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+    static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool, size_t variable_len = 0) {
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
             using SrcType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType;
@@ -905,7 +904,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             CppType mon = static_cast<CppType>((part1 / 100) % 100);
             CppType mday = static_cast<CppType>(part1 % 100);
             *reinterpret_cast<CppType*>(dest) = (year << 9) + (mon << 5) + mday;
-            return OLAPStatus::OLAP_SUCCESS;
+            return Status::OK();
         }
 
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_INT) {
@@ -913,13 +912,13 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
             SrcType src_value = *reinterpret_cast<const SrcType*>(src);
             DateTimeValue dt;
             if (!dt.from_date_int64(src_value)) {
-                return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+                return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
             }
             CppType year = static_cast<CppType>(src_value / 10000);
             CppType month = static_cast<CppType>((src_value % 10000) / 100);
             CppType day = static_cast<CppType>(src_value % 100);
             *reinterpret_cast<CppType*>(dest) = (year << 9) + (month << 5) + day;
-            return OLAPStatus::OLAP_SUCCESS;
+            return Status::OK();
         }
 
         if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR ||
@@ -936,13 +935,13 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
                                             src_value.get_size())) {
                     *reinterpret_cast<CppType*>(dest) =
                             (dt.year() << 9) + (dt.month() << 5) + dt.day();
-                    return OLAPStatus::OLAP_SUCCESS;
+                    return Status::OK();
                 }
             }
-            return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+            return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
         }
 
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+        return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
     }
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
@@ -957,7 +956,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATE> : public BaseFieldtypeTraits<OLAP_F
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
         : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DATETIME> {
-    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key) {
         tm time_tm;
         char* res = strptime(scan_key.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
 
@@ -972,7 +971,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
             *reinterpret_cast<CppType*>(buf) = 14000101000000L;
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     static std::string to_string(const void* src) {
         tm time_tm;
@@ -992,7 +991,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
         strftime(buf, 20, "%Y-%m-%d %H:%M:%S", &time_tm);
         return std::string(buf);
     }
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+    static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* memPool, size_t variable_len = 0) {
         // when convert date to datetime, automatic padding zero
         if (src_type->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
@@ -1002,9 +1001,9 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
             int mon = static_cast<int>(value >> 5 & 15);
             int year = static_cast<int>(value >> 9);
             *reinterpret_cast<CppType*>(dest) = (year * 10000L + mon * 100L + day) * 1000000;
-            return OLAPStatus::OLAP_SUCCESS;
+            return Status::OK();
         }
-        return OLAPStatus::OLAP_ERR_INVALID_SCHEMA;
+        return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
     }
     static void set_to_max(void* buf) {
         // 设置为最大时间，其含义为：9999-12-31 23:59:59
@@ -1025,12 +1024,12 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         auto r_slice = reinterpret_cast<const Slice*>(right);
         return l_slice->compare(*r_slice);
     }
-    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
         if (value_len > OLAP_VARCHAR_MAX_LENGTH) {
             LOG(WARNING) << "the len of value string is too long, len=" << value_len
                          << ", max_len=" << OLAP_VARCHAR_MAX_LENGTH;
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
@@ -1046,7 +1045,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
             // append \0 to the tail
             memset(slice->data + value_len, 0, slice->size - value_len);
         }
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     static std::string to_string(const void* src) {
         auto slice = reinterpret_cast<const Slice*>(src);
@@ -1098,21 +1097,21 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
 
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
-    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
         if (value_len > OLAP_VARCHAR_MAX_LENGTH) {
             LOG(WARNING) << "the len of value string is too long, len=" << value_len
                          << ", max_len=" << OLAP_VARCHAR_MAX_LENGTH;
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
         memory_copy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+    static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool, size_t variable_len = 0) {
         assert(variable_len > 0);
         switch (src_type->type()) {
@@ -1125,19 +1124,19 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         case OLAP_FIELD_TYPE_DOUBLE:
         case OLAP_FIELD_TYPE_DECIMAL: {
             auto result = src_type->to_string(src);
-            if (result.size() > variable_len) return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            if (result.size() > variable_len) return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
             auto slice = reinterpret_cast<Slice*>(dest);
             slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
             memcpy(slice->data, result.c_str(), result.size());
             slice->size = result.size();
-            return OLAP_SUCCESS;
+            return Status::OK();
         }
         case OLAP_FIELD_TYPE_CHAR:
             prepare_char_before_convert(src);
             deep_copy(dest, src, mem_pool);
-            return OLAP_SUCCESS;
+            return Status::OK();
         default:
-            return OLAP_ERR_INVALID_SCHEMA;
+            return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
         }
     }
 
@@ -1149,21 +1148,21 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
 
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> {
-    static OLAPStatus from_string(void* buf, const std::string& scan_key) {
+    static Status from_string(void* buf, const std::string& scan_key) {
         size_t value_len = scan_key.length();
         if (value_len > config::string_type_length_soft_limit_bytes) {
             LOG(WARNING) << "the len of value string is too long, len=" << value_len
                          << ", max_len=" << config::string_type_length_soft_limit_bytes;
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
         memory_copy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type,
+    static Status convert_from(void* dest, const void* src, const TypeInfo* src_type,
                                    MemPool* mem_pool, size_t variable_len = 0) {
         switch (src_type->type()) {
         case OLAP_FIELD_TYPE_TINYINT:
@@ -1179,15 +1178,15 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIE
             slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
             memcpy(slice->data, result.c_str(), result.size());
             slice->size = result.size();
-            return OLAP_SUCCESS;
+            return Status::OK();
         }
         case OLAP_FIELD_TYPE_CHAR:
             prepare_char_before_convert(src);
         case OLAP_FIELD_TYPE_VARCHAR:
             deep_copy(dest, src, mem_pool);
-            return OLAP_SUCCESS;
+            return Status::OK();
         default:
-            return OLAP_ERR_INVALID_SCHEMA;
+            return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
         }
     }
 
@@ -1282,4 +1281,3 @@ inline const TypeInfo* get_collection_type_info<OLAP_FIELD_TYPE_ARRAY>() {
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_TYPES_H

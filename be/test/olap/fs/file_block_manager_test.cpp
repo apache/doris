@@ -35,14 +35,14 @@ protected:
 
     void SetUp() override {
         if (FileUtils::check_exist(kBlockManagerDir)) {
-            ASSERT_TRUE(FileUtils::remove_all(kBlockManagerDir).ok());
+            EXPECT_TRUE(FileUtils::remove_all(kBlockManagerDir).ok());
         }
-        ASSERT_TRUE(FileUtils::create_dir(kBlockManagerDir).ok());
+        EXPECT_TRUE(FileUtils::create_dir(kBlockManagerDir).ok());
     }
 
     void TearDown() override {
         if (FileUtils::check_exist(kBlockManagerDir)) {
-            ASSERT_TRUE(FileUtils::remove_all(kBlockManagerDir).ok());
+            EXPECT_TRUE(FileUtils::remove_all(kBlockManagerDir).ok());
         }
     }
 };
@@ -58,7 +58,7 @@ TEST_F(FileBlockManagerTest, NormalTest) {
     std::string fname = kBlockManagerDir + "/test_file";
     fs::CreateBlockOptions wblock_opts(fname);
     Status st = fbm->create_block(wblock_opts, &wblock);
-    ASSERT_TRUE(st.ok()) << st.get_error_msg();
+    EXPECT_TRUE(st.ok()) << st.get_error_msg();
 
     std::string data = "abcdefghijklmnopqrstuvwxyz";
     wblock->append(data);
@@ -69,18 +69,13 @@ TEST_F(FileBlockManagerTest, NormalTest) {
     std::unique_ptr<fs::ReadableBlock> rblock;
     st = fbm->open_block(path_desc, &rblock);
     uint64_t file_size = 0;
-    ASSERT_TRUE(rblock->size(&file_size).ok());
-    ASSERT_EQ(data.size(), file_size);
+    EXPECT_TRUE(rblock->size(&file_size).ok());
+    EXPECT_EQ(data.size(), file_size);
     std::string read_buff(data.size(), 'a');
     Slice read_slice(read_buff);
     rblock->read(0, read_slice);
-    ASSERT_EQ(data, read_buff);
+    EXPECT_EQ(data, read_buff);
     rblock->close();
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

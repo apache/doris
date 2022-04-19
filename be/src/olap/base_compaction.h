@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_BASE_COMPACTION_H
-#define DORIS_BE_SRC_OLAP_BASE_COMPACTION_H
+#pragma once
 
 #include "olap/compaction.h"
 
@@ -32,13 +31,13 @@ public:
     BaseCompaction(TabletSharedPtr tablet);
     ~BaseCompaction() override;
 
-    OLAPStatus prepare_compact() override;
-    OLAPStatus execute_compact_impl() override;
+    Status prepare_compact() override;
+    Status execute_compact_impl() override;
 
     std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
 
 protected:
-    OLAPStatus pick_rowsets_to_compact() override;
+    Status pick_rowsets_to_compact() override;
     std::string compaction_name() const override { return "base compaction"; }
 
     ReaderType compaction_type() const override { return ReaderType::READER_BASE_COMPACTION; }
@@ -46,11 +45,10 @@ protected:
 private:
     // check if all input rowsets are non overlapping among segments.
     // a rowset with overlapping segments should be compacted by cumulative compaction first.
-    OLAPStatus _check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets);
+    Status _check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets);
 
     DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_BASE_COMPACTION_H

@@ -27,6 +27,7 @@
 #include "exprs/anyval_util.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/datetime_value.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "util/counts.h"
@@ -1108,11 +1109,9 @@ void AggregateFunctions::hll_merge(FunctionContext* ctx, const StringVal& src, S
     DCHECK(!src.is_null);
     DCHECK_EQ(dst->len, std::pow(2, HLL_COLUMN_PRECISION));
     DCHECK_EQ(src.len, std::pow(2, HLL_COLUMN_PRECISION));
-
-    auto dp = dst->ptr;
-    auto sp = src.ptr;
+    
     for (int i = 0; i < src.len; ++i) {
-        dp[i] = (dp[i] < sp[i] ? sp[i] : dp[i]);
+        dst->ptr[i] = (dst->ptr[i] < src.ptr[i] ? src.ptr[i] : dst->ptr[i]);
     }
 }
 
@@ -1370,7 +1369,7 @@ public:
 
     static void destroy(const StringVal& dst) { delete (MultiDistinctStringCountState*)dst.ptr; }
 
-    inline void update(StringValue* sv) { _set.insert(sv); }
+    void update(StringValue* sv) { _set.insert(sv); }
 
     StringVal serialize(FunctionContext* ctx) {
         // calculate total serialize buffer length
@@ -1905,6 +1904,45 @@ void AggregateFunctions::knuth_var_update(FunctionContext* ctx, const T& src, St
     state->count = temp;
 }
 
+template <typename T>
+void AggregateFunctions::knuth_var_remove(FunctionContext* context, const T& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(dst->ptr);
+    double count = state->count - 1;
+    double mean = (state->mean * (count + 1) - src.val) / count;
+    double m2 = state->m2 - ((count * (src.val - mean) * (src.val - mean)) / (count + 1));
+    state->m2 = m2;
+    state->mean = mean;
+    state->count = count;
+}
+
+void AggregateFunctions::knuth_var_remove(FunctionContext* ctx, const DecimalV2Val& src,
+                                          StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    DecimalV2KnuthVarianceState* state = reinterpret_cast<DecimalV2KnuthVarianceState*>(dst->ptr);
+
+    DecimalV2Value now_src = DecimalV2Value::from_decimal_val(src);
+    DecimalV2Value now_mean = DecimalV2Value::from_decimal_val(state->mean);
+    DecimalV2Value now_m2 = DecimalV2Value::from_decimal_val(state->m2);
+    DecimalV2Value now_count = DecimalV2Value();
+    now_count.assign_from_double(state->count);
+    DecimalV2Value now_count_minus = DecimalV2Value();
+    now_count_minus.assign_from_double(state->count - 1);
+
+    DecimalV2Value decimal_mean = (now_mean * now_count - now_src) / now_count_minus;
+    DecimalV2Value decimal_m2 =
+            now_m2 -
+            ((now_count_minus * (now_src - decimal_mean) * (now_src - decimal_mean)) / now_count);
+
+    decimal_m2.to_decimal_val(&state->m2);
+    decimal_mean.to_decimal_val(&state->mean);
+    --state->count;
+}
+
 void AggregateFunctions::knuth_var_update(FunctionContext* ctx, const DecimalV2Val& src,
                                           StringVal* dst) {
     DCHECK(!dst->is_null);
@@ -1982,96 +2020,159 @@ void AggregateFunctions::decimalv2_knuth_var_merge(FunctionContext* ctx, const S
     new_dst_m2.to_decimal_val(&dst_state->m2);
 }
 
-DoubleVal AggregateFunctions::knuth_var_finalize(FunctionContext* ctx, const StringVal& state_sv) {
+DoubleVal AggregateFunctions::knuth_var_get_value(FunctionContext* ctx, const StringVal& state_sv) {
     KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
-    if (state->count == 0 || state->count == 1) return DoubleVal::null();
+    if (state->count == 0 || state->count == 1) {
+        return DoubleVal::null();
+    }
     double variance = compute_knuth_variance(*state, false);
-    ctx->free(state_sv.ptr);
     return DoubleVal(variance);
+}
+
+DoubleVal AggregateFunctions::knuth_var_finalize(FunctionContext* ctx, const StringVal& state_sv) {
+    DoubleVal result = knuth_var_get_value(ctx, state_sv);
+    ctx->free(state_sv.ptr);
+    return result;
+}
+
+DecimalV2Val AggregateFunctions::decimalv2_knuth_var_get_value(FunctionContext* ctx,
+                                                               const StringVal& state_sv) {
+    DCHECK_EQ(state_sv.len, sizeof(DecimalV2KnuthVarianceState));
+    DecimalV2KnuthVarianceState* state =
+            reinterpret_cast<DecimalV2KnuthVarianceState*>(state_sv.ptr);
+    if (state->count == 0 || state->count == 1) {
+        return DecimalV2Val::null();
+    }
+    DecimalV2Value variance = decimalv2_compute_knuth_variance(*state, false);
+    DecimalV2Val res;
+    variance.to_decimal_val(&res);
+    return res;
 }
 
 DecimalV2Val AggregateFunctions::decimalv2_knuth_var_finalize(FunctionContext* ctx,
                                                               const StringVal& state_sv) {
-    DCHECK_EQ(state_sv.len, sizeof(DecimalV2KnuthVarianceState));
-    DecimalV2KnuthVarianceState* state =
-            reinterpret_cast<DecimalV2KnuthVarianceState*>(state_sv.ptr);
-    if (state->count == 0 || state->count == 1) return DecimalV2Val::null();
-    DecimalV2Value variance = decimalv2_compute_knuth_variance(*state, false);
-    DecimalV2Val res;
-    variance.to_decimal_val(&res);
+    DecimalV2Val result = decimalv2_knuth_var_get_value(ctx, state_sv);
     delete (DecimalV2KnuthVarianceState*)state_sv.ptr;
-    return res;
+    return result;
+}
+
+DoubleVal AggregateFunctions::knuth_var_pop_get_value(FunctionContext* ctx,
+                                                      const StringVal& state_sv) {
+    DCHECK_EQ(state_sv.len, sizeof(KnuthVarianceState));
+    KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
+    if (state->count == 0) {
+        return DoubleVal::null();
+    }
+    double variance = compute_knuth_variance(*state, true);
+    return DoubleVal(variance);
 }
 
 DoubleVal AggregateFunctions::knuth_var_pop_finalize(FunctionContext* ctx,
                                                      const StringVal& state_sv) {
-    DCHECK_EQ(state_sv.len, sizeof(KnuthVarianceState));
-    KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
-    if (state->count == 0) return DoubleVal::null();
-    double variance = compute_knuth_variance(*state, true);
+    DoubleVal result = knuth_var_pop_get_value(ctx, state_sv);
     ctx->free(state_sv.ptr);
-    return DoubleVal(variance);
+    return result;
+}
+
+DecimalV2Val AggregateFunctions::decimalv2_knuth_var_pop_get_value(FunctionContext* ctx,
+                                                                   const StringVal& state_sv) {
+    DCHECK_EQ(state_sv.len, sizeof(DecimalV2KnuthVarianceState));
+    DecimalV2KnuthVarianceState* state =
+            reinterpret_cast<DecimalV2KnuthVarianceState*>(state_sv.ptr);
+    if (state->count == 0) {
+        return DecimalV2Val::null();
+    }
+    DecimalV2Value variance = decimalv2_compute_knuth_variance(*state, true);
+    DecimalV2Val res;
+    variance.to_decimal_val(&res);
+    return res;
 }
 
 DecimalV2Val AggregateFunctions::decimalv2_knuth_var_pop_finalize(FunctionContext* ctx,
                                                                   const StringVal& state_sv) {
-    DCHECK_EQ(state_sv.len, sizeof(DecimalV2KnuthVarianceState));
-    DecimalV2KnuthVarianceState* state =
-            reinterpret_cast<DecimalV2KnuthVarianceState*>(state_sv.ptr);
-    if (state->count == 0) return DecimalV2Val::null();
-    DecimalV2Value variance = decimalv2_compute_knuth_variance(*state, true);
-    DecimalV2Val res;
-    variance.to_decimal_val(&res);
+    DecimalV2Val result = decimalv2_knuth_var_pop_get_value(ctx, state_sv);
     delete (DecimalV2KnuthVarianceState*)state_sv.ptr;
-    return res;
+    return result;
+}
+
+DoubleVal AggregateFunctions::knuth_stddev_get_value(FunctionContext* ctx,
+                                                     const StringVal& state_sv) {
+    DCHECK_EQ(state_sv.len, sizeof(KnuthVarianceState));
+    KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
+    if (state->count == 0 || state->count == 1) {
+        return DoubleVal::null();
+    }
+    double variance = sqrt(compute_knuth_variance(*state, false));
+    return DoubleVal(variance);
 }
 
 DoubleVal AggregateFunctions::knuth_stddev_finalize(FunctionContext* ctx,
                                                     const StringVal& state_sv) {
-    DCHECK_EQ(state_sv.len, sizeof(KnuthVarianceState));
-    KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
-    if (state->count == 0 || state->count == 1) return DoubleVal::null();
-    double variance = sqrt(compute_knuth_variance(*state, false));
+    DoubleVal result = knuth_stddev_get_value(ctx, state_sv);
     ctx->free(state_sv.ptr);
-    return DoubleVal(variance);
+    return result;
 }
 
-DecimalV2Val AggregateFunctions::decimalv2_knuth_stddev_finalize(FunctionContext* ctx,
-                                                                 const StringVal& state_sv) {
+DecimalV2Val AggregateFunctions::decimalv2_knuth_stddev_get_value(FunctionContext* ctx,
+                                                                  const StringVal& state_sv) {
     DCHECK_EQ(state_sv.len, sizeof(DecimalV2KnuthVarianceState));
     DecimalV2KnuthVarianceState* state =
             reinterpret_cast<DecimalV2KnuthVarianceState*>(state_sv.ptr);
-    if (state->count == 0 || state->count == 1) return DecimalV2Val::null();
+    if (state->count == 0 || state->count == 1) {
+        return DecimalV2Val::null();
+    }
     DecimalV2Value variance = decimalv2_compute_knuth_variance(*state, false);
     variance = DecimalV2Value::sqrt(variance);
     DecimalV2Val res;
     variance.to_decimal_val(&res);
-    delete (DecimalV2KnuthVarianceState*)state_sv.ptr;
     return res;
+}
+
+DecimalV2Val AggregateFunctions::decimalv2_knuth_stddev_finalize(FunctionContext* ctx,
+                                                                 const StringVal& state_sv) {
+    DecimalV2Val result = decimalv2_knuth_stddev_get_value(ctx, state_sv);
+    delete (DecimalV2KnuthVarianceState*)state_sv.ptr;
+    return result;
+}
+
+DoubleVal AggregateFunctions::knuth_stddev_pop_get_value(FunctionContext* ctx,
+                                                         const StringVal& state_sv) {
+    DCHECK_EQ(state_sv.len, sizeof(KnuthVarianceState));
+    KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
+    if (state->count == 0) {
+        return DoubleVal::null();
+    }
+    double variance = sqrt(compute_knuth_variance(*state, true));
+    return DoubleVal(variance);
 }
 
 DoubleVal AggregateFunctions::knuth_stddev_pop_finalize(FunctionContext* ctx,
                                                         const StringVal& state_sv) {
-    DCHECK_EQ(state_sv.len, sizeof(KnuthVarianceState));
-    KnuthVarianceState* state = reinterpret_cast<KnuthVarianceState*>(state_sv.ptr);
-    if (state->count == 0) return DoubleVal::null();
-    double variance = sqrt(compute_knuth_variance(*state, true));
+    DoubleVal result = knuth_stddev_pop_get_value(ctx, state_sv);
     ctx->free(state_sv.ptr);
-    return DoubleVal(variance);
+    return result;
 }
 
-DecimalV2Val AggregateFunctions::decimalv2_knuth_stddev_pop_finalize(FunctionContext* ctx,
-                                                                     const StringVal& state_sv) {
+DecimalV2Val AggregateFunctions::decimalv2_knuth_stddev_pop_get_value(FunctionContext* ctx,
+                                                                      const StringVal& state_sv) {
     DCHECK_EQ(state_sv.len, sizeof(DecimalV2KnuthVarianceState));
     DecimalV2KnuthVarianceState* state =
             reinterpret_cast<DecimalV2KnuthVarianceState*>(state_sv.ptr);
-    if (state->count == 0) return DecimalV2Val::null();
+    if (state->count == 0) {
+        return DecimalV2Val::null();
+    }
     DecimalV2Value variance = decimalv2_compute_knuth_variance(*state, true);
     variance = DecimalV2Value::sqrt(variance);
     DecimalV2Val res;
     variance.to_decimal_val(&res);
-    delete (DecimalV2KnuthVarianceState*)state_sv.ptr;
     return res;
+}
+
+DecimalV2Val AggregateFunctions::decimalv2_knuth_stddev_pop_finalize(FunctionContext* ctx,
+                                                                     const StringVal& state_sv) {
+    DecimalV2Val result = decimalv2_knuth_stddev_pop_get_value(ctx, state_sv);
+    delete (DecimalV2KnuthVarianceState*)state_sv.ptr;
+    return result;
 }
 
 struct RankState {
@@ -2758,6 +2859,14 @@ template void AggregateFunctions::knuth_var_update(FunctionContext*, const IntVa
 template void AggregateFunctions::knuth_var_update(FunctionContext*, const BigIntVal&, StringVal*);
 template void AggregateFunctions::knuth_var_update(FunctionContext*, const FloatVal&, StringVal*);
 template void AggregateFunctions::knuth_var_update(FunctionContext*, const DoubleVal&, StringVal*);
+
+template void AggregateFunctions::knuth_var_remove(FunctionContext*, const TinyIntVal&, StringVal*);
+template void AggregateFunctions::knuth_var_remove(FunctionContext*, const SmallIntVal&,
+                                                   StringVal*);
+template void AggregateFunctions::knuth_var_remove(FunctionContext*, const IntVal&, StringVal*);
+template void AggregateFunctions::knuth_var_remove(FunctionContext*, const BigIntVal&, StringVal*);
+template void AggregateFunctions::knuth_var_remove(FunctionContext*, const FloatVal&, StringVal*);
+template void AggregateFunctions::knuth_var_remove(FunctionContext*, const DoubleVal&, StringVal*);
 
 template void AggregateFunctions::first_val_update<BooleanVal>(FunctionContext*,
                                                                const BooleanVal& src,

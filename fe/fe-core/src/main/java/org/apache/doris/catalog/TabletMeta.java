@@ -19,8 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TStorageMedium;
 
-import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -80,53 +78,10 @@ public class TabletMeta {
         this.storageMedium = storageMedium;
     }
 
-    public void setNewSchemaHash(int newSchemaHash) {
-        lock.writeLock().lock();
-        try {
-            Preconditions.checkState(this.newSchemaHash == -1);
-            this.newSchemaHash = newSchemaHash;
-            LOG.debug("setNewSchemaHash: {}", toString());
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    public void updateToNewSchemaHash() {
-        lock.writeLock().lock();
-        try {
-            Preconditions.checkState(this.newSchemaHash != -1);
-            int tmp = this.oldSchemaHash;
-            this.oldSchemaHash = this.newSchemaHash;
-            this.newSchemaHash = tmp;
-            LOG.debug("updateToNewSchemaHash: " + toString());
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    public void deleteNewSchemaHash() {
-        lock.writeLock().lock();
-        try {
-            LOG.debug("deleteNewSchemaHash: " + toString());
-            this.newSchemaHash = -1;
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
     public int getOldSchemaHash() {
         lock.readLock().lock();
         try {
             return this.oldSchemaHash;
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public boolean containsSchemaHash(int schemaHash) {
-        lock.readLock().lock();
-        try {
-            return this.oldSchemaHash == schemaHash || this.newSchemaHash == schemaHash;
         } finally {
             lock.readLock().unlock();
         }

@@ -18,19 +18,14 @@
 #include "runtime/client_cache.h"
 
 #include <thrift/protocol/TBinaryProtocol.h>
-#include <thrift/server/TServer.h>
-#include <thrift/transport/TSocket.h>
-#include <thrift/transport/TTransportUtils.h>
 
 #include <memory>
 #include <sstream>
 
 #include "common/logging.h"
 #include "gen_cpp/FrontendService.h"
-#include "util/container_util.hpp"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
-#include "util/thrift_util.h"
 
 namespace doris {
 

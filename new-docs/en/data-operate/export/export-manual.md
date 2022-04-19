@@ -95,11 +95,18 @@ Among them, `c69fcf2b6db5420f-a96b94c1ff8bccef` is the query ID of the query pla
 
 When all data is exported, Doris will rename these files to the user-specified path.
 
-## Use examples
+### Broker parameter
+
+Export needs to use the Broker process to access remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../advanced/broker.html)
+
+
+## Start Export
+
+For detailed usage of Export, please refer to [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html).
 
 Export's detailed commands can be passed through `HELP EXPORT;` Examples are as follows:
 
-```
+```sql
 EXPORT TABLE db1.tbl1 
 PARTITION (p1,p2)
 [WHERE [expr]]
@@ -127,11 +134,12 @@ WITH BROKER "hdfs"
 * `timeout`: homework timeout. Default 2 hours. Unit seconds.
 * `tablet_num_per_task`: The maximum number of fragments allocated per query plan. The default is 5.
 
-After submitting a job, the job status can be imported by querying the `SHOW EXPORT` command. The results are as follows:
+After submitting a job, the job status can be imported by querying the   [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html)  command. The results are as follows:
 
-```
+```sql
+mysql> show EXPORT\G;
+*************************** 1. row ***************************
      JobId: 14008
-     Label: mylabel
      State: FINISHED
   Progress: 100%
   TaskInfo: {"partitions":["*"],"exec mem limit":2147483648,"column separator":",","line delimiter":"\n","tablet num":1,"broker":"hdfs","coord num":1,"db":"default_cluster:db1","tbl":"tbl3"}
@@ -140,12 +148,12 @@ CreateTime: 2019-06-25 17:08:24
  StartTime: 2019-06-25 17:08:28
 FinishTime: 2019-06-25 17:08:34
    Timeout: 3600
-  ErrorMsg: N/A
+  ErrorMsg: NULL
+1 row in set (0.01 sec)
 ```
 
 
 * JobId: The unique ID of the job
-* Label: Job identifier
 * State: Job status:
 	* PENDING: Jobs to be Scheduled
 	* EXPORTING: Data Export
@@ -196,3 +204,7 @@ Usually, a query plan for an Export job has only two parts `scan`- `export`, and
 * `export_running_job_num_limit `: Limit on the number of Export jobs running. If exceeded, the job will wait and be in PENDING state. The default is 5, which can be adjusted at run time.
 * `Export_task_default_timeout_second`: Export job default timeout time. The default is 2 hours. It can be adjusted at run time.
 * `export_tablet_num_per_task`: The maximum number of fragments that a query plan is responsible for. The default is 5.
+
+## More Help
+
+For more detailed syntax and best practices used by Export, please refer to the [Export](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) command manual, you can also You can enter `HELP EXPORT` at the command line of the MySql client for more help.

@@ -26,69 +26,36 @@ under the License.
 
 # Export Query Result
 
-This document describes how to use the `SELECT INTO OUTFILE` command to export query results.
+This document describes how to use the  [SELECT INTO OUTFILE](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/OUTFILE.html)  command to export query results.
 
-## Syntax
+## Example
 
-The `SELECT INTO OUTFILE` statement can export the query results to a file. Currently supports export to remote storage through Broker process, or directly through S3, HDFS  protocol such as HDFS, S3, BOS and COS(Tencent Cloud) through the Broker process. The syntax is as follows:
+### Export to HDFS
 
+Export simple query results to the file `hdfs://path/to/result.txt`, specifying the export format as CSV.
+
+```sql
+SELECT * FROM tbl
+INTO OUTFILE "hdfs://path/to/result_"
+FORMAT AS CSV
+PROPERTIES
+(
+    "broker.name" = "my_broker",
+    "column_separator" = ",",
+    "line_delimiter" = "\n"
+);
 ```
-query_stmt
-INTO OUTFILE "file_path"
-[format_as]
-[properties]
+
+### Export to local file
+
+When exporting to a local file, you need to configure `enable_outfile_to_local=true` in fe.conf first
+
+```sql
+select * from tbl1 limit 10 
+INTO OUTFILE "file:///home/work/path/result_";
 ```
 
-* `file_path`
-
-    `file_path` specify the file path and file name prefix. Like: `hdfs://path/to/my_file_`.
-    
-    The final file name will be assembled as `my_file_`, file seq no and the format suffix. File seq no starts from 0, determined by the number of split.
-    
-    ```
-    my_file_abcdefg_0.csv
-    my_file_abcdefg_1.csv
-    my_file_abcdegf_2.csv
-    ```
-
-* `[format_as]`
-
-    ```
-    FORMAT AS CSV
-    ```
-    
-    Specify the export format. The default is CSV.
-
-* `[properties]`
-
-    Specify the relevant attributes. Currently it supports exporting through the Broker process, or through the S3, HDFS protocol.
-
-    + Broker related attributes need to be prefixed with `broker.`. For details, please refer to [Broker Document](./broker.html).
-    + HDFS protocal can directly execute HDFS protocal configuration. hdfs.fs.defaultFS is used to fill in the namenode address and port. It is required.
-    + S3 protocol can directly execute S3 protocol configuration.
-
-    ```
-    PROPERTIES
-    ("broker.prop_key" = "broker.prop_val", ...)
-    or 
-    ("hdfs.fs.defaultFS" = "xxx", "hdfs.user" = "xxx")
-    or
-    ("AWS_ENDPOINT" = "xxx", ...)
-    ```
-
-    Other properties
-
-    ```
-    PROPERTIES
-    ("key1" = "val1", "key2" = "val2", ...)
-    ```
-
-    currently supports the following properties:
-
-    * `column_separator`: Column separator, only applicable to CSV format. The default is `\t`.
-    * `line_delimiter`: Line delimiter, only applicable to CSV format. The default is `\n`.
-    * `max_file_size`: The max size of a single file. Default is 1GB. Range from 5MB to 2GB. Files exceeding this size will be splitted.
-    * `schema`: schema infomation for PARQUET, only applicable to PARQUET format. If the exported file format is PARQUET, `schema` must be specified.
+For more usage, see [OUTFILE documentation](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/OUTFILE.html).
 
 ## Concurrent export
 
@@ -193,3 +160,7 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 * File spliting will ensure that a row of data is stored in a single file. Therefore, the size of the file is not strictly equal to `max_file_size`.
 * For functions whose output is invisible characters, such as BITMAP and HLL types, the output is `\N`, which is NULL.
 * At present, the output type of some geo functions, such as `ST_Point` is VARCHAR, but the actual output value is an encoded binary character. Currently these functions will output garbled characters. For geo functions, use `ST_AsText` for output.
+
+## More Help
+
+For more detailed syntax and best practices for using OUTFILE, please refer to the [OUTFILE](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/OUTFILE.html) command manual, you can also More help information can be obtained by typing `HELP OUTFILE` at the command line of the MySql client.

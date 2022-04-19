@@ -53,10 +53,16 @@ public:
     virtual bool output_object_data() const { return _output_object_data; }
 
     static const std::string NULL_IN_CSV;
+    virtual void set_header_info(const std::string& header_type, const std::string& header) {
+        _header_type = header_type;
+        _header = header;
+    };
 
 protected:
     int64_t _written_rows = 0; // number of rows written
     bool _output_object_data = false;
+    std::string _header_type = "";
+    std::string _header = "";
 };
 
 } // namespace doris

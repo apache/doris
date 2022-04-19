@@ -26,15 +26,15 @@ namespace doris {
 RunLengthIntegerReader::RunLengthIntegerReader(ReadOnlyFileStream* input, bool is_singed)
         : _input(input), _signed(is_singed), _num_literals(0), _used(0) {}
 
-OLAPStatus RunLengthIntegerReader::_read_values() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerReader::_read_values() {
+    Status res = Status::OK();
 
     // read the first 2 bits and determine the encoding type
-    uint8_t first_byte;
+    uint8_t first_byte = 0;
 
     res = _input->read((char*)&first_byte);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read first byte.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to read first byte.res = " << res;
         return res;
     } else {
         int enc = (first_byte >> 6) & 0x03;
@@ -53,8 +53,8 @@ OLAPStatus RunLengthIntegerReader::_read_values() {
     return res;
 }
 
-OLAPStatus RunLengthIntegerReader::_read_delta_values(uint8_t first_byte) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerReader::_read_delta_values(uint8_t first_byte) {
+    Status res = Status::OK();
 
     // extract the number of fixed bits
     uint32_t fb = (first_byte >> 1) & 0x1f;
@@ -65,11 +65,10 @@ OLAPStatus RunLengthIntegerReader::_read_delta_values(uint8_t first_byte) {
 
     // extract the blob run length
     int32_t len = (first_byte & 0x01) << 8;
-    uint8_t byte;
+    uint8_t byte = 0;
 
     res = _input->read((char*)&byte);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read byte from instream.[res=%d]", res);
+    if (!res.ok()) {
         return res;
     }
 
@@ -80,14 +79,14 @@ OLAPStatus RunLengthIntegerReader::_read_delta_values(uint8_t first_byte) {
 
     if (_signed) {
         res = ser::read_var_signed(_input, &first_val);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to read var signed.[res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to read var signed.res = " << res;
             return res;
         }
     } else {
         res = ser::read_var_unsigned(_input, &first_val);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to read var unsigned.[res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to read var unsigned.res = " << res;
             return res;
         }
     }
@@ -103,8 +102,8 @@ OLAPStatus RunLengthIntegerReader::_read_delta_values(uint8_t first_byte) {
         int64_t fd = 0;
 
         res = ser::read_var_signed(_input, &fd);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to read var signed.[res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to read var signed.res = " << res;
             return res;
         }
 
@@ -118,8 +117,8 @@ OLAPStatus RunLengthIntegerReader::_read_delta_values(uint8_t first_byte) {
         int64_t delta_base = 0;
 
         res = ser::read_var_signed(_input, &delta_base);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to read var signed.[res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to read var signed.res = " << res;
             return res;
         }
 
@@ -132,8 +131,8 @@ OLAPStatus RunLengthIntegerReader::_read_delta_values(uint8_t first_byte) {
         // value to result buffer. if the delta base value is negative then it
         // is a decreasing sequence else an increasing sequence
         res = ser::read_ints(_input, &_literals[_num_literals], len, fb);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to read ints.[res = %d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to read ints.res = " << res;
             return res;
         }
 
@@ -153,8 +152,8 @@ OLAPStatus RunLengthIntegerReader::_read_delta_values(uint8_t first_byte) {
     return res;
 }
 
-OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte) {
+    Status res = Status::OK();
 
     // extract the number of fixed bits
     int32_t fbo = (first_byte >> 1) & 0x1f;
@@ -162,11 +161,10 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
 
     // extract the run length of data blob
     int32_t len = (first_byte & 0x01) << 8;
-    uint8_t byte;
+    uint8_t byte = 0;
 
     res = _input->read((char*)&byte);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read byte from in_straem.[res=%d]", res);
+    if (!res.ok()) {
         return res;
     }
 
@@ -178,8 +176,8 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
     char third_byte = '\0';
 
     res = _input->read(&third_byte);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read byte from in_stream.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to read byte from in_stream.res = " << res;
         return res;
     }
 
@@ -195,8 +193,8 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
     char four_byte = '\0';
 
     res = _input->read(&four_byte);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read byte from in_straem.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to read byte from in_straem.res = " << res;
         return res;
     }
 
@@ -211,8 +209,8 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
     int64_t base = 0;
 
     res = ser::bytes_to_long_be(_input, bw, &base);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to bytes to long be.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to bytes to long be.res = " << res;
         return res;
     }
 
@@ -229,7 +227,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
     int64_t unpacked[len];
 
     res = ser::read_ints(_input, unpacked, len, fb);
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         return res;
     }
 
@@ -238,7 +236,7 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
     uint32_t bit_width = ser::get_closet_fixed_bits(pw + pgw);
 
     res = ser::read_ints(_input, unpacked_patch, pl, bit_width);
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         return res;
     }
 
@@ -304,8 +302,8 @@ OLAPStatus RunLengthIntegerReader::_read_patched_base_values(uint8_t first_byte)
     return res;
 }
 
-OLAPStatus RunLengthIntegerReader::_read_direct_values(uint8_t first_byte) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerReader::_read_direct_values(uint8_t first_byte) {
+    Status res = Status::OK();
 
     // extract the number of fixed bits
     uint32_t fbo = (first_byte >> 1) & 0x1f;
@@ -313,10 +311,10 @@ OLAPStatus RunLengthIntegerReader::_read_direct_values(uint8_t first_byte) {
 
     // extract the run length
     int32_t len = (first_byte & 0x01) << 8;
-    uint8_t byte;
+    uint8_t byte = 0;
 
     res = _input->read((char*)&byte);
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         return res;
     }
 
@@ -326,7 +324,7 @@ OLAPStatus RunLengthIntegerReader::_read_direct_values(uint8_t first_byte) {
 
     // write the unpacked values and zigzag decode to result buffer
     res = ser::read_ints(_input, _literals, len, fb);
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         return res;
     }
 
@@ -342,8 +340,8 @@ OLAPStatus RunLengthIntegerReader::_read_direct_values(uint8_t first_byte) {
     return res;
 }
 
-OLAPStatus RunLengthIntegerReader::_read_short_repeat_values(uint8_t first_byte) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerReader::_read_short_repeat_values(uint8_t first_byte) {
+    Status res = Status::OK();
 
     // read the number of bytes occupied by the value
     int32_t size = (first_byte >> 3) & 0x07;
@@ -359,7 +357,7 @@ OLAPStatus RunLengthIntegerReader::_read_short_repeat_values(uint8_t first_byte)
     int64_t val = 0;
 
     res = ser::bytes_to_long_be(_input, size, &val);
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         return res;
     }
 
@@ -375,10 +373,10 @@ OLAPStatus RunLengthIntegerReader::_read_short_repeat_values(uint8_t first_byte)
     return res;
 }
 
-OLAPStatus RunLengthIntegerReader::seek(PositionProvider* position) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerReader::seek(PositionProvider* position) {
+    Status res = Status::OK();
 
-    if (OLAP_SUCCESS != (res = _input->seek(position))) {
+    if (!(res = _input->seek(position))) {
         return res;
     }
 
@@ -390,7 +388,7 @@ OLAPStatus RunLengthIntegerReader::seek(PositionProvider* position) {
             _num_literals = 0;
 
             res = _read_values();
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 return res;
             }
 
@@ -405,8 +403,8 @@ OLAPStatus RunLengthIntegerReader::seek(PositionProvider* position) {
     return res;
 }
 
-OLAPStatus RunLengthIntegerReader::skip(uint64_t num_values) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerReader::skip(uint64_t num_values) {
+    Status res = Status::OK();
 
     while (num_values > 0) {
         if (_used == _num_literals) {
@@ -414,8 +412,8 @@ OLAPStatus RunLengthIntegerReader::skip(uint64_t num_values) {
             _used = 0;
 
             res = _read_values();
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to read values.[res=%d]", res);
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to read values.res = " << res;
                 return res;
             }
         }

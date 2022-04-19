@@ -61,7 +61,7 @@ TEST_F(HllFunctionsTest, hll_hash) {
     int64_t cardinality = hll.estimate_cardinality();
     int64_t expected = 1;
 
-    ASSERT_EQ(expected, cardinality);
+    EXPECT_EQ(expected, cardinality);
 }
 
 TEST_F(HllFunctionsTest, hll_hash_null) {
@@ -72,7 +72,7 @@ TEST_F(HllFunctionsTest, hll_hash_null) {
     int64_t cardinality = hll.estimate_cardinality();
     int64_t expected = 0;
 
-    ASSERT_EQ(expected, cardinality);
+    EXPECT_EQ(expected, cardinality);
 }
 
 TEST_F(HllFunctionsTest, hll_update) {
@@ -85,7 +85,7 @@ TEST_F(HllFunctionsTest, hll_update) {
 
     BigIntVal result = HllFunctions::hll_finalize(ctx, dst);
     BigIntVal expected(2);
-    ASSERT_EQ(expected, result);
+    EXPECT_EQ(expected, result);
 }
 
 TEST_F(HllFunctionsTest, hll_merge) {
@@ -104,12 +104,7 @@ TEST_F(HllFunctionsTest, hll_merge) {
     HyperLogLog hll(Slice(serialized.ptr, serialized.len));
 
     BigIntVal expected(1);
-    ASSERT_EQ(expected, hll.estimate_cardinality());
+    EXPECT_EQ(expected, hll.estimate_cardinality());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

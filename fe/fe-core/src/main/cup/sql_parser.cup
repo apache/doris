@@ -241,7 +241,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED, KW_COMPACT,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_CONVERT, KW_COUNT, KW_CREATE, KW_CREATION, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
-    KW_DELETE, KW_UPDATE, KW_DISK, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
+    KW_DELETE, KW_UPDATE, KW_DIAGNOSE, KW_DISK, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_ENABLE, KW_ENCRYPTKEY, KW_ENCRYPTKEYS, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXCLUDE,
     KW_EXISTS, KW_EXPORT, KW_EXTENDED, KW_EXTERNAL, KW_EXTRACT,
     KW_FALSE, KW_FEATURE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FIELDS, KW_FILE, KW_FILTER, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORCE, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
@@ -858,6 +858,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabasePropertyStmt(dbName, map);
     :}
+    | KW_ALTER KW_RESOURCE ident_or_text:resourceName opt_properties:properties
+    {:
+        RESULT = new AlterResourceStmt(resourceName, properties);
+    :}
     | KW_ALTER KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel opt_properties:jobProperties
       opt_datasource_properties:datasourceProperties
     {:
@@ -1310,9 +1314,9 @@ create_stmt ::=
     {:
         RESULT = new CreateRepositoryStmt(isReadOnly, repoName, storage);
     :}
-    | KW_CREATE KW_ROLE ident:role
+    | KW_CREATE KW_ROLE opt_if_not_exists:ifNotExists ident:role
     {:
-        RESULT = new CreateRoleStmt(role);
+        RESULT = new CreateRoleStmt(ifNotExists, role);
     :}
     | KW_CREATE KW_FILE STRING_LITERAL:fileName opt_db:db KW_PROPERTIES LPAREN key_value_map:properties RPAREN
     {:
@@ -2010,9 +2014,9 @@ drop_stmt ::=
         RESULT = new DropTableStmt(ifExists, name, force);
     :}
     /* User */
-    | KW_DROP KW_USER user_identity:userId
+    | KW_DROP KW_USER opt_if_exists:ifExists user_identity:userId
     {:
-        RESULT = new DropUserStmt(userId);
+        RESULT = new DropUserStmt(ifExists, userId);
     :}
     /* View */
     | KW_DROP KW_VIEW opt_if_exists:ifExists table_name:name
@@ -2023,9 +2027,9 @@ drop_stmt ::=
     {:
         RESULT = new DropRepositoryStmt(repoName);
     :}
-    | KW_DROP KW_ROLE ident:role
+    | KW_DROP KW_ROLE opt_if_exists:ifExists ident:role
     {:
-        RESULT = new DropRoleStmt(role);
+        RESULT = new DropRoleStmt(ifExists, role);
     :}
     | KW_DROP KW_FILE STRING_LITERAL:fileName opt_db:dbName KW_PROPERTIES LPAREN key_value_map:properties RPAREN
     {:
@@ -3076,9 +3080,9 @@ describe_stmt ::=
         query.setIsExplain(options);
         RESULT = query;
     :}   
-    | describe_command insert_stmt:stmt
+    | describe_command opt_explain_options:options insert_stmt:stmt
     {:
-        stmt.getQueryStmt().setIsExplain(new ExplainOptions(true, false));
+        stmt.getQueryStmt().setIsExplain(options);
         RESULT = stmt;
     :}
     ;
@@ -5321,6 +5325,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminCleanTrashStmt(null);
     :}
+    | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
+    {:
+        RESULT = new AdminDiagnoseTabletStmt(tabletId);
+    :}
     ;
 
 truncate_stmt ::=
@@ -5499,6 +5507,8 @@ keyword ::=
     | KW_DATETIME:id
     {: RESULT = id; :}
     | KW_DECIMAL:id
+    {: RESULT = id; :}
+    | KW_DIAGNOSE:id
     {: RESULT = id; :}
     | KW_DISTINCTPC:id
     {: RESULT = id; :}

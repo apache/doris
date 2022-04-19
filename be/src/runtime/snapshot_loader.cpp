@@ -21,8 +21,6 @@
 
 #include "common/logging.h"
 #include "env/env.h"
-#include "exec/broker_reader.h"
-#include "exec/broker_writer.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
@@ -225,8 +223,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             return Status::InternalError(ss.str());
         }
 
-        TabletSharedPtr tablet =
-                _env->storage_engine()->tablet_manager()->get_tablet(local_tablet_id, schema_hash);
+        TabletSharedPtr tablet = _env->storage_engine()->tablet_manager()->get_tablet(local_tablet_id);
         if (tablet == nullptr) {
             std::stringstream ss;
             ss << "failed to get local tablet: " << local_tablet_id;
@@ -411,9 +408,9 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     }
 
     // rename the rowset ids and tabletid info in rowset meta
-    OLAPStatus convert_status =
+    Status convert_status =
             SnapshotManager::instance()->convert_rowset_ids(snapshot_path, tablet_id, schema_hash);
-    if (convert_status != OLAP_SUCCESS) {
+    if (convert_status != Status::OK()) {
         std::stringstream ss;
         ss << "failed to convert rowsetids in snapshot: " << snapshot_path
            << ", tablet path: " << tablet_path;
@@ -469,9 +466,9 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     // snapshot loader not need to change tablet uid
     // fixme: there is no header now and can not call load_one_tablet here
     // reload header
-    OLAPStatus ost = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
+    Status ost = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
             store, tablet_id, schema_hash, tablet_path, true);
-    if (ost != OLAP_SUCCESS) {
+    if (!ost.ok()) {
         std::stringstream ss;
         ss << "failed to reload header of tablet: " << tablet_id;
         LOG(WARNING) << ss.str();

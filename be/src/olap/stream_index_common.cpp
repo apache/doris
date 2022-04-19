@@ -30,7 +30,7 @@ ColumnStatistics::~ColumnStatistics() {
     SAFE_DELETE(_maximum);
 }
 
-OLAPStatus ColumnStatistics::init(const FieldType& type, bool null_supported) {
+Status ColumnStatistics::init(const FieldType& type, bool null_supported) {
     SAFE_DELETE(_minimum);
     SAFE_DELETE(_maximum);
 
@@ -47,7 +47,7 @@ OLAPStatus ColumnStatistics::init(const FieldType& type, bool null_supported) {
         reset();
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void ColumnStatistics::reset() {
@@ -100,13 +100,13 @@ void ColumnStatistics::attach(char* buffer) {
     }
 }
 
-OLAPStatus ColumnStatistics::write_to_buffer(char* buffer, size_t size) {
+Status ColumnStatistics::write_to_buffer(char* buffer, size_t size) {
     if (_ignored) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     if (size < this->size()) {
-        return OLAP_ERR_BUFFER_OVERFLOW;
+        return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
     }
 
     // TODO(zc): too ugly
@@ -120,7 +120,7 @@ OLAPStatus ColumnStatistics::write_to_buffer(char* buffer, size_t size) {
         memcpy(buffer + copy_size, _maximum->ptr(), copy_size);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

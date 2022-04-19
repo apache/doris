@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/broker_scanner.h"
-
 #include <gtest/gtest.h>
 
 #include <map>
@@ -24,6 +22,7 @@
 #include <vector>
 
 #include "common/object_pool.h"
+#include "exec/broker_scanner.h"
 #include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
 #include "gen_cpp/Descriptors_types.h"
@@ -36,7 +35,7 @@
 
 namespace doris {
 
-class MultiBytesSeparatorTest: public testing::Test {
+class MultiBytesSeparatorTest : public testing::Test {
 public:
     MultiBytesSeparatorTest() {}
 
@@ -44,7 +43,6 @@ protected:
     virtual void SetUp() {}
     virtual void TearDown() {}
 };
-
 
 TEST_F(MultiBytesSeparatorTest, normal) {
     TBrokerScanRangeParams params;
@@ -58,7 +56,8 @@ TEST_F(MultiBytesSeparatorTest, normal) {
     const std::vector<TBrokerRangeDesc> ranges;
     const std::vector<TNetworkAddress> broker_addresses;
     const std::vector<TExpr> pre_filter_texprs;
-    BrokerScanner scanner(nullptr, nullptr, params, ranges, broker_addresses, pre_filter_texprs, nullptr);
+    BrokerScanner scanner(nullptr, nullptr, params, ranges, broker_addresses, pre_filter_texprs,
+                          nullptr);
 
 #define private public
 
@@ -67,9 +66,9 @@ TEST_F(MultiBytesSeparatorTest, normal) {
         std::string line = "AAAA";
         Slice s(line);
         scanner.split_line(s);
-        ASSERT_EQ(2, scanner._split_values.size());
-        ASSERT_EQ(0, scanner._split_values[0].size);
-        ASSERT_EQ(0, scanner._split_values[1].size);
+        EXPECT_EQ(2, scanner._split_values.size());
+        EXPECT_EQ(0, scanner._split_values[0].size);
+        EXPECT_EQ(0, scanner._split_values[1].size);
     }
 
     // 2.
@@ -77,8 +76,8 @@ TEST_F(MultiBytesSeparatorTest, normal) {
         std::string line = "ABAA";
         Slice s(line);
         scanner.split_line(s);
-        ASSERT_EQ(1, scanner._split_values.size());
-        ASSERT_EQ(4, scanner._split_values[0].size);
+        EXPECT_EQ(1, scanner._split_values.size());
+        EXPECT_EQ(4, scanner._split_values[0].size);
     }
 
     // 3.
@@ -86,8 +85,8 @@ TEST_F(MultiBytesSeparatorTest, normal) {
         std::string line = "";
         Slice s(line);
         scanner.split_line(s);
-        ASSERT_EQ(1, scanner._split_values.size());
-        ASSERT_EQ(0, scanner._split_values[0].size);
+        EXPECT_EQ(1, scanner._split_values.size());
+        EXPECT_EQ(0, scanner._split_values[0].size);
     }
 
     // 4.
@@ -96,18 +95,12 @@ TEST_F(MultiBytesSeparatorTest, normal) {
         std::string line = "1234AAAAAAABAAAAAAAAAA";
         Slice s(line);
         scanner.split_line(s);
-        ASSERT_EQ(4, scanner._split_values.size());
-        ASSERT_EQ(4, scanner._split_values[0].size);
-        ASSERT_EQ(4, scanner._split_values[1].size);
-        ASSERT_EQ(0, scanner._split_values[2].size);
-        ASSERT_EQ(2, scanner._split_values[3].size);
+        EXPECT_EQ(4, scanner._split_values.size());
+        EXPECT_EQ(4, scanner._split_values[0].size);
+        EXPECT_EQ(4, scanner._split_values[1].size);
+        EXPECT_EQ(0, scanner._split_values[2].size);
+        EXPECT_EQ(2, scanner._split_values[3].size);
     }
 }
 
-
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

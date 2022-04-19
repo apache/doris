@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
-#define DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
+#pragma once
 
 #include <pthread.h>
 #include <rapidjson/document.h>
@@ -45,7 +44,6 @@
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
-#include "olap/tablet_sync_service.h"
 #include "olap/task/engine_task.h"
 #include "olap/txn_manager.h"
 #include "runtime/heartbeat_flags.h"
@@ -76,7 +74,7 @@ public:
 
     static StorageEngine* instance() { return _s_instance; }
 
-    OLAPStatus create_tablet(const TCreateTabletReq& request);
+    Status create_tablet(const TCreateTabletReq& request);
 
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
@@ -97,7 +95,7 @@ public:
     void set_store_used_flag(const std::string& root_path, bool is_used);
 
     // @brief 获取所有root_path信息
-    OLAPStatus get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
+    Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
     int64_t get_file_or_directory_size(std::filesystem::path file_path);
 
@@ -118,7 +116,7 @@ public:
     //
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
-    OLAPStatus obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
+    Status obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
                                  DataDir** store);
 
     // Load new tablet to make it effective.
@@ -127,23 +125,20 @@ public:
     // @param [in] request specify new tablet info
     // @param [in] restore whether we're restoring a tablet from trash
     // @return OLAP_SUCCESS if load tablet success
-    OLAPStatus load_header(const std::string& shard_path, const TCloneReq& request,
+    Status load_header(const std::string& shard_path, const TCloneReq& request,
                            bool restore = false);
 
     void register_report_listener(TaskWorkerPool* listener);
     void deregister_report_listener(TaskWorkerPool* listener);
     void notify_listeners();
 
-    OLAPStatus execute_task(EngineTask* task);
+    Status execute_task(EngineTask* task);
 
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
-
-    // TODO(ygl)
-    TabletSyncService* tablet_sync_service() { return nullptr; }
 
     RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); };
 
@@ -171,7 +166,7 @@ public:
 
     // clear trash and snapshot file
     // option: update disk usage after sweep
-    OLAPStatus start_trash_sweep(double* usage, bool ignore_guard = false);
+    Status start_trash_sweep(double* usage, bool ignore_guard = false);
 
     void stop();
 
@@ -219,7 +214,7 @@ private:
 
     void _clean_unused_rowset_metas();
 
-    OLAPStatus _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
+    Status _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
                          const int32_t expire);
 
     // All these xxx_callback() functions are for Background threads
@@ -333,6 +328,7 @@ private:
     // Count the memory consumption of all SchemaChange tasks.
     std::shared_ptr<MemTracker> _schema_change_mem_tracker;
     // Count the memory consumption of all EngineCloneTask.
+    // Note: Memory that does not contain make/release snapshots.
     std::shared_ptr<MemTracker> _clone_mem_tracker;
     // Count the memory consumption of all EngineBatchLoadTask.
     std::shared_ptr<MemTracker> _batch_load_mem_tracker;
@@ -359,7 +355,7 @@ private:
     std::mutex _report_mtx;
     std::set<TaskWorkerPool*> _report_listeners;
 
-    Mutex _engine_task_mutex;
+    std::mutex _engine_task_mutex;
 
     std::unique_ptr<TabletManager> _tablet_manager;
     std::unique_ptr<TxnManager> _txn_manager;
@@ -399,4 +395,3 @@ private:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H

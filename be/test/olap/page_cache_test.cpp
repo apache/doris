@@ -43,11 +43,11 @@ TEST(StoragePageCacheTest, data_page_only) {
         Slice data(buf, 1024);
         cache.insert(key, data, &handle, page_type, false);
 
-        ASSERT_EQ(handle.data().data, buf);
+        EXPECT_EQ(handle.data().data, buf);
 
         auto found = cache.lookup(key, &handle, page_type);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(buf, handle.data().data);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(buf, handle.data().data);
     }
 
     {
@@ -57,10 +57,10 @@ TEST(StoragePageCacheTest, data_page_only) {
         Slice data(buf, 1024);
         cache.insert(memory_key, data, &handle, page_type, true);
 
-        ASSERT_EQ(handle.data().data, buf);
+        EXPECT_EQ(handle.data().data, buf);
 
         auto found = cache.lookup(memory_key, &handle, page_type);
-        ASSERT_TRUE(found);
+        EXPECT_TRUE(found);
     }
 
     // put too many page to eliminate first page
@@ -76,16 +76,15 @@ TEST(StoragePageCacheTest, data_page_only) {
         PageCacheHandle handle;
         StoragePageCache::CacheKey miss_key("abc", 1);
         auto found = cache.lookup(miss_key, &handle, page_type);
-        ASSERT_FALSE(found);
+        EXPECT_FALSE(found);
     }
 
     // cache miss for eliminated key
     {
         PageCacheHandle handle;
         auto found = cache.lookup(key, &handle, page_type);
-        ASSERT_FALSE(found);
+        EXPECT_FALSE(found);
     }
-
 }
 
 // All cache space is allocated to index pages
@@ -104,11 +103,11 @@ TEST(StoragePageCacheTest, index_page_only) {
         Slice data(buf, 1024);
         cache.insert(key, data, &handle, page_type, false);
 
-        ASSERT_EQ(handle.data().data, buf);
+        EXPECT_EQ(handle.data().data, buf);
 
         auto found = cache.lookup(key, &handle, page_type);
-        ASSERT_TRUE(found);
-        ASSERT_EQ(buf, handle.data().data);
+        EXPECT_TRUE(found);
+        EXPECT_EQ(buf, handle.data().data);
     }
 
     {
@@ -118,10 +117,10 @@ TEST(StoragePageCacheTest, index_page_only) {
         Slice data(buf, 1024);
         cache.insert(memory_key, data, &handle, page_type, true);
 
-        ASSERT_EQ(handle.data().data, buf);
+        EXPECT_EQ(handle.data().data, buf);
 
         auto found = cache.lookup(memory_key, &handle, page_type);
-        ASSERT_TRUE(found);
+        EXPECT_TRUE(found);
     }
 
     // put too many page to eliminate first page
@@ -137,16 +136,15 @@ TEST(StoragePageCacheTest, index_page_only) {
         PageCacheHandle handle;
         StoragePageCache::CacheKey miss_key("abc", 1);
         auto found = cache.lookup(miss_key, &handle, page_type);
-        ASSERT_FALSE(found);
+        EXPECT_FALSE(found);
     }
 
     // cache miss for eliminated key
     {
         PageCacheHandle handle;
         auto found = cache.lookup(key, &handle, page_type);
-        ASSERT_FALSE(found);
+        EXPECT_FALSE(found);
     }
-
 }
 
 // Cache space is allocated by index_page_cache_ratio
@@ -170,15 +168,15 @@ TEST(StoragePageCacheTest, mixed_pages) {
         cache.insert(data_key, data, &data_handle, page_type_data, false);
         cache.insert(index_key, index, &index_handle, page_type_index, false);
 
-        ASSERT_EQ(data_handle.data().data, buf_data);
-        ASSERT_EQ(index_handle.data().data, buf_index);
+        EXPECT_EQ(data_handle.data().data, buf_data);
+        EXPECT_EQ(index_handle.data().data, buf_index);
 
         auto found_data = cache.lookup(data_key, &data_handle, page_type_data);
         auto found_index = cache.lookup(index_key, &index_handle, page_type_index);
-        ASSERT_TRUE(found_data);
-        ASSERT_TRUE(found_index);
-        ASSERT_EQ(buf_data, data_handle.data().data);
-        ASSERT_EQ(buf_index, index_handle.data().data);
+        EXPECT_TRUE(found_data);
+        EXPECT_TRUE(found_index);
+        EXPECT_EQ(buf_data, data_handle.data().data);
+        EXPECT_EQ(buf_index, index_handle.data().data);
     }
 
     {
@@ -190,13 +188,13 @@ TEST(StoragePageCacheTest, mixed_pages) {
         cache.insert(data_key_mem, data, &data_handle, page_type_data, true);
         cache.insert(index_key_mem, index, &index_handle, page_type_index, true);
 
-        ASSERT_EQ(data_handle.data().data, buf_data);
-        ASSERT_EQ(index_handle.data().data, buf_index);        
+        EXPECT_EQ(data_handle.data().data, buf_data);
+        EXPECT_EQ(index_handle.data().data, buf_index);
 
         auto found_data = cache.lookup(data_key_mem, &data_handle, page_type_data);
         auto found_index = cache.lookup(index_key_mem, &index_handle, page_type_index);
-        ASSERT_TRUE(found_data);
-        ASSERT_TRUE(found_index);
+        EXPECT_TRUE(found_data);
+        EXPECT_TRUE(found_index);
     }
 
     // put too many page to eliminate first page of both cache
@@ -214,8 +212,8 @@ TEST(StoragePageCacheTest, mixed_pages) {
         StoragePageCache::CacheKey miss_key("abc", 1);
         auto found_data = cache.lookup(miss_key, &data_handle, page_type_data);
         auto found_index = cache.lookup(miss_key, &index_handle, page_type_index);
-        ASSERT_FALSE(found_data);
-        ASSERT_FALSE(found_index);
+        EXPECT_FALSE(found_data);
+        EXPECT_FALSE(found_index);
     }
 
     // cache miss by page type
@@ -228,11 +226,11 @@ TEST(StoragePageCacheTest, mixed_pages) {
         Slice data(buf_data, 1024), index(buf_index, 1024);
         cache.insert(miss_key_data, data, &data_handle, page_type_data, false);
         cache.insert(miss_key_index, index, &index_handle, page_type_index, false);
-        
+
         auto found_data = cache.lookup(miss_key_data, &data_handle, page_type_index);
         auto found_index = cache.lookup(miss_key_index, &index_handle, page_type_data);
-        ASSERT_FALSE(found_data);
-        ASSERT_FALSE(found_index);
+        EXPECT_FALSE(found_data);
+        EXPECT_FALSE(found_index);
     }
 
     // cache miss for eliminated key
@@ -240,15 +238,9 @@ TEST(StoragePageCacheTest, mixed_pages) {
         PageCacheHandle data_handle, index_handle;
         auto found_data = cache.lookup(data_key, &data_handle, page_type_data);
         auto found_index = cache.lookup(index_key, &index_handle, page_type_index);
-        ASSERT_FALSE(found_data);
-        ASSERT_FALSE(found_index);
+        EXPECT_FALSE(found_data);
+        EXPECT_FALSE(found_index);
     }
-
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

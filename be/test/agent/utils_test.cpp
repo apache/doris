@@ -34,13 +34,7 @@ namespace doris {
 TEST(AgentUtilsTest, Test) {
     std::string host_name = BackendOptions::get_localhost();
     int cnt = std::count(host_name.begin(), host_name.end(), '.');
-    ASSERT_EQ(3, cnt);
+    EXPECT_EQ(3, cnt);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    doris::BackendOptions::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

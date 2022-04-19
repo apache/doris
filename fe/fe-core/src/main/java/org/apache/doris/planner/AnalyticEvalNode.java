@@ -96,9 +96,6 @@ public class AnalyticEvalNode extends PlanNode {
         nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
     }
 
-    public boolean isBlockingNode() {
-        return true;
-    }
     public List<Expr> getPartitionExprs() {
         return partitionExprs;
     }

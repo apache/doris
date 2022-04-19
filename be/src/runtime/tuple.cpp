@@ -18,14 +18,10 @@
 #include "runtime/tuple.h"
 
 #include <functional>
-#include <iomanip>
 #include <iostream>
-#include <sstream>
-#include <string>
 #include <vector>
 
 #include "common/utils.h"
-#include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "runtime/collection_value.h"
 #include "runtime/descriptors.h"
