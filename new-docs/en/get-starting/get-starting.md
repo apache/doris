@@ -27,10 +27,6 @@ under the License.
 
 # Apache Doris Get-Starting
 
-This article is suitable for students who have not learned Apache Doris yet and want to quickly experience the complete Apache Doris from compilation and deployment to specific applications.
-
-This article is applicable to multi-platform (Win|Mac|Linux) and multi-mode (bare metal|Docker|virtual machine) **single-machine deployment**, which can be selected according to the objective situation.
-
 ## Environmental preparation
 
 1. CPU: 2C (minimum) 8C (recommended)
@@ -43,12 +39,6 @@ This article is applicable to multi-platform (Win|Mac|Linux) and multi-mode (bar
 ## Stand-alone deployment
 
 **Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process. **
-
-> If you have no intention of compiling or want to directly download the successfully compiled file, you can use the following link to download the corresponding version
->
-> Apache-Doris-Release--JDK1.8 precompiled version:
->
-> Baidu Palo-1.0-preview2-JDK1.8 precompiled version: https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/PALO-1.0.0-preview2-no-avx2 -binary.tar.gz
 
 1. Set the maximum number of open file handles in the system
 
@@ -63,13 +53,11 @@ This article is applicable to multi-platform (Win|Mac|Linux) and multi-mode (bar
 2. Download binary package / self-compile FE / BE files
 
    ```shell
-   wget https://dist.apache.org/repos/dist/dev/incubator/doris to deploy
-   wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/version to deploy
+   wget https://dist.apache.org/repos/dist/release/incubator/doris/version to deploy
    # For example the following link
-   wget https://dist.apache.org/repos/dist/dev/incubator/doris/1.0/1.0.0-rc03/apache-doris-1.0.0-incubating-bin.tar.gz
-   wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/PALO-1.0.0-preview2-no-avx2-binary.tar.gz
+   wget https://dist.apache.org/repos/dist/release/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz
    ```
-
+   
 3. Extract the tar.gz file
 
    ```shell
