@@ -106,10 +106,26 @@ under the License.
 
 4. 编译 Doris
 
+   先通过以下命令查看编译机器是否支持avx2指令集
+   
     ```
-    $ sh build.sh
+   $ cat /proc/cpuinfo | grep avx2
     ```
+   
+   不支持则使用以下命令进行编译
+   
+   ```
+   $ USE_AVX2=0  sh build.sh
+   ```
 
+   如果支持，可不加 USE_AVX2=0 ，直接进行编译
+   
+   ```
+   $ sh build.sh
+   ```
+   
+   编译完成后，产出文件在 `output/` 目录中。
+   
    >**注意:**
    >
    >如果你是第一次使用 `build-env-for-0.15.0` 或之后的版本，第一次编译的时候要使用如下命令：
@@ -117,7 +133,7 @@ under the License.
    > `sh build.sh --clean --be --fe --ui`
    >
    > 这是因为 build-env-for-0.15.0 版本镜像升级了 thrift(0.9 -> 0.13)，需要通过 --clean 命令强制使用新版本的 thrift 生成代码文件，否则会出现不兼容的代码。
-
+   
    编译完成后，产出文件在 `output/` 目录中。
 
 ### 自行编译开发环境镜像
@@ -178,10 +194,24 @@ under the License.
 
 2. 编译 Doris
 
-    ```
-    $ sh build.sh
-    ```
+    与使用 Docker 开发镜像编译一样，编译之前先检查是否支持avx2指令
 
+    ```
+   $ cat /proc/cpuinfo | grep avx2
+    ```
+    
+    支持则使用下面命令进行编译
+
+   ```
+   $ sh build.sh
+   ```
+   
+   如不支持需要加 USE_AVX2=0 
+   
+   ```
+   $ USE_AVX2=0 sh build.sh
+   ```
+   
    编译完成后，产出文件在 `output/` 目录中。
 
 ## 常见问题

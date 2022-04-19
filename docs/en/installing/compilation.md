@@ -107,11 +107,25 @@ This document focuses on how to code Doris through source code.
 
 4. Compile Doris
 
-    ```
-    $ sh build.sh
-    ```
+   First run the following command to check whether the compilation machine supports the avx2 instruction set
 
-    > ** Note: **
+     ```
+     $ cat /proc/cpuinfo | grep avx2
+     ```
+
+   If it is not supported, use the following command to compile
+
+     ```
+     $ USE_AVX2=0 sh build.sh
+     ```
+
+   If supported, compile directly without adding USE_AVX2=0
+
+     ```
+     $ sh build.sh
+     ```
+
+    > **Note:**
      >
      > If you are using `build-env-for-0.15.0` or later version for the first time, use the following command when compiling:
      >
@@ -180,10 +194,25 @@ You can try to compile Doris directly in your own Linux environment.
 
 2. Compile Doris
 
+   As with Docker development image compilation, check whether the avx2 instruction is supported before compiling
+
+    ```
+     $ cat /proc/cpuinfo | grep avx2
+    ```
+
+   If supported, use the following command to compile
+
     ```
     $ sh build.sh
     ```
-    After compilation, the output file is in the `output/` directory.
+
+   If it is not supported, you need to add USE_AVX2=0
+
+    ```
+    $ USE_AVX2=0 sh build.sh
+    ```
+
+   After compilation, the output files are in the `output/` directory.
 
 ## FAQ
 
