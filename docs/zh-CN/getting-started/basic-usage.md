@@ -71,9 +71,9 @@ mysql -h FE_HOST -P9030 -utest -ptest_passwd
 
 `CREATE DATABASE example_db;`
 
-> 所有命令都可以使用 'HELP command;' 查看到详细的语法帮助。如：`HELP CREATE DATABASE;`
+> 所有命令都可以使用 `HELP` 命令; 查看到详细的语法帮助。如：`HELP CREATE DATABASE;`
 
-> 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入 'HELP CREATE'，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
+> 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入 `HELP CREATE`，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
 
 数据库创建完成之后，可以通过 `SHOW DATABASES;` 查看数据库信息。
 
@@ -130,10 +130,10 @@ Doris支持支持单分区和复合分区两种建表方式。
 
 这个表的 schema 如下：
 
-* siteid：类型是INT（4字节）, 默认值为10
-* citycode：类型是SMALLINT（2字节）
-* username：类型是VARCHAR, 最大长度为32, 默认值为空字符串
-* pv：类型是BIGINT（8字节）, 默认值是0; 这是一个指标列, Doris内部会对指标列做聚合操作, 这个列的聚合方法是求和（SUM）
+* siteid：类型是 INT（4 字节）, 默认值为 10 字节。
+* citycode：类型是 SMALLINT（2 字节）。
+* username：类型是 VARCHAR, 最大长度为 32 字节, 默认值为空字符串。
+* pv：类型是 BIGINT（8 字节）, 默认值是 0; 这是一个指标列, Doris 内部会对指标列做聚合操作, 这个列的聚合方法是求和（SUM）。
 
 建表语句如下:
 ```
@@ -155,13 +155,13 @@ PROPERTIES("replication_num" = "1");
 
 这个表的 schema 如下：
 
-* event_day：类型是DATE，无默认值
-* siteid：类型是INT（4字节）, 默认值为10
-* citycode：类型是SMALLINT（2字节）
-* username：类型是VARCHAR, 最大长度为32, 默认值为空字符串
-* pv：类型是BIGINT（8字节）, 默认值是0; 这是一个指标列, Doris 内部会对指标列做聚合操作, 这个列的聚合方法是求和（SUM）
+* event_day：类型是 DATE，无默认值。
+* siteid：类型是 INT（4 字节）, 默认值为 10 字节。
+* citycode：类型是 SMALLINT（2 字节）。
+* username：类型是 VARCHAR, 最大长度为 32 字节, 默认值为空字符串。
+* pv：类型是 BIGINT（8 字节）, 默认值是 0 字节; 这是一个指标列, Doris 内部会对指标列做聚合操作, 这个列的聚合方法是求和（SUM）。
 
-我们使用 event_day 列作为分区列，建立3个分区: p201706, p201707, p201708
+我们使用 event_day 列作为分区列，建立 3 个分区: p201706, p201707, p201708
 
 * p201706：范围为 [最小值,     2017-07-01)
 * p201707：范围为 [2017-07-01, 2017-08-01)
@@ -169,7 +169,7 @@ PROPERTIES("replication_num" = "1");
 
 > 注意区间为左闭右开。
 
-每个分区使用 siteid 进行哈希分桶，桶数为10
+每个分区使用 siteid 进行哈希分桶，桶数为 10。
 
 建表语句如下:
 ```
@@ -230,12 +230,12 @@ MySQL> DESC table2;
 
 > 注意事项：
 > 
-> 1. 上述表通过设置 replication_num 建的都是单副本的表，Doris建议用户采用默认的 3 副本设置，以保证高可用。
+> 1. 上述表通过设置 replication_num 建的都是单副本的表，Doris 建议用户采用默认的 3 副本设置，以保证高可用。
 > 2. 可以对复合分区表动态的增删分区。详见 `HELP ALTER TABLE` 中 Partition 相关部分。
 > 3. 数据导入可以导入指定的 Partition。详见 `HELP LOAD`。
 > 4. 可以动态修改表的 Schema。
 > 5. 可以对 Table 增加上卷表（Rollup）以提高查询性能，这部分可以参见高级使用指南关于 Rollup 的描述。
-> 6. 表的列的Null属性默认为true，会对查询性能有一定的影响。
+> 6. 表的列的 Null 属性默认为 true，会对查询性能有一定的影响。
 
 ### 2.4 导入数据
 
