@@ -27,10 +27,6 @@ under the License.
 
 # Apache Doris 快速入门
 
-本文适用于暂未学习Apache Doris、想极速体验完整Apache Doris从编译部署到具体应用的同学。
-
-本文适用于多平台（Win|Mac|Linux）、多方式（裸机|Docker|虚拟机）的**单机部署**，可根据客观情况选择。
-
 ## 环境准备
 
 1. CPU：2C（最低）8C（推荐）
@@ -43,12 +39,6 @@ under the License.
 ## 单机部署
 
 **在创建之前，请准备好已完成编译的FE/BE文件，此教程不再赘述编译过程。**
-
-> 如无编译意向或想直接下载编译成功的文件，可使用如下链接下载对应版本
->
-> Apache-Doris-Release--JDK1.8 预编译版本：
->
-> 百度Palo-1.0-preview2-JDK1.8 预编译版本：https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/PALO-1.0.0-preview2-no-avx2-binary.tar.gz
 
 1. 设置系统最大打开文件句柄数
 
@@ -63,19 +53,17 @@ under the License.
 2. 下载二进制包/自主编译 FE / BE 文件
 
    ```shell
-   wget https://doris.apache.org/apache-doris-release/要部署的版本
-   wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/要部署的版本
+   wget https://dist.apache.org/repos/dist/release/incubator/doris/要部署的版本
    # 例如如下链接
-   wget https://doris.apache.org/release/doris-1.0.0.tar.gz
-   wget https://palo-cloud-repo-bd.bd.bcebos.com/baidu-doris-release/PALO-1.0.0-preview2-no-avx2-binary.tar.gz
+   wget https://dist.apache.org/repos/dist/release/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz
    ```
-
+   
 3. 解压缩 tar.gz 文件
 
    ```shell
    tar -zxvf 下载好的二进制压缩包
    # 例如
-   tar -zxvf PALO-1.0.0-preview2-no-avx2-binary.tar.gz
+   tar -zxvf apache-doris-1.0.0-incubating-bin.tar.gz
    ```
 
 4. 迁移解压缩后的程序文件至指定目录并重命名
@@ -84,7 +72,7 @@ under the License.
    mv 解压后的根目录 目标路径
    cd 目标路径
    # 例如
-   mv PALO-1.0.0-preview2-no-avx2-binary /opt/doris
+   mv apache-doris-1.0.0-incubating-bin /opt/doris
    cd /opt/doris
    ```
 
