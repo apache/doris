@@ -161,34 +161,15 @@ public class AnalyzeStmt extends DdlStmt {
 
         // step1: analyze db, table and column
         if (this.dbTableName != null) {
-            // check database
             this.dbTableName.analyze(analyzer);
             String dbName = this.dbTableName.getDb();
-            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
-            this.dbId = db.getId();
-
             String tblName = this.dbTableName.getTbl();
+            checkAnalyzePriv(dbName, tblName);
 
-            db.readLock();
-            try {
-                // check table
-                if (!Strings.isNullOrEmpty(tblName)) {
-                    Table table = db.getTableOrAnalysisException(tblName);
-                    this.tblIds.add(table.getId());
-                } else {
-                    List<Table> tables = db.getTables();
-                    for (Table table : tables) {
-                        long tblId = table.getId();
-                        this.tblIds.add(tblId);
-                    }
-                }
-            } finally {
-                db.readUnlock();
-            }
+            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+            Table table = db.getTableOrAnalysisException(tblName);
 
-            // check column
             if (this.columnNames != null && !this.columnNames.isEmpty()) {
-                Table table = db.getTableOrAnalysisException(tblName);
                 table.readLock();
                 try {
                     for (String columnName : this.columnNames) {
@@ -202,42 +183,27 @@ public class AnalyzeStmt extends DdlStmt {
                 }
             }
 
-            db.readLock();
-            try {
-                // check privilege
-                if (!Strings.isNullOrEmpty(this.dbTableName.getTbl())) {
-                    Table table = db.getTableOrAnalysisException(this.dbTableName.getTbl());
-                    checkAnalyzePriv(dbName, table.getName());
-                } else {
-                    List<Table> tables = db.getTables();
-                    for (Table table : tables) {
-                        checkAnalyzePriv(dbName, table.getName());
-                    }
-                }
-            } finally {
-                db.readUnlock();
-            }
+            this.dbId = db.getId();
+            this.tblIds.add(table.getId());
         } else {
             // analyze the current default db
             String dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-
             Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
-            this.dbId = db.getId();
 
             db.readLock();
             try {
                 List<Table> tables = db.getTables();
                 for (Table table : tables) {
-                    long tblId = table.getId();
-                    this.tblIds.add(tblId);
+                    checkAnalyzePriv(dbName, table.getName());
                 }
 
-                // check privilege
+                this.dbId = db.getId();
                 for (Table table : tables) {
-                    checkAnalyzePriv(dbName, table.getName());
+                    long tblId = table.getId();
+                    this.tblIds.add(tblId);
                 }
             } finally {
                 db.readUnlock();
