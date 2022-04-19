@@ -50,10 +50,10 @@ public:
 
     OLAPStatus link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) override;
 
-    OLAPStatus copy_files_to(const std::string& dir, RowsetId new_rowset_id) override;
+    OLAPStatus copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
     OLAPStatus upload_files_to(const FilePathDesc& dir_desc,
-        RowsetId new_rowset_id, bool delete_src = false) override;
+                               const RowsetId& new_rowset_id, bool delete_src = false) override;
 
     // only applicable to alpha rowset, no op here
     OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override {

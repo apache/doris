@@ -861,6 +861,8 @@ OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const ti
                     boost::algorithm::trim(remote_path_desc.storage_name);
                     std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
                             get_storage_backend(remote_path_desc.storage_name);
+                    // if storage_backend is nullptr, the remote storage is invalid.
+                    // Only the local path need to be removed.
                     if (storage_backend != nullptr) {
                         std::string remote_root_path;
                         if (!StorageBackendMgr::instance()->get_root_path(

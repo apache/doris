@@ -449,6 +449,7 @@ OLAPStatus StorageMigrationV2Handler::_generate_rowset_writer(
         writer.EndObject();
         Status st = env_util::write_string_to_file(
                 Env::Default(), Slice(std::string(strbuf.GetString())), remote_file_param_path);
+        // strbuf.GetString() format: {"tablet_uid": "a84cfb67d3ad3d62-87fd8b3ae9bdad84", "storage_name": "s3_name"}
         if (!st.ok()) {
             LOG(WARNING) << "fail to write tablet_uid and storage_name. path=" << remote_file_param_path
                          << ", error:" << st.to_string();

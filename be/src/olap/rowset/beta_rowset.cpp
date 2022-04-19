@@ -132,7 +132,7 @@ OLAPStatus BetaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::copy_files_to(const std::string& dir, RowsetId new_rowset_id) {
+OLAPStatus BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
     for (int i = 0; i < num_segments(); ++i) {
         FilePathDesc dst_path_desc = segment_file_path(dir, new_rowset_id, i);
         Status status = Env::Default()->path_exists(dst_path_desc.filepath);
@@ -158,7 +158,8 @@ OLAPStatus BetaRowset::copy_files_to(const std::string& dir, RowsetId new_rowset
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id, bool delete_src) {
+OLAPStatus BetaRowset::upload_files_to(const FilePathDesc& dir_desc,
+        const RowsetId& new_rowset_id, bool delete_src) {
     std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
             get_storage_backend(dir_desc.storage_name);
     if (storage_backend == nullptr) {

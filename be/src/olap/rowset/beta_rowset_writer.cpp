@@ -158,6 +158,10 @@ OLAPStatus BetaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
                          << ", dest: " << _context.path_desc.debug_string();
             return res;
         }
+    } else {
+        LOG(WARNING) << "add_rowset_for_migration failed. storage_medium is invalid. src: "
+                << rowset->rowset_path_desc().debug_string() << ", dest: " << _context.path_desc.debug_string();
+        return OLAP_ERR_OTHER_ERROR;
     }
 
     _num_rows_written += rowset->num_rows();

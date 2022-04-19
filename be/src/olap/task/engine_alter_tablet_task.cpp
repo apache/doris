@@ -35,7 +35,6 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
 }
 
 OLAPStatus EngineAlterTabletTask::execute() {
-    DorisMetrics::instance()->storage_migrate_v2_requests_total->increment(1);
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
 
     auto schema_change_handler = SchemaChangeHandler::instance();
@@ -47,7 +46,7 @@ OLAPStatus EngineAlterTabletTask::execute() {
                      << ", base_schema_hash=" << _alter_tablet_req.base_schema_hash
                      << ", new_tablet_id=" << _alter_tablet_req.new_tablet_id
                      << ", new_schema_hash=" << _alter_tablet_req.new_schema_hash;
-        DorisMetrics::instance()->storage_migrate_v2_requests_failed->increment(1);
+        DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
         return res;
     }
 

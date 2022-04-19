@@ -1043,6 +1043,7 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
                              << remote_file_param_path;
                 return;
             }
+            // json_buf format: {"tablet_uid": "a84cfb67d3ad3d62-87fd8b3ae9bdad84", "storage_name": "s3_name"}
             std::string storage_name = nullptr;
             std::string tablet_uid = nullptr;
             rapidjson::Document dom;

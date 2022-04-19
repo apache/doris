@@ -145,10 +145,10 @@ struct TAlterMaterializedViewParam {
 }
 
 struct TStorageMigrationReqV2 {
-    1: required Types.TTabletId base_tablet_id
-    2: required Types.TTabletId new_tablet_id
-    3: required Types.TSchemaHash base_schema_hash
-    4: required Types.TSchemaHash new_schema_hash
+    1: optional Types.TTabletId base_tablet_id
+    2: optional Types.TTabletId new_tablet_id
+    3: optional Types.TSchemaHash base_schema_hash
+    4: optional Types.TSchemaHash new_schema_hash
     5: optional Types.TVersion migration_version
     6: optional Types.TVersionHash migration_version_hash // Deprecated
 }
