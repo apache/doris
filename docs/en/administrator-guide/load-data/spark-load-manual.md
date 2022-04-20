@@ -96,7 +96,7 @@ The implementation of spark load task is mainly divided into the following five 
 
 ### Applicable scenarios
 
-At present, the bitmap column in Doris is implemented using the class library '`roaingbitmap`', while the input data type of '`roaringbitmap`' can only be integer. Therefore, if you want to pre calculate the bitmap column in the import process, you need to convert the type of input data to integer.
+At present, the bitmap column in Doris is implemented using the class library `roaingbitmap`, while the input data type of `roaringbitmap` can only be integer. Therefore, if you want to pre calculate the bitmap column in the import process, you need to convert the type of input data to integer.
 
 In the existing Doris import process, the data structure of global dictionary is implemented based on hive table, which stores the mapping from original value to encoded value.
 
@@ -191,7 +191,7 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 
   - Other parameters are optional, refer to `http://spark.apache.org/docs/latest/configuration.html`
 
-- `working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host :port/tmp/doris`.
+- `working_dir`: directory used by ETL. Spark is required when used as an ETL resource. For example: `hdfs://host:port/tmp/doris`.
 
 - `broker`: the name of the broker. Spark is required when used as an ETL resource. You need to use the 'alter system add broker' command to complete the configuration in advance.
 
@@ -272,7 +272,7 @@ REVOKE USAGE_PRIV ON RESOURCE "spark0" FROM "user0"@"%";
 
 ### Configure spark client
 
-The Fe submits the spark task by executing the spark submit command. Therefore, it is necessary to configure the spark client for Fe. It is recommended to use the official version of spark 2 above 2.4.3, [download spark here](https://archive.apache.org/dist/spark/). After downloading, please follow the steps to complete the following configuration.
+The Fe submits the spark task by executing the spark submit command. Therefore, it is necessary to configure the spark client for Fe. It is recommended to use the official version of spark 2 above 2.4.5, [download spark here](https://archive.apache.org/dist/spark/). After downloading, please follow the steps to complete the following configuration.
 
 #### Configure SPARK_HOME environment variable
 
@@ -601,7 +601,7 @@ The directory where the spark client's commit log is stored (`Fe/log/spark)_laun
 
 + `yarn_client_path`
 
-The path of the yarn binary executable file (`Fe/lib/yarn-client/Hadoop/bin/yarn').
+The path of the yarn binary executable file (`Fe/lib/yarn-client/Hadoop/bin/yarn`).
 
 + `yarn_config_dir`
 
