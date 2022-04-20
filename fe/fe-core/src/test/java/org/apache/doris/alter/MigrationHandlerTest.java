@@ -154,7 +154,7 @@ public class MigrationHandlerTest {
         Collection<Partition> partitions = new ArrayList<>();
         partitions.add(partition);
         DataProperty dataProperty = new DataProperty(
-                TStorageMedium.SSD, 0L, TStorageMedium.HDD, "", 0L);
+                TStorageMedium.SSD, 0L, "", 0L);
         dataProperty.setMigrationState(DataProperty.MigrationState.NONE);
         Catalog.getCurrentCatalog().setEditLog(editlog);
         new Expectations() {

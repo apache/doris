@@ -75,7 +75,11 @@ public class StorageMediaMigrationV2Task extends AgentTask {
     }
 
     public TStorageMigrationReqV2 toThrift() {
-        TStorageMigrationReqV2 req = new TStorageMigrationReqV2(baseTabletId, signature, baseSchemaHash, newSchemaHash);
+        TStorageMigrationReqV2 req = new TStorageMigrationReqV2();
+        req.setBaseTabletId(baseTabletId);
+        req.setNewTabletId(signature);
+        req.setBaseSchemaHash(baseSchemaHash);
+        req.setNewSchemaHash(newSchemaHash);
         req.setMigrationVersion(version);
         return req;
     }
