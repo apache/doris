@@ -183,7 +183,4 @@ public class StatisticsManager {
         return statistics;
     }
 
-    public Statistics getStatistics() {
-        return statistics;
-    }
 }

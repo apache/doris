@@ -84,8 +84,23 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected final TupleId tupleId_;
 
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, NodeType nodeType) {
+        super(id, tupleId.asList(), planNodeName, nodeType);
+        setOpResultExprs_ = Lists.newArrayList();
+        tupleId_ = tupleId;
+        isInSubplan_ = false;
+    }
+
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
+                               List<Expr> setOpResultExprs, boolean isInSubplan, NodeType nodeType) {
+        super(id, tupleId.asList(), planNodeName, nodeType);
+        setOpResultExprs_ = setOpResultExprs;
+        tupleId_ = tupleId;
+        isInSubplan_ = isInSubplan;
+    }
+
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
-        super(id, tupleId.asList(), planNodeName);
+        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
         setOpResultExprs_ = Lists.newArrayList();
         tupleId_ = tupleId;
         isInSubplan_ = false;
@@ -93,7 +108,7 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
                                List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId.asList(), planNodeName);
+        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
         setOpResultExprs_ = setOpResultExprs;
         tupleId_ = tupleId;
         isInSubplan_ = isInSubplan;

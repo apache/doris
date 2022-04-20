@@ -32,6 +32,7 @@ public class DeriveFactory {
             case CROSS_JOIN_NODE:
                 return new CrossJoinStatsDerive();
             case EMPTY_SET_NODE:
+            case REPEAT_NODE:
                 return new EmptySetStatsDerive();
             case EXCHANGE_NODE:
                 return new ExchangeStatsDerive();

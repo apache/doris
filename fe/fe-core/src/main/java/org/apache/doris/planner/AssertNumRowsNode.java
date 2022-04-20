@@ -43,7 +43,7 @@ public class AssertNumRowsNode extends PlanNode {
     private AssertNumRowsElement.Assertion assertion;
 
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement) {
-        super(id, "ASSERT NUMBER OF ROWS");
+        super(id, "ASSERT NUMBER OF ROWS", NodeType.ASSERT_NUM_ROWS_NODE);
         this.desiredNumOfRows = assertNumRowsElement.getDesiredNumOfRows();
         this.subqueryString = assertNumRowsElement.getSubqueryString();
         this.assertion = assertNumRowsElement.getAssertion();

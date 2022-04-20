@@ -68,7 +68,7 @@ public class RepeatNode extends PlanNode {
     private GroupByClause groupByClause;
 
     protected RepeatNode(PlanNodeId id, PlanNode input, GroupingInfo groupingInfo, GroupByClause groupByClause) {
-        super(id, input.getTupleIds(), "REPEAT_NODE");
+        super(id, input.getTupleIds(), "REPEAT_NODE", NodeType.REPEAT_NODE);
         this.children.add(input);
         this.groupingInfo = groupingInfo;
         this.input = input;
@@ -79,7 +79,7 @@ public class RepeatNode extends PlanNode {
     // only for unittest
     protected RepeatNode(PlanNodeId id, PlanNode input, List<Set<SlotId>> repeatSlotIdList,
                       TupleDescriptor outputTupleDesc, List<List<Long>> groupingList) {
-        super(id, input.getTupleIds(), "REPEAT_NODE");
+        super(id, input.getTupleIds(), "REPEAT_NODE", NodeType.REPEAT_NODE);
         this.children.add(input);
         this.repeatSlotIdList = buildIdSetList(repeatSlotIdList);
         this.groupingList = groupingList;

@@ -40,12 +40,12 @@ public class SelectNode extends PlanNode {
     private final static Logger LOG = LogManager.getLogger(SelectNode.class);
 
     protected SelectNode(PlanNodeId id, PlanNode child) {
-        super(id, child.getTupleIds(), "SELECT");
+        super(id, child.getTupleIds(), "SELECT", NodeType.SELECT_NODE);
         addChild(child);
         this.nullableTupleIds = child.nullableTupleIds;
     }
     protected SelectNode(PlanNodeId id, PlanNode child, List<Expr> conjuncts) {
-        super(id, child.getTupleIds(), "SELECT");
+        super(id, child.getTupleIds(), "SELECT", NodeType.SELECT_NODE);
         addChild(child);
         this.tblRefIds = child.tblRefIds;
         this.nullableTupleIds = child.nullableTupleIds;

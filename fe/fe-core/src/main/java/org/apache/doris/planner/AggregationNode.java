@@ -66,7 +66,7 @@ public class AggregationNode extends PlanNode {
      * isIntermediate is true if it is a slave node in a 2-part agg plan.
      */
     public AggregationNode(PlanNodeId id, PlanNode input, AggregateInfo aggInfo) {
-        super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE");
+        super(id, aggInfo.getOutputTupleId().asList(), "AGGREGATE", NodeType.AGG_NODE);
         this.aggInfo = aggInfo;
         this.children.add(input);
         this.needsFinalize = true;

@@ -51,7 +51,7 @@ public class TableFunctionNode extends PlanNode {
     private List<SlotId> outputSlotIds = Lists.newArrayList();
 
     protected TableFunctionNode(PlanNodeId id, PlanNode inputNode, List<LateralViewRef> lateralViewRefs) {
-        super(id, "TABLE FUNCTION NODE");
+        super(id, "TABLE FUNCTION NODE", NodeType.TABLE_FUNCTION_NODE);
         tupleIds.addAll(inputNode.getTupleIds());
         tblRefIds.addAll(inputNode.getTupleIds());
         lateralViewTupleIds = lateralViewRefs.stream().map(e -> e.getDesc().getId())

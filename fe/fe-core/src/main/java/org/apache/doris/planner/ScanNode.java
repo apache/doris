@@ -66,8 +66,7 @@ abstract public class ScanNode extends PlanNode {
     protected Analyzer analyzer;
 
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, NodeType nodeType) {
-        super(id, desc.getId().asList(), planNodeName);
-        super.nodeType = nodeType;
+        super(id, desc.getId().asList(), planNodeName, nodeType);
         this.desc = desc;
     }
 

@@ -81,7 +81,7 @@ public class SortNode extends PlanNode {
 
     public SortNode(PlanNodeId id, PlanNode input, SortInfo info, boolean useTopN,
                     boolean isDefaultLimit, long offset) {
-        super(id, useTopN ? "TOP-N" : "SORT");
+        super(id, useTopN ? "TOP-N" : "SORT", NodeType.SORT_NODE);
         this.info = info;
         this.useTopN = useTopN;
         this.isDefaultLimit = isDefaultLimit;

@@ -87,7 +87,7 @@ public class HashJoinNode extends PlanNode {
 
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef,
                         List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
-        super(id, "HASH JOIN");
+        super(id, "HASH JOIN", NodeType.HASH_JOIN_NODE);
         Preconditions.checkArgument(eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty());
         Preconditions.checkArgument(otherJoinConjuncts != null);
         tblRefIds.addAll(outer.getTblRefIds());

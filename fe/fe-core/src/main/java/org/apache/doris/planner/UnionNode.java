@@ -29,12 +29,12 @@ import org.apache.doris.thrift.TPlanNodeType;
 
 public class UnionNode extends SetOperationNode {
     protected UnionNode(PlanNodeId id, TupleId tupleId) {
-        super(id, tupleId, "UNION");
+        super(id, tupleId, "UNION", NodeType.UNION_NODE);
     }
 
     protected UnionNode(PlanNodeId id, TupleId tupleId,
                         List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId, "UNION", setOpResultExprs, isInSubplan);
+        super(id, tupleId, "UNION", setOpResultExprs, isInSubplan, NodeType.UNION_NODE);
     }
 
     @Override

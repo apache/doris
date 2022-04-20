@@ -41,7 +41,7 @@ public class EmptySetNode extends PlanNode {
     private final static Logger LOG = LogManager.getLogger(EmptySetNode.class);
 
     public EmptySetNode(PlanNodeId id, ArrayList<TupleId> tupleIds) {
-        super(id, tupleIds, "EMPTYSET");
+        super(id, tupleIds, "EMPTYSET", NodeType.EMPTY_SET_NODE);
         Preconditions.checkArgument(tupleIds.size() > 0);
     }
 

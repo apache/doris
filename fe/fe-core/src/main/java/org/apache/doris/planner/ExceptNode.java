@@ -31,7 +31,7 @@ public class ExceptNode extends SetOperationNode {
 
     protected ExceptNode(PlanNodeId id, TupleId tupleId,
                          List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId, "EXCEPT", setOpResultExprs, isInSubplan);
+        super(id, tupleId, "EXCEPT", setOpResultExprs, isInSubplan, NodeType.EXCEPT_NODE);
     }
 
     @Override
