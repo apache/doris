@@ -1497,7 +1497,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                     // So, we should return OLAP_ERR_VERSION_ALREADY_MERGED for fast fail.
                     LOG(WARNING) << "New tablet has a version " << pair.first
                                  << " crossing base tablet's max_version=" << max_rowset->end_version();
-                    return OLAP_ERR_VERSION_ALREADY_MERGED;
+                    Status::OLAPInternalError(OLAP_ERR_VERSION_ALREADY_MERGED);
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
