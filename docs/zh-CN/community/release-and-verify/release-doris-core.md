@@ -63,7 +63,7 @@ $ git checkout -b branch-0.9
 
 请参阅编译文档进行编译，以确保源码编译正确性。
 
-### 准备 Release Nodes
+### 准备 Release Notes
 
 ## 社区发布投票流程
 
