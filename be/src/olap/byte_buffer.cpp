@@ -20,6 +20,7 @@
 #include <sys/mman.h>
 
 #include "olap/utils.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -42,6 +43,8 @@ void StorageByteBuffer::BufDeleter::operator()(char* p) {
         if (0 != munmap(p, _mmap_length)) {
             LOG(FATAL) << "fail to munmap: mem=" << p << ", len=" << _mmap_length
                        << ", errno=" << Errno::no() << ", errno_str=" << Errno::str();
+        } else {
+            RELEASE_THREAD_LOCAL_MEM_TRACKER(_mmap_length);
         }
     } else {
         delete[] p;
@@ -93,6 +96,7 @@ StorageByteBuffer* StorageByteBuffer::reference_buffer(StorageByteBuffer* refere
 
 StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int prot, int flags,
                                            int fd, uint64_t offset) {
+    CONSUME_THREAD_LOCAL_MEM_TRACKER(length);
     char* memory = (char*)::mmap(start, length, prot, flags, fd, offset);
 
     if (MAP_FAILED == memory) {
@@ -128,6 +132,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset
 
     size_t length = handler->length();
     int fd = handler->fd();
+    CONSUME_THREAD_LOCAL_MEM_TRACKER(length);
     char* memory = (char*)::mmap(nullptr, length, prot, flags, fd, offset);
 
     if (MAP_FAILED == memory) {
@@ -173,7 +178,7 @@ Status StorageByteBuffer::put(uint64_t index, char src) {
 }
 
 Status StorageByteBuffer::put(const char* src, uint64_t src_size, uint64_t offset,
-                                  uint64_t length) {
+                              uint64_t length) {
     //没有足够的空间可以写
     if (length > remaining()) {
         return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);

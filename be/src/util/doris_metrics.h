@@ -130,6 +130,8 @@ public:
     IntCounter* attach_task_thread_count;
     IntCounter* switch_thread_mem_tracker_count;
     IntCounter* switch_thread_mem_tracker_err_cb_count;
+    // brpc server response count
+    IntCounter* switch_pthread_count;
 
     IntGauge* memory_pool_bytes_total;
     IntGauge* process_thread_num;

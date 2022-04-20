@@ -60,6 +60,21 @@ MemTracker* MemTracker::get_raw_process_tracker() {
     return raw_process_tracker;
 }
 
+// Track memory for all brpc server responses.
+static std::shared_ptr<MemTracker> brpc_server_tracker;
+static GoogleOnceType brpc_server_tracker_once = GOOGLE_ONCE_INIT;
+
+void MemTracker::create_brpc_server_tracker() {
+    brpc_server_tracker.reset(new MemTracker(-1, "Brpc", get_process_tracker(), MemTrackerLevel::OVERVIEW, nullptr));
+    get_process_tracker()->add_child_tracker(brpc_server_tracker);
+    brpc_server_tracker->init();
+}
+
+std::shared_ptr<MemTracker> MemTracker::get_brpc_server_tracker() {
+    GoogleOnceInit(&brpc_server_tracker_once, &MemTracker::create_brpc_server_tracker);
+    return brpc_server_tracker;
+}
+
 void MemTracker::list_process_trackers(std::vector<std::shared_ptr<MemTracker>>* trackers) {
     trackers->clear();
     std::deque<std::shared_ptr<MemTracker>> to_process;
@@ -88,7 +103,8 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker(int64_t byte_limit, const
                                                        const std::shared_ptr<MemTracker>& parent,
                                                        MemTrackerLevel level,
                                                        RuntimeProfile* profile) {
-    std::shared_ptr<MemTracker> reset_parent = parent ? parent : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker();
+    std::shared_ptr<MemTracker> reset_parent =
+            parent ? parent : tls_ctx()->_thread_mem_tracker_mgr->mem_tracker();
     DCHECK(reset_parent);
 
     std::shared_ptr<MemTracker> tracker(
@@ -102,7 +118,8 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker(int64_t byte_limit, const
 std::shared_ptr<MemTracker> MemTracker::create_virtual_tracker(
         int64_t byte_limit, const std::string& label, const std::shared_ptr<MemTracker>& parent,
         MemTrackerLevel level) {
-   std::shared_ptr<MemTracker> reset_parent = parent ? parent : thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker();
+    std::shared_ptr<MemTracker> reset_parent =
+            parent ? parent : tls_ctx()->_thread_mem_tracker_mgr->mem_tracker();
     DCHECK(reset_parent);
 
     std::shared_ptr<MemTracker> tracker(

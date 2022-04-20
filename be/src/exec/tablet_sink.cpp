@@ -50,7 +50,7 @@ NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int
         _tuple_data_buffer_ptr = &_tuple_data_buffer;
     }
     _node_channel_tracker =
-            MemTracker::create_tracker(-1, "NodeChannel" + thread_local_ctx.get()->thread_id_str());
+            MemTracker::create_tracker(-1, "NodeChannel" + tls_ctx()->thread_id_str());
 }
 
 NodeChannel::~NodeChannel() noexcept {
@@ -654,6 +654,7 @@ void IndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;
