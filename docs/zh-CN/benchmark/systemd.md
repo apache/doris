@@ -26,6 +26,6 @@ under the License.
 
 # Systemd
 
-Doris 代码库中提供了 Systemd 配置文件，可以帮助用户在 Linux 中方面的控制 Doris 服务的启停。
+Doris 代码库中提供了 Systemd 配置文件，可以帮助用户在 Linux 中方便地控制 Doris 服务的启停。
 
 配置文件请前往 [代码库](https://github.com/apache/incubator-doris/tree/master/tools/systemd) 查看。

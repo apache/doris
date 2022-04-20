@@ -27,7 +27,7 @@ under the License.
 # 批量删除
 目前Doris 支持broker load， routine load， stream load 等多种导入方式，对于数据的删除目前只能通过delete 语句进行删除，使用delete 语句的方式删除时，每执行一次delete 都会生成一个新的数据版本，如果频繁删除会严重影响查询性能，并且在使用delete 方式删除时，是通过生成一个空的rowset来记录删除条件实现，每次读取都要对删除条件进行过滤，同样在条件较多时会对性能造成影响。对比其他的系统，greenplum 的实现方式更像是传统数据库产品，snowflake 通过merge 语法实现。
 
-对于类似于cdc 数据的导入的场景，数据数据中insert 和delete 一般是穿插出现的，面对这种场景我们目前的导入方式也无法满足，即使我们能够分离出insert 和delete 虽然可以解决导入的问题，但是仍然解决不了删除的问题。使用批量删除功能可以解决这些个场景的需求。
+对于类似于cdc 数据的导入的场景，数据中insert 和delete 一般是穿插出现的，面对这种场景我们目前的导入方式也无法满足，即使我们能够分离出insert 和delete 虽然可以解决导入的问题，但是仍然解决不了删除的问题。使用批量删除功能可以解决这些个场景的需求。
 数据导入有三种合并方式：
 1. APPEND: 数据全部追加到现有数据中
 2. DELETE: 删除所有与导入数据key 列值相同的行
@@ -45,7 +45,7 @@ be 读取时都会加上一列进行判断，通过条件确定是否删除。
 
 ### 读取
 
-读取时在所有存在隐藏列的olapScanNode上增加`__DORIS_DELETE_SIGN__ != true` 的条件，be 不感知这以过程，正常执行
+读取时在所有存在隐藏列的olapScanNode上增加`__DORIS_DELETE_SIGN__ != true` 的条件，be 不感知这一过程，正常执行
 
 ### Cumulative Compaction
 

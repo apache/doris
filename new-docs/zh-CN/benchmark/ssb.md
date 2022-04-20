@@ -26,9 +26,9 @@ under the License.
 
 # Star Schema Benchmark
 
-[Star Schema Benchmark(SSB)](https://www.cs.umb.edu/~poneil/StarSchemaB.PDF) 是一个轻量级的数仓场景下的性能测试集。SSB基于 [TPC-H](http://www.tpc.org/tpch/) 提供了一个简化版的星形模型数据集，主要用于测试在星形模型下，多表关联查询的性能表现。
+[Star Schema Benchmark(SSB)](https://www.cs.umb.edu/~poneil/StarSchemaB.PDF) 是一个轻量级的数仓场景下的性能测试集。SSB基于 [TPC-H](http://www.tpc.org/tpch/) 提供了一个简化版的星型模型数据集，主要用于测试在星型模型下，多表关联查询的性能表现。
 
-本文档主要介绍如何在 Doris 中通过 SSB 进程初步的性能测试。
+本文档主要介绍如何在 Doris 中通过 SSB 进行初步的性能测试。
 
 > 注1：包括 SSB 在内的标准测试集通常和实际业务场景差距较大，并且部分测试会针对测试集进行参数调优。所以标准测试集的测试结果仅能反映数据库在特定场景下的性能表现。建议用户使用实际业务数据进行进一步的测试。
 > 
@@ -38,7 +38,7 @@ under the License.
 
 请先参照 [官方文档](../install/install-deploy.html) 进行 Doris 的安装部署，以获得一个正常运行中的 Doris 集群（至少包含 1 FE，1 BE）。
 
-以下文档中涉及的的脚本都存放在 Doris 代码库的 `tools/ssb-tools/` 下。
+以下文档中涉及的脚本都存放在 Doris 代码库的 `tools/ssb-tools/` 下。
 
 ## 数据准备
 
