@@ -892,12 +892,40 @@ void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column
                                               vectorized::MutableColumns* mutable_columns) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     size_t start_idx = 0;
+    size_t batch_size = 256;
+
     while (start_idx < select_size) {
-        size_t end_idx = start_idx + 1;
-        while (end_idx < select_size && (rowid_vector[sel_rowid_idx[end_idx - 1]] ==
-                                         rowid_vector[sel_rowid_idx[end_idx]] - 1)) {
+        // step 1: find consecutive id
+        size_t end_idx = start_idx + batch_size;
+        size_t tail = 0;
+        while (end_idx < select_size) {
+            if (rowid_vector[sel_rowid_idx[end_idx]] - rowid_vector[sel_rowid_idx[end_idx - batch_size]] != batch_size) {
+                tail = batch_size;
+                break;
+            }
+            end_idx += batch_size;
+        } // step 1 end
+
+        // may duplicate foreach,but less branch
+        if (end_idx >= select_size) {
+            end_idx -= batch_size;
             end_idx++;
+            for (; end_idx < select_size; end_idx++) { 
+                if (rowid_vector[sel_rowid_idx[end_idx]] - rowid_vector[sel_rowid_idx[end_idx - 1]] != 1) {
+                    break;
+                }
+            }
+        } else if (tail > 0) {
+            end_idx -= batch_size;
+            end_idx++;
+            for (; end_idx < end_idx + tail; end_idx++) { 
+                if (rowid_vector[sel_rowid_idx[end_idx]] - rowid_vector[sel_rowid_idx[end_idx - 1]] != 1) {
+                    break;
+                }
+            }
         }
+
+        // step 2: read data
         size_t range = end_idx - start_idx;
         _seek_columns(read_column_ids, rowid_vector[sel_rowid_idx[start_idx]]);
         _read_columns(read_column_ids, *mutable_columns, range);
