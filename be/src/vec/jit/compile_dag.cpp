@@ -101,7 +101,9 @@ std::string CompileDAG::dump() const {
 
         switch (node.type) {
             case CompileType::CONSTANT: {
-                dumped_values[i] = "CONSTANT : " + node.result_type->get_name();
+                const auto* column = typeid_cast<const ColumnConst*>(node.column.get());
+                const auto& data = column->get_data_column();
+                dumped_values[i] = apply_visitor(FieldVisitorToString(), data[0]) + " : " + node.result_type->get_name();
                 break;
             }
             case CompileType::FUNCTION: {

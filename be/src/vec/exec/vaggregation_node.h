@@ -400,6 +400,10 @@ struct AggregatedDataVariants {
 
 using AggregatedDataVariantsPtr = std::shared_ptr<AggregatedDataVariants>;
 
+#if DORIS_ENABLE_JIT
+class CompiledAggregateFunctionsHolder;
+#endif
+
 // not support spill
 class AggregationNode : public ::doris::ExecNode {
 public:
@@ -433,6 +437,7 @@ private:
 
     bool _needs_finalize;
     bool _is_merge;
+    bool _is_all_merge;
     std::unique_ptr<MemPool> _mem_pool;
 
     std::shared_ptr<MemTracker> _data_mem_tracker;
@@ -452,11 +457,25 @@ private:
     RuntimeProfile::Counter* _merge_timer;
     RuntimeProfile::Counter* _expr_timer;
     RuntimeProfile::Counter* _get_results_timer;
+    RuntimeProfile::Counter* _agg_jit_timer;
+    RuntimeProfile::Counter* _pre_agg_timer;
+    RuntimeProfile::Counter* _hash_timer;
 
     bool _is_streaming_preagg;
     Block _preagg_block = Block();
     bool _should_expand_hash_table = true;
     std::vector<char*> _streaming_pre_places;
+
+#if DORIS_ENABLE_JIT
+    std::shared_ptr<CompiledAggregateFunctionsHolder> _compiled_aggregate_functions_holder;
+    // Try to compile aggregate functions.
+    void _compile_aggregate_functions_if_needed(RuntimeState* runtime_state);
+
+    Status _execute_single_add_by_compiled_function(Block* block);
+    Status _execute_batch_add_by_compiled_function(Block* block, char** places);
+
+    std::vector<bool> _is_aggregate_function_compiled;
+#endif
 
 private:
     /// Return true if we should keep expanding hash tables in the preagg. If false,
@@ -472,6 +491,7 @@ private:
     Status _serialize_without_key(RuntimeState* state, Block* block, bool* eos);
     Status _execute_without_key(Block* block);
     Status _merge_without_key(Block* block);
+    Status _merge_or_execute_without_key(Block* block);
     void _update_memusage_without_key();
     void _close_without_key();
 

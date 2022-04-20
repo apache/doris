@@ -26,11 +26,15 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
+#ifdef DORIS_ENABLE_JIT
+#include "vec/data_types/native.h"
+#endif
 
 namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionAvgData {
+    using NumeratorType = T;
     T sum = 0;
     UInt64 count = 0;
 
@@ -79,7 +83,8 @@ public:
     using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
     using ColVecResult = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128>,
                                             ColumnVector<Float64>>;
-
+    using NumeratorType = typename Data::NumeratorType;
+    using DenominatorType = UInt64;
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>(argument_types_,
@@ -133,6 +138,94 @@ public:
         auto& column = static_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).template result<ResultType>());
     }
+
+#ifdef DORIS_ENABLE_JIT
+    virtual void compile_create(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+        b.CreateMemSet(aggregate_data_ptr, llvm::ConstantInt::get(b.getInt8Ty(), 0), sizeof(Data), llvm::assumeAligned(alignof(Data)));
+    }
+
+    virtual void compile_add(llvm::IRBuilderBase& builder,
+                             llvm::Value* aggregate_data_ptr,
+                             const DataTypes& arguments_types,
+                             const std::vector<llvm::Value *>&
+                             argument_values) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        if constexpr (!can_be_native_type<NumeratorType>())
+            return;
+
+        auto* numerator_type = to_native_type<NumeratorType>(b);
+        auto* numerator_ptr = b.CreatePointerCast(aggregate_data_ptr, numerator_type->getPointerTo());
+        auto* numerator_value = b.CreateLoad(numerator_type, numerator_ptr);
+        auto* value_cast_to_numerator = native_cast(b, arguments_types[0], argument_values[0], numerator_type);
+        auto* numerator_result_value = numerator_type->isIntegerTy() ? b.CreateAdd(numerator_value, value_cast_to_numerator) : b.CreateFAdd(numerator_value, value_cast_to_numerator);
+        b.CreateStore(numerator_result_value, numerator_ptr);
+
+        auto * denominator_type = to_native_type<DenominatorType>(b);
+        static constexpr size_t denominator_offset = offsetof(Data, count);
+        auto * denominator_ptr = b.CreatePointerCast(b.CreateConstGEP1_32(aggregate_data_ptr->getType()->getPointerElementType(), aggregate_data_ptr, denominator_offset), denominator_type->getPointerTo());
+        auto * denominator_value_updated = b.CreateAdd(b.CreateLoad(denominator_type, denominator_ptr), llvm::ConstantInt::get(denominator_type, 1));
+        b.CreateStore(denominator_value_updated, denominator_ptr);
+    }
+
+    virtual void compile_merge(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_dst_ptr, llvm::Value* aggregate_data_src_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        if constexpr (!can_be_native_type<NumeratorType>())
+            return;
+
+        auto* numerator_type = to_native_type<NumeratorType>(b);
+        auto* numerator_dst_ptr = b.CreatePointerCast(aggregate_data_dst_ptr, numerator_type->getPointerTo());
+        auto* numerator_dst_value = b.CreateLoad(numerator_type, numerator_dst_ptr);
+
+        auto* numerator_src_ptr = b.CreatePointerCast(aggregate_data_src_ptr, numerator_type->getPointerTo());
+        auto* numerator_src_value = b.CreateLoad(numerator_type, numerator_src_ptr);
+
+        auto* numerator_result_value = numerator_type->isIntegerTy() ? b.CreateAdd(numerator_dst_value, numerator_src_value) : b.CreateFAdd(numerator_dst_value, numerator_src_value);
+        b.CreateStore(numerator_result_value, numerator_dst_ptr);
+
+        auto* denominator_type = to_native_type<DenominatorType>(b);
+        static constexpr size_t denominator_offset = offsetof(Data, count);
+        auto* denominator_dst_ptr = b.CreatePointerCast(b.CreateConstInBoundsGEP1_64(aggregate_data_dst_ptr->getType()->getPointerElementType(), aggregate_data_dst_ptr, denominator_offset), denominator_type->getPointerTo());
+        auto* denominator_src_ptr = b.CreatePointerCast(b.CreateConstInBoundsGEP1_64(aggregate_data_dst_ptr->getType()->getPointerElementType(), aggregate_data_src_ptr, denominator_offset), denominator_type->getPointerTo());
+
+        auto* denominator_dst_value = b.CreateLoad(denominator_type, denominator_dst_ptr);
+        auto* denominator_src_value = b.CreateLoad(denominator_type, denominator_src_ptr);
+
+        auto* denominator_result_value = denominator_type->isIntegerTy() ? b.CreateAdd(denominator_src_value, denominator_dst_value) : b.CreateFAdd(denominator_src_value, denominator_dst_value);
+        b.CreateStore(denominator_result_value, denominator_dst_ptr);
+    }
+
+virtual llvm::Value* compile_get_result(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_ptr) const override {
+
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        if constexpr (!can_be_native_type<NumeratorType>())
+            return nullptr;
+
+        auto* numerator_type = to_native_type<NumeratorType>(b);
+        auto* numerator_ptr = b.CreatePointerCast(aggregate_data_ptr, numerator_type->getPointerTo());
+        auto* numerator_value = b.CreateLoad(numerator_type, numerator_ptr);
+
+        auto* denominator_type = to_native_type<DenominatorType>(b);
+        static constexpr size_t denominator_offset = offsetof(Data, count);
+        auto* denominator_ptr = b.CreatePointerCast(b.CreateConstGEP1_32(aggregate_data_ptr->getType()->getPointerElementType(), aggregate_data_ptr, denominator_offset), denominator_type->getPointerTo());
+        auto* denominator_value = b.CreateLoad(denominator_type, denominator_ptr);
+
+        auto* double_numerator = native_cast<NumeratorType>(b, numerator_value, b.getDoubleTy());
+        auto* double_denominator = native_cast<DenominatorType>(b, denominator_value, b.getDoubleTy());
+
+        return b.CreateFDiv(double_numerator, double_denominator);
+    }
+
+    virtual bool is_compilable() const override {
+        if constexpr (!can_be_native_type<NumeratorType>())
+            return false;
+        auto return_type = get_return_type();
+        return can_be_native_type(*return_type);
+    }
+#endif
 
 private:
     UInt32 scale;

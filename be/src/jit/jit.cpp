@@ -50,7 +50,35 @@
 
 #include "common/logging.h"
 
+#include <chrono>
+
 namespace doris {
+
+struct MyTimer {
+    MyTimer(const std::string& name): _name(name) {
+        start();
+    }
+
+    ~MyTimer() {
+        std::cout << "============================================= TIMER(" << _name << "): " << "end time: " << end() << std::endl;
+    }
+
+    void start() {
+        _start = std::chrono::steady_clock::now();
+    }
+
+    inline double end() {
+        std::chrono::duration<double> elapsed_seconds = std::chrono::steady_clock::now() - _start;
+        return elapsed_seconds.count();
+    }
+
+    inline void print_end(const std::string& msg) {
+        std::cout << "============================================= TIMER(" << _name << "): " << msg << ": " << end() << std::endl;
+    }
+
+    std::chrono::steady_clock::time_point _start;
+    std::string _name;
+};
 
 /** Simple module to object file compiler.
   * Result object cannot be used as machine code directly, it should be passed to linker.
@@ -63,7 +91,10 @@ public:
     }
 
     Status compile(llvm::Module& module, std::unique_ptr<llvm::MemoryBuffer>& result) {
+        MyTimer timer("JITCompiler::compile");
         auto materialize_error = module.materializeAll();
+        timer.print_end("module.materializeAll()");
+        timer.start();
         if (materialize_error) {
             std::string error_message;
             handleAllErrors(std::move(materialize_error),
@@ -81,8 +112,10 @@ public:
         if (target_machine.addPassesToEmitMC(pass_manager, machine_code_context, object_stream))
             return Status::RuntimeError("MachineCode is not supported for the platform");
 
+        timer.print_end("target_machine.addPassesToEmitMC");
+        timer.start();
         pass_manager.run(module);
-
+        timer.print_end("pass_manager.run");
         result = std::make_unique<llvm::SmallVectorMemoryBuffer>(
             std::move(object_buffer), "<in memory object compiled from " + module.getModuleIdentifier() + ">");
 
@@ -292,15 +325,15 @@ private:
 };
 
 JIT::JIT()
-    : machine(_get_target_machine())
-    , layout(machine->createDataLayout())
-    , compiler(std::make_unique<JITCompiler>(*machine))
-    , symbol_resolver(std::make_unique<JITSymbolResolver>()) {
+    : _machine(_get_target_machine())
+    , _layout(_machine->createDataLayout())
+    , _compiler(std::make_unique<JITCompiler>(*_machine))
+    , _symbol_resolver(std::make_unique<JITSymbolResolver>()) {
     /// Define common symbols that can be generated during compilation
     /// Necessary for valid linker symbol resolution
-    symbol_resolver->registerSymbol("memset", reinterpret_cast<void *>(&memset));
-    symbol_resolver->registerSymbol("memcpy", reinterpret_cast<void *>(&memcpy));
-    symbol_resolver->registerSymbol("memcmp", reinterpret_cast<void *>(&memcmp));
+    _symbol_resolver->registerSymbol("memset", reinterpret_cast<void *>(&memset));
+    _symbol_resolver->registerSymbol("memcpy", reinterpret_cast<void *>(&memcpy));
+    _symbol_resolver->registerSymbol("memcmp", reinterpret_cast<void *>(&memcmp));
 }
 
 JIT& JIT::get_instance() {
@@ -311,7 +344,7 @@ JIT& JIT::get_instance() {
 JIT::~JIT() = default;
 
 Status JIT::compile_module(std::function<Status (llvm::Module &)> compile_function, CompiledModule& result) {
-    std::lock_guard<std::mutex> lock(jit_lock);
+    std::lock_guard<std::mutex> lock(_jit_lock);
 
     auto module = _create_module_for_compilation();
     auto status = compile_function(*module);
@@ -320,29 +353,32 @@ Status JIT::compile_module(std::function<Status (llvm::Module &)> compile_functi
 
     status = _compile_module(std::move(module), result);
     if (status.ok())
-        ++current_module_key;
+        ++_current_module_key;
 
     return status;
 }
 
 std::unique_ptr<llvm::Module> JIT::_create_module_for_compilation() {
-    std::unique_ptr<llvm::Module> module = std::make_unique<llvm::Module>("jit" + std::to_string(current_module_key), context);
-    module->setDataLayout(layout);
-    module->setTargetTriple(machine->getTargetTriple().getTriple());
+    std::unique_ptr<llvm::Module> module = std::make_unique<llvm::Module>("jit" + std::to_string(_current_module_key), _context);
+    module->setDataLayout(_layout);
+    module->setTargetTriple(_machine->getTargetTriple().getTriple());
 
     return module;
 }
 
 Status JIT::_compile_module(std::unique_ptr<llvm::Module> module, CompiledModule& result) {
+    MyTimer timer("JIT::_compile_module");
     _run_optimization_passes_on_module(*module);
+    timer.print_end("_run_optimization_passes_on_module");
 
     std::unique_ptr<llvm::MemoryBuffer> buffer;
-    auto status = compiler->compile(*module, buffer);
+    auto status = _compiler->compile(*module, buffer);
     if (!status.ok())
         return status;
 
+    timer.start();
     llvm::Expected<std::unique_ptr<llvm::object::ObjectFile>> object = llvm::object::ObjectFile::createObjectFile(*buffer);
-
+    timer.print_end("llvm::object::ObjectFile::createObjectFile");
     if (!object) {
         auto e = object.takeError();
         std::string error_message;
@@ -351,10 +387,11 @@ Status JIT::_compile_module(std::unique_ptr<llvm::Module> module, CompiledModule
     }
 
     std::unique_ptr<JITModuleMemoryManager> module_memory_manager = std::make_unique<JITModuleMemoryManager>();
-    llvm::RuntimeDyld dynamic_linker = {*module_memory_manager, *symbol_resolver};
+    llvm::RuntimeDyld dynamic_linker = {*module_memory_manager, *_symbol_resolver};
 
+    timer.start();
     std::unique_ptr<llvm::RuntimeDyld::LoadedObjectInfo> linked_object = dynamic_linker.loadObject(*object.get());
-
+    timer.print_end("dynamic_linker.loadObject");
     dynamic_linker.resolveRelocations();
     module_memory_manager->finalizeMemory(nullptr);
 
@@ -364,7 +401,7 @@ Status JIT::_compile_module(std::unique_ptr<llvm::Module> module, CompiledModule
 
         auto function_name = std::string(function.getName());
 
-        auto mangled_name = get_mangled_name(function_name);
+        auto mangled_name = _get_mangled_name(function_name);
         auto jit_symbol = dynamic_linker.getSymbol(mangled_name);
 
         if (!jit_symbol)
@@ -374,35 +411,41 @@ Status JIT::_compile_module(std::unique_ptr<llvm::Module> module, CompiledModule
         result.function_name_to_symbol.emplace(std::move(function_name), jit_symbol_address);
     }
 
+#ifndef NDEBUG
+    llvm::outs() << "******************************* DUMP MODULE START *******************************\n";
+    llvm::outs() << *module;
+    llvm::outs() << "******************************* DUMP MODULE END *******************************\n";
+#endif
+
     result.size = module_memory_manager->allocated_size();
-    result.identifier = current_module_key;
+    result.identifier = _current_module_key;
 
-    module_identifier_to_memory_manager[current_module_key] = std::move(module_memory_manager);
+    _module_identifier_to_memory_manager[_current_module_key] = std::move(module_memory_manager);
 
-    compiled_code_size.fetch_add(result.size, std::memory_order_relaxed);
+    _compiled_code_size.fetch_add(result.size, std::memory_order_relaxed);
 
     return Status::OK();
 }
 
 void JIT::delete_compiled_module(const JIT::CompiledModule & module) {
-    std::lock_guard<std::mutex> lock(jit_lock);
+    std::lock_guard<std::mutex> lock(_jit_lock);
 
-    auto module_it = module_identifier_to_memory_manager.find(module.identifier);
-    if (module_it != module_identifier_to_memory_manager.end())
-        module_identifier_to_memory_manager.erase(module_it);
+    auto module_it = _module_identifier_to_memory_manager.find(module.identifier);
+    if (module_it != _module_identifier_to_memory_manager.end())
+        _module_identifier_to_memory_manager.erase(module_it);
 
-    compiled_code_size.fetch_sub(module.size, std::memory_order_relaxed);
+    _compiled_code_size.fetch_sub(module.size, std::memory_order_relaxed);
 }
 
 void JIT::register_external_symbol(const std::string & symbol_name, void * address) {
-    std::lock_guard<std::mutex> lock(jit_lock);
-    symbol_resolver->registerSymbol(symbol_name, address);
+    std::lock_guard<std::mutex> lock(_jit_lock);
+    _symbol_resolver->registerSymbol(symbol_name, address);
 }
 
-std::string JIT::get_mangled_name(const std::string & name_to_mangle) const {
+std::string JIT::_get_mangled_name(const std::string & name_to_mangle) const {
     std::string mangled_name;
     llvm::raw_string_ostream mangled_name_stream(mangled_name);
-    llvm::Mangler::getNameWithPrefix(mangled_name_stream, name_to_mangle, layout);
+    llvm::Mangler::getNameWithPrefix(mangled_name_stream, name_to_mangle, _layout);
     mangled_name_stream.flush();
 
     return mangled_name;
@@ -418,10 +461,10 @@ void JIT::_run_optimization_passes_on_module(llvm::Module& module) const {
     pass_manager_builder.RerollLoops = false;
     pass_manager_builder.VerifyInput = true;
     pass_manager_builder.VerifyOutput = true;
-    machine->adjustPassManager(pass_manager_builder);
+    _machine->adjustPassManager(pass_manager_builder);
 
-    fpm.add(llvm::createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
-    mpm.add(llvm::createTargetTransformInfoWrapperPass(machine->getTargetIRAnalysis()));
+    fpm.add(llvm::createTargetTransformInfoWrapperPass(_machine->getTargetIRAnalysis()));
+    mpm.add(llvm::createTargetTransformInfoWrapperPass(_machine->getTargetIRAnalysis()));
 
     pass_manager_builder.populateFunctionPassManager(fpm);
     pass_manager_builder.populateModulePassManager(mpm);

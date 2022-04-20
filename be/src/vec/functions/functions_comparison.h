@@ -40,6 +40,11 @@
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/functions_logical.h"
 #include "vec/runtime/vdatetime_value.h"
+
+#if DORIS_ENABLE_JIT
+#include "vec/data_types/native.h"
+#endif
+
 namespace doris::vectorized {
 
 /** Comparison functions: ==, !=, <, >, <=, >=.
@@ -125,6 +130,58 @@ struct GenericComparisonImpl {
         c = Op::apply(a.compare_at(0, 0, b, 1), 0);
     }
 };
+
+#ifdef DORIS_ENABLE_JIT
+
+template <template <typename, typename> typename Op> struct CompileOp;
+template <> struct CompileOp<EqualsOp>
+{
+    static llvm::Value * compile(llvm::IRBuilder<> & b, llvm::Value * x, llvm::Value * y, bool /*is_signed*/)
+    {
+        return x->getType()->isIntegerTy() ? b.CreateICmpEQ(x, y) : b.CreateFCmpOEQ(x, y); /// qNaNs always compare false
+    }
+};
+
+template <> struct CompileOp<NotEqualsOp>
+{
+    static llvm::Value * compile(llvm::IRBuilder<> & b, llvm::Value * x, llvm::Value * y, bool /*is_signed*/)
+    {
+        return x->getType()->isIntegerTy() ? b.CreateICmpNE(x, y) : b.CreateFCmpONE(x, y);
+    }
+};
+
+template <> struct CompileOp<LessOp>
+{
+    static llvm::Value * compile(llvm::IRBuilder<> & b, llvm::Value * x, llvm::Value * y, bool is_signed)
+    {
+        return x->getType()->isIntegerTy() ? (is_signed ? b.CreateICmpSLT(x, y) : b.CreateICmpULT(x, y)) : b.CreateFCmpOLT(x, y);
+    }
+};
+
+template <> struct CompileOp<GreaterOp>
+{
+    static llvm::Value * compile(llvm::IRBuilder<> & b, llvm::Value * x, llvm::Value * y, bool is_signed)
+    {
+        return x->getType()->isIntegerTy() ? (is_signed ? b.CreateICmpSGT(x, y) : b.CreateICmpUGT(x, y)) : b.CreateFCmpOGT(x, y);
+    }
+};
+
+template <> struct CompileOp<LessOrEqualsOp>
+{
+    static llvm::Value * compile(llvm::IRBuilder<> & b, llvm::Value * x, llvm::Value * y, bool is_signed)
+    {
+        return x->getType()->isIntegerTy() ? (is_signed ? b.CreateICmpSLE(x, y) : b.CreateICmpULE(x, y)) : b.CreateFCmpOLE(x, y);
+    }
+};
+
+template <> struct CompileOp<GreaterOrEqualsOp>
+{
+    static llvm::Value * compile(llvm::IRBuilder<> & b, llvm::Value * x, llvm::Value * y, bool is_signed)
+    {
+        return x->getType()->isIntegerTy() ? (is_signed ? b.CreateICmpSGE(x, y) : b.CreateICmpUGE(x, y)) : b.CreateFCmpOGE(x, y);
+    }
+};
+#endif
 
 struct NameEquals {
     static constexpr auto name = "eq";
@@ -406,6 +463,36 @@ public:
         }
         return Status::OK();
     }
+
+#if DORIS_ENABLE_JIT
+    bool is_compilable_impl(const DataTypes & types) const override {
+        if (2 != types.size())
+            return false;
+
+        WhichDataType data_type_lhs(types[0]);
+        WhichDataType data_type_rhs(types[1]);
+
+        auto is_big_integer = [](WhichDataType type) { return type.is_uint64() || type.is_int64(); };
+
+        if ((is_big_integer(data_type_lhs) && data_type_rhs.is_float())
+            || (is_big_integer(data_type_rhs) && data_type_lhs.is_float())
+            || (data_type_lhs.is_date() && data_type_rhs.is_date_time())
+            || (data_type_rhs.is_date() && data_type_lhs.is_date_time()))
+            return false; /// TODO: implement (double, int_N where N > double's mantissa width)
+
+        return is_compilable_type(types[0]) && is_compilable_type(types[1]);
+    }
+
+    Status compile(llvm::IRBuilderBase& builder, const DataTypes& arguments, Values values, llvm::Value** result) const override {
+        assert(2 == arguments.size() && 2 == values.size());
+
+        auto& b = static_cast<llvm::IRBuilder<> &>(builder);
+        auto [x, y] = native_cast_to_common(b, arguments[0], values[0], arguments[1], values[1]);
+        auto *select = CompileOp<Op>::compile(b, x, y, type_is_signed(*arguments[0]) || type_is_signed(*arguments[1]));
+        *result = b.CreateSelect(select, b.getInt8(1), b.getInt8(0));
+        return Status::OK();
+    }
+#endif
 };
 
 } // namespace doris::vectorized

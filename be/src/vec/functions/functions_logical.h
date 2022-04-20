@@ -26,6 +26,11 @@
 #include "vec/data_types/data_type.h"
 #include "vec/functions/function.h"
 
+#ifdef DORIS_ENABLE_JIT
+#include "vec/data_types/native.h"
+#include "vec/data_types/data_type_number.h"
+#endif
+
 /** Logical functions AND, OR, XOR and NOT support three-valued (or ternary) logic
   * https://en.wikibooks.org/wiki/Structured_Query_Language/NULLs_and_the_Three_Valued_Logic
   *
@@ -89,6 +94,12 @@ struct XorImpl {
         return (a != b) ? Ternary::True : Ternary::False;
     }
     static inline constexpr bool special_implementation_for_nulls() { return false; }
+
+#if DORIS_ENABLE_JIT
+    static inline llvm::Value * apply(llvm::IRBuilder<> & builder, llvm::Value * a, llvm::Value * b) {
+        return builder.CreateXor(a, b);
+    }
+#endif
 };
 
 template <typename A>
@@ -96,6 +107,12 @@ struct NotImpl {
     using ResultType = UInt8;
 
     static inline ResultType apply(A a) { return !a; }
+
+#if DORIS_ENABLE_JIT
+    static inline llvm::Value * apply(llvm::IRBuilder<> & builder, llvm::Value * a, llvm::Value * b) {
+        return builder.CreateNot(a);
+    }
+#endif
 };
 
 template <typename Impl, typename Name>
@@ -120,6 +137,45 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override;
+
+#ifdef DORIS_ENABLE_JIT
+    bool is_compilable_impl(const DataTypes &) const override { return use_default_implementation_for_nulls(); }
+
+    Status compile_impl(llvm::IRBuilderBase & builder, const DataTypes & types, Values values, llvm::Value** result) const override {
+        assert(!types.empty() && !values.empty());
+
+        auto& b = static_cast<llvm::IRBuilder<> &>(builder);
+        if constexpr (!Impl::is_saturable()) {
+            auto* value = native_bool_cast(b, types[0], values[0]);
+            for (size_t i = 1; i < types.size(); ++i)
+                value = Impl::apply(b, value, native_bool_cast(b, types[i], values[i]));
+            *result = b.CreateSelect(value, b.getInt8(1), b.getInt8(0));
+            return Status::OK();
+        }
+        constexpr bool break_on_true = Impl::is_saturated_value(true);
+        auto* next = b.GetInsertBlock();
+        auto* stop = llvm::BasicBlock::Create(next->getContext(), "", next->getParent());
+        b.SetInsertPoint(stop);
+        auto* phi = b.CreatePHI(b.getInt8Ty(), values.size());
+        for (size_t i = 0; i < types.size(); ++i) {
+            b.SetInsertPoint(next);
+            auto* value = values[i];
+            auto* truth = native_bool_cast(b, types[i], value);
+            if (!types[i]->equals(DataTypeUInt8{}))
+                value = b.CreateSelect(truth, b.getInt8(1), b.getInt8(0));
+            phi->addIncoming(value, b.GetInsertBlock());
+            if (i + 1 < types.size()) {
+                next = llvm::BasicBlock::Create(next->getContext(), "", next->getParent());
+                b.CreateCondBr(truth, break_on_true ? stop : next, break_on_true ? next : stop);
+            }
+        }
+        b.CreateBr(stop);
+        b.SetInsertPoint(stop);
+        *result = phi;
+        return Status::OK();
+    }
+#endif
+
 };
 
 template <template <typename> class Impl, typename Name>

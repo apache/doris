@@ -135,11 +135,14 @@ public:
         return false;
     }
 
-    void compile_functions(size_t min_count_to_compile_expression);
-
     bool is_function_compiled() const {
         return _is_function_compiled;
     }
+
+    static Status compile_expressions(std::vector<VExpr*> exprs_to_compile);
+
+    static Status compile_jit(RuntimeState* runtime_state);
+
 #endif
 
 protected:

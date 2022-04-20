@@ -29,6 +29,10 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
+#ifdef DORIS_ENABLE_JIT
+#include "vec/data_types/native.h"
+#endif
+
 namespace doris::vectorized {
 
 struct AggregateFunctionCountData {
@@ -71,6 +75,55 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    bool is_compilable() const override {
+        return true;
+    }
+
+    void compile_create(llvm::IRBuilderBase & builder, llvm::Value * aggregate_data_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+        b.CreateMemSet(aggregate_data_ptr, llvm::ConstantInt::get(b.getInt8Ty(), 0), sizeof(AggregateFunctionCountData), llvm::assumeAligned(alignof(Data)));
+    }
+
+    void compile_add(llvm::IRBuilderBase & builder, llvm::Value * aggregate_data_ptr, const DataTypes &, const std::vector<llvm::Value *> & values) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        auto * return_type = to_native_type(b, get_return_type());
+
+        auto * count_value_ptr = b.CreatePointerCast(aggregate_data_ptr, return_type->getPointerTo());
+        auto * count_value = b.CreateLoad(return_type, count_value_ptr);
+        auto * updated_count_value = b.CreateAdd(count_value, llvm::ConstantInt::get(return_type, 1));
+
+        b.CreateStore(updated_count_value, count_value_ptr);
+    }
+
+    void compile_merge(llvm::IRBuilderBase & builder, llvm::Value * aggregate_data_dst_ptr, llvm::Value * aggregate_data_src_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        auto * return_type = to_native_type(b, get_return_type());
+
+        auto * count_value_dst_ptr = b.CreatePointerCast(aggregate_data_dst_ptr, return_type->getPointerTo());
+        auto * count_value_dst = b.CreateLoad(return_type, count_value_dst_ptr);
+
+        auto * count_value_src_ptr = b.CreatePointerCast(aggregate_data_src_ptr, return_type->getPointerTo());
+        auto * count_value_src = b.CreateLoad(return_type, count_value_src_ptr);
+
+        auto * count_value_dst_updated = b.CreateAdd(count_value_dst, count_value_src);
+
+        b.CreateStore(count_value_dst_updated, count_value_dst_ptr);
+    }
+
+    llvm::Value * compile_get_result(llvm::IRBuilderBase & builder, llvm::Value * aggregate_data_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        auto * return_type = to_native_type(b, get_return_type());
+        auto * count_value_ptr = b.CreatePointerCast(aggregate_data_ptr, return_type->getPointerTo());
+
+        return b.CreateLoad(return_type, count_value_ptr);
+    }
+#endif
+
 };
 
 /// Simply count number of not-NULL values.
@@ -117,6 +170,58 @@ public:
             assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
         }
     }
+
+#ifdef DORIS_ENABLE_JIT
+    bool is_compilable() const override {
+        return true;
+    }
+
+    void compile_create(llvm::IRBuilderBase & builder, llvm::Value * aggregate_data_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+        b.CreateMemSet(aggregate_data_ptr, llvm::ConstantInt::get(b.getInt8Ty(), 0), sizeof(AggregateFunctionCountData), llvm::assumeAligned(alignof(Data)));
+    }
+
+    void compile_add(llvm::IRBuilderBase & builder, llvm::Value * aggregate_data_ptr, const DataTypes &, const std::vector<llvm::Value *> & values) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        auto * return_type = to_native_type(b, get_return_type());
+
+        auto * is_null_value = b.CreateExtractValue(values[0], {1});
+        auto * increment_value = b.CreateSelect(is_null_value, llvm::ConstantInt::get(return_type, 0), llvm::ConstantInt::get(return_type, 1));
+
+        auto * count_value_ptr = b.CreatePointerCast(aggregate_data_ptr, return_type->getPointerTo());
+        auto * count_value = b.CreateLoad(return_type, count_value_ptr);
+        auto * updated_count_value = b.CreateAdd(count_value, increment_value);
+
+        b.CreateStore(updated_count_value, count_value_ptr);
+    }
+
+    void compile_merge(llvm::IRBuilderBase & builder, llvm::Value * aggregate_data_dst_ptr, llvm::Value * aggregate_data_src_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        auto * return_type = to_native_type(b, get_return_type());
+
+        auto * count_value_dst_ptr = b.CreatePointerCast(aggregate_data_dst_ptr, return_type->getPointerTo());
+        auto * count_value_dst = b.CreateLoad(return_type, count_value_dst_ptr);
+
+        auto * count_value_src_ptr = b.CreatePointerCast(aggregate_data_src_ptr, return_type->getPointerTo());
+        auto * count_value_src = b.CreateLoad(return_type, count_value_src_ptr);
+
+        auto * count_value_dst_updated = b.CreateAdd(count_value_dst, count_value_src);
+
+        b.CreateStore(count_value_dst_updated, count_value_dst_ptr);
+    }
+
+    llvm::Value * compile_get_result(llvm::IRBuilderBase & builder, llvm::Value * aggregate_data_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        auto * return_type = to_native_type(b, get_return_type());
+        auto * count_value_ptr = b.CreatePointerCast(aggregate_data_ptr, return_type->getPointerTo());
+
+        return b.CreateLoad(return_type, count_value_ptr);
+    }
+#endif
+
 };
 
 } // namespace doris::vectorized

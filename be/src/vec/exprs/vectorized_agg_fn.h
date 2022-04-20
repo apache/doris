@@ -68,6 +68,10 @@ public:
     std::string debug_string() const;
     bool is_merge() const { return _is_merge; }
 
+    std::vector<VExprContext*>& get_input_expr_ctxs() {
+        return _input_exprs_ctxs;
+    }
+
 private:
     const TFunction _fn;
 

@@ -64,8 +64,6 @@ public:
         std::vector<size_t> arguments;
     };
 
-    // static CompileDAG create_from_expression(VExpr* root);
-
     Status compile(llvm::IRBuilderBase& builder, Values input_nodes_values, llvm::Value** result) const;
 
     std::string dump() const;
@@ -89,9 +87,24 @@ public:
     inline Node & back() { return nodes.back(); }
     inline const Node & back() const { return nodes.back(); }
 
+    std::vector<VExpr*>& get_input_children() {
+        return _input_children;
+    }
+
+    VExpr* root_expr() {
+        return _root_expr;
+    }
+
+    void set_root_expr(VExpr* root) {
+        _root_expr = root;
+    }
+
 private:
     std::vector<Node> nodes;
     size_t input_nodes_count = 0;
+
+    std::vector<VExpr*> _input_children;
+    VExpr* _root_expr;
 };
 
 }

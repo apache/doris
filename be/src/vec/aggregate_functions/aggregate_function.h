@@ -141,28 +141,72 @@ public:
     const Array& get_parameters() const { return parameters; }
 
 #ifdef DORIS_ENABLE_JIT
-    void compile_create(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_ptr) const {
-      DCHECK(false && "should not be here");
-      __builtin_unreachable();
+    virtual void compile_create(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_ptr) const {
+        DCHECK(false && "should not be here");
+        __builtin_unreachable();
     }
 
-    void compile_add(llvm::IRBuilderBase& builder,
-                    llvm::Value* aggregate_data_ptr,
-                    const DataTypes& arguments_types,
-                    const std::vector<llvm::Value *>&
-                    argument_values) const {
-      DCHECK(false && "should not be here");
-      __builtin_unreachable();
+    virtual void compile_add(llvm::IRBuilderBase& builder,
+                             llvm::Value* aggregate_data_ptr,
+                             const DataTypes& arguments_types,
+                             const std::vector<llvm::Value *>&
+                             argument_values) const {
+        DCHECK(false && "should not be here");
+        __builtin_unreachable();
     }
 
-    void compile_merge(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_dst_ptr, llvm::Value* aggregate_data_src_ptr) const {
-      DCHECK(false && "should not be here");
-      __builtin_unreachable();
+    virtual void compile_merge(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_dst_ptr, llvm::Value* aggregate_data_src_ptr) const {
+        DCHECK(false && "should not be here");
+        __builtin_unreachable();
     }
 
-    [[noreturn ]] llvm::Value* compile_get_result(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_ptr) const {
-      DCHECK(false && "should not be here");
-      __builtin_unreachable();
+    [[noreturn ]] virtual llvm::Value* compile_get_result(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_ptr) const {
+        DCHECK(false && "should not be here");
+        __builtin_unreachable();
+    }
+
+    virtual bool is_compilable() const {
+        return false;
+    }
+
+    String get_description() const {
+        String description;
+
+        description += get_name();
+
+        description += '(';
+
+        for (const auto & parameter : parameters)
+        {
+            description += parameter.get_type_name();
+            description += ", ";
+        }
+
+        if (!parameters.empty())
+        {
+            description.pop_back();
+            description.pop_back();
+        }
+
+        description += ')';
+
+        description += '(';
+
+        for (const auto & argument_type : argument_types)
+        {
+            description += argument_type->get_name();
+            description += ", ";
+        }
+
+        if (!argument_types.empty())
+        {
+            description.pop_back();
+            description.pop_back();
+        }
+
+        description += ')';
+
+        return description;
     }
 #endif
 

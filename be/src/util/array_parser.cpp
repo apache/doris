@@ -29,7 +29,7 @@ std::unordered_map<FunctionContext::Type, PrimitiveType> ArrayParser::_types_map
         {FunctionContext::TYPE_LARGEINT, PrimitiveType::TYPE_LARGEINT},
         {FunctionContext::TYPE_FLOAT, PrimitiveType::TYPE_FLOAT},
         {FunctionContext::TYPE_DOUBLE, PrimitiveType::TYPE_DOUBLE},
-        {FunctionContext::TYPE_DECIMAL_DEPRACTED, PrimitiveType::TYPE_DECIMAL_DEPRACTED},
+        // {FunctionContext::TYPE_DECIMAL, PrimitiveType::TYPE_DECIMAL},
         {FunctionContext::TYPE_DATE, PrimitiveType::TYPE_DATE},
         {FunctionContext::TYPE_DATETIME, PrimitiveType::TYPE_DATETIME},
         {FunctionContext::TYPE_CHAR, PrimitiveType::TYPE_CHAR},

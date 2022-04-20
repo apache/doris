@@ -26,6 +26,11 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
+#ifdef DORIS_ENABLE_JIT
+#include "vec/data_types/native.h"
+#include <llvm/IR/IRBuilder.h>
+#endif
+
 namespace doris::vectorized {
 
 template <typename T>
@@ -100,6 +105,72 @@ public:
         auto& column = static_cast<ColVecResult&>(to);
         column.get_data().push_back(this->data(place).get());
     }
+
+#ifdef DORIS_ENABLE_JIT
+    virtual void compile_create(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        auto * return_type = to_native_type(b, get_return_type());
+        auto * aggregate_sum_ptr = b.CreatePointerCast(aggregate_data_ptr, return_type->getPointerTo());
+
+        b.CreateStore(llvm::Constant::getNullValue(return_type), aggregate_sum_ptr);
+    }
+
+    virtual void compile_add(llvm::IRBuilderBase& builder,
+                             llvm::Value* aggregate_data_ptr,
+                             const DataTypes& arguments_types,
+                             const std::vector<llvm::Value *>&
+                             argument_values) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        auto * return_type = to_native_type(b, get_return_type());
+
+        auto * sum_value_ptr = b.CreatePointerCast(aggregate_data_ptr, return_type->getPointerTo());
+        auto * sum_value = b.CreateLoad(return_type, sum_value_ptr);
+
+        const auto & argument_type = arguments_types[0];
+        const auto & argument_value = argument_values[0];
+
+        auto * value_cast_to_result = native_cast(b, argument_type, argument_value, return_type);
+        auto * sum_result_value = sum_value->getType()->isIntegerTy() ? b.CreateAdd(sum_value, value_cast_to_result) : b.CreateFAdd(sum_value, value_cast_to_result);
+
+        b.CreateStore(sum_result_value, sum_value_ptr);
+    }
+
+    virtual void compile_merge(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_dst_ptr, llvm::Value* aggregate_data_src_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        auto * return_type = to_native_type(b, get_return_type());
+
+        auto * sum_value_dst_ptr = b.CreatePointerCast(aggregate_data_dst_ptr, return_type->getPointerTo());
+        auto * sum_value_dst = b.CreateLoad(return_type, sum_value_dst_ptr);
+
+        auto * sum_value_src_ptr = b.CreatePointerCast(aggregate_data_src_ptr, return_type->getPointerTo());
+        auto * sum_value_src = b.CreateLoad(return_type, sum_value_src_ptr);
+
+        auto * sum_return_value = sum_value_dst->getType()->isIntegerTy() ? b.CreateAdd(sum_value_dst, sum_value_src) : b.CreateFAdd(sum_value_dst, sum_value_src);
+        b.CreateStore(sum_return_value, sum_value_dst_ptr);
+    }
+
+    virtual llvm::Value* compile_get_result(llvm::IRBuilderBase& builder, llvm::Value* aggregate_data_ptr) const override {
+        llvm::IRBuilder<> & b = static_cast<llvm::IRBuilder<> &>(builder);
+
+        auto * return_type = to_native_type(b, get_return_type());
+        auto * sum_value_ptr = b.CreatePointerCast(aggregate_data_ptr, return_type->getPointerTo());
+
+        return b.CreateLoad(return_type, sum_value_ptr);
+    }
+
+    virtual bool is_compilable() const override {
+        bool can_be_compiled = true;
+        for (const auto& argument_type : this->argument_types)
+            can_be_compiled &= can_be_native_type(*argument_type);
+        
+        auto return_type = get_return_type();
+        can_be_compiled &= can_be_native_type(*return_type);
+        return can_be_compiled;
+    }
+#endif
 
 private:
     UInt32 scale;

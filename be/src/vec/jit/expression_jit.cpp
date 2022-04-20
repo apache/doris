@@ -39,6 +39,8 @@
 #include "vec/jit/compile_dag.h"
 #include "vec/jit/compile_function.h"
 
+#include <chrono>
+
 
 namespace doris::vectorized {
 
@@ -56,10 +58,6 @@ public:
 
     explicit CompiledFunctionHolder(CompiledFunction compiled_function_)
         : compiled_function(compiled_function_) {}
-
-    ~CompiledFunctionHolder() {
-        get_jit_instance().delete_compiled_module(compiled_function.compiled_module);
-    }
 
     CompiledFunction compiled_function;
 };
@@ -131,7 +129,7 @@ public:
         }
     }
 
-    void setCompiledFunction(std::shared_ptr<CompiledFunctionHolder> compiled_function_holder_) {
+    void set_compiled_function(std::shared_ptr<CompiledFunctionHolder> compiled_function_holder_) {
         compiled_function_holder = compiled_function_holder_;
     }
 
@@ -211,35 +209,6 @@ private:
     std::shared_ptr<CompiledFunctionHolder> compiled_function_holder;
 };
 
-static FunctionBasePtr compile(
-    const CompileDAG& dag,
-    size_t min_count_to_compile_expression) {
-    static std::unordered_map<UInt128, UInt64, UInt128Hash> counter;
-    static std::mutex mutex;
-
-    auto hash_key = dag.hash(); {
-        std::lock_guard lock(mutex);
-        if (counter[hash_key]++ < min_count_to_compile_expression)
-            return nullptr;
-    }
-
-    auto llvm_function = std::make_shared<LLVMFunction>(dag);
-
-    // TODO(jerry): handle cache
-    CompiledFunction compiled_function;
-    auto status = compile_function(get_jit_instance(), *llvm_function, compiled_function);
-    if (!status.ok()) {
-        LOG(ERROR) << fmt::format("Compile function {} failed: {}", llvm_function->get_name(), status);
-        return nullptr;
-    }
-
-    auto compiled_function_holder = std::make_shared<CompiledFunctionHolder>(compiled_function);
-
-    llvm_function->setCompiledFunction(std::move(compiled_function_holder));
-
-    return llvm_function;
-}
-
 static bool is_compilable_constant(const VExpr& node) {
     return node.is_constant() && can_be_native_type(*node.data_type());
 }
@@ -268,6 +237,10 @@ static CompileDAG get_compilable_dag(
     /// Extract CompileDAG from root actions dag node.
 
     CompileDAG dag;
+    dag.set_root_expr(root);
+
+    if (!is_compilable_function(*root))
+        return dag;
 
     std::unordered_map<VExpr*, size_t> visited_node_to_compile_dag_position;
 
@@ -344,23 +317,90 @@ static CompileDAG get_compilable_dag(
     return dag;
 }
 
-void VExpr::compile_functions(size_t min_count_to_compile_expression) {
-    if (!is_compilable_function(*this))
-        return;
+Status VExpr::compile_jit(RuntimeState* runtime_state) {
+    std::vector<CompileDAG> compile_dags;
+    std::vector<FunctionBasePtr> functions_to_compile;
 
-    std::vector<VExpr*> new_children;
-    auto dag = get_compilable_dag(this, new_children);
+    for (auto* expr : runtime_state->get_exprs_to_compile()) {
+        std::vector<VExpr*> arguments;
+        auto dag = get_compilable_dag(expr, arguments);
+        if (dag.get_input_nodes_count() == 0)
+            continue;
 
-    if (dag.get_input_nodes_count() == 0)
-        return;
-
-    if (auto fn = compile(dag, min_count_to_compile_expression)) {
-        _compiled_function = fn;
-        // node->function = fn->prepare(arguments);
-        _children.swap(new_children);
-        _is_function_compiled = true;
-        _prepared_compiled_function = fn->prepare(nullptr, {}, {}, 0);
+        functions_to_compile.emplace_back(std::make_shared<LLVMFunction>(dag));
+        dag.get_input_children().swap(arguments);
+        compile_dags.emplace_back(std::move(dag));
     }
+
+    DCHECK(compile_dags.size() == functions_to_compile.size());
+
+    if (functions_to_compile.empty() && runtime_state->get_aggregate_functions_to_compile().empty())
+        return Status::OK();
+
+    std::vector<CompiledFunction> results;
+    auto status = doris::vectorized::compile_functions(runtime_state->get_jit_instance(), functions_to_compile, results, runtime_state->get_aggregate_functions_to_compile());
+    if (!status.ok())
+        return status;
+    
+    for (size_t i = 0; i < functions_to_compile.size(); i++) {
+        if (!results[i].compiled_function)
+            continue;
+
+        auto compiled_function_holder = std::make_shared<CompiledFunctionHolder>(results[i]);
+        static_cast<LLVMFunction*>(functions_to_compile[i].get())->set_compiled_function(compiled_function_holder);
+
+        auto* root_expr = compile_dags[i].root_expr();
+        root_expr->_children.swap(compile_dags[i].get_input_children());
+        root_expr->_compiled_function = functions_to_compile[i];
+        root_expr->_is_function_compiled = true;
+        root_expr->_prepared_compiled_function =  functions_to_compile[i]->prepare(nullptr, {}, {}, 0);
+    }
+
+    return Status::OK();
+}
+
+Status VExpr::compile_expressions(std::vector<VExpr*> exprs_to_compile) {
+    if (exprs_to_compile.empty())
+        return Status::OK();
+
+    std::vector<CompileDAG> compile_dags;
+    std::vector<FunctionBasePtr> functions_to_compile;
+
+    for (auto* expr : exprs_to_compile) {
+        std::vector<VExpr*> arguments;
+        auto dag = get_compilable_dag(expr, arguments);
+        if (dag.get_input_nodes_count() == 0)
+            continue;
+
+        functions_to_compile.emplace_back(std::make_shared<LLVMFunction>(dag));
+        dag.get_input_children().swap(arguments);
+        compile_dags.emplace_back(std::move(dag));
+    }
+
+    DCHECK(compile_dags.size() == functions_to_compile.size());
+    if (compile_dags.empty())
+        return Status::OK();
+
+    std::vector<CompiledFunction> results;
+    doris::vectorized::compile_functions(get_jit_instance(), functions_to_compile, results);
+
+    DCHECK(functions_to_compile.size() == results.size());
+
+    for (size_t i = 0; i < functions_to_compile.size(); i++) {
+        if (!results[i].compiled_function)
+            continue;
+
+        auto compiled_function_holder = std::make_shared<CompiledFunctionHolder>(results[i]);
+        static_cast<LLVMFunction*>(functions_to_compile[i].get())->set_compiled_function(compiled_function_holder);
+
+        auto* root_expr = compile_dags[i].root_expr();
+        root_expr->_children.swap(compile_dags[i].get_input_children());
+        root_expr->_compiled_function = functions_to_compile[i];
+        root_expr->_is_function_compiled = true;
+        root_expr->_prepared_compiled_function =  functions_to_compile[i]->prepare(nullptr, {}, {}, 0);
+    }
+
+    return Status::OK();
 }
 
 }

@@ -214,6 +214,14 @@ Status ExecNode::prepare(RuntimeState* state) {
 
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, row_desc(), expr_mem_tracker()));
+#ifdef DORIS_ENABLE_JIT
+        if (state->query_options().codegen_level > 0) {
+            auto* root = (*_vconjunct_ctx_ptr)->root();
+            if (root->is_compilable()) {
+                state->add_expr_to_compile(root);
+            }
+        }
+#endif
     }
     RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, row_desc(), expr_mem_tracker()));
 

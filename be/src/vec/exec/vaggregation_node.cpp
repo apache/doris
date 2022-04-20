@@ -31,6 +31,11 @@
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
 
+#ifdef DORIS_ENABLE_JIT
+#include "vec/jit/compile_function.h"
+#include "vec/core/materialize_block.h"
+#endif
+
 namespace doris::vectorized {
 
 /// The minimum reduction factor (input rows divided by output rows) to grow hash tables
@@ -63,12 +68,9 @@ struct StreamingHtMinReductionEntry {
 // TODO: experimentally tune these values and also programmatically get the cache size
 // of the machine that we're running on.
 static constexpr StreamingHtMinReductionEntry STREAMING_HT_MIN_REDUCTION[] = {
-        // Expand up to L2 cache always.
-        {0, 0.0},
-        // Expand into L3 cache if we look like we're getting some reduction.
-        {256 * 1024, 1.1},
-        // Expand into main memory if we're getting a significant reduction.
-        {2 * 1024 * 1024, 2.0},
+        // Expand up to L2 cache always. {0, 0.0},
+        // Expand into L3 cache if we look like we're getting some reduction. {256 * 1024, 1.1},
+        // Expand into main memory if we're getting a significant reduction. {2 * 1024 * 1024, 2.0},
 };
 
 static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
@@ -119,6 +121,8 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
     const auto& agg_functions = tnode.agg_node.aggregate_functions;
     _is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
                             [](const auto& e) { return e.nodes[0].agg_expr.is_merge_agg; });
+    _is_all_merge = std::all_of(agg_functions.cbegin(), agg_functions.cend(),
+                                [](const auto& e) { return e.nodes[0].agg_expr.is_merge_agg; });
     return Status::OK();
 }
 
@@ -210,6 +214,9 @@ Status AggregationNode::prepare(RuntimeState* state) {
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
     _expr_timer = ADD_TIMER(runtime_profile(), "ExprTime");
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
+    _agg_jit_timer = ADD_TIMER(runtime_profile(), "AggJitTime");
+    _pre_agg_timer = ADD_TIMER(runtime_profile(), "PreAggTime");
+    _hash_timer = ADD_TIMER(runtime_profile(), "BuildHashTime");
 
     _data_mem_tracker = MemTracker::create_virtual_tracker(-1, "AggregationNode:Data", mem_tracker());
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
@@ -277,8 +284,12 @@ Status AggregationNode::prepare(RuntimeState* state) {
         _create_agg_status(_agg_data.without_key);
 
         if (_is_merge) {
-            _executor.execute = std::bind<Status>(&AggregationNode::_merge_without_key, this,
-                                                  std::placeholders::_1);
+            if (_is_all_merge)
+                _executor.execute = std::bind<Status>(&AggregationNode::_merge_without_key, this,
+                                                      std::placeholders::_1);
+            else
+                _executor.execute = std::bind<Status>(&AggregationNode::_merge_or_execute_without_key, this,
+                                                      std::placeholders::_1);                                                      
         } else {
             _executor.execute = std::bind<Status>(&AggregationNode::_execute_without_key, this,
                                                   std::placeholders::_1);
@@ -328,6 +339,9 @@ Status AggregationNode::prepare(RuntimeState* state) {
         _executor.close = std::bind<void>(&AggregationNode::_close_with_serialized_key, this);
     }
 
+#ifdef DORIS_ENABLE_JIT
+    _compile_aggregate_functions_if_needed(state);
+#endif
     return Status::OK();
 }
 
@@ -413,7 +427,17 @@ Status AggregationNode::close(RuntimeState* state) {
 }
 
 Status AggregationNode::_create_agg_status(AggregateDataPtr data) {
+// #ifdef DORIS_ENABLE_JIT
+//     if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid) {
+//         SCOPED_TIMER(_agg_jit_timer);
+//         _compiled_aggregate_functions_holder->compiled_aggregate_functions.create_aggregate_states_function(data);
+//     }
+// #endif
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+// #ifdef DORIS_ENABLE_JIT
+//         if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid && _is_aggregate_function_compiled[i])
+//             continue;
+// #endif
         _aggregate_evaluators[i]->create(data + _offsets_of_aggregate_states[i]);
     }
     return Status::OK();
@@ -440,7 +464,30 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
         columns[i] = data_types[i]->create_column();
     }
 
+#ifdef DORIS_ENABLE_JIT
+    if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid) {
+        std::vector<ColumnData> columns_data;
+        for (size_t i = 0; i < agg_size; i++) {
+            if (!_is_aggregate_function_compiled[i])
+                continue;
+            auto& column = columns[i];
+            column = column->clone_resized(1);
+            ColumnData column_data;
+            auto status = get_column_data(column, column_data);
+            if (!status.ok())
+                return status;
+            columns_data.emplace_back(column_data);
+        }
+        SCOPED_TIMER(_agg_jit_timer);
+        _compiled_aggregate_functions_holder->compiled_aggregate_functions.insert_aggregates_into_columns_function(1, columns_data.data(), &(_agg_data.without_key));
+    }
+#endif
+
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+#ifdef DORIS_ENABLE_JIT
+        if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid && _is_aggregate_function_compiled[i])
+            continue;
+#endif
         auto column = columns[i].get();
         _aggregate_evaluators[i]->insert_result_info(
                 _agg_data.without_key + _offsets_of_aggregate_states[i], column);
@@ -498,8 +545,7 @@ Status AggregationNode::_serialize_without_key(RuntimeState* state, Block* block
         _aggregate_evaluators[i]->function()->serialize(
                 _agg_data.without_key + _offsets_of_aggregate_states[i], value_buffer_writers[i]);
         value_buffer_writers[i].commit();
-    }
-    {
+    } {
         ColumnsWithTypeAndName data_with_schema;
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
             ColumnWithTypeAndName column_with_schema = {nullptr, data_types[i], ""};
@@ -513,10 +559,95 @@ Status AggregationNode::_serialize_without_key(RuntimeState* state, Block* block
     return Status::OK();
 }
 
+#ifdef DORIS_ENABLE_JIT
+Status AggregationNode::_execute_single_add_by_compiled_function(Block* block) {
+    std::vector<ColumnData> columns_data;
+    std::vector<size_t> column_ids;
+    for (size_t i = 0; i < _aggregate_evaluators.size(); i++) {
+        if (!_is_aggregate_function_compiled[i])
+            continue;
+
+        SCOPED_TIMER(_expr_timer);
+        auto& input_expr_ctxs = _aggregate_evaluators[i]->get_input_expr_ctxs();
+        for (int j = 0; j < input_expr_ctxs.size(); ++j) {
+            int column_id = -1;
+            input_expr_ctxs[j]->execute(block, &column_id);
+            column_ids.emplace_back(column_id);
+        }
+    }
+
+    if (column_ids.empty())
+        return Status::OK();
+
+    materialize_block_inplace(*block, column_ids.cbegin(), column_ids.cend());
+    for (int i = 0; i < column_ids.size(); ++i) {
+        ColumnData column_data;
+        auto st = get_column_data(block->get_by_position(column_ids[i]).column, column_data);
+        if (UNLIKELY(!st.ok()))
+            return st;
+
+        columns_data.emplace_back(column_data);
+    }
+
+    SCOPED_TIMER(_agg_jit_timer);
+    auto add_into_aggregate_states_function_single_place = _compiled_aggregate_functions_holder->compiled_aggregate_functions.add_into_aggregate_states_function_single_place;
+    add_into_aggregate_states_function_single_place(block->rows(), columns_data.data(), _agg_data.without_key);
+    return Status::OK();
+}
+
+Status AggregationNode::_execute_batch_add_by_compiled_function(Block* block, char** places) {
+    std::vector<ColumnData> columns_data;
+    std::vector<size_t> column_ids;
+    for (size_t i = 0; i < _aggregate_evaluators.size(); i++) {
+        if (!_is_aggregate_function_compiled[i])
+            continue;
+
+        SCOPED_TIMER(_expr_timer);
+        auto& input_expr_ctxs = _aggregate_evaluators[i]->get_input_expr_ctxs();
+        for (int j = 0; j < input_expr_ctxs.size(); ++j) {
+            int column_id = -1;
+            input_expr_ctxs[j]->execute(block, &column_id);
+            column_ids.emplace_back(column_id);
+        }
+    }
+
+    if (column_ids.empty())
+        return Status::OK();
+
+    materialize_block_inplace(*block, column_ids.cbegin(), column_ids.cend());
+    for (int i = 0; i < column_ids.size(); ++i) {
+        ColumnData column_data;
+        auto st = get_column_data(block->get_by_position(column_ids[i]).column, column_data);
+        if (UNLIKELY(!st.ok()))
+            return st;
+
+        columns_data.emplace_back(column_data);
+    }
+
+    SCOPED_TIMER(_agg_jit_timer);
+    auto add_into_aggregate_states_function = _compiled_aggregate_functions_holder->compiled_aggregate_functions.add_into_aggregate_states_function;
+    add_into_aggregate_states_function(block->rows(), columns_data.data(), places);
+    return Status::OK();
+}
+#endif
+
 Status AggregationNode::_execute_without_key(Block* block) {
     DCHECK(_agg_data.without_key != nullptr);
     SCOPED_TIMER(_build_timer);
+
+#ifdef DORIS_ENABLE_JIT
+    if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid) {
+        auto st = _execute_single_add_by_compiled_function(block);
+        if (!st.ok())
+            return st;
+    }
+#endif
+
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+#ifdef DORIS_ENABLE_JIT
+        if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid && _is_aggregate_function_compiled[i])
+            continue;
+#endif
         _aggregate_evaluators[i]->execute_single_add(
                 block, _agg_data.without_key + _offsets_of_aggregate_states[i], &_agg_arena_pool);
     }
@@ -526,6 +657,49 @@ Status AggregationNode::_execute_without_key(Block* block) {
 Status AggregationNode::_merge_without_key(Block* block) {
     SCOPED_TIMER(_merge_timer);
     DCHECK(_agg_data.without_key != nullptr);
+    DCHECK(_is_all_merge);
+    std::unique_ptr<char[]> deserialize_buffer(new char[_total_size_of_aggregate_states]);
+    int rows = block->rows();
+
+    for (int i = 0; i < rows; ++i) {
+        _create_agg_status(deserialize_buffer.get());
+
+        for (int j = 0; j < _aggregate_evaluators.size(); ++j) {
+            auto column = block->get_by_position(j).column;
+            VectorBufferReader buffer_reader(((ColumnString*)(column.get()))->get_data_at(i));
+
+            _aggregate_evaluators[j]->function()->deserialize(
+                    deserialize_buffer.get() + _offsets_of_aggregate_states[j], buffer_reader,
+                    &_agg_arena_pool);
+        }
+
+#ifdef DORIS_ENABLE_JIT
+         if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid) {
+            SCOPED_TIMER(_agg_jit_timer);
+            _compiled_aggregate_functions_holder->compiled_aggregate_functions.merge_aggregate_states_function(_agg_data.without_key, deserialize_buffer.get());
+         }
+#endif
+
+        for (int j = 0; j < _aggregate_evaluators.size(); ++j) {
+#ifdef DORIS_ENABLE_JIT
+            if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid && _is_aggregate_function_compiled[j])
+                continue;
+#endif
+            _aggregate_evaluators[j]->function()->merge(
+                    _agg_data.without_key + _offsets_of_aggregate_states[j],
+                    deserialize_buffer.get() + _offsets_of_aggregate_states[j],
+                    &_agg_arena_pool);
+        }
+
+        _destory_agg_status(deserialize_buffer.get());
+    }
+    return Status::OK();
+}
+
+Status AggregationNode::_merge_or_execute_without_key(Block* block) {
+    SCOPED_TIMER(_merge_timer);
+    DCHECK(_agg_data.without_key != nullptr);
+    DCHECK(!_is_all_merge && _is_merge);
     std::unique_ptr<char[]> deserialize_buffer(new char[_total_size_of_aggregate_states]);
     int rows = block->rows();
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -635,11 +809,11 @@ bool AggregationNode::_should_expand_preagg_hash_tables() {
 Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
                                                      doris::vectorized::Block* out_block) {
     SCOPED_TIMER(_build_timer);
+    SCOPED_TIMER(_pre_agg_timer);
     DCHECK(!_probe_expr_ctxs.empty());
 
     size_t key_size = _probe_expr_ctxs.size();
-    ColumnRawPtrs key_columns(key_size);
-    {
+    ColumnRawPtrs key_columns(key_size); {
         SCOPED_TIMER(_expr_timer);
         for (size_t i = 0; i < key_size; ++i) {
             int result_column_id = -1;
@@ -679,7 +853,15 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                             _create_agg_status(_streaming_pre_places[i]);
                         }
 
+#ifdef DORIS_ENABLE_JIT
+                        if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid)
+                            _execute_batch_add_by_compiled_function(in_block, _streaming_pre_places.data());
+#endif
                         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+#ifdef DORIS_ENABLE_JIT
+                            if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid && _is_aggregate_function_compiled[i])
+                                continue;
+#endif
                             _aggregate_evaluators[i]->execute_batch_add(
                                     in_block, _offsets_of_aggregate_states[i], _streaming_pre_places.data(),
                                     &_agg_arena_pool);
@@ -744,6 +926,7 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                     using AggState = typename HashMethodType::State;
                     AggState state(key_columns, _probe_key_sz, nullptr);
                     /// For all rows.
+                    SCOPED_TIMER(_hash_timer);
                     for (size_t i = 0; i < rows; ++i) {
                         AggregateDataPtr aggregate_data = nullptr;
 
@@ -767,10 +950,18 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                     }
                 },
                 _agg_data._aggregated_method_variant);
-
+#ifdef DORIS_ENABLE_JIT
+        if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid)
+            _execute_batch_add_by_compiled_function(in_block, places.data());
+#endif
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-            _aggregate_evaluators[i]->execute_batch_add(in_block, _offsets_of_aggregate_states[i],
-                                                        places.data(), &_agg_arena_pool);
+#ifdef DORIS_ENABLE_JIT
+            if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid && _is_aggregate_function_compiled[i])
+                continue;
+#endif
+            _aggregate_evaluators[i]->execute_batch_add(in_block,
+                                                       _offsets_of_aggregate_states[i], places.data(),
+                                                       &_agg_arena_pool);
         }
     }
 
@@ -782,8 +973,7 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
     DCHECK(!_probe_expr_ctxs.empty());
 
     size_t key_size = _probe_expr_ctxs.size();
-    ColumnRawPtrs key_columns(key_size);
-    {
+    ColumnRawPtrs key_columns(key_size); {
         SCOPED_TIMER(_expr_timer);
         for (size_t i = 0; i < key_size; ++i) {
             int result_column_id = -1;
@@ -804,6 +994,7 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
                 /// For all rows.
+                // SCOPED_TIMER(_hash_timer);
                 for (size_t i = 0; i < rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;
 
@@ -827,8 +1018,15 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
                 }
             },
             _agg_data._aggregated_method_variant);
-
+#ifdef DORIS_ENABLE_JIT
+    if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid)
+        _execute_batch_add_by_compiled_function(block, places.data());
+#endif
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
+#ifdef DORIS_ENABLE_JIT
+        if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid && _is_aggregate_function_compiled[i])
+            continue;
+#endif
         _aggregate_evaluators[i]->execute_batch_add(block, _offsets_of_aggregate_states[i],
                                                     places.data(), &_agg_arena_pool);
     }
@@ -865,16 +1063,52 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
                 auto& data = agg_method.data;
                 auto& iter = agg_method.iterator;
                 agg_method.init_once();
+
+#ifdef DORIS_ENABLE_JIT
+                PaddedPODArray<AggregateDataPtr> places;
+                places.reserve(data.size());
+#endif
                 while (iter != data.end() && key_columns[0]->size() < state->batch_size()) {
                     const auto& key = iter->get_first();
                     auto& mapped = iter->get_second();
                     agg_method.insert_key_into_columns(key, key_columns, _probe_key_sz);
-                    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i)
+
+#ifdef DORIS_ENABLE_JIT
+                    places.emplace_back(mapped);
+#endif
+                    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+#ifdef DORIS_ENABLE_JIT
+                        if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid && _is_aggregate_function_compiled[i]) {
+                            continue;
+                        }
+#endif
                         _aggregate_evaluators[i]->insert_result_info(
                                 mapped + _offsets_of_aggregate_states[i], value_columns[i].get());
-
+                    }
+                    mapped = nullptr;
                     ++iter;
                 }
+
+#ifdef DORIS_ENABLE_JIT
+                if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid) {
+                    std::vector<ColumnData> columns_data;
+                    auto compiled_functions = _compiled_aggregate_functions_holder->compiled_aggregate_functions;
+
+                    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+                        if (!_is_aggregate_function_compiled[i])
+                            continue;
+                        
+                        auto& value_column = value_columns[i];
+                        value_column = value_column->clone_resized(places.size());
+                        ColumnData column_data;
+                        get_column_data(value_column.get(), column_data);
+                        columns_data.emplace_back(column_data);
+                    }
+
+                    SCOPED_TIMER(_agg_jit_timer);
+                    compiled_functions.insert_aggregates_into_columns_function(places.size(), columns_data.data(), places.data());
+                }
+#endif
                 if (iter == data.end()) {
                     if (agg_method.data.has_null_key_data()) {
                         // only one key of group by support wrap null key
@@ -1022,6 +1256,7 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
                 using AggState = typename HashMethodType::State;
                 AggState state(key_columns, _probe_key_sz, nullptr);
                 /// For all rows.
+                // SCOPED_TIMER(_hash_timer);
                 for (size_t i = 0; i < rows; ++i) {
                     AggregateDataPtr aggregate_data = nullptr;
 
@@ -1048,6 +1283,42 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
 
     std::unique_ptr<char[]> deserialize_buffer(new char[_total_size_of_aggregate_states]);
 
+    if (_is_all_merge) {
+        for (int i = 0; i < rows; ++i) {
+
+            _create_agg_status(deserialize_buffer.get());
+            for (int j = 0; j < _aggregate_evaluators.size(); ++j) {
+                auto column = block->get_by_position(j + key_size).column;
+                if (column->is_nullable()) {
+                    column = ((ColumnNullable*)column.get())->get_nested_column_ptr();
+                }
+
+                VectorBufferReader buffer_reader(((ColumnString*)(column.get()))->get_data_at(i));
+                _aggregate_evaluators[j]->function()->deserialize(
+                        deserialize_buffer.get() + _offsets_of_aggregate_states[j], buffer_reader,
+                        &_agg_arena_pool);
+            }
+#ifdef DORIS_ENABLE_JIT
+            if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid) {
+                SCOPED_TIMER(_agg_jit_timer);
+                _compiled_aggregate_functions_holder->compiled_aggregate_functions.merge_aggregate_states_function(places.data()[i], deserialize_buffer.get());
+            }
+#endif
+            for (int j = 0; j < _aggregate_evaluators.size(); ++j) {
+#ifdef DORIS_ENABLE_JIT
+                if (_compiled_aggregate_functions_holder && _compiled_aggregate_functions_holder->valid && _is_aggregate_function_compiled[j])
+                    continue;
+
+                _aggregate_evaluators[j]->function()->merge(
+                        places.data()[i] + _offsets_of_aggregate_states[j],
+                        deserialize_buffer.get() + _offsets_of_aggregate_states[j],
+                        &_agg_arena_pool);
+#endif
+            }
+            _destory_agg_status(deserialize_buffer.get());
+        }
+        return Status::OK();
+    }
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         if (_aggregate_evaluators[i]->is_merge()) {
             auto column = block->get_by_position(i + key_size).column;
@@ -1109,5 +1380,56 @@ void AggregationNode::_close_with_serialized_key() {
 void AggregationNode::release_tracker() {
    _data_mem_tracker->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
 }
+
+#ifdef DORIS_ENABLE_JIT
+
+void AggregationNode::_compile_aggregate_functions_if_needed(RuntimeState* runtime_state) {
+    if (runtime_state->query_options().codegen_level == 0)
+        return;
+
+    std::vector<AggregateFunctionWithOffset> functions_to_compile;
+    size_t aggregate_instructions_size = 0;
+    String functions_description;
+
+    _is_aggregate_function_compiled.resize(_aggregate_evaluators.size());
+
+    /// Add values to the aggregate functions.
+    for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
+        const auto function = _aggregate_evaluators[i]->function();
+        size_t offset_of_aggregate_function = _offsets_of_aggregate_states[i];
+
+        if (function->is_compilable()) {
+            AggregateFunctionWithOffset function_to_compile {
+                .function = function.get(),
+                .aggregate_data_offset = offset_of_aggregate_function
+            };
+
+            functions_to_compile.emplace_back(std::move(function_to_compile));
+
+            functions_description += function->get_description();
+            functions_description += ' ';
+
+            functions_description += std::to_string(offset_of_aggregate_function);
+            functions_description += ' ';
+        }
+
+        ++aggregate_instructions_size;
+        _is_aggregate_function_compiled[i] = function->is_compilable();
+    }
+
+    if (functions_to_compile.empty())
+        return;
+
+    auto functions_set = std::make_shared<AggregateFunctionsSetToCompile>();
+
+    functions_set->functions.assign(functions_to_compile.cbegin(), functions_to_compile.cend());
+    functions_set->functions_description = functions_description;
+
+    _compiled_aggregate_functions_holder = std::make_shared<CompiledAggregateFunctionsHolder>();
+    functions_set->holder = _compiled_aggregate_functions_holder;
+    runtime_state->add_aggregate_functions_set_to_compile(functions_set);
+}
+
+#endif
 
 } // namespace doris::vectorized

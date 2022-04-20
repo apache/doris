@@ -170,8 +170,8 @@ public:
     String operator()(const Int64& x) const;
     String operator()(const Float64& x) const;
     String operator()(const String& x) const;
-    String operator()(const Array& x) const;
-    String operator()(const Tuple& x) const;
+    [[noreturn]] String operator()(const Array& x) const;
+    [[noreturn]] String operator()(const Tuple& x) const;
     String operator()(const DecimalField<Decimal32>& x) const;
     String operator()(const DecimalField<Decimal64>& x) const;
     String operator()(const DecimalField<Decimal128>& x) const;

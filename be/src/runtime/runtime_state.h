@@ -37,6 +37,17 @@
 #include "util/logging.h"
 #include "util/runtime_profile.h"
 
+
+#ifdef DORIS_ENABLE_JIT
+
+namespace doris::vectorized {
+
+class VExpr;
+struct AggregateFunctionsSetToCompile; 
+
+}
+#endif
+
 namespace doris {
 
 class DescriptorTbl;
@@ -57,6 +68,10 @@ class ReservationTracker;
 class InitialReservations;
 class RowDescriptor;
 class RuntimeFilterMgr;
+
+#ifdef DORIS_ENABLE_JIT
+class JIT;
+#endif
 
 // A collection of items that are part of the global state of a
 // query and shared across all execution nodes of that query.
@@ -360,6 +375,28 @@ public:
 
     QueryFragmentsCtx* get_query_fragments_ctx() { return _query_ctx; }
 
+#ifdef DORIS_ENABLE_JIT
+    void add_expr_to_compile(vectorized::VExpr* expr) {
+        _exprs_to_compile.emplace_back(expr);
+    }
+
+    void add_aggregate_functions_set_to_compile(std::shared_ptr<vectorized::AggregateFunctionsSetToCompile> functions_set) {
+        _aggregate_functions_to_compile.emplace_back(functions_set);
+    }
+
+    std::vector<vectorized::VExpr*>& get_exprs_to_compile() {
+        return _exprs_to_compile;
+    }
+
+    std::vector<std::shared_ptr<vectorized::AggregateFunctionsSetToCompile>>& get_aggregate_functions_to_compile() {
+        return _aggregate_functions_to_compile;
+    }
+
+    JIT& get_jit_instance() {
+        return *_jit_instance;
+    }
+#endif
+
 private:
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {
@@ -510,6 +547,13 @@ private:
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
+
+#ifdef DORIS_ENABLE_JIT
+    std::vector<std::shared_ptr<vectorized::AggregateFunctionsSetToCompile>> _aggregate_functions_to_compile;
+    std::vector<vectorized::VExpr*> _exprs_to_compile;
+    std::shared_ptr<JIT> _jit_instance;
+#endif
+
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

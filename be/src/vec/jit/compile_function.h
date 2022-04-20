@@ -46,17 +46,77 @@ using ColumnDataRowsSize = size_t;
 using JITCompiledFunction = void (*)(ColumnDataRowsSize, ColumnData *);
 
 struct CompiledFunction {
-
     JITCompiledFunction compiled_function;
-
-    JIT::CompiledModule compiled_module;
 };
 
-/** Compile function to native jit code using JIT instance.
+/** Compile functions to native jit code using JIT instance.
   * It is client responsibility to match ColumnData arguments size with
   * function arguments size and additional ColumnData for result.
   */
-Status compile_function(JIT& jit, const IFunctionBase& function, CompiledFunction& result);
+Status compile_functions(JIT& jit, std::vector<FunctionBasePtr>& functions, std::vector<CompiledFunction>& results);
+
+struct AggregateFunctionWithOffset {
+    const IAggregateFunction * function;
+    size_t aggregate_data_offset;
+};
+
+using JITCreateAggregateStatesFunction = void (*)(AggregateDataPtr);
+using JITAddIntoAggregateStatesFunction = void (*)(ColumnDataRowsSize, ColumnData *, AggregateDataPtr *);
+using JITAddIntoAggregateStatesFunctionSinglePlace = void (*)(ColumnDataRowsSize, ColumnData *, AggregateDataPtr);
+using JITMergeAggregateStatesFunction = void (*)(AggregateDataPtr, AggregateDataPtr);
+using JITInsertAggregateStatesIntoColumnsFunction = void (*)(ColumnDataRowsSize, ColumnData *, AggregateDataPtr *);
+
+struct CompiledAggregateFunctions {
+    JITCreateAggregateStatesFunction create_aggregate_states_function;
+    JITAddIntoAggregateStatesFunction add_into_aggregate_states_function;
+    JITAddIntoAggregateStatesFunctionSinglePlace add_into_aggregate_states_function_single_place;
+
+    JITMergeAggregateStatesFunction merge_aggregate_states_function;
+    JITInsertAggregateStatesIntoColumnsFunction insert_aggregates_into_columns_function;
+
+    /// Count of functions that were compiled
+    size_t functions_count;
+
+    /// Compiled module. It is client responsibility to destroy it after functions are no longer required.
+    JIT::CompiledModule compiled_module;
+};
+
+class CompiledAggregateFunctionsHolder {
+public:
+    CompiledAggregateFunctionsHolder() : valid(false) {}
+    explicit CompiledAggregateFunctionsHolder(CompiledAggregateFunctions compiled_function_) : compiled_aggregate_functions(compiled_function_), valid(true) {}
+
+    ~CompiledAggregateFunctionsHolder() {
+    }
+
+    CompiledAggregateFunctions compiled_aggregate_functions;
+
+    bool valid;
+};
+
+struct AggregateFunctionsSetToCompile {
+    std::vector<AggregateFunctionWithOffset> functions;
+    std::string functions_description;
+    std::shared_ptr<CompiledAggregateFunctionsHolder> holder;
+};
+
+/** Compile aggregate function to native jit code using CHJIT instance.
+  *
+  * JITCreateAggregateStatesFunction will initialize aggregate data ptr with initial aggregate states values.
+  * JITAddIntoAggregateStatesFunction will update aggregate states for aggregate functions with specified ColumnData.
+  * JITAddIntoAggregateStatesFunctionSinglePlace will update single aggregate state for aggregate functions with specified ColumnData.
+  * JITMergeAggregateStatesFunction will merge aggregate states for aggregate functions.
+  * JITInsertAggregateStatesIntoColumnsFunction will insert aggregate states for aggregate functions into result columns.
+  */
+Status compile_aggregate_functions(JIT & jit,
+                                   const std::vector<AggregateFunctionWithOffset>& functions,
+                                   const std::string& functions_dump_name,
+                                   CompiledAggregateFunctions& compiled_functions);
+
+Status compile_functions(JIT& jit,
+                         std::vector<FunctionBasePtr>& functions,
+                         std::vector<CompiledFunction>& results,
+                         std::vector<std::shared_ptr<AggregateFunctionsSetToCompile>>& aggregate_functions);
 
 }
 #endif

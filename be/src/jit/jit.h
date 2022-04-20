@@ -102,7 +102,7 @@ public:
 
     /** Total compiled code size for module that are currently valid.
       */
-    inline size_t get_compiled_code_size() const { return compiled_code_size.load(std::memory_order_relaxed); }
+    inline size_t get_compiled_code_size() const { return _compiled_code_size.load(std::memory_order_relaxed); }
 
 private:
 
@@ -110,22 +110,22 @@ private:
 
     Status _compile_module(std::unique_ptr<llvm::Module> module, CompiledModule& result);
 
-    std::string get_mangled_name(const std::string & name_to_mangle) const;
+    std::string _get_mangled_name(const std::string & name_to_mangle) const;
 
     void _run_optimization_passes_on_module(llvm::Module & module) const;
 
     static std::unique_ptr<llvm::TargetMachine> _get_target_machine();
 
-    llvm::LLVMContext context;
-    std::unique_ptr<llvm::TargetMachine> machine;
-    llvm::DataLayout layout;
-    std::unique_ptr<JITCompiler> compiler;
-    std::unique_ptr<JITSymbolResolver> symbol_resolver;
+    llvm::LLVMContext _context;
+    std::unique_ptr<llvm::TargetMachine> _machine;
+    llvm::DataLayout _layout;
+    std::unique_ptr<JITCompiler> _compiler;
+    std::unique_ptr<JITSymbolResolver> _symbol_resolver;
 
-    std::unordered_map<uint64_t, std::unique_ptr<JITModuleMemoryManager>> module_identifier_to_memory_manager;
-    uint64_t current_module_key = 0;
-    std::atomic<size_t> compiled_code_size = 0;
-    mutable std::mutex jit_lock;
+    std::unordered_map<uint64_t, std::unique_ptr<JITModuleMemoryManager>> _module_identifier_to_memory_manager;
+    uint64_t _current_module_key = 0;
+    std::atomic<size_t> _compiled_code_size = 0;
+    mutable std::mutex _jit_lock;
 
 };
 

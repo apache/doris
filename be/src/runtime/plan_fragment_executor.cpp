@@ -45,6 +45,9 @@
 #include "vec/core/block.h"
 #include "vec/exec/vexchange_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#ifdef DORIS_ENABLE_JIT
+#include "vec/exprs/vexpr.h"
+#endif
 
 namespace doris {
 
@@ -208,6 +211,15 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (_sink.get() != nullptr) {
         _sink->set_query_statistics(_query_statistics);
     }
+
+#ifdef DORIS_ENABLE_JIT
+    auto query_options = _runtime_state->query_options();
+    if (query_options.enable_vectorized_engine && query_options.codegen_level > 0) {
+        SCOPED_TIMER(profile()->expr_compile_time_counter());
+        vectorized::VExpr::compile_jit(runtime_state());
+    }
+#endif
+
     return Status::OK();
 }
 

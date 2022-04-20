@@ -47,6 +47,11 @@
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
 
+#ifdef DORIS_ENABLE_JIT
+#include "vec/jit/compile_function.h"
+#include <jit/jit.h>
+#endif
+
 namespace doris {
 
 // for ut only
@@ -129,6 +134,10 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
         _timezone = TimezoneUtils::default_time_zone;
         _timestamp_ms = 0;
     }
+#ifdef DORIS_ENABLE_JIT
+    _jit_instance.reset(new JIT());
+#endif
+
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
 }
 
@@ -198,6 +207,10 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
 
     _db_name = "insert_stmt";
     _import_label = print_id(fragment_instance_id);
+
+#ifdef DORIS_ENABLE_JIT
+    _jit_instance.reset(new JIT());
+#endif
 
     return Status::OK();
 }
