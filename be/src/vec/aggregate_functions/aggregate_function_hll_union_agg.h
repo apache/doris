@@ -53,6 +53,10 @@ struct AggregateFunctionHLLData {
 
     HyperLogLog get() const { return dst_hll; }
 
+    void reset() {
+        dst_hll.clear();
+    }
+
     void add(const IColumn* column, size_t row_num) {
         if constexpr (is_nullable) {
             auto* nullable_column = check_and_get_column<const ColumnNullable>(*column);
@@ -126,6 +130,8 @@ public:
                      Arena*) const override {
         this->data(place).read(buf);
     }
+
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 };
 
 template <bool is_nullable = false>

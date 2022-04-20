@@ -21,6 +21,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 namespace doris::vectorized {
@@ -89,6 +90,10 @@ struct BaseData {
         mean += r;
         m2 += count * delta * r;
         count += 1;
+    }
+
+    static DataTypePtr get_return_type() {
+        return std::make_shared<DataTypeNumber<Float64>>();
     }
 
     double mean;
@@ -175,6 +180,10 @@ struct BaseDatadecimal {
         count += 1;
     }
 
+    static DataTypePtr get_return_type() {
+        return std::make_shared<DataTypeDecimal<Decimal128>>(27, 9);
+    }
+
     DecimalV2Value mean;
     DecimalV2Value m2;
     int64_t count;
@@ -248,9 +257,9 @@ public:
 
     DataTypePtr get_return_type() const override {
         if constexpr (is_pop) {
-            return std::make_shared<DataTypeFloat64>();
+            return Data::get_return_type();
         } else {
-            return make_nullable(std::make_shared<DataTypeFloat64>());
+            return make_nullable(Data::get_return_type());
         }
     }
 
