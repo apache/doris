@@ -102,13 +102,13 @@ Doris 支持多种导入方式。建议先完整阅读本文档，再根据所�
 
 + FINISHED： 在 Load job 涉及的所有数据均生效后，Load job 的状态变成 FINISHED。FINISHED 后导入的数据均可查询。
 
-+ CANCELLED: 在作业 FINISH 的之前，作业都可能被取消并进入 CANCELLED 状态。如用户手动取消，或导入出现错误等。CANCELLED 也是 Load Job 的最终状态，不可被再次执行。
++ CANCELLED: 在作业 FINISHED 之前，作业都可能被取消并进入 CANCELLED 状态。如用户手动取消，或导入出现错误等。CANCELLED 也是 Load Job 的最终状态，不可被再次执行。
 
-上述阶段，除了 PENDING 到 LOADING 阶段是 Scheduler 轮训调度的，其他阶段之前的转移都是回调机制实现。
+上述阶段，除了 PENDING 到 LOADING 阶段是 Scheduler 轮询调度的，其他阶段之前的转移都是回调机制实现。
 
 ### Label 和 原子性
 
-Doris 对所有导入方式提供原子性保证。既保证同一个导入作业内的数据，原子生效。不会出现仅导入部分数据的情况。
+Doris 对所有导入方式提供原子性保证。即保证同一个导入作业内的数据，原子生效。不会出现仅导入部分数据的情况。
 
 同时，每一个导入作业都有一个由用户指定或者系统自动生成的 Label。Label 在一个 Database 内唯一。当一个 Label 对应的导入作业成功后，不可再重复使用该 Label 提交导入作业。如果 Label 对应的导入作业失败，则可以重复使用。
 
