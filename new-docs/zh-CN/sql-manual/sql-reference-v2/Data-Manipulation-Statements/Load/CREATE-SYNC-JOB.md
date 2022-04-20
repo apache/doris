@@ -36,7 +36,7 @@ CREATE SYNC JOB
 
 目前数据同步作业只支持对接Canal，从Canal Server上获取解析好的Binlog数据，导入到Doris内。
 
-用户可通过 [SHOW SYNC JOB](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-SYNC-JOB.html) 查看数据同步作业状态。
+用户可通过 [SHOW SYNC JOB](../../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-SYNC-JOB.html) 查看数据同步作业状态。
 
 语法：
 
