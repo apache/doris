@@ -154,7 +154,7 @@
                      value="Unused import: {0}."/>
         </module>
         <module name="ImportOrder">
-            <property name="groups" value="org.apache.doris,com,org,java,*"/>
+            <property name="groups" value="org.apache.doris,com.google.common,org,java,*"/>
             <property name="separated" value="true"/>
             <property name="ordered" value="true"/>
             <property name="option" value="bottom"/>
