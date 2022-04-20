@@ -248,7 +248,7 @@ public final class SparkDpp implements java.io.Serializable {
                             LOG.warn("invalid bucket key:" + curBucketKey);
                             continue;
                         }
-                        int partitionId = Integer.parseInt(bucketKey[0]);
+                        long partitionId = Long.parseLong(bucketKey[0]);
                         int bucketId = Integer.parseInt(bucketKey[1]);
                         dstPath = String.format(pathPattern, tableId, partitionId, indexMeta.indexId,
                                 bucketId, indexMeta.schemaHash);
