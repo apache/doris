@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/union-node.cpp
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/union-node.cc
 // and modified by Doris
 
 #include "exec/union_node.h"

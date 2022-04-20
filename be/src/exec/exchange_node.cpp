@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/exchange-node.cpp
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/exchange-node.cc
 // and modified by Doris
 
 #include "exec/exchange_node.h"

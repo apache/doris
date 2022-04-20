@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/tuple-is-null-predicate.cpp
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/tuple-is-null-predicate.cc
 // and modified by Doris
 
 #include "exprs/tuple_is_null_predicate.h"

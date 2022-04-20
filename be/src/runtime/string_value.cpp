@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/string-value.cpp
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/string-value.cc
 // and modified by Doris
 
 #include "runtime/string_value.h"

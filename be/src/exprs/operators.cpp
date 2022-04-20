@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/operators.cpp
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/operators.cc
 // and modified by Doris
 
 #include "exprs/operators.h"

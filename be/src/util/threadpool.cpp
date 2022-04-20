@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/threadpool.cpp
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/threadpool.cc
 // and modified by Doris
 
 #include "util/threadpool.h"
