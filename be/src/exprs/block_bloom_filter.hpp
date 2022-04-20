@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/kudu/blob/master/src/kudu/util/block_bloom_filter.h
+// and modified by Doris
 
 #pragma once
 #include "common/status.h"

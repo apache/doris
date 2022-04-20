@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/aggregate-functions.cpp
+// and modified by Doris
 
 // include aggregate_functions.h first to make sure that all need includes is written in header files
 #include "exprs/aggregate_functions.h"
