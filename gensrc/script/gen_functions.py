@@ -17,6 +17,9 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# This file is copied from
+# https://github.com/cloudera/Impala/blob/v0.7refresh/common/function-registry/gen_functions.py
+# and modified by Doris
 
 """
 # This script will generate the implementation of the simple functions for the BE.

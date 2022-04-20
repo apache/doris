@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.10.0/be/src/exprs/agg-fn-evaluator.cc
+// and modified by Doris
 
 #include "exprs/new_agg_fn_evaluator.h"
 
