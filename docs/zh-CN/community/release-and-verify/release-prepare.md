@@ -59,7 +59,7 @@ Apache 项目的版本发布主要有以下三种形式：
 3. 验证分支
 	1. QA 稳定性测试
 	2. 验证分支代码的编译流程
-	3. 准备 Release Nodes
+	3. 准备 Release Notes
 4. 准备发布材料
     1. 打 Tag
     2. 将需要发布的内容上传至 [Apache Dev SVN 仓库](https://dist.apache.org/repos/dist/dev/incubator/doris)
