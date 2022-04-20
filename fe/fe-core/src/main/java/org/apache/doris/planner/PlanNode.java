@@ -577,7 +577,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * from finalize() (to facilitate inserting additional nodes during plan
      * partitioning w/o the need to call finalize() recursively on the whole tree again).
      */
-    protected void computeStats(Analyzer analyzer) {
+    protected void computeStats(Analyzer analyzer) throws UserException {
         avgRowSize = 0.0F;
         for (TupleId tid : tupleIds) {
             TupleDescriptor desc = analyzer.getTupleDesc(tid);

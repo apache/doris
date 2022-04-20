@@ -21,6 +21,8 @@ import java.util.ArrayList;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
@@ -44,9 +46,10 @@ public class EmptySetNode extends PlanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = statsDeriveResult.getRowCount();
         avgRowSize = 0;
-        cardinality = 0;
         numNodes = 1;
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats EmptySet:" + id + ", cardinality: " + cardinality);
@@ -54,7 +57,7 @@ public class EmptySetNode extends PlanNode {
     }
 
     @Override
-    public void init(Analyzer analyzer) {
+    public void init(Analyzer analyzer) throws UserException {
         Preconditions.checkState(conjuncts.isEmpty());
         // If the physical output tuple produced by an AnalyticEvalNode wasn't created
         // the logical output tuple is returned by getMaterializedTupleIds(). It needs

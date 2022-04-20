@@ -19,8 +19,8 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.TableRef;
-import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.UserException;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -69,21 +69,13 @@ public class CrossJoinNode extends PlanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
         }
-        if (getChild(0).cardinality == -1 || getChild(1).cardinality == -1) {
-            cardinality = -1;
-        } else {
-            cardinality = CheckedMath.checkedMultiply(getChild(0).cardinality, getChild(1).cardinality);
-            applyConjunctsSelectivity();
-            capCardinalityAtLimit();
-        }
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("stats CrossJoin: cardinality={}", Long.toString(cardinality));
-        }
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = statsDeriveResult.getRowCount();
     }
 
     @Override

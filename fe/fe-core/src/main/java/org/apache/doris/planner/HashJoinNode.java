@@ -38,6 +38,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;
@@ -172,6 +173,7 @@ public class HashJoinNode extends PlanNode {
         isColocate = colocate;
         colocateReason = reason;
     }
+
     
     /**
      * Calculate the slots output after going through the hash table in the hash join node.
@@ -441,20 +443,16 @@ public class HashJoinNode extends PlanNode {
 
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
 
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
         }
-        if (joinOp.isSemiAntiJoin()) {
-            cardinality = getSemiJoinCardinality();
-        } else if (joinOp.isInnerJoin() || joinOp.isOuterJoin()) {
-            cardinality = getJoinCardinality();
-        } else {
-            Preconditions.checkState(false, "joinOp is not supported");
-        }
-        capCardinalityAtLimit();
+
+        StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
+        cardinality = statsDeriveResult.getRowCount();
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("stats HashJoin:" + id + ", cardinality: " + cardinality);
         }
