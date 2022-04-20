@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 public class VectorizedUtil {
     /**
@@ -32,7 +33,11 @@ public class VectorizedUtil {
         if (connectContext == null) {
             return false;
         }
-        Analyzer analyzer = connectContext.getExecutor().getAnalyzer();
+        StmtExecutor stmtExecutor = connectContext.getExecutor();
+        if (stmtExecutor == null) {
+            return connectContext.getSessionVariable().enableVectorizedEngine();
+        }
+        Analyzer analyzer = stmtExecutor.getAnalyzer();
         if (analyzer == null) {
             return connectContext.getSessionVariable().enableVectorizedEngine();
         }
