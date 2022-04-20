@@ -42,23 +42,23 @@ public final class AnalyticInfo extends AggregateInfoBase {
     // All unique analytic exprs of a select block. Used to populate
     // super.aggregateExprs_ based on AnalyticExpr.getFnCall() for each analytic expr
     // in this list.
-    private final ArrayList<Expr> analyticExprs_;
+    private final ArrayList<Expr> analyticExprs;
 
     // Intersection of the partition exps of all the analytic functions.
-    private final List<Expr> commonPartitionExprs_;
+    private final List<Expr> commonPartitionExprs;
 
     // map from analyticExprs_ to their corresponding analytic tuple slotrefs
-    private final ExprSubstitutionMap analyticTupleSmap_;
+    private final ExprSubstitutionMap analyticTupleSmap;
 
     private AnalyticInfo(ArrayList<Expr> analyticExprs) {
         super(new ArrayList<Expr>(), new ArrayList<FunctionCallExpr>());
-        analyticExprs_ = Expr.cloneList(analyticExprs);
+        this.analyticExprs = Expr.cloneList(analyticExprs);
         // Extract the analytic function calls for each analytic expr.
         for (Expr analyticExpr: analyticExprs) {
-            aggregateExprs_.add(((AnalyticExpr) analyticExpr).getFnCall());
+            aggregateExprs.add(((AnalyticExpr) analyticExpr).getFnCall());
         }
-        analyticTupleSmap_ = new ExprSubstitutionMap();
-        commonPartitionExprs_ = computeCommonPartitionExprs();
+        analyticTupleSmap = new ExprSubstitutionMap();
+        commonPartitionExprs = computeCommonPartitionExprs();
     }
 
     /**
@@ -66,15 +66,15 @@ public final class AnalyticInfo extends AggregateInfoBase {
      */
     private AnalyticInfo(AnalyticInfo other) {
         super(other);
-        analyticExprs_ =
-                (other.analyticExprs_ != null) ? Expr.cloneList(other.analyticExprs_) : null;
-        analyticTupleSmap_ = other.analyticTupleSmap_.clone();
-        commonPartitionExprs_ = Expr.cloneList(other.commonPartitionExprs_);
+        analyticExprs =
+                (other.analyticExprs != null) ? Expr.cloneList(other.analyticExprs) : null;
+        analyticTupleSmap = other.analyticTupleSmap.clone();
+        commonPartitionExprs = Expr.cloneList(other.commonPartitionExprs);
     }
 
-    public ArrayList<Expr> getAnalyticExprs() { return analyticExprs_; }
-    public ExprSubstitutionMap getSmap() { return analyticTupleSmap_; }
-    public List<Expr> getCommonPartitionExprs() { return commonPartitionExprs_; }
+    public ArrayList<Expr> getAnalyticExprs() { return analyticExprs; }
+    public ExprSubstitutionMap getSmap() { return analyticTupleSmap; }
+    public List<Expr> getCommonPartitionExprs() { return commonPartitionExprs; }
 
     /**
      * Creates complete AnalyticInfo for analyticExprs, including tuple descriptors and
@@ -89,20 +89,20 @@ public final class AnalyticInfo extends AggregateInfoBase {
 
         // The tuple descriptors are logical. Their slots are remapped to physical tuples
         // during plan generation.
-        result.outputTupleDesc_.setIsMaterialized(false);
-        result.intermediateTupleDesc_.setIsMaterialized(false);
+        result.outputTupleDesc.setIsMaterialized(false);
+        result.intermediateTupleDesc.setIsMaterialized(false);
 
         // Populate analyticTupleSmap_
-        Preconditions.checkState(analyticExprs.size() == result.outputTupleDesc_.getSlots().size());
+        Preconditions.checkState(analyticExprs.size() == result.outputTupleDesc.getSlots().size());
         for (int i = 0; i < analyticExprs.size(); ++i) {
-            result.analyticTupleSmap_.put(result.analyticExprs_.get(i),
-                    new SlotRef(result.outputTupleDesc_.getSlots().get(i)));
-            result.outputTupleDesc_.getSlots().get(i).setSourceExpr(result.analyticExprs_.get(i));
+            result.analyticTupleSmap.put(result.analyticExprs.get(i),
+                    new SlotRef(result.outputTupleDesc.getSlots().get(i)));
+            result.outputTupleDesc.getSlots().get(i).setSourceExpr(result.analyticExprs.get(i));
         }
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("analytictuple=" + result.outputTupleDesc_.debugString());
-            LOG.debug("analytictuplesmap=" + result.analyticTupleSmap_.debugString());
+            LOG.debug("analytictuple=" + result.outputTupleDesc.debugString());
+            LOG.debug("analytictuplesmap=" + result.analyticTupleSmap.debugString());
             LOG.debug("analytic info:\n" + result.debugString());
         }
         return result;
@@ -114,7 +114,7 @@ public final class AnalyticInfo extends AggregateInfoBase {
      */
     private List<Expr> computeCommonPartitionExprs() {
         List<Expr> result = Lists.newArrayList();
-        for (Expr analyticExpr: analyticExprs_) {
+        for (Expr analyticExpr: analyticExprs) {
             Preconditions.checkState(analyticExpr.isAnalyzed());
             List<Expr> partitionExprs = ((AnalyticExpr) analyticExpr).getPartitionExprs();
             if (partitionExprs == null) continue;
@@ -130,14 +130,14 @@ public final class AnalyticInfo extends AggregateInfoBase {
 
     @Override
     public void materializeRequiredSlots(Analyzer analyzer, ExprSubstitutionMap smap) {
-        materializedSlots_.clear();
+        materializedSlots.clear();
         List<Expr> exprs = Lists.newArrayList();
-        for (int i = 0; i < analyticExprs_.size(); ++i) {
-            SlotDescriptor outputSlotDesc = outputTupleDesc_.getSlots().get(i);
+        for (int i = 0; i < analyticExprs.size(); ++i) {
+            SlotDescriptor outputSlotDesc = outputTupleDesc.getSlots().get(i);
             if (!outputSlotDesc.isMaterialized()) continue;
-            intermediateTupleDesc_.getSlots().get(i).setIsMaterialized(true);
-            exprs.add(analyticExprs_.get(i));
-            materializedSlots_.add(i);
+            intermediateTupleDesc.getSlots().get(i).setIsMaterialized(true);
+            exprs.add(analyticExprs.get(i));
+            materializedSlots.add(i);
         }
         List<Expr> resolvedExprs = Expr.substituteList(exprs, smap, analyzer, false);
         analyzer.materializeSlots(resolvedExprs);
@@ -150,7 +150,7 @@ public final class AnalyticInfo extends AggregateInfoBase {
      * analytic tuple.
      */
     public void checkConsistency() {
-        ArrayList<SlotDescriptor> slots = intermediateTupleDesc_.getSlots();
+        ArrayList<SlotDescriptor> slots = intermediateTupleDesc.getSlots();
 
         // Check materialized slots.
         int numMaterializedSlots = 0;
@@ -158,12 +158,12 @@ public final class AnalyticInfo extends AggregateInfoBase {
             if (slotDesc.isMaterialized()) ++numMaterializedSlots;
         }
         Preconditions.checkState(numMaterializedSlots ==
-                materializedSlots_.size());
+                materializedSlots.size());
 
         // Check that analytic expr return types match the slot descriptors.
         int slotIdx = 0;
-        for (int i = 0; i < analyticExprs_.size(); ++i) {
-            Expr analyticExpr = analyticExprs_.get(i);
+        for (int i = 0; i < analyticExprs.size(); ++i) {
+            Expr analyticExpr = analyticExprs.get(i);
             Type slotType = slots.get(slotIdx).getType();
             Preconditions.checkState(analyticExpr.getType().equals(slotType),
                     String.format("Analytic expr %s returns type %s but its analytic tuple " +
@@ -177,8 +177,8 @@ public final class AnalyticInfo extends AggregateInfoBase {
     public String debugString() {
         StringBuilder out = new StringBuilder(super.debugString());
         out.append(MoreObjects.toStringHelper(this)
-                .add("analytic_exprs", Expr.debugString(analyticExprs_))
-                .add("smap", analyticTupleSmap_.debugString())
+                .add("analytic_exprs", Expr.debugString(analyticExprs))
+                .add("smap", analyticTupleSmap.debugString())
                 .toString());
         return out.toString();
     }

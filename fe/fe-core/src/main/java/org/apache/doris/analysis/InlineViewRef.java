@@ -111,9 +111,9 @@ public class InlineViewRef extends TableRef {
         // TODO(zc)
         // view_.getTableName().toString().toLowerCase(), view.getName().toLowerCase()
         if (view.isLocalView()) {
-            aliases_ = new String[]{view.getName()};
+            aliases = new String[]{view.getName()};
         } else {
-            aliases_ = new String[]{name.toString(), view.getName()};
+            aliases = new String[]{name.toString(), view.getName()};
         }
         if (origTblRef.getLateralViewRefs() != null) {
             lateralViewRefs = (ArrayList<LateralViewRef>) origTblRef.getLateralViewRefs().clone();
@@ -182,12 +182,12 @@ public class InlineViewRef extends TableRef {
         inlineViewAnalyzer = new Analyzer(analyzer);
 
         queryStmt.analyze(inlineViewAnalyzer);
-        correlatedTupleIds_.addAll(queryStmt.getCorrelatedTupleIds(inlineViewAnalyzer));
+        correlatedTupleIds.addAll(queryStmt.getCorrelatedTupleIds(inlineViewAnalyzer));
 
         queryStmt.getMaterializedTupleIds(materializedTupleIds);
         if (view != null && !hasExplicitAlias() && !view.isLocalView()) {
             name = analyzer.getFqTableName(name);
-            aliases_ = new String[] { name.toString(), view.getName() };
+            aliases = new String[] { name.toString(), view.getName() };
         }
         //TODO(chenhao16): fix TableName in Db.Table style
         // name.analyze(analyzer);

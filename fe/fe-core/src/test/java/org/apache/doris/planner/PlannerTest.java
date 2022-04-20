@@ -272,7 +272,7 @@ public class PlannerTest {
         stmtExecutor11.execute();
         Planner planner11 = stmtExecutor11.planner();
         SetOperationNode setNode11 = (SetOperationNode)(planner11.getFragments().get(1).getPlanRoot());
-        Assert.assertEquals(2, setNode11.getMaterializedConstExprLists_().size());
+        Assert.assertEquals(2, setNode11.getMaterializedConstExprLists().size());
 
         String sql12 = "SELECT a.x \n" +
                 "FROM (SELECT '01' x) a \n" +
@@ -284,7 +284,7 @@ public class PlannerTest {
         stmtExecutor12.execute();
         Planner planner12 = stmtExecutor12.planner();
         SetOperationNode setNode12 = (SetOperationNode)(planner12.getFragments().get(1).getPlanRoot());
-        Assert.assertEquals(2, setNode12.getMaterializedResultExprLists_().size());
+        Assert.assertEquals(2, setNode12.getMaterializedResultExprLists().size());
     }
 
     @Test

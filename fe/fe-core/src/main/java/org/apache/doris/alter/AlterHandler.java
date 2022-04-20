@@ -77,8 +77,8 @@ public abstract class AlterHandler extends MasterDaemon {
         this(name, FeConstants.default_scheduler_interval_millisecond);
     }
 
-    public AlterHandler(String name, int scheduler_interval_millisecond) {
-        super(name, scheduler_interval_millisecond);
+    public AlterHandler(String name, int schedulerIntervalMillisecond) {
+        super(name, schedulerIntervalMillisecond);
     }
 
     protected void addAlterJobV2(AlterJobV2 alterJob) {

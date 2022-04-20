@@ -87,10 +87,10 @@ public class TableRef implements ParseNode, Writable {
     // analysis. By convention, for table refs with multiple implicit aliases, aliases_[0]
     // contains the fully-qualified implicit alias to ensure that aliases_[0] always
     // uniquely identifies this table ref regardless of whether it has an explicit alias.
-    protected String[] aliases_;
+    protected String[] aliases;
 
     // Indicates whether this table ref is given an explicit alias,
-    protected boolean hasExplicitAlias_;
+    protected boolean hasExplicitAlias;
 
     protected JoinOperator joinOp;
     protected List<String> usingColNames;
@@ -116,14 +116,14 @@ public class TableRef implements ParseNode, Writable {
     // we may alter the chain of table refs during plan generation, but we still rely
     // on the original list of ids for correct predicate assignment.
     // Populated in analyzeJoin().
-    protected List<TupleId> allTableRefIds_ = Lists.newArrayList();
-    protected List<TupleId> allMaterializedTupleIds_ = Lists.newArrayList();
+    protected List<TupleId> allTableRefIds = Lists.newArrayList();
+    protected List<TupleId> allMaterializedTupleIds = Lists.newArrayList();
 
     // All physical tuple ids that this table ref is correlated with:
     // Tuple ids of root descriptors from outer query blocks that this table ref
     // (if a CollectionTableRef) or contained CollectionTableRefs (if an InlineViewRef)
     // are rooted at. Populated during analysis.
-    protected List<TupleId> correlatedTupleIds_ = Lists.newArrayList();
+    protected List<TupleId> correlatedTupleIds = Lists.newArrayList();
 
     // analysis output
     protected TupleDescriptor desc;
@@ -154,10 +154,10 @@ public class TableRef implements ParseNode, Writable {
             if (Catalog.isStoredTableNamesLowerCase()) {
                 alias = alias.toLowerCase();
             }
-            aliases_ = new String[]{alias};
-            hasExplicitAlias_ = true;
+            aliases = new String[]{alias};
+            hasExplicitAlias = true;
         } else {
-            hasExplicitAlias_ = false;
+            hasExplicitAlias = false;
         }
         this.partitionNames = partitionNames;
         this.commonHints = commonHints;
@@ -168,8 +168,8 @@ public class TableRef implements ParseNode, Writable {
     // this will reset all the 'analyzed' stuff
     protected TableRef(TableRef other) {
         name = other.name;
-        aliases_ = other.aliases_;
-        hasExplicitAlias_ = other.hasExplicitAlias_;
+        aliases = other.aliases;
+        hasExplicitAlias = other.hasExplicitAlias;
         joinOp = other.joinOp;
         // NOTE: joinHints and sortHints maybe changed after clone. so we new one List.
         joinHints =
@@ -186,9 +186,9 @@ public class TableRef implements ParseNode, Writable {
         // table refs is the responsibility of the statement.
         leftTblRef = null;
         isAnalyzed = other.isAnalyzed;
-        allTableRefIds_ = Lists.newArrayList(other.allTableRefIds_);
-        allMaterializedTupleIds_ = Lists.newArrayList(other.allMaterializedTupleIds_);
-        correlatedTupleIds_ = Lists.newArrayList(other.correlatedTupleIds_);
+        allTableRefIds = Lists.newArrayList(other.allTableRefIds);
+        allMaterializedTupleIds = Lists.newArrayList(other.allMaterializedTupleIds);
+        correlatedTupleIds = Lists.newArrayList(other.correlatedTupleIds);
         desc = other.desc;
         lateralViewRefs = null;
         if (other.lateralViewRefs != null) {
@@ -297,7 +297,7 @@ public class TableRef implements ParseNode, Writable {
      * an outer query block.
      */
     public boolean isCorrelated() {
-        return !correlatedTupleIds_.isEmpty();
+        return !correlatedTupleIds.isEmpty();
     }
 
     public Table getTable() {
@@ -440,14 +440,14 @@ public class TableRef implements ParseNode, Writable {
         analyzeJoinHints();
 
         // Populate the lists of all table ref and materialized tuple ids.
-        allTableRefIds_.clear();
-        allMaterializedTupleIds_.clear();
+        allTableRefIds.clear();
+        allMaterializedTupleIds.clear();
         if (leftTblRef != null) {
-            allTableRefIds_.addAll(leftTblRef.getAllTableRefIds());
-            allMaterializedTupleIds_.addAll(leftTblRef.getAllMaterializedTupleIds());
+            allTableRefIds.addAll(leftTblRef.getAllTableRefIds());
+            allMaterializedTupleIds.addAll(leftTblRef.getAllMaterializedTupleIds());
         }
-        allTableRefIds_.add(getId());
-        allMaterializedTupleIds_.addAll(getMaterializedTupleIds());
+        allTableRefIds.add(getId());
+        allMaterializedTupleIds.addAll(getMaterializedTupleIds());
 
         if (usingColNames != null) {
             // Turn USING clause into equivalent ON clause.
@@ -612,7 +612,7 @@ public class TableRef implements ParseNode, Writable {
      */
     public List<TupleId> getAllTableRefIds() {
         Preconditions.checkState(isAnalyzed);
-        return allTableRefIds_;
+        return allTableRefIds;
     }
 
     /**
@@ -679,7 +679,7 @@ public class TableRef implements ParseNode, Writable {
      * Returns all legal aliases of this table ref.
      */
     public String[] getAliases() {
-        return aliases_;
+        return aliases;
     }
 
     /**
@@ -688,7 +688,7 @@ public class TableRef implements ParseNode, Writable {
      * be ambiguous).
      */
     public String getUniqueAlias() {
-        return aliases_[0];
+        return aliases[0];
     }
 
     /**
@@ -697,7 +697,7 @@ public class TableRef implements ParseNode, Writable {
      * nested collection refs have only a single implicit alias.
      */
     public boolean hasExplicitAlias() {
-        return hasExplicitAlias_;
+        return hasExplicitAlias;
     }
 
     /**
@@ -753,9 +753,9 @@ public class TableRef implements ParseNode, Writable {
             onClause.reset();
         }
         leftTblRef = null;
-        allTableRefIds_.clear();
-        allMaterializedTupleIds_.clear();
-        correlatedTupleIds_.clear();
+        allTableRefIds.clear();
+        allMaterializedTupleIds.clear();
+        correlatedTupleIds.clear();
         desc = null;
         if (lateralViewRefs != null) {
             for (LateralViewRef lateralViewRef : lateralViewRefs) {
@@ -780,8 +780,8 @@ public class TableRef implements ParseNode, Writable {
         if (partitionNames != null) {
             sb.append(partitionNames.toSql());
         }
-        if (aliases_ != null && aliases_.length > 0) {
-            sb.append(" AS ").append(aliases_[0]);
+        if (aliases != null && aliases.length > 0) {
+            sb.append(" AS ").append(aliases[0]);
         }
         return sb.toString();
     }
@@ -813,7 +813,7 @@ public class TableRef implements ParseNode, Writable {
 
         if (in.readBoolean()) {
             String alias = Text.readString(in);
-            aliases_ = new String[]{alias};
+            aliases = new String[]{alias};
         }
     }
 }

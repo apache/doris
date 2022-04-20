@@ -809,7 +809,7 @@ public class DistributedPlanner {
         // TODO(ML): here
         PlanFragment setOperationFragment = new PlanFragment(ctx_.getNextFragmentId(), setOperationNode,
                 new DataPartition(TPartitionType.HASH_PARTITIONED,
-                        setOperationNode.getMaterializedResultExprLists_().get(0)));
+                        setOperationNode.getMaterializedResultExprLists().get(0)));
         for (int i = 0; i < childFragments.size(); ++i) {
             PlanFragment childFragment = childFragments.get(i);
             /* if (childFragment.isPartitioned() && childFragment.getPlanRoot().getNumInstances() > 1) {
@@ -835,7 +835,7 @@ public class DistributedPlanner {
             // Connect the unpartitioned child fragments to SetOperationNode via a random exchange.
             connectChildFragment(setOperationNode, i, setOperationFragment, childFragment);
             childFragment.setOutputPartition(
-                    DataPartition.hashPartitioned(setOperationNode.getMaterializedResultExprLists_().get(i)));
+                    DataPartition.hashPartitioned(setOperationNode.getMaterializedResultExprLists().get(i)));
         }
         return setOperationFragment;
     }

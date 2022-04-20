@@ -136,7 +136,7 @@ public class Analyzer {
     private String schemaTable; // table used in DESCRIBE Table
 
     // True if the corresponding select block has a limit and/or offset clause.
-    private boolean hasLimitOffsetClause_ = false;
+    private boolean hasLimitOffsetClause = false;
 
     // Current depth of nested analyze() calls. Used for enforcing a
     // maximum expr-tree depth. Needs to be manually maintained by the user
@@ -147,7 +147,7 @@ public class Analyzer {
     private boolean isSubquery = false;
 
     // Flag indicating whether this analyzer belongs to a WITH clause view.
-    private boolean isWithClause_ = false;
+    private boolean isWithClause = false;
 
     // By default, all registered semi-joined tuples are invisible, i.e., their slots
     // cannot be referenced. If set, this semi-joined tuple is made visible. Such a tuple
@@ -155,7 +155,7 @@ public class Analyzer {
     // In particular, if there are multiple semi-joins in the same query block, then the
     // On-clause of any such semi-join is not allowed to reference other semi-joined tuples
     // except its own. Therefore, only a single semi-joined tuple can be visible at a time.
-    private TupleId visibleSemiJoinedTupleId_ = null;
+    private TupleId visibleSemiJoinedTupleId = null;
     // for some situation that udf is not allowed.
     private boolean isUDFAllowed = true;
     // timezone specified for some operation, such as broker load
@@ -170,8 +170,8 @@ public class Analyzer {
     }
     public boolean setHasPlanHints() { return globalState.hasPlanHints = true; }
     public boolean hasPlanHints() { return globalState.hasPlanHints; }
-    public void setIsWithClause() { isWithClause_ = true; }
-    public boolean isWithClause() { return isWithClause_; }
+    public void setIsWithClause() { isWithClause = true; }
+    public boolean isWithClause() { return isWithClause; }
     
     public void setUDFAllowed(boolean val) { this.isUDFAllowed = val; }
     public boolean isUDFAllowed() { return this.isUDFAllowed; }
@@ -377,29 +377,29 @@ public class Analyzer {
     private final ArrayList<Analyzer> ancestors;
 
     // map from lowercase table alias to a view definition in this analyzer's scope
-    private final Map<String, View> localViews_ = Maps.newHashMap();
+    private final Map<String, View> localViews = Maps.newHashMap();
 
     // Map from lowercase table alias to descriptor. Tables without an explicit alias
     // are assigned two implicit aliases: the unqualified and fully-qualified table name.
     // Such tables have two entries pointing to the same descriptor. If an alias is
     // ambiguous, then this map retains the first entry with that alias to simplify error
     // checking (duplicate vs. ambiguous alias).
-    private final Map<String, TupleDescriptor> aliasMap_ = Maps.newHashMap();
+    private final Map<String, TupleDescriptor> aliasMap = Maps.newHashMap();
 
     // Map from tuple id to its corresponding table ref.
-    private final Map<TupleId, TableRef> tableRefMap_ = Maps.newHashMap();
+    private final Map<TupleId, TableRef> tableRefMap = Maps.newHashMap();
 
     // Set of lowercase ambiguous implicit table aliases.
-    private final Set<String> ambiguousAliases_ = Sets.newHashSet();
+    private final Set<String> ambiguousAliases = Sets.newHashSet();
 
     // Indicates whether this analyzer/block is guaranteed to have an empty result set
     // due to a limit 0 or constant conjunct evaluating to false.
-    private boolean hasEmptyResultSet_ = false;
+    private boolean hasEmptyResultSet = false;
 
     // Indicates whether the select-project-join (spj) portion of this query block
     // is guaranteed to return an empty result set. Set due to a constant non-Having
     // conjunct evaluating to false.
-    private boolean hasEmptySpjResultSet_ = false;
+    private boolean hasEmptySpjResultSet = false;
 
     public Analyzer(Catalog catalog, ConnectContext context) {
         ancestors = Lists.newArrayList();
@@ -469,7 +469,7 @@ public class Analyzer {
                         "labels must be smaller or equal to the number of returned columns.");
             }
         }
-        if (localViews_.put(view.getName(), view) != null) {
+        if (localViews.put(view.getName(), view) != null) {
             throw new AnalysisException(
                     String.format("Duplicate table alias: '%s'", view.getName()));
         }
@@ -525,12 +525,12 @@ public class Analyzer {
         String[] aliases = ref.getAliases();
         if (aliases.length > 1) {
             unqualifiedAlias = aliases[1];
-            TupleDescriptor tupleDesc = aliasMap_.get(unqualifiedAlias);
+            TupleDescriptor tupleDesc = aliasMap.get(unqualifiedAlias);
             if (tupleDesc != null) {
                 if (tupleDesc.hasExplicitAlias()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_NONUNIQ_TABLE, uniqueAlias);
                 } else {
-                    ambiguousAliases_.add(unqualifiedAlias);
+                    ambiguousAliases.add(unqualifiedAlias);
                 }
             }
         }
@@ -547,7 +547,7 @@ public class Analyzer {
             tupleByAlias.put(alias, result);
         }
 
-        tableRefMap_.put(result.getId(), ref);
+        tableRefMap.put(result.getId(), ref);
 
         return result;
     }
@@ -568,11 +568,11 @@ public class Analyzer {
             slot.setIsMaterialized(true);
             slot.setColumn(col);
             slot.setIsNullable(col.isAllowNull());
-            String key = tableRef.aliases_[0] + "." + col.getName();
+            String key = tableRef.aliases[0] + "." + col.getName();
             slotRefMap.put(key, slot);
         }
         globalState.descTbl.computeStatAndMemLayout();
-        tableRefMap_.put(result.getId(), ref);
+        tableRefMap.put(result.getId(), ref);
         for (String alias : tableRef.getAliases()) {
             tupleByAlias.put(alias, result);
         }
@@ -580,7 +580,7 @@ public class Analyzer {
     }
 
     public List<TupleId> getAllTupleIds() {
-        return new ArrayList<>(tableRefMap_.keySet());
+        return new ArrayList<>(tableRefMap.keySet());
     }
 
     /**
@@ -605,7 +605,7 @@ public class Analyzer {
             String viewAlias = tableName.getTbl();
             Analyzer analyzer = this;
             do {
-                View localView = analyzer.localViews_.get(viewAlias);
+                View localView = analyzer.localViews.get(viewAlias);
                 if (localView != null) return new InlineViewRef(localView, tableRef);
                 analyzer = (analyzer.ancestors.isEmpty() ? null : analyzer.ancestors.get(0));
             } while (analyzer != null);
@@ -1386,7 +1386,7 @@ public class Analyzer {
     }
 
     public boolean isVisible(TupleId tid) {
-        return tid == visibleSemiJoinedTupleId_ || !isSemiJoined(tid);
+        return tid == visibleSemiJoinedTupleId || !isSemiJoined(tid);
     }
 
     public boolean containsOuterJoinedTid(List<TupleId> tids) {
@@ -1487,8 +1487,8 @@ public class Analyzer {
     public void setVisibleSemiJoinedTuple(TupleId tid) {
         Preconditions.checkState(tid == null
                 || globalState.semiJoinedTupleIds.containsKey(tid));
-        Preconditions.checkState(tid == null || visibleSemiJoinedTupleId_ == null);
-        visibleSemiJoinedTupleId_ = tid;
+        Preconditions.checkState(tid == null || visibleSemiJoinedTupleId == null);
+        visibleSemiJoinedTupleId = tid;
     }
 
     /**
@@ -1507,13 +1507,13 @@ public class Analyzer {
      * to return an empty result set, e.g., due to a limit 0 or a constant predicate
      * that evaluates to false.
      */
-    public boolean hasEmptyResultSet() { return hasEmptyResultSet_; }
-    public void setHasEmptyResultSet() { hasEmptyResultSet_ = true; }
+    public boolean hasEmptyResultSet() { return hasEmptyResultSet; }
+    public void setHasEmptyResultSet() { hasEmptyResultSet = true; }
 
-    public boolean hasEmptySpjResultSet() { return hasEmptySpjResultSet_; }
+    public boolean hasEmptySpjResultSet() { return hasEmptySpjResultSet; }
 
     public void setHasLimitOffsetClause(boolean hasLimitOffset) {
-        this.hasLimitOffsetClause_ = hasLimitOffset;
+        this.hasLimitOffsetClause = hasLimitOffset;
     }
 
     /**
@@ -1563,8 +1563,8 @@ public class Analyzer {
     private void markConstantConjunct(Expr conjunct, boolean fromHavingClause)
             throws AnalysisException {
         if (!conjunct.isConstant() || isOjConjunct(conjunct)) return;
-        if ((!fromHavingClause && !hasEmptySpjResultSet_)
-                || (fromHavingClause && !hasEmptyResultSet_)) {
+        if ((!fromHavingClause && !hasEmptySpjResultSet)
+                || (fromHavingClause && !hasEmptyResultSet)) {
             try {
                 if (conjunct instanceof BetweenPredicate) {
                     // Rewrite the BetweenPredicate into a CompoundPredicate so we can evaluate it
@@ -1581,18 +1581,18 @@ public class Analyzer {
                     final BoolLiteral value = (BoolLiteral) newConjunct;
                     if (!value.getValue()) {
                         if (fromHavingClause) {
-                            hasEmptyResultSet_ = true;
+                            hasEmptyResultSet = true;
                         } else {
-                            hasEmptySpjResultSet_ = true;
+                            hasEmptySpjResultSet = true;
                         }
                     }
                     markConjunctAssigned(conjunct);
                 }
                 if (newConjunct instanceof NullLiteral) {
                     if (fromHavingClause) {
-                        hasEmptyResultSet_ = true;
+                        hasEmptyResultSet = true;
                     } else {
-                        hasEmptySpjResultSet_ = true;
+                        hasEmptySpjResultSet = true;
                     }
                     markConjunctAssigned(conjunct);
                 }
@@ -2132,7 +2132,7 @@ public class Analyzer {
         }
     }
 
-    public Map<String, View> getLocalViews() { return localViews_; }
+    public Map<String, View> getLocalViews() { return localViews; }
 
     public boolean isOuterJoined(TupleId tid) {
         return globalState.outerJoinedTupleIds.containsKey(tid);

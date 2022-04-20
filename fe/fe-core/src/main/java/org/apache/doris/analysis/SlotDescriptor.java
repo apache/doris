@@ -41,11 +41,11 @@ public class SlotDescriptor {
     private Column column;  // underlying column, if there is one
 
     // for SlotRef.toSql() in the absence of a path
-    private String label_;
+    private String label;
 
     // Expr(s) materialized into this slot; multiple exprs for unions. Should be empty if
     // path_ is set.
-    private List<Expr> sourceExprs_ = Lists.newArrayList();
+    private List<Expr> sourceExprs = Lists.newArrayList();
 
     // if false, this slot doesn't need to be materialized in parent tuple
     // (and physical layout parameters are invalid)
@@ -213,12 +213,12 @@ public class SlotDescriptor {
         return slotOffset;
     }
 
-    public String getLabel() { return label_; }
-    public void setLabel(String label) { label_ = label; }
-    public void setSourceExprs(List<Expr> exprs) { sourceExprs_ = exprs; }
-    public void setSourceExpr(Expr expr) { sourceExprs_ = Collections.singletonList(expr); }
-    public void addSourceExpr(Expr expr) { sourceExprs_.add(expr); }
-    public List<Expr> getSourceExprs() { return sourceExprs_; }
+    public String getLabel() { return label; }
+    public void setLabel(String label) { this.label = label; }
+    public void setSourceExprs(List<Expr> exprs) { sourceExprs = exprs; }
+    public void setSourceExpr(Expr expr) { sourceExprs = Collections.singletonList(expr); }
+    public void addSourceExpr(Expr expr) { sourceExprs.add(expr); }
+    public List<Expr> getSourceExprs() { return sourceExprs; }
 
 
     /**
@@ -227,7 +227,7 @@ public class SlotDescriptor {
     public void initFromExpr(Expr expr) {
         setIsNullable(expr.isNullable());
         setLabel(expr.toSql());
-        Preconditions.checkState(sourceExprs_.isEmpty());
+        Preconditions.checkState(sourceExprs.isEmpty());
         setSourceExpr(expr);
         setStats(ColumnStats.fromExpr(expr));
         Preconditions.checkState(expr.getType().isValid());
