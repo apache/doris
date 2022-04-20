@@ -41,6 +41,8 @@ public:
 
     Status close() override;
 
+    bool closed() const override { return _closed; }
+
 private:
     Status create_multipart_upload();
 

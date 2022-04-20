@@ -32,6 +32,8 @@ public:
 
     Status close() override;
 
+    bool closed() const override { return _fd == -1; }
+
     // Flush buffer data to file. Mainly, call write for fd.
     Status flush();
 

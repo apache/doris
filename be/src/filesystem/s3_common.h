@@ -36,7 +36,7 @@ public:
 // To avoid copies, read directly into our preallocated buffer instead.
 // See https://github.com/aws/aws-sdk-cpp/issues/64 for an alternative but
 // functionally similar recipe.
-Aws::IOStreamFactory AwsWriteableStreamFactory(void* buf, int64_t nbytes) {
+inline Aws::IOStreamFactory AwsWriteableStreamFactory(void* buf, int64_t nbytes) {
     return [=]() { return Aws::New<StringViewStream>("", buf, nbytes); };
 }
 

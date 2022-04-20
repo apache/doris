@@ -14,3 +14,39 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+#pragma once
+
+#include "filesystem/write_stream.h"
+#include "gen_cpp/PaloBrokerService_types.h"
+
+namespace doris {
+
+class ExecEnv;
+class TNetworkAddress;
+
+class BrokerWriteStream final : public WriteStream {
+public:
+    BrokerWriteStream(ExecEnv* env, const std::vector<TNetworkAddress>& addrs, TBrokerFD fd);
+    ~BrokerWriteStream() override;
+
+    Status write(const char* from, size_t put_n) override;
+
+    Status sync() override;
+
+    Status close() override;
+
+    bool closed() const override { return _closed; }
+
+private:
+    ExecEnv* _env;
+    const std::vector<TNetworkAddress>& _addrs;
+    int _addr_idx = 0;
+
+    TBrokerFD _fd;
+    size_t _offset = 0;
+
+    bool _closed = false;
+};
+
+} // namespace doris

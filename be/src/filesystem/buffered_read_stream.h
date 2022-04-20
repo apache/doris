@@ -21,17 +21,12 @@
 
 #include "filesystem/read_stream.h"
 
-namespace Aws::S3 {
-class S3Client;
-} // namespace Aws::S3
-
 namespace doris {
 
-class S3ReadStream final : public ReadStream {
+class BufferedReadStream final : public ReadStream {
 public:
-    S3ReadStream(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket, std::string key,
-                 size_t offset, size_t read_until_position);
-    ~S3ReadStream() override;
+    BufferedReadStream(std::unique_ptr<ReadStream>&& stream, size_t buffer_size);
+    ~BufferedReadStream() override;
 
     Status read(char* to, size_t req_n, size_t* read_n) override;
 
@@ -48,12 +43,20 @@ public:
     bool closed() const override { return _closed; }
 
 private:
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    std::string _bucket;
-    std::string _key;
+    // Fill the buffer.
+    Status fill(size_t position);
 
-    size_t _offset = 0;
-    size_t _read_until_position = 0;
+private:
+    std::unique_ptr<ReadStream> _stream;
+    size_t _offset;
+    size_t _offset_limit;
+
+    char* _buffer;
+    size_t _buffer_size;
+    // Buffered begin offset relative to file.
+    size_t _buffer_begin = 0;
+    // Buffered end offset relative to file.
+    size_t _buffer_end = 0;
 
     bool _closed = false;
 };

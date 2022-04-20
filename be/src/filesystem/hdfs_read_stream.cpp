@@ -15,57 +15,62 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "filesystem/local_read_stream.h"
+#include "filesystem/hdfs_read_stream.h"
 
-#include "gutil/macros.h"
+#include <fmt/format.h>
 
 namespace doris {
 
-LocalReadStream::LocalReadStream(int fd, size_t file_size) : _fd(fd), _file_size(file_size) {}
+HdfsReadStream::HdfsReadStream(hdfsFS fs, hdfsFile file, size_t file_size)
+        : _fs(fs), _file(file), _file_size(file_size) {}
 
-LocalReadStream::~LocalReadStream() {
+HdfsReadStream::~HdfsReadStream() {
     close();
 }
 
-Status LocalReadStream::read(char* to, size_t req_n, size_t* read_n) {
+Status HdfsReadStream::read(char* to, size_t req_n, size_t* read_n) {
     RETURN_IF_ERROR(read_at(_offset, to, req_n, read_n));
     _offset += *read_n;
     return Status::OK();
 }
 
-Status LocalReadStream::read_at(size_t position, char* to, size_t req_n, size_t* read_n) {
+Status HdfsReadStream::read_at(size_t position, char* to, size_t req_n, size_t* read_n) {
     if (closed()) {
         return Status::IOError("Operation on closed stream");
     }
     if (position > _file_size) {
-        return Status::IOError("Position exceeds file size");
+        return Status::IOError("Position exceeds range");
     }
     req_n = std::min(req_n, _file_size - position);
     if (req_n == 0) {
         *read_n = 0;
         return Status::OK();
     }
-    ssize_t res = 0;
-    RETRY_ON_EINTR(res, ::pread(_fd, to, req_n, position));
+    if (position != _offset) {
+        if (0 != hdfsSeek(_fs, _file, position)) {
+            return Status::IOError(fmt::format("hdfsSeek failed: {}", std::strerror(errno)));
+        }
+    }
+    int res = hdfsRead(_fs, _file, to, req_n);
     if (-1 == res) {
-        return Status::IOError("Cannot read from file");
+        return Status::IOError(fmt::format("hdfsRead failed: {}", std::strerror(errno)));
     }
     *read_n = res;
     return Status::OK();
 }
 
-Status LocalReadStream::seek(size_t position) {
+Status HdfsReadStream::seek(size_t position) {
     if (closed()) {
         return Status::IOError("Operation on closed stream");
     }
     if (position > _file_size) {
-        return Status::IOError("Position exceeds file size");
+        return Status::IOError("Position exceeds range");
     }
     _offset = position;
     return Status::OK();
 }
 
-Status LocalReadStream::tell(size_t* position) const {
+Status HdfsReadStream::tell(size_t* position) const {
     if (closed()) {
         return Status::IOError("Operation on closed stream");
     }
@@ -73,7 +78,7 @@ Status LocalReadStream::tell(size_t* position) const {
     return Status::OK();
 }
 
-Status LocalReadStream::available(size_t* n_bytes) const {
+Status HdfsReadStream::available(size_t* n_bytes) const {
     if (closed()) {
         return Status::IOError("Operation on closed stream");
     }
@@ -81,8 +86,14 @@ Status LocalReadStream::available(size_t* n_bytes) const {
     return Status::OK();
 }
 
-Status LocalReadStream::close() {
-    _fd = -1;
+Status HdfsReadStream::close() {
+    if (!closed()) {
+        hdfsCloseFile(_fs, _file);
+        _file = nullptr;
+        hdfsDisconnect(_fs);
+        _fs = nullptr;
+        _closed = true;
+    }
     return Status::OK();
 }
 

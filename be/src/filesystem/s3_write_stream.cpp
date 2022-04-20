@@ -119,6 +119,9 @@ Status S3WriteStream::upload_object() {
 }
 
 Status S3WriteStream::write(const char* from, size_t put_n) {
+    if (closed()) {
+        return Status::IOError("Operation on closed stream");
+    }
     // If buffer is empty and `put_n` > threshold, do not copy data into buffer.
     if (_buffer.empty()) {
         if (_upload_id.empty() && put_n > _singlepart_threshold) {
@@ -142,6 +145,9 @@ Status S3WriteStream::write(const char* from, size_t put_n) {
 }
 
 Status S3WriteStream::sync() {
+    if (closed()) {
+        return Status::IOError("Operation on closed stream");
+    }
     if (!_buffer.empty()) {
         if (_upload_id.empty()) {
             RETURN_IF_ERROR(create_multipart_upload());
@@ -152,7 +158,7 @@ Status S3WriteStream::sync() {
 }
 
 Status S3WriteStream::close() {
-    if (_closed) {
+    if (closed()) {
         return Status::OK();
     }
     if (!_buffer.empty()) {

@@ -17,41 +17,36 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include "filesystem/read_stream.h"
 
 namespace doris {
 
 class LocalReadStream final : public ReadStream {
 public:
-    LocalReadStream(int fd, size_t file_size, size_t buffer_size);
+    LocalReadStream(int fd, size_t file_size);
     ~LocalReadStream() override;
 
     Status read(char* to, size_t req_n, size_t* read_n) override;
 
-    Status seek(int64_t position) override;
+    Status read_at(size_t position, char* to, size_t req_n, size_t* read_n) override;
 
-    Status tell(int64_t* position) override;
+    Status seek(size_t position) override;
+
+    Status tell(size_t* position) const override;
+
+    Status available(size_t* n_bytes) const override;
 
     Status close() override;
 
-    bool eof() const { return _file_size == _offset; }
-
-private:
-    // Fill the buffer.
-    Status fill();
+    bool closed() const override { return _fd == -1; }
 
 private:
     int _fd; // shared
     size_t _file_size;
     // file offset
     size_t _offset = 0;
-
-    char* _buffer;
-    size_t _buffer_size;
-    // Buffered begin offset relative to file.
-    size_t _buffer_begin = 0;
-    // Buffered end offset relative to file.
-    size_t _buffer_end = 0;
 };
 
 } // namespace doris

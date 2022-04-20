@@ -17,21 +17,16 @@
 
 #pragma once
 
-#include <memory>
+#include <hdfs/hdfs.h>
 
 #include "filesystem/read_stream.h"
 
-namespace Aws::S3 {
-class S3Client;
-} // namespace Aws::S3
-
 namespace doris {
 
-class S3ReadStream final : public ReadStream {
+class HdfsReadStream final : public ReadStream {
 public:
-    S3ReadStream(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket, std::string key,
-                 size_t offset, size_t read_until_position);
-    ~S3ReadStream() override;
+    HdfsReadStream(hdfsFS fs, hdfsFile file, size_t file_size);
+    ~HdfsReadStream() override;
 
     Status read(char* to, size_t req_n, size_t* read_n) override;
 
@@ -48,12 +43,11 @@ public:
     bool closed() const override { return _closed; }
 
 private:
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    std::string _bucket;
-    std::string _key;
+    hdfsFS _fs = nullptr;     // owned
+    hdfsFile _file = nullptr; // owned
 
+    size_t _file_size;
     size_t _offset = 0;
-    size_t _read_until_position = 0;
 
     bool _closed = false;
 };

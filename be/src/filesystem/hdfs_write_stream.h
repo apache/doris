@@ -14,3 +14,33 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+#pragma once
+
+#include <hdfs/hdfs.h>
+
+#include "filesystem/write_stream.h"
+
+namespace doris {
+
+class HdfsWriteStream final : public WriteStream {
+public:
+    HdfsWriteStream(hdfsFS fs, hdfsFile file);
+    ~HdfsWriteStream() override;
+
+    Status write(const char* from, size_t put_n) override;
+
+    Status sync() override;
+
+    Status close() override;
+
+    bool closed() const override { return _closed; }
+
+private:
+    hdfsFS _fs = nullptr;     // owned
+    hdfsFile _file = nullptr; // owned
+
+    bool _closed = false;
+};
+
+} // namespace doris

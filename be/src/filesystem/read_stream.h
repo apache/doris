@@ -30,12 +30,19 @@ public:
     // `read_n` is set to the number of bytes read.
     virtual Status read(char* to, size_t req_n, size_t* read_n) = 0;
 
-    // Move current position to.
-    virtual Status seek(int64_t position) = 0;
+    // Read at a given position, the stream offset is not changed.
+    virtual Status read_at(size_t position, char* to, size_t req_n, size_t* read_n) = 0;
 
-    virtual Status tell(int64_t* position) = 0;
+    // Move current position to.
+    virtual Status seek(size_t position) = 0;
+
+    virtual Status tell(size_t* position) const = 0;
+
+    virtual Status available(size_t* n_bytes) const = 0;
 
     virtual Status close() = 0;
+
+    virtual bool closed() const = 0;
 };
 
 } // namespace doris

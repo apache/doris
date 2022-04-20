@@ -22,6 +22,11 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/filesystem")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/filesystem")
 
 add_library(FileSystem STATIC
+    broker_read_stream.cpp
+    broker_write_stream.cpp
+    buffered_read_stream.cpp
+    hdfs_read_stream.cpp
+    hdfs_write_stream.cpp
     local_file_system.cpp
     local_read_stream.cpp
     local_write_stream.cpp

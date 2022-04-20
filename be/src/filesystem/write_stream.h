@@ -37,6 +37,8 @@ public:
     virtual Status sync() = 0;
 
     virtual Status close() = 0;
+
+    virtual bool closed() const = 0;
 };
 
 } // namespace doris

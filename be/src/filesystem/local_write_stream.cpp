@@ -51,6 +51,9 @@ LocalWriteStream::~LocalWriteStream() {
 }
 
 Status LocalWriteStream::write(const char* from, size_t put_n) {
+    if (closed()) {
+        return Status::IOError("Operation on closed stream");
+    }
     _dirty = true;
 
     size_t copied = std::min(put_n, buffer_remain());
@@ -76,6 +79,9 @@ Status LocalWriteStream::write(const char* from, size_t put_n) {
 }
 
 Status LocalWriteStream::sync() {
+    if (closed()) {
+        return Status::IOError("Operation on closed stream");
+    }
     if (_dirty) {
         RETURN_IF_ERROR(flush());
         if (0 != ::fdatasync(_fd)) {
@@ -87,6 +93,9 @@ Status LocalWriteStream::sync() {
 }
 
 Status LocalWriteStream::flush() {
+    if (closed()) {
+        return Status::IOError("Operation on closed stream");
+    }
     if (_buffer_used) {
         if (!detail::write_retry(_fd, _buffer, _buffer_used)) {
             return Status::IOError("Cannot write to file");
@@ -97,7 +106,7 @@ Status LocalWriteStream::flush() {
 }
 
 Status LocalWriteStream::close() {
-    if (_fd != -1) {
+    if (!closed()) {
         RETURN_IF_ERROR(sync());
         if (0 != ::close(_fd)) {
             return Status::IOError("Cannot close file");

@@ -115,6 +115,11 @@ set(EXPRS_TEST_FILES
     exprs/quantile_function_test.cpp
     exprs/window_funnel_test.cpp
 )
+set(FILESYSTEM_TEST_FILES
+    filesystem/local_file_system_test.cpp
+    filesystem/local_stream_test.cpp
+    filesystem/s3_stream_test.cpp
+)
 set(GEO_TEST_FILES
     geo/wkt_parse_test.cpp
     geo/geo_functions_test.cpp
@@ -230,7 +235,7 @@ set(RUNTIME_TEST_FILES
     # runtime/export_task_mgr_test.cpp
     # runtime/minidump_test.cpp
     runtime/mem_pool_test.cpp
-    runtime/free_list_test.cpp
+    # runtime/free_list_test.cpp
     runtime/string_buffer_test.cpp
     runtime/decimalv2_value_test.cpp
     runtime/large_int_value_test.cpp
@@ -363,6 +368,7 @@ add_executable(doris_be_test
     ${ENV_TEST_FILES}
     ${EXEC_TEST_FILES}
     ${EXPRS_TEST_FILES}
+    ${FILESYSTEM_TEST_FILES}
     ${GEO_TEST_FILES}
     ${GUTIL_TEST_FILES}
     ${HTTP_TEST_FILES}

@@ -17,21 +17,19 @@
 
 #pragma once
 
-#include <memory>
-
 #include "filesystem/read_stream.h"
-
-namespace Aws::S3 {
-class S3Client;
-} // namespace Aws::S3
+#include "gen_cpp/PaloBrokerService_types.h"
 
 namespace doris {
 
-class S3ReadStream final : public ReadStream {
+class ExecEnv;
+class TNetworkAddress;
+
+class BrokerReadStream final : public ReadStream {
 public:
-    S3ReadStream(std::shared_ptr<Aws::S3::S3Client> client, std::string bucket, std::string key,
-                 size_t offset, size_t read_until_position);
-    ~S3ReadStream() override;
+    BrokerReadStream(ExecEnv* env, const std::vector<TNetworkAddress>& addrs, TBrokerFD fd,
+                     size_t file_size);
+    ~BrokerReadStream() override;
 
     Status read(char* to, size_t req_n, size_t* read_n) override;
 
@@ -48,12 +46,13 @@ public:
     bool closed() const override { return _closed; }
 
 private:
-    std::shared_ptr<Aws::S3::S3Client> _client;
-    std::string _bucket;
-    std::string _key;
+    ExecEnv* _env;
+    const std::vector<TNetworkAddress>& _addrs;
+    int _addr_idx = 0;
 
+    TBrokerFD _fd;
+    size_t _file_size;
     size_t _offset = 0;
-    size_t _read_until_position = 0;
 
     bool _closed = false;
 };
