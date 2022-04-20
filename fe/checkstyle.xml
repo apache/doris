@@ -33,15 +33,13 @@
     <property name="charset" value="UTF-8"/>
     <!-- Checks if a line is too long. -->
     <module name="LineLength">
-        <property name="max" value="150"/>
+        <property name="max" value="120"/>
         <property name="severity" value="error"/>
         <property name="ignorePattern" value="^(package .*;\s*)|(import .*;\s*)|( *\* .*https?://.*)$"/>
     </module>
 
     <module name="TreeWalker">
         <module name="PackageDeclaration"/>
-        <module name="UnnecessaryParentheses"/>
-        <module name="SuppressWarningsHolder"/>
         <module name="EmptyBlock">
             <property name="option" value="text"/>
             <property name="tokens" value="
@@ -79,14 +77,13 @@
             <property name="severity" value="error"/>
         </module>
 
-        <module name="GenericWhitespace"/>
-        <module name="WhitespaceAfter"/>
-        <module name="NoWhitespaceAfter"/>
-        <module name="NoWhitespaceBefore"/>
-        <module name="SingleSpaceSeparator"/>
         <module name="Indentation">
-            <property name="throwsIndent" value="8"/>
-            <property name="lineWrappingIndentation" value="8"/>
+            <property name="basicOffset" value="2"/>
+            <property name="braceAdjustment" value="2"/>
+            <property name="caseIndent" value="2"/>
+            <property name="throwsIndent" value="4"/>
+            <property name="lineWrappingIndentation" value="4"/>
+            <property name="arrayInitIndent" value="2"/>
         </module>
 
         <module name="UpperEll"/>
@@ -95,14 +92,12 @@
         <module name="MultipleVariableDeclarations"/>
         <module name="ModifierOrder"/>
         <module name="OneStatementPerLine"/>
-        <module name="StringLiteralEquality"/>
-        <module name="MutableException"/>
-        <module name="EqualsHashCode"/>
-        <module name="InnerAssignment"/>
-        <module name="InterfaceIsType"/>
-        <module name="HideUtilityClassConstructor"/>
-        <module name="ExplicitInitialization"/>
         <module name="OneTopLevelClass"/>
+
+        <module name="EqualsHashCode"/>
+        <module name="UnnecessaryParentheses"/>
+        <module name="SimplifyBooleanReturn"/>
+        <module name="SimplifyBooleanExpression"/>
 
         <!-- name check -->
         <module name="TypeNameCheck">
@@ -168,14 +163,44 @@
                      value="Unused import: {0}."/>
         </module>
         <module name="ImportOrder">
-            <property name="groups" value="org.apache.doris,com,org,java,javax,*"/>
+            <property name="groups" value="org.apache.doris,com,org,java,*"/>
             <property name="separated" value="true"/>
             <property name="ordered" value="true"/>
             <property name="option" value="bottom"/>
             <property name="sortStaticImportsAlphabetically" value="true"/>
         </module>
 
+        <!-- Annotations -->
+        <module name="AnnotationLocation">
+            <property name="id" value="AnnotationLocationMostCases"/>
+            <property name="tokens" value="CLASS_DEF, INTERFACE_DEF, ENUM_DEF, METHOD_DEF, CTOR_DEF"/>
+        </module>
+        <module name="AnnotationLocation">
+            <property name="id" value="AnnotationLocationVariables"/>
+            <property name="tokens" value="VARIABLE_DEF"/>
+            <property name="allowSamelineMultipleAnnotations" value="true"/>
+        </module>
+        <module name="AnnotationUseStyle"/>
+
+        <!-- Javadoc Comments -->
+        <module name="AtclauseOrder">
+            <property name="tagOrder" value="@param, @return, @throws, @deprecated"/>
+        </module>
+        <module name="NonEmptyAtclauseDescription"/>
+        <module name="JavadocParagraph"/>
+        <module name="JavadocStyle"/>
+        <module name="JavadocTagContinuationIndentation"/>
+        <module name="SingleLineJavadoc"/>
+        <module name="SummaryJavadoc"/>
+        <module name="JavadocMethod">
+            <property name="scope" value="public"/>
+            <property name="allowedAnnotations" value="Override, Test, Before, After, BeforeClass, AfterClass, Parameterized, Parameters"/>
+            <property name="ignoreMethodNamesRegex" value="^assert.*$|^verify.*$"/>
+            <property name="tokens" value="METHOD_DEF, ANNOTATION_FIELD_DEF"/>
+        </module>
+
         <!-- white space -->
+        <module name="GenericWhitespace"/>
         <module name="WhitespaceAround">
             <property name="allowEmptyConstructors" value="true"/>
             <property name="allowEmptyMethods" value="true"/>
@@ -194,6 +219,12 @@
         <module name="WhitespaceAfter">
             <property name="tokens" value="COMMA, SEMI, TYPECAST, LITERAL_IF, LITERAL_ELSE,
                             LITERAL_WHILE, LITERAL_DO, LITERAL_FOR, DO_WHILE"/>
+        </module>
+        <module name="NoWhitespaceBefore">
+            <property name="tokens"
+                      value="COMMA, SEMI, POST_INC, POST_DEC, DOT,
+                    LABELED_STAT, METHOD_REF"/>
+            <property name="allowLineBreaks" value="true"/>
         </module>
     </module>
 </module>
