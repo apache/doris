@@ -75,16 +75,11 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
             block_per_scanner;
 
     for (int i = 0; i < pre_block_count; ++i) {
-        auto block = new Block();
-        for (const auto slot_desc : _tuple_desc->slots()) {
-            auto column_ptr = slot_desc->get_empty_mutable_column();
-            column_ptr->reserve(_block_size);
-            block->insert(ColumnWithTypeAndName(
-                    std::move(column_ptr), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
-        }
+        auto block = new Block(_tuple_desc->slots(), _block_size);
         _free_blocks.emplace_back(block);
         _buffered_bytes += block->allocated_bytes();
     }
+
     _block_mem_tracker->consume(_buffered_bytes);
 
     // read from scanner
@@ -539,8 +534,6 @@ Status VOlapScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     return _status;
 }
 
-// TODO: we should register the mem cost of new Block in
-// alloc block
 Block* VOlapScanNode::_alloc_block(bool& get_free_block) {
     {
         std::lock_guard<std::mutex> l(_free_blocks_lock);
@@ -553,13 +546,8 @@ Block* VOlapScanNode::_alloc_block(bool& get_free_block) {
 
     get_free_block = false;
 
-    auto block = new Block();
-    for (const auto slot_desc : _tuple_desc->slots()) {
-        auto column_ptr = slot_desc->get_empty_mutable_column();
-        column_ptr->reserve(_block_size);
-        block->insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
-                                            slot_desc->col_name()));
-    }
+    auto block = new Block(_tuple_desc->slots(), _block_size);
+    _buffered_bytes += block->allocated_bytes();
     return block;
 }
 

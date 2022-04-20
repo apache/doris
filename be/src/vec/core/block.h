@@ -29,6 +29,8 @@
 #include <vector>
 
 #include "gen_cpp/data.pb.h"
+#include "runtime/descriptors.h"
+#include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block_info.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -70,6 +72,7 @@ public:
     Block(std::initializer_list<ColumnWithTypeAndName> il);
     Block(const ColumnsWithTypeAndName& data_);
     Block(const PBlock& pblock);
+    Block(const std::vector<SlotDescriptor*>& slots, size_t block_size);
 
     /// insert the column at the specified position
     void insert(size_t position, const ColumnWithTypeAndName& elem);
@@ -114,10 +117,18 @@ public:
             return Status::OK();
         }
 
-        auto* raw_res_ptr = this->get_by_position(block_cid).column.get();
-        const_cast<doris::vectorized::IColumn*>(raw_res_ptr)->reserve(batch_size);
-        return input_col_ptr->filter_by_selector(
-                sel_rowid_idx, select_size, const_cast<doris::vectorized::IColumn*>(raw_res_ptr));
+        MutableColumnPtr raw_res_ptr = this->get_by_position(block_cid).column->assume_mutable();
+        raw_res_ptr->reserve(batch_size);
+
+        // adapt for outer join change column to nullable
+        if (raw_res_ptr->is_nullable()) {
+            auto col_ptr_nullable =
+                    reinterpret_cast<vectorized::ColumnNullable*>(raw_res_ptr.get());
+            col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
+            raw_res_ptr = col_ptr_nullable->get_nested_column_ptr();
+        }
+
+        return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);
     }
 
     void replace_by_position(size_t position, ColumnPtr&& res) {
