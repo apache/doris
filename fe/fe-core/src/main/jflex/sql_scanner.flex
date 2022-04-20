@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/cloudera/Impala/blob/v0.7refresh/fe/src/main/jflex/sql-scanner.flex
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
