@@ -17,6 +17,9 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# This file is copied from
+# https://github.com/apache/impala/blob/branch-2.9.0/common/function-registry/impala_functions.py
+# and modified by Doris
 
 # This is a list of all the functions that are not auto-generated.
 # It contains all the meta data that describes the function.
