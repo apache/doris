@@ -25,16 +25,13 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-import com.google.common.collect.RangeSet;
-import com.google.common.collect.TreeRangeSet;
 
-import java.util.List;
+import org.junit.Assert;
+import org.junit.Test;
 
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
 
 public class BinaryPredicateTest {
 
@@ -62,7 +59,7 @@ public class BinaryPredicateTest {
     @Test
     public void testSingleColumnSubquery(@Injectable Expr child0,
                                          @Injectable QueryStmt subquery,
-            @Injectable SlotRef slotRef) {
+                                         @Injectable SlotRef slotRef) {
         Subquery child1 = new Subquery(subquery);
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, child0, child1);
         new Expectations() {
@@ -85,9 +82,9 @@ public class BinaryPredicateTest {
     @Test
     public void testWrongOperand(@Injectable Expr child0, @Injectable Expr child1) {
         BinaryPredicate predicate1 = new BinaryPredicate(
-                BinaryPredicate.Operator.EQ, child0, new StringLiteral("test"));
+            BinaryPredicate.Operator.EQ, child0, new StringLiteral("test"));
         BinaryPredicate predicate2 = new BinaryPredicate(
-                BinaryPredicate.Operator.EQ, child1, new StringLiteral("test"));
+            BinaryPredicate.Operator.EQ, child1, new StringLiteral("test"));
 
         new Expectations() {
             {

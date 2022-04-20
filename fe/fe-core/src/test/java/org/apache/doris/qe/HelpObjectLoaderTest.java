@@ -30,7 +30,7 @@ import java.util.Arrays;
 import java.util.List;
 
 public class HelpObjectLoaderTest {
-    
+
     @Test
     public void testTopicNormal() throws IOException, UserException {
         URL resource = getClass().getClassLoader().getResource("data/helpTopicNormal.md");
@@ -42,21 +42,21 @@ public class HelpObjectLoaderTest {
         for (HelpTopic topic : helpTopics) {
             if (topic.getName().equals("SHOW TABLES")) {
                 Assert.assertTrue(Arrays.equals(Lists.newArrayList("SHOW", "TABLES").toArray(),
-                        topic.getKeywords().toArray()));
+                    topic.getKeywords().toArray()));
                 Assert.assertEquals("Administration\n", topic.getCategory());
                 Assert.assertEquals("", topic.getUrl());
                 Assert.assertEquals("show table in this\n"
-                        + "SYNTAX: SHOW TABLES\n", topic.getDescription());
+                    + "SYNTAX: SHOW TABLES\n", topic.getDescription());
                 Assert.assertEquals("show tables\n", topic.getExample());
             } else {
                 // SHOW DATABASES
                 Assert.assertEquals("SHOW DATABASES", topic.getName());
                 Assert.assertTrue(Arrays.equals(Lists.newArrayList("SHOW", "DATABASES").toArray(),
-                        topic.getKeywords().toArray()));
+                    topic.getKeywords().toArray()));
                 Assert.assertEquals("", topic.getCategory());
                 Assert.assertEquals("", topic.getUrl());
                 Assert.assertEquals("show table in this\n"
-                        + "    SYNTAX: SHOW DATABASES\n", topic.getDescription());
+                    + "    SYNTAX: SHOW DATABASES\n", topic.getDescription());
                 Assert.assertEquals("", topic.getExample());
             }
         }

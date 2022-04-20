@@ -36,34 +36,34 @@ import java.util.List;
 /**
  * CASE and DECODE are represented using this class. The backend implementation is
  * always the "case" function.
- *
+ * <p>
  * The internal representation of
- *   CASE [expr] WHEN expr THEN expr [WHEN expr THEN expr ...] [ELSE expr] END
+ * CASE [expr] WHEN expr THEN expr [WHEN expr THEN expr ...] [ELSE expr] END
  * Each When/Then is stored as two consecutive children (whenExpr, thenExpr). If a case
  * expr is given then it is the first child. If an else expr is given then it is the
  * last child.
- *
+ * <p>
  * The internal representation of
- *   DECODE(expr, key_expr, val_expr [, key_expr, val_expr ...] [, default_val_expr])
+ * DECODE(expr, key_expr, val_expr [, key_expr, val_expr ...] [, default_val_expr])
  * has a pair of children for each pair of key/val_expr and an additional child if the
  * default_val_expr was given. The first child represents the comparison of expr to
  * key_expr. Decode has three forms:
- *   1) DECODE(expr, null_literal, val_expr) -
- *       child[0] = IsNull(expr)
- *   2) DECODE(expr, non_null_literal, val_expr) -
- *       child[0] = Eq(expr, literal)
- *   3) DECODE(expr1, expr2, val_expr) -
- *       child[0] = Or(And(IsNull(expr1), IsNull(expr2)),  Eq(expr1, expr2))
+ * 1) DECODE(expr, null_literal, val_expr) -
+ * child[0] = IsNull(expr)
+ * 2) DECODE(expr, non_null_literal, val_expr) -
+ * child[0] = Eq(expr, literal)
+ * 3) DECODE(expr1, expr2, val_expr) -
+ * child[0] = Or(And(IsNull(expr1), IsNull(expr2)),  Eq(expr1, expr2))
  * The children representing val_expr (child[1]) and default_val_expr (child[2]) are
  * simply the exprs themselves.
- *
+ * <p>
  * Example of equivalent CASE for DECODE(foo, 'bar', 1, col, 2, NULL, 3, 4):
- *   CASE
- *     WHEN foo = 'bar' THEN 1   -- no need for IS NULL check
- *     WHEN foo IS NULL AND col IS NULL OR foo = col THEN 2
- *     WHEN foo IS NULL THEN 3  -- no need for equality check
- *     ELSE 4
- *   END
+ * CASE
+ * WHEN foo = 'bar' THEN 1   -- no need for IS NULL check
+ * WHEN foo IS NULL AND col IS NULL OR foo = col THEN 2
+ * WHEN foo IS NULL THEN 3  -- no need for equality check
+ * ELSE 4
+ * END
  */
 public class CaseExpr extends Expr {
     private boolean hasCaseExpr;
@@ -183,7 +183,7 @@ public class CaseExpr extends Expr {
                 // boolean or be castable to boolean.
                 if (!Type.canCastTo(whenExpr.getType(), Type.BOOLEAN)) {
                     throw new AnalysisException("When expr '" + whenExpr.toSql() + "'"
-                            + " is not of type boolean and not castable to type boolean.");
+                        + " is not of type boolean and not castable to type boolean.");
                 }
                 // Add a cast if necessary.
                 if (!whenExpr.getType().isBoolean()) {
@@ -194,7 +194,7 @@ public class CaseExpr extends Expr {
                 throw new AnalysisException("Subquery in case-when must return scala type");
             }
             if (whenExpr.contains(Predicates.instanceOf(Subquery.class))
-                    && !((hasCaseExpr() && whenExpr instanceof Subquery || !checkSubquery(whenExpr)))) {
+                && !((hasCaseExpr() && whenExpr instanceof Subquery || !checkSubquery(whenExpr)))) {
                 throw new AnalysisException("Only support subquery in binary predicate in case statement.");
             }
             // Determine maximum compatible type of the then exprs seen so far.
@@ -301,7 +301,7 @@ public class CaseExpr extends Expr {
             // and avoid `float compute` in java,float should be dealt in be
             Expr caseChildExpr = expr.getChild(0);
             if (!caseChildExpr.isLiteral()
-                    || caseChildExpr instanceof DecimalLiteral || caseChildExpr instanceof FloatLiteral) {
+                || caseChildExpr instanceof DecimalLiteral || caseChildExpr instanceof FloatLiteral) {
                 return expr;
             }
             caseExpr = (LiteralExpr) expr.getChild(0);
@@ -325,7 +325,8 @@ public class CaseExpr extends Expr {
         // early return when the `when expr` can't be converted to constants
         Expr startExpr = expr.getChild(startIndex);
         if ((!startExpr.isLiteral() || startExpr instanceof DecimalLiteral || startExpr instanceof FloatLiteral)
-                || (!(startExpr instanceof NullLiteral) && !startExpr.getClass().toString().equals(caseExpr.getClass().toString()))) {
+            || (!(startExpr instanceof NullLiteral) &&
+            !startExpr.getClass().toString().equals(caseExpr.getClass().toString()))) {
             return expr;
         }
 
@@ -339,8 +340,9 @@ public class CaseExpr extends Expr {
             // 1 not literal
             // 2 float
             // 3 `case expr` and `when expr` don't have same type
-            if ((!currentWhenExpr.isLiteral() || currentWhenExpr instanceof DecimalLiteral || currentWhenExpr instanceof FloatLiteral)
-                    || !currentWhenExpr.getClass().toString().equals(caseExpr.getClass().toString())) {
+            if ((!currentWhenExpr.isLiteral() || currentWhenExpr instanceof DecimalLiteral ||
+                currentWhenExpr instanceof FloatLiteral)
+                || !currentWhenExpr.getClass().toString().equals(caseExpr.getClass().toString())) {
                 // remove the expr which has been evaluated
                 List<Expr> exprLeft = new ArrayList<>();
                 if (expr.hasCaseExpr()) {

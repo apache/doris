@@ -24,6 +24,14 @@ import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.ReplicaPersistInfo;
 
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
+import java.io.File;
+import java.io.IOException;
+
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
@@ -32,14 +40,6 @@ import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.OperationStatus;
-
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
-
-import java.io.File;
-import java.io.IOException;
 
 public class BDBToolTest {
 
@@ -134,7 +134,7 @@ public class BDBToolTest {
         BDBTool tool = new BDBTool(path, options);
         Assert.assertTrue(tool.run());
     }
-    
+
     @Test
     public void testDbStat() {
         // wrong db name

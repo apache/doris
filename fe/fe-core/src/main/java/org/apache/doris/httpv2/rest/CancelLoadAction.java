@@ -75,7 +75,7 @@ public class CancelLoadAction extends RestBaseController {
         // Should check priv in table level.
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullDbName, PrivPredicate.LOAD)) {
             throw new UnauthorizedException("Access denied for user '" + ConnectContext.get().getQualifiedUser()
-                    + "' to database '" + fullDbName + "'");
+                + "' to database '" + fullDbName + "'");
         }
 
         try {

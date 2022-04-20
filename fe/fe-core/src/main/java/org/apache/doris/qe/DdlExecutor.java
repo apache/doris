@@ -17,11 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminCancelRepairTableStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCleanTrashStmt;
 import org.apache.doris.analysis.AdminCompactTableStmt;
-import org.apache.doris.analysis.AdminCancelRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminRebalanceDiskStmt;
 import org.apache.doris.analysis.AdminRepairTableStmt;
 import org.apache.doris.analysis.AdminSetConfigStmt;
@@ -159,7 +159,7 @@ public class DdlExecutor {
             }
             if (jobType == EtlJobType.HADOOP && Config.disable_hadoop_load) {
                 throw new DdlException("Load job by hadoop cluster is disabled."
-                        + " Try using broker load. See 'help broker load;'");
+                    + " Try using broker load. See 'help broker load;'");
             }
             if (jobType == EtlJobType.HADOOP) {
                 catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
@@ -169,15 +169,15 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CancelLoadStmt) {
             boolean isAccurateMatch = ((CancelLoadStmt) ddlStmt).isAccurateMatch();
             boolean isLabelExist = catalog.getLoadInstance().isLabelExist(
-                    ((CancelLoadStmt) ddlStmt).getDbName(),
-                    ((CancelLoadStmt) ddlStmt).getLabel(), isAccurateMatch);
+                ((CancelLoadStmt) ddlStmt).getDbName(),
+                ((CancelLoadStmt) ddlStmt).getLabel(), isAccurateMatch);
             if (isLabelExist) {
                 catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt,
-                        isAccurateMatch);
+                    isAccurateMatch);
             }
             if (!isLabelExist || isAccurateMatch) {
                 catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt,
-                        isAccurateMatch);
+                    isAccurateMatch);
             }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
@@ -274,7 +274,7 @@ public class DdlExecutor {
                 syncJobMgr.addDataSyncJob((CreateDataSyncJobStmt) ddlStmt);
             } else {
                 throw new DdlException("The syncJob with jobName '" + createSyncJobStmt.getJobName() +
-                        "' in database [" + createSyncJobStmt.getDbName() + "] is already exists.");
+                    "' in database [" + createSyncJobStmt.getDbName() + "] is already exists.");
             }
         } else if (ddlStmt instanceof ResumeSyncJobStmt) {
             catalog.getSyncJobManager().resumeSyncJob((ResumeSyncJobStmt) ddlStmt);

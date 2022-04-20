@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -42,11 +41,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import mockit.Expectations;
 import mockit.Mocked;
 
 public class CreateTableStmtTest {
     private static final Logger LOG = LoggerFactory.getLogger(CreateTableStmtTest.class);
-    
+
     // used to get default db
     private TableName tblName;
     private TableName tblNameNoDb;
@@ -55,7 +55,7 @@ public class CreateTableStmtTest {
     private List<String> colsName;
     private List<String> invalidColsName;
     private Analyzer analyzer;
-    
+
     @Mocked
     private PaloAuth auth;
     @Mocked
@@ -93,12 +93,12 @@ public class CreateTableStmtTest {
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
-    
+
     @Test
     public void testNormal() throws UserException, AnalysisException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
+            new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+            new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
@@ -108,8 +108,8 @@ public class CreateTableStmtTest {
     @Test
     public void testCreateTableWithRandomDistribution() throws UserException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
-                new KeysDesc(KeysType.DUP_KEYS, colsName), null,
-                new RandomDistributionDesc(6), null, null, "");
+            new KeysDesc(KeysType.DUP_KEYS, colsName), null,
+            new RandomDistributionDesc(6), null, null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
@@ -123,27 +123,28 @@ public class CreateTableStmtTest {
         ops.add(new AddRollupClause("index1", Lists.newArrayList("col1", "col2"), null, "table1", null));
         ops.add(new AddRollupClause("index2", Lists.newArrayList("col2", "col3"), null, "table1", null));
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "", ops);
+            new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+            new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "", ops);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertNull(stmt.getProperties());
-        Assert.assertTrue(stmt.toSql().contains("rollup( `index1` (`col1`, `col2`) FROM `table1`, `index2` (`col2`, `col3`) FROM `table1`)"));
+        Assert.assertTrue(stmt.toSql()
+            .contains("rollup( `index1` (`col1`, `col2`) FROM `table1`, `index2` (`col2`, `col3`) FROM `table1`)"));
     }
-    
+
     @Test
     public void testDefaultDbNormal() throws UserException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
+            new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+            new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
         stmt.analyze(analyzer);
         Assert.assertEquals("testDb", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertNull(stmt.getPartitionDesc());
         Assert.assertNull(stmt.getProperties());
     }
-    
+
     @Test(expected = AnalysisException.class)
     public void testNoDb(@Mocked Analyzer noDbAnalyzer) throws UserException, AnalysisException {
         // make default db return empty;
@@ -159,27 +160,27 @@ public class CreateTableStmtTest {
             }
         };
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null, "");
+            new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+            new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(noDbAnalyzer);
     }
-    
+
     @Test(expected = AnalysisException.class)
     public void testEmptyCol() throws UserException, AnalysisException {
         // make default db return empty;
         List<ColumnDef> emptyCols = Lists.newArrayList();
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, emptyCols, "olap",
-                new KeysDesc(), null,
-                new RandomDistributionDesc(10), null, null, "");
+            new KeysDesc(), null,
+            new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(analyzer);
     }
-    
+
     @Test(expected = AnalysisException.class)
     public void testDupCol() throws UserException, AnalysisException {
         // make default db return empty;
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, invalidCols, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null,
-                new RandomDistributionDesc(10), null, null, "");
+            new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null,
+            new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(analyzer);
     }
 
@@ -191,8 +192,8 @@ public class CreateTableStmtTest {
         colsName.add("col3");
 
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null, "");
+            new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+            new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("Key column can not set bitmap or hll type:col3");
         stmt.analyze(analyzer);
@@ -202,8 +203,8 @@ public class CreateTableStmtTest {
         ColumnDef hll = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
         cols.add(hll);
         stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null, "");
+            new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+            new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("Key column can not set bitmap or hll type:col3");
         stmt.analyze(analyzer);
@@ -214,20 +215,22 @@ public class CreateTableStmtTest {
         ColumnDef bitmap = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BITMAP)));
         cols.add(bitmap);
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.DUP_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null, "");
+            new KeysDesc(KeysType.DUP_KEYS, colsName), null,
+            new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Aggregate type `col3` bitmap NONE NOT NULL COMMENT \"\" is not compatible with primitive type bitmap");
+        expectedEx.expectMessage(
+            "Aggregate type `col3` bitmap NONE NOT NULL COMMENT \"\" is not compatible with primitive type bitmap");
         stmt.analyze(analyzer);
 
         cols.remove(bitmap);
         ColumnDef hll = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
         cols.add(hll);
         stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.DUP_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null, "");
+            new KeysDesc(KeysType.DUP_KEYS, colsName), null,
+            new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Aggregate type `col3` hll NONE NOT NULL COMMENT \"\" is not compatible with primitive type hll");
+        expectedEx.expectMessage(
+            "Aggregate type `col3` hll NONE NOT NULL COMMENT \"\" is not compatible with primitive type hll");
         stmt.analyze(analyzer);
     }
 
@@ -238,25 +241,25 @@ public class CreateTableStmtTest {
 
         cols.add(bitmap);
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null, "");
+            new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+            new RandomDistributionDesc(10), null, null, "");
 
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage(String.format("Aggregate type %s is not compatible with primitive type %s",
-                bitmap.toString(), bitmap.getTypeDef().getType().toSql()));
+            bitmap.toString(), bitmap.getTypeDef().getType().toSql()));
         stmt.analyze(analyzer);
 
         cols.remove(bitmap);
-        ColumnDef hll =  new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
+        ColumnDef hll = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
         hll.setAggregateType(AggregateType.SUM);
         cols.add(hll);
         stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
-                new RandomDistributionDesc(10), null, null, "");
+            new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+            new RandomDistributionDesc(10), null, null, "");
 
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage(String.format("Aggregate type %s is not compatible with primitive type %s",
-                hll.toString(), hll.getTypeDef().getType().toSql()));
+            hll.toString(), hll.getTypeDef().getType().toSql()));
         stmt.analyze(analyzer);
     }
 
@@ -270,10 +273,10 @@ public class CreateTableStmtTest {
         stmt.analyze(analyzer);
 
         Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" +
-                "\n" +
-                ") ENGINE = iceberg\n" +
-                "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
-                "\"iceberg.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n" +
-                "\"iceberg.table\"  =  \"test\")", stmt.toString());
+            "\n" +
+            ") ENGINE = iceberg\n" +
+            "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
+            "\"iceberg.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n" +
+            "\"iceberg.table\"  =  \"test\")", stmt.toString());
     }
 }

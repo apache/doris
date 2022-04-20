@@ -57,7 +57,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView", createMaterializedViewStmt,
-                    db, olapTable);
+                db, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -82,7 +82,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView", createMaterializedViewStmt,
-                    db, olapTable);
+                db, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -109,7 +109,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView",
-                    createMaterializedViewStmt, db, olapTable);
+                createMaterializedViewStmt, db, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -145,7 +145,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "processCreateMaterializedView",
-                    createMaterializedViewStmt, db, olapTable);
+                createMaterializedViewStmt, db, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -167,7 +167,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                    createMaterializedViewStmt, olapTable);
+                createMaterializedViewStmt, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -202,7 +202,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                    createMaterializedViewStmt, olapTable);
+                createMaterializedViewStmt, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -225,7 +225,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                    createMaterializedViewStmt, olapTable);
+                createMaterializedViewStmt, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());
@@ -258,8 +258,8 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             List<Column> mvColumns = Deencapsulation.invoke(materializedViewHandler,
-                    "checkAndPrepareMaterializedView",
-                    createMaterializedViewStmt, olapTable);
+                "checkAndPrepareMaterializedView",
+                createMaterializedViewStmt, olapTable);
             Assert.assertEquals(1, mvColumns.size());
             Column newMVColumn = mvColumns.get(0);
             Assert.assertEquals(columnName1, newMVColumn.getName());
@@ -301,7 +301,7 @@ public class MaterializedViewHandlerTest {
         MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
         try {
             Deencapsulation.invoke(materializedViewHandler, "checkAndPrepareMaterializedView",
-                    createMaterializedViewStmt, olapTable);
+                createMaterializedViewStmt, olapTable);
             Assert.fail();
         } catch (Exception e) {
             System.out.print(e.getMessage());

@@ -66,11 +66,11 @@ public class CastExpr extends Expr {
 
     static {
         TYPE_NULLABLE_MODE = Maps.newHashMap();
-        for (ScalarType fromType: Type.getSupportedTypes()) {
+        for (ScalarType fromType : Type.getSupportedTypes()) {
             if (fromType.isNull()) {
                 continue;
             }
-            for (ScalarType toType: Type.getSupportedTypes()) {
+            for (ScalarType toType : Type.getSupportedTypes()) {
                 if (fromType.isNull()) {
                     continue;
                 }
@@ -105,7 +105,7 @@ public class CastExpr extends Expr {
             } catch (AnalysisException ex) {
                 LOG.warn("Implicit casts fail", ex);
                 Preconditions.checkState(false,
-                        "Implicit casts should never throw analysis exception.");
+                    "Implicit casts should never throw analysis exception.");
             }
             analysisDone();
         }
@@ -140,8 +140,8 @@ public class CastExpr extends Expr {
     private static boolean disableRegisterCastingFunction(Type fromType, Type toType) {
         // Disable casting from boolean to decimal or datetime or date
         if (fromType.isBoolean() &&
-                (toType.equals(Type.DECIMALV2) ||
-                        toType.equals(Type.DATETIME) || toType.equals(Type.DATE))) {
+            (toType.equals(Type.DECIMALV2) ||
+                toType.equals(Type.DATETIME) || toType.equals(Type.DATE))) {
             return true;
         }
 
@@ -162,7 +162,8 @@ public class CastExpr extends Expr {
                 if (toType.isNull() || disableRegisterCastingFunction(fromType, toType)) {
                     continue;
                 }
-                String beClass = toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
+                String beClass =
+                    toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
                 if (fromType.isTime()) {
                     beClass = "TimeOperators";
                 }
@@ -171,11 +172,11 @@ public class CastExpr extends Expr {
                     typeName = "date_val";
                 }
                 String beSymbol = "doris::" + beClass + "::cast_to_"
-                        + typeName;
+                    + typeName;
                 functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),
-                        toType, TYPE_NULLABLE_MODE.get(new Pair<>(fromType, toType)),
-                        Lists.newArrayList(fromType), false ,
-                        beSymbol, null, null, true));
+                    toType, TYPE_NULLABLE_MODE.get(new Pair<>(fromType, toType)),
+                    Lists.newArrayList(fromType), false,
+                    beSymbol, null, null, true));
             }
         }
     }
@@ -188,10 +189,10 @@ public class CastExpr extends Expr {
     @Override
     public String toSqlImpl() {
         boolean isVerbose = ConnectContext.get() != null &&
-                ConnectContext.get().getExecutor() != null &&
-                ConnectContext.get().getExecutor().getParsedStmt() != null &&
-                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null &&
-                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
+            ConnectContext.get().getExecutor() != null &&
+            ConnectContext.get().getExecutor().getParsedStmt() != null &&
+            ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null &&
+            ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
         if (isImplicit && !isVerbose) {
             return getChild(0).toSql();
         }
@@ -253,21 +254,21 @@ public class CastExpr extends Expr {
         if (type.isScalarType()) {
             if (isImplicit) {
                 fn = Catalog.getCurrentCatalog().getFunction(
-                        searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             } else {
                 fn = Catalog.getCurrentCatalog().getFunction(
-                        searchDesc, Function.CompareMode.IS_IDENTICAL);
+                    searchDesc, Function.CompareMode.IS_IDENTICAL);
             }
-        } else if (type.isArrayType()){
+        } else if (type.isArrayType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
-                    type, Function.NullableMode.ALWAYS_NULLABLE,
-                    Lists.newArrayList(Type.VARCHAR), false ,
-                    "doris::CastFunctions::cast_to_array_val", null, null, true);
+                type, Function.NullableMode.ALWAYS_NULLABLE,
+                Lists.newArrayList(Type.VARCHAR), false,
+                "doris::CastFunctions::cast_to_array_val", null, null, true);
         }
 
         if (fn == null) {
             throw new AnalysisException("Invalid type cast of " + getChild(0).toSql()
-                    + " from " + childType + " to " + type);
+                + " from " + childType + " to " + type);
         }
 
         Preconditions.checkState(type.matchesType(fn.getReturnType()), type + " != " + fn.getReturnType());
@@ -282,8 +283,8 @@ public class CastExpr extends Expr {
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) targetTypeDef.getType();
-            if (!(targetType.getPrimitiveType().isStringType() 
-                    && !targetType.isAssignedStrLenInColDefinition())) {
+            if (!(targetType.getPrimitiveType().isStringType()
+                && !targetType.isAssignedStrLenInColDefinition())) {
                 targetTypeDef.analyze(analyzer);
             }
         } else {
@@ -310,7 +311,7 @@ public class CastExpr extends Expr {
         if (isImplicit) {
             // we don't expect to see to consecutive implicit casts
             Preconditions.checkState(
-              !(getChild(0) instanceof CastExpr) || !((CastExpr) getChild(0)).isImplicit());
+                !(getChild(0) instanceof CastExpr) || !((CastExpr) getChild(0)).isImplicit());
             return getChild(0);
         } else {
             return this;
@@ -336,7 +337,7 @@ public class CastExpr extends Expr {
         }
         Expr targetExpr;
         try {
-            targetExpr = castTo((LiteralExpr)value);
+            targetExpr = castTo((LiteralExpr) value);
         } catch (AnalysisException ae) {
             targetExpr = this;
         } catch (NumberFormatException nfe) {
@@ -468,7 +469,7 @@ public class CastExpr extends Expr {
         if (index != -1) {
             Expr expr = inputParamsExprs.get(index);
             if (expr.getType().isIntegerType()) {
-                return ((Long)((IntLiteral) expr).getRealValue()).intValue();
+                return ((Long) ((IntLiteral) expr).getRealValue()).intValue();
             }
         }
         return -1;
@@ -477,7 +478,7 @@ public class CastExpr extends Expr {
     @Override
     public boolean isNullable() {
         return children.get(0).isNullable() ||
-                (children.get(0).getType().isStringType() && !getType().isStringType()) ||
-                (!children.get(0).getType().isDateType() && getType().isDateType());
+            (children.get(0).getType().isStringType() && !getType().isStringType()) ||
+            (!children.get(0).getType().isDateType() && getType().isDateType());
     }
 }

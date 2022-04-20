@@ -32,10 +32,10 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TStringLiteral;
 
+import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -207,7 +207,8 @@ public class StringLiteral extends LiteralExpr {
                 case LARGEINT:
                     if (VariableVarConverters.hasConverter(beConverted)) {
                         try {
-                            return new LargeIntLiteral(String.valueOf(VariableVarConverters.encode(beConverted, value)));
+                            return new LargeIntLiteral(
+                                String.valueOf(VariableVarConverters.encode(beConverted, value)));
                         } catch (DdlException e) {
                             throw new AnalysisException(e.getMessage());
                         }
@@ -255,7 +256,7 @@ public class StringLiteral extends LiteralExpr {
         super.readFields(in);
         value = Text.readString(in);
     }
-    
+
     public static StringLiteral read(DataInput in) throws IOException {
         StringLiteral literal = new StringLiteral();
         literal.readFields(in);

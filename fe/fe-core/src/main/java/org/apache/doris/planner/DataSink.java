@@ -48,8 +48,13 @@ public abstract class DataSink {
 
     protected abstract TDataSink toThrift();
 
-    public void setFragment(PlanFragment fragment) { fragment_ = fragment; }
-    public PlanFragment getFragment() { return fragment_; }
+    public void setFragment(PlanFragment fragment) {
+        fragment_ = fragment;
+    }
+
+    public PlanFragment getFragment() {
+        return fragment_;
+    }
 
     public abstract PlanNodeId getExchNodeId();
 
@@ -59,7 +64,7 @@ public abstract class DataSink {
         if (table instanceof MysqlTable) {
             return new MysqlTableSink((MysqlTable) table);
         } else if (table instanceof OdbcTable) {
-            return new OdbcTableSink((OdbcTable)table);
+            return new OdbcTableSink((OdbcTable) table);
         } else {
             throw new AnalysisException("Unknown table type " + table.getType());
         }

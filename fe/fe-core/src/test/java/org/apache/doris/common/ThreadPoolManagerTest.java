@@ -32,7 +32,7 @@ public class ThreadPoolManagerTest {
     public void testNormal() throws InterruptedException {
         ThreadPoolExecutor testCachedPool = ThreadPoolManager.newDaemonCacheThreadPool(2, "test_cache_pool", true);
         ThreadPoolExecutor testFixedThreaddPool = ThreadPoolManager.newDaemonFixedThreadPool(2, 2,
-                "test_fixed_thread_pool", true);
+            "test_fixed_thread_pool", true);
 
         ThreadPoolManager.registerThreadPoolMetric("test_cache_pool", testCachedPool);
         ThreadPoolManager.registerThreadPoolMetric("test_fixed_thread_pool", testFixedThreaddPool);
@@ -40,8 +40,10 @@ public class ThreadPoolManagerTest {
         List<Metric> metricList = MetricRepo.getMetricsByName("thread_pool");
 
         Assert.assertEquals(6, metricList.size());
-        Assert.assertEquals(ThreadPoolManager.LogDiscardPolicy.class, testCachedPool.getRejectedExecutionHandler().getClass());
-        Assert.assertEquals(ThreadPoolManager.BlockedPolicy.class, testFixedThreaddPool.getRejectedExecutionHandler().getClass());
+        Assert.assertEquals(ThreadPoolManager.LogDiscardPolicy.class,
+            testCachedPool.getRejectedExecutionHandler().getClass());
+        Assert.assertEquals(ThreadPoolManager.BlockedPolicy.class,
+            testFixedThreaddPool.getRejectedExecutionHandler().getClass());
 
         Runnable task = () -> {
             try {
@@ -69,7 +71,7 @@ public class ThreadPoolManagerTest {
         for (int i = 0; i < 4; i++) {
             testFixedThreaddPool.submit(task);
         }
-        
+
         Assert.assertTrue(testFixedThreaddPool.getActiveCount() <= 2);
         Assert.assertTrue(testFixedThreaddPool.getQueue().size() > 0);
         Assert.assertEquals(2, testFixedThreaddPool.getPoolSize());

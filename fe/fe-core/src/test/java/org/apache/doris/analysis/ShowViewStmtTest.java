@@ -51,47 +51,47 @@ public class ShowViewStmtTest {
     public static void setUp() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
         String testTbl1 = "CREATE TABLE `test1` (\n" +
-                "  `a` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `b` int(11) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "UNIQUE KEY(`a`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`a`) BUCKETS 8\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");";
+            "  `a` int(11) NOT NULL COMMENT \"\",\n" +
+            "  `b` int(11) NOT NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "UNIQUE KEY(`a`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`a`) BUCKETS 8\n" +
+            "PROPERTIES (\n" +
+            "\"replication_num\" = \"1\",\n" +
+            "\"in_memory\" = \"false\",\n" +
+            "\"storage_format\" = \"V2\"\n" +
+            ");";
         String testTbl2 = "CREATE TABLE `test2` (\n" +
-                "  `c` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `d` int(11) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "UNIQUE KEY(`c`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`c`) BUCKETS 8\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");";
+            "  `c` int(11) NOT NULL COMMENT \"\",\n" +
+            "  `d` int(11) NOT NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "UNIQUE KEY(`c`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`c`) BUCKETS 8\n" +
+            "PROPERTIES (\n" +
+            "\"replication_num\" = \"1\",\n" +
+            "\"in_memory\" = \"false\",\n" +
+            "\"storage_format\" = \"V2\"\n" +
+            ");";
         String testTbl3 = "CREATE TABLE `test3` (\n" +
-                "  `e` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `f` int(11) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "UNIQUE KEY(`e`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`e`) BUCKETS 8\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");";
+            "  `e` int(11) NOT NULL COMMENT \"\",\n" +
+            "  `f` int(11) NOT NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "UNIQUE KEY(`e`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`e`) BUCKETS 8\n" +
+            "PROPERTIES (\n" +
+            "\"replication_num\" = \"1\",\n" +
+            "\"in_memory\" = \"false\",\n" +
+            "\"storage_format\" = \"V2\"\n" +
+            ");";
 
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("testDb").useDatabase("testDb");
         dorisAssert.withTable(testTbl1)
-                   .withTable(testTbl2)
-                   .withTable(testTbl3);
+            .withTable(testTbl2)
+            .withTable(testTbl3);
     }
 
     @Test
@@ -119,7 +119,7 @@ public class ShowViewStmtTest {
     public void testShowView() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String testView1 = "CREATE VIEW `view1` as \n" +
-                "SELECT a, b FROM test1;";
+            "SELECT a, b FROM test1;";
         dorisAssert.withView(testView1);
 
         ShowViewStmt stmt = new ShowViewStmt("", new TableName("testDb", "test1"));
@@ -139,9 +139,9 @@ public class ShowViewStmtTest {
     public void testShowViewWithJoin() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String testView2 = "CREATE VIEW `view2` as \n" +
-                "SELECT a, c FROM test1 \n" +
-                "LEFT OUTER JOIN test2 \n" +
-                "ON test1.a = test2.c;";
+            "SELECT a, c FROM test1 \n" +
+            "LEFT OUTER JOIN test2 \n" +
+            "ON test1.a = test2.c;";
         dorisAssert.withView(testView2);
 
         ShowViewStmt stmt = new ShowViewStmt("", new TableName("testDb", "test1"));
@@ -171,10 +171,10 @@ public class ShowViewStmtTest {
     public void testShowViewWithNestedSqlView() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String testView3 = "CREATE VIEW `view3` as \n" +
-                "SELECT a, d FROM test1 \n" +
-                "LEFT OUTER JOIN \n" +
-                "(SELECT d, e FROM test3 LEFT OUTER JOIN test2 ON test3.e = test2.c) test4 \n" +
-                "ON test1.a = test4.e;";
+            "SELECT a, d FROM test1 \n" +
+            "LEFT OUTER JOIN \n" +
+            "(SELECT d, e FROM test3 LEFT OUTER JOIN test2 ON test3.e = test2.c) test4 \n" +
+            "ON test1.a = test4.e;";
         dorisAssert.withView(testView3);
 
         ShowViewStmt stmt = new ShowViewStmt("", new TableName("testDb", "test1"));
@@ -214,11 +214,11 @@ public class ShowViewStmtTest {
     public void testShowViewWithNestedView() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String testView4 = "CREATE VIEW `view4` as \n" +
-                "SELECT a, b FROM test1;";
+            "SELECT a, b FROM test1;";
         String testView5 = "CREATE VIEW `view5` as \n" +
-                "SELECT c FROM test2 \n" +
-                "LEFT OUTER JOIN view4 \n" +
-                "ON test2.c = view4.a;";
+            "SELECT c FROM test2 \n" +
+            "LEFT OUTER JOIN view4 \n" +
+            "ON test2.c = view4.a;";
         dorisAssert.withView(testView4);
         dorisAssert.withView(testView5);
 
@@ -234,17 +234,17 @@ public class ShowViewStmtTest {
         Assert.assertEquals("view5", resultSet.getString(0));
 
         dorisAssert.dropView("view4")
-                   .dropView("view5");
+            .dropView("view5");
     }
 
     @Test
     public void testGetTableRefs() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         String sql = "with w as (select a from testDb.test1) " +
-                "select c, d from testDb.test2 " +
-                "left outer join " +
-                "(select e from testDb.test3 join w on testDb.test3.e = w.a) test4 " +
-                "on test1.b = test4.d";
+            "select c, d from testDb.test2 " +
+            "left outer join " +
+            "(select e from testDb.test3 join w on testDb.test3.e = w.a) test4 " +
+            "on test1.b = test4.d";
         SqlScanner input = new SqlScanner(new StringReader(sql));
         SqlParser parser = new SqlParser(input);
         QueryStmt queryStmt = (QueryStmt) SqlParserUtils.getFirstStmt(parser);

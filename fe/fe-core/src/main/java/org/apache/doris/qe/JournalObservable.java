@@ -49,8 +49,8 @@ public class JournalObservable {
 
     public void waitOn(Long expectedJournalVersion, int timeoutMs) throws DdlException {
         LOG.info("waiting for the observer to replay journal to {} with timeout: {} ms",
-                 expectedJournalVersion, timeoutMs);
-  
+            expectedJournalVersion, timeoutMs);
+
         JournalObserver observer = new JournalObserver(expectedJournalVersion);
         addObserver(observer);
         try {
@@ -59,7 +59,7 @@ public class JournalObservable {
             deleteObserver(observer);
         }
     }
-    
+
     // return min pos which is bigger than value
     public static int upperBound(Object[] array, int size, Long value) {
         int left = 0;
@@ -76,9 +76,9 @@ public class JournalObservable {
             return 0;
         }
         Long rightValue = ((JournalObserver) array[right]).getTargetJournalVersion();
-        return value >= rightValue ? right + 1  : right;  
+        return value >= rightValue ? right + 1 : right;
     }
-    
+
     public void notifyObservers(Long journalId) {
         Object[] arrLocal;
         int size;
@@ -86,11 +86,11 @@ public class JournalObservable {
             size = obs.size();
             arrLocal = obs.toArray();
         }
-        
+
         int pos = upperBound(arrLocal, size, journalId);
         LOG.debug("notify observers: journal: {}, pos: {}, size: {}, obs: {}", journalId, pos, size, obs);
 
-        for (int i = 0; i < pos; i ++) {
+        for (int i = 0; i < pos; i++) {
             JournalObserver observer = ((JournalObserver) arrLocal[i]);
             observer.update();
         }

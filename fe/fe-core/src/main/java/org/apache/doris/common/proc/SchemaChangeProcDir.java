@@ -46,10 +46,10 @@ import java.util.List;
 
 public class SchemaChangeProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("TableName").add("CreateTime").add("FinishTime")
-            .add("IndexName").add("IndexId").add("OriginIndexId").add("SchemaVersion")
-            .add("TransactionId").add("State").add("Msg").add("Progress").add("Timeout")
-            .build();
+        .add("JobId").add("TableName").add("CreateTime").add("FinishTime")
+        .add("IndexName").add("IndexId").add("OriginIndexId").add("SchemaVersion")
+        .add("TransactionId").add("State").add("Msg").add("Progress").add("Timeout")
+        .build();
 
     private static final Logger LOG = LogManager.getLogger(SchemaChangeProcDir.class);
 
@@ -106,10 +106,10 @@ public class SchemaChangeProcDir implements ProcDirInterface {
 
         //where
         List<List<Comparable>> jobInfos;
-        if (filter == null || filter.size() == 0){
+        if (filter == null || filter.size() == 0) {
             jobInfos = schemaChangeJobInfos;
         } else {
-            jobInfos = Lists.newArrayList();        
+            jobInfos = Lists.newArrayList();
             for (List<Comparable> infoStr : schemaChangeJobInfos) {
                 if (infoStr.size() != TITLE_NAMES.size()) {
                     LOG.warn("SchemaChangeJobInfos.size() " + schemaChangeJobInfos.size()
@@ -144,7 +144,7 @@ public class SchemaChangeProcDir implements ProcDirInterface {
             if (endIndex > jobInfos.size()) {
                 endIndex = jobInfos.size();
             }
-            jobInfos = jobInfos.subList(beginIndex,endIndex);
+            jobInfos = jobInfos.subList(beginIndex, endIndex);
         }
 
         BaseProcResult result = new BaseProcResult();

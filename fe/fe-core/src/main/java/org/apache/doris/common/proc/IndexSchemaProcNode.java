@@ -37,9 +37,9 @@ import java.util.Set;
  */
 public class IndexSchemaProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Field").add("Type").add("Null").add("Key")
-            .add("Default").add("Extra")
-            .build();
+        .add("Field").add("Type").add("Null").add("Key")
+        .add("Default").add("Extra")
+        .build();
 
     private final List<Column> schema;
     private final Set<String> bfColumns;
@@ -68,12 +68,12 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
             String extraStr = StringUtils.join(extras, ",");
 
             List<String> rowList = Arrays.asList(column.getDisplayName(),
-                                                 column.getOriginType().toString(),
-                                                 column.isAllowNull() ? "Yes" : "No",
-                                                 ((Boolean) column.isKey()).toString(),
-                                                 column.getDefaultValue() == null
-                                                         ? FeConstants.null_string : column.getDefaultValue(),
-                                                 extraStr);
+                column.getOriginType().toString(),
+                column.isAllowNull() ? "Yes" : "No",
+                ((Boolean) column.isKey()).toString(),
+                column.getDefaultValue() == null
+                    ? FeConstants.null_string : column.getDefaultValue(),
+                extraStr);
             result.addRow(rowList);
         }
         return result;

@@ -69,7 +69,7 @@ public class EtlJobStatusTest {
         etlJobStatus1.readFields(dis);
         stats = etlJobStatus1.getStats();
         counters = etlJobStatus1.getCounters();
-                
+
         Assert.assertEquals(etlJobStatus1.getState().name(), "FINISHED");
         for (int count = 0; count < 5; ++count) {
             String statsKey = "statsKey" + count;
@@ -79,10 +79,10 @@ public class EtlJobStatusTest {
             Assert.assertEquals(stats.get(statsKey), statsValue);
             Assert.assertEquals(counters.get(countersKey), countersValue);
         }
-        
+
         Assert.assertTrue(etlJobStatus.equals(etlJobStatus1));
         Assert.assertEquals(trackingUrl, etlJobStatus1.getTrackingUrl());
- 
+
         dis.close();
         file.delete();
     }

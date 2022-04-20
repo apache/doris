@@ -78,13 +78,13 @@ public class RestBaseController extends BaseController {
             // Fix username@cluster:passwod is modified to cluster: username:passwod causes authentication failure
             // @see https://github.com/apache/incubator-doris/issues/8100
             userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName) +
-                    "@" + ClusterNamespace.getClusterNameFromFullName(authInfo.fullUserName) +
-                    ":" + authInfo.password;
+                "@" + ClusterNamespace.getClusterNameFromFullName(authInfo.fullUserName) +
+                ":" + authInfo.password;
         }
         try {
             urlObj = new URI(urlStr);
             resultUriObj = new URI("http", userInfo, addr.getHostname(),
-                    addr.getPort(), urlObj.getPath(), "", null);
+                addr.getPort(), urlObj.getPath(), "", null);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -108,7 +108,7 @@ public class RestBaseController extends BaseController {
     }
 
     public void getFile(HttpServletRequest request, HttpServletResponse response, Object obj, String fileName)
-            throws IOException {
+        throws IOException {
         response.setHeader("Content-type", "application/octet-stream");
         response.addHeader("Content-Disposition", "attachment;fileName=" + fileName); // set file name
         if (obj instanceof File) {
@@ -148,7 +148,8 @@ public class RestBaseController extends BaseController {
         }
     }
 
-    public void writeFileResponse(HttpServletRequest request, HttpServletResponse response, File imageFile) throws IOException {
+    public void writeFileResponse(HttpServletRequest request, HttpServletResponse response, File imageFile)
+        throws IOException {
         Preconditions.checkArgument(imageFile != null && imageFile.exists());
         response.setHeader("Content-type", "application/octet-stream");
         response.addHeader("Content-Disposition", "attachment;fileName=" + imageFile.getName());

@@ -18,6 +18,7 @@ package org.apache.doris.mysql.nio;
 
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.qe.ConnectProcessor;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.xnio.StreamConnection;
@@ -86,7 +87,7 @@ public class NMysqlChannel extends MysqlChannel {
         long writeLen = Channels.writeBlocking(conn.getSinkChannel(), buffer);
         if (bufLen != writeLen) {
             throw new IOException("Write mysql packet failed.[write=" + writeLen
-                    + ", needToWrite=" + bufLen + "]");
+                + ", needToWrite=" + bufLen + "]");
         }
         Channels.flushBlocking(conn.getSinkChannel());
         isSend = true;

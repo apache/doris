@@ -22,9 +22,9 @@ import org.apache.doris.common.io.Writable;
 import java.util.Comparator;
 import java.util.Map;
 
-public abstract class PartitionItem implements Comparable<PartitionItem>,Writable {
+public abstract class PartitionItem implements Comparable<PartitionItem>, Writable {
     public static final Comparator<Map.Entry<Long, PartitionItem>> ITEM_MAP_ENTRY_COMPARATOR =
-            Comparator.comparing(o -> ((ListPartitionItem) o.getValue()).getItems().iterator().next());
+        Comparator.comparing(o -> ((ListPartitionItem) o.getValue()).getItems().iterator().next());
 
     public abstract <T> T getItems();
 

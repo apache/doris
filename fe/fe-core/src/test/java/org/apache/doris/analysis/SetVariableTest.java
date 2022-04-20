@@ -50,7 +50,7 @@ public class SetVariableTest {
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, setStr);
         stmtExecutor.execute();
         Assert.assertEquals("STRICT_TRANS_TABLES",
-                SqlModeHelper.decode(connectContext.getSessionVariable().getSqlMode()));
+            SqlModeHelper.decode(connectContext.getSessionVariable().getSqlMode()));
 
         String selectStr = "explain select @@sql_mode;";
         connectContext.getState().reset();

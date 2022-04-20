@@ -96,7 +96,7 @@ public class CatalogTestUtil {
     public static long testEsTableId1 = 14;
 
     public static Catalog createTestCatalog() throws InstantiationException, IllegalAccessException,
-            IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException {
+        IllegalArgumentException, InvocationTargetException, NoSuchMethodException, SecurityException {
         Constructor<Catalog> constructor = Catalog.class.getDeclaredConstructor();
         constructor.setAccessible(true);
         Catalog catalog = constructor.newInstance();
@@ -113,7 +113,7 @@ public class CatalogTestUtil {
         Catalog.getCurrentSystemInfo().addBackend(backend3);
         catalog.initDefaultCluster();
         Database db = createSimpleDb(testDbId1, testTableId1, testPartitionId1, testIndexId1, testTabletId1,
-                testStartVersion);
+            testStartVersion);
         catalog.unprotectCreateDb(db);
         return catalog;
     }
@@ -134,10 +134,11 @@ public class CatalogTestUtil {
                     return false;
                 }
                 if (masterPartition.getVisibleVersion() != slavePartition.getVisibleVersion()
-                        || masterPartition.getNextVersion() != slavePartition.getNextVersion()) {
+                    || masterPartition.getNextVersion() != slavePartition.getNextVersion()) {
                     return false;
                 }
-                List<MaterializedIndex> allMaterializedIndices = masterPartition.getMaterializedIndices(IndexExtState.ALL);
+                List<MaterializedIndex> allMaterializedIndices =
+                    masterPartition.getMaterializedIndices(IndexExtState.ALL);
                 for (MaterializedIndex masterIndex : allMaterializedIndices) {
                     MaterializedIndex slaveIndex = slavePartition.getIndex(masterIndex.getId());
                     if (slaveIndex == null) {
@@ -153,9 +154,9 @@ public class CatalogTestUtil {
                         for (Replica masterReplica : allReplicas) {
                             Replica slaveReplica = slaveTablet.getReplicaById(masterReplica.getId());
                             if (slaveReplica.getBackendId() != masterReplica.getBackendId()
-                                    || slaveReplica.getVersion() != masterReplica.getVersion()
-                                    || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
-                                    || slaveReplica.getLastSuccessVersion() != slaveReplica.getLastSuccessVersion()) {
+                                || slaveReplica.getVersion() != masterReplica.getVersion()
+                                || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
+                                || slaveReplica.getLastSuccessVersion() != slaveReplica.getLastSuccessVersion()) {
                                 return false;
                             }
                         }
@@ -169,17 +170,17 @@ public class CatalogTestUtil {
     }
 
     public static Database createSimpleDb(long dbId, long tableId, long partitionId, long indexId, long tabletId,
-            long version) {
+                                          long version) {
         Catalog.getCurrentInvertedIndex().clear();
 
         // replica
         long replicaId = 0;
         Replica replica1 = new Replica(testReplicaId1, testBackendId1, version, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0);
+            ReplicaState.NORMAL, -1, 0);
         Replica replica2 = new Replica(testReplicaId2, testBackendId2, version, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0);
+            ReplicaState.NORMAL, -1, 0);
         Replica replica3 = new Replica(testReplicaId3, testBackendId3, version, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0);
+            ReplicaState.NORMAL, -1, 0);
 
         // tablet
         Tablet tablet = new Tablet(tabletId);
@@ -221,16 +222,16 @@ public class CatalogTestUtil {
         partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_DATA_PROPERTY);
         partitionInfo.setReplicaAllocation(partitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(tableId, testTable1, columns, KeysType.AGG_KEYS, partitionInfo,
-                distributionInfo);
+            distributionInfo);
         table.addPartition(partition);
         table.setIndexMeta(indexId, testIndex1, columns, 0, testSchemaHash1, (short) 1,
-                TStorageType.COLUMN, KeysType.AGG_KEYS);
+            TStorageType.COLUMN, KeysType.AGG_KEYS);
         table.setBaseIndexId(indexId);
         // db
         Database db = new Database(dbId, testDb1);
         db.createTable(table);
         db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        
+
         // add a es table to catalog
         try {
             createEsTable(db);
@@ -246,14 +247,15 @@ public class CatalogTestUtil {
 
         // replica
         Replica replica = new Replica(testReplicaId4, testBackendId1, testStartVersion, 0, 0L, 0L,
-                ReplicaState.NORMAL, -1, 0);
+            ReplicaState.NORMAL, -1, 0);
 
         // tablet
         Tablet tablet = new Tablet(testTabletId2);
 
         // index
         MaterializedIndex index = new MaterializedIndex(testIndexId2, IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(testDbId1, testTableId2, testPartitionId2, testIndexId2, 0, TStorageMedium.HDD);
+        TabletMeta tabletMeta =
+            new TabletMeta(testDbId1, testTableId2, testPartitionId2, testIndexId2, 0, TStorageMedium.HDD);
         index.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica);
@@ -280,10 +282,10 @@ public class CatalogTestUtil {
         partitionInfo.setDataProperty(testPartitionId2, DataProperty.DEFAULT_DATA_PROPERTY);
         partitionInfo.setReplicaAllocation(testPartitionId2, new ReplicaAllocation((short) 1));
         OlapTable table = new OlapTable(testTableId2, testTable2, columns, KeysType.DUP_KEYS, partitionInfo,
-                distributionInfo);
+            distributionInfo);
         table.addPartition(partition);
         table.setIndexMeta(testIndexId2, testIndex2, columns, 0, testSchemaHash1, (short) 3,
-                TStorageType.COLUMN, KeysType.DUP_KEYS);
+            TStorageType.COLUMN, KeysType.DUP_KEYS);
         table.setBaseIndexId(testIndexId2);
         // db
         db.createTable(table);
@@ -303,8 +305,8 @@ public class CatalogTestUtil {
         partitionColumns.add(userId);
 
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("100"))),
-                null));
+            PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("100"))),
+            null));
 
         RangePartitionInfo partitionInfo = new RangePartitionInfo(partitionColumns);
         Map<String, String> properties = Maps.newHashMap();
@@ -316,7 +318,7 @@ public class CatalogTestUtil {
         properties.put(EsTable.DOC_VALUE_SCAN, "true");
         properties.put(EsTable.KEYWORD_SNIFF, "true");
         EsTable esTable = new EsTable(testEsTableId1, testEsTable1,
-                columns, properties, partitionInfo);
+            columns, properties, partitionInfo);
         db.createTable(esTable);
     }
 
@@ -328,7 +330,7 @@ public class CatalogTestUtil {
     }
 
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort,
-            long totalCapacityB, long avaiLabelCapacityB) {
+                                        long totalCapacityB, long avaiLabelCapacityB) {
         Backend backend = createBackend(id, host, heartPort, bePort, httpPort);
         Map<String, TDisk> backendDisks = new HashMap<String, TDisk>();
         String rootPath = "root_path";

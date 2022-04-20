@@ -26,7 +26,7 @@ import org.apache.doris.thrift.TOdbcTableSink;
 import org.apache.doris.thrift.TOdbcTableType;
 
 public class OdbcTableSink extends DataSink {
-    private final TOdbcTableType odbcType ;
+    private final TOdbcTableType odbcType;
     private final String tblName;
     private final String originTblName;
     private final String connectString;

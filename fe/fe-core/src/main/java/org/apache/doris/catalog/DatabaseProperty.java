@@ -25,7 +25,7 @@ import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,9 +35,11 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.google.gson.annotations.SerializedName;
+
 /**
  * DatabaseProperty contains additional information about a database.
- *
+ * <p>
  * Different properties are recognized by prefix, such as `iceberg`
  * If there is different type property is added, write a method,
  * such as `checkAndBuildIcebergProperty` to check and build it.

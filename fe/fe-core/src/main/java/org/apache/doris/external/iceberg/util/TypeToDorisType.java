@@ -41,7 +41,7 @@ public class TypeToDorisType extends TypeUtil.SchemaVisitor<Type> {
     @Override
     public Type struct(Types.StructType struct, List<Type> fieldResults) {
         throw new UnsupportedOperationException(
-                String.format("Cannot convert Iceberg type[%s] to Doris type.", struct));
+            String.format("Cannot convert Iceberg type[%s] to Doris type.", struct));
     }
 
     @Override
@@ -52,13 +52,13 @@ public class TypeToDorisType extends TypeUtil.SchemaVisitor<Type> {
     @Override
     public Type list(Types.ListType list, Type elementResult) {
         throw new UnsupportedOperationException(
-                String.format("Cannot convert Iceberg type[%s] to Doris type.", list));
+            String.format("Cannot convert Iceberg type[%s] to Doris type.", list));
     }
 
     @Override
     public Type map(Types.MapType map, Type keyResult, Type valueResult) {
         throw new UnsupportedOperationException(
-                String.format("Cannot convert Iceberg type[%s] to Doris type.", map));
+            String.format("Cannot convert Iceberg type[%s] to Doris type.", map));
     }
 
     @Override
@@ -92,7 +92,7 @@ public class TypeToDorisType extends TypeUtil.SchemaVisitor<Type> {
             case BINARY:
             default:
                 throw new UnsupportedOperationException(String.format("Cannot convert Iceberg type[%s] to Doris type.",
-                        primitive));
+                    primitive));
         }
     }
 }

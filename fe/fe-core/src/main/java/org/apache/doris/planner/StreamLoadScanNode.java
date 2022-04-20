@@ -39,11 +39,11 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
 import java.util.List;
@@ -71,7 +71,7 @@ public class StreamLoadScanNode extends LoadScanNode {
 
     // used to construct for streaming loading
     public StreamLoadScanNode(
-            TUniqueId loadId, PlanNodeId id, TupleDescriptor tupleDesc, Table dstTable, LoadTaskInfo taskInfo) {
+        TUniqueId loadId, PlanNodeId id, TupleDescriptor tupleDesc, Table dstTable, LoadTaskInfo taskInfo) {
         super(id, tupleDesc, "StreamLoadScanNode");
         this.loadId = loadId;
         this.dstTable = dstTable;
@@ -86,7 +86,7 @@ public class StreamLoadScanNode extends LoadScanNode {
 
         this.analyzer = analyzer;
         brokerScanRange = new TBrokerScanRange();
-        
+
         deleteCondition = taskInfo.getDeleteCondition();
         mergeType = taskInfo.getMergeType();
 
@@ -133,12 +133,13 @@ public class StreamLoadScanNode extends LoadScanNode {
                 columnExprDescs.descs.add(ImportColumnDesc.newDeleteSignImportColumnDesc(new IntLiteral(1)));
             }
             if (taskInfo.hasSequenceCol()) {
-                columnExprDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, taskInfo.getSequenceCol())));
+                columnExprDescs.descs.add(
+                    new ImportColumnDesc(Column.SEQUENCE_COL, new SlotRef(null, taskInfo.getSequenceCol())));
             }
         }
 
         Load.initColumns(dstTable, columnExprDescs, null /* no hadoop function */,
-                exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
+            exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
 
         // analyze where statement
         initAndSetPrecedingFilter(taskInfo.getPrecedingFilter(), this.srcTupleDesc, analyzer);
@@ -175,7 +176,7 @@ public class StreamLoadScanNode extends LoadScanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         finalizeParams(slotDescByName, exprsByName, brokerScanRange.params, srcTupleDesc,
-                taskInfo.isStrictMode(), taskInfo.getNegative(), analyzer);
+            taskInfo.isStrictMode(), taskInfo.getNegative(), analyzer);
     }
 
     @Override
@@ -189,7 +190,9 @@ public class StreamLoadScanNode extends LoadScanNode {
     }
 
     @Override
-    public int getNumInstances() { return 1; }
+    public int getNumInstances() {
+        return 1;
+    }
 
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {

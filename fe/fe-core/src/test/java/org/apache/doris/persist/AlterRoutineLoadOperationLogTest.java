@@ -56,12 +56,12 @@ public class AlterRoutineLoadOperationLogTest {
         dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "10000, 20000");
         dataSourceProperties.put("property.group.id", "mygroup");
         RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(typeName,
-                dataSourceProperties, true);
+            dataSourceProperties, true);
         routineLoadDataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         routineLoadDataSourceProperties.analyze();
 
         AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(jobId,
-                jobProperties, routineLoadDataSourceProperties);
+            jobProperties, routineLoadDataSourceProperties);
         log.write(out);
         out.flush();
         out.close();
@@ -77,9 +77,9 @@ public class AlterRoutineLoadOperationLogTest {
         Assert.assertEquals(1, log2.getDataSourceProperties().getCustomKafkaProperties().size());
         Assert.assertEquals("mygroup", log2.getDataSourceProperties().getCustomKafkaProperties().get("group.id"));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(0),
-                log2.getDataSourceProperties().getKafkaPartitionOffsets().get(0));
+            log2.getDataSourceProperties().getKafkaPartitionOffsets().get(0));
         Assert.assertEquals(routineLoadDataSourceProperties.getKafkaPartitionOffsets().get(1),
-                log2.getDataSourceProperties().getKafkaPartitionOffsets().get(1));
+            log2.getDataSourceProperties().getKafkaPartitionOffsets().get(1));
 
         in.close();
     }

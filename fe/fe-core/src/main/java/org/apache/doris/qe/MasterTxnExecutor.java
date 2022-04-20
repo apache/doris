@@ -62,6 +62,7 @@ public class MasterTxnExecutor {
             throw new TException("Failed to get master client.", e);
         }
     }
+
     // Send request to Master
     public TLoadTxnBeginResult beginTxn(TLoadTxnBeginRequest request) throws TException {
         TNetworkAddress thriftAddress = getMasterAddress();

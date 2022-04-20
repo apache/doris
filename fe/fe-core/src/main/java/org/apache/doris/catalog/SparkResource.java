@@ -28,41 +28,42 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.load.loadv2.SparkRepository;
 import org.apache.doris.load.loadv2.SparkYarnConfigFiles;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.util.Map;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * Spark resource for etl or query.
  * working_dir and broker[.xxx] are optional and used in spark ETL.
  * working_dir is used to store ETL intermediate files and broker is used to read the intermediate files by BE.
- *
+ * <p>
  * Spark resource example:
  * CREATE EXTERNAL RESOURCE "spark0"
  * PROPERTIES
  * (
- *     "type" = "spark",
- *     "spark.master" = "yarn",
- *     "spark.submit.deployMode" = "cluster",
- *     "spark.jars" = "xxx.jar,yyy.jar",
- *     "spark.files" = "/tmp/aaa,/tmp/bbb",
- *     "spark.executor.memory" = "1g",
- *     "spark.yarn.queue" = "queue0",
- *     "spark.hadoop.yarn.resourcemanager.address" = "127.0.0.1:9999",
- *     "spark.hadoop.fs.defaultFS" = "hdfs://127.0.0.1:10000",
- *     "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
- *     "broker" = "broker0",
- *     "broker.username" = "user0",
- *     "broker.password" = "password0"
+ * "type" = "spark",
+ * "spark.master" = "yarn",
+ * "spark.submit.deployMode" = "cluster",
+ * "spark.jars" = "xxx.jar,yyy.jar",
+ * "spark.files" = "/tmp/aaa,/tmp/bbb",
+ * "spark.executor.memory" = "1g",
+ * "spark.yarn.queue" = "queue0",
+ * "spark.hadoop.yarn.resourcemanager.address" = "127.0.0.1:9999",
+ * "spark.hadoop.fs.defaultFS" = "hdfs://127.0.0.1:10000",
+ * "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
+ * "broker" = "broker0",
+ * "broker.username" = "user0",
+ * "broker.password" = "password0"
  * );
- *
+ * <p>
  * DROP RESOURCE "spark0";
  */
 public class SparkResource extends Resource {
@@ -162,7 +163,7 @@ public class SparkResource extends Resource {
     // This method get the remote archive which matches the dpp version from remote repository
     public synchronized SparkRepository.SparkArchive prepareArchive() throws LoadException {
         String remoteRepositoryPath = workingDir + "/" + Catalog.getCurrentCatalog().getClusterId()
-                + "/" + SparkRepository.REPOSITORY_DIR + name;
+            + "/" + SparkRepository.REPOSITORY_DIR + name;
         BrokerDesc brokerDesc = new BrokerDesc(broker, getBrokerPropertiesWithoutPrefix());
         SparkRepository repository = new SparkRepository(remoteRepositoryPath, brokerDesc);
         // This checks and uploads the remote archive.
@@ -248,10 +249,11 @@ public class SparkResource extends Resource {
             throw new DdlException("Missing " + SPARK_SUBMIT_DEPLOY_MODE + " in properties");
         }
         // if deploy machines do not set HADOOP_CONF_DIR env, we should set these configs blow
-        if ((!sparkConfigs.containsKey(SPARK_YARN_RESOURCE_MANAGER_ADDRESS) || !sparkConfigs.containsKey(SPARK_FS_DEFAULT_FS))
-                && isYarnMaster()) {
+        if ((!sparkConfigs.containsKey(SPARK_YARN_RESOURCE_MANAGER_ADDRESS) ||
+            !sparkConfigs.containsKey(SPARK_FS_DEFAULT_FS))
+            && isYarnMaster()) {
             throw new DdlException("Missing (" + SPARK_YARN_RESOURCE_MANAGER_ADDRESS + " and " + SPARK_FS_DEFAULT_FS
-                                           + ") in yarn master");
+                + ") in yarn master");
         }
 
         // check working dir and broker

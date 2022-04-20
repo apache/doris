@@ -18,8 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -98,10 +98,10 @@ public class ShowTableStmt extends ShowStmt {
         SelectList selectList = new SelectList();
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
         SelectListItem item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_NAME"),
-                NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db));
+            NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db));
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db)),
-                item.getExpr().clone(null));
+            item.getExpr().clone(null));
         if (isVerbose) {
             item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_TYPE"), TYPE_COL);
             selectList.addItem(item);
@@ -109,8 +109,8 @@ public class ShowTableStmt extends ShowStmt {
         }
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
-                new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+            new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
+            where, null, null, null, LimitElement.NO_LIMIT);
 
         analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, null);
 
@@ -143,7 +143,7 @@ public class ShowTableStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         builder.addColumn(
-                new Column(NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db), ScalarType.createVarchar(20)));
+            new Column(NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db), ScalarType.createVarchar(20)));
         if (isVerbose) {
             builder.addColumn(new Column(TYPE_COL, ScalarType.createVarchar(20)));
         }

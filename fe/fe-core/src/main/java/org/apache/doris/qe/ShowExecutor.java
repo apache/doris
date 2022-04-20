@@ -385,11 +385,12 @@ public class ShowExecutor {
         List<List<String>> rowSet = Lists.newArrayList();
         rowSet.add(Lists.newArrayList("Olap engine", "YES", "Default storage engine of palo", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("MySQL", "YES", "MySQL server which data is in it", "NO", "NO", "NO"));
-        rowSet.add(Lists.newArrayList("ELASTICSEARCH", "YES", "ELASTICSEARCH cluster which data is in it", "NO", "NO", "NO"));
+        rowSet.add(
+            Lists.newArrayList("ELASTICSEARCH", "YES", "ELASTICSEARCH cluster which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("HIVE", "YES", "HIVE database which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("ICEBERG", "YES", "ICEBERG data lake which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("ODBC", "YES", "ODBC driver which data we can connect", "NO", "NO", "NO"));
-        
+
         // Only success
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
     }
@@ -498,7 +499,7 @@ public class ShowExecutor {
         // if this is superuser, hide ip and host info form backends info proc
         if (procNode instanceof BackendsProcDir) {
             if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                                                                       PrivPredicate.OPERATOR)) {
+                PrivPredicate.OPERATOR)) {
                 // hide host info
                 for (List<String> row : finalRows) {
                     row.remove(BackendsProcDir.HOSTNAME_INDEX);
@@ -539,7 +540,7 @@ public class ShowExecutor {
         for (BaseParam param : infos) {
             final int percent = (int) (param.getFloatParam(0) * 100f);
             rows.add(Lists.newArrayList(param.getStringParam(0), param.getStringParam(1), param.getStringParam(2),
-                                        String.valueOf(percent + "%")));
+                String.valueOf(percent + "%")));
         }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -629,7 +630,7 @@ public class ShowExecutor {
         PatternMatcher matcher = null;
         if (showDbStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showDbStmt.getPattern(),
-                                                        CaseSensibility.DATABASE.getCaseSensibility());
+                CaseSensibility.DATABASE.getCaseSensibility());
         }
         Set<String> dbNameSet = Sets.newTreeSet();
         for (String fullName : dbNames) {
@@ -640,7 +641,7 @@ public class ShowExecutor {
             }
 
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullName,
-                                                                   PrivPredicate.SHOW)) {
+                PrivPredicate.SHOW)) {
                 continue;
             }
 
@@ -663,7 +664,7 @@ public class ShowExecutor {
         PatternMatcher matcher = null;
         if (showTableStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
-                    CaseSensibility.TABLE.getCaseSensibility());
+                CaseSensibility.TABLE.getCaseSensibility());
         }
         for (Table tbl : db.getTables()) {
             if (matcher != null && !matcher.match(tbl.getName())) {
@@ -671,8 +672,8 @@ public class ShowExecutor {
             }
             // check tbl privs
             if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                    db.getFullName(), tbl.getName(),
-                    PrivPredicate.SHOW)) {
+                db.getFullName(), tbl.getName(),
+                PrivPredicate.SHOW)) {
                 continue;
             }
             tableMap.put(tbl.getName(), tbl.getMysqlType());
@@ -697,7 +698,7 @@ public class ShowExecutor {
             PatternMatcher matcher = null;
             if (showStmt.getPattern() != null) {
                 matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
+                    CaseSensibility.TABLE.getCaseSensibility());
             }
             for (Table table : db.getTables()) {
                 if (matcher != null && !matcher.match(table.getName())) {
@@ -706,8 +707,8 @@ public class ShowExecutor {
 
                 // check tbl privs
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                        db.getFullName(), table.getName(),
-                        PrivPredicate.SHOW)) {
+                    db.getFullName(), table.getName(),
+                    PrivPredicate.SHOW)) {
                     continue;
                 }
                 List<String> row = Lists.newArrayList();
@@ -767,7 +768,7 @@ public class ShowExecutor {
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                                                        CaseSensibility.VARIABLES.getCaseSensibility());
+                CaseSensibility.VARIABLES.getCaseSensibility());
         }
         List<List<String>> rows = VariableMgr.dump(showStmt.getType(), ctx.getSessionVariable(), matcher);
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -812,7 +813,7 @@ public class ShowExecutor {
             } else {
                 if (showStmt.isView()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_OBJECT, showStmt.getDb(),
-                                                        showStmt.getTable(), "VIEW");
+                        showStmt.getTable(), "VIEW");
                 }
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0)));
                 resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
@@ -837,7 +838,7 @@ public class ShowExecutor {
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                    CaseSensibility.COLUMN.getCaseSensibility());
+                CaseSensibility.COLUMN.getCaseSensibility());
         }
         table.readLock();
         try {
@@ -856,22 +857,22 @@ public class ShowExecutor {
                     // Field Type Collation Null Key Default Extra
                     // Privileges Comment
                     rows.add(Lists.newArrayList(columnName,
-                            columnType,
-                            "",
-                            isAllowNull,
-                            isKey,
-                            defaultValue,
-                            aggType,
-                            "",
-                            col.getComment()));
+                        columnType,
+                        "",
+                        isAllowNull,
+                        isKey,
+                        defaultValue,
+                        aggType,
+                        "",
+                        col.getComment()));
                 } else {
                     // Field Type Null Key Default Extra
                     rows.add(Lists.newArrayList(columnName,
-                            columnType,
-                            isAllowNull,
-                            isKey,
-                            defaultValue,
-                            aggType));
+                        columnType,
+                        isAllowNull,
+                        isKey,
+                        defaultValue,
+                        aggType));
                 }
             }
         } finally {
@@ -892,8 +893,8 @@ public class ShowExecutor {
             List<Index> indexes = table.getIndexes();
             for (Index index : indexes) {
                 rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
-                        "", String.join(",", index.getColumns()), "", "", "", "",
-                        "", index.getIndexType().name(), index.getComment()));
+                    "", String.join(",", index.getColumns()), "", "", "", "",
+                    "", index.getIndexType().name(), index.getComment()));
             }
         } finally {
             table.readUnlock();
@@ -953,7 +954,7 @@ public class ShowExecutor {
         }
         if (topic != null) {
             resultSet = new ShowResultSet(helpStmt.getMetaData(), Lists.<List<String>>newArrayList(
-                    Lists.newArrayList(topic.getName(), topic.getDescription(), topic.getExample())));
+                Lists.newArrayList(topic.getName(), topic.getDescription(), topic.getExample())));
         } else {
             List<String> categories = module.listCategoryByName(mark);
             if (categories.isEmpty()) {
@@ -962,7 +963,7 @@ public class ShowExecutor {
             } else if (categories.size() > 1) {
                 // Send category list
                 resultSet = new ShowResultSet(helpStmt.getCategoryMetaData(),
-                                              Lists.<List<String>>newArrayList(categories));
+                    Lists.<List<String>>newArrayList(categories));
             } else {
                 // Send topic list and sub-category list
                 List<List<String>> rows = Lists.newArrayList();
@@ -990,15 +991,15 @@ public class ShowExecutor {
         // combine the List<LoadInfo> of load(v1) and loadManager(v2)
         Load load = catalog.getLoadInstance();
         List<List<Comparable>> loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(),
-                                                                    showStmt.getLabelValue(),
-                                                                    showStmt.isAccurateMatch(),
-                                                                    showStmt.getStates());
+            showStmt.getLabelValue(),
+            showStmt.isAccurateMatch(),
+            showStmt.getStates());
         Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
-                .map(entity -> entity.name())
-                .collect(Collectors.toSet());
+            .map(entity -> entity.name())
+            .collect(Collectors.toSet());
         loadInfos.addAll(catalog.getLoadManager().getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
-                                                                      showStmt.isAccurateMatch(),
-                                                                      statesValue));
+            showStmt.isAccurateMatch(),
+            statesValue));
 
         // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
@@ -1051,7 +1052,8 @@ public class ShowExecutor {
         Database db = catalog.getDbOrAnalysisException(showStmt.getDbName());
         long dbId = db.getId();
 
-        List<List<Comparable>> streamLoadRecords = catalog.getStreamLoadRecordMgr().getStreamLoadRecordByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), showStmt.getState());
+        List<List<Comparable>> streamLoadRecords = catalog.getStreamLoadRecordMgr()
+            .getStreamLoadRecordByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), showStmt.getState());
 
         // order the result of List<StreamLoadRecord> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
@@ -1132,20 +1134,20 @@ public class ShowExecutor {
         if (tableNames.isEmpty()) {
             // forward compatibility
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
-                                                                   PrivPredicate.SHOW)) {
+                PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                                                    ConnectContext.get().getQualifiedUser(),
-                                                    db.getFullName());
+                    ConnectContext.get().getQualifiedUser(),
+                    db.getFullName());
             }
         } else {
             for (String tblName : tableNames) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                                                                        tblName, PrivPredicate.SHOW)) {
+                    tblName, PrivPredicate.SHOW)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
-                                                        "SHOW LOAD WARNING",
-                                                        ConnectContext.get().getQualifiedUser(),
-                                                        ConnectContext.get().getRemoteIP(),
-                                                        db.getFullName() + ": " + tblName);
+                        "SHOW LOAD WARNING",
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(),
+                        db.getFullName() + ": " + tblName);
                 }
             }
         }
@@ -1176,7 +1178,7 @@ public class ShowExecutor {
     }
 
     private void handleShowLoadWarningsFromURL(ShowLoadWarningsStmt showWarningsStmt, URL url)
-            throws AnalysisException {
+        throws AnalysisException {
         String host = url.getHost();
         int port = url.getPort();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
@@ -1190,7 +1192,7 @@ public class ShowExecutor {
 
         if (!url.getPath().equals("/api/_load_error_log")) {
             throw new AnalysisException(
-                    "Invalid error log path: " + url.getPath() + ". path should be: /api/_load_error_log");
+                "Invalid error log path: " + url.getPath() + ". path should be: /api/_load_error_log");
         }
 
         List<List<String>> rows = Lists.newArrayList();
@@ -1208,7 +1210,7 @@ public class ShowExecutor {
         } catch (Exception e) {
             LOG.warn("failed to get error log from url: " + url, e);
             throw new AnalysisException(
-                    "failed to get error log from url: " + url + ". reason: " + e.getMessage());
+                "failed to get error log from url: " + url + ". reason: " + e.getMessage());
         }
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
@@ -1223,12 +1225,12 @@ public class ShowExecutor {
             PatternMatcher matcher = null;
             if (showRoutineLoadStmt.getPattern() != null) {
                 matcher = PatternMatcher.createMysqlPattern(showRoutineLoadStmt.getPattern(),
-                        CaseSensibility.ROUTINE_LOAD.getCaseSensibility());
+                    CaseSensibility.ROUTINE_LOAD.getCaseSensibility());
             }
             routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager()
-                    .getJob(showRoutineLoadStmt.getDbFullName(),
-                            showRoutineLoadStmt.getName(),
-                            showRoutineLoadStmt.isIncludeHistory(), matcher);
+                .getJob(showRoutineLoadStmt.getDbFullName(),
+                    showRoutineLoadStmt.getName(),
+                    showRoutineLoadStmt.isIncludeHistory(), matcher);
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage(), e);
             throw new AnalysisException(e.getMessage());
@@ -1243,21 +1245,21 @@ public class ShowExecutor {
                     tableName = routineLoadJob.getTableName();
                 } catch (MetaNotFoundException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("error_msg", "The table metadata of job has been changed. "
-                                             + "The job will be cancelled automatically")
-                                     .build(), e);
+                        .add("error_msg", "The table metadata of job has been changed. "
+                            + "The job will be cancelled automatically")
+                        .build(), e);
                 }
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                        dbFullName,
-                                                                        tableName,
-                                                                        PrivPredicate.LOAD)) {
+                    dbFullName,
+                    tableName,
+                    PrivPredicate.LOAD)) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("operator", "show routine load job")
-                                     .add("user", ConnectContext.get().getQualifiedUser())
-                                     .add("remote_ip", ConnectContext.get().getRemoteIP())
-                                     .add("db_full_name", dbFullName)
-                                     .add("table_name", tableName)
-                                     .add("error_msg", "The table access denied"));
+                        .add("operator", "show routine load job")
+                        .add("user", ConnectContext.get().getQualifiedUser())
+                        .add("remote_ip", ConnectContext.get().getRemoteIP())
+                        .add("db_full_name", dbFullName)
+                        .add("table_name", tableName)
+                        .add("error_msg", "The table access denied"));
                     continue;
                 }
 
@@ -1269,8 +1271,8 @@ public class ShowExecutor {
         if (!Strings.isNullOrEmpty(showRoutineLoadStmt.getName()) && rows.size() == 0) {
             // if the jobName has been specified
             throw new AnalysisException("There is no job named " + showRoutineLoadStmt.getName()
-                                                + " in db " + showRoutineLoadStmt.getDbFullName()
-                    + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
+                + " in db " + showRoutineLoadStmt.getDbFullName()
+                + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
         }
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }
@@ -1281,15 +1283,16 @@ public class ShowExecutor {
         // if job exists
         RoutineLoadJob routineLoadJob;
         try {
-            routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(showRoutineLoadTaskStmt.getDbFullName(),
-                                                                                        showRoutineLoadTaskStmt.getJobName());
+            routineLoadJob =
+                Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(showRoutineLoadTaskStmt.getDbFullName(),
+                    showRoutineLoadTaskStmt.getJobName());
         } catch (MetaNotFoundException e) {
             LOG.warn(e.getMessage(), e);
             throw new AnalysisException(e.getMessage());
         }
         if (routineLoadJob == null) {
             throw new AnalysisException("The job named " + showRoutineLoadTaskStmt.getJobName() + "does not exists "
-                                                + "or job state is stopped or cancelled");
+                + "or job state is stopped or cancelled");
         }
 
         // check auth
@@ -1298,16 +1301,17 @@ public class ShowExecutor {
         try {
             tableName = routineLoadJob.getTableName();
         } catch (MetaNotFoundException e) {
-            throw new AnalysisException("The table metadata of job has been changed. The job will be cancelled automatically", e);
+            throw new AnalysisException(
+                "The table metadata of job has been changed. The job will be cancelled automatically", e);
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                dbFullName,
-                                                                tableName,
-                                                                PrivPredicate.LOAD)) {
+            dbFullName,
+            tableName,
+            PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                dbFullName + ": " + tableName);
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                dbFullName + ": " + tableName);
         }
 
         // get routine load task info
@@ -1353,10 +1357,10 @@ public class ShowExecutor {
         //Only SchemaChangeProc support where/order by/limit syntax 
         if (procNodeI instanceof SchemaChangeProcDir) {
             rows = ((SchemaChangeProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
-                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
+                showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
         } else if (procNodeI instanceof RollupProcDir) {
             rows = ((RollupProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
-                    showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
+                showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
         } else {
             rows = procNodeI.fetchResult().getRows();
         }
@@ -1473,11 +1477,11 @@ public class ShowExecutor {
             } while (false);
 
             String detailCmd = String.format("SHOW PROC '/dbs/%d/%d/partitions/%d/%d/%d';",
-                                             dbId, tableId, partitionId, indexId, tabletId);
+                dbId, tableId, partitionId, indexId, tabletId);
             rows.add(Lists.newArrayList(dbName, tableName, partitionName, indexName,
-                    dbId.toString(), tableId.toString(),
-                    partitionId.toString(), indexId.toString(),
-                    isSync.toString(), String.valueOf(tabletIdx), detailCmd));
+                dbId.toString(), tableId.toString(),
+                partitionId.toString(), indexId.toString(),
+                isSync.toString(), String.valueOf(tabletIdx), detailCmd));
         } else {
             Database db = catalog.getDbOrAnalysisException(showStmt.getDbName());
             OlapTable olapTable = db.getOlapTableOrAnalysisException(showStmt.getTableName());
@@ -1504,7 +1508,7 @@ public class ShowExecutor {
                 } else {
                     partitions = olapTable.getPartitions();
                 }
-                List<List<Comparable>> tabletInfos =  new ArrayList<>();
+                List<List<Comparable>> tabletInfos = new ArrayList<>();
                 String indexName = showStmt.getIndexName();
                 long indexId = -1;
                 if (indexName != null) {
@@ -1512,7 +1516,7 @@ public class ShowExecutor {
                     if (id == null) {
                         // invalid indexName
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_TABLE, showStmt.getIndexName(),
-                                showStmt.getDbName());
+                            showStmt.getDbName());
                     }
                     indexId = id;
                 }
@@ -1526,7 +1530,7 @@ public class ShowExecutor {
                         }
                         TabletsProcDir procDir = new TabletsProcDir(olapTable, index);
                         tabletInfos.addAll(procDir.fetchComparableResult(
-                                showStmt.getVersion(), showStmt.getBackendId(), showStmt.getReplicaState()));
+                            showStmt.getVersion(), showStmt.getBackendId(), showStmt.getReplicaState()));
                         if (sizeLimit > -1 && tabletInfos.size() >= sizeLimit) {
                             stop = true;
                             break;
@@ -1536,7 +1540,7 @@ public class ShowExecutor {
                 if (sizeLimit > -1 && tabletInfos.size() < sizeLimit) {
                     tabletInfos.clear();
                 } else if (sizeLimit > -1) {
-                    tabletInfos = tabletInfos.subList((int)showStmt.getOffset(), (int)sizeLimit);
+                    tabletInfos = tabletInfos.subList((int) showStmt.getOffset(), (int) sizeLimit);
                 }
 
                 // order by
@@ -1582,9 +1586,9 @@ public class ShowExecutor {
     private void handleShowResources() {
         ShowResourcesStmt showStmt = (ShowResourcesStmt) stmt;
         List<List<Comparable>> resourcesInfos = Catalog.getCurrentCatalog().getResourceMgr()
-                .getResourcesInfo(showStmt.getNameValue(),
-                                showStmt.isAccurateMatch(),
-                                showStmt.getTypeSet());
+            .getResourcesInfo(showStmt.getNameValue(),
+                showStmt.isAccurateMatch(),
+                showStmt.getTypeSet());
 
         // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
@@ -1639,8 +1643,8 @@ public class ShowExecutor {
             states = Sets.newHashSet(state);
         }
         List<List<String>> infos = exportMgr.getExportJobInfosByIdOrState(
-                dbId, showExportStmt.getJobId(), showExportStmt.getLabel(),showExportStmt.isLabelUseLike(),  states,
-                showExportStmt.getOrderByPairs(), showExportStmt.getLimit());
+            dbId, showExportStmt.getJobId(), showExportStmt.getLabel(), showExportStmt.isLabelUseLike(), states,
+            showExportStmt.getOrderByPairs(), showExportStmt.getLimit());
 
         resultSet = new ShowResultSet(showExportStmt.getMetaData(), infos);
     }
@@ -1689,10 +1693,11 @@ public class ShowExecutor {
         ShowBackupStmt showStmt = (ShowBackupStmt) stmt;
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
-        List<AbstractJob> jobs = Catalog.getCurrentCatalog().getBackupHandler().getJobs(db.getId(), showStmt.getLabelPredicate());
+        List<AbstractJob> jobs =
+            Catalog.getCurrentCatalog().getBackupHandler().getJobs(db.getId(), showStmt.getLabelPredicate());
 
         List<BackupJob> backupJobs = jobs.stream().filter(job -> job instanceof BackupJob)
-                .map(job -> (BackupJob) job).collect(Collectors.toList());
+            .map(job -> (BackupJob) job).collect(Collectors.toList());
 
         List<List<String>> infos = backupJobs.stream().map(BackupJob::getInfo).collect(Collectors.toList());
 
@@ -1703,10 +1708,11 @@ public class ShowExecutor {
         ShowRestoreStmt showStmt = (ShowRestoreStmt) stmt;
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
 
-        List<AbstractJob> jobs = Catalog.getCurrentCatalog().getBackupHandler().getJobs(db.getId(), showStmt.getLabelPredicate());
+        List<AbstractJob> jobs =
+            Catalog.getCurrentCatalog().getBackupHandler().getJobs(db.getId(), showStmt.getLabelPredicate());
 
         List<RestoreJob> restoreJobs = jobs.stream().filter(job -> job instanceof RestoreJob)
-                .map(job -> (RestoreJob) job).collect(Collectors.toList());
+            .map(job -> (RestoreJob) job).collect(Collectors.toList());
 
         List<List<String>> infos = restoreJobs.stream().map(RestoreJob::getInfo).collect(Collectors.toList());
 
@@ -1744,7 +1750,7 @@ public class ShowExecutor {
         List<List<String>> infos = Catalog.getCurrentCatalog().getAuth().getRoleInfo();
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
-    
+
     private void handleShowTrash() {
         ShowTrashStmt showStmt = (ShowTrashStmt) stmt;
         List<List<String>> infos = Lists.newArrayList();
@@ -1788,7 +1794,7 @@ public class ShowExecutor {
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
-                    CaseSensibility.CONFIG.getCaseSensibility());
+                CaseSensibility.CONFIG.getCaseSensibility());
         }
         results = ConfigBase.getConfigInfo(matcher);
         // Sort all configs by config key.
@@ -1818,7 +1824,8 @@ public class ShowExecutor {
                     continue;
                 }
 
-                DynamicPartitionScheduler dynamicPartitionScheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
+                DynamicPartitionScheduler dynamicPartitionScheduler =
+                    Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
                 OlapTable olapTable = (OlapTable) tbl;
                 olapTable.readLock();
                 try {
@@ -1829,11 +1836,12 @@ public class ShowExecutor {
 
                     // check tbl privs
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                            db.getFullName(), olapTable.getName(),
-                            PrivPredicate.SHOW)) {
+                        db.getFullName(), olapTable.getName(),
+                        PrivPredicate.SHOW)) {
                         continue;
                     }
-                    DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
+                    DynamicPartitionProperty dynamicPartitionProperty =
+                        olapTable.getTableProperty().getDynamicPartitionProperty();
                     String tableName = olapTable.getName();
                     ReplicaAllocation replicaAlloc = dynamicPartitionProperty.getReplicaAllocation();
                     if (replicaAlloc.isNotSet()) {
@@ -1841,22 +1849,28 @@ public class ShowExecutor {
                     }
                     String unsortedReservedHistoryPeriods = dynamicPartitionProperty.getReservedHistoryPeriods();
                     rows.add(Lists.newArrayList(
-                            tableName,
-                            String.valueOf(dynamicPartitionProperty.getEnable()),
-                            dynamicPartitionProperty.getTimeUnit().toUpperCase(),
-                            String.valueOf(dynamicPartitionProperty.getStart()),
-                            String.valueOf(dynamicPartitionProperty.getEnd()),
-                            dynamicPartitionProperty.getPrefix(),
-                            String.valueOf(dynamicPartitionProperty.getBuckets()),
-                            String.valueOf(replicaAlloc.getTotalReplicaNum()),
-                            replicaAlloc.toCreateStmt(),
-                            dynamicPartitionProperty.getStartOfInfo(),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_UPDATE_TIME),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.CREATE_PARTITION_MSG),
-                            dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(), DynamicPartitionScheduler.DROP_PARTITION_MSG),
-                            dynamicPartitionProperty.getSortedReservedHistoryPeriods(unsortedReservedHistoryPeriods, dynamicPartitionProperty.getTimeUnit().toUpperCase())));
+                        tableName,
+                        String.valueOf(dynamicPartitionProperty.getEnable()),
+                        dynamicPartitionProperty.getTimeUnit().toUpperCase(),
+                        String.valueOf(dynamicPartitionProperty.getStart()),
+                        String.valueOf(dynamicPartitionProperty.getEnd()),
+                        dynamicPartitionProperty.getPrefix(),
+                        String.valueOf(dynamicPartitionProperty.getBuckets()),
+                        String.valueOf(replicaAlloc.getTotalReplicaNum()),
+                        replicaAlloc.toCreateStmt(),
+                        dynamicPartitionProperty.getStartOfInfo(),
+                        dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(),
+                            DynamicPartitionScheduler.LAST_UPDATE_TIME),
+                        dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(),
+                            DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
+                        dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(),
+                            DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
+                        dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(),
+                            DynamicPartitionScheduler.CREATE_PARTITION_MSG),
+                        dynamicPartitionScheduler.getRuntimeInfo(olapTable.getId(),
+                            DynamicPartitionScheduler.DROP_PARTITION_MSG),
+                        dynamicPartitionProperty.getSortedReservedHistoryPeriods(unsortedReservedHistoryPeriods,
+                            dynamicPartitionProperty.getTimeUnit().toUpperCase())));
                 } catch (DdlException e) {
                     e.printStackTrace();
                 } finally {
@@ -1876,7 +1890,8 @@ public class ShowExecutor {
         TransactionStatus status = showStmt.getStatus();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         if (status != TransactionStatus.UNKNOWN) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getDbTransInfoByStatus(db.getId(), status));
+            resultSet =
+                new ShowResultSet(showStmt.getMetaData(), transactionMgr.getDbTransInfoByStatus(db.getId(), status));
         } else {
             Long txnId = showStmt.getTxnId();
             String label = showStmt.getLabel();
@@ -1906,7 +1921,7 @@ public class ShowExecutor {
                 break;
             case FRAGMETNS: {
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(showStmt.getQueryId(),
-                        showStmt.getQueryId());
+                    showStmt.getQueryId());
                 if (treeRoot == null) {
                     throw new AnalysisException("Failed to get fragment tree for query: " + showStmt.getQueryId());
                 }
@@ -1918,14 +1933,15 @@ public class ShowExecutor {
                 // For query profile, there should be only one execution profile,
                 // And the execution id is same as query id
                 List<Triple<String, String, Long>> instanceList
-                        = ProfileManager.getInstance().getFragmentInstanceList(
-                        showStmt.getQueryId(), showStmt.getQueryId(), showStmt.getFragmentId());
+                    = ProfileManager.getInstance().getFragmentInstanceList(
+                    showStmt.getQueryId(), showStmt.getQueryId(), showStmt.getFragmentId());
                 if (instanceList == null) {
-                    throw new AnalysisException("Failed to get instance list for fragment: " + showStmt.getFragmentId());
+                    throw new AnalysisException(
+                        "Failed to get instance list for fragment: " + showStmt.getFragmentId());
                 }
                 for (Triple<String, String, Long> triple : instanceList) {
                     List<String> row = Lists.newArrayList(triple.getLeft(), triple.getMiddle(),
-                            RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
+                        RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
                     rows.add(row);
                 }
                 break;
@@ -1934,9 +1950,10 @@ public class ShowExecutor {
                 // For query profile, there should be only one execution profile,
                 // And the execution id is same as query id
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getQueryId(),
-                        showStmt.getQueryId(), showStmt.getFragmentId(), showStmt.getInstanceId());
+                    showStmt.getQueryId(), showStmt.getFragmentId(), showStmt.getInstanceId());
                 if (treeRoot == null) {
-                    throw new AnalysisException("Failed to get instance tree for instance: " + showStmt.getInstanceId());
+                    throw new AnalysisException(
+                        "Failed to get instance tree for instance: " + showStmt.getInstanceId());
                 }
                 List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
                 rows.add(row);
@@ -1965,14 +1982,14 @@ public class ShowExecutor {
                 // For load profile, there should be only one fragment in each execution profile
                 // And the fragment id is 0.
                 List<Triple<String, String, Long>> instanceList
-                        = ProfileManager.getInstance().getFragmentInstanceList(showStmt.getJobId(),
-                        showStmt.getTaskId(), "0");
+                    = ProfileManager.getInstance().getFragmentInstanceList(showStmt.getJobId(),
+                    showStmt.getTaskId(), "0");
                 if (instanceList == null) {
                     throw new AnalysisException("Failed to get instance list for task: " + showStmt.getTaskId());
                 }
                 for (Triple<String, String, Long> triple : instanceList) {
                     List<String> row = Lists.newArrayList(triple.getLeft(), triple.getMiddle(),
-                            RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
+                        RuntimeProfile.printCounter(triple.getRight(), TUnit.TIME_NS));
                     rows.add(row);
                 }
                 break;
@@ -1981,9 +1998,10 @@ public class ShowExecutor {
                 // For load profile, there should be only one fragment in each execution profile.
                 // And the fragment id is 0.
                 ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(showStmt.getJobId(),
-                        showStmt.getTaskId(), "0", showStmt.getInstanceId());
+                    showStmt.getTaskId(), "0", showStmt.getInstanceId());
                 if (treeRoot == null) {
-                    throw new AnalysisException("Failed to get instance tree for instance: " + showStmt.getInstanceId());
+                    throw new AnalysisException(
+                        "Failed to get instance tree for instance: " + showStmt.getInstanceId());
                 }
                 List<String> row = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
                 rows.add(row);
@@ -2005,11 +2023,12 @@ public class ShowExecutor {
         if (showCreateRoutineLoadStmt.isIncludeHistory()) {
             List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
             try {
-                routineLoadJobList = Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true, null);
+                routineLoadJobList =
+                    Catalog.getCurrentCatalog().getRoutineLoadManager().getJob(dbName, labelName, true, null);
             } catch (MetaNotFoundException e) {
                 LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, labelName)
-                        .add("error_msg", "Routine load cannot be found by this name")
-                        .build(), e);
+                    .add("error_msg", "Routine load cannot be found by this name")
+                    .build(), e);
             }
             if (routineLoadJobList == null) {
                 resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
@@ -2021,25 +2040,29 @@ public class ShowExecutor {
                     tableName = job.getTableName();
                 } catch (MetaNotFoundException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, job.getId())
-                            .add("error_msg", "The table name for this routine load does not exist")
-                            .build(), e);
+                        .add("error_msg", "The table name for this routine load does not exist")
+                        .build(), e);
                 }
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                        dbName,
-                        tableName,
-                        PrivPredicate.LOAD)) {
+                    dbName,
+                    tableName,
+                    PrivPredicate.LOAD)) {
                     resultSet = new ShowResultSet(showCreateRoutineLoadStmt.getMetaData(), rows);
                     continue;
                 }
-                rows.add(Lists.newArrayList(String.valueOf(job.getId()), showCreateRoutineLoadStmt.getLabel(), job.getShowCreateInfo()));
+                rows.add(Lists.newArrayList(String.valueOf(job.getId()), showCreateRoutineLoadStmt.getLabel(),
+                    job.getShowCreateInfo()));
             }
         } else {
             // if job exists
             RoutineLoadJob routineLoadJob;
             try {
-                routineLoadJob = Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
+                routineLoadJob =
+                    Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(dbName, labelName);
                 // get routine load info
-                rows.add(Lists.newArrayList(String.valueOf(routineLoadJob.getId()), showCreateRoutineLoadStmt.getLabel(), routineLoadJob.getShowCreateInfo()));
+                rows.add(
+                    Lists.newArrayList(String.valueOf(routineLoadJob.getId()), showCreateRoutineLoadStmt.getLabel(),
+                        routineLoadJob.getShowCreateInfo()));
             } catch (MetaNotFoundException | DdlException e) {
                 LOG.warn(e.getMessage(), e);
                 throw new AnalysisException(e.getMessage());
@@ -2062,14 +2085,14 @@ public class ShowExecutor {
     private void handleShowTableStats() throws AnalysisException {
         ShowTableStatsStmt showTableStatsStmt = (ShowTableStatsStmt) stmt;
         List<List<String>> results = Catalog.getCurrentCatalog().getStatisticsManager()
-                .showTableStatsList(showTableStatsStmt.getDbName(), showTableStatsStmt.getTableName());
+            .showTableStatsList(showTableStatsStmt.getDbName(), showTableStatsStmt.getTableName());
         resultSet = new ShowResultSet(showTableStatsStmt.getMetaData(), results);
     }
 
     private void handleShowColumnStats() throws AnalysisException {
         ShowColumnStatsStmt showColumnStatsStmt = (ShowColumnStatsStmt) stmt;
         List<List<String>> results = Catalog.getCurrentCatalog().getStatisticsManager()
-                .showColumnStatsList(showColumnStatsStmt.getTableName());
+            .showColumnStatsList(showColumnStatsStmt.getTableName());
         resultSet = new ShowResultSet(showColumnStatsStmt.getMetaData(), results);
     }
 
@@ -2087,7 +2110,7 @@ public class ShowExecutor {
         Database db = ctx.getCatalog().getDbOrAnalysisException(dbName);
 
         List<IcebergTableCreationRecord> records =
-                ctx.getCatalog().getIcebergTableCreationRecordMgr().getTableCreationRecordByDbId(db.getId());
+            ctx.getCatalog().getIcebergTableCreationRecordMgr().getTableCreationRecordByDbId(db.getId());
 
         List<List<Comparable>> rowSet = Lists.newArrayList();
         for (IcebergTableCreationRecord record : records) {

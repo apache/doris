@@ -17,9 +17,9 @@
 
 package org.apache.doris.common.util;
 
-import java.util.Objects;
-
 import org.apache.commons.lang.StringUtils;
+
+import java.util.Objects;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -122,9 +122,9 @@ public class DigitalVersion implements Comparable<DigitalVersion> {
         }
         DigitalVersion version = (DigitalVersion) o;
         return id == version.id &&
-                major == version.major &&
-                minor == version.minor &&
-                revision == version.revision;
+            major == version.major &&
+            minor == version.minor &&
+            revision == version.revision;
     }
 
     @Override

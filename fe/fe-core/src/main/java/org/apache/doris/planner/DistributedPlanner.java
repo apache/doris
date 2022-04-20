@@ -72,7 +72,7 @@ public class DistributedPlanner {
      * Create plan fragments for a single-node plan considering a set of execution options.
      * The fragments are returned in a list such that element i of that list can
      * only consume output of the following fragments j > i.
-     *
+     * <p>
      * TODO: take data partition of the plan fragments into account; in particular,
      * coordinate between hash partitioning for aggregation and hash partitioning
      * for analytic computation more generally than what createQueryPlan() does
@@ -80,7 +80,7 @@ public class DistributedPlanner {
      * the aggregation and analytic computation).
      */
     public ArrayList<PlanFragment> createPlanFragments(
-            PlanNode singleNodePlan) throws UserException, AnalysisException {
+        PlanNode singleNodePlan) throws UserException, AnalysisException {
         Preconditions.checkState(!ctx_.isSingleNodeExec());
         // AnalysisContext.AnalysisResult analysisResult = ctx_.getAnalysisResult();
         QueryStmt queryStmt = ctx_.getQueryStmt();
@@ -111,8 +111,8 @@ public class DistributedPlanner {
     }
 
     PlanFragment createInsertFragment(
-            PlanFragment inputFragment, InsertStmt stmt, ArrayList<PlanFragment> fragments)
-            throws UserException {
+        PlanFragment inputFragment, InsertStmt stmt, ArrayList<PlanFragment> fragments)
+        throws UserException {
         Table targetTable = stmt.getTargetTable();
         Boolean isRepart = stmt.isRepartition();
         // When inputFragment is partitioned:
@@ -182,7 +182,7 @@ public class DistributedPlanner {
      * partitioned; the partition function is derived from the inputs.
      */
     private PlanFragment createPlanFragments(
-            PlanNode root, boolean isPartitioned, ArrayList<PlanFragment> fragments) throws UserException {
+        PlanNode root, boolean isPartitioned, ArrayList<PlanFragment> fragments) throws UserException {
         ArrayList<PlanFragment> childFragments = Lists.newArrayList();
         for (PlanNode child : root.getChildren()) {
             // allow child fragments to be partitioned, unless they contain a limit clause
@@ -193,7 +193,7 @@ public class DistributedPlanner {
             // TODO()
             // if (root instanceof SubplanNode && child == root.getChild(1)) continue;
             childFragments.add(
-                    createPlanFragments(child, childIsPartitioned, fragments));
+                createPlanFragments(child, childIsPartitioned, fragments));
         }
 
         PlanFragment result = null;
@@ -205,10 +205,10 @@ public class DistributedPlanner {
         } else if (root instanceof HashJoinNode) {
             Preconditions.checkState(childFragments.size() == 2);
             result = createHashJoinFragment((HashJoinNode) root,
-                    childFragments.get(1), childFragments.get(0), fragments);
+                childFragments.get(1), childFragments.get(0), fragments);
         } else if (root instanceof CrossJoinNode) {
             result = createCrossJoinFragment((CrossJoinNode) root, childFragments.get(1),
-                    childFragments.get(0));
+                childFragments.get(0));
         } else if (root instanceof SelectNode) {
             result = createSelectNodeFragment((SelectNode) root, childFragments);
         } else if (root instanceof SetOperationNode) {
@@ -234,7 +234,7 @@ public class DistributedPlanner {
             result = createAssertFragment(root, childFragments.get(0));
         } else {
             throw new UserException(
-                    "Cannot create plan fragment for this node type: " + root.getExplainString());
+                "Cannot create plan fragment for this node type: " + root.getExplainString());
         }
         // move 'result' to end, it depends on all of its children
         fragments.remove(result);
@@ -254,12 +254,12 @@ public class DistributedPlanner {
      * Requires that input fragment be partitioned.
      */
     private PlanFragment createMergeFragment(PlanFragment inputFragment)
-            throws UserException {
+        throws UserException {
         Preconditions.checkState(inputFragment.isPartitioned());
 
         // exchange node clones the behavior of its input, aside from the conjuncts
         ExchangeNode mergePlan =
-                new ExchangeNode(ctx_.getNextNodeId(), inputFragment.getPlanRoot(), false);
+            new ExchangeNode(ctx_.getNextNodeId(), inputFragment.getPlanRoot(), false);
         mergePlan.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         mergePlan.init(ctx_.getRootAnalyzer());
         Preconditions.checkState(mergePlan.hasValidStats());
@@ -283,7 +283,7 @@ public class DistributedPlanner {
             // olap scan node
             OlapScanNode olapScanNode = (OlapScanNode) node;
             return new PlanFragment(ctx_.getNextFragmentId(), node,
-                    olapScanNode.constructInputPartitionByDistributionInfo(), DataPartition.RANDOM);
+                olapScanNode.constructInputPartitionByDistributionInfo(), DataPartition.RANDOM);
         } else {
             // other scan nodes are random partitioned: es, broker
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.RANDOM);
@@ -307,9 +307,9 @@ public class DistributedPlanner {
      * and transform it into PlanFragment.
      */
     private PlanFragment createHashJoinFragment(
-            HashJoinNode node, PlanFragment rightChildFragment,
-            PlanFragment leftChildFragment, ArrayList<PlanFragment> fragments)
-            throws UserException {
+        HashJoinNode node, PlanFragment rightChildFragment,
+        PlanFragment leftChildFragment, ArrayList<PlanFragment> fragments)
+        throws UserException {
         List<String> reason = Lists.newArrayList();
         if (canColocateJoin(node, leftChildFragment, rightChildFragment, reason)) {
             node.setColocate(true, "");
@@ -329,9 +329,9 @@ public class DistributedPlanner {
         if (canBucketShuffleJoin(node, leftChildFragment, rhsPartitionxprs)) {
             node.setDistributionMode(HashJoinNode.DistributionMode.BUCKET_SHUFFLE);
             DataPartition rhsJoinPartition =
-                    new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionxprs);
+                new DataPartition(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED, rhsPartitionxprs);
             ExchangeNode rhsExchange =
-                    new ExchangeNode(ctx_.getNextNodeId(), rightChildFragment.getPlanRoot(), false);
+                new ExchangeNode(ctx_.getNextNodeId(), rightChildFragment.getPlanRoot(), false);
             rhsExchange.setNumInstances(rightChildFragment.getPlanRoot().getNumInstances());
             rhsExchange.init(ctx_.getRootAnalyzer());
 
@@ -360,8 +360,8 @@ public class DistributedPlanner {
                 // respect user join hint
                 doBroadcast = true;
             } else if (!node.getInnerRef().isPartitionJoin() && joinCostEvaluation.isBroadcastCostSmaller()
-                    && joinCostEvaluation.constructHashTableSpace()
-                    <= ctx_.getRootAnalyzer().getAutoBroadcastJoinThreshold()) {
+                && joinCostEvaluation.constructHashTableSpace()
+                <= ctx_.getRootAnalyzer().getAutoBroadcastJoinThreshold()) {
                 doBroadcast = true;
             } else {
                 doBroadcast = false;
@@ -399,16 +399,16 @@ public class DistributedPlanner {
 
             // create the parent fragment containing the HashJoin node
             DataPartition lhsJoinPartition = new DataPartition(TPartitionType.HASH_PARTITIONED,
-                    Expr.cloneList(lhsJoinExprs, null));
+                Expr.cloneList(lhsJoinExprs, null));
             ExchangeNode lhsExchange =
-                    new ExchangeNode(ctx_.getNextNodeId(), leftChildFragment.getPlanRoot(), false);
+                new ExchangeNode(ctx_.getNextNodeId(), leftChildFragment.getPlanRoot(), false);
             lhsExchange.setNumInstances(leftChildFragment.getPlanRoot().getNumInstances());
             lhsExchange.init(ctx_.getRootAnalyzer());
 
             DataPartition rhsJoinPartition =
-                    new DataPartition(TPartitionType.HASH_PARTITIONED, rhsJoinExprs);
+                new DataPartition(TPartitionType.HASH_PARTITIONED, rhsJoinExprs);
             ExchangeNode rhsExchange =
-                    new ExchangeNode(ctx_.getNextNodeId(), rightChildFragment.getPlanRoot(), false);
+                new ExchangeNode(ctx_.getNextNodeId(), rightChildFragment.getPlanRoot(), false);
             rhsExchange.setNumInstances(rightChildFragment.getPlanRoot().getNumInstances());
             rhsExchange.init(ctx_.getRootAnalyzer());
 
@@ -481,7 +481,7 @@ public class DistributedPlanner {
             return null;
         }
         ScanNode scanNode = planFragment.getPlanRoot()
-                .getScanNodeInOneFragmentByTupleId(slotRef.getDesc().getParent().getId());
+            .getScanNodeInOneFragmentByTupleId(slotRef.getDesc().getParent().getId());
         if (scanNode == null) {
             cannotReason.add(DistributedPlanColocateRule.REDISTRIBUTED_SRC_DATA);
             return null;
@@ -494,8 +494,9 @@ public class DistributedPlanner {
         }
     }
 
-    private boolean dataDistributionMatchEqPredicate(Map<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> scanNodeWithJoinConjuncts,
-                                                     List<String> cannotReason) {
+    private boolean dataDistributionMatchEqPredicate(
+        Map<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> scanNodeWithJoinConjuncts,
+        List<String> cannotReason) {
         // If left table and right table is same table and they select same single partition or no partition
         // they are naturally colocate relationship no need to check colocate group
         for (Map.Entry<Pair<OlapScanNode, OlapScanNode>, List<BinaryPredicate>> entry : scanNodeWithJoinConjuncts.entrySet()) {
@@ -523,7 +524,7 @@ public class DistributedPlanner {
         Collection<Long> leftPartitions = leftRoot.getSelectedPartitionIds();
         Collection<Long> rightPartitions = rightRoot.getSelectedPartitionIds();
         boolean noNeedCheckColocateGroup = (leftTable.getId() == rightTable.getId())
-                && (leftPartitions.equals(rightPartitions)) && (leftPartitions.size() <= 1);
+            && (leftPartitions.equals(rightPartitions)) && (leftPartitions.size() <= 1);
 
         if (!noNeedCheckColocateGroup) {
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
@@ -571,7 +572,7 @@ public class DistributedPlanner {
 
             //3 the join columns should contains all distribute columns to enable colocate join
             if (leftJoinColumns.containsAll(leftDistributeColumns)
-                    && rightJoinColumns.containsAll(rightDistributeColumns)) {
+                && rightJoinColumns.containsAll(rightDistributeColumns)) {
                 return true;
             }
         }
@@ -619,8 +620,9 @@ public class DistributedPlanner {
         if (leftScanNode.getSelectedPartitionIds().size() != 1) {
             ColocateTableIndex colocateIndex = Catalog.getCurrentColocateIndex();
             if (!leftTable.isColocateTable() ||
-                    colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTable.getId())))
+                colocateIndex.isGroupUnstable(colocateIndex.getGroup(leftTable.getId()))) {
                 return false;
+            }
         }
 
         DistributionInfo leftDistribution = leftScanNode.getOlapTable().getDefaultDistributionInfo();
@@ -629,7 +631,7 @@ public class DistributedPlanner {
             // use the table_name + '-' + column_name as check condition
             List<Column> leftDistributeColumns = ((HashDistributionInfo) leftDistribution).getDistributionColumns();
             List<String> leftDistributeColumnNames = leftDistributeColumns.stream().
-                    map(col -> leftTable.getName() + "." + col.getName()).collect(Collectors.toList());
+                map(col -> leftTable.getName() + "." + col.getName()).collect(Collectors.toList());
 
             List<String> leftJoinColumnNames = new ArrayList<>();
             List<Expr> rightExprs = new ArrayList<>();
@@ -667,7 +669,9 @@ public class DistributedPlanner {
                     }
                 }
 
-                if (!findRhsExprs) return false;
+                if (!findRhsExprs) {
+                    return false;
+                }
             }
         } else {
             return false;
@@ -681,8 +685,8 @@ public class DistributedPlanner {
      * which is the destination of the rightChildFragment's output.
      */
     private PlanFragment createCrossJoinFragment(
-            CrossJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
-            throws UserException {
+        CrossJoinNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment)
+        throws UserException {
         // The rhs tree is going to send data through an exchange node which effectively
         // compacts the data. No reason to do it again at the rhs root node.
         rightChildFragment.getPlanRoot().setCompactData(false);
@@ -705,7 +709,7 @@ public class DistributedPlanner {
     private PlanFragment createMergeNodeFragment(MergeNode mergeNode,
                                                  ArrayList<PlanFragment> childFragments,
                                                  ArrayList<PlanFragment> fragments)
-            throws UserException {
+        throws UserException {
         Preconditions.checkState(mergeNode.getChildren().size() == childFragments.size());
 
         // If the mergeNode only has constant exprs, return it in an unpartitioned fragment.
@@ -720,7 +724,7 @@ public class DistributedPlanner {
         exchNode.setNumInstances(1);
         exchNode.init(ctx_.getRootAnalyzer());
         PlanFragment parentFragment =
-                new PlanFragment(ctx_.getNextFragmentId(), exchNode, DataPartition.UNPARTITIONED);
+            new PlanFragment(ctx_.getNextFragmentId(), exchNode, DataPartition.UNPARTITIONED);
 
         // we don't expect to be paralleling a MergeNode that was inserted solely
         // to evaluate conjuncts (ie, that doesn't explicitly materialize its output)
@@ -744,7 +748,7 @@ public class DistributedPlanner {
             // Clear original constant exprs to make sure nobody else picks them up.
             mergeNode.getConstExprLists().clear();
             PlanFragment childFragment =
-                    new PlanFragment(ctx_.getNextFragmentId(), childMergeNode, DataPartition.UNPARTITIONED);
+                new PlanFragment(ctx_.getNextFragmentId(), childMergeNode, DataPartition.UNPARTITIONED);
             childFragment.setPlanRoot(childMergeNode);
             childFragment.setDestination(exchNode);
             childFragments.add(childFragment);
@@ -758,29 +762,31 @@ public class DistributedPlanner {
      * returned fragment and how the data of the child fragments is consumed depends on the
      * data partitions of the child fragments:
      * - All child fragments are unpartitioned or partitioned: The returned fragment has an
-     *   UNPARTITIONED or RANDOM data partition, respectively. The UnionNode absorbs the
-     *   plan trees of all child fragments.
+     * UNPARTITIONED or RANDOM data partition, respectively. The UnionNode absorbs the
+     * plan trees of all child fragments.
      * - Mixed partitioned/unpartitioned child fragments: The returned fragment is
-     *   RANDOM partitioned. The plan trees of all partitioned child fragments are absorbed
-     *   into the UnionNode. All unpartitioned child fragments are connected to the
-     *   UnionNode via a RANDOM exchange, and remain unchanged otherwise.
+     * RANDOM partitioned. The plan trees of all partitioned child fragments are absorbed
+     * into the UnionNode. All unpartitioned child fragments are connected to the
+     * UnionNode via a RANDOM exchange, and remain unchanged otherwise.
      */
     private PlanFragment createSetOperationNodeFragment(
-            SetOperationNode setOperationNode, ArrayList<PlanFragment> childFragments,
-            ArrayList<PlanFragment> fragments) throws UserException {
+        SetOperationNode setOperationNode, ArrayList<PlanFragment> childFragments,
+        ArrayList<PlanFragment> fragments) throws UserException {
         Preconditions.checkState(setOperationNode.getChildren().size() == childFragments.size());
 
         // A UnionNode could have no children or constant selects if all of its operands
         // were dropped because of constant predicates that evaluated to false.
         if (setOperationNode.getChildren().isEmpty()) {
             return new PlanFragment(
-                    ctx_.getNextFragmentId(), setOperationNode, DataPartition.UNPARTITIONED);
+                ctx_.getNextFragmentId(), setOperationNode, DataPartition.UNPARTITIONED);
         }
 
         Preconditions.checkState(!childFragments.isEmpty());
         int numUnpartitionedChildFragments = 0;
         for (int i = 0; i < childFragments.size(); ++i) {
-            if (!childFragments.get(i).isPartitioned()) ++numUnpartitionedChildFragments;
+            if (!childFragments.get(i).isPartitioned()) {
+                ++numUnpartitionedChildFragments;
+            }
         }
 
         // remove all children to avoid them being tagged with the wrong
@@ -791,7 +797,7 @@ public class DistributedPlanner {
         // with a UnionNode that merges all child fragments.
         if (numUnpartitionedChildFragments == childFragments.size()) {
             PlanFragment setOperationFragment = new PlanFragment(
-                    ctx_.getNextFragmentId(), setOperationNode, DataPartition.UNPARTITIONED);
+                ctx_.getNextFragmentId(), setOperationNode, DataPartition.UNPARTITIONED);
             // Absorb the plan trees of all childFragments into unionNode
             // and fix up the fragment tree in the process.
             for (int i = 0; i < childFragments.size(); ++i) {
@@ -808,8 +814,8 @@ public class DistributedPlanner {
         // There is at least one partitioned child fragment.
         // TODO(ML): here
         PlanFragment setOperationFragment = new PlanFragment(ctx_.getNextFragmentId(), setOperationNode,
-                new DataPartition(TPartitionType.HASH_PARTITIONED,
-                        setOperationNode.getMaterializedResultExprLists().get(0)));
+            new DataPartition(TPartitionType.HASH_PARTITIONED,
+                setOperationNode.getMaterializedResultExprLists().get(0)));
         for (int i = 0; i < childFragments.size(); ++i) {
             PlanFragment childFragment = childFragments.get(i);
             /* if (childFragment.isPartitioned() && childFragment.getPlanRoot().getNumInstances() > 1) {
@@ -835,7 +841,7 @@ public class DistributedPlanner {
             // Connect the unpartitioned child fragments to SetOperationNode via a random exchange.
             connectChildFragment(setOperationNode, i, setOperationFragment, childFragment);
             childFragment.setOutputPartition(
-                    DataPartition.hashPartitioned(setOperationNode.getMaterializedResultExprLists().get(i)));
+                DataPartition.hashPartitioned(setOperationNode.getMaterializedResultExprLists().get(i)));
         }
         return setOperationFragment;
     }
@@ -857,9 +863,9 @@ public class DistributedPlanner {
      * Replace node's child at index childIdx with an ExchangeNode that receives its input from childFragment.
      */
     private void connectChildFragment(
-            PlanNode node, int childIdx,
-            PlanFragment parentFragment, PlanFragment childFragment)
-            throws UserException {
+        PlanNode node, int childIdx,
+        PlanFragment parentFragment, PlanFragment childFragment)
+        throws UserException {
         ExchangeNode exchangeNode = new ExchangeNode(ctx_.getNextNodeId(), childFragment.getPlanRoot(), false);
         exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         exchangeNode.init(ctx_.getRootAnalyzer());
@@ -879,7 +885,7 @@ public class DistributedPlanner {
      * correct for the input).
      */
     private PlanFragment createParentFragment(PlanFragment childFragment, DataPartition parentPartition)
-            throws UserException {
+        throws UserException {
         ExchangeNode exchangeNode = new ExchangeNode(ctx_.getNextNodeId(), childFragment.getPlanRoot(), false);
         exchangeNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         exchangeNode.init(ctx_.getRootAnalyzer());
@@ -899,8 +905,8 @@ public class DistributedPlanner {
      * for the phase 2 AggregationNode.
      */
     private PlanFragment createAggregationFragment(
-            AggregationNode node, PlanFragment childFragment, ArrayList<PlanFragment> fragments)
-            throws UserException {
+        AggregationNode node, PlanFragment childFragment, ArrayList<PlanFragment> fragments)
+        throws UserException {
         if (!childFragment.isPartitioned()) {
             // nothing to distribute; do full aggregation directly within childFragment
             childFragment.addPlanRoot(node);
@@ -923,7 +929,7 @@ public class DistributedPlanner {
 
         // 2nd phase of DISTINCT aggregation
         boolean isDistinct = node.getChild(0) instanceof AggregationNode
-                && ((AggregationNode) (node.getChild(0))).getAggInfo().isDistinctAgg();
+            && ((AggregationNode) (node.getChild(0))).getAggInfo().isDistinctAgg();
         if (isDistinct) {
             return createPhase2DistinctAggregationFragment(node, childFragment, fragments);
         } else {
@@ -946,7 +952,7 @@ public class DistributedPlanner {
         // Condition1
         if (ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             LOG.debug("Agg node is not colocate in:" + ConnectContext.get().queryId()
-                    + ", reason:" + DistributedPlanColocateRule.SESSION_DISABLED);
+                + ", reason:" + DistributedPlanColocateRule.SESSION_DISABLED);
             return false;
         }
 
@@ -961,7 +967,7 @@ public class DistributedPlanner {
     /**
      * The aggPartitionExprs should contains all of data partition columns.
      * Since aggPartitionExprs may be derived from the transformation of the lower tuple,
-     *   it is necessary to find the source expr of itself firstly.
+     * it is necessary to find the source expr of itself firstly.
      * <p>
      * For example:
      * Data Partition: t1.k1, t1.k2
@@ -994,8 +1000,8 @@ public class DistributedPlanner {
     }
 
     private PlanFragment createRepeatNodeFragment(
-            RepeatNode repeatNode, PlanFragment childFragment, ArrayList<PlanFragment> fragments)
-            throws UserException {
+        RepeatNode repeatNode, PlanFragment childFragment, ArrayList<PlanFragment> fragments)
+        throws UserException {
         repeatNode.setNumInstances(childFragment.getPlanRoot().getNumInstances());
         childFragment.addPlanRoot(repeatNode);
         /*
@@ -1038,7 +1044,7 @@ public class DistributedPlanner {
      * aggregation.
      */
     private PlanFragment createMergeAggregationFragment(AggregationNode node, PlanFragment childFragment)
-            throws UserException {
+        throws UserException {
         Preconditions.checkArgument(childFragment.isPartitioned());
         ArrayList<Expr> groupingExprs = node.getAggInfo().getGroupingExprs();
         boolean hasGrouping = !groupingExprs.isEmpty();
@@ -1046,7 +1052,9 @@ public class DistributedPlanner {
         DataPartition parentPartition = null;
         if (hasGrouping) {
             List<Expr> partitionExprs = node.getAggInfo().getPartitionExprs();
-            if (partitionExprs == null) partitionExprs = groupingExprs;
+            if (partitionExprs == null) {
+                partitionExprs = groupingExprs;
+            }
             // boolean childHasCompatPartition = ctx_.getRootAnalyzer().equivSets(partitionExprs,
             //         childFragment.getDataPartition().getPartitionExprs());
             // if (childHasCompatPartition && !childFragment.refsNullableTupleId(partitionExprs)) {
@@ -1061,7 +1069,7 @@ public class DistributedPlanner {
             // the parent fragment is partitioned on the grouping exprs;
             // substitute grouping exprs to reference the *output* of the agg, not the input
             partitionExprs = Expr.substituteList(partitionExprs,
-                    node.getAggInfo().getIntermediateSmap(), ctx_.getRootAnalyzer(), false);
+                node.getAggInfo().getIntermediateSmap(), ctx_.getRootAnalyzer(), false);
             parentPartition = DataPartition.hashPartitioned(partitionExprs);
         } else {
             // the parent fragment is unpartitioned
@@ -1085,7 +1093,7 @@ public class DistributedPlanner {
         // place a merge aggregation step in a new fragment
         PlanFragment mergeFragment = createParentFragment(childFragment, parentPartition);
         AggregationNode mergeAggNode = new AggregationNode(ctx_.getNextNodeId(),
-                mergeFragment.getPlanRoot(), node.getAggInfo().getMergeAggInfo());
+            mergeFragment.getPlanRoot(), node.getAggInfo().getMergeAggInfo());
         mergeAggNode.init(ctx_.getRootAnalyzer());
         mergeAggNode.setLimit(limit);
         // Merge of non-grouping agg only processes one tuple per Impala daemon - codegen
@@ -1114,8 +1122,8 @@ public class DistributedPlanner {
      * as its root and 'node' is the second phase of the distinct aggregation.
      */
     private PlanFragment createPhase2DistinctAggregationFragment(
-            AggregationNode node,
-            PlanFragment childFragment, ArrayList<PlanFragment> fragments) throws UserException {
+        AggregationNode node,
+        PlanFragment childFragment, ArrayList<PlanFragment> fragments) throws UserException {
         ArrayList<Expr> groupingExprs = node.getAggInfo().getGroupingExprs();
         boolean hasGrouping = !groupingExprs.isEmpty();
 
@@ -1136,8 +1144,8 @@ public class DistributedPlanner {
             // parent. The grouping exprs reference the output tuple of the 1st phase, but the
             // partitioning happens on the intermediate tuple of the 1st phase.
             partitionExprs = Expr.substituteList(
-                    groupingExprs, firstPhaseAggInfo.getOutputToIntermediateSmap(),
-                    ctx_.getRootAnalyzer(), false);
+                groupingExprs, firstPhaseAggInfo.getOutputToIntermediateSmap(),
+                ctx_.getRootAnalyzer(), false);
         } else {
             // We need to do
             // - child fragment:
@@ -1149,7 +1157,7 @@ public class DistributedPlanner {
             //   * merge agg of phase 2
             if (!isMultiDistinct) {
                 partitionExprs = Expr.substituteList(firstPhaseAggInfo.getGroupingExprs(),
-                        firstPhaseAggInfo.getIntermediateSmap(), ctx_.getRootAnalyzer(), false);
+                    firstPhaseAggInfo.getIntermediateSmap(), ctx_.getRootAnalyzer(), false);
             }
         }
 
@@ -1163,9 +1171,9 @@ public class DistributedPlanner {
             mergeFragment = childFragment;
         } else {
             DataPartition mergePartition =
-                    partitionExprs == null ? DataPartition.UNPARTITIONED : DataPartition.hashPartitioned(partitionExprs);
+                partitionExprs == null ? DataPartition.UNPARTITIONED : DataPartition.hashPartitioned(partitionExprs);
             // Convert the existing node to a preaggregation.
-            AggregationNode preaggNode = (AggregationNode)node.getChild(0);
+            AggregationNode preaggNode = (AggregationNode) node.getChild(0);
 
             preaggNode.setIsPreagg(ctx_);
 
@@ -1173,7 +1181,7 @@ public class DistributedPlanner {
             mergeFragment = createParentFragment(childFragment, mergePartition);
             AggregateInfo phase1MergeAggInfo = firstPhaseAggInfo.getMergeAggInfo();
             AggregationNode phase1MergeAggNode =
-                    new AggregationNode(ctx_.getNextNodeId(), preaggNode, phase1MergeAggInfo);
+                new AggregationNode(ctx_.getNextNodeId(), preaggNode, phase1MergeAggInfo);
             phase1MergeAggNode.init(ctx_.getRootAnalyzer());
             phase1MergeAggNode.unsetNeedsFinalize();
             phase1MergeAggNode.setIntermediateTuple();
@@ -1188,7 +1196,9 @@ public class DistributedPlanner {
         if (!hasGrouping && !isMultiDistinct) {
             // place the merge aggregation of the 2nd phase in an unpartitioned fragment;
             // add preceding merge fragment at end
-            if (mergeFragment != childFragment) fragments.add(mergeFragment);
+            if (mergeFragment != childFragment) {
+                fragments.add(mergeFragment);
+            }
 
             node.unsetNeedsFinalize();
             node.setIntermediateTuple();
@@ -1198,7 +1208,7 @@ public class DistributedPlanner {
             mergeFragment = createParentFragment(mergeFragment, DataPartition.UNPARTITIONED);
             AggregateInfo phase2MergeAggInfo = node.getAggInfo().getMergeAggInfo();
             AggregationNode phase2MergeAggNode = new AggregationNode(ctx_.getNextNodeId(), node,
-                    phase2MergeAggInfo);
+                phase2MergeAggInfo);
             phase2MergeAggNode.init(ctx_.getRootAnalyzer());
             // Transfer having predicates. If hasGrouping == true, the predicates should
             // instead be evaluated by the 2nd phase agg (the predicates are already there).
@@ -1217,16 +1227,16 @@ public class DistributedPlanner {
      * unpartitioned in the absence of such exprs.
      */
     private PlanFragment createAnalyticFragment(
-            PlanNode node, PlanFragment childFragment, List<PlanFragment> fragments)
-            throws UserException, AnalysisException {
+        PlanNode node, PlanFragment childFragment, List<PlanFragment> fragments)
+        throws UserException, AnalysisException {
         Preconditions.checkState(
-                node instanceof SortNode || node instanceof AnalyticEvalNode);
+            node instanceof SortNode || node instanceof AnalyticEvalNode);
 
         if (node instanceof AnalyticEvalNode) {
             AnalyticEvalNode analyticNode = (AnalyticEvalNode) node;
 
             if (analyticNode.getPartitionExprs().isEmpty()
-                    && analyticNode.getOrderByElements().isEmpty()) {
+                && analyticNode.getOrderByElements().isEmpty()) {
                 // no Partition-By/Order-By exprs: compute analytic exprs in single
                 // unpartitioned fragment
                 PlanFragment fragment = childFragment;
@@ -1247,7 +1257,7 @@ public class DistributedPlanner {
         PlanFragment analyticFragment = childFragment;
         if (sortNode.getInputPartition() != null) {
             sortNode.getInputPartition().substitute(
-                    childFragment.getPlanRoot().getOutputSmap(), ctx_.getRootAnalyzer());
+                childFragment.getPlanRoot().getOutputSmap(), ctx_.getRootAnalyzer());
 
             // Make sure the childFragment's output is partitioned as required by the sortNode.
             // Even if the fragment and the sort partition exprs are equal, an exchange is
@@ -1273,8 +1283,8 @@ public class DistributedPlanner {
      * the correct result.
      */
     private PlanFragment createOrderByFragment(
-            SortNode node, PlanFragment childFragment)
-            throws UserException {
+        SortNode node, PlanFragment childFragment)
+        throws UserException {
         node.setChild(0, childFragment.getPlanRoot());
         childFragment.addPlanRoot(node);
         if (!childFragment.isPartitioned()) {
@@ -1313,7 +1323,7 @@ public class DistributedPlanner {
     }
 
     private PlanFragment createAssertFragment(PlanNode assertRowCountNode, PlanFragment inputFragment)
-            throws UserException {
+        throws UserException {
         Preconditions.checkState(assertRowCountNode instanceof AssertNumRowsNode);
         if (!inputFragment.isPartitioned()) {
             inputFragment.addPlanRoot(assertRowCountNode);

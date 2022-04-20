@@ -17,9 +17,6 @@
 
 package org.apache.doris.planner;
 
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Tested;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -36,13 +33,10 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
 
-import org.apache.log4j.Level;
-import org.apache.log4j.LogManager;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -51,6 +45,9 @@ import java.util.List;
 
 import mockit.Expectations;
 import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Tested;
 
 public class SingleNodePlannerTest {
 
@@ -80,7 +77,7 @@ public class SingleNodePlannerTest {
         };
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(plannerContext);
         Deencapsulation.invoke(singleNodePlanner, "materializeSlotForEmptyMaterializedTableRef",
-                baseTableRef, analyzer);
+            baseTableRef, analyzer);
     }
 
     /*
@@ -178,7 +175,7 @@ public class SingleNodePlannerTest {
         refPlans.add(pair2);
 
         PlanNode cheapestJoinNode =
-                Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
+            Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
         Assert.assertEquals(2, cheapestJoinNode.getChildren().size());
         Assert.assertEquals(scanNode2, cheapestJoinNode.getChild(0));
         Assert.assertEquals(scanNode1, cheapestJoinNode.getChild(1));
@@ -276,7 +273,8 @@ public class SingleNodePlannerTest {
         };
 
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(context);
-        PlanNode cheapestJoinNode = Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
+        PlanNode cheapestJoinNode =
+            Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
         Assert.assertEquals(2, cheapestJoinNode.getChildren().size());
         Assert.assertEquals(true, cheapestJoinNode instanceof HashJoinNode);
         Assert.assertEquals(JoinOperator.LEFT_OUTER_JOIN, ((HashJoinNode) cheapestJoinNode).getJoinOp());
@@ -374,7 +372,8 @@ public class SingleNodePlannerTest {
         };
 
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(context);
-        PlanNode cheapestJoinNode = Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
+        PlanNode cheapestJoinNode =
+            Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
         Assert.assertEquals(2, cheapestJoinNode.getChildren().size());
         Assert.assertEquals(true, cheapestJoinNode instanceof HashJoinNode);
         Assert.assertEquals(JoinOperator.RIGHT_OUTER_JOIN, ((HashJoinNode) cheapestJoinNode).getJoinOp());
@@ -530,7 +529,8 @@ public class SingleNodePlannerTest {
         };
 
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(context);
-        PlanNode cheapestJoinNode = Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
+        PlanNode cheapestJoinNode =
+            Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
         Assert.assertEquals(2, cheapestJoinNode.getChildren().size());
         Assert.assertEquals(true, cheapestJoinNode instanceof HashJoinNode);
         Assert.assertTrue(((HashJoinNode) cheapestJoinNode).getJoinOp().isInnerJoin());
@@ -692,7 +692,8 @@ public class SingleNodePlannerTest {
         };
 
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(context);
-        PlanNode cheapestJoinNode = Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
+        PlanNode cheapestJoinNode =
+            Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
         Assert.assertEquals(2, cheapestJoinNode.getChildren().size());
         Assert.assertEquals(true, cheapestJoinNode instanceof HashJoinNode);
         Assert.assertTrue(((HashJoinNode) cheapestJoinNode).getJoinOp().isInnerJoin());
@@ -997,10 +998,11 @@ public class SingleNodePlannerTest {
         };
 
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(context);
-        PlanNode cheapestJoinNode = Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
+        PlanNode cheapestJoinNode =
+            Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
         Assert.assertEquals(2, cheapestJoinNode.getChildren().size());
         Assert.assertEquals(Lists.newArrayList(tupleId2, tupleId1, tupleId3, tupleId4, tupleId5, tupleId6, tupleId7),
-                cheapestJoinNode.getTupleIds());
+            cheapestJoinNode.getTupleIds());
     }
 
     /*
@@ -1014,25 +1016,29 @@ public class SingleNodePlannerTest {
     */
     @Test
     public void testMultiInnerJoinReorderAvoidCrossJoin(@Injectable PlannerContext context,
-                                          @Injectable Analyzer analyzer,
-                                          @Injectable BaseTableRef tableRef1, @Injectable OlapScanNode scanNode1,
-                                          @Injectable BaseTableRef tableRef2, @Injectable OlapScanNode scanNode2,
-                                          @Injectable BaseTableRef tableRef3, @Injectable OlapScanNode scanNode3,
-                                          @Injectable BaseTableRef tableRef4, @Injectable OlapScanNode scanNode4,
-                                          @Injectable TupleDescriptor tupleDescriptor1,
-                                          @Injectable TupleDescriptor tupleDescriptor2,
-                                          @Injectable TupleDescriptor tupleDescriptor3,
-                                          @Injectable SlotDescriptor slotDescriptor1,
-                                          @Injectable SlotDescriptor slotDescriptor2,
-                                          @Injectable SlotDescriptor slotDescriptor3,
-                                          @Injectable BinaryPredicate eqBinaryPredicate3,
-                                          @Injectable BinaryPredicate eqBinaryPredicate5,
-                                          @Injectable BinaryPredicate eqBinaryPredicate6,
-                                          @Injectable SlotRef eqT1Slot1,
-                                          @Injectable SlotRef eqT2Slot2,
-                                          @Injectable SlotRef eqT3Slot3,
-                                          @Injectable SlotRef eqT4Slot4,
-                                          @Tested ExprSubstitutionMap exprSubstitutionMap) {
+                                                        @Injectable Analyzer analyzer,
+                                                        @Injectable BaseTableRef tableRef1,
+                                                        @Injectable OlapScanNode scanNode1,
+                                                        @Injectable BaseTableRef tableRef2,
+                                                        @Injectable OlapScanNode scanNode2,
+                                                        @Injectable BaseTableRef tableRef3,
+                                                        @Injectable OlapScanNode scanNode3,
+                                                        @Injectable BaseTableRef tableRef4,
+                                                        @Injectable OlapScanNode scanNode4,
+                                                        @Injectable TupleDescriptor tupleDescriptor1,
+                                                        @Injectable TupleDescriptor tupleDescriptor2,
+                                                        @Injectable TupleDescriptor tupleDescriptor3,
+                                                        @Injectable SlotDescriptor slotDescriptor1,
+                                                        @Injectable SlotDescriptor slotDescriptor2,
+                                                        @Injectable SlotDescriptor slotDescriptor3,
+                                                        @Injectable BinaryPredicate eqBinaryPredicate3,
+                                                        @Injectable BinaryPredicate eqBinaryPredicate5,
+                                                        @Injectable BinaryPredicate eqBinaryPredicate6,
+                                                        @Injectable SlotRef eqT1Slot1,
+                                                        @Injectable SlotRef eqT2Slot2,
+                                                        @Injectable SlotRef eqT3Slot3,
+                                                        @Injectable SlotRef eqT4Slot4,
+                                                        @Tested ExprSubstitutionMap exprSubstitutionMap) {
         Pair<TableRef, PlanNode> pair1 = new Pair<>(tableRef1, scanNode1);
         Pair<TableRef, PlanNode> pair2 = new Pair<>(tableRef2, scanNode2);
         Pair<TableRef, PlanNode> pair3 = new Pair<>(tableRef3, scanNode3);
@@ -1176,10 +1182,11 @@ public class SingleNodePlannerTest {
         };
 
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(context);
-        PlanNode cheapestJoinNode = Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
+        PlanNode cheapestJoinNode =
+            Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
         Assert.assertEquals(2, cheapestJoinNode.getChildren().size());
         Assert.assertEquals(Lists.newArrayList(tupleId4, tupleId1, tupleId2, tupleId3),
-                cheapestJoinNode.getTupleIds());
+            cheapestJoinNode.getTupleIds());
     }
 
     /*
@@ -1192,10 +1199,14 @@ public class SingleNodePlannerTest {
     @Test
     public void testMultiInnerJoinMultiJoinPredicateReorder(@Injectable PlannerContext context,
                                                             @Injectable Analyzer analyzer,
-                                                            @Injectable BaseTableRef tableRef1, @Injectable OlapScanNode scanNode1,
-                                                            @Injectable BaseTableRef tableRef2, @Injectable OlapScanNode scanNode2,
-                                                            @Injectable BaseTableRef tableRef3, @Injectable OlapScanNode scanNode3,
-                                                            @Injectable BaseTableRef tableRef4, @Injectable OlapScanNode scanNode4,
+                                                            @Injectable BaseTableRef tableRef1,
+                                                            @Injectable OlapScanNode scanNode1,
+                                                            @Injectable BaseTableRef tableRef2,
+                                                            @Injectable OlapScanNode scanNode2,
+                                                            @Injectable BaseTableRef tableRef3,
+                                                            @Injectable OlapScanNode scanNode3,
+                                                            @Injectable BaseTableRef tableRef4,
+                                                            @Injectable OlapScanNode scanNode4,
                                                             @Injectable TupleDescriptor tupleDescriptor1,
                                                             @Injectable TupleDescriptor tupleDescriptor2,
                                                             @Injectable TupleDescriptor tupleDescriptor3,
@@ -1385,10 +1396,11 @@ public class SingleNodePlannerTest {
         };
 
         SingleNodePlanner singleNodePlanner = new SingleNodePlanner(context);
-        PlanNode cheapestJoinNode = Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
+        PlanNode cheapestJoinNode =
+            Deencapsulation.invoke(singleNodePlanner, "createCheapestJoinPlan", analyzer, refPlans);
         Assert.assertEquals(2, cheapestJoinNode.getChildren().size());
         Assert.assertEquals(Lists.newArrayList(tupleId4, tupleId1, tupleId2, tupleId3),
-                cheapestJoinNode.getTupleIds());
+            cheapestJoinNode.getTupleIds());
     }
 
     /*

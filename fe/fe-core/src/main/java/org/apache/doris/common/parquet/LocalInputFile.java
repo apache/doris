@@ -44,7 +44,7 @@ public class LocalInputFile implements InputFile {
     }
 
     private static int readDirectBuffer(ByteBuffer byteBufr, byte[] tmpBuf, ByteBufReader rdr)
-            throws IOException {
+        throws IOException {
         // copy all the bytes that return immediately, stopping at the first
         // read that doesn't return a full buffer.
         int nextReadLength = Math.min(byteBufr.remaining(), tmpBuf.length);
@@ -69,7 +69,7 @@ public class LocalInputFile implements InputFile {
     }
 
     private static void readFullyDirectBuffer(ByteBuffer byteBufr, byte[] tmpBuf, ByteBufReader rdr)
-            throws IOException {
+        throws IOException {
         int nextReadLength = Math.min(byteBufr.remaining(), tmpBuf.length);
         int bytesRead = 0;
 
@@ -80,7 +80,7 @@ public class LocalInputFile implements InputFile {
 
         if (bytesRead < 0 && byteBufr.remaining() > 0) {
             throw new EOFException(
-                    "Reached the end of stream with " + byteBufr.remaining() + " bytes left to read");
+                "Reached the end of stream with " + byteBufr.remaining() + " bytes left to read");
         }
     }
 

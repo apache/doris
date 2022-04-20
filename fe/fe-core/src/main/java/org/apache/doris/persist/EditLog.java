@@ -178,14 +178,14 @@ public class EditLog {
                 case OperationType.OP_CREATE_TABLE: {
                     CreateTableInfo info = (CreateTableInfo) journal.getData();
                     LOG.info("Begin to unprotect create table. db = "
-                            + info.getDbName() + " table = " + info.getTable().getId());
+                        + info.getDbName() + " table = " + info.getTable().getId());
                     catalog.replayCreateTable(info.getDbName(), info.getTable());
                     break;
                 }
                 case OperationType.OP_ALTER_EXTERNAL_TABLE_SCHEMA: {
                     RefreshExternalTableInfo info = (RefreshExternalTableInfo) journal.getData();
                     LOG.info("Begin to unprotect alter external table schema. db = "
-                            + info.getDbName() + " table = " + info.getTableName());
+                        + info.getDbName() + " table = " + info.getTableName());
                     catalog.replayAlterExternalTableSchema(info.getDbName(), info.getTableName(), info.getNewSchema());
                     break;
                 }
@@ -193,30 +193,30 @@ public class EditLog {
                     DropInfo info = (DropInfo) journal.getData();
                     Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getDbId());
                     LOG.info("Begin to unprotect drop table. db = "
-                            + db.getFullName() + " table = " + info.getTableId());
+                        + db.getFullName() + " table = " + info.getTableId());
                     catalog.replayDropTable(db, info.getTableId(), info.isForceDrop());
                     break;
                 }
                 case OperationType.OP_ADD_PARTITION: {
                     PartitionPersistInfo info = (PartitionPersistInfo) journal.getData();
                     LOG.info("Begin to unprotect add partition. db = " + info.getDbId()
-                            + " table = " + info.getTableId()
-                            + " partitionName = " + info.getPartition().getName());
+                        + " table = " + info.getTableId()
+                        + " partitionName = " + info.getPartition().getName());
                     catalog.replayAddPartition(info);
                     break;
                 }
                 case OperationType.OP_DROP_PARTITION: {
                     DropPartitionInfo info = (DropPartitionInfo) journal.getData();
                     LOG.info("Begin to unprotect drop partition. db = " + info.getDbId()
-                            + " table = " + info.getTableId()
-                            + " partitionName = " + info.getPartitionName());
+                        + " table = " + info.getTableId()
+                        + " partitionName = " + info.getPartitionName());
                     catalog.replayDropPartition(info);
                     break;
                 }
                 case OperationType.OP_MODIFY_PARTITION: {
                     ModifyPartitionInfo info = (ModifyPartitionInfo) journal.getData();
                     LOG.info("Begin to unprotect modify partition. db = " + info.getDbId()
-                            + " table = " + info.getTableId() + " partitionId = " + info.getPartitionId());
+                        + " table = " + info.getTableId() + " partitionId = " + info.getPartitionId());
                     catalog.getAlterInstance().replayModifyPartition(info);
                     break;
                 }
@@ -282,7 +282,7 @@ public class EditLog {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
                         catalog.getRollupHandler().replayDropRollup(
-                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false), catalog);
+                            new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false), catalog);
                     }
                     break;
                 }
@@ -462,8 +462,8 @@ public class EditLog {
                     int version = Integer.parseInt(versionString);
                     if (version > FeConstants.meta_version) {
                         LOG.error("meta data version is out of date, image: {}. meta: {}."
-                                        + "please update FeConstants.meta_version and restart.",
-                                MetaContext.get().getMetaVersion(), FeConstants.meta_version);
+                                + "please update FeConstants.meta_version and restart.",
+                            MetaContext.get().getMetaVersion(), FeConstants.meta_version);
                         System.exit(-1);
                     }
                     MetaContext.get().setMetaVersion(version);
@@ -542,7 +542,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BATCH_REMOVE_TXNS: {
-                    final BatchRemoveTransactionsOperation operation = (BatchRemoveTransactionsOperation) journal.getData();
+                    final BatchRemoveTransactionsOperation operation =
+                        (BatchRemoveTransactionsOperation) journal.getData();
                     Catalog.getCurrentGlobalTransactionMgr().replayBatchRemoveTransactions(operation);
                     break;
                 }
@@ -643,7 +644,7 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_LOAD_JOB: {
                     org.apache.doris.load.loadv2.LoadJob loadJob =
-                            (org.apache.doris.load.loadv2.LoadJob) journal.getData();
+                        (org.apache.doris.load.loadv2.LoadJob) journal.getData();
                     catalog.getLoadManager().replayCreateLoadJob(loadJob);
                     break;
                 }
@@ -726,17 +727,22 @@ public class EditLog {
                 case OperationType.OP_DYNAMIC_PARTITION:
                 case OperationType.OP_MODIFY_IN_MEMORY:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
-                    ModifyTablePropertyOperationLog modifyTablePropertyOperationLog = (ModifyTablePropertyOperationLog) journal.getData();
+                    ModifyTablePropertyOperationLog modifyTablePropertyOperationLog =
+                        (ModifyTablePropertyOperationLog) journal.getData();
                     catalog.replayModifyTableProperty(opCode, modifyTablePropertyOperationLog);
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
-                    ModifyTableDefaultDistributionBucketNumOperationLog modifyTableDefaultDistributionBucketNumOperationLog = (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
-                    catalog.replayModifyTableDefaultDistributionBucketNum(modifyTableDefaultDistributionBucketNumOperationLog);
+                    ModifyTableDefaultDistributionBucketNumOperationLog
+                        modifyTableDefaultDistributionBucketNumOperationLog =
+                        (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
+                    catalog.replayModifyTableDefaultDistributionBucketNum(
+                        modifyTableDefaultDistributionBucketNumOperationLog);
                     break;
                 }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
-                    ReplacePartitionOperationLog replaceTempPartitionLog = (ReplacePartitionOperationLog) journal.getData();
+                    ReplacePartitionOperationLog replaceTempPartitionLog =
+                        (ReplacePartitionOperationLog) journal.getData();
                     catalog.replayReplaceTempPartition(replaceTempPartitionLog);
                     break;
                 }
@@ -891,12 +897,12 @@ public class EditLog {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {}",
-                    txId, numTransactions, totalTimeTransactions, op);
+                txId, numTransactions, totalTimeTransactions, op);
         }
 
         if (txId >= Config.edit_log_roll_num) {
             LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.",
-                    txId, Config.edit_log_roll_num);
+                txId, Config.edit_log_roll_num);
             rollEditLog();
             txId = 0;
         }

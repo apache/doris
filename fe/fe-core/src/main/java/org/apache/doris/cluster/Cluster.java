@@ -41,7 +41,6 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * cluster only save db and user's id and name
- * 
  */
 public class Cluster implements Writable {
     private static final Logger LOG = LogManager.getLogger(Cluster.class);
@@ -215,7 +214,7 @@ public class Cluster implements Writable {
         }
 
         String errMsg = String.format("%d vs %d, fatal error, Write cluster meta failed!",
-                dbNames.size(), dbIds.size() + 1);
+            dbNames.size(), dbIds.size() + 1);
         // ensure we have removed InfoSchemaDb id
         Preconditions.checkState(dbNames.size() == dbIds.size() + 1, errMsg);
 

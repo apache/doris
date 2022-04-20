@@ -64,7 +64,7 @@ public class DemoTest {
 
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+        FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.default_scheduler_interval_millisecond = 10;
         UtFrameUtils.createDorisCluster(runningDir);
     }
@@ -85,7 +85,8 @@ public class DemoTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
         // 3. create table tbl1
-        String createTblStmtStr = "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        String createTblStmtStr =
+            "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
         // 4. get and test the created db and table
@@ -109,7 +110,8 @@ public class DemoTest {
         Assert.assertEquals(1, alterJobs.size());
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
-                System.out.println("alter job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
+                System.out.println(
+                    "alter job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(1000);
             }
             System.out.println("alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());

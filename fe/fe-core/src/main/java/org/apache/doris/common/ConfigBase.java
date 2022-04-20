@@ -18,12 +18,13 @@
 package org.apache.doris.common;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -45,13 +46,17 @@ import java.util.stream.Stream;
 
 public class ConfigBase {
     private static final Logger LOG = LogManager.getLogger(ConfigBase.class);
-    
+
     @Retention(RetentionPolicy.RUNTIME)
     public @interface ConfField {
         String value() default "";
+
         boolean mutable() default false;
+
         boolean masterOnly() default false;
+
         String comment() default "";
+
         Class<? extends ConfHandler> callback() default DefaultConfHandler.class;
     }
 
@@ -61,7 +66,7 @@ public class ConfigBase {
 
     static class DefaultConfHandler implements ConfHandler {
         @Override
-        public void handle(Field field, String confVal) throws Exception{
+        public void handle(Field field, String confVal) throws Exception {
             setConfigField(field, confVal);
         }
     }
@@ -190,14 +195,14 @@ public class ConfigBase {
             if (anno == null) {
                 continue;
             }
-            
+
             // ensure that field has property string
             String confKey = anno.value().equals("") ? f.getName() : anno.value();
             String confVal = props.getProperty(confKey);
             if (Strings.isNullOrEmpty(confVal)) {
                 continue;
             }
-            
+
             setConfigField(f, confVal);
 
             // to be compatible with old version
@@ -289,7 +294,7 @@ public class ConfigBase {
         throw new IllegalArgumentException("type mismatch");
     }
 
-    public synchronized static void setMutableConfig(String key, String value) throws DdlException {
+    public static synchronized void setMutableConfig(String key, String value) throws DdlException {
         Field field = confFields.get(key);
         if (field == null) {
             throw new DdlException("Config '" + key + "' does not exist");
@@ -299,7 +304,7 @@ public class ConfigBase {
         if (!anno.mutable()) {
             throw new DdlException("Config '" + key + "' is not mutable");
         }
-        if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()){
+        if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()) {
             throw new DdlException("Config '" + key + "' is master only");
         }
 
@@ -312,7 +317,7 @@ public class ConfigBase {
         LOG.info("set config {} to {}", key, value);
     }
 
-    public synchronized static List<List<String>> getConfigInfo(PatternMatcher matcher) {
+    public static synchronized List<List<String>> getConfigInfo(PatternMatcher matcher) {
         return confFields.entrySet().stream().sorted(Map.Entry.comparingByKey()).flatMap(e -> {
             String confKey = e.getKey();
             Field f = e.getValue();
@@ -332,7 +337,7 @@ public class ConfigBase {
         }).collect(Collectors.toList());
     }
 
-    public synchronized static boolean checkIsMasterOnly(String key) {
+    public static synchronized boolean checkIsMasterOnly(String key) {
         Field f = confFields.get(key);
         if (f == null) {
             return false;
@@ -343,11 +348,12 @@ public class ConfigBase {
     }
 
     // use synchronized to make sure only one thread modify this file
-    public synchronized static void persistConfig(Map<String, String> customConf, boolean resetPersist) throws IOException {
+    public static synchronized void persistConfig(Map<String, String> customConf, boolean resetPersist)
+        throws IOException {
         File file = new File(customConfFile);
         if (!file.exists()) {
             file.createNewFile();
-        } else if (resetPersist){
+        } else if (resetPersist) {
             // clear the customConfFile content
             try (PrintWriter writer = new PrintWriter(file)) {
                 writer.print("");
@@ -363,8 +369,8 @@ public class ConfigBase {
 
         try (FileOutputStream fos = new FileOutputStream(file)) {
             props.store(fos, "THIS IS AN AUTO GENERATED CONFIG FILE.\n"
-                    + "You can modify this file manually, and the configurations in this file\n"
-                    + "will overwrite the configurations in fe.conf");
+                + "You can modify this file manually, and the configurations in this file\n"
+                + "will overwrite the configurations in fe.conf");
         }
     }
 }

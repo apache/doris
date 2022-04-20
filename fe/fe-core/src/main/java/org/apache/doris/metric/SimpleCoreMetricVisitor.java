@@ -22,13 +22,14 @@ import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 
 import java.util.Iterator;
 import java.util.Map;
+
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.Snapshot;
 
 /*
  * SimpleCoreMetricVisitor only show some core metrics of FE, with format:
@@ -60,6 +61,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     private int metricNumber = 0;
 
     private static final Map<String, String> CORE_METRICS = Maps.newHashMap();
+
     static {
         CORE_METRICS.put(MAX_JOURMAL_ID, TYPE_LONG);
         CORE_METRICS.put(CONNECTION_TOTAL, TYPE_LONG);
@@ -110,10 +112,10 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
 
         if (CORE_METRICS.get(metric.getName()).equals(TYPE_DOUBLE)) {
             sb.append(Joiner.on(" ").join(prefix + "_" + metric.getName(), TYPE_DOUBLE,
-                    String.format("%.2f", Double.valueOf(metric.getValue().toString())))).append("\n");
+                String.format("%.2f", Double.valueOf(metric.getValue().toString())))).append("\n");
         } else {
             sb.append(Joiner.on(" ").join(prefix + "_" + metric.getName(), CORE_METRICS.get(metric.getName()),
-                    metric.getValue().toString())).append("\n");
+                metric.getValue().toString())).append("\n");
         }
         return;
     }
@@ -125,19 +127,21 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         }
         Snapshot snapshot = histogram.getSnapshot();
         sb.append(Joiner.on(" ").join(prefix + "_" + name + "_75", CORE_METRICS.get(name),
-                String.format("%.0f", snapshot.get75thPercentile()))).append("\n");
+            String.format("%.0f", snapshot.get75thPercentile()))).append("\n");
         sb.append(Joiner.on(" ").join(prefix + "_" + name + "_95", CORE_METRICS.get(name),
-                String.format("%.0f", snapshot.get95thPercentile()))).append("\n");
+            String.format("%.0f", snapshot.get95thPercentile()))).append("\n");
         sb.append(Joiner.on(" ").join(prefix + "_" + name + "_99", CORE_METRICS.get(name),
-                String.format("%.0f", snapshot.get99thPercentile()))).append("\n");
+            String.format("%.0f", snapshot.get99thPercentile()))).append("\n");
         return;
     }
 
     @Override
     public void getNodeInfo(StringBuilder sb) {
         long feDeadNum = Catalog.getCurrentCatalog().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
-        long beDeadNum = Catalog.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive()).count();
-        long brokerDeadNum =  Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count();
+        long beDeadNum =
+            Catalog.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive()).count();
+        long brokerDeadNum =
+            Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count();
         sb.append(prefix + "_frontend_dead_num").append(" ").append(String.valueOf(feDeadNum)).append("\n");
         sb.append(prefix + "_backend_dead_num").append(" ").append(String.valueOf(beDeadNum)).append("\n");
         sb.append(prefix + "_broker_dead_num").append(" ").append(String.valueOf(brokerDeadNum)).append("\n");

@@ -41,9 +41,9 @@ import java.util.stream.Stream;
 
 public class StatisticProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("DbId").add("DbName").add("TableNum").add("PartitionNum")
-            .add("IndexNum").add("TabletNum").add("ReplicaNum")
-            .build();
+        .add("DbId").add("DbName").add("TableNum").add("PartitionNum")
+        .add("IndexNum").add("TabletNum").add("ReplicaNum")
+        .build();
     private Catalog catalog;
 
     public StatisticProcNode(Catalog catalog) {
@@ -54,12 +54,12 @@ public class StatisticProcNode implements ProcNodeInterface {
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         List<DBStatistic> statistics = catalog.getDbIds().parallelStream()
-                // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : catalog.getDbNullable(id)))
-                .filter(Objects::nonNull).map(DBStatistic::new)
-                // sort by dbName
-                .sorted(Comparator.comparing(db -> db.db.getFullName()))
-                .collect(Collectors.toList());
+            // skip information_schema database
+            .flatMap(id -> Stream.of(id == 0 ? null : catalog.getDbNullable(id)))
+            .filter(Objects::nonNull).map(DBStatistic::new)
+            // sort by dbName
+            .sorted(Comparator.comparing(db -> db.db.getFullName()))
+            .collect(Collectors.toList());
 
         List<List<String>> rows = new ArrayList<>(statistics.size() + 1);
         for (DBStatistic statistic : statistics) {
@@ -97,9 +97,11 @@ public class StatisticProcNode implements ProcNodeInterface {
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
-                        ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
+                        ReplicaAllocation replicaAlloc =
+                            olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
                         ++partitionNum;
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
+                            IndexExtState.VISIBLE)) {
                             ++indexNum;
                             List<Tablet> tablets = materializedIndex.getTablets();
                             for (int i = 0; i < tablets.size(); ++i) {

@@ -32,10 +32,10 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Arrays;
+
 import mockit.Expectations;
 import mockit.Mocked;
-
-import java.util.Arrays;
 
 public class ShowDataStmtTest {
 
@@ -56,7 +56,6 @@ public class ShowDataStmtTest {
     public void setUp() throws UserException {
         auth = new PaloAuth();
 
-        
 
         new Expectations() {
             {
@@ -111,7 +110,7 @@ public class ShowDataStmtTest {
                 result = "192.168.1.1";
             }
         };
-        
+
 
         new Expectations() {
             {
@@ -128,7 +127,7 @@ public class ShowDataStmtTest {
                 result = true;
             }
         };
-        
+
         AccessTestUtil.fetchAdminAccess();
     }
 
@@ -147,12 +146,15 @@ public class ShowDataStmtTest {
 
         stmt = new ShowDataStmt("testDb", "test_tbl", Arrays.asList(orderByElementOne, orderByElementTwo));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW DATA FROM `default_cluster:testDb`.`test_tbl` ORDER BY `ReplicaCount` DESC, `Size` DESC", stmt.toString());
+        Assert.assertEquals(
+            "SHOW DATA FROM `default_cluster:testDb`.`test_tbl` ORDER BY `ReplicaCount` DESC, `Size` DESC",
+            stmt.toString());
         Assert.assertEquals(5, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(true, stmt.hasTable());
 
         stmt = new ShowDataStmt(null, null, Arrays.asList(orderByElementOne, orderByElementTwo));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW DATA FROM `testCluster:testDb` ORDER BY `ReplicaCount` DESC, `Size` DESC", stmt.toString());
+        Assert.assertEquals("SHOW DATA FROM `testCluster:testDb` ORDER BY `ReplicaCount` DESC, `Size` DESC",
+            stmt.toString());
     }
 }

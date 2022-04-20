@@ -25,9 +25,10 @@ public interface TxnStateChangeCallback {
 
     /**
      * this interface is executed before txn committed, it will check if txn could be commit
+     *
      * @param txnState
      * @throws TransactionException if transaction could not be commit or there are some exception before committed,
-     *                                  it will throw this exception. The txn will be committed failed.
+     *                              it will throw this exception. The txn will be committed failed.
      */
     void beforeCommitted(TransactionState txnState) throws TransactionException;
 
@@ -36,7 +37,7 @@ public interface TxnStateChangeCallback {
      *
      * @param txnState
      * @throws TransactionException if transaction could not be abort or there are some exception before aborted,
-     *                                  it will throw this exception. The txn will be aborted failed.
+     *                              it will throw this exception. The txn will be aborted failed.
      */
     void beforeAborted(TransactionState txnState) throws TransactionException;
 
@@ -53,11 +54,11 @@ public interface TxnStateChangeCallback {
      * this interface is executed when transaction has been aborted
      *
      * @param txnState
-     * @param txnStatusChangeReason
-     *            maybe null
+     * @param txnStatusChangeReason maybe null
      * @return
      */
-    void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason) throws UserException;
+    void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
+        throws UserException;
 
     void replayOnAborted(TransactionState txnState);
 

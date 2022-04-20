@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -27,6 +26,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+
+import com.google.gson.annotations.SerializedName;
 
 public class DataSortInfo implements Writable {
     public static final String DATA_SORT_PROPERTY_PREFIX = "data_sort";
@@ -53,7 +54,7 @@ public class DataSortInfo implements Writable {
         }
     }
 
-    public DataSortInfo (TSortType sortType, int colNum) {
+    public DataSortInfo(TSortType sortType, int colNum) {
         this.sortType = sortType;
         this.colNum = colNum;
     }
@@ -97,7 +98,7 @@ public class DataSortInfo implements Writable {
 
     public String toSql() {
         String res = ",\n\"" + DATA_SORT_TYPE + "\" = \"" + this.sortType + "\"" +
-                ",\n\"" + DATA_SORT_COL_NUM + "\" = \"" + this.colNum + "\"";
+            ",\n\"" + DATA_SORT_COL_NUM + "\" = \"" + this.colNum + "\"";
         return res;
     }
 }

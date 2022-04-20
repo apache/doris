@@ -37,8 +37,13 @@ public class DropFunctionStmt extends DdlStmt {
         this.argsDef = argsDef;
     }
 
-    public FunctionName getFunctionName() { return functionName; }
-    public FunctionSearchDesc getFunction() { return function; }
+    public FunctionName getFunctionName() {
+        return functionName;
+    }
+
+    public FunctionSearchDesc getFunction() {
+        return function;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -64,7 +69,7 @@ public class DropFunctionStmt extends DdlStmt {
         return stringBuilder.toString();
     }
 
-    @Override 
+    @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
     }

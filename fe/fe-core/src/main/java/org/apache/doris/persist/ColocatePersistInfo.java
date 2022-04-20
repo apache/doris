@@ -23,9 +23,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -33,6 +31,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import com.clearspring.analytics.util.Lists;
+import com.google.gson.annotations.SerializedName;
 
 /**
  * PersistInfo for ColocateTableIndex
@@ -49,7 +50,8 @@ public class ColocatePersistInfo implements Writable {
 
     }
 
-    public static ColocatePersistInfo createForAddTable(GroupId groupId, long tableId, Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
+    public static ColocatePersistInfo createForAddTable(GroupId groupId, long tableId,
+                                                        Map<Tag, List<List<Long>>> backendsPerBucketSeq) {
         return new ColocatePersistInfo(groupId, tableId, backendsPerBucketSeq);
     }
 
@@ -130,8 +132,8 @@ public class ColocatePersistInfo implements Writable {
         ColocatePersistInfo info = (ColocatePersistInfo) obj;
 
         return tableId == info.tableId
-                && groupId.equals(info.groupId)
-                && backendsPerBucketSeq.equals(info.backendsPerBucketSeq);
+            && groupId.equals(info.groupId)
+            && backendsPerBucketSeq.equals(info.backendsPerBucketSeq);
     }
 
     @Override

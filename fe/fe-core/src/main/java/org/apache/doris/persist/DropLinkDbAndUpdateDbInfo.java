@@ -17,13 +17,13 @@
 
 package org.apache.doris.persist;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 
 public class DropLinkDbAndUpdateDbInfo implements Writable {
 

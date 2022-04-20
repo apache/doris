@@ -36,7 +36,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,6 +49,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+
+import com.google.gson.Gson;
 
 public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
@@ -129,8 +130,8 @@ public class ExportMgr {
 
     // NOTE: jobid and states may both specified, or only one of them, or neither
     public List<List<String>> getExportJobInfosByIdOrState(
-            long dbId, long jobId, String label, boolean isLabelUseLike, Set<ExportJob.JobState> states,
-            ArrayList<OrderByPair> orderByPairs, long limit) throws AnalysisException {
+        long dbId, long jobId, String label, boolean isLabelUseLike, Set<ExportJob.JobState> states,
+        ArrayList<OrderByPair> orderByPairs, long limit) throws AnalysisException {
 
         long resultNum = limit == -1L ? Integer.MAX_VALUE : limit;
         LinkedList<List<Comparable>> exportJobInfos = new LinkedList<List<Comparable>>();
@@ -174,13 +175,13 @@ public class ExportMgr {
                         continue;
                     }
                     if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
-                                                                           db.getFullName(), PrivPredicate.SHOW)) {
+                        db.getFullName(), PrivPredicate.SHOW)) {
                         continue;
                     }
                 } else {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                            tableName.getDb(), tableName.getTbl(),
-                                                                            PrivPredicate.SHOW)) {
+                        tableName.getDb(), tableName.getTbl(),
+                        PrivPredicate.SHOW)) {
                         continue;
                     }
                 }
@@ -274,8 +275,8 @@ public class ExportMgr {
                 Map.Entry<Long, ExportJob> entry = iter.next();
                 ExportJob job = entry.getValue();
                 if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second
-                        && (job.getState() == ExportJob.JobState.CANCELLED
-                            || job.getState() == ExportJob.JobState.FINISHED)) {
+                    && (job.getState() == ExportJob.JobState.CANCELLED
+                    || job.getState() == ExportJob.JobState.FINISHED)) {
                     iter.remove();
                     labelToJobId.remove(job.getLabel(), job.getId());
                 }

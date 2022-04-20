@@ -17,13 +17,10 @@
 
 package org.apache.doris.planner;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
@@ -31,10 +28,13 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.common.AnalysisException;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public abstract class PartitionPrunerV2Base implements PartitionPruner {
     protected final Map<Long, PartitionItem> idToPartitionItem;
@@ -81,16 +81,16 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
     /**
      * It's a little complex to unify the logic of pruning multiple columns partition for both
      * list and range partitions.
-     *
+     * <p>
      * The key point is that the list partitions value are the explicit values of partition columns,
      * however, the range bound for a partition column in multiple columns partition is depended on
      * both other partition columns' range values and the range value itself.
-     *
+     * <p>
      * Let's say we have two partition columns k1, k2:
      * For partition [(1, 5), (1, 10)), the range for k2 is [5, 10).
      * For partition [(1, 5), (2, 10)), the range for k2 is (-∞, +∞).
      * For partition [(1, 10), (2, 5)), the range for k2 is (-∞, 5) union [10, +∞).
-     *
+     * <p>
      * We could try to compute the range bound of every column in multiple columns partition and
      * unify the logic like pruning multiple list columns partition for multiple range ones.
      */

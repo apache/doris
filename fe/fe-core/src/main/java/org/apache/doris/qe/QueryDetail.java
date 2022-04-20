@@ -22,8 +22,8 @@ public class QueryDetail {
         RUNNING,
         FINISHED,
         FAILED,
-        CANCELLED 
-    };
+        CANCELLED
+    }
 
     // When query received, FE will construct a QueryDetail
     // object. This object will set queryId, startTime, sql
@@ -94,7 +94,7 @@ public class QueryDetail {
     public long getEndTime() {
         return endTime;
     }
-     
+
     public void setLatency(long latency) {
         this.latency = latency;
     }

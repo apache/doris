@@ -79,7 +79,7 @@ public class AlterViewStmtTest {
         baseSchema.add(column2);
 
         OlapTable table = new OlapTable(30000, "testTbl",
-                baseSchema, KeysType.AGG_KEYS, new SinglePartitionInfo(), null);
+            baseSchema, KeysType.AGG_KEYS, new SinglePartitionInfo(), null);
         db.createTable(table);
 
 
@@ -116,22 +116,27 @@ public class AlterViewStmtTest {
             Catalog getCurrentCatalog() {
                 return catalog;
             }
+
             @Mock
             PaloAuth getAuth() {
                 return auth;
             }
+
             @Mock
             Database getDbOrDdlException(long dbId) {
                 return db;
             }
+
             @Mock
             Database getDbOrDdlException(String dbName) {
                 return db;
             }
+
             @Mock
             Database getDbOrAnalysisException(long dbId) {
                 return db;
             }
+
             @Mock
             Database getDbOrAnalysisException(String dbName) {
                 return db;
@@ -158,14 +163,16 @@ public class AlterViewStmtTest {
 
         Assert.assertEquals(originStmt, view.getInlineViewDef());
 
-        String alterStmt = "with testTbl_cte (w1, w2) as (select col1, col2 from testDb.testTbl) select w1 as c1, sum(w2) as c2 from testTbl_cte where w1 > 10 group by w1 order by w1";
+        String alterStmt =
+            "with testTbl_cte (w1, w2) as (select col1, col2 from testDb.testTbl) select w1 as c1, sum(w2) as c2 from testTbl_cte where w1 > 10 group by w1 order by w1";
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(alterStmt)));
         QueryStmt alterQueryStmt = (QueryStmt) SqlParserUtils.getFirstStmt(parser);
 
         ColWithComment col1 = new ColWithComment("h1", null);
         ColWithComment col2 = new ColWithComment("h2", null);
 
-        AlterViewStmt alterViewStmt = new AlterViewStmt(new TableName("testDb", "testView"), Lists.newArrayList(col1, col2), alterQueryStmt);
+        AlterViewStmt alterViewStmt =
+            new AlterViewStmt(new TableName("testDb", "testView"), Lists.newArrayList(col1, col2), alterQueryStmt);
         alterViewStmt.analyze(analyzer);
         Catalog catalog1 = analyzer.getCatalog();
         if (catalog1 == null) {
@@ -175,8 +182,9 @@ public class AlterViewStmtTest {
         catalog1.alterView(alterViewStmt);
 
         View newView = (View) db.getTableOrAnalysisException("testView");
-        Assert.assertEquals("WITH testTbl_cte(w1, w2) AS (SELECT `col1` AS `col1`, `col2` AS `col2` FROM `testCluster:testDb`.`testTbl`)" +
-                        " SELECT `w1` AS `h1`, sum(`w2`) AS `h2` FROM `testTbl_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1`",
-                newView.getInlineViewDef());
+        Assert.assertEquals(
+            "WITH testTbl_cte(w1, w2) AS (SELECT `col1` AS `col1`, `col2` AS `col2` FROM `testCluster:testDb`.`testTbl`)" +
+                " SELECT `w1` AS `h1`, sum(`w2`) AS `h2` FROM `testTbl_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1`",
+            newView.getInlineViewDef());
     }
 }

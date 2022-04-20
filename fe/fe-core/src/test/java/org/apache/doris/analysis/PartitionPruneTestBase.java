@@ -48,7 +48,7 @@ public class PartitionPruneTestBase {
 
     private void assertExplainContains(int version, String sql, String subString) throws Exception {
         Assert.assertTrue(String.format("version=%d, sql=%s, expectResult=%s",
-            version, sql, subString),
+                version, sql, subString),
             UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql)
                 .contains(subString));
     }

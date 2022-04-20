@@ -44,6 +44,7 @@ public class MultiLoadMgrTest {
     private ConnectContext context;
     @Mocked
     private SystemInfoService systemInfoService;
+
     @Before
     public void setUp() {
         new Expectations() {
@@ -62,13 +63,14 @@ public class MultiLoadMgrTest {
         };
         new Expectations() {
             {
-                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, (SystemInfoService.BeAvailablePredicate) any,
-                        anyBoolean, anyString, (TStorageMedium) any, (Tag) any);
+                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt,
+                    (SystemInfoService.BeAvailablePredicate) any,
+                    anyBoolean, anyString, (TStorageMedium) any, (Tag) any);
                 minTimes = 0;
                 result = new Delegate() {
                     public synchronized List<Long> seqChooseBackendIdsByStorageMediumAndTag(
-                            int backendNum, SystemInfoService.BeAvailablePredicate availablePredicate,
-                            boolean isCreate, String clusterName, TStorageMedium medium, Tag tag) {
+                        int backendNum, SystemInfoService.BeAvailablePredicate availablePredicate,
+                        boolean isCreate, String clusterName, TStorageMedium medium, Tag tag) {
                         List<Long> beIds = Lists.newArrayList();
                         beIds.add(CatalogMocker.BACKEND1_ID);
                         beIds.add(CatalogMocker.BACKEND2_ID);

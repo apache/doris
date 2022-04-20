@@ -175,7 +175,8 @@ public class ShowLoadStmt extends ShowStmt {
         boolean hasLabel = false;
         boolean hasState = false;
 
-        CHECK: {
+        CHECK:
+        {
             if (subExpr instanceof BinaryPredicate) {
                 BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
                 if (binaryPredicate.getOp() != Operator.EQ) {
@@ -248,8 +249,8 @@ public class ShowLoadStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\","
-                    + " or LABEL LIKE \"matcher\", " + " or STATE = \"PENDING|ETL|LOADING|FINISHED|CANCELLED\", "
-                    + " or compound predicate with operator AND");
+                + " or LABEL LIKE \"matcher\", " + " or STATE = \"PENDING|ETL|LOADING|FINISHED|CANCELLED\", "
+                + " or compound predicate with operator AND");
         }
     }
 

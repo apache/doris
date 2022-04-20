@@ -51,8 +51,8 @@ import java.util.Set;
  * There are two common predicate that will be extracted as following:
  * 1. Common Factors: (a and b) or (a and c) -> a and (b or c)
  * 2. Wide common factors: (1<k1<3 and k2 in ('Marry')) or (2<k1<4 and k2 in ('Tom'))
- *        -> (1<k1<4) and k2 in('Marry','Tom') and (1<k1<3 and k2 in ('Marry')) or (2<k1<4 and k2 in ('Tom'))
- *
+ * -> (1<k1<4) and k2 in('Marry','Tom') and (1<k1<3 and k2 in ('Marry')) or (2<k1<4 and k2 in ('Tom'))
+ * <p>
  * The second rewriting can be controlled by session variable 'extract_wide_range_expr'
  */
 public class ExtractCommonFactorsRule implements ExprRewriteRule {
@@ -64,7 +64,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         if (expr == null) {
             return null;
         } else if (expr instanceof CompoundPredicate
-                && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
+            && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
             Expr rewrittenExpr = extractCommonFactors(exprFormatting((CompoundPredicate) expr), analyzer);
             if (rewrittenExpr != null) {
                 return rewrittenExpr;
@@ -166,8 +166,8 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         Expr result = null;
         if (CollectionUtils.isNotEmpty(commonFactorList)) {
             result = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                    makeCompound(commonFactorList, CompoundPredicate.Operator.AND),
-                    makeCompound(remainingOrClause, CompoundPredicate.Operator.OR));
+                makeCompound(commonFactorList, CompoundPredicate.Operator.AND),
+                makeCompound(remainingOrClause, CompoundPredicate.Operator.OR));
             result.setPrintSqlInParens(true);
         } else {
             result = makeCompound(remainingOrClause, CompoundPredicate.Operator.OR);
@@ -199,8 +199,8 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 }
                 SlotRef columnName = (SlotRef) predicate.getChild(0);
                 if (predicate instanceof BinaryPredicate) {
-                    Range<LiteralExpr> predicateRange = ((BinaryPredicate)predicate).convertToRange();
-                    if (predicateRange == null){
+                    Range<LiteralExpr> predicateRange = ((BinaryPredicate) predicate).convertToRange();
+                    if (predicateRange == null) {
                         continue;
                     }
                     Range<LiteralExpr> range = columnNameToRange.get(columnName);
@@ -221,7 +221,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                     InPredicate intersectInPredicate = columnNameToInPredicate.get(columnName);
                     if (intersectInPredicate == null) {
                         intersectInPredicate = new InPredicate(inPredicate.getChild(0), inPredicate.getListChildren(),
-                                inPredicate.isNotIn());
+                            inPredicate.isNotIn());
                     } else {
                         intersectInPredicate = intersectInPredicate.intersection((InPredicate) predicate);
                     }
@@ -234,7 +234,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
         // 2. merge clause
         Map<SlotRef, RangeSet<LiteralExpr>> resultRangeMap = Maps.newHashMap();
-        for (Map.Entry<SlotRef, Range<LiteralExpr>> entry: columnNameToRangeList.get(0).entrySet()) {
+        for (Map.Entry<SlotRef, Range<LiteralExpr>> entry : columnNameToRangeList.get(0).entrySet()) {
             RangeSet<LiteralExpr> rangeSet = TreeRangeSet.create();
             rangeSet.add(entry.getValue());
             resultRangeMap.put(entry.getKey(), rangeSet);
@@ -294,7 +294,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
         } else if (expr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
             if (binaryPredicate.getChild(0) instanceof SlotRef
-                    && binaryPredicate.getChild(1) instanceof LiteralExpr) {
+                && binaryPredicate.getChild(1) instanceof LiteralExpr) {
                 return true;
             }
             return false;
@@ -311,7 +311,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     private Map<SlotRef, RangeSet<LiteralExpr>> mergeTwoClauseRange(Map<SlotRef, RangeSet<LiteralExpr>> clause1,
                                                                     Map<SlotRef, Range<LiteralExpr>> clause2) {
         Map<SlotRef, RangeSet<LiteralExpr>> result = Maps.newHashMap();
-        for (Map.Entry<SlotRef, RangeSet<LiteralExpr>> clause1Entry: clause1.entrySet()) {
+        for (Map.Entry<SlotRef, RangeSet<LiteralExpr>> clause1Entry : clause1.entrySet()) {
             SlotRef columnName = clause1Entry.getKey();
             Range<LiteralExpr> clause2Value = clause2.get(columnName);
             if (clause2Value == null) {
@@ -337,7 +337,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     private Map<SlotRef, InPredicate> mergeTwoClauseIn(Map<SlotRef, InPredicate> clause1,
                                                        Map<SlotRef, InPredicate> clause2) {
         Map<SlotRef, InPredicate> result = Maps.newHashMap();
-        for (Map.Entry<SlotRef, InPredicate> clause1Entry: clause1.entrySet()) {
+        for (Map.Entry<SlotRef, InPredicate> clause1Entry : clause1.entrySet()) {
             SlotRef columnName = clause1Entry.getKey();
             InPredicate clause2Value = clause2.get(columnName);
             if (clause2Value == null) {
@@ -405,9 +405,10 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
     /**
      * Convert RangeSet to Compound Predicate
-     * @param slotRef: <k1>
+     *
+     * @param slotRef:  <k1>
      * @param rangeSet: {(1,3), (6,7)}
-     * @return: (k1>1 and k1<3) or (k1>6 and k1<7)
+     * @return: (k1 > 1 and k1 < 3) or (k1>6 and k1<7)
      */
     public Expr rangeSetToCompoundPredicate(SlotRef slotRef, RangeSet<LiteralExpr> rangeSet) {
         List<Expr> compoundList = Lists.newArrayList();
@@ -435,7 +436,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                     binaryPredicateList.add(new BinaryPredicate(BinaryPredicate.Operator.GE, slotRef, lowerBound));
                 }
             }
-            if (upperBound !=null) {
+            if (upperBound != null) {
                 if (range.upperBoundType() == BoundType.OPEN) {
                     binaryPredicateList.add(new BinaryPredicate(BinaryPredicate.Operator.LT, slotRef, upperBound));
                 } else {

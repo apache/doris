@@ -21,11 +21,12 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
-import com.sleepycat.je.rep.StateChangeEvent;
-import com.sleepycat.je.rep.StateChangeListener;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import com.sleepycat.je.rep.StateChangeEvent;
+import com.sleepycat.je.rep.StateChangeListener;
 
 public class BDBStateChangeListener implements StateChangeListener {
     public static final Logger LOG = LogManager.getLogger(BDBStateChangeListener.class);

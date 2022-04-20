@@ -24,10 +24,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.proc.TrashProcNode;
-import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.Backend;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableMap;
 
@@ -53,8 +53,8 @@ public class ShowTrashDiskStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
-                && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                        PrivPredicate.OPERATOR)) {
+            && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+            PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
         }
     }

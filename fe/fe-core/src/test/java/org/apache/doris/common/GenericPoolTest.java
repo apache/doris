@@ -96,7 +96,7 @@ public class GenericPoolTest {
             backendService = new GenericPool("BackendService", config, 0);
             // new ThriftService
             TProcessor tprocessor = new BackendService.Processor<BackendService.Iface>(
-                    new InternalProcessor());
+                new InternalProcessor());
             service = new ThriftServer(port, tprocessor);
             service.start();
             Thread.sleep(5000);
@@ -197,7 +197,7 @@ public class GenericPoolTest {
         @Override
         public long getTrashUsedCapacity() throws TException {
             // TODO Auto-generated method stub
-            return 0l;
+            return 0L;
         }
 
         @Override
@@ -238,6 +238,7 @@ public class GenericPoolTest {
             // TODO Auto-generated method stub
             return null;
         }
+
         @Override
         public void cleanTrash() throws TException {
             // TODO Auto-generated method stub
@@ -250,7 +251,7 @@ public class GenericPoolTest {
         BackendService.Client object = backendService.borrowObject(address);
 
         TFetchDataResult result = object.fetchData(new TFetchDataParams(
-                PaloInternalServiceVersion.V1, new TUniqueId()));
+            PaloInternalServiceVersion.V1, new TUniqueId()));
         Assert.assertEquals(result.getPacketNum(), 123);
 
         backendService.returnObject(address, object);

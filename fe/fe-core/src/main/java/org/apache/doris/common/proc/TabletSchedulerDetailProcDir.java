@@ -35,13 +35,13 @@ import java.util.List;
  */
 public class TabletSchedulerDetailProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TabletId").add("Type").add("Medium").add("Status").add("State").add("OrigPrio").add("DynmPrio")
-            .add("SrcBe").add("SrcPath").add("DestBe").add("DestPath").add("Timeout")
-            .add("Create").add("LstSched").add("LstVisit").add("Finished").add("Rate").add("FailedSched")
-            .add("FailedRunning").add("LstAdjPrio").add("VisibleVer").add("VisibleVerHash")
-            .add("CmtVer").add("CmtVerHash").add("ErrMsg")
-            .build();
-    
+        .add("TabletId").add("Type").add("Medium").add("Status").add("State").add("OrigPrio").add("DynmPrio")
+        .add("SrcBe").add("SrcPath").add("DestBe").add("DestPath").add("Timeout")
+        .add("Create").add("LstSched").add("LstVisit").add("Finished").add("Rate").add("FailedSched")
+        .add("FailedRunning").add("LstAdjPrio").add("VisibleVer").add("VisibleVerHash")
+        .add("CmtVer").add("CmtVerHash").add("ErrMsg")
+        .build();
+
     private String type;
     private TabletScheduler tabletScheduler;
 
@@ -54,7 +54,7 @@ public class TabletSchedulerDetailProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        
+
         // get at most 1000 tablet infos
         List<List<String>> tabletInfos = Lists.newArrayList();
         if (type.equals(ClusterBalanceProcDir.PENDING_TABLETS)) {

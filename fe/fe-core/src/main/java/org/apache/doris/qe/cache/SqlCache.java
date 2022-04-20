@@ -46,12 +46,12 @@ public class SqlCache extends Cache {
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
-                .setSqlKey(CacheProxy.getMd5(getSqlWithViewStmt()))
-                .addParams(InternalService.PCacheParam.newBuilder()
-                        .setPartitionKey(latestTable.latestPartitionId)
-                        .setLastVersion(latestTable.latestVersion)
-                        .setLastVersionTime(latestTable.latestTime))
-                .build();
+            .setSqlKey(CacheProxy.getMd5(getSqlWithViewStmt()))
+            .addParams(InternalService.PCacheParam.newBuilder()
+                .setPartitionKey(latestTable.latestPartitionId)
+                .setLastVersion(latestTable.latestVersion)
+                .setLastVersionTime(latestTable.latestTime))
+            .build();
 
         InternalService.PFetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
         if (status.ok() && cacheResult != null && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
@@ -79,8 +79,8 @@ public class SqlCache extends Cache {
         }
 
         InternalService.PUpdateCacheRequest updateRequest =
-                rowBatchBuilder.buildSqlUpdateRequest(getSqlWithViewStmt(), latestTable.latestPartitionId,
-                        latestTable.latestVersion, latestTable.latestTime);
+            rowBatchBuilder.buildSqlUpdateRequest(getSqlWithViewStmt(), latestTable.latestPartitionId,
+                latestTable.latestVersion, latestTable.latestTime);
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();
@@ -92,8 +92,8 @@ public class SqlCache extends Cache {
                 dataSize += value.getDataSize();
             }
             LOG.info("update cache model {}, queryid {}, sqlkey {}, value count {}, row count {}, data size {}",
-                    CacheAnalyzer.CacheMode.Sql, DebugUtil.printId(queryId), DebugUtil.printId(updateRequest.getSqlKey()),
-                    updateRequest.getValuesCount(), rowCount, dataSize);
+                CacheAnalyzer.CacheMode.Sql, DebugUtil.printId(queryId), DebugUtil.printId(updateRequest.getSqlKey()),
+                updateRequest.getValuesCount(), rowCount, dataSize);
         }
     }
 }

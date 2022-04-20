@@ -34,13 +34,14 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.update.UpdatePlanner;
 
+import org.junit.Assert;
+import org.junit.Test;
+
 import java.util.List;
 
 import com.clearspring.analytics.util.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
-import org.junit.Assert;
-import org.junit.Test;
 
 import static org.apache.doris.alter.SchemaChangeHandler.SHADOW_NAME_PRFIX;
 
@@ -67,7 +68,7 @@ public class UpdatePlannerTest {
         SlotRef slotRef = new SlotRef(tableName, "V1");
         IntLiteral intLiteral = new IntLiteral(1);
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                slotRef, intLiteral);
+            slotRef, intLiteral);
         setExprs.add(binaryPredicate);
         TupleDescriptor srcTupleDesc = new TupleDescriptor(tupleIdGenerator_.getNextId());
         SlotDescriptor k1SlotDesc = new SlotDescriptor(slotIdGenerator_.getNextId(), srcTupleDesc);
@@ -85,7 +86,7 @@ public class UpdatePlannerTest {
         fullSchema.add(v1);
         fullSchema.add(shadow_v1);
 
-        new Expectations(){
+        new Expectations() {
             {
                 targetTable.getFullSchema();
                 result = fullSchema;
@@ -129,7 +130,7 @@ public class UpdatePlannerTest {
         SlotRef slotRef = new SlotRef(tableName, "V1");
         IntLiteral intLiteral = new IntLiteral(1);
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                slotRef, intLiteral);
+            slotRef, intLiteral);
         setExprs.add(binaryPredicate);
         TupleDescriptor srcTupleDesc = new TupleDescriptor(tupleIdGenerator_.getNextId());
         SlotDescriptor k1SlotDesc = new SlotDescriptor(slotIdGenerator_.getNextId(), srcTupleDesc);
@@ -147,7 +148,7 @@ public class UpdatePlannerTest {
         fullSchema.add(v1);
         fullSchema.add(new_v2);
 
-        new Expectations(){
+        new Expectations() {
             {
                 targetTable.getFullSchema();
                 result = fullSchema;

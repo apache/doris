@@ -17,8 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.common.io.Text;
+
+import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -120,7 +121,7 @@ public abstract class ColumnType {
 
     public static void write(DataOutput out, Type type) throws IOException {
         Preconditions.checkArgument(type.isScalarType() || type.isArrayType(),
-                "only support scalar type and array serialization");
+            "only support scalar type and array serialization");
         if (type.isScalarType()) {
             ScalarType scalarType = (ScalarType) type;
             Text.writeString(out, scalarType.getPrimitiveType().name());

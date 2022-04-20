@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -63,10 +64,12 @@ public class ShowExportStmtTest {
         Assert.assertEquals("SHOW EXPORT FROM `testCluster:testDb` WHERE `label` LIKE 'ab%' LIMIT 10", stmt.toString());
         Assert.assertTrue(stmt.isLabelUseLike());
 
-        BinaryPredicate statePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
+        BinaryPredicate statePredicate =
+            new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
         stmt = new ShowExportStmt(null, statePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW EXPORT FROM `testCluster:testDb` WHERE `state` = 'PENDING' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW EXPORT FROM `testCluster:testDb` WHERE `state` = 'PENDING' LIMIT 10",
+            stmt.toString());
     }
 
     @Test
@@ -80,7 +83,8 @@ public class ShowExportStmtTest {
         IntLiteral intLiteral2 = new IntLiteral(1);
         LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef2, intLiteral2);
 
-        CompoundPredicate compoundPredicate1 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1, likePredicate);
+        CompoundPredicate compoundPredicate1 =
+            new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1, likePredicate);
         ShowExportStmt stmt1 = new ShowExportStmt(null, compoundPredicate1, null, null);
 
         ExceptionChecker.expectThrows(AnalysisException.class, () -> stmt1.analyze(analyzer));

@@ -27,13 +27,13 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 // SHOW PROC "/bdbje/dbname/"
-public class BDBJEDatabaseProcDir implements ProcDirInterface  {
+public class BDBJEDatabaseProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JournalId").build();
+        .add("JournalId").build();
 
     private String dbName;
 
-    public BDBJEDatabaseProcDir(String dbName){
+    public BDBJEDatabaseProcDir(String dbName) {
         this.dbName = dbName;
     }
 

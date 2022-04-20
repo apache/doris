@@ -89,7 +89,7 @@ public class BrokerLoadErrorHub extends LoadErrorHub {
                 return null;
             }
             TBrokerErrorHubInfo info = new TBrokerErrorHubInfo(new TNetworkAddress(fsBroker.ip, fsBroker.port),
-                    path, prop);
+                path, prop);
             return info;
         }
 
@@ -107,8 +107,8 @@ public class BrokerLoadErrorHub extends LoadErrorHub {
     @Override
     public List<ErrorMsg> fetchLoadError(long jobId) {
         List<ErrorMsg> result = Lists.newArrayList();
-        final String hint = "Find detail load error info on '" 
-                + brokerParam.path + "' with file name showed in 'SHOW LOAD' stmt";
+        final String hint = "Find detail load error info on '"
+            + brokerParam.path + "' with file name showed in 'SHOW LOAD' stmt";
         ErrorMsg errorMsg = new ErrorMsg(0, hint);
         result.add(errorMsg);
         return result;

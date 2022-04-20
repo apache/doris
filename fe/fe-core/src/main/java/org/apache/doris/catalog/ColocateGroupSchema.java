@@ -45,7 +45,8 @@ public class ColocateGroupSchema implements Writable {
 
     }
 
-    public ColocateGroupSchema(GroupId groupId, List<Column> distributionCols, int bucketsNum, ReplicaAllocation replicaAlloc) {
+    public ColocateGroupSchema(GroupId groupId, List<Column> distributionCols, int bucketsNum,
+                               ReplicaAllocation replicaAlloc) {
         this.groupId = groupId;
         this.distributionColTypes = distributionCols.stream().map(c -> c.getType()).collect(Collectors.toList());
         this.bucketsNum = bucketsNum;
@@ -83,14 +84,14 @@ public class ColocateGroupSchema implements Writable {
             // distribution col size
             if (info.getDistributionColumns().size() != distributionColTypes.size()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_SIZE,
-                        distributionColTypes.size());
+                    distributionColTypes.size());
             }
             // distribution col type
             for (int i = 0; i < distributionColTypes.size(); i++) {
                 Type targetColType = distributionColTypes.get(i);
                 if (!targetColType.equals(info.getDistributionColumns().get(i).getType())) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_DISTRIBUTION_COLUMN_TYPE,
-                            info.getDistributionColumns().get(i).getName(), targetColType);
+                        info.getDistributionColumns().get(i).getName(), targetColType);
                 }
             }
         }
@@ -100,7 +101,7 @@ public class ColocateGroupSchema implements Writable {
         for (ReplicaAllocation replicaAlloc : partitionInfo.idToReplicaAllocation.values()) {
             if (!replicaAlloc.equals(this.replicaAlloc)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_ALLOCATION,
-                        this.replicaAlloc);
+                    this.replicaAlloc);
             }
         }
     }
@@ -108,7 +109,7 @@ public class ColocateGroupSchema implements Writable {
     public void checkReplicaAllocation(ReplicaAllocation replicaAlloc) throws DdlException {
         if (!replicaAlloc.equals(this.replicaAlloc)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COLOCATE_TABLE_MUST_HAS_SAME_REPLICATION_ALLOCATION,
-                    this.replicaAlloc);
+                this.replicaAlloc);
         }
     }
 

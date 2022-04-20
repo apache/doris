@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Class for processing all audit events.
- * It will receive audit events and handle them to all AUDIT type plugins. 
+ * It will receive audit events and handle them to all AUDIT type plugins.
  */
 public class AuditEventProcessor {
     private static final Logger LOG = LogManager.getLogger(AuditEventProcessor.class);

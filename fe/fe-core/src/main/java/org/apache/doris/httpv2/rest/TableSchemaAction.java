@@ -53,9 +53,9 @@ public class TableSchemaAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_schema", method = RequestMethod.GET)
     protected Object schema(
-            @PathVariable(value = DB_KEY) final String dbName,
-            @PathVariable(value = TABLE_KEY) final String tblName,
-            HttpServletRequest request, HttpServletResponse response) {
+        @PathVariable(value = DB_KEY) final String dbName,
+        @PathVariable(value = TABLE_KEY) final String tblName,
+        HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
@@ -89,7 +89,8 @@ public class TableSchemaAction extends RestBaseController {
                         baseInfo.put("comment", column.getComment());
                         baseInfo.put("name", column.getDisplayName());
                         Optional aggregationType = Optional.ofNullable(column.getAggregationType());
-                        baseInfo.put("aggregation_type", aggregationType.isPresent() ? column.getAggregationType().toSql() : "");
+                        baseInfo.put("aggregation_type",
+                            aggregationType.isPresent() ? column.getAggregationType().toSql() : "");
                         propList.add(baseInfo);
                     }
                     resultMap.put("status", 200);

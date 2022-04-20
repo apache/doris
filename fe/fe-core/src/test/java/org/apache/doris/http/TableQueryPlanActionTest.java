@@ -37,7 +37,7 @@ import okhttp3.Response;
 
 public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
-    private static  String PATH_URI = "/_query_plan";
+    private static String PATH_URI = "/_query_plan";
     protected static String ES_TABLE_URL;
 
     @Override
@@ -46,14 +46,16 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
         super.setUp();
         ES_TABLE_URL = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/es_table";
     }
+
     @Test
     public void testQueryPlanAction() throws IOException, TException {
-        RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \" }");
+        RequestBody body =
+            RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \" }");
         Request request = new Request.Builder()
-                .post(body)
-                .addHeader("Authorization", rootAuth)
-                .url(URI + PATH_URI)
-                .build();
+            .post(body)
+            .addHeader("Authorization", rootAuth)
+            .url(URI + PATH_URI)
+            .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
         JSONObject jsonObject = (JSONObject) JSONValue.parse(respStr);
@@ -84,10 +86,10 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
     public void testNoSqlFailure() throws IOException {
         RequestBody body = RequestBody.create(JSON, "{}");
         Request request = new Request.Builder()
-                .post(body)
-                .addHeader("Authorization", rootAuth)
-                .url(URI + PATH_URI)
-                .build();
+            .post(body)
+            .addHeader("Authorization", rootAuth)
+            .url(URI + PATH_URI)
+            .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
         System.out.println(respStr);
@@ -103,10 +105,10 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
     public void testEmptySqlFailure() throws IOException {
         RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \"\" }");
         Request request = new Request.Builder()
-                .post(body)
-                .addHeader("Authorization", rootAuth)
-                .url(URI + PATH_URI)
-                .build();
+            .post(body)
+            .addHeader("Authorization", rootAuth)
+            .url(URI + PATH_URI)
+            .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
         System.out.println(respStr);
@@ -120,12 +122,13 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
     @Test
     public void testInconsistentResource() throws IOException {
-        RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + 1 + " \" }");
+        RequestBody body =
+            RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + 1 + " \" }");
         Request request = new Request.Builder()
-                .post(body)
-                .addHeader("Authorization", rootAuth)
-                .url(URI + PATH_URI)
-                .build();
+            .post(body)
+            .addHeader("Authorization", rootAuth)
+            .url(URI + PATH_URI)
+            .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
         System.out.println(respStr);
@@ -139,12 +142,13 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
     @Test
     public void testMalformedJson() throws IOException {
-        RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \"");
+        RequestBody body =
+            RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \"");
         Request request = new Request.Builder()
-                .post(body)
-                .addHeader("Authorization", rootAuth)
-                .url(ES_TABLE_URL + PATH_URI)
-                .build();
+            .post(body)
+            .addHeader("Authorization", rootAuth)
+            .url(ES_TABLE_URL + PATH_URI)
+            .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
         Assert.assertNotNull(respStr);
@@ -157,12 +161,13 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
     @Test
     public void testNotOlapTableFailure() throws IOException {
-        RequestBody body = RequestBody.create("{ \"sql\" :  \" select k1,k2 from " + DB_NAME + ".es_table" + " \" }", JSON);
+        RequestBody body =
+            RequestBody.create("{ \"sql\" :  \" select k1,k2 from " + DB_NAME + ".es_table" + " \" }", JSON);
         Request request = new Request.Builder()
-                .post(body)
-                .addHeader("Authorization", rootAuth)
-                .url(ES_TABLE_URL + PATH_URI)
-                .build();
+            .post(body)
+            .addHeader("Authorization", rootAuth)
+            .url(ES_TABLE_URL + PATH_URI)
+            .build();
         Response response = networkClient.newCall(request).execute();
         String respStr = response.body().string();
         Assert.assertNotNull(respStr);

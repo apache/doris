@@ -28,8 +28,8 @@ import java.util.List;
 // Show unfinished schema change tasks of schema change job v2
 public class SchemaChangeJobProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("BaseTabletId").add("RollupTabletId")
-            .build();
+        .add("BackendId").add("BaseTabletId").add("RollupTabletId")
+        .build();
 
     private SchemaChangeJobV2 job;
 

@@ -100,7 +100,8 @@ public class AgentTaskTest {
         columns.add(new Column("v1", ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "1", ""));
 
         PartitionKey pk1 = PartitionKey.createInfinityPartitionKey(Arrays.asList(columns.get(0)), false);
-        PartitionKey pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("10")), Arrays.asList(columns.get(0)));
+        PartitionKey pk2 =
+            PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("10")), Arrays.asList(columns.get(0)));
         range1 = Range.closedOpen(pk1, pk2);
 
         PartitionKey pk3 = PartitionKey.createInfinityPartitionKey(Arrays.asList(columns.get(0)), true);
@@ -110,41 +111,41 @@ public class AgentTaskTest {
 
         // create
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
-                                                  indexId1, tabletId1, shortKeyNum, schemaHash1,
-                                                  version, KeysType.AGG_KEYS,
-                                                  storageType, TStorageMedium.SSD,
-                                                  columns, null, 0, latch, null,
-                                                  false, TTabletType.TABLET_TYPE_DISK);
+            indexId1, tabletId1, shortKeyNum, schemaHash1,
+            version, KeysType.AGG_KEYS,
+            storageType, TStorageMedium.SSD,
+            columns, null, 0, latch, null,
+            false, TTabletType.TABLET_TYPE_DISK);
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, schemaHash1);
 
         // push
         pushTask =
-                new PushTask(null, backendId1, dbId, tableId, partitionId, indexId1, tabletId1,
-                             replicaId1, schemaHash1, version, "/home/a", 10L, 200, 80000L,
-                             TPushType.LOAD, null, false, TPriority.NORMAL);
+            new PushTask(null, backendId1, dbId, tableId, partitionId, indexId1, tabletId1,
+                replicaId1, schemaHash1, version, "/home/a", 10L, 200, 80000L,
+                TPushType.LOAD, null, false, TPriority.NORMAL);
 
         // clone
         cloneTask =
-                new CloneTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1, schemaHash1,
-                        Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, 3600);
+            new CloneTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1, schemaHash1,
+                Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, 3600);
 
         // rollup
         rollupTask =
-                new CreateRollupTask(null, backendId1, dbId, tableId, partitionId, indexId2, indexId1,
-                                     tabletId2, tabletId1, replicaId2, shortKeyNum, schemaHash2, schemaHash1,
-                                     storageType, columns, null, 0, TKeysType.AGG_KEYS);
+            new CreateRollupTask(null, backendId1, dbId, tableId, partitionId, indexId2, indexId1,
+                tabletId2, tabletId1, replicaId2, shortKeyNum, schemaHash2, schemaHash1,
+                storageType, columns, null, 0, TKeysType.AGG_KEYS);
 
         // schemaChange
         schemaChangeTask =
-                new SchemaChangeTask(null, backendId1, dbId, tableId, partitionId, indexId1, 
-                                     tabletId1, replicaId1, columns, schemaHash2, schemaHash1, 
-                                     shortKeyNum, storageType, null, 0, TKeysType.AGG_KEYS);
+            new SchemaChangeTask(null, backendId1, dbId, tableId, partitionId, indexId1,
+                tabletId1, replicaId1, columns, schemaHash2, schemaHash1,
+                shortKeyNum, storageType, null, 0, TKeysType.AGG_KEYS);
 
         // storageMediaMigrationTask
         storageMediaMigrationTask =
-                new StorageMediaMigrationTask(backendId1, tabletId1, schemaHash1, TStorageMedium.HDD);
+            new StorageMediaMigrationTask(backendId1, tabletId1, schemaHash1, TStorageMedium.HDD);
         ((StorageMediaMigrationTask) storageMediaMigrationTask).setDataDir("/home/a");
     }
 
@@ -153,7 +154,7 @@ public class AgentTaskTest {
         // add null
         agentBatchTask.addTask(null);
         Assert.assertEquals(0, agentBatchTask.getTaskNum());
-        
+
         // normal
         agentBatchTask.addTask(createReplicaTask);
         Assert.assertEquals(1, agentBatchTask.getTaskNum());
@@ -178,7 +179,7 @@ public class AgentTaskTest {
     @Test
     public void toThriftTest() throws Exception {
         Class<? extends AgentBatchTask> agentBatchTaskClass = agentBatchTask.getClass();
-        Class[] typeParams = new Class[] { AgentTask.class };
+        Class[] typeParams = new Class[]{AgentTask.class};
         Method toAgentTaskRequest = agentBatchTaskClass.getDeclaredMethod("toAgentTaskRequest", typeParams);
         toAgentTaskRequest.setAccessible(true);
 

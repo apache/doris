@@ -100,10 +100,12 @@ public class LoadLoadingTask extends LoadTask {
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
     }
 
-    public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum, UserIdentity userInfo) throws UserException {
+    public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum, UserIdentity userInfo)
+        throws UserException {
         this.loadId = loadId;
         planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table,
-                brokerDesc, fileGroups, strictMode, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism, userInfo);
+            brokerDesc, fileGroups, strictMode, timezone, this.timeoutS, this.loadParallelism,
+            this.sendBatchParallelism, userInfo);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
@@ -114,7 +116,7 @@ public class LoadLoadingTask extends LoadTask {
     @Override
     protected void executeTask() throws Exception {
         LOG.info("begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
-                DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
+            DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
         retryTime--;
         beginTime = System.nanoTime();
         if (!((BrokerLoadJob) callback).updateState(JobState.LOADING)) {
@@ -127,7 +129,7 @@ public class LoadLoadingTask extends LoadTask {
     private void executeOnce() throws Exception {
         // New one query id,
         Coordinator curCoordinator = new Coordinator(callback.getCallbackId(), loadId, planner.getDescTable(),
-                planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
+            planner.getFragments(), planner.getScanNodes(), planner.getTimezone(), loadZeroTolerance);
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
         /*
@@ -156,20 +158,20 @@ public class LoadLoadingTask extends LoadTask {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                    .add("task_id", signature)
-                    .add("query_id", DebugUtil.printId(curCoordinator.getQueryId()))
-                    .add("msg", "begin to execute plan")
-                    .build());
+                .add("task_id", signature)
+                .add("query_id", DebugUtil.printId(curCoordinator.getQueryId()))
+                .add("msg", "begin to execute plan")
+                .build());
         }
         curCoordinator.exec();
         if (curCoordinator.join(waitSecond)) {
             Status status = curCoordinator.getExecStatus();
             if (status.ok()) {
                 attachment = new BrokerLoadingTaskAttachment(signature,
-                        curCoordinator.getLoadCounters(),
-                        curCoordinator.getTrackingUrl(),
-                        TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()),
-                        ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()));
+                    curCoordinator.getLoadCounters(),
+                    curCoordinator.getTrackingUrl(),
+                    TabletCommitInfo.fromThrift(curCoordinator.getCommitInfos()),
+                    ErrorTabletInfo.fromThrift(curCoordinator.getErrorTabletInfos()));
                 // Create profile of this task and add to the job profile.
                 createProfile(curCoordinator);
             } else {

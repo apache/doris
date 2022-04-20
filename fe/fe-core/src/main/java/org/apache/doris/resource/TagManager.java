@@ -24,7 +24,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -33,10 +32,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import com.google.gson.annotations.SerializedName;
+
 /*
  * TagManager maintains 2 indexes:
  *      one is from tag to resource.
- *      one is from resource to tags 
+ *      one is from resource to tags
  * The caller can get a set of resources based on a given set of Tags
  */
 public class TagManager implements Writable {

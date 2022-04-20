@@ -87,7 +87,7 @@ public class BackupStmt extends AbstractBackupStmt {
                 type = BackupType.valueOf(typeProp.toUpperCase());
             } catch (Exception e) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                        "Invalid backup job type: " + typeProp);
+                    "Invalid backup job type: " + typeProp);
             }
             copiedProperties.remove(PROP_TYPE);
         }
@@ -98,14 +98,14 @@ public class BackupStmt extends AbstractBackupStmt {
                 content = BackupContent.valueOf(contentProp.toUpperCase());
             } catch (IllegalArgumentException e) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                        "Invalid backup job content:" + contentProp);
+                    "Invalid backup job content:" + contentProp);
             }
             copiedProperties.remove(PROP_CONTENT);
         }
 
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                    "Unknown backup job properties: " + copiedProperties.keySet());
+                "Unknown backup job properties: " + copiedProperties.keySet());
         }
     }
 

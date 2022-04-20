@@ -48,30 +48,30 @@ public class StmtRewriter {
      * statement is returned.
      */
     public static StatementBase rewrite(Analyzer analyzer, StatementBase parsedStmt)
-            throws AnalysisException {
+        throws AnalysisException {
         if (parsedStmt instanceof QueryStmt) {
             QueryStmt analyzedStmt = (QueryStmt) parsedStmt;
             Preconditions.checkNotNull(analyzedStmt.analyzer);
             return rewriteQueryStatement(analyzedStmt, analyzer);
         } else if (parsedStmt instanceof InsertStmt) {
-            final InsertStmt insertStmt = (InsertStmt)parsedStmt;
-            final QueryStmt analyzedStmt = (QueryStmt)insertStmt.getQueryStmt();
+            final InsertStmt insertStmt = (InsertStmt) parsedStmt;
+            final QueryStmt analyzedStmt = (QueryStmt) insertStmt.getQueryStmt();
             Preconditions.checkNotNull(analyzedStmt.analyzer);
             QueryStmt rewrittenQueryStmt = rewriteQueryStatement(analyzedStmt, analyzer);
             insertStmt.setQueryStmt(rewrittenQueryStmt);
         } else {
             throw new AnalysisException("Unsupported statement containing subqueries: "
-                    + parsedStmt.toSql());
+                + parsedStmt.toSql());
         }
         return parsedStmt;
     }
 
-  /**
-   *  Calls the appropriate equal method based on the specific type of query stmt. See
-   *  rewriteSelectStatement() and rewriteUnionStatement() documentation.
-   */
+    /**
+     * Calls the appropriate equal method based on the specific type of query stmt. See
+     * rewriteSelectStatement() and rewriteUnionStatement() documentation.
+     */
     public static QueryStmt rewriteQueryStatement(QueryStmt stmt, Analyzer analyzer)
-            throws AnalysisException {
+        throws AnalysisException {
         Preconditions.checkNotNull(stmt);
         if (stmt instanceof SelectStmt) {
             return rewriteSelectStatement((SelectStmt) stmt, analyzer);
@@ -79,20 +79,22 @@ public class StmtRewriter {
             rewriteUnionStatement((SetOperationStmt) stmt, analyzer);
         } else {
             throw new AnalysisException("Subqueries not supported for "
-                    + stmt.getClass().getSimpleName() + " statements");
+                + stmt.getClass().getSimpleName() + " statements");
         }
         return stmt;
     }
 
     private static SelectStmt rewriteSelectStatement(SelectStmt stmt, Analyzer analyzer)
-            throws AnalysisException {
+        throws AnalysisException {
         SelectStmt result = stmt;
         // Rewrite all the subqueries in the FROM clause.
-        for (TableRef tblRef: result.fromClause_) {
-            if (!(tblRef instanceof InlineViewRef)) continue;
-            InlineViewRef inlineViewRef = (InlineViewRef)tblRef;
+        for (TableRef tblRef : result.fromClause_) {
+            if (!(tblRef instanceof InlineViewRef)) {
+                continue;
+            }
+            InlineViewRef inlineViewRef = (InlineViewRef) tblRef;
             QueryStmt rewrittenQueryStmt = rewriteQueryStatement(inlineViewRef.getViewStmt(),
-                    inlineViewRef.getAnalyzer());
+                inlineViewRef.getAnalyzer());
             inlineViewRef.setViewStmt(rewrittenQueryStmt);
         }
         // Rewrite all the subqueries in the WHERE clause.
@@ -103,13 +105,13 @@ public class StmtRewriter {
             // subqueries are not supported.
             if (hasSubqueryInDisjunction(result.whereClause)) {
                 throw new AnalysisException("Subqueries in OR predicates are not supported: "
-                        + result.whereClause.toSql());
+                    + result.whereClause.toSql());
             }
             rewriteWhereClauseSubqueries(result, analyzer);
         }
         // Rewrite all subquery in the having clause
         if (result.getHavingClauseAfterAnaylzed() != null
-                && result.getHavingClauseAfterAnaylzed().getSubquery() != null) {
+            && result.getHavingClauseAfterAnaylzed().getSubquery() != null) {
             result = rewriteHavingClauseSubqueries(result, analyzer);
         }
         result.sqlString_ = null;
@@ -127,37 +129,38 @@ public class StmtRewriter {
      * For example:
      * select cs_item_sk, sum(cs_sales_price) from catalog_sales a group by cs_item_sk
      * having sum(cs_sales_price) >
-     *        (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk);
+     * (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk);
      * <p>
      * Step1: equal having subquery to where subquery
      * Outer query is changed to inline view in rewritten query
      * Inline view of outer query:
-     *     from (select cs_item_sk, sum(cs_sales_price) sum_cs_sales_price from catalog_sales group by cs_item_sk) a
+     * from (select cs_item_sk, sum(cs_sales_price) sum_cs_sales_price from catalog_sales group by cs_item_sk) a
      * Rewritten subquery of expr:
-     *     where a.sum_cs_sales_price >
-     *           (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk)
+     * where a.sum_cs_sales_price >
+     * (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk)
      * Rewritten query:
-     *     select cs_item_sk, a.sum_cs_sales_price from
-     *     (select cs_item_sk, sum(cs_sales_price) sum_cs_sales_price from catalog_sales group by cs_item_sk) a
-     *     where a.sum_cs_sales_price >
-     *           (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk)
+     * select cs_item_sk, a.sum_cs_sales_price from
+     * (select cs_item_sk, sum(cs_sales_price) sum_cs_sales_price from catalog_sales group by cs_item_sk) a
+     * where a.sum_cs_sales_price >
+     * (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk)
      * <p>
      * Step2: equal where subquery
      * Inline view of subquery:
-     *     from (select b.cs_item_sk, min(cs_sales_price) from catalog_sales b group by cs_item_sk) c
+     * from (select b.cs_item_sk, min(cs_sales_price) from catalog_sales b group by cs_item_sk) c
      * Rewritten correlated predicate:
-     *     where c.cs_item_sk = a.cs_item_sk and a.sum_cs_sales_price > c.min(cs_sales_price)
+     * where c.cs_item_sk = a.cs_item_sk and a.sum_cs_sales_price > c.min(cs_sales_price)
      * The final stmt:
      * select a.cs_item_sk, a.sum_cs_sales_price from
-     *     (select cs_item_sk, sum(cs_sales_price) sum_cs_sales_price from catalog_sales group by cs_item_sk) a
-     *     join
-     *     (select b.cs_item_sk, min(b.cs_sales_price) min_cs_sales_price from catalog_sales b group by b.cs_item_sk) c
+     * (select cs_item_sk, sum(cs_sales_price) sum_cs_sales_price from catalog_sales group by cs_item_sk) a
+     * join
+     * (select b.cs_item_sk, min(b.cs_sales_price) min_cs_sales_price from catalog_sales b group by b.cs_item_sk) c
      * where c.cs_item_sk = a.cs_item_sk and a.sum_cs_sales_price > c.min_cs_sales_price;
      *
      * @param stmt
      * @param analyzer
      */
-    private static SelectStmt rewriteHavingClauseSubqueries(SelectStmt stmt, Analyzer analyzer) throws AnalysisException {
+    private static SelectStmt rewriteHavingClauseSubqueries(SelectStmt stmt, Analyzer analyzer)
+        throws AnalysisException {
         // prepare parameters
         SelectList selectList = stmt.getSelectList();
         List<String> columnLabels = stmt.getColLabels();
@@ -203,7 +206,7 @@ public class StmtRewriter {
             colAliasOfInlineView.add(inlineViewQuery.getColumnAliasGenerator().getNextAlias());
         }
         InlineViewRef inlineViewRef = new InlineViewRef(tableAliasGenerator.getNextAlias(), inlineViewQuery,
-                colAliasOfInlineView);
+            colAliasOfInlineView);
         try {
             inlineViewRef.analyze(analyzer);
         } catch (UserException e) {
@@ -246,7 +249,7 @@ public class StmtRewriter {
             newOrderByElements = Lists.newArrayList();
             for (OrderByElement orderByElement : orderByElements) {
                 OrderByElement newOrderByElement = new OrderByElement(orderByElement.getExpr().reset().substitute(smap),
-                        orderByElement.getIsAsc(), orderByElement.getNullsFirstParam());
+                    orderByElement.getIsAsc(), orderByElement.getNullsFirstParam());
                 newOrderByElements.add(newOrderByElement);
                 LOG.debug("Order by element is changed to " + newOrderByElement.toSql());
             }
@@ -254,9 +257,9 @@ public class StmtRewriter {
         List<SelectListItem> newSelectItems = Lists.newArrayList();
         for (int i = 0; i < selectList.getItems().size(); i++) {
             SelectListItem newItem = new SelectListItem(selectList.getItems().get(i).getExpr().reset().substitute(smap),
-                    columnLabels.get(i));
+                columnLabels.get(i));
             newSelectItems.add(newItem);
-            LOG.debug("New select item is changed to "+ newItem.toSql());
+            LOG.debug("New select item is changed to " + newItem.toSql());
         }
         SelectList newSelectList = new SelectList(newSelectItems, selectList.isDistinct());
 
@@ -265,7 +268,7 @@ public class StmtRewriter {
         newTableRefList.add(inlineViewRef);
         FromClause newFromClause = new FromClause(newTableRefList);
         SelectStmt result = new SelectStmt(newSelectList, newFromClause, newWherePredicate, null, null,
-                newOrderByElements, limitElement);
+            newOrderByElements, limitElement);
         result.setTableAliasGenerator(tableAliasGenerator);
         try {
             result.analyze(analyzer);
@@ -288,7 +291,7 @@ public class StmtRewriter {
      * @return select a, sum(v1), sum(v2)
      */
     private static SelectList addMissingAggregationColumns(SelectList selectList,
-            List<FunctionCallExpr> aggregateExprs) {
+                                                           List<FunctionCallExpr> aggregateExprs) {
         SelectList result = selectList.clone();
         for (FunctionCallExpr functionCallExpr : aggregateExprs) {
             boolean columnExists = false;
@@ -311,11 +314,11 @@ public class StmtRewriter {
      * also apply here.
      */
     private static void rewriteUnionStatement(SetOperationStmt stmt, Analyzer analyzer)
-            throws AnalysisException {
-        for (SetOperationStmt.SetOperand operand: stmt.getOperands()) {
+        throws AnalysisException {
+        for (SetOperationStmt.SetOperand operand : stmt.getOperands()) {
             Preconditions.checkState(operand.getQueryStmt() instanceof SelectStmt);
             QueryStmt rewrittenQueryStmt = StmtRewriter.rewriteSelectStatement(
-                    (SelectStmt)operand.getQueryStmt(), operand.getAnalyzer());
+                (SelectStmt) operand.getQueryStmt(), operand.getAnalyzer());
             operand.setQueryStmt(rewrittenQueryStmt);
         }
     }
@@ -327,7 +330,7 @@ public class StmtRewriter {
     private static boolean hasSubqueryInDisjunction(Expr expr) {
         if (!(expr instanceof CompoundPredicate)) {
             return false;
-        };
+        }
         if (Expr.IS_OR_PREDICATE.apply(expr)) {
             return expr.contains(Subquery.class);
         }
@@ -338,6 +341,7 @@ public class StmtRewriter {
         }
         return false;
     }
+
     /**
      * Rewrite all subqueries of a stmt's WHERE clause. Initially, all the
      * conjuncts containing subqueries are extracted from the WHERE clause and are
@@ -345,56 +349,55 @@ public class StmtRewriter {
      * merged into its parent select block by converting it into a join.
      * Conjuncts with subqueries that themselves contain conjuncts with subqueries are
      * recursively rewritten in a bottom up fashion.
-     *
+     * <p>
      * The following example illustrates the bottom up rewriting of nested queries.
      * Suppose we have the following three level nested query Q0:
-     *
+     * <p>
      * SELECT *
      * FROM T1                                            : Q0
      * WHERE T1.a IN (SELECT a
-     *                FROM T2 WHERE T2.b IN (SELECT b
-     *                                       FROM T3))
+     * FROM T2 WHERE T2.b IN (SELECT b
+     * FROM T3))
      * AND T1.c < 10;
-     *
+     * <p>
      * This query will be rewritten as follows. Initially, the IN predicate
      * T1.a IN (SELECT a FROM T2 WHERE T2.b IN (SELECT b FROM T3)) is extracted
      * from the top level block (Q0) since it contains a subquery and is
      * replaced by a true BoolLiteral, resulting in the following query Q1:
-     *
+     * <p>
      * SELECT * FROM T1 WHERE TRUE : Q1
-     *
+     * <p>
      * Since the stmt in the extracted predicate contains a conjunct with a subquery,
      * it is also rewritten. As before, rewriting stmt SELECT a FROM T2
      * WHERE T2.b IN (SELECT b FROM T3) works by first extracting the conjunct that
      * contains the subquery (T2.b IN (SELECT b FROM T3)) and substituting it with
      * a true BoolLiteral, producing the following stmt Q2:
-     *
+     * <p>
      * SELECT a FROM T2 WHERE TRUE : Q2
-     *
+     * <p>
      * The predicate T2.b IN (SELECT b FROM T3) is then merged with Q2,
      * producing the following unnested query Q3:
-     *
+     * <p>
      * SELECT a FROM T2 LEFT SEMI JOIN (SELECT b FROM T3) $a$1 ON T2.b = $a$1.b : Q3
-     *
+     * <p>
      * The extracted IN predicate becomes:
-     *
+     * <p>
      * T1.a IN (SELECT a FROM T2 LEFT SEMI JOIN (SELECT b FROM T3) $a$1 ON T2.b = $a$1.b)
-     *
+     * <p>
      * Finally, the rewritten IN predicate is merged with query block Q1,
      * producing the following unnested query (WHERE clauses that contain only
      * conjunctions of true BoolLiterals are eliminated):
-     *
+     * <p>
      * SELECT *
      * FROM T1 LEFT SEMI JOIN (SELECT a
-     *                         FROM T2 LEFT SEMI JOIN (SELECT b FROM T3) $a$1
-     *                         ON T2.b = $a$1.b) $a$1
+     * FROM T2 LEFT SEMI JOIN (SELECT b FROM T3) $a$1
+     * ON T2.b = $a$1.b) $a$1
      * ON $a$1.a = T1.a
      * WHERE T1.c < 10;
-     *
      */
     private static void rewriteWhereClauseSubqueries(
-            SelectStmt stmt, Analyzer analyzer)
-            throws AnalysisException {
+        SelectStmt stmt, Analyzer analyzer)
+        throws AnalysisException {
         int numTableRefs = stmt.fromClause_.size();
         ArrayList<Expr> exprsWithSubqueries = Lists.newArrayList();
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
@@ -408,15 +411,15 @@ public class StmtRewriter {
             }
             if (subqueries.size() > 1) {
                 throw new AnalysisException("Multiple subqueries are not supported in "
-                        + "expression: " + conjunct.toSql());
+                    + "expression: " + conjunct.toSql());
             }
             if (!(conjunct instanceof InPredicate)
-                    && !(conjunct instanceof ExistsPredicate)
-                    && !(conjunct instanceof BinaryPredicate)
-                    && !conjunct.contains(Expr.IS_SCALAR_SUBQUERY)) {
+                && !(conjunct instanceof ExistsPredicate)
+                && !(conjunct instanceof BinaryPredicate)
+                && !conjunct.contains(Expr.IS_SCALAR_SUBQUERY)) {
                 throw new AnalysisException("Non-scalar subquery is not supported in "
-                        + "expression: "
-                        + conjunct.toSql());
+                    + "expression: "
+                    + conjunct.toSql());
             }
 
             if (conjunct instanceof ExistsPredicate) {
@@ -470,7 +473,7 @@ public class StmtRewriter {
         if (subqueryStmt.getAnalyzer().hasEmptyResultSet()) {
             boolLiteral = new BoolLiteral(predicate.isNotExists());
         } else if (subqueryStmt.hasAggInfo() && subqueryStmt.getAggInfo().hasAggregateExprs()
-                && !subqueryStmt.hasAnalyticInfo() && subqueryStmt.getHavingPred() == null) {
+            && !subqueryStmt.hasAnalyticInfo() && subqueryStmt.getHavingPred() == null) {
             boolLiteral = new BoolLiteral(!predicate.isNotExists());
         }
         return boolLiteral;
@@ -494,7 +497,7 @@ public class StmtRewriter {
      * subquery stmt. The modified analyzed expr is returned.
      */
     private static Expr rewriteExpr(Expr expr, Analyzer analyzer)
-    throws AnalysisException {
+        throws AnalysisException {
         // Extract the subquery and equal it.
         Subquery subquery = expr.getSubquery();
         Preconditions.checkNotNull(subquery);
@@ -506,17 +509,17 @@ public class StmtRewriter {
         rewrittenStmt.reset();
         Subquery newSubquery = new Subquery(rewrittenStmt);
         newSubquery.analyze(analyzer);
-        
+
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
         smap.put(subquery, newSubquery);
         return expr.substitute(smap, analyzer, false);
     }
 
     private static void canRewriteScalarFunction(Expr expr, Expr conjunct)
-            throws AnalysisException {
+        throws AnalysisException {
         if (expr.getSubquery().isScalarSubquery()) {
             if (conjunct instanceof BinaryPredicate
-                    && ((BinaryPredicate) conjunct).getOp() == BinaryPredicate.Operator.EQ) {
+                && ((BinaryPredicate) conjunct).getOp() == BinaryPredicate.Operator.EQ) {
                 return;
             }
             throw new AnalysisException("scalar subquery's correlatedPredicates's operator must be EQ");
@@ -570,7 +573,7 @@ public class StmtRewriter {
         // Update the subquery's select list and/or its GROUP BY clause by adding
         // exprs from the extracted correlated predicates.
         boolean updateGroupBy = expr.getSubquery().isScalarSubquery()
-                || (expr instanceof ExistsPredicate && subqueryStmt.hasAggInfo());
+            || (expr instanceof ExistsPredicate && subqueryStmt.hasAggInfo());
         // boolean updateGroupBy = false;
         List<Expr> lhsExprs = Lists.newArrayList();
         List<Expr> rhsExprs = Lists.newArrayList();
@@ -615,9 +618,9 @@ public class StmtRewriter {
             !onClauseConjuncts.isEmpty());
         if (joinConjunct != null) {
             SelectListItem firstItem =
-              ((SelectStmt) inlineView.getViewStmt()).getSelectList().getItems().get(0);
+                ((SelectStmt) inlineView.getViewStmt()).getSelectList().getItems().get(0);
             if (!onClauseConjuncts.isEmpty()
-                    && firstItem.getExpr().contains(Expr.NON_NULL_EMPTY_AGG)) {
+                && firstItem.getExpr().contains(Expr.NON_NULL_EMPTY_AGG)) {
                 // Correlated subqueries with an aggregate function that returns non-null on
                 // an empty input are rewritten using a LEFT OUTER JOIN because we
                 // need to ensure that there is one agg value for every tuple of 'stmt'
@@ -644,7 +647,7 @@ public class StmtRewriter {
             Preconditions.checkState(expr instanceof ExistsPredicate);
             if (((ExistsPredicate) expr).isNotExists()) {
                 throw new AnalysisException("Unsupported uncorrelated NOT EXISTS subquery: "
-                        + subqueryStmt.toSql());
+                    + subqueryStmt.toSql());
             }
             // We don't have an ON clause predicate to create an equi-join. Rewrite the
             // subquery using a CROSS JOIN.
@@ -673,15 +676,19 @@ public class StmtRewriter {
         // graph of query blocks are not supported).
         if (!onClausePredicate.isBoundByTupleIds(stmt.getTableRefIds())) {
             throw new AnalysisException("Unsupported correlated subquery: "
-                    + subqueryStmt.toSql());
+                + subqueryStmt.toSql());
         }
 
         // Check if we have a valid ON clause for an equi-join.
         boolean hasEqJoinPred = false;
         for (Expr conjunct : onClausePredicate.getConjuncts()) {
-            if (!(conjunct instanceof BinaryPredicate)) continue;
+            if (!(conjunct instanceof BinaryPredicate)) {
+                continue;
+            }
             BinaryPredicate.Operator operator = ((BinaryPredicate) conjunct).getOp();
-            if (!operator.isEquivalence()) continue;
+            if (!operator.isEquivalence()) {
+                continue;
+            }
             List<TupleId> lhsTupleIds = Lists.newArrayList();
             conjunct.getChild(0).getIds(lhsTupleIds, null);
             if (lhsTupleIds.isEmpty()) {
@@ -695,8 +702,8 @@ public class StmtRewriter {
             // Check if columns from the outer query block (stmt) appear in both sides
             // of the binary predicate.
             if ((lhsTupleIds.contains(inlineView.getDesc().getId()) && lhsTupleIds.size() > 1)
-                    || (rhsTupleIds.contains(inlineView.getDesc().getId())
-                    && rhsTupleIds.size() > 1)) {
+                || (rhsTupleIds.contains(inlineView.getDesc().getId())
+                && rhsTupleIds.size() > 1)) {
                 continue;
             }
             hasEqJoinPred = true;
@@ -710,14 +717,14 @@ public class StmtRewriter {
             // boolean hasGroupBy = false;
             if (!expr.getSubquery().returnsScalarColumn()) {
                 throw new AnalysisException("Unsupported predicate with subquery: "
-                        + expr.toSql());
+                    + expr.toSql());
             }
 
             // TODO: Requires support for null-aware anti-join mode in nested-loop joins
             if (expr.getSubquery().isScalarSubquery() && expr instanceof InPredicate
-                    && ((InPredicate) expr).isNotIn()) {
+                && ((InPredicate) expr).isNotIn()) {
                 throw new AnalysisException("Unsupported NOT IN predicate with subquery: " +
-                        expr.toSql());
+                    expr.toSql());
             }
 
             // We can equal the aggregate subquery using a cross join. All conjuncts
@@ -732,9 +739,9 @@ public class StmtRewriter {
 
         // We have a valid equi-join conjunct.
         if (expr instanceof InPredicate
-                    && ((InPredicate) expr).isNotIn()
-                    || expr instanceof ExistsPredicate
-                    && ((ExistsPredicate) expr).isNotExists()) {
+            && ((InPredicate) expr).isNotIn()
+            || expr instanceof ExistsPredicate
+            && ((ExistsPredicate) expr).isNotExists()) {
             // For the case of a NOT IN with an eq join conjunct, replace the join
             // conjunct with a conjunct that uses the null-matching eq operator.
             if (expr instanceof InPredicate) {
@@ -744,7 +751,7 @@ public class StmtRewriter {
                 joinConjunct.getIds(tIds, null);
                 if (tIds.size() <= 1 || !tIds.contains(inlineView.getDesc().getId())) {
                     throw new AnalysisException("Unsupported NOT IN predicate with subquery: "
-                            + expr.toSql());
+                        + expr.toSql());
                 }
                 // Replace the EQ operator in the generated join conjunct with a
                 // null-matching EQ operator.
@@ -752,7 +759,7 @@ public class StmtRewriter {
                     if (conjunct.equals(joinConjunct)) {
                         Preconditions.checkState(conjunct instanceof BinaryPredicate);
                         Preconditions.checkState(((BinaryPredicate) conjunct).getOp()
-                                == BinaryPredicate.Operator.EQ);
+                            == BinaryPredicate.Operator.EQ);
                         // ((BinaryPredicate)conjunct).setOp(BinaryPredicate.Operator.NULL_MATCHING_EQ);
                         break;
                     }
@@ -787,7 +794,7 @@ public class StmtRewriter {
             for (int j = 0; j < tableIdx; ++j) {
                 TableRef tableRef = stmt.fromClause_.get(j);
                 if (tableRef.getJoinOp() == JoinOperator.LEFT_SEMI_JOIN ||
-                        tableRef.getJoinOp() == JoinOperator.LEFT_ANTI_JOIN) {
+                    tableRef.getJoinOp() == JoinOperator.LEFT_ANTI_JOIN) {
                     continue;
                 }
                 newItems.add(SelectListItem.createStarItem(tableRef.getAliasAsName()));
@@ -825,11 +832,11 @@ public class StmtRewriter {
 
     /**
      * Extract all correlated predicates of a subquery.
-     *
+     * <p>
      * TODO Handle correlated predicates in a HAVING clause.
      */
     private static ArrayList<Expr> extractCorrelatedPredicates(SelectStmt subqueryStmt)
-            throws AnalysisException {
+        throws AnalysisException {
         List<TupleId> subqueryTupleIds = subqueryStmt.getTableRefIds();
         ArrayList<Expr> correlatedPredicates = Lists.newArrayList();
 
@@ -837,7 +844,7 @@ public class StmtRewriter {
             if (!canExtractCorrelatedPredicates(subqueryStmt.getWhereClause(),
                 subqueryTupleIds)) {
                 throw new AnalysisException("Disjunctions with correlated predicates "
-                        + "are not supported: " + subqueryStmt.getWhereClause().toSql());
+                    + "are not supported: " + subqueryStmt.getWhereClause().toSql());
             }
             // Extract the correlated predicates from the subquery's WHERE clause and
             // replace them with true BoolLiterals.
@@ -883,7 +890,7 @@ public class StmtRewriter {
      * and the extracted correlated predicates are added to 'matches'.
      */
     private static Expr extractCorrelatedPredicates(Expr root, List<TupleId> tupleIds,
-        ArrayList<Expr> matches) {
+                                                    ArrayList<Expr> matches) {
         if (isCorrelatedPredicate(root, tupleIds)) {
             matches.add(root);
             return new BoolLiteral(true);
@@ -900,7 +907,7 @@ public class StmtRewriter {
      * correlated predicate cannot be extracted if it is part of a disjunction.
      */
     private static boolean canExtractCorrelatedPredicates(Expr expr,
-            List<TupleId> subqueryTupleIds) {
+                                                          List<TupleId> subqueryTupleIds) {
         if (!(expr instanceof CompoundPredicate)) {
             return true;
         }
@@ -923,8 +930,8 @@ public class StmtRewriter {
      * TODO: Merge all the equal eligibility tests into a single function.
      */
     private static void canRewriteCorrelatedSubquery(
-            Expr expr, List<Expr> correlatedPredicates)
-            throws AnalysisException {
+        Expr expr, List<Expr> correlatedPredicates)
+        throws AnalysisException {
         Preconditions.checkNotNull(expr);
         Preconditions.checkState(expr.contains(Subquery.class));
         SelectStmt stmt = (SelectStmt) expr.getSubquery().getStatement();
@@ -937,8 +944,8 @@ public class StmtRewriter {
             SelectListItem item = stmt.getSelectList().getItems().get(0);
             if (!item.getExpr().contains(Expr.CORRELATED_SUBQUERY_SUPPORT_AGG_FN)) {
                 throw new AnalysisException("The select item in correlated subquery of binary predicate should only "
-                                                    + "be sum, min, max, avg and count. Current subquery:"
-                                                    + stmt.toSql());
+                    + "be sum, min, max, avg and count. Current subquery:"
+                    + stmt.toSql());
             }
         }
         // Grouping and/or aggregation (including analytic functions) is forbidden in correlated subquery of in
@@ -946,37 +953,39 @@ public class StmtRewriter {
         if (expr instanceof InPredicate && (stmt.hasAggInfo() || stmt.hasAnalyticInfo())) {
             LOG.warn("canRewriteCorrelatedSubquery fail, expr={} subquery={}", expr.toSql(), stmt.toSql());
             throw new AnalysisException("Unsupported correlated subquery with grouping "
-                    + "and/or aggregation: "
-                    + stmt.toSql());
+                + "and/or aggregation: "
+                + stmt.toSql());
         }
 
         final com.google.common.base.Predicate<Expr> isSingleSlotRef =
-                new com.google.common.base.Predicate<Expr>() {
-                    @Override
-                    public boolean apply(Expr arg) { return arg.unwrapSlotRef(false) != null; }
-                };
+            new com.google.common.base.Predicate<Expr>() {
+                @Override
+                public boolean apply(Expr arg) {
+                    return arg.unwrapSlotRef(false) != null;
+                }
+            };
 
         // A HAVING clause is only allowed on correlated EXISTS subqueries with
         // correlated binary predicates of the form Slot = Slot (see IMPALA-2734)
         // TODO Handle binary predicates with IS NOT DISTINCT op
         if (expr instanceof ExistsPredicate && stmt.hasHavingClause()
-                && !correlatedPredicates.isEmpty()
-                && (!stmt.hasAggInfo()
-                || !Iterables.all(correlatedPredicates,
-                Predicates.or(Expr.IS_EQ_BINARY_PREDICATE, isSingleSlotRef)))) {
+            && !correlatedPredicates.isEmpty()
+            && (!stmt.hasAggInfo()
+            || !Iterables.all(correlatedPredicates,
+            Predicates.or(Expr.IS_EQ_BINARY_PREDICATE, isSingleSlotRef)))) {
             throw new AnalysisException("Unsupported correlated EXISTS subquery with a " +
-                    "HAVING clause: " + stmt.toSql());
+                "HAVING clause: " + stmt.toSql());
         }
 
         // The following correlated subqueries with a limit clause are supported:
         // 1. EXISTS subqueries
         // 2. Scalar subqueries with aggregation
         if (stmt.hasLimitClause()
-                && (!(expr instanceof BinaryPredicate) || !stmt.hasAggInfo()
-                || stmt.selectList.isDistinct())
-                && !(expr instanceof ExistsPredicate)) {
+            && (!(expr instanceof BinaryPredicate) || !stmt.hasAggInfo()
+            || stmt.selectList.isDistinct())
+            && !(expr instanceof ExistsPredicate)) {
             throw new AnalysisException("Unsupported correlated subquery with a "
-                    + "LIMIT clause: " + stmt.toSql());
+                + "LIMIT clause: " + stmt.toSql());
         }
     }
 
@@ -990,9 +999,9 @@ public class StmtRewriter {
      * both the lhs and rhs of 'expr' reference a tuple of the subquery stmt.
      */
     private static void updateInlineView(
-            InlineViewRef inlineView, Expr expr, List<TupleId> parentQueryTids,
-            List<Expr> lhsExprs, List<Expr> rhsExprs, boolean updateGroupBy)
-            throws AnalysisException {
+        InlineViewRef inlineView, Expr expr, List<TupleId> parentQueryTids,
+        List<Expr> lhsExprs, List<Expr> rhsExprs, boolean updateGroupBy)
+        throws AnalysisException {
         SelectStmt stmt = (SelectStmt) inlineView.getViewStmt();
         List<TupleId> subqueryTblIds = stmt.getTableRefIds();
         ArrayList<Expr> groupByExprs = null;
@@ -1023,15 +1032,15 @@ public class StmtRewriter {
                 // If the predicate contains multiple SlotRefs bound by subquery tuple
                 // ids, they must all be on the same side of that predicate.
                 if (expr.getChild(0).isBoundByTupleIds(subqueryTblIds)
-                        && expr.getChild(1).isBoundByTupleIds(parentQueryTids)) {
+                    && expr.getChild(1).isBoundByTupleIds(parentQueryTids)) {
                     exprBoundBySubqueryTids = expr.getChild(0);
                 } else if (expr.getChild(0).isBoundByTupleIds(parentQueryTids)
-                        && expr.getChild(1).isBoundByTupleIds(subqueryTblIds)) {
+                    && expr.getChild(1).isBoundByTupleIds(subqueryTblIds)) {
                     exprBoundBySubqueryTids = expr.getChild(1);
                 } else {
                     throw new AnalysisException("All subquery columns "
-                            + "that participate in a predicate must be on the same side of "
-                            + "that predicate: " + expr.toSql());
+                        + "that participate in a predicate must be on the same side of "
+                        + "that predicate: " + expr.toSql());
                 }
             } else {
                 Preconditions.checkState(exprsBoundBySubqueryTids.size() == 1);
@@ -1081,7 +1090,7 @@ public class StmtRewriter {
      * the aggregate function is wrapped into a 'zeroifnull' function.
      */
     private static Expr createJoinConjunct(Expr exprWithSubquery, InlineViewRef inlineView,
-            Analyzer analyzer, boolean isCorrelated) throws AnalysisException {
+                                           Analyzer analyzer, boolean isCorrelated) throws AnalysisException {
         Preconditions.checkNotNull(exprWithSubquery);
         Preconditions.checkNotNull(inlineView);
         Preconditions.checkState(exprWithSubquery.contains(Subquery.class));
@@ -1090,12 +1099,12 @@ public class StmtRewriter {
         }
         // Create a SlotRef from the first item of inlineView's select list
         SlotRef slotRef = new SlotRef(new TableName(null, inlineView.getAlias()),
-                inlineView.getColLabels().get(0));
+            inlineView.getColLabels().get(0));
         slotRef.analyze(analyzer);
         Expr subquerySubstitute = slotRef;
         if (exprWithSubquery instanceof InPredicate) {
             BinaryPredicate pred = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                    exprWithSubquery.getChild(0), slotRef);
+                exprWithSubquery.getChild(0), slotRef);
             pred.analyze(analyzer);
             return pred;
         }
@@ -1103,17 +1112,17 @@ public class StmtRewriter {
         Subquery subquery = exprWithSubquery.getSubquery();
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
         SelectListItem item =
-                ((SelectStmt) inlineView.getViewStmt()).getSelectList().getItems().get(0);
+            ((SelectStmt) inlineView.getViewStmt()).getSelectList().getItems().get(0);
         if (isCorrelated && item.getExpr().contains(Expr.NON_NULL_EMPTY_AGG)) {
             // TODO: Add support for multiple agg functions that return non-null on an
             // empty input, by wrapping them with zeroifnull functions before the inline
             // view is analyzed.
             if (!Expr.NON_NULL_EMPTY_AGG.apply(item.getExpr())
-                    && (!(item.getExpr() instanceof CastExpr)
-                    || !Expr.NON_NULL_EMPTY_AGG.apply(item.getExpr().getChild(0)))) {
+                && (!(item.getExpr() instanceof CastExpr)
+                || !Expr.NON_NULL_EMPTY_AGG.apply(item.getExpr().getChild(0)))) {
                 throw new AnalysisException("Aggregate function that returns non-null on "
-                        + "an empty input cannot be used in an expression in a "
-                        + "correlated subquery's select list: " + subquery.toSql());
+                    + "an empty input cannot be used in an expression in a "
+                    + "correlated subquery's select list: " + subquery.toSql());
             }
 
             List<Expr> aggFns = Lists.newArrayList();
@@ -1123,7 +1132,7 @@ public class StmtRewriter {
             // NullLiteral whereas count returns a NumericLiteral.
             if (((FunctionCallExpr) aggFns.get(0)).getFn().getReturnType().isNumericType()) {
                 FunctionCallExpr zeroIfNull = new FunctionCallExpr("ifnull",
-                Lists.newArrayList((Expr) slotRef, new IntLiteral(0, Type.BIGINT)));
+                    Lists.newArrayList((Expr) slotRef, new IntLiteral(0, Type.BIGINT)));
                 zeroIfNull.analyze(analyzer);
                 subquerySubstitute = zeroIfNull;
             } else if (((FunctionCallExpr) aggFns.get(0)).getFn().getReturnType().isStringType()) {
@@ -1135,7 +1144,7 @@ public class StmtRewriter {
                 subquerySubstitute = ifnull;
             } else {
                 throw new AnalysisException("Unsupported aggregate function used in "
-                        + "a correlated subquery's select list: " + subquery.toSql());
+                    + "a correlated subquery's select list: " + subquery.toSql());
             }
         }
         smap.put(subquery, subquerySubstitute);

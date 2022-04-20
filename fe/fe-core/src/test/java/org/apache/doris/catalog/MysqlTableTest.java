@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Mocked;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 
@@ -38,6 +37,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+
+import mockit.Mocked;
 
 public class MysqlTableTest {
     private List<Column> columns;
@@ -146,15 +147,15 @@ public class MysqlTableTest {
     @Test(expected = DdlException.class)
     public void testPortNotNumber() throws DdlException {
         Map<String, String> pro = Maps.transformEntries(properties,
-                new Maps.EntryTransformer<String, String, String>() {
-                    @Override
-                    public String transformEntry(String s, String s2) {
-                        if (s.equalsIgnoreCase("port")) {
-                            return "abc";
-                        }
-                        return s2;
+            new Maps.EntryTransformer<String, String, String>() {
+                @Override
+                public String transformEntry(String s, String s2) {
+                    if (s.equalsIgnoreCase("port")) {
+                        return "abc";
                     }
-                });
+                    return s2;
+                }
+            });
         new MysqlTable(1000, "mysqlTable", columns, pro);
         Assert.fail("No exception throws.");
     }

@@ -46,11 +46,11 @@ public class DeleteStmt extends DdlStmt {
         this.wherePredicate = wherePredicate;
         this.deleteConditions = new LinkedList<Predicate>();
     }
-    
+
     public String getTableName() {
         return tbl.getTbl();
     }
-    
+
     public String getDbName() {
         return tbl.getDb();
     }
@@ -66,7 +66,7 @@ public class DeleteStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        
+
         if (tbl == null) {
             throw new AnalysisException("Table is not set");
         }
@@ -89,10 +89,10 @@ public class DeleteStmt extends DdlStmt {
 
         // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
-                                                                PrivPredicate.LOAD)) {
+            PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tbl.getDb() + ": " + tbl.getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(), tbl.getDb() + ": " + tbl.getTbl());
         }
     }
 
@@ -132,7 +132,8 @@ public class DeleteStmt extends DdlStmt {
             int inElementNum = inPredicate.getInElementNum();
             int maxAllowedInElementNumOfDelete = Config.max_allowed_in_element_num_of_delete;
             if (inElementNum > maxAllowedInElementNumOfDelete) {
-                throw new AnalysisException("Element num of in predicate should not be more than " + maxAllowedInElementNumOfDelete);
+                throw new AnalysisException(
+                    "Element num of in predicate should not be more than " + maxAllowedInElementNumOfDelete);
             }
             for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
                 Expr expr = inPredicate.getChild(i);
@@ -142,7 +143,8 @@ public class DeleteStmt extends DdlStmt {
             }
             deleteConditions.add(inPredicate);
         } else {
-            throw new AnalysisException("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate");
+            throw new AnalysisException(
+                "Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate");
         }
     }
 

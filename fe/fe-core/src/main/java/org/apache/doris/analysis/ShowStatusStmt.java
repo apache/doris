@@ -25,10 +25,10 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 // TODO(zhaochun): Add status information.
 public class ShowStatusStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Variable_name", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Value", ScalarType.createVarchar(20)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Variable_name", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Value", ScalarType.createVarchar(20)))
+            .build();
 
     @Override
     public void analyze(Analyzer analyzer) {

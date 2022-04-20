@@ -119,17 +119,17 @@ public class StorageTest {
         Assert.assertEquals(0, storage.getImageSeq());
         Assert.assertEquals(10, Storage.getMetaSeq(new File("storageTestDir/edits.10")));
         Assert.assertTrue(Storage.getCurrentEditsFile(new File("storageTestDir"))
-                .equals(new File("storageTestDir/edits")));
+            .equals(new File("storageTestDir/edits")));
 
         Assert.assertTrue(storage.getCurrentImageFile().equals(new File("storageTestDir/image.0")));
         Assert.assertTrue(storage.getImageFile(0).equals(new File("storageTestDir/image.0")));
         Assert.assertTrue(Storage.getImageFile(new File("storageTestDir"), 0)
-                .equals(new File("storageTestDir/image.0")));
+            .equals(new File("storageTestDir/image.0")));
 
         Assert.assertTrue(storage.getCurrentEditsFile().equals(new File("storageTestDir/edits")));
         Assert.assertTrue(storage.getEditsFile(5).equals(new File("storageTestDir/edits.5")));
         Assert.assertTrue(Storage.getEditsFile(new File("storageTestDir"), 3)
-                .equals(new File("storageTestDir/edits.3")));
+            .equals(new File("storageTestDir/edits.3")));
 
         Assert.assertTrue(storage.getVersionFile().equals(new File("storageTestDir/VERSION")));
 

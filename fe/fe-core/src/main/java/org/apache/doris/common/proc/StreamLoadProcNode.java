@@ -17,10 +17,11 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.StreamLoadRecordMgr;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -34,11 +35,11 @@ import java.util.List;
 public class StreamLoadProcNode implements ProcNodeInterface {
 
     private static final ImmutableList<String> TITLE_NAMES =
-            new ImmutableList.Builder<String>()
-                    .add("Label")
-                    .add("DbId")
-                    .add("FinishTime")
-                    .build();
+        new ImmutableList.Builder<String>()
+            .add("Label")
+            .add("DbId")
+            .add("FinishTime")
+            .build();
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {

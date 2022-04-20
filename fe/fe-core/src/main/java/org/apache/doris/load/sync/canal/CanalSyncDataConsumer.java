@@ -20,24 +20,17 @@ package org.apache.doris.load.sync.canal;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.sync.position.EntryPosition;
-import org.apache.doris.load.sync.model.Events;
-import org.apache.doris.load.sync.position.PositionMeta;
-import org.apache.doris.load.sync.position.PositionRange;
 import org.apache.doris.load.sync.SyncChannelHandle;
 import org.apache.doris.load.sync.SyncDataConsumer;
 import org.apache.doris.load.sync.SyncFailMsg;
-
-import com.alibaba.otter.canal.client.CanalConnector;
-import com.alibaba.otter.canal.common.CanalException;
-import com.alibaba.otter.canal.protocol.CanalEntry;
-import com.alibaba.otter.canal.protocol.Message;
+import org.apache.doris.load.sync.model.Events;
+import org.apache.doris.load.sync.position.EntryPosition;
+import org.apache.doris.load.sync.position.PositionMeta;
+import org.apache.doris.load.sync.position.PositionRange;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
-import com.google.protobuf.ByteString;
-import com.google.protobuf.InvalidProtocolBufferException;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -54,6 +47,13 @@ import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+
+import com.alibaba.otter.canal.client.CanalConnector;
+import com.alibaba.otter.canal.common.CanalException;
+import com.alibaba.otter.canal.protocol.CanalEntry;
+import com.alibaba.otter.canal.protocol.Message;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
 
 public class CanalSyncDataConsumer extends SyncDataConsumer {
     private static Logger logger = LogManager.getLogger(CanalSyncDataConsumer.class);
@@ -124,7 +124,7 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                     channel.abortTxn(reason);
                 } catch (Exception e) {
                     logger.warn("Abort channel failed. jobId: {}，channel: {}, target: {}, msg: {}",
-                            syncJob.getId(), channel.getId(), channel.getTargetTable(), e.getMessage());
+                        syncJob.getId(), channel.getId(), channel.getTargetTable(), e.getMessage());
                 }
             }
         }
@@ -143,12 +143,12 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
                     this.positionMeta.setCommitPosition(channel.getId(), latestPosition);
                 } catch (Exception ce) {
                     logger.warn("Commit channel failed. JobId: {}, channel: {}, target: {}, msg: {}",
-                            syncJob.getId(), channel.getId(), channel.getTargetTable(), ce.getMessage());
+                        syncJob.getId(), channel.getId(), channel.getTargetTable(), ce.getMessage());
                     try {
                         channel.abortTxn(ce.getMessage());
                     } catch (Exception ae) {
                         logger.warn("Abort channel failed. JobId: {}，channel: {}, target: {}, msg: {}",
-                                syncJob.getId(), channel.getId(), channel.getTargetTable(), ae.getMessage());
+                            syncJob.getId(), channel.getId(), channel.getTargetTable(), ae.getMessage());
                     }
                     success = false;
                 }
@@ -447,11 +447,11 @@ public class CanalSyncDataConsumer extends SyncDataConsumer {
             long delayTime = ackTime - executeTime;
             Date date = new Date(executeTime);
             sb.append("position:").append(ackPosition)
-                    .append(", executeTime:[").append(format.format(date)).append("], ")
-                    .append("delay:").append(delayTime).append("ms");
+                .append(", executeTime:[").append(format.format(date)).append("], ")
+                .append("delay:").append(delayTime).append("ms");
             if (StringUtils.isNotEmpty(ackPosition.getGtid())) {
                 sb.append(", gtid(").append(ackPosition.getGtid())
-                        .append(") ");
+                    .append(") ");
             }
         } else {
             sb.append("position:").append("N/A");

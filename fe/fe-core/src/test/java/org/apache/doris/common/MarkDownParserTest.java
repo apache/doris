@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -152,7 +153,8 @@ public class MarkDownParserTest {
         Map<String, Map<String, String>> map = parser.parse();
         Assert.assertNotNull(map.get("SHOW TABLES"));
         Assert.assertEquals(" SHOW TABLES\n", map.get("SHOW TABLES").get("name"));
-        Assert.assertEquals("Syntax\nSYNTAX:\n\tSHOW TABLES [FROM] database\nParameter\n>table_name\n", map.get("SHOW TABLES").get("description"));
+        Assert.assertEquals("Syntax\nSYNTAX:\n\tSHOW TABLES [FROM] database\nParameter\n>table_name\n",
+            map.get("SHOW TABLES").get("description"));
         Assert.assertEquals("show tables;\n Exam1\nexam1\n", map.get("SHOW TABLES").get("example"));
         Assert.assertEquals("SHOW, TABLES\n", map.get("SHOW TABLES").get("keyword"));
         Assert.assertEquals("http://www.baidu.com\n", map.get("SHOW TABLES").get("url"));

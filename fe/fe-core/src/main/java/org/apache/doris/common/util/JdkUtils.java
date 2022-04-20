@@ -43,7 +43,7 @@ public class JdkUtils {
 
         if (runtimeVersion < compileVersion) {
             System.out.println("The runtime java version " + javaRuntimeVersionStr + " is less than "
-                    + "compile version " + javaCompileVersionStr);
+                + "compile version " + javaCompileVersionStr);
             return false;
         }
 

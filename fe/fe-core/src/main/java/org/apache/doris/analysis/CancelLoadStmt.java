@@ -122,7 +122,7 @@ public class CancelLoadStmt extends DdlStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\"," +
-                    " or LABEL LIKE \"matcher\"");
+                " or LABEL LIKE \"matcher\"");
         }
     }
 

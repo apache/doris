@@ -63,6 +63,7 @@ public class URI {
     public String getLocation() {
         return location;
     }
+
     public String getScheme() {
         return scheme;
     }
@@ -142,7 +143,7 @@ public class URI {
         }
         String[] querySplit = fragSplit[0].split(QUERY_DELIM);
         if (querySplit.length == 1) {
-            path =  StringUtils.isBlank(host) ? querySplit[0] : PATH_DELIM + querySplit[0];
+            path = StringUtils.isBlank(host) ? querySplit[0] : PATH_DELIM + querySplit[0];
         } else if (querySplit.length == 2) {
             path = StringUtils.isBlank(host) ? querySplit[0] : PATH_DELIM + querySplit[0];
             query = querySplit[1];

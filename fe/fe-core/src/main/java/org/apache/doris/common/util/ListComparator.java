@@ -31,11 +31,11 @@ public class ListComparator<T extends List<Comparable>> implements Comparator<T>
     boolean isDesc;
     int indicesLen;
 
-    public ListComparator(int...indices) {
+    public ListComparator(int... indices) {
         this(false, indices);
     }
 
-    public ListComparator(boolean isDesc, int...indices) {
+    public ListComparator(boolean isDesc, int... indices) {
         this.orderByPairs = new OrderByPair[indices.length];
         for (int i = 0; i < indices.length; i++) {
             this.orderByPairs[i] = new OrderByPair(indices[i], isDesc);
@@ -43,7 +43,7 @@ public class ListComparator<T extends List<Comparable>> implements Comparator<T>
         this.indicesLen = orderByPairs.length;
     }
 
-    public ListComparator(OrderByPair...orderByPairs) {
+    public ListComparator(OrderByPair... orderByPairs) {
         this.orderByPairs = orderByPairs;
         this.indicesLen = orderByPairs.length;
     }

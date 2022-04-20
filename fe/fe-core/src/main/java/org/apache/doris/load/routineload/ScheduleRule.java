@@ -39,6 +39,7 @@ public class ScheduleRule {
 
     /**
      * check if RoutineLoadJob is auto schedule
+     *
      * @param jobRoutine
      * @return
      */
@@ -46,7 +47,7 @@ public class ScheduleRule {
         if (jobRoutine.state != RoutineLoadJob.JobState.PAUSED) {
             return false;
         }
-        if (jobRoutine.autoResumeLock) {//only manual resume for unlock
+        if (jobRoutine.autoResumeLock) { //only manual resume for unlock
             LOG.debug("routine load job {}'s autoResumeLock is true, skip", jobRoutine.id);
             return false;
         }
@@ -55,19 +56,19 @@ public class ScheduleRule {
          * Handle all backends are down.
          */
         LOG.debug("try to auto reschedule routine load {}, firstResumeTimestamp: {}, autoResumeCount: {}, " +
-                        "pause reason: {}",
-                jobRoutine.id, jobRoutine.firstResumeTimestamp, jobRoutine.autoResumeCount,
-                jobRoutine.pauseReason == null ? "null" : jobRoutine.pauseReason.getCode().name());
+                "pause reason: {}",
+            jobRoutine.id, jobRoutine.firstResumeTimestamp, jobRoutine.autoResumeCount,
+            jobRoutine.pauseReason == null ? "null" : jobRoutine.pauseReason.getCode().name());
         if (jobRoutine.pauseReason != null && jobRoutine.pauseReason.getCode() == InternalErrorCode.REPLICA_FEW_ERR) {
             int dead = deadBeCount(jobRoutine.clusterName);
             if (dead > Config.max_tolerable_backend_down_num) {
                 LOG.debug("dead backend num {} is larger than config {}, " +
-                                "routine load job {} can not be auto rescheduled",
-                        dead, Config.max_tolerable_backend_down_num, jobRoutine.id);
+                        "routine load job {} can not be auto rescheduled",
+                    dead, Config.max_tolerable_backend_down_num, jobRoutine.id);
                 return false;
             }
 
-            if (jobRoutine.firstResumeTimestamp == 0) {//the first resume
+            if (jobRoutine.firstResumeTimestamp == 0) { //the first resume
                 jobRoutine.firstResumeTimestamp = System.currentTimeMillis();
                 jobRoutine.autoResumeCount = 1;
                 return true;
@@ -75,7 +76,7 @@ public class ScheduleRule {
                 long current = System.currentTimeMillis();
                 if (current - jobRoutine.firstResumeTimestamp < Config.period_of_auto_resume_min * 60000) {
                     if (jobRoutine.autoResumeCount >= 3) {
-                        jobRoutine.autoResumeLock = true;// locked Auto Resume RoutineLoadJob
+                        jobRoutine.autoResumeLock = true; // locked Auto Resume RoutineLoadJob
                         return false;
                     }
                     jobRoutine.autoResumeCount++;

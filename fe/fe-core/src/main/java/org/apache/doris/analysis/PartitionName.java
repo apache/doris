@@ -49,7 +49,7 @@ public class PartitionName {
      * 2. t1    AS t2       ==> t1    AS t2
      * 3. t1.p1             ==> t1.p1 AS t1.p1
      * 4. t1.p1 AS t2.p1    ==> t1.p1 AS t2.p1
-     * 
+     *
      * ERR:
      * 1. t1    AS t1.p1
      * 2. t1.p1 AS t1
@@ -63,7 +63,7 @@ public class PartitionName {
         if (!newTableName.isEmpty()) {
             // ERR 1/2
             if ((partitionName.isEmpty() && !newPartitionName.isEmpty())
-                    || (newPartitionName.isEmpty() && !partitionName.isEmpty())) {
+                || (newPartitionName.isEmpty() && !partitionName.isEmpty())) {
                 throw new AnalysisException("Partition name is missing");
             }
 
@@ -157,16 +157,16 @@ public class PartitionName {
     }
 
     public static void checkIntersect(List<PartitionName> partitionNames)
-            throws AnalysisException {
+        throws AnalysisException {
         List<Pair<String, String>> oldPairs = Lists.newArrayList();
         List<Pair<String, String>> newPairs = Lists.newArrayList();
         Map<String, String> tableRenameMap = Maps.newHashMap();
         for (PartitionName partitionName : partitionNames) {
             Pair<String, String> oldPair = new Pair<String, String>(partitionName.getTableName(),
-                                                                    partitionName.getPartitionName());
+                partitionName.getPartitionName());
             oldPairs.add(oldPair);
             Pair<String, String> newPair = new Pair<String, String>(partitionName.getNewTableName(),
-                                                                    partitionName.getNewPartitionName());
+                partitionName.getNewPartitionName());
             newPairs.add(newPair);
 
             if (tableRenameMap.containsKey(partitionName.getTableName())) {

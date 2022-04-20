@@ -35,7 +35,7 @@ import java.util.HashMap;
 import java.util.Set;
 
 public class RuntimeProfileTest {
-    
+
     @Test
     public void testSortChildren() {
         RuntimeProfile profile = new RuntimeProfile("profile");
@@ -46,8 +46,8 @@ public class RuntimeProfileTest {
         profile1.getCounterTotalTime().setValue(1);
         profile2.getCounterTotalTime().setValue(3);
         profile3.getCounterTotalTime().setValue(2);
-        profile.addChild(profile1); 
-        profile.addChild(profile2); 
+        profile.addChild(profile1);
+        profile.addChild(profile2);
         profile.addChild(profile3);
         // compare
         profile.sortChildren();
@@ -55,12 +55,12 @@ public class RuntimeProfileTest {
         long time0 = profile.getChildList().get(0).first.getCounterTotalTime().getValue();
         long time1 = profile.getChildList().get(1).first.getCounterTotalTime().getValue();
         long time2 = profile.getChildList().get(2).first.getCounterTotalTime().getValue();
-        
+
         Assert.assertEquals(3, time0);
         Assert.assertEquals(2, time1);
         Assert.assertEquals(1, time2);
     }
-    
+
     @Test
     public void testInfoStrings() {
         RuntimeProfile profile = new RuntimeProfile("profileName");
@@ -82,22 +82,22 @@ public class RuntimeProfileTest {
         tnode.info_strings_display_order = new ArrayList<String>();
         tnode.info_strings_display_order.add("key");
         tnode.info_strings_display_order.add("key3");
-      
+
         profile.update(tprofileTree);
         Assert.assertEquals(profile.getInfoString("key"), "value2");
         Assert.assertEquals(profile.getInfoString("key3"), "value3");
         // second update
         tnode.info_strings.put("key", "value4");
-        
+
         profile.update(tprofileTree);
         Assert.assertEquals(profile.getInfoString("key"), "value4");
-        
+
         StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
-        Assert.assertEquals(builder.toString(), 
-                "profileName:\n   - key: value4\n   - key3: value3\n");
+        Assert.assertEquals(builder.toString(),
+            "profileName:\n   - key: value4\n   - key3: value3\n");
     }
-    
+
     @Test
     public void testCounter() {
         RuntimeProfile profile = new RuntimeProfile();
@@ -107,14 +107,14 @@ public class RuntimeProfileTest {
         profile.getCounterMap().get("key").setValue(1);
         Assert.assertEquals(profile.getCounterMap().get("key").getValue(), 1);
     }
-    
+
     @Test
     public void testUpdate() throws IOException {
         RuntimeProfile profile = new RuntimeProfile("REAL_ROOT");
         /*  the profile tree
          *                      ROOT(time=5s info[key=value])
          *                  A(time=2s)            B(time=1s info[BInfo1=BValu1;BInfo2=BValue2])
-         *       A_SON(time=10ms counter[counterA1=1; counterA2=2; counterA1Son=3])      
+         *       A_SON(time=10ms counter[counterA1=1; counterA2=2; counterA1Son=3])
          */
         TRuntimeProfileTree tprofileTree = new TRuntimeProfileTree();
         TRuntimeProfileNode tnodeRoot = new TRuntimeProfileNode();
@@ -137,7 +137,7 @@ public class RuntimeProfileTest {
         tnodeA.counters = Lists.newArrayList();
         tnodeB.counters = Lists.newArrayList();
         tnodeASon.counters = Lists.newArrayList();
-       
+
         tnodeRoot.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 3000000000L));
         tnodeA.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 1000000000L));
         tnodeB.counters.add(new TCounter("TotalTime", TUnit.TIME_NS, 1000000000L));
@@ -146,7 +146,7 @@ public class RuntimeProfileTest {
         tnodeASon.counters.add(new TCounter("counterA2", TUnit.BYTES, 1234567L));
         tnodeASon.counters.add(new TCounter("counterA1Son", TUnit.UNIT, 3));
         tnodeASon.child_counters_map = Maps.newHashMap();
-        
+
         Set<String> set1 = Sets.newHashSet();
         set1.add("counterA1");
         set1.add("counterA2");
@@ -168,10 +168,10 @@ public class RuntimeProfileTest {
         tnodeA.name = "A";
         tnodeB.name = "B";
         tnodeASon.name = "ASON";
-        
+
         profile.update(tprofileTree);
         StringBuilder builder = new StringBuilder();
         profile.computeTimeInProfile();
         profile.prettyPrint(builder, "");
-    } 
+    }
 }

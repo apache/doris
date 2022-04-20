@@ -39,17 +39,17 @@ import java.util.List;
 public class ShowRoutineLoadTaskStmt extends ShowStmt {
     private static final List<String> supportColumn = Arrays.asList("jobname");
     private static final ImmutableList<String> TITLE_NAMES =
-            new ImmutableList.Builder<String>()
-                    .add("TaskId")
-                    .add("TxnId")
-                    .add("TxnStatus")
-                    .add("JobId")
-                    .add("CreateTime")
-                    .add("ExecuteStartTime")
-                    .add("Timeout")
-                    .add("BeId")
-                    .add("DataSourceProperties")
-                    .build();
+        new ImmutableList.Builder<String>()
+            .add("TaskId")
+            .add("TxnId")
+            .add("TxnStatus")
+            .add("JobId")
+            .add("CreateTime")
+            .add("ExecuteStartTime")
+            .add("Timeout")
+            .add("BeId")
+            .add("DataSourceProperties")
+            .build();
 
     private final String dbName;
     private final Expr jobNameExpr;
@@ -128,7 +128,8 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
         }
 
         if (!valid) {
-            throw new AnalysisException("show routine load job only support one equal expr which is sames like JobName=\"ILoveDoris\"");
+            throw new AnalysisException(
+                "show routine load job only support one equal expr which is sames like JobName=\"ILoveDoris\"");
         }
     }
 

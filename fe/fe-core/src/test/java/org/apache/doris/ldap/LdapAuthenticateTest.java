@@ -17,10 +17,6 @@
 
 package org.apache.doris.ldap;
 
-import com.google.common.collect.Lists;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -28,12 +24,19 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class LdapAuthenticateTest {
     private static final String DEFAULT_CLUSTER = "default_cluster";

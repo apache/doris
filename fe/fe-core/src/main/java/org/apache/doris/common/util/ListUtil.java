@@ -33,24 +33,24 @@ import java.util.Map;
 public class ListUtil {
 
     public static final Comparator<Map.Entry<Long, PartitionItem>> LIST_MAP_ENTRY_COMPARATOR =
-            Comparator.comparing(o -> ((ListPartitionItem) o.getValue()).getItems().iterator().next());
+        Comparator.comparing(o -> ((ListPartitionItem) o.getValue()).getItems().iterator().next());
     public static final Comparator<PartitionItem> PARTITION_KEY_COMPARATOR =
-            Comparator.comparing(o -> ((ListPartitionItem) o).getItems().iterator().next());
+        Comparator.comparing(o -> ((ListPartitionItem) o).getItems().iterator().next());
 
     /**
      * split a list to multi expected number sublist
      * for example:
-     *
+     * <p>
      * list is : [1, 2, 3, 4, 5, 6, 7]
      * expectedSize is : 3
-     *
+     * <p>
      * return :
      * [1, 4, 7]
      * [2, 5]
      * [3, 6]
      */
-    public static  <T> List<List<T>> splitBySize(List<T> list, int expectedSize)
-            throws NullPointerException, IllegalArgumentException {
+    public static <T> List<List<T>> splitBySize(List<T> list, int expectedSize)
+        throws NullPointerException, IllegalArgumentException {
         Preconditions.checkNotNull(list, "list must not be null");
         Preconditions.checkArgument(expectedSize > 0, "expectedSize must larger than 0");
 
@@ -70,7 +70,8 @@ public class ListUtil {
         return result;
     }
 
-    public static void checkPartitionKeyListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    public static void checkPartitionKeyListsMatch(List<PartitionItem> list1, List<PartitionItem> list2)
+        throws DdlException {
         Collections.sort(list1, PARTITION_KEY_COMPARATOR);
         Collections.sort(list2, PARTITION_KEY_COMPARATOR);
 
@@ -87,7 +88,7 @@ public class ListUtil {
                 int res = keys1.get(i).compareTo(keys2.get(i));
                 if (res != 0) {
                     throw new DdlException("2 partition key lists are not matched. "
-                            + keys1 + " vs. " + keys2);
+                        + keys1 + " vs. " + keys2);
                 }
             }
 
@@ -121,7 +122,7 @@ public class ListUtil {
 
         if (idx1 < list1.size() || idx2 < list2.size()) {
             throw new DdlException("2 partition key lists are not matched. "
-                    + list1 + " vs. " + list2);
+                + list1 + " vs. " + list2);
         }
     }
 
@@ -133,7 +134,7 @@ public class ListUtil {
                 for (PartitionItem currentItem : list1) {
                     if (((ListPartitionItem) currentItem).getItems().contains(checkKey)) {
                         throw new DdlException("The partition key[" + checkKey.toSql() + "] is overlap with current " +
-                                currentItem.toString());
+                            currentItem.toString());
                     }
                 }
             }

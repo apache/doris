@@ -18,6 +18,7 @@
 package org.apache.doris.load;
 
 import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -43,7 +44,9 @@ public class StreamLoadRecord {
     private String finishTime;
 
 
-    public StreamLoadRecord(String label, String db, String table, String user, String clientIp, String status, String message, String url, String totalRows, String loadedRows, String filteredRows, String unselectedRows, String loadBytes, String startTime, String finishTime) {
+    public StreamLoadRecord(String label, String db, String table, String user, String clientIp, String status,
+                            String message, String url, String totalRows, String loadedRows, String filteredRows,
+                            String unselectedRows, String loadBytes, String startTime, String finishTime) {
         this.label = label;
         this.db = db;
         this.table = table;

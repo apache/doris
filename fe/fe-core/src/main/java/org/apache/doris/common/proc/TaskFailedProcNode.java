@@ -30,8 +30,8 @@ import java.util.List;
 public class TaskFailedProcNode implements ProcNodeInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TaskSignature").add("FailedTimes")
-            .build();
+        .add("TaskSignature").add("FailedTimes")
+        .build();
 
     private long backendId;
     private TTaskType type;

@@ -81,9 +81,9 @@ public class AlterRoutineLoadStmtTest {
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "1,2,3");
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "10000, 20000, 30000");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties, true);
+                typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
-                    jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties);
             try {
                 stmt.analyze(analyzer);
             } catch (UserException e) {
@@ -91,8 +91,10 @@ public class AlterRoutineLoadStmtTest {
             }
 
             Assert.assertEquals(2, stmt.getAnalyzedJobProperties().size());
-            Assert.assertTrue(stmt.getAnalyzedJobProperties().containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
-            Assert.assertTrue(stmt.getAnalyzedJobProperties().containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY));
+            Assert.assertTrue(
+                stmt.getAnalyzedJobProperties().containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY));
+            Assert.assertTrue(
+                stmt.getAnalyzedJobProperties().containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY));
             Assert.assertTrue(stmt.hasDataSourceProperty());
             Assert.assertEquals(2, stmt.getDataSourceProperties().getCustomKafkaProperties().size());
             Assert.assertTrue(stmt.getDataSourceProperties().getCustomKafkaProperties().containsKey("group.id"));
@@ -104,7 +106,7 @@ public class AlterRoutineLoadStmtTest {
     @Test(expected = AnalysisException.class)
     public void testNoProperties() throws AnalysisException, UserException {
         AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
-                Maps.newHashMap(), new RoutineLoadDataSourceProperties());
+            Maps.newHashMap(), new RoutineLoadDataSourceProperties());
         stmt.analyze(analyzer);
     }
 
@@ -114,7 +116,7 @@ public class AlterRoutineLoadStmtTest {
             Map<String, String> jobProperties = Maps.newHashMap();
             jobProperties.put(CreateRoutineLoadStmt.FORMAT, "csv");
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
-                    jobProperties, new RoutineLoadDataSourceProperties());
+                jobProperties, new RoutineLoadDataSourceProperties());
             try {
                 stmt.analyze(analyzer);
                 Assert.fail();
@@ -133,9 +135,9 @@ public class AlterRoutineLoadStmtTest {
             Map<String, String> dataSourceProperties = Maps.newHashMap();
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, "new_topic");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties, true);
+                typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
-                    jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties);
 
             try {
                 stmt.analyze(analyzer);
@@ -154,9 +156,9 @@ public class AlterRoutineLoadStmtTest {
             Map<String, String> dataSourceProperties = Maps.newHashMap();
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "1,2,3");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties, true);
+                typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
-                    jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties);
             try {
                 stmt.analyze(analyzer);
                 Assert.fail();
@@ -175,9 +177,9 @@ public class AlterRoutineLoadStmtTest {
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "1,2,3");
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "1000, 2000");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties, true);
+                typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
-                    jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties);
             try {
                 stmt.analyze(analyzer);
                 Assert.fail();
@@ -195,9 +197,9 @@ public class AlterRoutineLoadStmtTest {
             Map<String, String> dataSourceProperties = Maps.newHashMap();
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "1000, 2000, 3000");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties, true);
+                typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
-                    jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties);
             try {
                 stmt.analyze(analyzer);
                 Assert.fail();
@@ -219,9 +221,9 @@ public class AlterRoutineLoadStmtTest {
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "1,2,3");
             dataSourceProperties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "10000, 20000, 30000");
             RoutineLoadDataSourceProperties routineLoadDataSourceProperties = new RoutineLoadDataSourceProperties(
-                    typeName, dataSourceProperties, true);
+                typeName, dataSourceProperties, true);
             AlterRoutineLoadStmt stmt = new AlterRoutineLoadStmt(new LabelName("db1", "label1"),
-                    jobProperties, routineLoadDataSourceProperties);
+                jobProperties, routineLoadDataSourceProperties);
             try {
                 stmt.analyze(analyzer);
                 Assert.fail();

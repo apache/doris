@@ -39,7 +39,7 @@ public class DbPrivEntry extends PrivEntry {
     }
 
     protected DbPrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher dbPattern, String origDb,
-            PatternMatcher userPattern, String user, boolean isDomain, PrivBitSet privSet) {
+                          PatternMatcher userPattern, String user, boolean isDomain, PrivBitSet privSet) {
         super(hostPattern, origHost, userPattern, user, isDomain, privSet);
         this.dbPattern = dbPattern;
         this.origDb = origDb;
@@ -49,11 +49,11 @@ public class DbPrivEntry extends PrivEntry {
     }
 
     public static DbPrivEntry create(String host, String db, String user, boolean isDomain, PrivBitSet privs)
-            throws AnalysisException {
+        throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
-        
+
         PatternMatcher dbPattern = createDbPatternMatcher(db);
-        
+
         PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
 
         if (privs.containsNodePriv() || privs.containsResourcePriv()) {
@@ -69,7 +69,7 @@ public class DbPrivEntry extends PrivEntry {
         if (ClusterNamespace.getNameFromFullName(db).equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
             dbCaseSensibility = false;
         }
-        
+
         PatternMatcher dbPattern = PatternMatcher.createMysqlPattern(db.equals(ANY_DB) ? "%" : db, dbCaseSensibility);
         return dbPattern;
     }
@@ -114,7 +114,7 @@ public class DbPrivEntry extends PrivEntry {
 
         DbPrivEntry otherEntry = (DbPrivEntry) other;
         if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
-                && origDb.equals(otherEntry.origDb) && isDomain == otherEntry.isDomain) {
+            && origDb.equals(otherEntry.origDb) && isDomain == otherEntry.isDomain) {
             return true;
         }
         return false;

@@ -27,12 +27,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class Daemon extends Thread {
     private static final Logger LOG = LogManager.getLogger(Daemon.class);
     private static final int DEFAULT_INTERVAL_SECONDS = 30; // 30 seconds
- 
+
     private long intervalMs;
     private AtomicBoolean isStop;
     private Runnable runnable;
     private AtomicBoolean isStart = new AtomicBoolean(false);
-    
+
     private MetaContext metaContext = null;
 
     {
@@ -41,14 +41,14 @@ public class Daemon extends Thread {
 
     public Daemon() {
         super();
-        intervalMs = DEFAULT_INTERVAL_SECONDS  * 1000L;
+        intervalMs = DEFAULT_INTERVAL_SECONDS * 1000L;
         isStop = new AtomicBoolean(false);
     }
 
     public Daemon(Runnable runnable) {
         super(runnable);
         this.runnable = runnable;
-        this.setName(((Object)runnable).toString());
+        this.setName(((Object) runnable).toString());
     }
 
     public Daemon(ThreadGroup group, Runnable runnable) {
@@ -56,16 +56,16 @@ public class Daemon extends Thread {
         this.runnable = runnable;
         this.setName(((Object) runnable).toString());
     }
-    
+
     public Daemon(String name) {
-        this(name, DEFAULT_INTERVAL_SECONDS  * 1000L);
+        this(name, DEFAULT_INTERVAL_SECONDS * 1000L);
     }
 
     public Daemon(String name, long intervalMs) {
         this(intervalMs);
         this.setName(name);
     }
-    
+
     public Daemon(long intervalMs) {
         this();
         this.intervalMs = intervalMs;
@@ -74,7 +74,7 @@ public class Daemon extends Thread {
     public Runnable getRunnable() {
         return runnable;
     }
-    
+
     @Override
     public synchronized void start() {
         if (isStart.compareAndSet(false, true)) {
@@ -89,7 +89,7 @@ public class Daemon extends Thread {
     public void exit() {
         isStop.set(true);
     }
-    
+
     public long getInterval() {
         return this.intervalMs;
     }
@@ -97,12 +97,12 @@ public class Daemon extends Thread {
     public void setInterval(long intervalMs) {
         this.intervalMs = intervalMs;
     }
-    
+
     /**
      * implement in child
      */
     protected void runOneCycle() {
-        
+
     }
 
     @Override

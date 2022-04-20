@@ -39,8 +39,8 @@ import java.util.concurrent.TimeoutException;
 
 public class ResultReceiver {
     private static final Logger LOG = LogManager.getLogger(ResultReceiver.class);
-    private boolean isDone    = false;
-    private boolean isCancel  = false;
+    private boolean isDone = false;
+    private boolean isCancel = false;
     private long packetIdx = 0;
     private long timeoutTs = 0;
     private TNetworkAddress address;
@@ -63,12 +63,13 @@ public class ResultReceiver {
         try {
             while (!isDone && !isCancel) {
                 InternalService.PFetchDataRequest request = InternalService.PFetchDataRequest.newBuilder()
-                        .setFinstId(finstId)
-                        .setRespInAttachment(false)
-                        .build();
-                
+                    .setFinstId(finstId)
+                    .setRespInAttachment(false)
+                    .build();
+
                 currentThread = Thread.currentThread();
-                Future<InternalService.PFetchDataResult> future = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
+                Future<InternalService.PFetchDataResult> future =
+                    BackendServiceProxy.getInstance().fetchDataAsync(address, request);
                 InternalService.PFetchDataResult pResult = null;
                 while (pResult == null) {
                     long currentTs = System.currentTimeMillis();
@@ -90,8 +91,8 @@ public class ResultReceiver {
                 if (code != TStatusCode.OK) {
                     status.setPstatus(pResult.getStatus());
                     return null;
-                } 
- 
+                }
+
                 rowBatch.setQueryStatistics(pResult.getQueryStatistics());
 
                 if (packetIdx != pResult.getPacketSeq()) {
@@ -99,7 +100,7 @@ public class ResultReceiver {
                     status.setRpcStatus("receive error packet");
                     return null;
                 }
-    
+
                 packetIdx++;
                 isDone = pResult.getEos();
 
@@ -138,7 +139,7 @@ public class ResultReceiver {
                 currentThread = null;
             }
         }
-        
+
         if (isCancel) {
             status.setStatus(Status.CANCELLED);
         }

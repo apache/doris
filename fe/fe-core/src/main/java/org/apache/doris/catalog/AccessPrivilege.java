@@ -56,8 +56,8 @@ public enum AccessPrivilege {
             case 2:
             case 3:
                 return PrivBitSet.of(PaloPrivilege.SELECT_PRIV, PaloPrivilege.LOAD_PRIV,
-                                                 PaloPrivilege.ALTER_PRIV, PaloPrivilege.CREATE_PRIV,
-                                                 PaloPrivilege.DROP_PRIV);
+                    PaloPrivilege.ALTER_PRIV, PaloPrivilege.CREATE_PRIV,
+                    PaloPrivilege.DROP_PRIV);
             case 4:
                 return PrivBitSet.of(PaloPrivilege.NODE_PRIV);
             case 5:

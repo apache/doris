@@ -102,6 +102,7 @@ public class AnalyticEvalNode extends PlanNode {
     public List<Expr> getPartitionExprs() {
         return partitionExprs;
     }
+
     public List<OrderByElement> getOrderByElements() {
         return orderByElements;
     }
@@ -128,7 +129,7 @@ public class AnalyticEvalNode extends PlanNode {
         ExprSubstitutionMap childSmap = getCombinedChildSmap();
         analyticFnCalls = Expr.substituteList(analyticFnCalls, childSmap, analyzer, false);
         substitutedPartitionExprs = Expr.substituteList(partitionExprs, childSmap,
-                                    analyzer, false);
+            analyzer, false);
         orderByElements = OrderByElement.substitute(orderByElements, childSmap, analyzer);
         if (LOG.isDebugEnabled()) {
             LOG.debug("evalnode: " + debugString());
@@ -163,20 +164,20 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         return MoreObjects.toStringHelper(this)
-               .add("analyticFnCalls", Expr.debugString(analyticFnCalls))
-               .add("partitionExprs", Expr.debugString(partitionExprs))
-               .add("substitutedPartitionExprs", Expr.debugString(substitutedPartitionExprs))
-               .add("orderByElements", Joiner.on(", ").join(orderByElementStrs))
-               .add("window", analyticWindow)
-               .add("intermediateTid", intermediateTupleDesc.getId())
-               .add("intermediateTid", outputTupleDesc.getId())
-               .add("outputTid", outputTupleDesc.getId())
-               .add("partitionByEq",
-                    partitionByEq != null ? partitionByEq.debugString() : "null")
-               .add("orderByEq",
-                    orderByEq != null ? orderByEq.debugString() : "null")
-               .addValue(super.debugString())
-               .toString();
+            .add("analyticFnCalls", Expr.debugString(analyticFnCalls))
+            .add("partitionExprs", Expr.debugString(partitionExprs))
+            .add("substitutedPartitionExprs", Expr.debugString(substitutedPartitionExprs))
+            .add("orderByElements", Joiner.on(", ").join(orderByElementStrs))
+            .add("window", analyticWindow)
+            .add("intermediateTid", intermediateTupleDesc.getId())
+            .add("intermediateTid", outputTupleDesc.getId())
+            .add("outputTid", outputTupleDesc.getId())
+            .add("partitionByEq",
+                partitionByEq != null ? partitionByEq.debugString() : "null")
+            .add("orderByEq",
+                orderByEq != null ? orderByEq.debugString() : "null")
+            .addValue(super.debugString())
+            .toString();
     }
 
     @Override
@@ -267,9 +268,10 @@ public class AnalyticEvalNode extends PlanNode {
 
         return output.toString();
     }
+
     public void computeCosts(TQueryOptions queryOptions) {
         Preconditions.checkNotNull(fragmentId,
-                                   "PlanNode must be placed into a fragment before calling this method.");
+            "PlanNode must be placed into a fragment before calling this method.");
         // TODO: come up with estimate based on window
         cardinality = 0;
     }

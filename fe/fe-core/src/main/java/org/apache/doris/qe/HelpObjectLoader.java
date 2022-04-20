@@ -17,13 +17,14 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.MarkDownParser;
+import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -55,7 +56,7 @@ public abstract class HelpObjectLoader<HelpTypeT extends HelpObjectIface> {
         }
         return topics;
     }
-    
+
     // Load all Topics
     public List<HelpTypeT> loadAll(String path) throws IOException, UserException {
         if (Strings.isNullOrEmpty(path)) {

@@ -17,12 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.UserException;
@@ -41,6 +35,12 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class BrokerLoadPendingTaskTest {
 
@@ -77,9 +77,11 @@ public class BrokerLoadPendingTaskTest {
             }
         };
 
-        BrokerLoadPendingTask brokerLoadPendingTask = new BrokerLoadPendingTask(brokerLoadJob, aggKeyToFileGroups, brokerDesc);
+        BrokerLoadPendingTask brokerLoadPendingTask =
+            new BrokerLoadPendingTask(brokerLoadJob, aggKeyToFileGroups, brokerDesc);
         brokerLoadPendingTask.executeTask();
-        BrokerPendingTaskAttachment brokerPendingTaskAttachment = Deencapsulation.getField(brokerLoadPendingTask, "attachment");
+        BrokerPendingTaskAttachment brokerPendingTaskAttachment =
+            Deencapsulation.getField(brokerLoadPendingTask, "attachment");
         Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
         Assert.assertEquals(tBrokerFileStatus, brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0));
     }

@@ -22,11 +22,11 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SymmetricEncryption;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+
+import com.google.gson.annotations.SerializedName;
 
 public class LdapInfo implements Writable {
     @SerializedName(value = "ldapPasswd")
@@ -38,7 +38,8 @@ public class LdapInfo implements Writable {
     @SerializedName(value = "iv")
     private byte[] iv;
 
-    public LdapInfo() {}
+    public LdapInfo() {
+    }
 
     public LdapInfo(String ldapPasswd) {
         secretKey = SymmetricEncryption.generateKey();

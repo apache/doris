@@ -61,18 +61,18 @@ public class JvmService {
 
         // 1. jvm stats
         JvmStats jvmStats = stats();
-        
+
         // buffer pool
         List<BufferPool> bufferPools = jvmStats.getBufferPools();
         sb.append("JVM Stats: \nBuffer pools:\n");
         for (BufferPool bufferPool : bufferPools) {
             sb.append("\t").append(bufferPool.toString()).append("\n");
         }
-        
+
         // classes
         Classes classes = jvmStats.getClasses();
         sb.append(classes.toString()).append("\n");
-        
+
         // gc
         GarbageCollectors gc = jvmStats.getGc();
         GarbageCollector[] gcs = gc.getCollectors();
@@ -80,7 +80,7 @@ public class JvmService {
         for (GarbageCollector garbageCollector : gcs) {
             sb.append("\t").append(garbageCollector.toString());
         }
-        
+
         // mem
         Mem mem = jvmStats.getMem();
         sb.append("\nMem: ").append(mem.toString());
@@ -88,15 +88,15 @@ public class JvmService {
         // threads
         Threads threads = jvmStats.getThreads();
         sb.append("\nThreads: ").append(threads.toString());
-        
+
         sb.append("\nUpTime: ").append(jvmStats.getUptime().toString());
         sb.append("\nTimestamp: ").append(jvmStats.getTimestamp());
 
         LOG.info(sb.toString());
-        
+
         // 2. jvm info
         JvmInfo jvmInfo = info();
-        
+
         sb.append("\nJVM Info: \nboot class path: ").append(jvmInfo.getBootClassPath());
         sb.append("\nclass path: ").append(jvmInfo.getClassPath());
         sb.append("\nconfigured init heap size: ").append(jvmInfo.getConfiguredInitialHeapSize());
@@ -107,13 +107,13 @@ public class JvmService {
         sb.append("\nvm name").append(jvmInfo.getVmName());
         sb.append("\nvm vendor: ").append(jvmInfo.getVmVendor());
         sb.append("\nvm version").append(jvmInfo.getVmVersion());
-        
+
         sb.append("\ngcs: ").append(Joiner.on(", ").join(jvmInfo.getGcCollectors()));
         sb.append("\ninput arguments: ").append(Joiner.on(", ").join(jvmInfo.getInputArguments()));
         sb.append("\nmem: ").append(jvmInfo.getMem().toString());
         sb.append("\nmem pools: ").append(Joiner.on(", ").join(jvmInfo.getMemoryPools()));
         sb.append("\nsystem props: ").append(jvmInfo.getSystemProperties());
-        
+
         return sb.toString();
     }
 }

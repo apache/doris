@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -29,7 +27,6 @@ import org.apache.doris.mysql.privilege.UserProperty;
 
 import com.google.common.collect.Lists;
 
-import org.apache.doris.thrift.TStorageMedium;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,6 +37,9 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class UserPropertyTest {
     private FakeCatalog fakeCatalog;

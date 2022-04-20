@@ -146,8 +146,8 @@ public class FunctionName implements Writable {
         for (int i = 0; i < fn_.length(); ++i) {
             if (!isValidCharacter(fn_.charAt(i))) {
                 throw new AnalysisException(
-                  "Function names must be all alphanumeric or underscore. " +
-                    "Invalid name: " + fn_);
+                    "Function names must be all alphanumeric or underscore. " +
+                        "Invalid name: " + fn_);
             }
         }
         if (Character.isDigit(fn_.charAt(0))) {
@@ -202,7 +202,7 @@ public class FunctionName implements Writable {
         fn_ = Text.readString(in);
     }
 
-    public static FunctionName read(DataInput in) throws IOException{
+    public static FunctionName read(DataInput in) throws IOException {
         FunctionName functionName = new FunctionName();
         functionName.readFields(in);
         return functionName;

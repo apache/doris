@@ -25,26 +25,27 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 
 import java.util.Map;
 
+import com.google.gson.annotations.SerializedName;
+
 /**
  * S3 resource for olap table
- *
+ * <p>
  * Syntax:
  * CREATE RESOURCE "remote_s3"
  * PROPERTIES
  * (
- *    "type" = "s3",
- *    "s3_endpoint" = "bj",
- *    "s3_region" = "bj",
- *    "s3_root_path" = "/path/to/root",
- *    "s3_access_key" = "bbb",
- *    "s3_secret_key" = "aaaa",
- *    "s3_max_connections" = "50",
- *    "s3_request_timeout_ms" = "3000",
- *    "s3_connection_timeout_ms" = "1000"
+ * "type" = "s3",
+ * "s3_endpoint" = "bj",
+ * "s3_region" = "bj",
+ * "s3_root_path" = "/path/to/root",
+ * "s3_access_key" = "bbb",
+ * "s3_secret_key" = "aaaa",
+ * "s3_max_connections" = "50",
+ * "s3_request_timeout_ms" = "3000",
+ * "s3_connection_timeout_ms" = "1000"
  * );
  */
 public class S3Resource extends Resource {

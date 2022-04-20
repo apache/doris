@@ -17,7 +17,6 @@
 
 package org.apache.doris.persist;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -25,6 +24,8 @@ import org.apache.doris.persist.gson.GsonUtils;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+
+import com.google.gson.annotations.SerializedName;
 
 public class DropDbInfo implements Writable {
     @SerializedName(value = "dbName")
@@ -46,7 +47,7 @@ public class DropDbInfo implements Writable {
     }
 
     public boolean isForceDrop() {
-        return  forceDrop;
+        return forceDrop;
     }
 
     @Deprecated
@@ -77,7 +78,7 @@ public class DropDbInfo implements Writable {
         DropDbInfo info = (DropDbInfo) obj;
 
         return (dbName.equals(info.getDbName()))
-                && (forceDrop == info.isForceDrop());
+            && (forceDrop == info.isForceDrop());
     }
 
 }

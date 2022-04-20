@@ -30,10 +30,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 
@@ -58,8 +58,8 @@ public class HLLHashToSlotRefRule implements ExprRewriteRule {
         FunctionCallExpr fnExpr = (FunctionCallExpr) expr;
         String fnNameString = fnExpr.getFnName().getFunction();
         if (!fnNameString.equalsIgnoreCase("hll_union")
-                && !fnNameString.equalsIgnoreCase("hll_raw_agg")
-                && !fnNameString.equalsIgnoreCase("hll_union_agg")) {
+            && !fnNameString.equalsIgnoreCase("hll_raw_agg")
+            && !fnNameString.equalsIgnoreCase("hll_union_agg")) {
             return expr;
         }
         if (!(fnExpr.getChild(0) instanceof FunctionCallExpr)) {
@@ -90,7 +90,7 @@ public class HLLHashToSlotRefRule implements ExprRewriteRule {
         // check column
         String queryColumnName = column.getName();
         String mvColumnName = CreateMaterializedViewStmt
-                .mvColumnBuilder(AggregateType.HLL_UNION.name().toLowerCase(), queryColumnName);
+            .mvColumnBuilder(AggregateType.HLL_UNION.name().toLowerCase(), queryColumnName);
         mvColumn = olapTable.getVisibleColumn(mvColumnName);
         if (mvColumn == null) {
             return expr;

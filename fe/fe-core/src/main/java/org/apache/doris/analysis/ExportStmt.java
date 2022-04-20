@@ -73,7 +73,7 @@ public class ExportStmt extends StatementBase {
     private Map<String, String> properties = Maps.newHashMap();
     private String columnSeparator;
     private String lineDelimiter;
-    private String columns ;
+    private String columns;
 
     private TableRef tableRef;
 
@@ -155,12 +155,12 @@ public class ExportStmt extends StatementBase {
 
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                tblName.getDb(), tblName.getTbl(),
-                                                                PrivPredicate.SELECT)) {
+            tblName.getDb(), tblName.getTbl(),
+            PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "EXPORT",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                tblName.getDb() + ": " + tblName.getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                tblName.getDb() + ": " + tblName.getTbl());
         }
 
         // check table && partitions whether exist
@@ -213,7 +213,7 @@ public class ExportStmt extends StatementBase {
                 case VIEW:
                 default:
                     throw new AnalysisException("Table[" + tblName.getTbl() + "] is "
-                            + tblType.toString() + " type, do not support EXPORT.");
+                        + tblType.toString() + " type, do not support EXPORT.");
             }
 
             for (String partitionName : partitions) {
@@ -236,33 +236,33 @@ public class ExportStmt extends StatementBase {
         String schema = uri.getScheme();
         if (type == StorageBackend.StorageType.BROKER) {
             if (schema == null || (!schema.equalsIgnoreCase("bos") && !schema.equalsIgnoreCase("afs")
-                    && !schema.equalsIgnoreCase("hdfs") && !schema.equalsIgnoreCase("ofs"))) {
+                && !schema.equalsIgnoreCase("hdfs") && !schema.equalsIgnoreCase("ofs"))) {
                 throw new AnalysisException("Invalid export path. please use valid 'HDFS://', 'AFS://' , 'BOS://', "
-                        + "or 'ofs://' path.");
+                    + "or 'ofs://' path.");
             }
         } else if (type == StorageBackend.StorageType.S3) {
             if (schema == null || !schema.equalsIgnoreCase("s3")) {
                 throw new AnalysisException("Invalid export path. please use valid 'S3://' path.");
             }
-            } else if (type == StorageBackend.StorageType.HDFS) {
-                if (schema == null || !schema.equalsIgnoreCase("hdfs")) {
-                    throw new AnalysisException("Invalid export path. please use valid 'HDFS://' path.");
-                }
-            } else if (type == StorageBackend.StorageType.LOCAL) {
-                if (schema != null && !schema.equalsIgnoreCase("file")) {
-                    throw new AnalysisException("Invalid export path. please use valid '"
-                            + OutFileClause.LOCAL_FILE_PREFIX + "' path.");
-                }
-                path = path.substring(OutFileClause.LOCAL_FILE_PREFIX.length() - 1);
+        } else if (type == StorageBackend.StorageType.HDFS) {
+            if (schema == null || !schema.equalsIgnoreCase("hdfs")) {
+                throw new AnalysisException("Invalid export path. please use valid 'HDFS://' path.");
             }
+        } else if (type == StorageBackend.StorageType.LOCAL) {
+            if (schema != null && !schema.equalsIgnoreCase("file")) {
+                throw new AnalysisException("Invalid export path. please use valid '"
+                    + OutFileClause.LOCAL_FILE_PREFIX + "' path.");
+            }
+            path = path.substring(OutFileClause.LOCAL_FILE_PREFIX.length() - 1);
+        }
         return path;
     }
 
     private void checkProperties(Map<String, String> properties) throws UserException {
         this.columnSeparator = Separator.convertSeparator(PropertyAnalyzer.analyzeColumnSeparator(
-                properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
+            properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
-                properties, ExportStmt.DEFAULT_LINE_DELIMITER));
+            properties, ExportStmt.DEFAULT_LINE_DELIMITER));
         this.columns = properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
         // exec_mem_limit
         if (properties.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
@@ -274,7 +274,7 @@ public class ExportStmt extends StatementBase {
         } else {
             // use session variables
             properties.put(LoadStmt.EXEC_MEM_LIMIT,
-                           String.valueOf(ConnectContext.get().getSessionVariable().getMaxExecMemByte()));
+                String.valueOf(ConnectContext.get().getSessionVariable().getMaxExecMemByte()));
         }
         // timeout
         if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {

@@ -23,9 +23,6 @@ import org.apache.doris.persist.gson.GsonUtils.HiddenAnnotationExclusionStrategy
 import org.apache.doris.persist.gson.GsonUtils.PostProcessTypeAdapterFactory;
 
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.annotations.SerializedName;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -41,23 +38,27 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Map;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.SerializedName;
+
 /*
  * This unit test shows how to serialize and deserialize inherited class.
- * 
+ *
  * ParentClass is the parent class of 2 derived classes:
  *      ChildClassA
  *      ChildClassB
- *      
+ *
  * User need to create a RuntimeTypeAdapterFactory for ParentClass and
  * register 2 derived classes to the factory. And then register the factory
  * to the GsonBuilder to create GSON instance.
- * 
- * 
- * 
+ *
+ *
+ *
  */
 public class GsonDerivedClassSerializationTest {
     private static String fileName = "./GsonDerivedClassSerializationTest";
-    
+
     @After
     public void tearDown() {
         File file = new File(fileName);
@@ -140,19 +141,19 @@ public class GsonDerivedClassSerializationTest {
     }
 
     private static RuntimeTypeAdapterFactory<ParentClass> runtimeTypeAdapterFactory = RuntimeTypeAdapterFactory
-            // the "clazz" is a custom defined name
-            .of(ParentClass.class, "clazz")
-            // register 2 derived classes, the second parameter will be the value of "clazz"
-            .registerSubtype(ChildClassA.class, ChildClassA.class.getSimpleName())
-            .registerSubtype(ChildClassB.class, ChildClassB.class.getSimpleName());
+        // the "clazz" is a custom defined name
+        .of(ParentClass.class, "clazz")
+        // register 2 derived classes, the second parameter will be the value of "clazz"
+        .registerSubtype(ChildClassA.class, ChildClassA.class.getSimpleName())
+        .registerSubtype(ChildClassB.class, ChildClassB.class.getSimpleName());
 
     private static Gson TEST_GSON = new GsonBuilder()
-            .addSerializationExclusionStrategy(new HiddenAnnotationExclusionStrategy())
-            .enableComplexMapKeySerialization()
-            // register the RuntimeTypeAdapterFactory
-            .registerTypeAdapterFactory(runtimeTypeAdapterFactory)
-            .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
-            .create();
+        .addSerializationExclusionStrategy(new HiddenAnnotationExclusionStrategy())
+        .enableComplexMapKeySerialization()
+        // register the RuntimeTypeAdapterFactory
+        .registerTypeAdapterFactory(runtimeTypeAdapterFactory)
+        .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
+        .create();
 
     @Test
     public void testDerivedClassA() throws IOException {

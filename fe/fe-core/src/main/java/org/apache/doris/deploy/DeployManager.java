@@ -46,64 +46,64 @@ import java.util.Map;
 /*
  * This deploy manager is to support Kubernetes, Ambari or other system for automating deployment.
  * The deploy manager will try to get the helper node when initialize catalog.
- * When this FE is transfer to Master, it will start a polling thread to detect the node change of at most 4 
+ * When this FE is transfer to Master, it will start a polling thread to detect the node change of at most 4
  * service groups in remote deployment system:
- * 
+ *
  *      electableFeServiceGroup: contains Master and Follower FE
  *      backendServiceGroup: contains Backends
  *      observerFeServiceGroup:  contains Observer FE (optional, k8s only)
  *      brokerServiceGroup: contains Broker (optional, Ambari only)
- * 
+ *
  * When node changing is detected, the deploy manager will try to ADD or DROP the new or missing node.
- * 
+ *
  * Current support operations:
- * 
+ *
  * A. Startup
  * 1. Start 1 Frontend(FE), and automatically transfer to the single startup Master.
  * 2. Start 3 FEs, they will reach a consensus on choosing first FE in node list as startup Master.
- * 
+ *
  * B. Expansion
  * 1. With 1 existing FE(Master), add 2 FEs to reach HA.
  * 2. With 1 or 3 existing FE(Master + Follower), add more FE(observer).
  * 3. With 1 or 3 existing FE(Master + Follower), add more Backends(BE).
  * 3. With 1 or 3 existing FE(Master + Follower), add more Broker.
- * 
+ *
  * C. Shrink
  * 1. With 3 existing FEs, drop 2 FEs.
  * 2. With 1 or 3 existing FE(Master + Follower), drop existing FE(observer).
  * 3. With 1 or 3 existing FE(Master + Follower), drop existing BE.
  * 3. With 1 or 3 existing FE(Master + Follower), drop existing Broker.
- * 
+ *
  * Environment variables:
- * 
+ *
  * FE_EXIST_ENTPOINT:
  *      he existing FE(Master + Follower) before the new FE start up.
- *      The main reason of this var is to indicate whether there is already an alive Master 
+ *      The main reason of this var is to indicate whether there is already an alive Master
  *      or the consensus of who is master is needed.
- *      
+ *
  * FE_INIT_NUMBER:
  *      Number of newly start up FE(Master + Follower), can only be 1 or 3.
- * 
+ *
  * Only one of FE_EXIST_ENTPOINT and FE_INIT_NUMBER need to be set.
- * 
+ *
  * eg:
- * 
+ *
  *  1. Start 1 FE as a single Master
  *      set FE_EXIST_ENTPOINT as empty
  *      set FE_INIT_NUMBER = 1
- *      
+ *
  *  2. Start 3 FE(Master + Follower)
  *      set FE_EXIST_ENTPOINT as empty
  *      set FE_INIT_NUMBER = 3
- *      
+ *
  *  3. With 1 existing FE(Master), add 2 FEs to reach HA.
  *      set FE_EXIST_ENTPOINT=existing_fe_host:edit_log_port
  *      set FE_INIT_NUMBER as empty
- * 
+ *
  */
 public class DeployManager extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(DeployManager.class);
-    
+
     // We misspelled the environment value ENV_FE_EXIST_ENT(D)POINT. But for forward compatibility,
     // we have to keep this misspelling for a while.
     // TODO(cmy): remove it later
@@ -147,7 +147,7 @@ public class DeployManager extends MasterDaemon {
     // Derived Class can override this method to init more private env variables,
     // but must class the parent's init at first.
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+                                    String envBackendServiceGroup, String envBrokerServiceGroup) {
 
         this.electableFeServiceGroup = Strings.nullToEmpty(System.getenv(envElectableFeServiceGroup));
         this.observerFeServiceGroup = Strings.nullToEmpty(System.getenv(envObserverFeServiceGroup));
@@ -155,13 +155,13 @@ public class DeployManager extends MasterDaemon {
         this.brokerServiceGroup = Strings.nullToEmpty(System.getenv(envBrokerServiceGroup));
 
         LOG.info("get deploy env: {}, {}, {}, {}", envElectableFeServiceGroup, envObserverFeServiceGroup,
-                 envBackendServiceGroup, envBrokerServiceGroup);
+            envBackendServiceGroup, envBrokerServiceGroup);
 
         // electableFeServiceGroup and backendServiceGroup must exist
         if (Strings.isNullOrEmpty(electableFeServiceGroup) || Strings.isNullOrEmpty(backendServiceGroup)) {
             LOG.warn("failed to init service group name."
                     + " electableFeServiceGroup: {}, backendServiceGroup: {}",
-                     electableFeServiceGroup, backendServiceGroup);
+                electableFeServiceGroup, backendServiceGroup);
             System.exit(-1);
         }
 
@@ -178,7 +178,7 @@ public class DeployManager extends MasterDaemon {
 
         LOG.info("get electableFeServiceGroup: {}, observerFeServiceGroup: {}, backendServiceGroup: {}"
                 + " brokerServiceGroup: {}",
-                 electableFeServiceGroup, observerFeServiceGroup, backendServiceGroup, brokerServiceGroup);
+            electableFeServiceGroup, observerFeServiceGroup, backendServiceGroup, brokerServiceGroup);
     }
 
     // Call init before each runOneCycle
@@ -276,14 +276,14 @@ public class DeployManager extends MasterDaemon {
         // 2. get electable fe host from remote
         boolean ok = true;
         List<Pair<String, Integer>> feHostPorts = null;
-        while(true) {
+        while (true) {
             try {
                 feHostPorts = getElectableGroupHostPorts();
                 if (feHostPorts == null) {
                     ok = false;
                 } else if (feHostPorts.size() != numOfFe) {
                     LOG.error("num of fe get from remote [{}] does not equal to the expected num: {}",
-                              feHostPorts, numOfFe);
+                        feHostPorts, numOfFe);
                     ok = false;
                 } else {
                     ok = true;
@@ -303,7 +303,7 @@ public class DeployManager extends MasterDaemon {
                     System.exit(-1);
                 }
             }
-            
+
             LOG.info("get electable fe host from remote: {}", feHostPorts);
             break;
         }
@@ -335,7 +335,7 @@ public class DeployManager extends MasterDaemon {
             return;
         }
         LOG.debug("get electable fe hosts {} from electable fe service group: {}",
-                  remoteElectableFeHosts, electableFeServiceGroup);
+            remoteElectableFeHosts, electableFeServiceGroup);
         if (remoteElectableFeHosts.isEmpty()) {
             LOG.error("electable fe service group {} is empty, which should not happen", electableFeServiceGroup);
             return;
@@ -343,12 +343,12 @@ public class DeployManager extends MasterDaemon {
 
         // 1.1 Check if self is in electable fe service group
         Pair<String, Integer> selfHost = getHostFromPairList(remoteElectableFeHosts, catalog.getMasterIp(),
-                                                             Config.edit_log_port);
+            Config.edit_log_port);
         if (selfHost == null) {
             // The running of this deploy manager means this node is considered self as Master.
             // If it self does not exist in electable fe service group, it should shut it self down.
             LOG.warn("self host {} is not in electable fe service group {}. Exit now.",
-                     selfHost, electableFeServiceGroup);
+                selfHost, electableFeServiceGroup);
             System.exit(-1);
         }
 
@@ -361,13 +361,15 @@ public class DeployManager extends MasterDaemon {
         }
 
         // 2. Check the backend service group
-        BE_BLOCK: {
+        BE_BLOCK:
+        {
             List<Pair<String, Integer>> remoteBackendHosts = getBackendGroupHostPorts();
             if (remoteBackendHosts == null) {
                 break BE_BLOCK;
             }
             LOG.debug("get remote backend hosts: {}", remoteBackendHosts);
-            List<Backend> localBackends = Catalog.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
+            List<Backend> localBackends =
+                Catalog.getCurrentSystemInfo().getClusterBackends(SystemInfoService.DEFAULT_CLUSTER);
             List<Pair<String, Integer>> localBackendHosts = Lists.newArrayList();
             for (Backend backend : localBackends) {
                 localBackendHosts.add(Pair.create(backend.getHost(), backend.getHeartbeatPort()));
@@ -379,7 +381,8 @@ public class DeployManager extends MasterDaemon {
         }
 
         if (hasObserverService) {
-            OB_BLOCK: {
+            OB_BLOCK:
+            {
                 // 3. Check the observer fe service group
                 List<Pair<String, Integer>> remoteObserverFeHosts = getObserverGroupHostPorts();
                 if (remoteObserverFeHosts == null) {
@@ -396,7 +399,8 @@ public class DeployManager extends MasterDaemon {
         }
 
         if (hasBrokerService) {
-            BROKER_BLOCK: {
+            BROKER_BLOCK:
+            {
                 // 4. Check the broker service group
                 Map<String, List<Pair<String, Integer>>> remoteBrokerHosts = getBrokerGroupHostPorts();
                 if (remoteBrokerHosts == null) {
@@ -421,10 +425,10 @@ public class DeployManager extends MasterDaemon {
                                 try {
                                     catalog.getBrokerMgr().dropBrokers(brokerName, list);
                                     LOG.info("drop broker {}:{} with name: {}",
-                                             addr.ip, addr.port, brokerName);
+                                        addr.ip, addr.port, brokerName);
                                 } catch (DdlException e) {
                                     LOG.warn("failed to drop broker {}:{} with name: {}",
-                                             addr.ip, addr.port, brokerName, e);
+                                        addr.ip, addr.port, brokerName, e);
                                     continue;
                                 }
                             }
@@ -442,7 +446,7 @@ public class DeployManager extends MasterDaemon {
                                     LOG.info("add broker {}:{} with name {}", pair.first, pair.second, brokerName);
                                 } catch (DdlException e) {
                                     LOG.warn("failed to add broker {}:{} with name {}",
-                                             pair.first, pair.second, brokerName);
+                                        pair.first, pair.second, brokerName);
                                     continue;
                                 }
                             }
@@ -470,7 +474,7 @@ public class DeployManager extends MasterDaemon {
                             LOG.info("add brokers {} with name {}", entry.getValue(), remoteBrokerName);
                         } catch (DdlException e) {
                             LOG.info("failed to add brokers {} with name {}",
-                                     entry.getValue(), remoteBrokerName, e);
+                                entry.getValue(), remoteBrokerName, e);
                             continue;
                         }
                     }
@@ -480,7 +484,7 @@ public class DeployManager extends MasterDaemon {
     }
 
     private FsBroker getHostFromBrokerAddrs(List<FsBroker> addrList,
-            String ip, Integer port) {
+                                            String ip, Integer port) {
         for (FsBroker brokerAddress : addrList) {
             if (brokerAddress.ip.equals(ip) && brokerAddress.port == port) {
                 return brokerAddress;
@@ -493,13 +497,13 @@ public class DeployManager extends MasterDaemon {
      * Inspect the node change.
      * 1. Check if there are some nodes need to be dropped.
      * 2. Check if there are some nodes need to be added.
-     * 
+     *
      * We only handle one change at a time.
      * Return true if something changed
      */
     private boolean inspectNodeChange(List<Pair<String, Integer>> remoteHosts,
-            List<Pair<String, Integer>> localHosts,
-            NodeType nodeType) {
+                                      List<Pair<String, Integer>> localHosts,
+                                      NodeType nodeType) {
 
         // 2.1 Find local node which need to be dropped.
         for (Pair<String, Integer> localHost : localHosts) {
@@ -513,25 +517,25 @@ public class DeployManager extends MasterDaemon {
                     LOG.error("self host {}:{} does not exist in remote hosts. Showdown.");
                     System.exit(-1);
                 }
-                
+
                 // Check the detected downtime
                 if (!counterMap.containsKey(localHost.toString())) {
                     // First detected downtime. Add to the map and ignore
                     LOG.warn("downtime of {} node: {} detected times: 1",
-                             nodeType.name(), localHost);
+                        nodeType.name(), localHost);
                     counterMap.put(localHost.toString(), 1);
                     return false;
                 } else {
                     int times = counterMap.get(localHost.toString());
                     if (times < MAX_MISSING_TIME) {
                         LOG.warn("downtime of {} node: {} detected times: {}",
-                                 nodeType.name(), localHost, times + 1);
+                            nodeType.name(), localHost, times + 1);
                         counterMap.put(localHost.toString(), times + 1);
                         return false;
                     } else {
                         // Reset the counter map and do the dropping operation
                         LOG.warn("downtime of {} node: {} detected times: {}. drop it",
-                                 nodeType.name(), localHost, times + 1);
+                            nodeType.name(), localHost, times + 1);
                         counterMap.remove(localHost.toString());
                     }
                 }
@@ -607,7 +611,7 @@ public class DeployManager extends MasterDaemon {
 
     // Get host port pair from pair list. Return null if not found
     private Pair<String, Integer> getHostFromPairList(List<Pair<String, Integer>> pairList,
-            String ip, Integer port) {
+                                                      String ip, Integer port) {
         for (Pair<String, Integer> pair : pairList) {
             if (ip.equals(pair.first) && port.equals(pair.second)) {
                 return pair;

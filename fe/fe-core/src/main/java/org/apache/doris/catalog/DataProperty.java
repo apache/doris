@@ -25,21 +25,21 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+import com.google.gson.annotations.SerializedName;
+
 public class DataProperty implements Writable {
     public static final DataProperty DEFAULT_DATA_PROPERTY = new DataProperty(
-            "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD
+        "SSD".equalsIgnoreCase(Config.default_storage_medium) ? TStorageMedium.SSD : TStorageMedium.HDD
     );
     public static final long MAX_COOLDOWN_TIME_MS = 253402271999000L; // 9999-12-31 23:59:59
 
-    @SerializedName(value =  "storageMedium")
+    @SerializedName(value = "storageMedium")
     private TStorageMedium storageMedium;
-    @SerializedName(value =  "cooldownTimeMs")
+    @SerializedName(value = "cooldownTimeMs")
     private long cooldownTimeMs;
     @SerializedName(value = "remoteStorageResourceName")
     private String remoteStorageResourceName;
@@ -122,9 +122,9 @@ public class DataProperty implements Writable {
         DataProperty other = (DataProperty) obj;
 
         return this.storageMedium == other.storageMedium
-                && this.cooldownTimeMs == other.cooldownTimeMs
-                && this.remoteCooldownTimeMs == other.remoteCooldownTimeMs
-                && this.remoteStorageResourceName.equals(other.remoteStorageResourceName);
+            && this.cooldownTimeMs == other.cooldownTimeMs
+            && this.remoteCooldownTimeMs == other.remoteCooldownTimeMs
+            && this.remoteStorageResourceName.equals(other.remoteStorageResourceName);
     }
 
     @Override

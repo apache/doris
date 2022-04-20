@@ -29,10 +29,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 
@@ -44,10 +44,10 @@ import java.util.List;
  * MV: (k1 int, mv_hll_union_k2 hll hll_union)
  * mv_hll_union_k2 = hll_hash(k2)
  * Query: select k1, ndv(k2) from table group by k1
- *    or  select k1, approx_count_distinct(k2) from table group by k1
+ * or  select k1, approx_count_distinct(k2) from table group by k1
  * Rewritten query: select k1, hll_union_agg(mv_hll_union_k2) from table group by k1
  */
-public class NDVToHll implements ExprRewriteRule{
+public class NDVToHll implements ExprRewriteRule {
     public static final ExprRewriteRule INSTANCE = new NDVToHll();
 
     @Override
@@ -58,7 +58,7 @@ public class NDVToHll implements ExprRewriteRule{
         }
         FunctionCallExpr fnExpr = (FunctionCallExpr) expr;
         if (!fnExpr.getFnName().getFunction().equalsIgnoreCase("ndv")
-                && !fnExpr.getFnName().getFunction().equalsIgnoreCase("approx_count_distinct")) {
+            && !fnExpr.getFnName().getFunction().equalsIgnoreCase("approx_count_distinct")) {
             return expr;
         }
         if (fnExpr.getChildren().size() != 1 || !(fnExpr.getChild(0) instanceof SlotRef)) {
@@ -75,7 +75,7 @@ public class NDVToHll implements ExprRewriteRule{
         // check column
         String queryColumnName = column.getName();
         String mvColumnName = CreateMaterializedViewStmt
-                .mvColumnBuilder(AggregateType.HLL_UNION.name().toLowerCase(), queryColumnName);
+            .mvColumnBuilder(AggregateType.HLL_UNION.name().toLowerCase(), queryColumnName);
         Column mvColumn = olapTable.getVisibleColumn(mvColumnName);
         if (mvColumn == null) {
             return expr;

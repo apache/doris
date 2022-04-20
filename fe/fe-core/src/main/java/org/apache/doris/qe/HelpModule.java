@@ -26,8 +26,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -72,8 +72,8 @@ public class HelpModule {
     private ImmutableMap.Builder<String, HelpTopic> topicBuilder;
 
     private static final String HELP_ZIP_FILE_NAME = "help-resource.zip";
-    private static final long HELP_ZIP_CHECK_INTERVAL_MS = 10 * 60 * 1000L; 
-    
+    private static final long HELP_ZIP_CHECK_INTERVAL_MS = 10 * 60 * 1000L;
+
     private static Charset CHARSET_UTF_8;
 
     static {
@@ -87,17 +87,17 @@ public class HelpModule {
 
     private static long lastModifyTime = 0L;
     private static long lastCheckTime = 0L;
-    private boolean isloaded = false; 
+    private boolean isloaded = false;
     private static String zipFilePath;
     private static ReentrantLock lock = new ReentrantLock();
-    
+
     // Files in zip is not recursive, so we only need to traverse it
     public void setUpByZip(String path) throws IOException, UserException {
         initBuild();
         ZipFile zf = new ZipFile(path);
         Enumeration<? extends ZipEntry> entries = zf.entries();
         while (entries.hasMoreElements()) {
-            ZipEntry entry = entries.nextElement(); 
+            ZipEntry entry = entries.nextElement();
             if (entry.isDirectory()) {
                 setUpDirInZip(entry.getName());
             } else {
@@ -106,12 +106,12 @@ public class HelpModule {
                 List<String> lines = Lists.newArrayList();
                 if (size > 0) {
                     BufferedReader reader = new BufferedReader(new InputStreamReader(zf.getInputStream(entry),
-                                                                                     CHARSET_UTF_8));
-                    while ((line = reader.readLine()) != null ) {
+                        CHARSET_UTF_8));
+                    while ((line = reader.readLine()) != null) {
                         lines.add(line);
                     }
                     reader.close();
-                    
+
                     // note that we only need basename
                     String parentPathStr = null;
                     Path pathObj = Paths.get(entry.getName());
@@ -128,20 +128,20 @@ public class HelpModule {
         build();
         isloaded = true;
     }
-    
+
     // process dirs in zip file
     private void setUpDirInZip(String pathInZip) {
         Path pathObj = Paths.get(pathInZip);
         // Note: we only need 'basename' here, which is the farthest element from the root in the 
         // directory hierarchy.
-        String pathStr = pathObj.getFileName().toString(); 
+        String pathStr = pathObj.getFileName().toString();
         String parentPathStr = null;
         if (pathObj.getParent() != null) {
             parentPathStr = pathObj.getParent().getFileName().toString();
         }
         updateCategory(parentPathStr, pathStr);
     }
-    
+
     // for test only
     public void setUp(String path) throws UserException, IOException {
         File root = new File(path);
@@ -260,29 +260,29 @@ public class HelpModule {
 
     public void setUpModule() throws IOException, UserException {
         URL helpResource = instance.getClass().getClassLoader()
-                .getResource(HELP_ZIP_FILE_NAME);
+            .getResource(HELP_ZIP_FILE_NAME);
         if (helpResource == null) {
             throw new IOException("Can not find help zip file: " + HELP_ZIP_FILE_NAME);
         }
         zipFilePath = helpResource.getPath();
         setUpByZip(zipFilePath);
-        
+
         long now = System.currentTimeMillis();
         lastCheckTime = now;
         lastModifyTime = now;
     }
-    
+
     public boolean needReloadZipFile(String zipPath) throws UserException {
         if (!isloaded) {
             return false;
         }
-        
+
         long now = System.currentTimeMillis();
         if ((now - lastCheckTime) < HELP_ZIP_CHECK_INTERVAL_MS) {
             return false;
         }
         lastCheckTime = now;
-        
+
         // check zip file's last modify time
         File file = new File(zipPath);
         if (!file.exists()) {
@@ -296,7 +296,7 @@ public class HelpModule {
             return true;
         }
     }
-    
+
     // Every query will begin at this method, so we add check logic here to check 
     // whether need reload ZipFile
     public static HelpModule getInstance() {
@@ -307,7 +307,7 @@ public class HelpModule {
                 }
             }
         }
-        
+
         try {
             // If one thread is reloading zip-file, the other thread use old instance. 
             if (instance.needReloadZipFile(zipFilePath)) {
@@ -327,7 +327,7 @@ public class HelpModule {
         } catch (UserException e) {
             LOG.warn("Failed to reload help zip file: " + zipFilePath, e);
         }
-        
+
         return instance;
     }
 }

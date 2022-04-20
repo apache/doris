@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -66,11 +66,25 @@ public class ShowAlterStmt extends ShowStmt {
 
     private ProcNodeInterface node;
 
-    public AlterType getType() { return type; }
-    public String getDbName() { return dbName; }
-    public HashMap<String, Expr> getFilterMap() { return filterMap; }
-    public LimitElement getLimitElement(){ return limitElement; }
-    public ArrayList<OrderByPair> getOrderPairs(){ return orderByPairs; }
+    public AlterType getType() {
+        return type;
+    }
+
+    public String getDbName() {
+        return dbName;
+    }
+
+    public HashMap<String, Expr> getFilterMap() {
+        return filterMap;
+    }
+
+    public LimitElement getLimitElement() {
+        return limitElement;
+    }
+
+    public ArrayList<OrderByPair> getOrderPairs() {
+        return orderByPairs;
+    }
 
     public ProcNodeInterface getNode() {
         return this.node;
@@ -88,16 +102,16 @@ public class ShowAlterStmt extends ShowStmt {
 
     private void getPredicateValue(Expr subExpr) throws AnalysisException {
         if (!(subExpr instanceof BinaryPredicate)) {
-            throw new AnalysisException("The operator =|>=|<=|>|<|!= are supported."); 
+            throw new AnalysisException("The operator =|>=|<=|>|<|!= are supported.");
         }
         BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
         if (!(subExpr.getChild(0) instanceof SlotRef)) {
-            throw new AnalysisException("Only support column = xxx syntax."); 
+            throw new AnalysisException("Only support column = xxx syntax.");
         }
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName().toLowerCase();
         if (leftKey.equals("tablename") || leftKey.equals("state")) {
             if (!(subExpr.getChild(1) instanceof StringLiteral) ||
-                    binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
+                binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
                 throw new AnalysisException("Where clause : TableName = \"table1\" or "
                     + "State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\"");
             }
@@ -106,7 +120,7 @@ public class ShowAlterStmt extends ShowStmt {
                 throw new AnalysisException("Where clause : CreateTime/FinishTime =|>=|<=|>|<|!= "
                     + "\"2019-12-02|2019-12-02 14:54:00\"");
             }
-            subExpr.setChild(1,((StringLiteral) subExpr.getChild(1)).castTo(Type.DATETIME));
+            subExpr.setChild(1, ((StringLiteral) subExpr.getChild(1)).castTo(Type.DATETIME));
         } else {
             throw new AnalysisException("The columns of TableName/CreateTime/FinishTime/State are supported.");
         }
@@ -132,12 +146,12 @@ public class ShowAlterStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         //first analyze 
-        analyzeSyntax(analyzer);        
+        analyzeSyntax(analyzer);
 
         // check auth when get job info
         handleShowAlterTable(analyzer);
     }
-    
+
     public void analyzeSyntax(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
@@ -174,8 +188,8 @@ public class ShowAlterStmt extends ShowStmt {
             limitElement.analyze(analyzer);
         }
     }
-    
-    
+
+
     public void handleShowAlterTable(Analyzer analyzer) throws UserException {
         Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
 

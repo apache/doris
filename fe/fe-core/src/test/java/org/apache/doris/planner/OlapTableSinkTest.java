@@ -90,15 +90,18 @@ public class OlapTableSinkTest {
         partInfo.setReplicaAllocation(2, new ReplicaAllocation((short) 3));
         MaterializedIndex index = new MaterializedIndex(2, MaterializedIndex.IndexState.NORMAL);
         HashDistributionInfo distInfo = new HashDistributionInfo(
-                2, Lists.newArrayList(new Column("k1", PrimitiveType.BIGINT)));
+            2, Lists.newArrayList(new Column("k1", PrimitiveType.BIGINT)));
         Partition partition = new Partition(2, "p1", index, distInfo);
 
         new Expectations() {{
-            dstTable.getId(); result = 1;
-            dstTable.getPartitionInfo(); result = partInfo;
-            dstTable.getPartitions(); result = Lists.newArrayList(partition);
-                dstTable.getPartition(2L);
-                result = partition;
+            dstTable.getId();
+            result = 1;
+            dstTable.getPartitionInfo();
+            result = partInfo;
+            dstTable.getPartitions();
+            result = Lists.newArrayList(partition);
+            dstTable.getPartition(2L);
+            result = partition;
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(2L));
@@ -110,25 +113,32 @@ public class OlapTableSinkTest {
 
     @Test
     public void testRangePartition(
-            @Injectable RangePartitionInfo partInfo,
-            @Injectable MaterializedIndex index) throws UserException {
+        @Injectable RangePartitionInfo partInfo,
+        @Injectable MaterializedIndex index) throws UserException {
         TupleDescriptor tuple = getTuple();
 
         HashDistributionInfo distInfo = new HashDistributionInfo(
-                2, Lists.newArrayList(new Column("k1", PrimitiveType.BIGINT)));
+            2, Lists.newArrayList(new Column("k1", PrimitiveType.BIGINT)));
 
         Column partKey = new Column("k2", PrimitiveType.VARCHAR);
-        PartitionKey key = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("123")), Lists.newArrayList(partKey));
+        PartitionKey key =
+            PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("123")), Lists.newArrayList(partKey));
         Partition p1 = new Partition(1, "p1", index, distInfo);
         Partition p2 = new Partition(2, "p2", index, distInfo);
 
         new Expectations() {{
-            dstTable.getId(); result = 1;
-            dstTable.getPartitionInfo(); result = partInfo;
-            partInfo.getType(); result = PartitionType.RANGE;
-            partInfo.getPartitionColumns(); result = Lists.newArrayList(partKey);
-            dstTable.getPartitions(); result = Lists.newArrayList(p1, p2);
-            dstTable.getPartition(p1.getId()); result = p1;
+            dstTable.getId();
+            result = 1;
+            dstTable.getPartitionInfo();
+            result = partInfo;
+            partInfo.getType();
+            result = PartitionType.RANGE;
+            partInfo.getPartitionColumns();
+            result = Lists.newArrayList(partKey);
+            dstTable.getPartitions();
+            result = Lists.newArrayList(p1, p2);
+            dstTable.getPartition(p1.getId());
+            result = p1;
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()));
@@ -144,13 +154,14 @@ public class OlapTableSinkTest {
 
     @Test(expected = UserException.class)
     public void testRangeUnknownPartition(
-            @Injectable RangePartitionInfo partInfo,
-            @Injectable MaterializedIndex index) throws UserException {
+        @Injectable RangePartitionInfo partInfo,
+        @Injectable MaterializedIndex index) throws UserException {
         TupleDescriptor tuple = getTuple();
 
         long unknownPartId = 12345L;
         new Expectations() {{
-            dstTable.getPartition(unknownPartId); result = null;
+            dstTable.getPartition(unknownPartId);
+            result = null;
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(unknownPartId));
@@ -162,25 +173,32 @@ public class OlapTableSinkTest {
 
     @Test
     public void testListPartition(
-            @Injectable ListPartitionInfo partInfo,
-            @Injectable MaterializedIndex index) throws UserException {
+        @Injectable ListPartitionInfo partInfo,
+        @Injectable MaterializedIndex index) throws UserException {
         TupleDescriptor tuple = getTuple();
 
         HashDistributionInfo distInfo = new HashDistributionInfo(
-                2, Lists.newArrayList(new Column("k1", PrimitiveType.BIGINT)));
+            2, Lists.newArrayList(new Column("k1", PrimitiveType.BIGINT)));
 
         Column partKey = new Column("k2", PrimitiveType.VARCHAR);
-        PartitionKey key = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("123")), Lists.newArrayList(partKey));
+        PartitionKey key =
+            PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("123")), Lists.newArrayList(partKey));
         Partition p1 = new Partition(1, "p1", index, distInfo);
         Partition p2 = new Partition(2, "p2", index, distInfo);
 
         new Expectations() {{
-            dstTable.getId(); result = 1;
-            dstTable.getPartitionInfo(); result = partInfo;
-            partInfo.getType(); result = PartitionType.LIST;
-            partInfo.getPartitionColumns(); result = Lists.newArrayList(partKey);
-            dstTable.getPartitions(); result = Lists.newArrayList(p1, p2);
-            dstTable.getPartition(p1.getId()); result = p1;
+            dstTable.getId();
+            result = 1;
+            dstTable.getPartitionInfo();
+            result = partInfo;
+            partInfo.getType();
+            result = PartitionType.LIST;
+            partInfo.getPartitionColumns();
+            result = Lists.newArrayList(partKey);
+            dstTable.getPartitions();
+            result = Lists.newArrayList(p1, p2);
+            dstTable.getPartition(p1.getId());
+            result = p1;
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()));

@@ -112,12 +112,12 @@ public class LdapConfig extends ConfigBase {
 
     /**
      * Specifies the behavior when the pool is exhausted.
-     *
+     * <p>
      * The '0' option throws NoSuchElementException when the pool is exhausted.
-     *
+     * <p>
      * The '1' option waits until a new object is available. If max-wait is positive and no new object is available
      * after the max-wait time expires, NoSuchElementException is thrown.
-     *
+     * <p>
      * The '2' option creates and returns a new object (essentially making max-active meaningless).
      */
     @ConfigBase.ConfField

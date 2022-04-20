@@ -20,8 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-
 import org.apache.doris.common.util.PrintableMap;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -72,7 +72,7 @@ public class EnableFeatureClause extends AlterTableClause {
                 this.needSchemaChange = true;
                 this.feature = Features.BATCH_DELETE;
                 break;
-            case  "SEQUENCE_LOAD":
+            case "SEQUENCE_LOAD":
                 this.needSchemaChange = true;
                 this.feature = Features.SEQUENCE_LOAD;
                 if (properties == null || properties.isEmpty()) {

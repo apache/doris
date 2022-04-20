@@ -121,6 +121,7 @@ public class SerialExecutorServiceTest {
                     @Override
                     public void onFinished(long channelId) {
                     }
+
                     @Override
                     public void onFailed(String errMsg) {
                     }

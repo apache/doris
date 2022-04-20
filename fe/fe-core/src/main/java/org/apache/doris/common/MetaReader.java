@@ -91,7 +91,7 @@ public class MetaReader {
             checksum = catalog.loadBrokers(dis, checksum);
             checksum = catalog.loadResources(dis, checksum);
             checksum = catalog.loadExportJob(dis, checksum);
-            checksum = catalog.loadSyncJobs(dis,checksum);
+            checksum = catalog.loadSyncJobs(dis, checksum);
             checksum = catalog.loadBackupHandler(dis, checksum);
             checksum = catalog.loadPaloAuth(dis, checksum);
             // global transaction must be replayed before load jobs v2

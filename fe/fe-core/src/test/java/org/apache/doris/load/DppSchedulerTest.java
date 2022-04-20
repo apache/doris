@@ -17,8 +17,6 @@
 
 package org.apache.doris.load;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.CommandResult;
 import org.apache.doris.common.util.UnitTestUtil;
@@ -38,12 +36,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import mockit.Expectations;
+import mockit.Mocked;
+
 public class DppSchedulerTest {
     private DppScheduler dppScheduler;
 
     @Mocked
     private Util util;
-    
+
     @Before
     public void setUp() {
         // mock palo home env
@@ -54,13 +55,13 @@ public class DppSchedulerTest {
         UnitTestUtil.initDppConfig();
         dppScheduler = new DppScheduler(Load.dppDefaultConfig);
     }
-    
+
     @Ignore
     @Test
     public void testCalcReduceNumByInputSize() throws Exception {
         // mock hadoop count
         String fileInfos = "           0            1           1000000000 /label2/export/label2.10007.10007.10005\n"
-                         + "           0            1           1000000001 /label2/export/label2.10007.10007.10006";
+            + "           0            1           1000000001 /label2/export/label2.10007.10007.10006";
         CommandResult commandResult = new CommandResult();
         commandResult.setReturnCode(0);
         commandResult.setStdout(fileInfos);
@@ -71,18 +72,18 @@ public class DppSchedulerTest {
                 result = commandResult;
             }
         };
- 
+
         // get method
         Method calcReduceNumByInputSize = UnitTestUtil.getPrivateMethod(
-                DppScheduler.class, "calcReduceNumByInputSize", new Class[] {Set.class});
-        
+            DppScheduler.class, "calcReduceNumByInputSize", new Class[]{Set.class});
+
         // normal test
         Set<String> inputPaths = new HashSet<String>();
         Config.load_input_size_limit_gb = 0;
         Config.dpp_bytes_per_reduce = 2000000000;
-        Assert.assertEquals(2, calcReduceNumByInputSize.invoke(dppScheduler, new Object[] {inputPaths}));
+        Assert.assertEquals(2, calcReduceNumByInputSize.invoke(dppScheduler, new Object[]{inputPaths}));
         Config.dpp_bytes_per_reduce = 2000000002;
-        Assert.assertEquals(1, calcReduceNumByInputSize.invoke(dppScheduler, new Object[] {inputPaths}));
+        Assert.assertEquals(1, calcReduceNumByInputSize.invoke(dppScheduler, new Object[]{inputPaths}));
 
         // input file size exceeds limit
         Config.load_input_size_limit_gb = 1;
@@ -94,7 +95,7 @@ public class DppSchedulerTest {
         }
         Config.load_input_size_limit_gb = 0;
     }
-    
+
     @Test
     public void testCalcReduceNumByTablet() throws Exception {
         Map<String, Object> jobConf = new HashMap<String, Object>();
@@ -114,29 +115,29 @@ public class DppSchedulerTest {
         }
         view2.put("key_ranges", rangeList);
         views.put("view2", view2);
-        
+
         Method calcReduceNumByTablet = UnitTestUtil.getPrivateMethod(
-                DppScheduler.class, "calcReduceNumByTablet", new Class[] {Map.class});
-        Assert.assertEquals(15, calcReduceNumByTablet.invoke(dppScheduler, new Object[] {jobConf}));
+            DppScheduler.class, "calcReduceNumByTablet", new Class[]{Map.class});
+        Assert.assertEquals(15, calcReduceNumByTablet.invoke(dppScheduler, new Object[]{jobConf}));
     }
-    
+
     @Test
     public void testGetEtlJobStatus() {
-        String jobStatus = "Job: job_201501261830_12231\n" 
-                         + "file: hdfs://host:54310/system/mapred/job_201501261830_12231/job.xml\n" 
-                         + "tracking URL: http://host:8030/jobdetails.jsp?jobid=job_201501261830_12231\n"
-                         + "job state: 1\n"
-                         + "map() completion: 0.9036233\n"
-                         + "reduce() completion: 0.0\n"
-                         + "Counters: 14\n"
-                         + "        File Systems\n"
-                         + "                HDFS bytes read=398065481\n"
-                         + "        DPP\n"
-                         + "                dpp.abnorm.ALL=0\n"
-                         + "                dpp.norm.ALL=0\n"
-                         + "        Map-Reduce Framework\n"
-                         + "                Map input records=4085933\n"
-                         + "                Map output bytes=503053858";
+        String jobStatus = "Job: job_201501261830_12231\n"
+            + "file: hdfs://host:54310/system/mapred/job_201501261830_12231/job.xml\n"
+            + "tracking URL: http://host:8030/jobdetails.jsp?jobid=job_201501261830_12231\n"
+            + "job state: 1\n"
+            + "map() completion: 0.9036233\n"
+            + "reduce() completion: 0.0\n"
+            + "Counters: 14\n"
+            + "        File Systems\n"
+            + "                HDFS bytes read=398065481\n"
+            + "        DPP\n"
+            + "                dpp.abnorm.ALL=0\n"
+            + "                dpp.norm.ALL=0\n"
+            + "        Map-Reduce Framework\n"
+            + "                Map input records=4085933\n"
+            + "                Map output bytes=503053858";
         CommandResult commandResult = new CommandResult();
         commandResult.setReturnCode(0);
         commandResult.setStdout(jobStatus);
@@ -147,13 +148,13 @@ public class DppSchedulerTest {
                 result = commandResult;
             }
         };
- 
+
         EtlStatus status = dppScheduler.getEtlJobStatus("etlJobId");
         Assert.assertEquals(TEtlState.RUNNING, status.getState());
         Assert.assertEquals("0", status.getCounters().get("dpp.abnorm.ALL"));
         Assert.assertEquals("0.9036233", status.getStats().get("map() completion"));
     }
-    
+
     @Test
     public void testGetEtlFileList() {
         String outputPath = "/label_0";
@@ -167,25 +168,25 @@ public class DppSchedulerTest {
         failTestDirResult.setReturnCode(-1);
 
         String files = "-rw-r--r--   3 palo palo   29896160 2015-02-03 13:10 /label_0/export/label_0.32241.32241.0\n"
-                     + "-rw-r--r--   3 palo palo   29896161 2015-02-03 13:10 /label_0/export/label_0.32241.32241.1";
+            + "-rw-r--r--   3 palo palo   29896161 2015-02-03 13:10 /label_0/export/label_0.32241.32241.1";
         successLsResult.setStdout(files);
         new Expectations(util) {
             {
                 Util.executeCommand(anyString, (String[]) any);
                 times = 6;
                 returns(
-                        // success
-                        successLsResult,
-                        // ls fail
-                        failLsResult,
-                        // outputPath not exist
-                        failTestDirResult,
-                        // ls fail
-                        failLsResult,
-                        // success
-                        successTestDirResult,
-                        // fileDir not exist
-                        failTestDirResult
+                    // success
+                    successLsResult,
+                    // ls fail
+                    failLsResult,
+                    // outputPath not exist
+                    failTestDirResult,
+                    // ls fail
+                    failLsResult,
+                    // success
+                    successTestDirResult,
+                    // fileDir not exist
+                    failTestDirResult
                 );
             }
         };
@@ -197,7 +198,7 @@ public class DppSchedulerTest {
         Assert.assertNotNull(fileMap);
         Assert.assertTrue(fileMap.isEmpty());
     }
-    
+
     @Test
     public void testKillEtlJob() {
         CommandResult commandResult = new CommandResult();
@@ -208,10 +209,10 @@ public class DppSchedulerTest {
                 result = commandResult;
             }
         };
- 
+
         dppScheduler.killEtlJob("etlJobId");
     }
-    
+
     @Test
     public void testGetEtlOutputPath() {
         DppConfig dppConfig = Load.dppDefaultConfig.getCopiedDppConfig();
@@ -220,10 +221,10 @@ public class DppSchedulerTest {
         String etlOutputDir = "10000";
 
         String actualPath = DppScheduler.getEtlOutputPath(dppConfig.getFsDefaultName(), dppConfig.getOutputPath(),
-                dbId, loadLabel, etlOutputDir);
+            dbId, loadLabel, etlOutputDir);
         String expectedPath = dppConfig.getFsDefaultName() + dppConfig.getOutputPath() + "/" + String.valueOf(dbId)
-                + "/" + loadLabel + "/" + etlOutputDir;
+            + "/" + loadLabel + "/" + etlOutputDir;
         Assert.assertEquals(expectedPath, actualPath);
     }
-    
+
 }

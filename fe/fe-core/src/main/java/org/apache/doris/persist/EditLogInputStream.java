@@ -23,7 +23,7 @@ import java.io.InputStream;
 /**
  * A generic abstract class to support reading edits log data from persistent
  * storage.
- * 
+ * <p>
  * It should stream bytes from the storage exactly as they were written into the
  * #{@link EditLogOutputStream}.
  */
@@ -39,5 +39,5 @@ public abstract class EditLogInputStream extends InputStream {
     public abstract void close() throws IOException;
 
     abstract long length() throws IOException;
-    
+
 }

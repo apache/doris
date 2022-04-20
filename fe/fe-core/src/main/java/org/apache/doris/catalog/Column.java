@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TColumnType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,6 +43,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * This class represents the column-related metadata.
@@ -119,6 +120,7 @@ public class Column implements Writable {
                   String defaultValue, String comment) {
         this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true);
     }
+
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment, boolean visible) {
         this.name = name;
@@ -231,7 +233,9 @@ public class Column implements Writable {
         return !visible && aggregationType == AggregateType.REPLACE && nameEquals(SEQUENCE_COL, true);
     }
 
-    public PrimitiveType getDataType() { return type.getPrimitiveType(); }
+    public PrimitiveType getDataType() {
+        return type.getPrimitiveType();
+    }
 
     public Type getType() {
         return type;
@@ -241,11 +245,21 @@ public class Column implements Writable {
         this.type = type;
     }
 
-    public Type getOriginType() { return type; }
+    public Type getOriginType() {
+        return type;
+    }
 
-    public int getStrLen() { return type.getLength(); }
-    public int getPrecision() { return type instanceof ScalarType ? ((ScalarType) type).getScalarPrecision() : -1; }
-    public int getScale() { return type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : -1; }
+    public int getStrLen() {
+        return type.getLength();
+    }
+
+    public int getPrecision() {
+        return type instanceof ScalarType ? ((ScalarType) type).getScalarPrecision() : -1;
+    }
+
+    public int getScale() {
+        return type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : -1;
+    }
 
     public AggregateType getAggregationType() {
         return this.aggregationType;
@@ -343,7 +357,7 @@ public class Column implements Writable {
         tColumn.setDefaultValue(this.defaultValue);
         tColumn.setVisible(visible);
         toChildrenThrift(this, tColumn);
-        
+
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -398,7 +412,7 @@ public class Column implements Writable {
             Integer rSize = other.type.getColumnStringRepSize();
             if (rSize < lSize) {
                 throw new DdlException("Can not change from wider type " + type.toSql() +
-                                        " to narrower type " + other.type.toSql());
+                    " to narrower type " + other.type.toSql());
             }
         }
 
@@ -421,8 +435,8 @@ public class Column implements Writable {
         }
 
         if ((getDataType() == PrimitiveType.VARCHAR && other.getDataType() == PrimitiveType.VARCHAR)
-                || (getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.VARCHAR)
-                || (getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.CHAR)) {
+            || (getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.VARCHAR)
+            || (getDataType() == PrimitiveType.CHAR && other.getDataType() == PrimitiveType.CHAR)) {
             if (getStrLen() > other.getStrLen()) {
                 throw new DdlException("Cannot shorten string length");
             }
@@ -430,7 +444,7 @@ public class Column implements Writable {
 
         // now we support convert decimal to varchar type
         if (getDataType() == PrimitiveType.DECIMALV2 && (other.getDataType() == PrimitiveType.VARCHAR
-                || other.getDataType() == PrimitiveType.STRING)) {
+            || other.getDataType() == PrimitiveType.STRING)) {
             return;
         }
 
@@ -506,7 +520,7 @@ public class Column implements Writable {
         String typeStr = type.toSql();
         sb.append(typeStr).append(" ");
         if (aggregationType != null && aggregationType != AggregateType.NONE
-                && !isUniqueTable &&  !isAggregationTypeImplicit) {
+            && !isUniqueTable && !isAggregationTypeImplicit) {
             sb.append(aggregationType.name()).append(" ");
         }
         if (isAllowNull) {

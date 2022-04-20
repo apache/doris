@@ -35,12 +35,12 @@ import java.util.Set;
 public class AlterUserClause extends AlterClause {
     private static final Logger LOG = LogManager.getLogger(AlterUserClause.class);
     private List<String> hostOrIps;
-    
+
     private List<String> ips; // for 123.321.1.1
     private List<String> starIps; // for 123.*.*.*
     private List<String> hosts;   // for www.baidu.com
     private AlterUserType type;
-    
+
     public AlterUserClause(AlterUserType type, List<String> hostOrIps) {
         super(AlterOpType.ALTER_OTHER);
         this.type = type;
@@ -62,7 +62,7 @@ public class AlterUserClause extends AlterClause {
         }
         return sb.toString();
     }
-    
+
     private boolean isHostName(String host) throws AnalysisException {
         if (Strings.isNullOrEmpty(host)) {
             throw new AnalysisException("host=[" + host + "] is empty");
@@ -100,19 +100,19 @@ public class AlterUserClause extends AlterClause {
         }
         // NOTICE: if we del hostname from whiteList, the hostname must be totally equal with catalog's hostname;
     }
-    
+
     public List<String> getIps() {
         return ips;
     }
-    
+
     public List<String> getStarIps() {
         return starIps;
-    } 
-    
+    }
+
     public List<String> getHosts() {
         return hosts;
     }
-    
+
     public AlterUserType getAlterUserType() {
         return type;
     }

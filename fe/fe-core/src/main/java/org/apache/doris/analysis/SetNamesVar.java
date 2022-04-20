@@ -62,7 +62,7 @@ public class SetNamesVar extends SetVar {
     @Override
     public String toSql() {
         return "NAMES '" + charset + "' COLLATE "
-                + (Strings.isNullOrEmpty(collate) ? "DEFAULT" : "'" + collate.toLowerCase() + "'");
+            + (Strings.isNullOrEmpty(collate) ? "DEFAULT" : "'" + collate.toLowerCase() + "'");
     }
 
     @Override

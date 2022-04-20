@@ -129,7 +129,8 @@ public class PaloFe {
             // 1. HttpServer for HTTP Server
             // 2. FeServer for Thrift Server
             // 3. QeService for MySQL Server
-            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
+            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled,
+                ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
 
             feServer.start();
@@ -143,7 +144,7 @@ public class PaloFe {
             httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
             httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
             httpServer.start();
-            
+
             qeService.start();
 
             ThreadPoolManager.registerAllThreadPoolMetric();
@@ -158,19 +159,19 @@ public class PaloFe {
 
     private static void checkAllPorts() throws IOException {
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
-                "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
+            "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.edit_log_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.http_port,
-                "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
+            "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.http_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.query_port,
-                "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
+            "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.query_port + " already in use");
         }
         if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
-                "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
+            "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.rpc_port + " already in use");
         }
     }

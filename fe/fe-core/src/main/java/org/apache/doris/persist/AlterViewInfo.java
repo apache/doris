@@ -17,18 +17,20 @@
 
 package org.apache.doris.persist;
 
-import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.common.collect.Lists;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
+
+import com.google.gson.annotations.SerializedName;
 
 public class AlterViewInfo implements Writable {
     @SerializedName(value = "dbId")
@@ -82,14 +84,16 @@ public class AlterViewInfo implements Writable {
 
     @Override
     public boolean equals(Object other) {
-        if (other == this) return true;
+        if (other == this) {
+            return true;
+        }
         if (!(other instanceof AlterViewInfo)) {
             return false;
         }
         AlterViewInfo otherInfo = (AlterViewInfo) other;
         return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId() &&
-                inlineViewDef.equalsIgnoreCase(otherInfo.getInlineViewDef()) && sqlMode == otherInfo.getSqlMode() &&
-                newFullSchema.equals(otherInfo.getNewFullSchema());
+            inlineViewDef.equalsIgnoreCase(otherInfo.getInlineViewDef()) && sqlMode == otherInfo.getSqlMode() &&
+            newFullSchema.equals(otherInfo.getNewFullSchema());
     }
 
     @Override

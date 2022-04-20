@@ -34,12 +34,12 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
 
+import com.google.common.collect.Lists;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -68,7 +68,7 @@ public class LoadCheckerTest {
     @Mocked
     private Load load;
     private Database db;
-    
+
     @Before
     public void setUp() {
         dbId = 0L;
@@ -77,9 +77,9 @@ public class LoadCheckerTest {
         indexId = 0L;
         tabletId = 0L;
         backendId = 0L;
-        
+
         label = "test_label";
- 
+
         // mock catalog
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
         new Expectations() {
@@ -114,7 +114,7 @@ public class LoadCheckerTest {
     public void tearDown() {
         Config.load_running_job_num_limit = 0;
     }
-    
+
     @Test
     public void testInit() throws Exception {
         LoadChecker.init(5L);
@@ -124,15 +124,15 @@ public class LoadCheckerTest {
         checkersField.setAccessible(true);
         Map<JobState, LoadChecker> checkers = (Map<JobState, LoadChecker>) checkersField.get(LoadChecker.class);
         Assert.assertEquals(4, checkers.size());
-        
+
         // verify executors
         Field executorsField = LoadChecker.class.getDeclaredField("executors");
         executorsField.setAccessible(true);
-        Map<JobState, MasterTaskExecutor> executors = 
-                (Map<JobState, MasterTaskExecutor>) executorsField.get(LoadChecker.class);
+        Map<JobState, MasterTaskExecutor> executors =
+            (Map<JobState, MasterTaskExecutor>) executorsField.get(LoadChecker.class);
         Assert.assertEquals(2, executors.size());
     }
-    
+
     @Test
     public void testRunPendingJobs(@Mocked MasterTaskExecutor executor) throws Exception {
         List<LoadJob> pendingJobs = new ArrayList<LoadJob>();
@@ -156,7 +156,7 @@ public class LoadCheckerTest {
                 result = true;
             }
         };
-        
+
         // init
         LoadChecker.init(5L);
 
@@ -164,8 +164,8 @@ public class LoadCheckerTest {
         Field checkersField = LoadChecker.class.getDeclaredField("checkers");
         checkersField.setAccessible(true);
         Map<JobState, LoadChecker> checkers = (Map<JobState, LoadChecker>) checkersField.get(LoadChecker.class);
-        Method runPendingJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runPendingJobs", new Class[] {});
-        runPendingJobs.invoke(checkers.get(JobState.PENDING), new Object[] {});
+        Method runPendingJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runPendingJobs", new Class[]{});
+        runPendingJobs.invoke(checkers.get(JobState.PENDING), new Object[]{});
     }
 
     @Test
@@ -212,8 +212,8 @@ public class LoadCheckerTest {
         Field checkersField = LoadChecker.class.getDeclaredField("checkers");
         checkersField.setAccessible(true);
         Map<JobState, LoadChecker> checkers = (Map<JobState, LoadChecker>) checkersField.get(LoadChecker.class);
-        Method runPendingJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runPendingJobs", new Class[] {});
-        runPendingJobs.invoke(checkers.get(JobState.PENDING), new Object[] {});
+        Method runPendingJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runPendingJobs", new Class[]{});
+        runPendingJobs.invoke(checkers.get(JobState.PENDING), new Object[]{});
     }
 
     @Test
@@ -239,7 +239,7 @@ public class LoadCheckerTest {
                 result = true;
             }
         };
-        
+
         // init
         LoadChecker.init(5L);
 
@@ -247,10 +247,10 @@ public class LoadCheckerTest {
         Field checkersField = LoadChecker.class.getDeclaredField("checkers");
         checkersField.setAccessible(true);
         Map<JobState, LoadChecker> checkers = (Map<JobState, LoadChecker>) checkersField.get(LoadChecker.class);
-        Method runEtlJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runEtlJobs", new Class[] {});
-        runEtlJobs.invoke(checkers.get(JobState.ETL), new Object[] {});
+        Method runEtlJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runEtlJobs", new Class[]{});
+        runEtlJobs.invoke(checkers.get(JobState.ETL), new Object[]{});
     }
-    
+
     @Test
     public void testRunLoadingJobs() throws Exception {
         List<LoadJob> etlJobs = new ArrayList<LoadJob>();
@@ -303,7 +303,7 @@ public class LoadCheckerTest {
                 result = load;
             }
         };
-        
+
         // init
         LoadChecker.init(5L);
 
@@ -311,8 +311,8 @@ public class LoadCheckerTest {
         Field checkersField = LoadChecker.class.getDeclaredField("checkers");
         checkersField.setAccessible(true);
         Map<JobState, LoadChecker> checkers = (Map<JobState, LoadChecker>) checkersField.get(LoadChecker.class);
-        Method runLoadingJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runLoadingJobs", new Class[] {});
-        runLoadingJobs.invoke(checkers.get(JobState.LOADING), new Object[] {});
+        Method runLoadingJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runLoadingJobs", new Class[]{});
+        runLoadingJobs.invoke(checkers.get(JobState.LOADING), new Object[]{});
         Assert.assertEquals(0, AgentTaskQueue.getTaskNum());
 
         // update replica to new version
@@ -322,14 +322,14 @@ public class LoadCheckerTest {
                     replica.updateVersionInfo(newVersion, 0L, 0L);
                 }
             }
-        }       
+        }
 
         // verify
-        runLoadingJobs.invoke(checkers.get(JobState.LOADING), new Object[] {});
+        runLoadingJobs.invoke(checkers.get(JobState.LOADING), new Object[]{});
         // clear agent tasks
         AgentTaskQueue.clearAllTasks();
     }
-    
+
     @Test
     public void testRunQuorumFinishedJobs() throws Exception {
         List<LoadJob> etlJobs = new ArrayList<LoadJob>();
@@ -382,7 +382,7 @@ public class LoadCheckerTest {
                 result = load;
             }
         };
-        
+
         // init
         LoadChecker.init(5L);
 
@@ -391,12 +391,12 @@ public class LoadCheckerTest {
         checkersField.setAccessible(true);
         Map<JobState, LoadChecker> checkers = (Map<JobState, LoadChecker>) checkersField.get(LoadChecker.class);
         Method runQuorumFinishedJobs = UnitTestUtil.getPrivateMethod(
-                LoadChecker.class, "runQuorumFinishedJobs", new Class[] {});
-        runQuorumFinishedJobs.invoke(checkers.get(JobState.QUORUM_FINISHED), new Object[] {});
-        
+            LoadChecker.class, "runQuorumFinishedJobs", new Class[]{});
+        runQuorumFinishedJobs.invoke(checkers.get(JobState.QUORUM_FINISHED), new Object[]{});
+
         Assert.assertEquals(0, AgentTaskQueue.getTaskNum());
     }
-    
+
     @Test
     public void testCheckTimeout() {
         LoadJob job = new LoadJob(label);
@@ -406,11 +406,11 @@ public class LoadCheckerTest {
         // timeout is 0s
         job.setTimeoutSecond(0);
         Assert.assertFalse(LoadChecker.checkTimeout(job));
-        
+
         // timeout is 1s
         job.setTimeoutSecond(1);
         Assert.assertTrue(LoadChecker.checkTimeout(job));
-        
+
         // timeout is 10s
         job.setTimeoutSecond(10);
         Assert.assertFalse(LoadChecker.checkTimeout(job));

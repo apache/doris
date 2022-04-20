@@ -39,10 +39,10 @@ import com.google.common.base.Strings;
 //      SHOW CREATE DATABASE db
 public class ShowCreateDbStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Database", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Create Database", ScalarType.createVarchar(30)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Database", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Create Database", ScalarType.createVarchar(30)))
+            .build();
 
     private String db;
 
@@ -63,13 +63,13 @@ public class ShowCreateDbStmt extends ShowStmt {
         db = ClusterNamespace.getFullName(getClusterName(), db);
 
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db,
-                                                               PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                                              PaloPrivilege.ALTER_PRIV,
-                                                                                              PaloPrivilege.CREATE_PRIV,
-                                                                                              PaloPrivilege.DROP_PRIV),
-                                                                                Operator.OR))) {
+            PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                    PaloPrivilege.ALTER_PRIV,
+                    PaloPrivilege.CREATE_PRIV,
+                    PaloPrivilege.DROP_PRIV),
+                Operator.OR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                                                ConnectContext.get().getQualifiedUser(), db);
+                ConnectContext.get().getQualifiedUser(), db);
         }
     }
 

@@ -31,6 +31,7 @@ import java.io.FileOutputStream;
 
 public class TabletLoadInfoTest {
     private FakeCatalog fakeCatalog;
+
     @Test
     public void testSerialization() throws Exception {
         // mock catalog
@@ -44,7 +45,7 @@ public class TabletLoadInfoTest {
 
         TabletLoadInfo tabletLoadInfo0 = new TabletLoadInfo();
         tabletLoadInfo0.write(dos);
-        
+
         TabletLoadInfo tabletLoadInfo = new TabletLoadInfo("hdfs://host:port/dir", 1L);
         tabletLoadInfo.write(dos);
         dos.flush();
@@ -53,17 +54,17 @@ public class TabletLoadInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         TabletLoadInfo rTabletLoadInfo0 = new TabletLoadInfo();
         rTabletLoadInfo0.readFields(dis);
-        
+
         TabletLoadInfo tabletLoadInfo1 = new TabletLoadInfo();
         tabletLoadInfo1.readFields(dis);
 
         Assert.assertEquals("hdfs://host:port/dir", tabletLoadInfo1.getFilePath());
         Assert.assertEquals(1L, tabletLoadInfo1.getFileSize());
-        
+
         Assert.assertTrue(tabletLoadInfo1.equals(tabletLoadInfo));
         Assert.assertTrue(rTabletLoadInfo0.equals(tabletLoadInfo0));
         Assert.assertFalse(rTabletLoadInfo0.equals(tabletLoadInfo1));
- 
+
         dis.close();
         file.delete();
     }

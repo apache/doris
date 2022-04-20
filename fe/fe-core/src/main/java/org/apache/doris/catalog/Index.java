@@ -24,13 +24,13 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TIndexType;
 import org.apache.doris.thrift.TOlapTableIndex;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * Internal representation of index, including index type, name, columns and comments.

@@ -93,9 +93,9 @@ public class MultiLoadMgr {
             }
             MultiLoadDesc multiLoadDesc = new MultiLoadDesc(multiLabel, properties);
             SystemInfoService.BeAvailablePredicate beAvailablePredicate =
-                    new SystemInfoService.BeAvailablePredicate(false, false, true);
+                new SystemInfoService.BeAvailablePredicate(false, false, true);
             List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(1,
-                    beAvailablePredicate, false, ConnectContext.get().getClusterName(), null, null);
+                beAvailablePredicate, false, ConnectContext.get().getClusterName(), null, null);
             if (backendIds == null) {
                 throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
             }
@@ -110,23 +110,24 @@ public class MultiLoadMgr {
 
     public void load(TMiniLoadRequest request) throws DdlException {
         if (CollectionUtils.isNotEmpty(request.getFileSize())
-                && request.getFileSize().size() != request.getFiles().size()) {
+            && request.getFileSize().size() != request.getFiles().size()) {
             throw new DdlException("files count and file size count not match: [" + request.getFileSize().size()
-                    + "!=" + request.getFiles().size()+"]");
+                + "!=" + request.getFiles().size() + "]");
         }
-        List<Pair<String, Long>> files = Streams.zip(request.getFiles().stream(), request.getFileSize().stream(), Pair::create)
+        List<Pair<String, Long>> files =
+            Streams.zip(request.getFiles().stream(), request.getFileSize().stream(), Pair::create)
                 .collect(Collectors.toList());
         load(request.getDb(), request.getLabel(), request.getSubLabel(), request.getTbl(),
-                files, request.getBackend(), request.getProperties(), request.getTimestamp());
+            files, request.getBackend(), request.getProperties(), request.getTimestamp());
     }
 
     // Add one load job
     private void load(String fullDbName, String label,
-                     String subLabel, String table,
-                     List<Pair<String, Long>> files,
-                     TNetworkAddress fileAddr,
-                     Map<String, String> properties,
-                     long timestamp) throws DdlException {
+                      String subLabel, String table,
+                      List<Pair<String, Long>> files,
+                      TNetworkAddress fileAddr,
+                      Map<String, String> properties,
+                      long timestamp) throws DdlException {
         LabelName multiLabel = new LabelName(fullDbName, label);
         lock.writeLock().lock();
         try {
@@ -183,8 +184,8 @@ public class MultiLoadMgr {
                 return false;
             } else {
                 throw new DdlException("job failed. ErrorMsg: " + loadJob.getFailMsg().getMsg()
-                        + ", URL: " + loadJob.getLoadingStatus().getTrackingUrl()
-                        + ", JobDetails: " + loadJob.getLoadStatistic().toJson());
+                    + ", URL: " + loadJob.getLoadingStatus().getTrackingUrl()
+                    + ", JobDetails: " + loadJob.getLoadStatistic().toJson());
             }
         });
     }
@@ -268,7 +269,7 @@ public class MultiLoadMgr {
         }
 
         public void addFile(String subLabel, String table, List<Pair<String, Long>> files,
-                            TNetworkAddress fileAddr, 
+                            TNetworkAddress fileAddr,
                             Map<String, String> properties,
                             long timestamp) throws DdlException {
 
@@ -291,7 +292,7 @@ public class MultiLoadMgr {
             } else {
                 if (!desc.canMerge(properties)) {
                     throw new DdlException("Same table have different properties in one multi-load."
-                            + "new=" + properties + ",old=" + desc.properties);
+                        + "new=" + properties + ",old=" + desc.properties);
                 }
                 desc.addFiles(subLabel, files);
                 desc.addTimestamp(timestamp);
@@ -334,7 +335,7 @@ public class MultiLoadMgr {
                     TableLoadDesc tblLoadDesc = loadDescByLabel.get(subLabel);
                     if (tblLoadDesc.containsTimestamp(timestamp)) {
                         LOG.info("get a retry request with label: {}, sub label: {}, timestamp: {}. return ok",
-                                multiLabel.getLabelName(), subLabel, timestamp);
+                            multiLabel.getLabelName(), subLabel, timestamp);
                         return true;
                     } else {
                         throw new LabelAlreadyUsedException(multiLabel.getLabelName(), subLabel);
@@ -371,7 +372,7 @@ public class MultiLoadMgr {
             try {
                 loadStmt.analyze(analyzer);
             } catch (UserException e) {
-               throw new DdlException(e.getMessage());
+                throw new DdlException(e.getMessage());
             }
             return loadStmt;
         }
@@ -439,7 +440,7 @@ public class MultiLoadMgr {
             List<String> files = Lists.newArrayList();
             List<Long> fileSizes = Lists.newArrayList();
             Iterator<Map.Entry<String, List<Pair<String, Long>>>> it = filesByLabel.entrySet().iterator();
-            while(it.hasNext()) {
+            while (it.hasNext()) {
                 List<Pair<String, Long>> value = it.next().getValue();
                 value.stream().forEach(pair -> {
                     files.add(pair.first);
@@ -450,7 +451,7 @@ public class MultiLoadMgr {
             PartitionNames partitionNames = null;
             String fileFormat = properties.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
             boolean isNegative = properties.get(LoadStmt.KEY_IN_PARAM_NEGATIVE) == null ? false :
-                    Boolean.valueOf(properties.get(LoadStmt.KEY_IN_PARAM_NEGATIVE));
+                Boolean.valueOf(properties.get(LoadStmt.KEY_IN_PARAM_NEGATIVE));
             Expr whereExpr = null;
             LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
             Expr deleteCondition = null;
@@ -476,7 +477,8 @@ public class MultiLoadMgr {
                     String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_PARTITIONS).trim().split("\\s*,\\s*");
                     partitionNames = new PartitionNames(false, Lists.newArrayList(partNames));
                 } else if (properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS) != null) {
-                    String[] partNames = properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS).trim().split("\\s*,\\s*");
+                    String[] partNames =
+                        properties.get(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS).trim().split("\\s*,\\s*");
                     partitionNames = new PartitionNames(true, Lists.newArrayList(partNames));
                 }
                 if (properties.get(LoadStmt.KEY_IN_PARAM_MERGE_TYPE) != null) {
@@ -490,7 +492,7 @@ public class MultiLoadMgr {
                 }
                 if (fileFormat != null && fileFormat.equalsIgnoreCase("json")) {
                     stripOuterArray = Boolean.valueOf(
-                            properties.getOrDefault(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY, "false"));
+                        properties.getOrDefault(LoadStmt.KEY_IN_PARAM_STRIP_OUTER_ARRAY, "false"));
                     jsonPaths = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_JSONPATHS, "");
                     jsonRoot = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_JSONROOT, "");
                     fuzzyParse = Boolean.valueOf(
@@ -498,8 +500,8 @@ public class MultiLoadMgr {
                 }
             }
             DataDescription dataDescription = new DataDescription(tbl, partitionNames, files, null, columnSeparator,
-                    fileFormat, null, isNegative, null, null, whereExpr, mergeType, deleteCondition,
-                    sequenceColName, null);
+                fileFormat, null, isNegative, null, null, whereExpr, mergeType, deleteCondition,
+                sequenceColName, null);
             dataDescription.setColumnDef(colString);
             backend = Catalog.getCurrentSystemInfo().getBackend(backendId);
             if (backend == null) {
@@ -526,7 +528,7 @@ public class MultiLoadMgr {
                 throw new DdlException("failed to parsing where header, maybe contain unsupported character");
             } catch (DdlException e) {
                 LOG.warn("analyze where statement failed, sql={}, error={}",
-                        whereSQL, parser.getErrorMsg(whereSQL), e);
+                    whereSQL, parser.getErrorMsg(whereSQL), e);
                 String errorMessage = parser.getErrorMsg(whereSQL);
                 if (errorMessage == null) {
                     throw e;

@@ -28,6 +28,16 @@ import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.OperationType;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.File;
+import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
+
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseEntry;
@@ -39,17 +49,7 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 import com.sleepycat.je.rep.RollbackException;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.File;
-import java.io.IOException;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
-
-/* 
+/*
  * This is the bdb implementation of Journal interface.
  * First, we open() this journal, then read from or write to the bdb environment
  * We can also get journal id information by calling get***Id functions.
@@ -60,21 +60,21 @@ public class BDBJEJournal implements Journal {
     public static final Logger LOG = LogManager.getLogger(BDBJEJournal.class);
     private static final int OUTPUT_BUFFER_INIT_SIZE = 128;
     private static final int RETRY_TIME = 3;
-    
+
     private String environmentPath = null;
     private String selfNodeName;
     private String selfNodeHostPort;
-    
+
     private BDBEnvironment bdbEnvironment = null;
     private Database currentJournalDB;
     // the next journal's id. start from 1.
     private AtomicLong nextJournalId = new AtomicLong(1);
-    
+
     public BDBJEJournal(String nodeName) {
         initBDBEnv(nodeName);
     }
-    
-    /* 
+
+    /*
      * Initialize bdb environment.
      * node name is ip_port (the port is edit_log_port)
      */
@@ -97,7 +97,7 @@ public class BDBJEJournal implements Journal {
         if (currentJournalDB.count() == 0) {
             return;
         }
-        
+
         long newName = nextJournalId.get();
         String currentDbName = currentJournalDB.getDatabaseName();
         long currentName = Long.parseLong(currentDbName);
@@ -108,7 +108,7 @@ public class BDBJEJournal implements Journal {
         } else {
             String msg = String.format("roll journal error! journalId and db journal numbers is not match. "
                     + "journal id: %d, current db: %s, expected db count: %d",
-                    newName, currentDbName, newNameVerify);
+                newName, currentDbName, newNameVerify);
             LOG.error(msg);
             Util.stdoutWithTime(msg);
             System.exit(-1);
@@ -146,7 +146,7 @@ public class BDBJEJournal implements Journal {
                     writeSucceed = true;
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("master write journal {} finished. db name {}, current time {}",
-                                id, currentJournalDB.getDatabaseName(), System.currentTimeMillis());
+                            id, currentJournalDB.getDatabaseName(), System.currentTimeMillis());
                     }
                     break;
                 }
@@ -172,7 +172,7 @@ public class BDBJEJournal implements Journal {
                 return;
             }
             String msg = "write bdb failed. will exit. journalId: " + id + ", bdb database Name: " +
-                    currentJournalDB.getDatabaseName();
+                currentJournalDB.getDatabaseName();
             LOG.error(msg);
             Util.stdoutWithTime(msg);
             System.exit(-1);
@@ -194,19 +194,19 @@ public class BDBJEJournal implements Journal {
                 break;
             }
         }
-        
+
         if (dbName == null) {
             return null;
         }
-        
+
         JournalEntity ret = null;
         Long key = new Long(journalId);
         DatabaseEntry theKey = new DatabaseEntry();
         TupleBinding<Long> myBinding = TupleBinding.getPrimitiveBinding(Long.class);
         myBinding.objectToEntry(key, theKey);
-        
+
         DatabaseEntry theData = new DatabaseEntry();
-        
+
         Database database = bdbEnvironment.openDatabase(dbName);
         try {
             // null means perform the operation without transaction protection.
@@ -235,7 +235,7 @@ public class BDBJEJournal implements Journal {
     public JournalCursor read(long fromKey, long toKey) {
         return BDBJournalCursor.getJournalCursor(bdbEnvironment, fromKey, toKey);
     }
-    
+
     @Override
     public long getMaxJournalId() {
         long ret = -1;
@@ -249,13 +249,13 @@ public class BDBJEJournal implements Journal {
         if (dbNames.size() == 0) {
             return ret;
         }
-        
+
         int index = dbNames.size() - 1;
         String dbName = dbNames.get(index).toString();
         long dbNumberName = dbNames.get(index);
         Database database = bdbEnvironment.openDatabase(dbName);
         ret = dbNumberName + database.count() - 1;
-        
+
         return ret;
     }
 
@@ -272,14 +272,14 @@ public class BDBJEJournal implements Journal {
         if (dbNames.size() == 0) {
             return ret;
         }
-        
+
         String dbName = dbNames.get(0).toString();
         Database database = bdbEnvironment.openDatabase(dbName);
         // The database is empty
         if (database.count() == 0) {
             return ret;
         }
-        
+
         return dbNames.get(0);
     }
 
@@ -301,19 +301,19 @@ public class BDBJEJournal implements Journal {
             String helperHostPort = helperNode.first + ":" + helperNode.second;
             try {
                 bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort,
-                        helperHostPort, Catalog.getServingCatalog().isElectable());
+                    helperHostPort, Catalog.getServingCatalog().isElectable());
             } catch (Exception e) {
                 LOG.error("catch an exception when setup bdb environment. will exit.", e);
                 System.exit(-1);
             }
         }
-        
+
         // Open a new journal database or get last existing one as current journal database
         List<Long> dbNames = null;
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
                 dbNames = getDatabaseNames();
-                
+
                 if (dbNames == null) {
                     LOG.error("fail to get dbNames while open bdbje journal. will exit");
                     System.exit(-1);
@@ -354,8 +354,8 @@ public class BDBJEJournal implements Journal {
         restore.execute(insufficientLogEx, config);
         bdbEnvironment.close();
         bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
-                helperNode.first + ":" + helperNode.second,
-                Catalog.getServingCatalog().isElectable());
+            helperNode.first + ":" + helperNode.second,
+            Catalog.getServingCatalog().isElectable());
     }
 
     @Override
@@ -372,7 +372,7 @@ public class BDBJEJournal implements Journal {
         }
         msg += ", deleteToJournalId is " + deleteToJournalId;
         LOG.info(msg);
-        
+
         for (int i = 1; i < dbNames.size(); i++) {
             if (deleteToJournalId >= dbNames.get(i)) {
                 long name = dbNames.get(i - 1);
@@ -381,12 +381,12 @@ public class BDBJEJournal implements Journal {
                 bdbEnvironment.removeDatabase(stringName);
             } else {
                 LOG.info("database name {} is larger than deleteToJournalId {}, not delete",
-                        dbNames.get(i), deleteToJournalId);
+                    dbNames.get(i), deleteToJournalId);
                 break;
             }
         }
     }
-    
+
     @Override
     public long getFinalizedJournalId() {
         List<Long> dbNames = getDatabaseNames();
@@ -394,20 +394,20 @@ public class BDBJEJournal implements Journal {
             LOG.error("database name is null.");
             return 0;
         }
-        
+
         String msg = "database names: ";
         for (long name : dbNames) {
             msg += name + " ";
         }
         LOG.info(msg);
-        
+
         if (dbNames.size() < 2) {
             return 0;
         }
-        
+
         return dbNames.get(dbNames.size() - 1) - 1;
     }
-    
+
     @Override
     public List<Long> getDatabaseNames() {
         if (bdbEnvironment == null) {
@@ -415,7 +415,7 @@ public class BDBJEJournal implements Journal {
         }
 
         // Open a new journal database or get last existing one as current journal database
-        List<Long>  dbNames = null;
+        List<Long> dbNames = null;
         for (int i = 0; i < RETRY_TIME; i++) {
             try {
                 dbNames = bdbEnvironment.getDatabaseNames();

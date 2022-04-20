@@ -81,16 +81,16 @@ public class ColumnStats {
             String statsName = entry.getKey();
             if (statsName.equalsIgnoreCase(NDV)) {
                 ndv = Util.getLongPropertyOrDefault(entry.getValue(), ndv,
-                        DESIRED_NDV_PRED, NDV + " should >= -1");
+                    DESIRED_NDV_PRED, NDV + " should >= -1");
             } else if (statsName.equalsIgnoreCase(AVG_SIZE)) {
                 avgSize = Util.getFloatPropertyOrDefault(entry.getValue(), avgSize,
-                        DESIRED_AVG_SIZE_PRED, AVG_SIZE + " should (>=0) or (=-1)");
+                    DESIRED_AVG_SIZE_PRED, AVG_SIZE + " should (>=0) or (=-1)");
             } else if (statsName.equalsIgnoreCase(MAX_SIZE)) {
                 maxSize = Util.getLongPropertyOrDefault(entry.getValue(), maxSize,
-                        DESIRED_MAX_SIZE_PRED, MAX_SIZE + " should >=-1");
+                    DESIRED_MAX_SIZE_PRED, MAX_SIZE + " should >=-1");
             } else if (statsName.equalsIgnoreCase(NUM_NULLS)) {
                 numNulls = Util.getLongPropertyOrDefault(entry.getValue(), numNulls,
-                        DESIRED_NUM_NULLS_PRED, NUM_NULLS + " should >=-1");
+                    DESIRED_NUM_NULLS_PRED, NUM_NULLS + " should >=-1");
             } else if (statsName.equalsIgnoreCase(MIN_VALUE)) {
                 minValue = validateColumnValue(columnType, entry.getValue());
             } else if (statsName.equalsIgnoreCase(MAX_VALUE)) {
@@ -150,7 +150,7 @@ public class ColumnStats {
             case VARCHAR:
                 if (columnValue.length() > scalarType.getLength()) {
                     throw new AnalysisException("Min/Max value is longer than length of column type: "
-                            + columnValue);
+                        + columnValue);
                 }
                 return new StringLiteral(columnValue);
             case HLL:

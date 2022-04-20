@@ -38,10 +38,10 @@ import java.util.function.Predicate;
 
 public class ShowBackupStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("SnapshotName").add("DbName").add("State").add("BackupObjs").add("CreateTime")
-            .add("SnapshotFinishedTime").add("UploadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
-            .add("Progress").add("TaskErrMsg").add("Status").add("Timeout")
-            .build();
+        .add("JobId").add("SnapshotName").add("DbName").add("State").add("BackupObjs").add("CreateTime")
+        .add("SnapshotFinishedTime").add("UploadFinishedTime").add("FinishedTime").add("UnfinishedTasks")
+        .add("Progress").add("TaskErrMsg").add("Status").add("Timeout")
+        .build();
 
     private String dbName;
     private final Expr where;
@@ -72,7 +72,7 @@ public class ShowBackupStmt extends ShowStmt {
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    ConnectContext.get().getQualifiedUser(), dbName);
+                ConnectContext.get().getQualifiedUser(), dbName);
         }
 
         if (where == null) {
@@ -177,9 +177,11 @@ public class ShowBackupStmt extends ShowStmt {
             return label -> true;
         }
         if (isAccurateMatch) {
-            return CaseSensibility.LABEL.getCaseSensibility() ? label -> label.equals(labelValue) : label -> label.equalsIgnoreCase(labelValue);
+            return CaseSensibility.LABEL.getCaseSensibility() ? label -> label.equals(labelValue) :
+                label -> label.equalsIgnoreCase(labelValue);
         } else {
-            PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+            PatternMatcher patternMatcher =
+                PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
             return patternMatcher::match;
         }
     }

@@ -24,7 +24,7 @@ public class ClearAlterTask extends AgentTask {
     private int schemaHash;
 
     public ClearAlterTask(long backendId, long dbId, long tableId, long partitionId, long indexId,
-                            long tabletId, int schemaHash) {
+                          long tabletId, int schemaHash) {
         super(null, backendId, TTaskType.CLEAR_ALTER_TASK, dbId, tableId, partitionId, indexId, tabletId);
 
         this.schemaHash = schemaHash;

@@ -19,10 +19,10 @@ package org.apache.doris.journal;
 
 // This class is like JDBC ResultSet.
 public interface JournalCursor {
-    
+
     // Return the next journal. return null when there is no more journals
     public JournalEntity next();
-    
+
     public void close();
-    
+
 }

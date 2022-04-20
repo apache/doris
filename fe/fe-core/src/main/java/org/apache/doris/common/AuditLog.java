@@ -47,7 +47,7 @@ public class AuditLog {
     }
 
     public AuditLog(String auditName) {
-        logger = LogManager.getLogger(auditName);   
+        logger = LogManager.getLogger(auditName);
     }
 
     public void log(Object message) {
@@ -61,9 +61,9 @@ public class AuditLog {
     public void log(String message, Object... params) {
         logger.info(message, params);
     }
-    
+
     public void log(Message message) {
         logger.info(message);
     }
-            
+
 }

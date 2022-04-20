@@ -23,7 +23,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -38,6 +37,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
+
+import com.google.gson.annotations.SerializedName;
 
 public class ColumnGsonSerializationTest {
 
@@ -87,7 +88,7 @@ public class ColumnGsonSerializationTest {
 
         Assert.assertEquals(c1, readC1);
     }
-    
+
     @Test
     public void testSerializeColumnList() throws IOException, AnalysisException {
         // 1. Write objects to file
@@ -96,8 +97,10 @@ public class ColumnGsonSerializationTest {
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
         Column c1 = new Column("c1", Type.fromPrimitiveType(PrimitiveType.BIGINT), true, null, true, "1", "abc");
-        Column c2 = new Column("c2", ScalarType.createType(PrimitiveType.VARCHAR, 32, -1, -1), true, null, true, "cmy", "");
-        Column c3 = new Column("c3", ScalarType.createDecimalV2Type(27, 9), false, AggregateType.SUM, false, "1.1", "decimalv2");
+        Column c2 =
+            new Column("c2", ScalarType.createType(PrimitiveType.VARCHAR, 32, -1, -1), true, null, true, "cmy", "");
+        Column c3 = new Column("c3", ScalarType.createDecimalV2Type(27, 9), false, AggregateType.SUM, false, "1.1",
+            "decimalv2");
 
         ColumnList columnList = new ColumnList();
         columnList.columns.add(c1);

@@ -18,8 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
@@ -119,10 +117,12 @@ public class ShowLoadStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` LIKE \'ab%\' LIMIT 10", stmt.toString());
 
-        BinaryPredicate statePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
+        BinaryPredicate statePredicate =
+            new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
         stmt = new ShowLoadStmt(null, statePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `state` = \'PENDING\' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `state` = \'PENDING\' LIMIT 10",
+            stmt.toString());
     }
 
     @Test
@@ -136,11 +136,13 @@ public class ShowLoadStmtTest {
         StringLiteral stringLiteral2 = new StringLiteral("def");
         LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef2, stringLiteral2);
 
-        CompoundPredicate compoundPredicate1 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1, likePredicate);
+        CompoundPredicate compoundPredicate1 =
+            new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1, likePredicate);
         ShowLoadStmt stmt1 = new ShowLoadStmt(null, compoundPredicate1, null, null);
 
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "column names on both sides of operator AND should be diffrent",
-                () -> stmt1.analyze(analyzer));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "column names on both sides of operator AND should be diffrent",
+            () -> stmt1.analyze(analyzer));
 
         //test: WHERE state="abc" AND state="def";  --> AnalysisException
         SlotRef slotRef3 = new SlotRef(null, "state");
@@ -151,11 +153,13 @@ public class ShowLoadStmtTest {
         StringLiteral stringLiteral4 = new StringLiteral("def");
         BinaryPredicate binaryPredicate4 = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef4, stringLiteral4);
 
-        CompoundPredicate compoundPredicate2 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate3, binaryPredicate4);
+        CompoundPredicate compoundPredicate2 =
+            new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate3, binaryPredicate4);
         ShowLoadStmt stmt2 = new ShowLoadStmt(null, compoundPredicate2, null, null);
 
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "column names on both sides of operator AND should be diffrent",
-                () -> stmt2.analyze(analyzer));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "column names on both sides of operator AND should be diffrent",
+            () -> stmt2.analyze(analyzer));
 
 
     }

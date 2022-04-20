@@ -54,7 +54,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     public UpdateTabletMetaInfoTask(long backendId, Set<Pair<Long, Integer>> tableIdWithSchemaHash,
                                     TTabletMetaType metaType) {
         super(null, backendId, TTaskType.UPDATE_TABLET_META_INFO,
-                -1L, -1L, -1L, -1L, -1L, tableIdWithSchemaHash.hashCode());
+            -1L, -1L, -1L, -1L, -1L, tableIdWithSchemaHash.hashCode());
         this.tableIdWithSchemaHash = tableIdWithSchemaHash;
         this.metaType = metaType;
     }
@@ -71,7 +71,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     public UpdateTabletMetaInfoTask(long backendId,
                                     List<Triple<Long, Integer, Boolean>> tabletToInMemory) {
         super(null, backendId, TTaskType.UPDATE_TABLET_META_INFO,
-                -1L, -1L, -1L, -1L, -1L, tabletToInMemory.hashCode());
+            -1L, -1L, -1L, -1L, -1L, tabletToInMemory.hashCode());
         this.metaType = TTabletMetaType.INMEMORY;
         this.tabletToInMemory = tabletToInMemory;
     }
@@ -80,7 +80,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tablets)) {
                 LOG.debug("UpdateTabletMetaInfoTask current latch count: {}, backend: {}, tablets:{}",
-                        latch.getCount(), backendId, tablets);
+                    latch.getCount(), backendId, tablets);
             }
         }
     }
@@ -111,7 +111,8 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                     TTabletMetaInfo metaInfo = new TTabletMetaInfo();
                     metaInfo.setTabletId(pair.first);
                     metaInfo.setSchemaHash(pair.second);
-                    TabletMeta tabletMeta = Catalog.getCurrentCatalog().getTabletInvertedIndex().getTabletMeta(pair.first);
+                    TabletMeta tabletMeta =
+                        Catalog.getCurrentCatalog().getTabletInvertedIndex().getTabletMeta(pair.first);
                     if (tabletMeta == null) {
                         LOG.warn("could not find tablet [{}] in meta ignore it", pair.second);
                         continue;

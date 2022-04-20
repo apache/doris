@@ -86,7 +86,7 @@ public class DropFileStmt extends DdlStmt {
         }
 
         Optional<String> optional = properties.keySet().stream().filter(
-                entity -> !PROP_CATALOG.equals(entity)).findFirst();
+            entity -> !PROP_CATALOG.equals(entity)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid property");
         }

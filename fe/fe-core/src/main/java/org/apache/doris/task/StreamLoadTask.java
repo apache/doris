@@ -35,11 +35,11 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 
@@ -211,6 +211,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     public void setJsonRoot(String jsonRoot) {
         this.jsonRoot = jsonRoot;
     }
+
     public LoadTask.MergeType getMergeType() {
         return mergeType;
     }
@@ -230,7 +231,7 @@ public class StreamLoadTask implements LoadTaskInfo {
 
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
-                                                           request.getFileType(), request.getFormatType());
+            request.getFileType(), request.getFormatType());
         streamLoadTask.setOptionalFromTSLPutRequest(request);
         return streamLoadTask;
     }
@@ -332,7 +333,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
         } catch (AnalysisException e) {
             LOG.warn("analyze columns' statement failed, sql={}, error={}",
-                     columnsSQL, parser.getErrorMsg(columnsSQL), e);
+                columnsSQL, parser.getErrorMsg(columnsSQL), e);
             String errorMessage = parser.getErrorMsg(columnsSQL);
             if (errorMessage == null) {
                 throw e;
@@ -360,7 +361,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             throw new AnalysisException("failed to parsing where header, maybe contain unsupported character");
         } catch (AnalysisException e) {
             LOG.warn("analyze where statement failed, sql={}, error={}",
-                     whereSQL, parser.getErrorMsg(whereSQL), e);
+                whereSQL, parser.getErrorMsg(whereSQL), e);
             String errorMessage = parser.getErrorMsg(whereSQL);
             if (errorMessage == null) {
                 throw e;

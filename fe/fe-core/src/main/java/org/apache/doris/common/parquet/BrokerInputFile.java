@@ -48,7 +48,8 @@ public class BrokerInputFile implements InputFile {
     }
 
     // For test only. ip port is broker ip port
-    public static BrokerInputFile create(String filePath, BrokerDesc brokerDesc, String ip, int port) throws IOException {
+    public static BrokerInputFile create(String filePath, BrokerDesc brokerDesc, String ip, int port)
+        throws IOException {
         BrokerInputFile inputFile = new BrokerInputFile(filePath, brokerDesc);
         inputFile.init(ip, port);
         return inputFile;
@@ -95,7 +96,8 @@ public class BrokerInputFile implements InputFile {
                         fill();
                     }
                     if (currentPos > bufferLimit) {
-                        LOG.warn("current pos {} is larger than buffer limit {}. should not happen.", currentPos, bufferLimit);
+                        LOG.warn("current pos {} is larger than buffer limit {}. should not happen.", currentPos,
+                            bufferLimit);
                         return -1;
                     }
 
@@ -146,7 +148,8 @@ public class BrokerInputFile implements InputFile {
                     }
 
                     if (currentPos > bufferLimit) {
-                        LOG.warn("current pos {} is larger than buffer limit {}. should not happen.", currentPos, bufferLimit);
+                        LOG.warn("current pos {} is larger than buffer limit {}. should not happen.", currentPos,
+                            bufferLimit);
                         return -1;
                     }
 
@@ -216,7 +219,7 @@ public class BrokerInputFile implements InputFile {
                     currentPos += data.length;
                     if (data.length < bytes.length) {
                         throw new EOFException("Reach the end of file with " + (bytes.length - data.length)
-                                + " bytes left to read");
+                            + " bytes left to read");
                     }
                 } catch (BrokerReader.EOFException e) {
                     throw new EOFException("Reach the end of file");
@@ -231,7 +234,7 @@ public class BrokerInputFile implements InputFile {
                     currentPos += data.length;
                     if (data.length < len) {
                         throw new EOFException("Reach the end of file with " + (len - data.length)
-                                + " bytes left to read");
+                            + " bytes left to read");
                     }
                 } catch (BrokerReader.EOFException e) {
                     throw new EOFException("Reach the end of file");
@@ -260,8 +263,9 @@ public class BrokerInputFile implements InputFile {
                         currentPos += data.length;
                     } catch (BrokerReader.EOFException e) {
                         if (byteBuffer.remaining() > 0) {
-                            throw new EOFException("Reach the end of file with " + byteBuffer.remaining() + " bytes left to read. "
-                                + "read len: " + (currentPos - markCurPos));
+                            throw new EOFException(
+                                "Reach the end of file with " + byteBuffer.remaining() + " bytes left to read. "
+                                    + "read len: " + (currentPos - markCurPos));
                         }
                     }
                 }

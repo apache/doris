@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
@@ -30,15 +29,17 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.base.Strings;
+
 public class ShowFunctionsStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Signature", ScalarType.createVarchar(256)))
-                    .addColumn(new Column("Return Type", ScalarType.createVarchar(32)))
-                    .addColumn(new Column("Function Type", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("Intermediate Type", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("Properties", ScalarType.createVarchar(16)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Signature", ScalarType.createVarchar(256)))
+            .addColumn(new Column("Return Type", ScalarType.createVarchar(32)))
+            .addColumn(new Column("Function Type", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Intermediate Type", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Properties", ScalarType.createVarchar(16)))
+            .build();
 
     private String dbName;
 
@@ -58,7 +59,9 @@ public class ShowFunctionsStmt extends ShowStmt {
         this.expr = expr;
     }
 
-    public String getDbName() { return dbName; }
+    public String getDbName() {
+        return dbName;
+    }
 
     public boolean getIsBuiltin() {
         return isBuiltin;

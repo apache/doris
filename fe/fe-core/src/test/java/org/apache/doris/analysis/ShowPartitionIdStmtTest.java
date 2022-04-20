@@ -17,16 +17,17 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Mocked;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
+import mockit.Mocked;
 
 public class ShowPartitionIdStmtTest {
     private Analyzer analyzer;
@@ -44,7 +45,7 @@ public class ShowPartitionIdStmtTest {
     }
 
     @Test
-    public void testNormal() throws UserException, AnalysisException  {
+    public void testNormal() throws UserException, AnalysisException {
         ShowPartitionIdStmt stmt = new ShowPartitionIdStmt(123456);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW PARTITION 123456", stmt.toString());

@@ -39,11 +39,11 @@ public class MetaHelper {
         String metaDir = Catalog.getCurrentCatalog().getImageDir();
         return new File(metaDir);
     }
-    
+
     public static int getLimit() {
         return CHECKPOINT_LIMIT_BYTES;
     }
-    
+
     // rename the .PART_SUFFIX file to filename
     public static File complete(String filename, File dir) throws IOException {
         File file = new File(dir, filename + MetaHelper.PART_SUFFIX);
@@ -55,14 +55,14 @@ public class MetaHelper {
     }
 
     public static OutputStream getOutputStream(String filename, File dir)
-            throws FileNotFoundException {
+        throws FileNotFoundException {
         File file = new File(dir, filename + MetaHelper.PART_SUFFIX);
         return new FileOutputStream(file);
     }
 
     // download file from remote node
     public static void getRemoteFile(String urlStr, int timeout, OutputStream out)
-            throws IOException {
+        throws IOException {
         URL url = new URL(urlStr);
         HttpURLConnection conn = null;
 

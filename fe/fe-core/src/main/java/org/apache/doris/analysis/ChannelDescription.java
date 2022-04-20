@@ -28,7 +28,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -39,6 +38,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+
+import com.google.gson.annotations.SerializedName;
 
 // used to describe channel info in data sync job
 //      channel_desc:
@@ -63,7 +64,8 @@ public class ChannelDescription implements Writable {
     @SerializedName(value = "channelId")
     private long channelId;
 
-    public ChannelDescription(String srcDatabase, String srcTableName, String targetTable, PartitionNames partitionNames, List<String> colNames) {
+    public ChannelDescription(String srcDatabase, String srcTableName, String targetTable,
+                              PartitionNames partitionNames, List<String> colNames) {
         this.srcDatabase = srcDatabase;
         this.srcTableName = srcTableName;
         this.targetTable = targetTable;
@@ -103,10 +105,10 @@ public class ChannelDescription implements Writable {
 
         // check target table auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, targetTable,
-                PrivPredicate.LOAD)) {
+            PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(), fullDbName + ": " + targetTable);
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(), fullDbName + ": " + targetTable);
         }
     }
 

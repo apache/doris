@@ -18,17 +18,18 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.qe.ConnectContext;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
  * Evaluate the cost of Broadcast and Shuffle Join to choose between the two
- *
+ * <p>
  * broadcast: send the rightChildFragment's output to each node executing the leftChildFragment; the cost across
  * all nodes is proportional to the total amount of data sent.
  * shuffle: also called Partitioned Join. That is, small tables and large tables are hashed according to the Join key,
  * and then distributed Join is performed.
- *
+ * <p>
  * NOTICE:
  * for now, only MysqlScanNode and OlapScanNode has Cardinality. OlapScanNode's cardinality is calculated by row num
  * and data size, and MysqlScanNode's cardinality is always 1. Other ScanNode's cardinality is -1.
@@ -64,8 +65,8 @@ public class JoinCostEvaluation {
 
     private String setNodeOverview(PlanNode node, PlanFragment rightChildFragment, PlanFragment leftChildFragment) {
         return "root node id=" + node.getId().toString() + ": " + node.planNodeName
-                + " right fragment id=" + rightChildFragment.getFragmentId().toString()
-                + " left fragment id=" + leftChildFragment.getFragmentId().toString();
+            + " right fragment id=" + rightChildFragment.getFragmentId().toString()
+            + " left fragment id=" + leftChildFragment.getFragmentId().toString();
     }
 
     private void broadcastCost(String nodeOverview) {
@@ -76,8 +77,8 @@ public class JoinCostEvaluation {
             LOG.debug(nodeOverview);
             LOG.debug("broadcast: cost=" + Long.toString(broadcastCost));
             LOG.debug("rhs card=" + Long.toString(rhsTreeCardinality)
-                    + " rhs row_size=" + Float.toString(rhsTreeAvgRowSize)
-                    + " lhs nodes=" + Integer.toString(lhsTreeNumNodes));
+                + " rhs row_size=" + Float.toString(rhsTreeAvgRowSize)
+                + " lhs nodes=" + Integer.toString(lhsTreeNumNodes));
         }
     }
 
@@ -88,15 +89,15 @@ public class JoinCostEvaluation {
     private void shuffleCost(String nodeOverview) {
         if (lhsTreeCardinality != -1 && rhsTreeCardinality != -1) {
             partitionCost = Math.round(
-                    (double) lhsTreeCardinality * lhsTreeAvgRowSize + (double) rhsTreeCardinality * rhsTreeAvgRowSize);
+                (double) lhsTreeCardinality * lhsTreeAvgRowSize + (double) rhsTreeCardinality * rhsTreeAvgRowSize);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug(nodeOverview);
             LOG.debug("partition: cost=" + Long.toString(partitionCost));
             LOG.debug("lhs card=" + Long.toString(lhsTreeCardinality) + " row_size="
-                    + Float.toString(lhsTreeAvgRowSize));
+                + Float.toString(lhsTreeAvgRowSize));
             LOG.debug("rhs card=" + Long.toString(rhsTreeCardinality) + " row_size="
-                    + Float.toString(rhsTreeAvgRowSize));
+                + Float.toString(rhsTreeAvgRowSize));
         }
     }
 
@@ -105,7 +106,7 @@ public class JoinCostEvaluation {
      * is better. Some scenarios are suitable for broadcast join, and some scenarios are suitable for shuffle join.
      * Therefore, we add a SessionVariable to help users choose a better join implementation.
      */
-    public boolean isBroadcastCostSmaller()  {
+    public boolean isBroadcastCostSmaller() {
         String joinMethod = ConnectContext.get().getSessionVariable().getPreferJoinMethod();
         if (joinMethod.equalsIgnoreCase("broadcast")) {
             return broadcastCost <= partitionCost;
@@ -123,19 +124,19 @@ public class JoinCostEvaluation {
      * - [2] The pointer length of each bucket of HashTable;
      * - [3] bucketPointerSpace: The memory cost by all bucket pointers of HashTable;
      * - [4] rhsDataSize: The memory cost by all nodes of HashTable, equal to the amount of data that the right table
-     *       participates in the construction of HashTable;
+     * participates in the construction of HashTable;
      * - [5] HashTable stores the length of the node array, which is larger than the actual cardinality. The initial
-     *       value is 4096. When the storage is full, one-half of the current array length is added each time.
-     *       The length of the array after each increment is actually a sequence of numbers:
-     *          4096 = pow(3/2, 0) * 4096,
-     *          6144 = pow(3/2, 1) * 4096,
-     *          9216 = pow(3/2, 2) * 4096,
-     *          13824 = pow(3/2, 3) * 4096,
-     *       finally need to satisfy len(node array)> cardinality,
-     *       so the number of increments = int((ln(cardinality/4096) / ln(3/2)) + 1),
-     *       finally len(node array) = pow(3/2, int((ln(cardinality/4096) / ln(3/2)) + 1) * 4096
+     * value is 4096. When the storage is full, one-half of the current array length is added each time.
+     * The length of the array after each increment is actually a sequence of numbers:
+     * 4096 = pow(3/2, 0) * 4096,
+     * 6144 = pow(3/2, 1) * 4096,
+     * 9216 = pow(3/2, 2) * 4096,
+     * 13824 = pow(3/2, 3) * 4096,
+     * finally need to satisfy len(node array)> cardinality,
+     * so the number of increments = int((ln(cardinality/4096) / ln(3/2)) + 1),
+     * finally len(node array) = pow(3/2, int((ln(cardinality/4096) / ln(3/2)) + 1) * 4096
      * - [6] The overhead length of each node of HashTable, including the next node pointer, Hash value,
-     *       and a bool type variable;
+     * and a bool type variable;
      * - [7] nodeOverheadSpace: The memory cost by the overhead of all nodes in the HashTable;
      * - [8] Number of Tuples participating in the build;
      * - [9] The length of each Tuple pointer;
@@ -144,10 +145,10 @@ public class JoinCostEvaluation {
     public long constructHashTableSpace() {
         double bucketPointerSpace = ((double) rhsTreeCardinality / 0.75) * 8;
         double nodeArrayLen =
-                Math.pow(1.5, (int) ((Math.log((double) rhsTreeCardinality/4096) / Math.log(1.5)) + 1)) * 4096;
+            Math.pow(1.5, (int) ((Math.log((double) rhsTreeCardinality / 4096) / Math.log(1.5)) + 1)) * 4096;
         double nodeOverheadSpace = nodeArrayLen * 16;
         double nodeTuplePointerSpace = nodeArrayLen * rhsTreeTupleIdNum * 8;
         return Math.round((bucketPointerSpace + (double) rhsTreeCardinality * rhsTreeAvgRowSize
-                + nodeOverheadSpace + nodeTuplePointerSpace) * PlannerContext.HASH_TBL_SPACE_OVERHEAD);
+            + nodeOverheadSpace + nodeTuplePointerSpace) * PlannerContext.HASH_TBL_SPACE_OVERHEAD);
     }
 }

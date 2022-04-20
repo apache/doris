@@ -40,7 +40,7 @@ public class ClientPool {
         heartbeatConfig.setMaxTotal(-1);          // (default -1)
         heartbeatConfig.setMaxWaitMillis(500);    //  wait for the connection
     }
-    
+
     static {
         backendConfig.setLifo(true);            // set Last In First Out strategy
         backendConfig.setMaxIdlePerKey(128);      // (default 8)
@@ -63,15 +63,15 @@ public class ClientPool {
     }
 
     public static GenericPool<HeartbeatService.Client> backendHeartbeatPool =
-            new GenericPool("HeartbeatService", heartbeatConfig, heartbeatTimeoutMs);
+        new GenericPool("HeartbeatService", heartbeatConfig, heartbeatTimeoutMs);
     public static GenericPool<FrontendService.Client> frontendHeartbeatPool =
-            new GenericPool<>("FrontendService", heartbeatConfig, heartbeatTimeoutMs,
-                    Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
+        new GenericPool<>("FrontendService", heartbeatConfig, heartbeatTimeoutMs,
+            Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
     public static GenericPool<FrontendService.Client> frontendPool =
-            new GenericPool("FrontendService", backendConfig, backendTimeoutMs,
-                    Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
+        new GenericPool("FrontendService", backendConfig, backendTimeoutMs,
+            Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
     public static GenericPool<BackendService.Client> backendPool =
-            new GenericPool("BackendService", backendConfig, backendTimeoutMs);
+        new GenericPool("BackendService", backendConfig, backendTimeoutMs);
     public static GenericPool<TPaloBrokerService.Client> brokerPool =
-            new GenericPool("TPaloBrokerService", brokerPoolConfig, brokerTimeoutMs);
+        new GenericPool("TPaloBrokerService", brokerPoolConfig, brokerTimeoutMs);
 }

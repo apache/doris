@@ -39,7 +39,7 @@ public class UserResourceTest {
         TUserResource tUserResource = resource.toThrift();
         Assert.assertEquals(3, tUserResource.getShareByGroupSize());
         Assert.assertEquals(123,
-                tUserResource.getResource().getResourceByType().get(TResourceType.TRESOURCE_CPU_SHARE).intValue());
+            tUserResource.getResource().getResourceByType().get(TResourceType.TRESOURCE_CPU_SHARE).intValue());
 
         resource.updateResource("cpu_share", 321);
         resource.updateGroupShare("low", 987);

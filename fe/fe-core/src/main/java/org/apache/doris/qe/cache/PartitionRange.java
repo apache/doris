@@ -17,26 +17,25 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
-import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.planner.PartitionColumnFilter;
-
-import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
 
@@ -122,12 +121,12 @@ public class PartitionRange {
         public void Debug() {
             if (partition != null) {
                 LOG.info("partition id {}, cacheKey {}, version {}, time {}, fromCache {}, tooNew {} ",
-                        partitionId, cacheKey.realValue(),
-                        partition.getVisibleVersion(), partition.getVisibleVersionTime(),
-                        fromCache, tooNew);
+                    partitionId, cacheKey.realValue(),
+                    partition.getVisibleVersion(), partition.getVisibleVersionTime(),
+                    fromCache, tooNew);
             } else {
                 LOG.info("partition id {}, cacheKey {}, fromCache {}, tooNew {} ", partitionId,
-                        cacheKey.realValue(), fromCache, tooNew);
+                    cacheKey.realValue(), fromCache, tooNew);
             }
         }
     }
@@ -395,12 +394,13 @@ public class PartitionRange {
         rangeList.add(partitionSingleList.get(begin));
         rangeList.add(partitionSingleList.get(end));
         LOG.info("the new range for scan be is [{},{}], hit range", rangeList.get(0).getCacheKey().realValue(),
-                rangeList.get(1).getCacheKey().realValue(), hitRange);
+            rangeList.get(1).getCacheKey().realValue(), hitRange);
         return hitRange;
     }
 
     /**
      * Gets the partition range that needs to be updated
+     *
      * @return
      */
     public List<PartitionSingle> buildUpdatePartitionRange() {
@@ -509,7 +509,7 @@ public class PartitionRange {
 
         // filter the partitions in predicate but not in OlapTable
         partitionSingleList =
-                partitionSingleList.stream().filter(p -> p.getPartition() != null).collect(Collectors.toList());
+            partitionSingleList.stream().filter(p -> p.getPartition() != null).collect(Collectors.toList());
     }
 
     /**
@@ -544,8 +544,8 @@ public class PartitionRange {
 
         while (begin.realValue() <= end.realValue()) {
             PartitionKey key = PartitionKey.createPartitionKey(
-                    Lists.newArrayList(new PartitionValue(begin.toString())),
-                    Lists.newArrayList(partitionColumn));
+                Lists.newArrayList(new PartitionValue(begin.toString())),
+                Lists.newArrayList(partitionColumn));
             PartitionSingle single = new PartitionSingle();
             single.setCacheKey(begin);
             single.setPartitionKey(key);
@@ -562,7 +562,6 @@ public class PartitionRange {
             return null;
         }
         PartitionColumnFilter partitionColumnFilter = new PartitionColumnFilter();
-        ;
         for (Expr expr : partitionKeyPredicate.getChildren()) {
             if (expr instanceof BinaryPredicate) {
                 BinaryPredicate binPredicate = (BinaryPredicate) expr;

@@ -43,7 +43,7 @@ public class MVColumnOneChildPatternTest {
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.SUM.name(), params);
         Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
-                AggregateType.SUM.name().toLowerCase());
+            AggregateType.SUM.name().toLowerCase());
         Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
@@ -64,7 +64,7 @@ public class MVColumnOneChildPatternTest {
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.MIN.name(), params);
         Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
-                AggregateType.MIN.name().toLowerCase());
+            AggregateType.MIN.name().toLowerCase());
         Assert.assertTrue(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
@@ -88,7 +88,7 @@ public class MVColumnOneChildPatternTest {
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.SUM.name(), params);
         Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
-                AggregateType.SUM.name().toLowerCase());
+            AggregateType.SUM.name().toLowerCase());
         Assert.assertFalse(mvColumnOneChildPattern.match(functionCallExpr));
     }
 
@@ -103,7 +103,7 @@ public class MVColumnOneChildPatternTest {
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(AggregateType.SUM.name(), params);
         Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         MVColumnOneChildPattern mvColumnOneChildPattern = new MVColumnOneChildPattern(
-                AggregateType.SUM.name().toLowerCase());
+            AggregateType.SUM.name().toLowerCase());
         Assert.assertFalse(mvColumnOneChildPattern.match(functionCallExpr));
     }
 }

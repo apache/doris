@@ -79,7 +79,9 @@ public class JvmPauseMonitor {
 
     // Initializes the pause monitor. No-op if called multiple times.
     public static void initPauseMonitor(long deadlockCheckIntervalS) {
-        if (INSTANCE.isStarted()) return;
+        if (INSTANCE.isStarted()) {
+            return;
+        }
         INSTANCE.init(deadlockCheckIntervalS);
     }
 
@@ -124,20 +126,20 @@ public class JvmPauseMonitor {
                                  Map<String, GcTimes> gcTimesBeforeSleep) {
 
         Set<String> gcBeanNames = Sets.intersection(
-                gcTimesAfterSleep.keySet(),
-                gcTimesBeforeSleep.keySet());
+            gcTimesAfterSleep.keySet(),
+            gcTimesBeforeSleep.keySet());
         List<String> gcDiffs = Lists.newArrayList();
         for (String name : gcBeanNames) {
             GcTimes diff = gcTimesAfterSleep.get(name).subtract(
-                    gcTimesBeforeSleep.get(name));
+                gcTimesBeforeSleep.get(name));
             if (diff.gcCount != 0) {
                 gcDiffs.add("GC pool '" + name + "' had collection(s): " +
-                        diff.toString());
+                    diff.toString());
             }
         }
 
         String ret = "Detected pause in JVM or host machine (eg GC): " +
-                "pause of approximately " + extraSleepTime + "ms\n";
+            "pause of approximately " + extraSleepTime + "ms\n";
         if (gcDiffs.isEmpty()) {
             ret += "No GCs detected";
         } else {
@@ -149,7 +151,7 @@ public class JvmPauseMonitor {
     private Map<String, GcTimes> getGcTimes() {
         Map<String, GcTimes> map = Maps.newHashMap();
         List<GarbageCollectorMXBean> gcBeans =
-                ManagementFactory.getGarbageCollectorMXBeans();
+            ManagementFactory.getGarbageCollectorMXBeans();
         for (GarbageCollectorMXBean gcBean : gcBeans) {
             map.put(gcBean.getName(), new GcTimes(gcBean));
         }
@@ -169,7 +171,7 @@ public class JvmPauseMonitor {
 
         private GcTimes subtract(GcTimes other) {
             return new GcTimes(this.gcCount - other.gcCount,
-                    this.gcTimeMillis - other.gcTimeMillis);
+                this.gcTimeMillis - other.gcTimeMillis);
         }
 
         @Override
@@ -206,17 +208,17 @@ public class JvmPauseMonitor {
                 if (extraSleepTime > warnThresholdMs_) {
                     ++numGcWarnThresholdExceeded;
                     LOG.warn(formatMessage(
-                            extraSleepTime, gcTimesAfterSleep, gcTimesBeforeSleep));
+                        extraSleepTime, gcTimesAfterSleep, gcTimesBeforeSleep));
                 } else if (extraSleepTime > infoThresholdMs_) {
                     ++numGcInfoThresholdExceeded;
                     LOG.info(formatMessage(
-                            extraSleepTime, gcTimesAfterSleep, gcTimesBeforeSleep));
+                        extraSleepTime, gcTimesAfterSleep, gcTimesBeforeSleep));
                 }
                 totalGcExtraSleepTime += extraSleepTime;
                 gcTimesBeforeSleep = gcTimesAfterSleep;
 
                 if (deadlockCheckIntervalS_ > 0 &&
-                        timeSinceDeadlockCheck.elapsed(TimeUnit.SECONDS) >= deadlockCheckIntervalS_) {
+                    timeSinceDeadlockCheck.elapsed(TimeUnit.SECONDS) >= deadlockCheckIntervalS_) {
                     checkForDeadlocks();
                     timeSinceDeadlockCheck.reset().start();
                 }
@@ -234,16 +236,18 @@ public class JvmPauseMonitor {
          */
         private void checkForDeadlocks() {
             ThreadMXBean threadMx = ManagementFactory.getThreadMXBean();
-            long deadlockedTids[] = threadMx.findDeadlockedThreads();
+            long[] deadlockedTids = threadMx.findDeadlockedThreads();
             if (deadlockedTids != null) {
-                ThreadInfo deadlockedThreads[] =
-                        threadMx.getThreadInfo(deadlockedTids, true, true);
+                ThreadInfo[] deadlockedThreads =
+                    threadMx.getThreadInfo(deadlockedTids, true, true);
                 // Log diagnostics with error before aborting the process with a FATAL log.
                 LOG.error("Found " + deadlockedThreads.length + " threads in deadlock: ");
                 for (ThreadInfo thread : deadlockedThreads) {
                     // Defensively check for null in case the thread somehow disappeared between
                     // findDeadlockedThreads() and getThreadInfo().
-                    if (thread != null) LOG.error(thread.toString());
+                    if (thread != null) {
+                        LOG.error(thread.toString());
+                    }
                 }
                 LOG.warn("All threads:");
                 for (ThreadInfo thread : threadMx.dumpAllThreads(true, true)) {

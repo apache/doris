@@ -49,6 +49,7 @@ public class DynamicPluginLoader extends PluginLoader {
     protected Path installPath;
 
     protected String expectedMd5sum;
+
     // for processing install stmt
     DynamicPluginLoader(String pluginDir, String source, String expectedMd5sum) {
         super(pluginDir, source);
@@ -144,7 +145,7 @@ public class DynamicPluginLoader extends PluginLoader {
         }
 
         if (null != installPath && Files.exists(installPath)
-                && Files.isSameFile(installPath.getParent(), pluginDir)) {
+            && Files.isSameFile(installPath.getParent(), pluginDir)) {
             FileUtils.deleteQuietly(installPath.toFile());
         }
     }
@@ -152,7 +153,7 @@ public class DynamicPluginLoader extends PluginLoader {
     /**
      * reload plugin if plugin has already been installed, else will re-install.
      * Notice that this method will create a new instance of plugin.
-     * 
+     *
      * @throws PluginException
      */
     public void reload() throws IOException, UserException {
@@ -206,7 +207,7 @@ public class DynamicPluginLoader extends PluginLoader {
 
         Class<? extends Plugin> pluginClass;
         try {
-             pluginClass = loader.loadClass(pluginInfo.getClassName()).asSubclass(Plugin.class);
+            pluginClass = loader.loadClass(pluginInfo.getClassName()).asSubclass(Plugin.class);
         } catch (ClassNotFoundException e) {
             throw new UserException("Could not find plugin class [" + pluginInfo.getClassName() + "]", e);
         }
@@ -258,7 +259,8 @@ public class DynamicPluginLoader extends PluginLoader {
      */
     public void movePlugin() throws UserException, IOException {
         if (installPath == null || !Files.exists(installPath)) {
-            throw new PluginException("Install plugin " + pluginInfo.getName() + " failed, because install path doesn't "
+            throw new PluginException(
+                "Install plugin " + pluginInfo.getName() + " failed, because install path doesn't "
                     + "exist.");
         }
 
@@ -266,8 +268,8 @@ public class DynamicPluginLoader extends PluginLoader {
         if (Files.exists(targetPath)) {
             if (!Files.isSameFile(installPath, targetPath)) {
                 throw new PluginException(
-                        "Install plugin " + pluginInfo.getName() + " failed. because " + installPath.toString()
-                                + " exists");
+                    "Install plugin " + pluginInfo.getName() + " failed. because " + installPath.toString()
+                        + " exists");
             }
         } else {
             Files.move(installPath, targetPath, StandardCopyOption.ATOMIC_MOVE);

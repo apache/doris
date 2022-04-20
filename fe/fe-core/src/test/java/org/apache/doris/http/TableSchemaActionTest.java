@@ -27,6 +27,7 @@ import java.io.IOException;
 
 import okhttp3.Request;
 import okhttp3.Response;
+
 import static org.junit.Assert.assertTrue;
 
 public class TableSchemaActionTest extends DorisHttpTestCase {
@@ -36,10 +37,10 @@ public class TableSchemaActionTest extends DorisHttpTestCase {
     @Test
     public void testGetTableSchema() throws IOException {
         Request request = new Request.Builder()
-                .get()
-                .addHeader("Authorization", rootAuth)
-                .url(URI + QUERY_PLAN_URI)
-                .build();
+            .get()
+            .addHeader("Authorization", rootAuth)
+            .url(URI + QUERY_PLAN_URI)
+            .build();
         Response response = networkClient.newCall(request).execute();
         assertTrue(response.isSuccessful());
         String respStr = response.body().string();

@@ -16,7 +16,6 @@
 // under the License.
 package org.apache.doris.persist;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -26,6 +25,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Objects;
 import java.util.Set;
+
+import com.google.gson.annotations.SerializedName;
 
 /*
  * used for batch persist drop info in one atomic operation
@@ -60,7 +61,7 @@ public class BatchDropInfo implements Writable {
         }
         BatchDropInfo otherBatchDropInfo = (BatchDropInfo) other;
         return this.dbId == otherBatchDropInfo.dbId && this.tableId == otherBatchDropInfo.tableId
-                && this.indexIdSet.equals(otherBatchDropInfo.indexIdSet);
+            && this.indexIdSet.equals(otherBatchDropInfo.indexIdSet);
     }
 
     @Override

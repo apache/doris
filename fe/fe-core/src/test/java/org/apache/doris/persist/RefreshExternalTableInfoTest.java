@@ -17,6 +17,19 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -24,20 +37,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-
-import org.apache.doris.catalog.FakeCatalog;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.jmockit.Deencapsulation;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.FeConstants;
 
 public class RefreshExternalTableInfoTest {
     private Catalog catalog;
@@ -62,18 +61,18 @@ public class RefreshExternalTableInfoTest {
 
         List<Column> columns = new ArrayList<Column>();
         Column column2 = new Column("column2",
-                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
+            ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
         columns.add(column2);
         columns.add(new Column("column3",
-                ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
+            ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
         columns.add(new Column("column4",
-                ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
+            ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column5",
-                ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
+            ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column6",
-                ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
+            ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column7",
-                ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
+            ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
         columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
         columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));

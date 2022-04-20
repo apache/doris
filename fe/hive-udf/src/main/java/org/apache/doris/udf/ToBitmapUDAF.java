@@ -19,15 +19,16 @@ package org.apache.doris.udf;
 
 import org.apache.doris.common.BitmapValueUtil;
 import org.apache.doris.common.io.BitmapValue;
-import org.apache.hadoop.hive.ql.udf.generic.AbstractGenericUDAFResolver;
-import org.apache.hadoop.hive.ql.udf.generic.GenericUDAFEvaluator;
-import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
+
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentTypeException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
+import org.apache.hadoop.hive.ql.udf.generic.AbstractGenericUDAFResolver;
+import org.apache.hadoop.hive.ql.udf.generic.GenericUDAFEvaluator;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.PrimitiveObjectInspector;
+import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorUtils;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
@@ -36,17 +37,16 @@ import java.io.IOException;
 
 /**
  * ToBitmap.
- *
  */
 @Description(name = "to_bitmap", value = "_FUNC_(expr) - Returns an doris bitmap representation of a column.")
 public class ToBitmapUDAF extends AbstractGenericUDAFResolver {
 
     @Override
     public GenericUDAFEvaluator getEvaluator(TypeInfo[] parameters)
-            throws SemanticException {
+        throws SemanticException {
         if (parameters.length != 1) {
             throw new UDFArgumentTypeException(parameters.length - 1,
-                    "Exactly one argument is expected.");
+                "Exactly one argument is expected.");
         }
         return new GenericEvaluate();
     }
@@ -65,7 +65,7 @@ public class ToBitmapUDAF extends AbstractGenericUDAFResolver {
 
         @Override
         public ObjectInspector init(Mode m, ObjectInspector[] parameters)
-                throws HiveException {
+            throws HiveException {
             super.init(m, parameters);
             // init output object inspectors
             // The output of a partial aggregation is a binary
@@ -77,7 +77,9 @@ public class ToBitmapUDAF extends AbstractGenericUDAFResolver {
             return PrimitiveObjectInspectorFactory.javaByteArrayObjectInspector;
         }
 
-        /** class for storing the current partial result aggregation */
+        /**
+         * class for storing the current partial result aggregation
+         */
         @AggregationType(estimable = true)
         static class BitmapAgg extends AbstractAggregationBuffer {
             BitmapValue bitmap;
@@ -111,7 +113,7 @@ public class ToBitmapUDAF extends AbstractGenericUDAFResolver {
         }
 
         @Override
-        public Object terminate(AggregationBuffer agg){
+        public Object terminate(AggregationBuffer agg) {
             BitmapAgg myagg = (BitmapAgg) agg;
             try {
                 return BitmapValueUtil.serializeToBytes(myagg.bitmap);
@@ -132,7 +134,7 @@ public class ToBitmapUDAF extends AbstractGenericUDAFResolver {
         }
 
         @Override
-        public Object terminatePartial(AggregationBuffer agg){
+        public Object terminatePartial(AggregationBuffer agg) {
             return terminate(agg);
         }
 

@@ -27,14 +27,16 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class CreateResourceStmtTest {
     private Analyzer analyzer;

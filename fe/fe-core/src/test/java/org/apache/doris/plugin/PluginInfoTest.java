@@ -17,15 +17,6 @@
 
 package org.apache.doris.plugin;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.FeConstants;
@@ -33,8 +24,18 @@ import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.plugin.PluginInfo.PluginType;
+
 import org.junit.Before;
 import org.junit.Test;
+
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class PluginInfoTest {
     private Catalog catalog;
@@ -54,7 +55,7 @@ public class PluginInfoTest {
     public void testPluginRead() {
         try {
             PluginInfo info = PluginInfo.readFromProperties(PluginTestUtil.getTestPath("source"),
-                    "test");
+                "test");
 
             assertEquals("plugin_test", info.getName());
             assertEquals(PluginType.STORAGE, info.getType());

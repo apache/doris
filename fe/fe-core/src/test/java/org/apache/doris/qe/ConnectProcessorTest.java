@@ -156,26 +156,32 @@ public class ConnectProcessorTest {
     private static ConnectContext initMockContext(MysqlChannel channel, Catalog catalog) {
         ConnectContext context = new ConnectContext(socketChannel) {
             private boolean firstTimeToSetCommand = true;
+
             @Override
             public void setKilled() {
                 myContext.setKilled();
             }
+
             @Override
             public MysqlSerializer getSerializer() {
                 return myContext.getSerializer();
             }
+
             @Override
             public QueryState getState() {
                 return myContext.getState();
             }
+
             @Override
             public void setStartTime() {
                 myContext.setStartTime();
             }
+
             @Override
             public String getDatabase() {
                 return myContext.getDatabase();
             }
+
             @Override
             public void setCommand(MysqlCommand command) {
                 if (firstTimeToSetCommand) {
@@ -393,7 +399,7 @@ public class ConnectProcessorTest {
         serializer.writeEofString("");
 
         ConnectContext ctx = initMockContext(mockChannel(serializer.toByteBuffer()),
-                AccessTestUtil.fetchAdminCatalog());
+            AccessTestUtil.fetchAdminCatalog());
 
         ConnectProcessor processor = new ConnectProcessor(ctx);
         processor.processOnce();
@@ -411,7 +417,7 @@ public class ConnectProcessorTest {
 
         myContext.setDatabase("testCluster:emptyDb");
         ConnectContext ctx = initMockContext(mockChannel(serializer.toByteBuffer()),
-                AccessTestUtil.fetchAdminCatalog());
+            AccessTestUtil.fetchAdminCatalog());
 
         ConnectProcessor processor = new ConnectProcessor(ctx);
         processor.processOnce();
@@ -429,7 +435,7 @@ public class ConnectProcessorTest {
 
         myContext.setDatabase("testCluster:testDb");
         ConnectContext ctx = initMockContext(mockChannel(serializer.toByteBuffer()),
-                AccessTestUtil.fetchAdminCatalog());
+            AccessTestUtil.fetchAdminCatalog());
 
         ConnectProcessor processor = new ConnectProcessor(ctx);
         processor.processOnce();

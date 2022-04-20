@@ -23,12 +23,12 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowCharsetStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Charset", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Description", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Default collation", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Maxlen", ScalarType.createVarchar(20)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Charset", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Description", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Default collation", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Maxlen", ScalarType.createVarchar(20)))
+            .build();
 
     private String pattern;
 

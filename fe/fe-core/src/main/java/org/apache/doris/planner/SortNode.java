@@ -54,8 +54,8 @@ import java.util.Set;
 public class SortNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(SortNode.class);
     private final SortInfo info;
-    private final boolean  useTopN;
-    private final boolean  isDefaultLimit;
+    private final boolean useTopN;
+    private final boolean isDefaultLimit;
 
     private long offset;
     // if true, the output of this node feeds an AnalyticNode
@@ -67,13 +67,17 @@ public class SortNode extends PlanNode {
     public void setIsAnalyticSort(boolean v) {
         isAnalyticSort = v;
     }
+
     public boolean isAnalyticSort() {
         return isAnalyticSort;
     }
+
     private DataPartition inputPartition;
+
     public void setInputPartition(DataPartition inputPartition) {
         this.inputPartition = inputPartition;
     }
+
     public DataPartition getInputPartition() {
         return inputPartition;
     }
@@ -168,17 +172,17 @@ public class SortNode extends PlanNode {
             strings.add(isAsc ? "a" : "d");
         }
         return MoreObjects.toStringHelper(this).add("ordering_exprs",
-                Expr.debugString(info.getOrderingExprs())).add("is_asc",
-                "[" + Joiner.on(" ").join(strings) + "]").addValue(super.debugString()).toString();
+            Expr.debugString(info.getOrderingExprs())).add("is_asc",
+            "[" + Joiner.on(" ").join(strings) + "]").addValue(super.debugString()).toString();
     }
 
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SORT_NODE;
         TSortInfo sortInfo = new TSortInfo(
-                Expr.treesToThrift(info.getOrderingExprs()),
-                info.getIsAscOrder(),
-                info.getNullsFirst());
+            Expr.treesToThrift(info.getOrderingExprs()),
+            info.getIsAscOrder(),
+            info.getNullsFirst());
         Preconditions.checkState(tupleIds.size() == 1, "Incorrect size for tupleIds in SortNode");
         sortInfo.setSortTupleSlotExprs(Expr.treesToThrift(resolvedTupleExprs));
         TSortNode sortNode = new TSortNode(sortInfo, useTopN);
@@ -262,7 +266,7 @@ public class SortNode extends PlanNode {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("sort id " + tupleIds.get(0).toString() + " smap: "
-                    + outputSmap.debugString());
+                + outputSmap.debugString());
             LOG.debug("sort input exprs: " + Expr.debugString(resolvedTupleExprs));
         }
     }

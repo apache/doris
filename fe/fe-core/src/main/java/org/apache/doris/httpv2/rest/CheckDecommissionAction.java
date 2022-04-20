@@ -45,10 +45,10 @@ import javax.servlet.http.HttpServletResponse;
  * fe_host:fe_http_port/api/check_decommission?host_ports=host:port,host2:port2...
  * return:
  * {
- * 	"msg": "OK",
- * 	"code": 0,
- * 	"data": ["192.168.10.11:9050", "192.168.10.11:9050"],
- * 	"count": 0
+ * "msg": "OK",
+ * "code": 0,
+ * "data": ["192.168.10.11:9050", "192.168.10.11:9050"],
+ * "count": 0
  * }
  */
 @RestController
@@ -85,7 +85,8 @@ public class CheckDecommissionAction extends RestBaseController {
 
         try {
             List<Backend> backends = SystemHandler.checkDecommission(hostPortPairs);
-            List<String> backendsList = backends.stream().map(b -> b.getHost() + ":" + b.getHeartbeatPort()).collect(Collectors.toList());
+            List<String> backendsList =
+                backends.stream().map(b -> b.getHost() + ":" + b.getHeartbeatPort()).collect(Collectors.toList());
             return ResponseEntityBuilder.ok(backendsList);
         } catch (DdlException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

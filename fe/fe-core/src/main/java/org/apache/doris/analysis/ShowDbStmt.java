@@ -18,11 +18,12 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
 import com.google.common.collect.Lists;
 
 // Show database statement.
@@ -30,9 +31,9 @@ public class ShowDbStmt extends ShowStmt {
     private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "schemata");
     private static final String DB_COL = "Database";
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column(DB_COL, ScalarType.createVarchar(20)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column(DB_COL, ScalarType.createVarchar(20)))
+            .build();
 
     private String pattern;
     private Expr where;
@@ -72,8 +73,8 @@ public class ShowDbStmt extends ShowStmt {
         aliasMap.put(new SlotRef(null, DB_COL), item.getExpr().clone(null));
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
-                new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+            new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
+            where, null, null, null, LimitElement.NO_LIMIT);
 
         return selectStmt;
     }

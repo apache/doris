@@ -31,6 +31,9 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
@@ -38,9 +41,6 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -116,13 +116,13 @@ public class HiveScanNode extends BrokerScanNode {
 
         HiveTable hiveTable = (HiveTable) desc.getTable();
         fileGroups = Lists.newArrayList(
-                new BrokerFileGroup(hiveTable,
-                        getColumnSeparator(),
-                        getLineDelimiter(),
-                        getPath(),
-                        getFileFormat(),
-                        getPartitionKeys(),
-                        getParsedColumnExprList()));
+            new BrokerFileGroup(hiveTable,
+                getColumnSeparator(),
+                getLineDelimiter(),
+                getPath(),
+                getFileFormat(),
+                getPartitionKeys(),
+                getParsedColumnExprList()));
         brokerDesc = new BrokerDesc("HiveTableDesc", StorageBackend.StorageType.HDFS, hiveTable.getHiveProperties());
         targetTable = hiveTable;
     }
@@ -133,9 +133,9 @@ public class HiveScanNode extends BrokerScanNode {
 
         Map<String, String> serDeInfoParams = remoteHiveTable.getSd().getSerdeInfo().getParameters();
         this.columnSeparator = Strings.isNullOrEmpty(serDeInfoParams.get("field.delim")) ?
-                HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
+            HIVE_DEFAULT_COLUMN_SEPARATOR : serDeInfoParams.get("field.delim");
         this.lineDelimiter = Strings.isNullOrEmpty(serDeInfoParams.get("line.delim")) ?
-                HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
+            HIVE_DEFAULT_LINE_DELIMITER : serDeInfoParams.get("line.delim");
         this.path = remoteHiveTable.getSd().getLocation();
         for (FieldSchema fieldSchema : remoteHiveTable.getPartitionKeys()) {
             this.partitionKeys.add(fieldSchema.getName());
@@ -149,7 +149,7 @@ public class HiveScanNode extends BrokerScanNode {
         ListIterator<Expr> it = conjuncts.listIterator();
         while (it.hasNext()) {
             ExprNodeGenericFuncDesc hiveExpr = HiveMetaStoreClientHelper.convertToHivePartitionExpr(
-                    it.next(), partitionKeys, hiveTable.getName());
+                it.next(), partitionKeys, hiveTable.getName());
             if (hiveExpr != null) {
                 hivePredicates.add(hiveExpr);
             }
@@ -165,10 +165,10 @@ public class HiveScanNode extends BrokerScanNode {
         } else {
             // have no predicate, make a dummy predicate "1=1" to get all partitions
             HiveMetaStoreClientHelper.ExprBuilder exprBuilder =
-                    new HiveMetaStoreClientHelper.ExprBuilder(hiveTable.getName());
+                new HiveMetaStoreClientHelper.ExprBuilder(hiveTable.getName());
             hivePartitionPredicate = exprBuilder.val(TypeInfoFactory.intTypeInfo, 1)
-                    .val(TypeInfoFactory.intTypeInfo, 1)
-                    .pred("=", 2).build();
+                .val(TypeInfoFactory.intTypeInfo, 1)
+                .pred("=", 2).build();
         }
     }
 
@@ -179,7 +179,7 @@ public class HiveScanNode extends BrokerScanNode {
         }
         List<TBrokerFileStatus> fileStatuses = new ArrayList<>();
         this.hdfsUri = HiveMetaStoreClientHelper.getHiveDataFiles(hiveTable, hivePartitionPredicate,
-                fileStatuses, remoteHiveTable);
+            fileStatuses, remoteHiveTable);
         fileStatusesList.add(fileStatuses);
         filesAdded += fileStatuses.size();
         for (TBrokerFileStatus fstatus : fileStatuses) {
@@ -193,7 +193,7 @@ public class HiveScanNode extends BrokerScanNode {
         if (!isLoad()) {
             output.append(prefix).append("TABLE: ").append(hiveTable.getName()).append("\n");
             output.append(prefix).append("PATH: ")
-                    .append(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS)).append("\n");
+                .append(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS)).append("\n");
         }
         return output.toString();
     }

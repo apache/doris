@@ -27,8 +27,8 @@ import java.util.List;
 
 public class MonitorProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("Info")
-            .build();
+        .add("Name").add("Info")
+        .build();
 
     public MonitorProcDir() {
 

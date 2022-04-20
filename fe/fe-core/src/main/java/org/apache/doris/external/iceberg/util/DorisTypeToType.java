@@ -55,7 +55,7 @@ public class DorisTypeToType extends DorisTypeVisitor<Type> {
     @Override
     public Type struct(StructType struct, List<Type> types) {
         throw new UnsupportedOperationException(
-                "Not a supported type: " + struct.toSql(0));
+            "Not a supported type: " + struct.toSql(0));
     }
 
     @Override
@@ -66,13 +66,13 @@ public class DorisTypeToType extends DorisTypeVisitor<Type> {
     @Override
     public Type array(ArrayType array, Type elementType) {
         throw new UnsupportedOperationException(
-                "Not a supported type: " + array.toSql(0));
+            "Not a supported type: " + array.toSql(0));
     }
 
     @Override
     public Type map(MapType map, Type keyType, Type valueType) {
         throw new UnsupportedOperationException(
-                "Not a supported type: " + map.toSql(0));
+            "Not a supported type: " + map.toSql(0));
     }
 
     @Override
@@ -80,34 +80,34 @@ public class DorisTypeToType extends DorisTypeVisitor<Type> {
         if (atomic.getPrimitiveType().equals(PrimitiveType.BOOLEAN)) {
             return Types.BooleanType.get();
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.TINYINT)
-                || atomic.getPrimitiveType().equals(PrimitiveType.SMALLINT)
-                || atomic.getPrimitiveType().equals(PrimitiveType.INT)) {
+            || atomic.getPrimitiveType().equals(PrimitiveType.SMALLINT)
+            || atomic.getPrimitiveType().equals(PrimitiveType.INT)) {
             return Types.IntegerType.get();
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.BIGINT)
-                || atomic.getPrimitiveType().equals(PrimitiveType.LARGEINT)) {
+            || atomic.getPrimitiveType().equals(PrimitiveType.LARGEINT)) {
             return Types.LongType.get();
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.FLOAT)) {
             return Types.FloatType.get();
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.DOUBLE)) {
             return Types.DoubleType.get();
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.CHAR)
-                || atomic.getPrimitiveType().equals(PrimitiveType.VARCHAR)) {
+            || atomic.getPrimitiveType().equals(PrimitiveType.VARCHAR)) {
             return Types.StringType.get();
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.DATE)) {
             return Types.DateType.get();
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.TIME)) {
             return Types.TimeType.get();
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.DECIMALV2)
-                || atomic.getPrimitiveType().equals(PrimitiveType.DECIMALV2)) {
+            || atomic.getPrimitiveType().equals(PrimitiveType.DECIMALV2)) {
             return Types.DecimalType.of(
-                    ((ScalarType) atomic).getScalarPrecision(),
-                    ((ScalarType) atomic).getScalarScale());
+                ((ScalarType) atomic).getScalarPrecision(),
+                ((ScalarType) atomic).getScalarScale());
         } else if (atomic.getPrimitiveType().equals(PrimitiveType.DATETIME)) {
             return Types.TimestampType.withZone();
         }
         // unsupported type: PrimitiveType.HLL BITMAP BINARY
 
         throw new UnsupportedOperationException(
-                "Not a supported type: " + atomic.getPrimitiveType());
+            "Not a supported type: " + atomic.getPrimitiveType());
     }
 }

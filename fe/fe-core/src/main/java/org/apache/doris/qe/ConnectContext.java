@@ -110,7 +110,6 @@ public class ConnectContext {
     protected boolean isSend;
 
     protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
-    ;
 
     protected String remoteIP;
 
@@ -216,10 +215,10 @@ public class ConnectContext {
             if (isTxnBegin()) {
                 try {
                     Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                            currentDbId, txnEntry.getTxnConf().getTxnId(), "timeout");
+                        currentDbId, txnEntry.getTxnConf().getTxnId(), "timeout");
                 } catch (UserException e) {
                     LOG.error("db: {}, txnId: {}, rollback error.", currentDb,
-                            txnEntry.getTxnConf().getTxnId(), e);
+                        txnEntry.getTxnConf().getTxnId(), e);
                 }
             }
             txnEntry = null;
@@ -463,7 +462,7 @@ public class ConnectContext {
     // kill operation with no protect.
     public void kill(boolean killConnection) {
         LOG.warn("kill timeout query, {}, kill connection: {}",
-                getMysqlChannel().getRemoteHostPortString(), killConnection);
+            getMysqlChannel().getRemoteHostPortString(), killConnection);
 
         if (killConnection) {
             isKilled = true;
@@ -489,7 +488,7 @@ public class ConnectContext {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
+                    getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
 
                 killFlag = true;
                 killConnection = true;
@@ -497,7 +496,7 @@ public class ConnectContext {
         } else {
             if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
                 LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                        getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
+                    getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
 
                 // Only kill
                 killFlag = true;

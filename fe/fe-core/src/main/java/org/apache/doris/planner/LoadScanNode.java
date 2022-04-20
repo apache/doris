@@ -57,14 +57,16 @@ public abstract class LoadScanNode extends ScanNode {
         super(id, desc, planNodeName);
     }
 
-    protected void initAndSetWhereExpr(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer) throws UserException {
+    protected void initAndSetWhereExpr(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer)
+        throws UserException {
         Expr newWhereExpr = initWhereExpr(whereExpr, tupleDesc, analyzer);
         if (newWhereExpr != null) {
             addConjuncts(newWhereExpr.getConjuncts());
         }
     }
 
-    protected void initAndSetPrecedingFilter(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer) throws UserException {
+    protected void initAndSetPrecedingFilter(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer)
+        throws UserException {
         Expr newWhereExpr = initWhereExpr(whereExpr, tupleDesc, analyzer);
         if (newWhereExpr != null) {
             addPreFilterConjuncts(newWhereExpr.getConjuncts());
@@ -83,7 +85,8 @@ public abstract class LoadScanNode extends ScanNode {
 
         // substitute SlotRef in filter expression
         // where expr must be equal first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
-        Expr newWhereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
+        Expr newWhereExpr =
+            analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
         List<SlotRef> slots = Lists.newArrayList();
         newWhereExpr.collect(SlotRef.class, slots);
 
@@ -92,7 +95,7 @@ public abstract class LoadScanNode extends ScanNode {
             SlotDescriptor slotDesc = dstDescMap.get(slot.getColumnName());
             if (slotDesc == null) {
                 throw new UserException("unknown column reference in where statement, reference="
-                        + slot.getColumnName());
+                    + slot.getColumnName());
             }
             smap.getLhs().add(slot);
             smap.getRhs().add(new SlotRef(slotDesc));
@@ -105,22 +108,25 @@ public abstract class LoadScanNode extends ScanNode {
         return newWhereExpr;
     }
 
-    protected void checkBitmapCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
+    protected void checkBitmapCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr)
+        throws AnalysisException {
         if (slotDesc.getColumn().getAggregationType() == AggregateType.BITMAP_UNION) {
             expr.analyze(analyzer);
             if (!expr.getType().isBitmapType()) {
                 String errorMsg = String.format("bitmap column %s require the function return type is BITMAP",
-                        slotDesc.getColumn().getName());
+                    slotDesc.getColumn().getName());
                 throw new AnalysisException(errorMsg);
             }
         }
     }
 
-    protected void checkQuantileStateCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
+    protected void checkQuantileStateCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr)
+        throws AnalysisException {
         if (slotDesc.getColumn().getAggregationType() == AggregateType.QUANTILE_UNION) {
             expr.analyze(analyzer);
             if (!expr.getType().isQuantileStateType()) {
-                String errorMsg = String.format("quantile_state column %s require the function return type is QUANTILE_STATE");
+                String errorMsg =
+                    String.format("quantile_state column %s require the function return type is QUANTILE_STATE");
                 throw new AnalysisException(errorMsg);
             }
         }
@@ -169,14 +175,14 @@ public abstract class LoadScanNode extends ScanNode {
             if (destSlotDesc.getType().getPrimitiveType() == PrimitiveType.HLL) {
                 if (!(expr instanceof FunctionCallExpr)) {
                     throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                            + destSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH + "(xxx)");
+                        + destSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH + "(xxx)");
                 }
                 FunctionCallExpr fn = (FunctionCallExpr) expr;
                 if (!fn.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)
-                        && !fn.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
+                    && !fn.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
                     throw new AnalysisException("HLL column must use " + FunctionSet.HLL_HASH + " function, like "
-                            + destSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH
-                            + "(xxx) or " + destSlotDesc.getColumn().getName() + "=hll_empty()");
+                        + destSlotDesc.getColumn().getName() + "=" + FunctionSet.HLL_HASH
+                        + "(xxx) or " + destSlotDesc.getColumn().getName() + "=hll_empty()");
                 }
                 expr.setType(Type.HLL);
             }

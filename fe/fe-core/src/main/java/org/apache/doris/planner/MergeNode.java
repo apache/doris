@@ -33,8 +33,8 @@ import org.apache.doris.thrift.TPlanNodeType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -50,11 +50,11 @@ public class MergeNode extends PlanNode {
     // Expr lists corresponding to the input query stmts.
     // The ith resultExprList belongs to the ith child.
     // All exprs are resolved to base tables.
-    protected  List<List<Expr>> resultExprLists = Lists.newArrayList();
+    protected List<List<Expr>> resultExprLists = Lists.newArrayList();
 
     // Expr lists that originate from constant select stmts.
     // We keep them separate from the regular expr lists to avoid null children.
-    protected  List<List<Expr>> constExprLists = Lists.newArrayList();
+    protected List<List<Expr>> constExprLists = Lists.newArrayList();
 
     // Output tuple materialized by this node.
     protected final List<TupleDescriptor> tupleDescs = Lists.newArrayList();
@@ -113,10 +113,12 @@ public class MergeNode extends PlanNode {
         Preconditions.checkState(resultExprLists.size() == getChildren().size());
 
         List<List<Expr>> newConstExprLists = Lists.newArrayList();
-        for (List<Expr> exprList: constExprLists) {
+        for (List<Expr> exprList : constExprLists) {
             List<Expr> newExprList = Lists.newArrayList();
             for (int i = 0; i < exprList.size(); ++i) {
-                if (slots.get(i).isMaterialized()) newExprList.add(exprList.get(i));
+                if (slots.get(i).isMaterialized()) {
+                    newExprList.add(exprList.get(i));
+                }
             }
             newConstExprLists.add(newExprList);
         }

@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
@@ -31,6 +29,9 @@ import org.junit.Test;
 
 import java.nio.channels.SocketChannel;
 import java.util.List;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class ConnectContextTest {
     @Mocked
@@ -86,7 +87,7 @@ public class ConnectContextTest {
         Assert.assertEquals("", ctx.getClusterName());
         ctx.setCluster("testCluster");
         Assert.assertEquals("testCluster", ctx.getClusterName());
-        
+
         // Current db
         Assert.assertEquals("", ctx.getDatabase());
         ctx.setDatabase("testCluster:testDb");

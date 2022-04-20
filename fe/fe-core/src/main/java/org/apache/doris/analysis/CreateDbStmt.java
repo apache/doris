@@ -65,7 +65,8 @@ public class CreateDbStmt extends DdlStmt {
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
 
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.CREATE)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
+                dbName);
         }
     }
 

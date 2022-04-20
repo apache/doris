@@ -20,7 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Type;
@@ -30,6 +29,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,11 +46,11 @@ public class CompoundPredicate extends Predicate {
 
     public static void initBuiltins(FunctionSet functionSet) {
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.AND.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
+            Operator.AND.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.OR.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
+            Operator.OR.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.NOT.toString(), Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN));
+            Operator.NOT.toString(), Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN));
     }
 
     public CompoundPredicate(Operator op, Expr e1, Expr e2) {
@@ -59,7 +59,7 @@ public class CompoundPredicate extends Predicate {
         Preconditions.checkNotNull(e1);
         children.add(e1);
         Preconditions.checkArgument(
-          op == Operator.NOT && e2 == null || op != Operator.NOT && e2 != null);
+            op == Operator.NOT && e2 == null || op != Operator.NOT && e2 != null);
         if (e2 != null) {
             children.add(e2);
         }
@@ -113,14 +113,14 @@ public class CompoundPredicate extends Predicate {
         for (Expr e : children) {
             if (!e.getType().equals(Type.BOOLEAN) && !e.getType().isNull()) {
                 throw new AnalysisException(String.format(
-                  "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but " +
-                    "returns type '%s'.",
-                  e.toSql(), toSql(), e.getType()));
+                    "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but " +
+                        "returns type '%s'.",
+                    e.toSql(), toSql(), e.getType()));
             }
         }
 
         if (getChild(0).selectivity == -1 || children.size() == 2 && getChild(
-          1).selectivity == -1) {
+            1).selectivity == -1) {
             // give up if we're missing an input
             selectivity = -1;
             return;
@@ -132,7 +132,7 @@ public class CompoundPredicate extends Predicate {
                 break;
             case OR:
                 selectivity = getChild(0).selectivity + getChild(1).selectivity - getChild(
-                  0).selectivity * getChild(1).selectivity;
+                    0).selectivity * getChild(1).selectivity;
                 break;
             case NOT:
                 selectivity = 1.0 - getChild(0).selectivity;
@@ -149,7 +149,7 @@ public class CompoundPredicate extends Predicate {
         OR("OR", TExprOpcode.COMPOUND_OR),
         NOT("NOT", TExprOpcode.COMPOUND_NOT);
 
-        private final String      description;
+        private final String description;
         private final TExprOpcode thriftOp;
 
         Operator(String description, TExprOpcode thriftOp) {
@@ -172,7 +172,9 @@ public class CompoundPredicate extends Predicate {
      */
     @Override
     public Expr negate() {
-        if (op == Operator.NOT) return getChild(0);
+        if (op == Operator.NOT) {
+            return getChild(0);
+        }
         Expr negatedLeft = getChild(0).negate();
         Expr negatedRight = getChild(1).negate();
         Operator newOp = (op == Operator.OR) ? Operator.AND : Operator.OR;
@@ -193,37 +195,37 @@ public class CompoundPredicate extends Predicate {
      */
     public static Expr createConjunctivePredicate(List<Expr> conjuncts) {
         Expr conjunctivePred = null;
-        for (Expr expr: conjuncts) {
-          if (conjunctivePred == null) {
-            conjunctivePred = expr;
-            continue;
-          }
-          conjunctivePred = new CompoundPredicate(CompoundPredicate.Operator.AND,
-              expr, conjunctivePred);
+        for (Expr expr : conjuncts) {
+            if (conjunctivePred == null) {
+                conjunctivePred = expr;
+                continue;
+            }
+            conjunctivePred = new CompoundPredicate(CompoundPredicate.Operator.AND,
+                expr, conjunctivePred);
         }
         return conjunctivePred;
     }
 
-   @Override
+    @Override
     public Expr getResultValue() throws AnalysisException {
         recursiveResetChildrenResult();
         boolean compoundResult = false;
         if (op == Operator.NOT) {
             final Expr childValue = getChild(0);
-            if(!(childValue instanceof BoolLiteral)) {
+            if (!(childValue instanceof BoolLiteral)) {
                 return this;
             }
-            final BoolLiteral boolChild = (BoolLiteral)childValue;
+            final BoolLiteral boolChild = (BoolLiteral) childValue;
             compoundResult = !boolChild.getValue();
         } else {
             final Expr leftChildValue = getChild(0);
             final Expr rightChildValue = getChild(1);
-            if(!(leftChildValue instanceof BoolLiteral)
-                    || !(rightChildValue instanceof BoolLiteral)) {
+            if (!(leftChildValue instanceof BoolLiteral)
+                || !(rightChildValue instanceof BoolLiteral)) {
                 return this;
             }
-            final BoolLiteral leftBoolValue = (BoolLiteral)leftChildValue;
-            final BoolLiteral rightBoolValue = (BoolLiteral)rightChildValue;
+            final BoolLiteral leftBoolValue = (BoolLiteral) leftChildValue;
+            final BoolLiteral rightBoolValue = (BoolLiteral) rightChildValue;
             switch (op) {
                 case AND:
                     compoundResult = leftBoolValue.getValue() && rightBoolValue.getValue();

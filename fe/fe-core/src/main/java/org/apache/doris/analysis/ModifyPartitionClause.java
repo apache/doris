@@ -134,7 +134,7 @@ public class ModifyPartitionClause extends AlterTableClause {
         sb.append(" SET (");
         sb.append(new PrintableMap<String, String>(properties, "=", true, false));
         sb.append(")");
-        
+
         return sb.toString();
     }
 

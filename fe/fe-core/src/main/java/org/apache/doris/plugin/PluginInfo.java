@@ -22,9 +22,8 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Maps;
 import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
+import com.google.common.collect.Maps;
 
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
@@ -41,6 +40,8 @@ import java.util.Objects;
 import java.util.Properties;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+
+import com.google.gson.annotations.SerializedName;
 
 public class PluginInfo implements Writable {
     public static final Logger LOG = LoggerFactory.getLogger(PluginInfo.class);
@@ -87,7 +88,8 @@ public class PluginInfo implements Writable {
     @SerializedName("properties")
     protected Map<String, String> properties = Maps.newHashMap();
 
-    public PluginInfo() { }
+    public PluginInfo() {
+    }
 
     // used for persisting uninstall operation
     public PluginInfo(String name) {
@@ -103,8 +105,8 @@ public class PluginInfo implements Writable {
     }
 
     public PluginInfo(String name, PluginType type, String description, DigitalVersion version,
-                         DigitalVersion javaVersion,
-                         String className, String soName, String source) {
+                      DigitalVersion javaVersion,
+                      String className, String soName, String source) {
 
         this.name = name;
         this.type = type;
@@ -129,13 +131,13 @@ public class PluginInfo implements Writable {
                 props.load(stream);
             }
             propsMap = props.stringPropertyNames().stream()
-                    .collect(Collectors.toMap(Function.identity(), props::getProperty));
+                .collect(Collectors.toMap(Function.identity(), props::getProperty));
         }
 
         final String name = propsMap.remove("name");
         if (Strings.isNullOrEmpty(name)) {
             throw new IllegalArgumentException(
-                    "property [name] is missing in [" + descriptor + "]");
+                "property [name] is missing in [" + descriptor + "]");
         }
 
         final String description = propsMap.remove("description");
@@ -151,7 +153,7 @@ public class PluginInfo implements Writable {
         final String versionString = propsMap.remove("version");
         if (null == versionString) {
             throw new IllegalArgumentException(
-                    "property [version] is missing for plugin [" + name + "]");
+                "property [version] is missing for plugin [" + name + "]");
         }
 
         DigitalVersion version = DigitalVersion.fromString(versionString);
@@ -169,7 +171,7 @@ public class PluginInfo implements Writable {
         // version check
         if (version.before(DigitalVersion.CURRENT_DORIS_VERSION)) {
             throw new IllegalArgumentException("plugin version is too old. plz recompile and modify property "
-                    + "[version]");
+                + "[version]");
         }
 
         if (!Strings.isNullOrEmpty(soName)) {
@@ -237,8 +239,8 @@ public class PluginInfo implements Writable {
         }
         PluginInfo that = (PluginInfo) o;
         return Objects.equals(name, that.name) &&
-                type == that.type &&
-                Objects.equals(version, that.version);
+            type == that.type &&
+            Objects.equals(version, that.version);
     }
 
     @Override

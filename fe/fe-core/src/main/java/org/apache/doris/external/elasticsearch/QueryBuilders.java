@@ -17,11 +17,12 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import com.fasterxml.jackson.core.JsonGenerator;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+
+import com.fasterxml.jackson.core.JsonGenerator;
 
 
 /**
@@ -221,7 +222,7 @@ public final class QueryBuilders {
         }
 
         private void writeJsonArray(String field, List<QueryBuilder> clauses, JsonGenerator out)
-                throws IOException {
+            throws IOException {
             if (clauses.isEmpty()) {
                 return;
             }

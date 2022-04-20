@@ -30,15 +30,17 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class ResourceMgrTest {
     // spark resource
@@ -98,7 +100,7 @@ public class ResourceMgrTest {
 
     @Test
     public void testAddAlterDropResource(@Injectable BrokerMgr brokerMgr, @Injectable EditLog editLog,
-                                    @Mocked Catalog catalog, @Injectable PaloAuth auth) throws UserException {
+                                         @Mocked Catalog catalog, @Injectable PaloAuth auth) throws UserException {
         new Expectations() {
             {
                 catalog.getBrokerMgr();
@@ -165,8 +167,9 @@ public class ResourceMgrTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testAddResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
-            throws UserException {
+    public void testAddResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog,
+                                     @Injectable PaloAuth auth)
+        throws UserException {
         new Expectations() {
             {
                 catalog.getBrokerMgr();

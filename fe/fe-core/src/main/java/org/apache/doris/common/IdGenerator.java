@@ -26,6 +26,8 @@ package org.apache.doris.common;
  */
 public abstract class IdGenerator<IdType extends Id<IdType>> {
     protected int nextId_ = 0;
+
     public abstract IdType getNextId();
+
     public abstract IdType getMaxId();
 }

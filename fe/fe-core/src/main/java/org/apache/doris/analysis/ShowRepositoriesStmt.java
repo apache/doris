@@ -25,21 +25,21 @@ import com.google.common.collect.ImmutableList;
 
 public class ShowRepositoriesStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("RepoId").add("RepoName").add("CreateTime").add("IsReadOnly").add("Location")
-            .add("Broker").add("Type").add("ErrMsg")
-            .build();
+        .add("RepoId").add("RepoName").add("CreateTime").add("IsReadOnly").add("Location")
+        .add("Broker").add("Type").add("ErrMsg")
+        .build();
 
     public ShowRepositoriesStmt() {
-        
+
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
-           builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
-       }
-       return builder.build();
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+        }
+        return builder.build();
     }
 
 }

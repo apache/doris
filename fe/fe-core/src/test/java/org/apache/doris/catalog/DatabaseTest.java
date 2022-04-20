@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
@@ -114,7 +113,7 @@ public class DatabaseTest {
     public void lockTestWithException() {
         db.markDropped();
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "errCode = 2, detailMessage = unknown db, dbName=dbTest", () -> db.writeLockOrDdlException());
+            "errCode = 2, detailMessage = unknown db, dbName=dbTest", () -> db.writeLockOrDdlException());
         db.unmarkDropped();
     }
 
@@ -122,10 +121,10 @@ public class DatabaseTest {
     public void getTablesOnIdOrderOrThrowExceptionTest() throws MetaNotFoundException {
         List<Column> baseSchema1 = new LinkedList<>();
         OlapTable table1 = new OlapTable(2000L, "baseTable1", baseSchema1, KeysType.AGG_KEYS,
-                new SinglePartitionInfo(), new RandomDistributionInfo(10));
+            new SinglePartitionInfo(), new RandomDistributionInfo(10));
         List<Column> baseSchema2 = new LinkedList<>();
         OlapTable table2 = new OlapTable(2001L, "baseTable2", baseSchema2, KeysType.DUP_KEYS,
-                new SinglePartitionInfo(), new RandomDistributionInfo(10));
+            new SinglePartitionInfo(), new RandomDistributionInfo(10));
         db.createTable(table1);
         db.createTable(table2);
         List<Long> tableIdList = Lists.newArrayList(2001L, 2000L);
@@ -134,29 +133,29 @@ public class DatabaseTest {
         Assert.assertEquals(2000L, tableList.get(0).getId());
         Assert.assertEquals(2001L, tableList.get(1).getId());
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableId=3000",
-                () -> db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(3000L)));
+            () -> db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(3000L)));
     }
 
     @Test
     public void getTableOrThrowExceptionTest() throws MetaNotFoundException {
         List<Column> baseSchema = new LinkedList<>();
         OlapTable table = new OlapTable(2000L, "baseTable", baseSchema, KeysType.AGG_KEYS,
-                new SinglePartitionInfo(), new RandomDistributionInfo(10));
+            new SinglePartitionInfo(), new RandomDistributionInfo(10));
         db.createTable(table);
         Table resultTable1 = db.getTableOrMetaException(2000L, Table.TableType.OLAP);
         Table resultTable2 = db.getTableOrMetaException("baseTable", Table.TableType.OLAP);
         Assert.assertEquals(table, resultTable1);
         Assert.assertEquals(table, resultTable2);
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableId=3000",
-                () -> db.getTableOrMetaException(3000L, Table.TableType.OLAP));
+            () -> db.getTableOrMetaException(3000L, Table.TableType.OLAP));
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableName=baseTable1",
-                () -> db.getTableOrMetaException("baseTable1", Table.TableType.OLAP));
+            () -> db.getTableOrMetaException("baseTable1", Table.TableType.OLAP));
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
-                "table type is not BROKER, tableId=2000, type=OLAP",
-                () -> db.getTableOrMetaException(2000L, Table.TableType.BROKER));
+            "table type is not BROKER, tableId=2000, type=OLAP",
+            () -> db.getTableOrMetaException(2000L, Table.TableType.BROKER));
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
-                "table type is not BROKER, tableName=baseTable, type=OLAP",
-                () -> db.getTableOrMetaException("baseTable", Table.TableType.BROKER));
+            "table type is not BROKER, tableName=baseTable, type=OLAP",
+            () -> db.getTableOrMetaException("baseTable", Table.TableType.BROKER));
     }
 
     @Test
@@ -167,8 +166,8 @@ public class DatabaseTest {
         MaterializedIndex baseIndex = new MaterializedIndex(10001, IndexState.NORMAL);
         Partition partition = new Partition(20000L, "baseTable", baseIndex, new RandomDistributionInfo(10));
         List<Column> baseSchema = new LinkedList<Column>();
-        OlapTable table = new OlapTable(2000, "baseTable", baseSchema, KeysType.AGG_KEYS, 
-                                        new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        OlapTable table = new OlapTable(2000, "baseTable", baseSchema, KeysType.AGG_KEYS,
+            new SinglePartitionInfo(), new RandomDistributionInfo(10));
         table.addPartition(partition);
 
         // create
@@ -203,27 +202,27 @@ public class DatabaseTest {
         File file = new File("./database");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         // db1
         Database db1 = new Database();
         db1.write(dos);
-        
+
         // db2
         Database db2 = new Database(2, "db2");
         List<Column> columns = new ArrayList<Column>();
         Column column2 = new Column("column2",
-                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
+            ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
         columns.add(column2);
         columns.add(new Column("column3",
-                        ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
-        columns.add(new Column("column4", 
-                        ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column5", 
-                        ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column6", 
-                        ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column7", 
-                        ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
+            ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
+        columns.add(new Column("column4",
+            ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("column5",
+            ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("column6",
+            ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("column7",
+            ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
         columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
         columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
@@ -232,34 +231,35 @@ public class DatabaseTest {
         MaterializedIndex index = new MaterializedIndex(1, IndexState.NORMAL);
         Partition partition = new Partition(20000L, "table", index, new RandomDistributionInfo(10));
         OlapTable table = new OlapTable(1000, "table", columns, KeysType.AGG_KEYS,
-                                        new SinglePartitionInfo(), new RandomDistributionInfo(10));
+            new SinglePartitionInfo(), new RandomDistributionInfo(10));
         short shortKeyColumnCount = 1;
-        table.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table.setIndexMeta(1000, "group1", columns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
 
         List<Column> column = Lists.newArrayList();
         column.add(column2);
         table.setIndexMeta(new Long(1), "test", column, 1, 1, shortKeyColumnCount,
-                TStorageType.COLUMN, KeysType.AGG_KEYS);
-        table.setIndexMeta(new Long(1), "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
+            TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table.setIndexMeta(new Long(1), "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN,
+            KeysType.AGG_KEYS);
         Deencapsulation.setField(table, "baseIndexId", 1);
         table.addPartition(partition);
         db2.createTable(table);
         db2.write(dos);
-        
+
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        
+
         Database rDb1 = new Database();
         rDb1.readFields(dis);
         Assert.assertTrue(rDb1.equals(db1));
-        
+
         Database rDb2 = new Database();
         rDb2.readFields(dis);
         Assert.assertTrue(rDb2.equals(db2));
-        
+
         // 3. delete files
         dis.close();
         file.delete();

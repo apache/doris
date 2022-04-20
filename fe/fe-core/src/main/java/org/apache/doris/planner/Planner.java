@@ -76,7 +76,9 @@ public class Planner {
         return fragments;
     }
 
-    public PlannerContext getPlannerContext() { return plannerContext;}
+    public PlannerContext getPlannerContext() {
+        return plannerContext;
+    }
 
     public List<ScanNode> getScanNodes() {
         if (singleNodePlanner == null) {
@@ -86,11 +88,12 @@ public class Planner {
     }
 
     public void plan(StatementBase queryStmt, Analyzer analyzer, TQueryOptions queryOptions)
-            throws UserException {
+        throws UserException {
         createPlanFragments(queryStmt, analyzer, queryOptions);
     }
 
     /**
+     *
      */
     private void setResultExprScale(Analyzer analyzer, ArrayList<Expr> outputExprs) {
         for (TupleDescriptor tupleDesc : analyzer.getDescTbl().getTupleDescs()) {
@@ -100,11 +103,11 @@ public class Planner {
                     expr.getIds(null, slotList);
                     if (PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
                         continue;
-                            }
+                    }
 
                     if (PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
                         continue;
-                            }
+                    }
 
                     if (slotList.contains(slotDesc.getId()) && null != slotDesc.getColumn()) {
                         int outputScale = slotDesc.getColumn().getScale();
@@ -159,7 +162,7 @@ public class Planner {
      * a list such that element i of that list can only consume output of the following fragments j > i.
      */
     public void createPlanFragments(StatementBase statement, Analyzer analyzer, TQueryOptions queryOptions)
-            throws UserException {
+        throws UserException {
         QueryStmt queryStmt;
         if (statement instanceof InsertStmt) {
             queryStmt = ((InsertStmt) statement).getQueryStmt();
@@ -176,8 +179,8 @@ public class Planner {
         }
 
         if (analyzer.getContext() != null
-                && analyzer.getContext().getSessionVariable().isEnableProjection()
-                && statement instanceof SelectStmt) {
+            && analyzer.getContext().getSessionVariable().isEnableProjection()
+            && statement instanceof SelectStmt) {
             ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
             projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
         }
@@ -217,12 +220,12 @@ public class Planner {
          */
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
-        
+
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
             fragments.add(new PlanFragment(plannerContext.getNextFragmentId(), singleNodePlan,
-                    DataPartition.UNPARTITIONED));
+                DataPartition.UNPARTITIONED));
         } else {
             // all select query are unpartitioned.
             distributedPlanner = new DistributedPlanner(plannerContext);
@@ -231,27 +234,28 @@ public class Planner {
 
         // Optimize the transfer of query statistic when query doesn't contain limit.
         PlanFragment rootFragment = fragments.get(fragments.size() - 1);
-        QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer = new QueryStatisticsTransferOptimizer(rootFragment);
+        QueryStatisticsTransferOptimizer queryStatisticTransferOptimizer =
+            new QueryStatisticsTransferOptimizer(rootFragment);
         queryStatisticTransferOptimizer.optimizeQueryStatisticsTransfer();
 
         // Create runtime filters.
         if (!ConnectContext.get().getSessionVariable().getRuntimeFilterMode().toUpperCase()
-                .equals(TRuntimeFilterMode.OFF.name())) {
+            .equals(TRuntimeFilterMode.OFF.name())) {
             RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
         }
 
-	    if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
+        if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());
             insertStmt.complete();
             ArrayList<Expr> exprs = ((InsertStmt) statement).getResultExprs();
             List<Expr> resExprs = Expr.substituteList(
-                    exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
+                exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
             rootFragment.setOutputExprs(resExprs);
         } else {
             List<Expr> resExprs = Expr.substituteList(queryStmt.getResultExprs(),
-                    rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
+                rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
             rootFragment.setOutputExprs(resExprs);
         }
         LOG.debug("finalize plan fragments");
@@ -280,7 +284,7 @@ public class Planner {
      * returns root unchanged.
      */
     private PlanNode addUnassignedConjuncts(Analyzer analyzer, PlanNode root)
-            throws UserException {
+        throws UserException {
         Preconditions.checkNotNull(root);
         // List<Expr> conjuncts = analyzer.getUnassignedConjuncts(root.getTupleIds());
 
@@ -302,7 +306,7 @@ public class Planner {
      * 1. The query enables the session variable of the concurrent export result set
      * 2. The top-level fragment is not a merge change node
      * 3. The export method uses the s3 method
-     *
+     * <p>
      * After satisfying the above three conditions,
      * the result file sink and the associated output expr will be pushed down to the next layer.
      * The second plan fragment performs expression calculation and derives the result set.
@@ -356,7 +360,7 @@ public class Planner {
      */
     private TupleDescriptor constructFileStatusTupleDesc(Analyzer analyzer) {
         TupleDescriptor resultFileStatusTupleDesc =
-                analyzer.getDescTbl().createTupleDescriptor("result_file_status");
+            analyzer.getDescTbl().createTupleDescriptor("result_file_status");
         resultFileStatusTupleDesc.setIsMaterialized(true);
         SlotDescriptor fileNumber = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
         fileNumber.setLabel("FileNumber");
@@ -409,7 +413,7 @@ public class Planner {
             collectExchangeNode(ancestor, exchangeNodes);
             for (PlanNode leaf : exchangeNodes) {
                 if (leaf.getChild(0) == successor
-                        && leaf.hasLimit()) {
+                    && leaf.hasLimit()) {
                     return true;
                 }
             }

@@ -39,7 +39,8 @@ public class StorageBackend extends StorageDesc implements ParseNode {
     private StorageType storageType;
     private Map<String, String> properties;
 
-    public StorageBackend(String storageName, String location, StorageType storageType, Map<String, String> properties) {
+    public StorageBackend(String storageName, String location, StorageType storageType,
+                          Map<String, String> properties) {
         this.name = storageName;
         this.location = location;
         this.storageType = storageType;

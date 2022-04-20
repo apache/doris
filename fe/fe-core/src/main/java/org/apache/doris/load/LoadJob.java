@@ -489,7 +489,6 @@ public class LoadJob implements Writable {
     public void setHadoopEtlJobId(String etlJobId) {
         if (etlJobType == EtlJobType.HADOOP) {
             ((HadoopEtlJobInfo) etlJobInfo).setEtlJobId(etlJobId);
-            ;
         }
     }
 
@@ -657,14 +656,15 @@ public class LoadJob implements Writable {
     @Override
     public String toString() {
         return "LoadJob [id=" + id + ", dbId=" + dbId + ", label=" + label + ", timeoutSecond=" + timeoutSecond
-                + ", maxFilterRatio=" + maxFilterRatio + ", state=" + state
-                + ", progress=" + progress + ", createTimeMs=" + createTimeMs + ", etlStartTimeMs=" + etlStartTimeMs
-                + ", etlFinishTimeMs=" + etlFinishTimeMs + ", loadStartTimeMs=" + loadStartTimeMs
-                + ", loadFinishTimeMs=" + loadFinishTimeMs + ", failMsg=" + failMsg + ", etlJobType=" + etlJobType
-                + ", etlJobInfo=" + etlJobInfo + ", priority=" + priority + ", transactionId=" + transactionId
-                + ", quorumFinishTimeMs=" + quorumFinishTimeMs
-                + ", unfinished tablets=[" + this.unfinishedTablets.subList(0, Math.min(3, this.unfinishedTablets.size())) + "]"
-                + "]";
+            + ", maxFilterRatio=" + maxFilterRatio + ", state=" + state
+            + ", progress=" + progress + ", createTimeMs=" + createTimeMs + ", etlStartTimeMs=" + etlStartTimeMs
+            + ", etlFinishTimeMs=" + etlFinishTimeMs + ", loadStartTimeMs=" + loadStartTimeMs
+            + ", loadFinishTimeMs=" + loadFinishTimeMs + ", failMsg=" + failMsg + ", etlJobType=" + etlJobType
+            + ", etlJobInfo=" + etlJobInfo + ", priority=" + priority + ", transactionId=" + transactionId
+            + ", quorumFinishTimeMs=" + quorumFinishTimeMs
+            + ", unfinished tablets=[" + this.unfinishedTablets.subList(0, Math.min(3, this.unfinishedTablets.size())) +
+            "]"
+            + "]";
     }
 
     public void clearRedundantInfoForHistoryJob() {
@@ -777,7 +777,7 @@ public class LoadJob implements Writable {
 
         // resourceInfo
         if (resourceInfo == null || Strings.isNullOrEmpty(resourceInfo.getGroup())
-                || Strings.isNullOrEmpty(resourceInfo.getUser())) {
+            || Strings.isNullOrEmpty(resourceInfo.getUser())) {
             out.writeBoolean(false);
         } else {
             out.writeBoolean(true);
@@ -861,7 +861,7 @@ public class LoadJob implements Writable {
 
         boolean deleteFlag = false;
         deleteFlag = in.readBoolean();
-        
+
         state = JobState.valueOf(Text.readString(in));
         progress = in.readInt();
         createTimeMs = in.readLong();
@@ -964,8 +964,8 @@ public class LoadJob implements Writable {
                 } else {
                     Operator op = Operator.valueOf(opStr);
                     String value = Text.readString(in);
-                    BinaryPredicate predicate = new BinaryPredicate(op, new SlotRef(null, key), 
-                            new StringLiteral(value));
+                    BinaryPredicate predicate = new BinaryPredicate(op, new SlotRef(null, key),
+                        new StringLiteral(value));
                     conditions.add(predicate);
                 }
             }
@@ -1001,6 +1001,6 @@ public class LoadJob implements Writable {
     // Return true if this job is finished for a long time
     public boolean isExpired(long currentTimeMs) {
         return (getState() == JobState.FINISHED || getState() == JobState.CANCELLED)
-                && (currentTimeMs - getLoadFinishTimeMs()) / 1000 > Config.label_keep_max_second;
+            && (currentTimeMs - getLoadFinishTimeMs()) / 1000 > Config.label_keep_max_second;
     }
 }

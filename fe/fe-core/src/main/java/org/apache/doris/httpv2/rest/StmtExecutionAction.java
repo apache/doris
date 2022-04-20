@@ -24,6 +24,8 @@ import org.apache.doris.httpv2.util.StatementSubmitter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,15 +34,14 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.base.Strings;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.lang.reflect.Type;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * For execute stmt via http
@@ -60,15 +61,15 @@ public class StmtExecutionAction extends RestBaseController {
      * Execute a SQL.
      * Request body:
      * {
-     *     "stmt" : "select * from tbl1"
+     * "stmt" : "select * from tbl1"
      * }
      */
     @RequestMapping(path = "/api/query/{" + NS_KEY + "}/{" + DB_KEY + "}", method = {RequestMethod.POST})
     public Object executeSQL(
-            @PathVariable(value = NS_KEY) String ns,
-            @PathVariable(value = DB_KEY) String dbName,
-            HttpServletRequest request, HttpServletResponse response,
-            @RequestBody String stmtBody) throws DdlException {
+        @PathVariable(value = NS_KEY) String ns,
+        @PathVariable(value = DB_KEY) String dbName,
+        HttpServletRequest request, HttpServletResponse response,
+        @RequestBody String stmtBody) throws DdlException {
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -100,7 +101,7 @@ public class StmtExecutionAction extends RestBaseController {
 
         // 2. Submit stmt
         StatementSubmitter.StmtContext stmtCtx = new StatementSubmitter.StmtContext(
-                stmtRequestBody.stmt, authInfo.fullUserName, authInfo.password, limit
+            stmtRequestBody.stmt, authInfo.fullUserName, authInfo.password, limit
         );
         Future<ExecutionResultSet> future = stmtSubmitter.submit(stmtCtx);
 

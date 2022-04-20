@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -29,7 +30,7 @@ import java.util.ArrayList;
 // Wrapper class around argument types and if it has varArgs
 public class FunctionArgs {
     public final ArrayList<Type> argTypes;
-    public       boolean                  hasVarArgs;
+    public boolean hasVarArgs;
 
     public FunctionArgs() {
         argTypes = Lists.newArrayList();

@@ -34,13 +34,13 @@ import java.util.Optional;
 public class AlterColumnStatsStmt extends DdlStmt {
 
     private static final ImmutableSet<String> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(ColumnStats.NDV)
-            .add(ColumnStats.AVG_SIZE)
-            .add(ColumnStats.MAX_SIZE)
-            .add(ColumnStats.NUM_NULLS)
-            .add(ColumnStats.MIN_VALUE)
-            .add(ColumnStats.MAX_VALUE)
-            .build();
+        .add(ColumnStats.NDV)
+        .add(ColumnStats.AVG_SIZE)
+        .add(ColumnStats.MAX_SIZE)
+        .add(ColumnStats.NUM_NULLS)
+        .add(ColumnStats.MIN_VALUE)
+        .add(ColumnStats.MAX_VALUE)
+        .build();
 
     private TableName tableName;
     private String columnName;
@@ -59,17 +59,18 @@ public class AlterColumnStatsStmt extends DdlStmt {
         tableName.analyze(analyzer);
         // check properties
         Optional<String> optional = properties.keySet().stream().filter(
-                entity -> !CONFIGURABLE_PROPERTIES_SET.contains(entity.toLowerCase())).findFirst();
+            entity -> !CONFIGURABLE_PROPERTIES_SET.contains(entity.toLowerCase())).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid statistic");
         }
         // check auth
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
+        if (!Catalog.getCurrentCatalog().getAuth()
+            .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
                 PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                tableName.getDb() + ": " + tableName.getTbl());
         }
     }
 

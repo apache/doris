@@ -34,9 +34,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -54,13 +54,13 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -73,7 +73,7 @@ import java.util.stream.Collectors;
 
 /**
  * Broker scan node
- *
+ * <p>
  * Since https://github.com/apache/incubator-doris/pull/5686, Doris can read data from HDFS without broker by
  * broker scan node.
  * Broker scan node is more likely a file scan node for now.
@@ -83,7 +83,7 @@ import java.util.stream.Collectors;
 public class BrokerScanNode extends LoadScanNode {
     private static final Logger LOG = LogManager.getLogger(BrokerScanNode.class);
     private static final TBrokerFileStatusComparator T_BROKER_FILE_STATUS_COMPARATOR
-            = new TBrokerFileStatusComparator();
+        = new TBrokerFileStatusComparator();
 
     public static class TBrokerFileStatusComparator implements Comparator<TBrokerFileStatus> {
         @Override
@@ -208,7 +208,7 @@ public class BrokerScanNode extends LoadScanNode {
 
     // Called from init, construct source tuple information
     private void initParams(ParamCreateContext context)
-            throws UserException {
+        throws UserException {
         TBrokerScanRangeParams params = new TBrokerScanRangeParams();
         context.params = params;
 
@@ -256,17 +256,17 @@ public class BrokerScanNode extends LoadScanNode {
             // add columnExpr for sequence column
             if (context.fileGroup.hasSequenceCol()) {
                 columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
-                        new SlotRef(null, context.fileGroup.getSequenceCol())));
+                    new SlotRef(null, context.fileGroup.getSequenceCol())));
             }
         }
 
         Load.initColumns(targetTable, columnDescs,
-                context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
-                context.srcTupleDescriptor, context.slotDescByName, context.params);
+            context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
+            context.srcTupleDescriptor, context.slotDescByName, context.params);
     }
 
     private TScanRangeLocations newLocations(TBrokerScanRangeParams params, BrokerDesc brokerDesc)
-            throws UserException {
+        throws UserException {
 
         Backend selectedBackend;
         if (brokerDesc.isMultiLoadBroker()) {
@@ -289,7 +289,8 @@ public class BrokerScanNode extends LoadScanNode {
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             FsBroker broker = null;
             try {
-                broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(brokerDesc.getName(), selectedBackend.getHost());
+                broker = Catalog.getCurrentCatalog().getBrokerMgr()
+                    .getBroker(brokerDesc.getName(), selectedBackend.getHost());
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
@@ -356,7 +357,7 @@ public class BrokerScanNode extends LoadScanNode {
 
         if (bytesPerInstance > Config.max_bytes_per_broker_scanner) {
             throw new UserException(
-                    "Scan bytes per broker scanner exceed limit: " + Config.max_bytes_per_broker_scanner);
+                "Scan bytes per broker scanner exceed limit: " + Config.max_bytes_per_broker_scanner);
         }
         LOG.info("number instance of broker scan node is: {}, bytes per instance: {}", numInstances, bytesPerInstance);
     }
@@ -368,7 +369,7 @@ public class BrokerScanNode extends LoadScanNode {
             for (int i = 0; i < fileGroup.getFilePaths().size(); i++) {
                 if (brokerDesc.isMultiLoadBroker()) {
                     TBrokerFileStatus fileStatus = new TBrokerFileStatus(fileGroup.getFilePaths().get(i),
-                            false, fileGroup.getFileSize().get(i), false);
+                        false, fileGroup.getFileSize().get(i), false);
                     fileStatuses.add(fileStatus);
                 } else {
                     BrokerUtil.parseFile(fileGroup.getFilePaths().get(i), brokerDesc, fileStatuses);
@@ -412,8 +413,8 @@ public class BrokerScanNode extends LoadScanNode {
                 return TFileFormatType.FORMAT_JSON;
                 // csv/csv_with_name/csv_with_names_and_types treat as csv format
             } else if (fileFormat.toLowerCase().equals(FeConstants.csv)
-                    || fileFormat.toLowerCase().equals(FeConstants.csv_with_names)
-                    || fileFormat.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
+                || fileFormat.toLowerCase().equals(FeConstants.csv_with_names)
+                || fileFormat.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;
             } else {
                 throw new UserException("Not supported file format: " + fileFormat);
@@ -445,7 +446,7 @@ public class BrokerScanNode extends LoadScanNode {
     private String getHeaderType(String format_type) {
         if (format_type != null) {
             if (format_type.toLowerCase().equals(FeConstants.csv_with_names)
-                    || format_type.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
+                || format_type.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
                 return format_type;
             }
         }
@@ -454,10 +455,10 @@ public class BrokerScanNode extends LoadScanNode {
 
     // If fileFormat is not null, we use fileFormat instead of check file's suffix
     private void processFileGroup(
-            ParamCreateContext context,
-            List<TBrokerFileStatus> fileStatuses)
-            throws UserException {
-        if (fileStatuses  == null || fileStatuses.isEmpty()) {
+        ParamCreateContext context,
+        List<TBrokerFileStatus> fileStatuses)
+        throws UserException {
+        if (fileStatuses == null || fileStatuses.isEmpty()) {
             return;
         }
         // set hdfs params, used to Hive and Iceberg scan
@@ -476,15 +477,15 @@ public class BrokerScanNode extends LoadScanNode {
             String header_type = getHeaderType(context.fileGroup.getFileFormat());
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
-                    context.fileGroup.getColumnsFromPath());
+                context.fileGroup.getColumnsFromPath());
             int numberOfColumnsFromFile = context.slotDescByName.size() - columnsFromPath.size();
             if (tmpBytes > bytesPerInstance) {
                 // Now only support split plain text
                 if ((formatType == TFileFormatType.FORMAT_CSV_PLAIN && fileStatus.isSplitable)
-                        || formatType == TFileFormatType.FORMAT_JSON) {
+                    || formatType == TFileFormatType.FORMAT_JSON) {
                     long rangeBytes = bytesPerInstance - curInstanceBytes;
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
-                            rangeBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
+                        rangeBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
                     if (formatType == TFileFormatType.FORMAT_JSON) {
                         rangeDesc.setStripOuterArray(context.fileGroup.isStripOuterArray());
                         rangeDesc.setJsonpaths(context.fileGroup.getJsonPaths());
@@ -498,7 +499,7 @@ public class BrokerScanNode extends LoadScanNode {
 
                 } else {
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
-                            leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
+                        leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
                     rangeDesc.setHdfsParams(tHdfsParams);
                     rangeDesc.setReadByColumnDef(true);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
@@ -513,7 +514,7 @@ public class BrokerScanNode extends LoadScanNode {
 
             } else {
                 TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
-                        leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
+                    leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
                 if (formatType == TFileFormatType.FORMAT_JSON) {
                     rangeDesc.setStripOuterArray(context.fileGroup.isStripOuterArray());
                     rangeDesc.setJsonpaths(context.fileGroup.getJsonPaths());
@@ -574,7 +575,7 @@ public class BrokerScanNode extends LoadScanNode {
             ParamCreateContext context = paramCreateContexts.get(i);
             try {
                 finalizeParams(context.slotDescByName, context.exprMap, context.params,
-                        context.srcTupleDescriptor, strictMode, context.fileGroup.isNegative(), analyzer);
+                    context.srcTupleDescriptor, strictMode, context.fileGroup.isNegative(), analyzer);
             } catch (AnalysisException e) {
                 throw new UserException(e.getMessage());
             }
@@ -588,9 +589,9 @@ public class BrokerScanNode extends LoadScanNode {
 
         if (loadJobId != -1) {
             LOG.info("broker load job {} with txn {} has {} scan range: {}",
-                    loadJobId, txnId, locationsList.size(),
-                    brokerDesc.isMultiLoadBroker() ? "local"
-                            : locationsList.stream().map(loc -> loc.locations.get(0).backend_id).toArray());
+                loadJobId, txnId, locationsList.size(),
+                brokerDesc.isMultiLoadBroker() ? "local"
+                    : locationsList.stream().map(loc -> loc.locations.get(0).backend_id).toArray());
         }
     }
 
@@ -607,7 +608,7 @@ public class BrokerScanNode extends LoadScanNode {
             output.append(prefix).append("TABLE: ").append(brokerTable.getName()).append("\n");
             if (detailLevel != TExplainLevel.BRIEF) {
                 output.append(prefix).append("PATH: ")
-                        .append(Joiner.on(",").join(brokerTable.getPaths())).append("\",\n");
+                    .append(Joiner.on(",").join(brokerTable.getPaths())).append("\",\n");
             }
         }
         output.append(prefix).append("BROKER: ").append(brokerDesc.getName()).append("\n");

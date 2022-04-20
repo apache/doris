@@ -32,8 +32,8 @@ import com.google.common.collect.ImmutableList;
 // ADMIN DIAGNOSE TABLET tablet_id
 public class AdminDiagnoseTabletStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Item").add("Info").add("Suggestion")
-            .build();
+        .add("Item").add("Info").add("Suggestion")
+        .build();
 
     private long tabletId;
 

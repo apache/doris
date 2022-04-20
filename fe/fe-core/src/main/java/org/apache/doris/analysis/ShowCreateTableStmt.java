@@ -30,18 +30,18 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 // SHOW CREATE TABLE statement.
 public class ShowCreateTableStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Table", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Create Table", ScalarType.createVarchar(30)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Table", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Create Table", ScalarType.createVarchar(30)))
+            .build();
 
     private static final ShowResultSetMetaData VIEW_META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("View", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Create View", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("character_set_client", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("collation_connection", ScalarType.createVarchar(30)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("View", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Create View", ScalarType.createVarchar(30)))
+            .addColumn(new Column("character_set_client", ScalarType.createVarchar(30)))
+            .addColumn(new Column("collation_connection", ScalarType.createVarchar(30)))
+            .build();
 
     private TableName tbl;
     private boolean isView;
@@ -79,11 +79,11 @@ public class ShowCreateTableStmt extends ShowStmt {
         tbl.analyze(analyzer);
 
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
-                                                                PrivPredicate.SHOW)) {
+            PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                tbl.getDb() + ": " + tbl.getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                tbl.getDb() + ": " + tbl.getTbl());
         }
     }
 

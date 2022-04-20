@@ -138,7 +138,7 @@ public class TabletChecker extends MasterDaemon {
     private void initMetrics() {
         for (String status : tabletCountByStatus.keySet()) {
             GaugeMetric<Long> gauge = new GaugeMetric<Long>("tablet_status_count",
-                    Metric.MetricUnit.NOUNIT, "tablet count on different status") {
+                Metric.MetricUnit.NOUNIT, "tablet count on different status") {
                 @Override
                 public Long getValue() {
                     return tabletCountByStatus.get(status).get();
@@ -166,7 +166,8 @@ public class TabletChecker extends MasterDaemon {
         }
 
         // we also need to change the priority of tablets which are already in
-        tabletScheduler.changeTabletsPriorityToVeryHigh(repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
+        tabletScheduler.changeTabletsPriorityToVeryHigh(repairTabletInfo.dbId, repairTabletInfo.tblId,
+            repairTabletInfo.partIds);
     }
 
     private void removePrios(RepairTabletInfo repairTabletInfo) {
@@ -198,9 +199,9 @@ public class TabletChecker extends MasterDaemon {
         int pendingNum = tabletScheduler.getPendingNum();
         int runningNum = tabletScheduler.getRunningNum();
         if (pendingNum > Config.max_scheduling_tablets
-                || runningNum > Config.max_scheduling_tablets) {
+            || runningNum > Config.max_scheduling_tablets) {
             LOG.info("too many tablets are being scheduled. pending: {}, running: {}, limit: {}. skip check",
-                    pendingNum, runningNum, Config.max_scheduling_tablets);
+                pendingNum, runningNum, Config.max_scheduling_tablets);
             return;
         }
 
@@ -257,7 +258,7 @@ public class TabletChecker extends MasterDaemon {
                     }
                     for (Partition partition : tbl.getAllPartitions()) {
                         LoopControlStatus st = handlePartitionTablet(db, tbl, partition, true,
-                                aliveBeIdsInCluster, start, counter);
+                            aliveBeIdsInCluster, start, counter);
                         if (st == LoopControlStatus.BREAK_OUT) {
                             break OUT;
                         } else {
@@ -301,7 +302,7 @@ public class TabletChecker extends MasterDaemon {
                         }
 
                         LoopControlStatus st = handlePartitionTablet(db, tbl, partition, false,
-                                aliveBeIdsInCluster, start, counter);
+                            aliveBeIdsInCluster, start, counter);
                         if (st == LoopControlStatus.BREAK_OUT) {
                             break OUT;
                         } else {
@@ -327,12 +328,13 @@ public class TabletChecker extends MasterDaemon {
         tabletCountByStatus.get("not_ready").set(counter.tabletNotReady);
 
         LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready: {}/{}/{}/{}/{}, cost: {} ms",
-                counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
-                counter.tabletInScheduler, counter.tabletNotReady, cost);
+            counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
+            counter.tabletInScheduler, counter.tabletNotReady, cost);
     }
 
     private LoopControlStatus handlePartitionTablet(Database db, OlapTable tbl, Partition partition, boolean isInPrios,
-                                                    List<Long> aliveBeIdsInCluster, long startTime, CheckerCounter counter) {
+                                                    List<Long> aliveBeIdsInCluster, long startTime,
+                                                    CheckerCounter counter) {
         if (partition.getState() != PartitionState.NORMAL) {
             // when alter job is in FINISHING state, partition state will be set to NORMAL,
             // and we can schedule the tablets in it.
@@ -352,11 +354,11 @@ public class TabletChecker extends MasterDaemon {
                 }
 
                 Pair<TabletStatus, TabletSchedCtx.Priority> statusWithPrio = tablet.getHealthStatusWithPriority(
-                        infoService,
-                        db.getClusterName(),
-                        partition.getVisibleVersion(),
-                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                        aliveBeIdsInCluster);
+                    infoService,
+                    db.getClusterName(),
+                    partition.getVisibleVersion(),
+                    tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
+                    aliveBeIdsInCluster);
 
                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
                     // Only set last status check time when status is healthy.
@@ -380,12 +382,12 @@ public class TabletChecker extends MasterDaemon {
                 }
 
                 TabletSchedCtx tabletCtx = new TabletSchedCtx(
-                        TabletSchedCtx.Type.REPAIR,
-                        db.getClusterName(),
-                        db.getId(), tbl.getId(),
-                        partition.getId(), idx.getId(), tablet.getId(),
-                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
-                        System.currentTimeMillis());
+                    TabletSchedCtx.Type.REPAIR,
+                    db.getClusterName(),
+                    db.getId(), tbl.getId(),
+                    partition.getId(), idx.getId(), tablet.getId(),
+                    tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
+                    System.currentTimeMillis());
                 // the tablet status will be set again when being scheduled
                 tabletCtx.setTabletStatus(statusWithPrio.first);
                 tabletCtx.setOrigPriority(statusWithPrio.second);
@@ -404,9 +406,9 @@ public class TabletChecker extends MasterDaemon {
             // if all replicas in this partition are healthy, remove this partition from
             // priorities.
             LOG.info("partition is healthy, remove from prios: {}-{}-{}",
-                    db.getId(), tbl.getId(), partition.getId());
+                db.getId(), tbl.getId(), partition.getId());
             removePrios(new RepairTabletInfo(db.getId(),
-                    tbl.getId(), Lists.newArrayList(partition.getId())));
+                tbl.getId(), Lists.newArrayList(partition.getId())));
         }
         return LoopControlStatus.CONTINUE;
     }
@@ -452,7 +454,7 @@ public class TabletChecker extends MasterDaemon {
                 try {
                     Set<PrioPart> parts = tblEntry.getValue();
                     parts = parts.stream().filter(p -> (tbl.getPartition(p.partId) != null && !p.isTimeout())).collect(
-                            Collectors.toSet());
+                        Collectors.toSet());
                     if (parts.isEmpty()) {
                         deletedPrios.add(Pair.create(dbId, tblId));
                     }
@@ -477,9 +479,11 @@ public class TabletChecker extends MasterDaemon {
      * when being scheduled.
      */
     public void repairTable(AdminRepairTableStmt stmt) throws DdlException {
-        RepairTabletInfo repairTabletInfo = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+        RepairTabletInfo repairTabletInfo =
+            getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
         addPrios(repairTabletInfo, stmt.getTimeoutS() * 1000);
-        LOG.info("repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
+        LOG.info("repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId,
+            repairTabletInfo.partIds);
     }
 
     /*
@@ -487,9 +491,11 @@ public class TabletChecker extends MasterDaemon {
      * This operation will remove the specified partitions from 'prios'
      */
     public void cancelRepairTable(AdminCancelRepairTableStmt stmt) throws DdlException {
-        RepairTabletInfo repairTabletInfo = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+        RepairTabletInfo repairTabletInfo =
+            getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
         removePrios(repairTabletInfo);
-        LOG.info("cancel repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
+        LOG.info("cancel repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId,
+            repairTabletInfo.partIds);
     }
 
     public int getPrioPartitionNum() {
@@ -519,7 +525,8 @@ public class TabletChecker extends MasterDaemon {
         return infos;
     }
 
-    public static RepairTabletInfo getRepairTabletInfo(String dbName, String tblName, List<String> partitions) throws DdlException {
+    public static RepairTabletInfo getRepairTabletInfo(String dbName, String tblName, List<String> partitions)
+        throws DdlException {
         Catalog catalog = Catalog.getCurrentCatalog();
         Database db = catalog.getDbOrDdlException(dbName);
 

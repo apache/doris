@@ -78,7 +78,7 @@ public class SetPassVar extends SetVar {
 
         // 2. No user can set password for root expect for root user itself
         if (userIdent.getQualifiedUser().equals(PaloAuth.ROOT_USER)
-                && !ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()).equals(PaloAuth.ROOT_USER)) {
+            && !ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()).equals(PaloAuth.ROOT_USER)) {
             throw new AnalysisException("Can not set password for root user, except root itself");
         }
 

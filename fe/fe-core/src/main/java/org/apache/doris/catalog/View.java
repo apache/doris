@@ -46,7 +46,7 @@ import java.util.List;
  * Table metadata representing a catalog view or a local view from a WITH clause.
  * Most methods inherited from Table are not supposed to be called on this class because
  * views are substituted with their underlying definition during analysis of a statement.
- *
+ * <p>
  * Refreshing or invalidating a view will reload the view's definition but will not
  * affect the metadata of the underlying tables (if any).
  */
@@ -175,12 +175,12 @@ public class View extends Table {
             // Do not pass e as the exception cause because it might reveal the existence
             // of tables that the user triggering this load may not have privileges on.
             throw new UserException(
-                    String.format("Failed to parse view-definition statement of view: %s", name));
+                String.format("Failed to parse view-definition statement of view: %s", name));
         }
         // Make sure the view definition parses to a query statement.
         if (!(node instanceof QueryStmt)) {
             throw new UserException(String.format("View definition of %s " +
-                    "is not a query statement", name));
+                "is not a query statement", name));
         }
         queryStmtRef = new SoftReference<QueryStmt>((QueryStmt) node);
         return (QueryStmt) node;
@@ -189,7 +189,9 @@ public class View extends Table {
     /**
      * Returns the column labels the user specified in the WITH-clause.
      */
-    public List<String> getOriginalColLabels() { return colLabels_; }
+    public List<String> getOriginalColLabels() {
+        return colLabels_;
+    }
 
     /**
      * Returns the explicit column labels for this view, or null if they need to be derived
@@ -198,7 +200,9 @@ public class View extends Table {
      */
     public List<String> getColLabels() {
         QueryStmt stmt = getQueryStmt();
-        if (colLabels_ == null) return null;
+        if (colLabels_ == null) {
+            return null;
+        }
         if (colLabels_.size() >= stmt.getColLabels().size()) {
             return colLabels_;
         }
@@ -239,7 +243,7 @@ public class View extends Table {
         return copied;
     }
 
-    public void resetIdsForRestore(Catalog catalog){
+    public void resetIdsForRestore(Catalog catalog) {
         id = catalog.getNextId();
     }
 

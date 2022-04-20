@@ -54,7 +54,7 @@ public class MigrateDbStmtTest {
         final MigrateDbStmt stmt = new MigrateDbStmt(cn1, cn2);
         stmt.analyze(analyzer);
         final String sql = "MIGRATE DATABASE " + stmt.getSrcCluster() + "." + stmt.getSrcDb() + " "
-                + stmt.getDestCluster() + "." + stmt.getDestDb();
+            + stmt.getDestCluster() + "." + stmt.getDestDb();
         Assert.assertEquals(sql, stmt.toSql());
     }
 

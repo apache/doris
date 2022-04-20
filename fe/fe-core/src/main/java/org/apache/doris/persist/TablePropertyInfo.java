@@ -104,7 +104,7 @@ public class TablePropertyInfo implements Writable {
         TablePropertyInfo info = (TablePropertyInfo) obj;
 
         return tableId == info.tableId && groupId.equals(info.groupId)
-                && propertyMap.equals(info.propertyMap);
+            && propertyMap.equals(info.propertyMap);
     }
 
     @Override

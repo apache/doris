@@ -41,15 +41,18 @@ public class MasterTaskExecutor {
     public ScheduledThreadPoolExecutor scheduledThreadPool;
 
     public MasterTaskExecutor(String name, int threadNum, boolean needRegisterMetric) {
-        executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, threadNum * 2, name + "_pool", needRegisterMetric);
+        executor =
+            ThreadPoolManager.newDaemonFixedThreadPool(threadNum, threadNum * 2, name + "_pool", needRegisterMetric);
         runningTasks = Maps.newHashMap();
-        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
+        scheduledThreadPool =
+            ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
     }
 
     public MasterTaskExecutor(String name, int threadNum, int queueSize, boolean needRegisterMetric) {
         executor = ThreadPoolManager.newDaemonFixedThreadPool(threadNum, queueSize, name + "_pool", needRegisterMetric);
         runningTasks = Maps.newHashMap();
-        scheduledThreadPool = ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
+        scheduledThreadPool =
+            ThreadPoolManager.newDaemonScheduledThreadPool(1, name + "_scheduler_thread_pool", needRegisterMetric);
     }
 
     public boolean hasIdleThread() {
@@ -62,9 +65,10 @@ public class MasterTaskExecutor {
 
     /**
      * submit task to task executor
+     *
      * @param task
-     * @return true if submit success 
-     *         false if task exists
+     * @return true if submit success
+     * false if task exists
      */
     public boolean submit(MasterTask task) {
         long signature = task.getSignature();
@@ -77,13 +81,13 @@ public class MasterTaskExecutor {
             return true;
         }
     }
-    
+
     public void close() {
         scheduledThreadPool.shutdown();
         executor.shutdown();
         runningTasks.clear();
     }
-    
+
     public int getTaskNum() {
         synchronized (runningTasks) {
             return runningTasks.size();

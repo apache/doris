@@ -43,7 +43,7 @@ public class PlannerContext {
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator_ = PlanNodeId.createGenerator();
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator_ =
-            PlanFragmentId.createGenerator();
+        PlanFragmentId.createGenerator();
 
     // TODO(zc) private final TQueryCtx queryCtx_;
     // TODO(zc) private final AnalysisContext.AnalysisResult analysisResult_;
@@ -59,12 +59,31 @@ public class PlannerContext {
         this.statement_ = statement;
     }
 
-    public QueryStmt getQueryStmt() { return queryStmt_; }
-    public TQueryOptions getQueryOptions() { return queryOptions_; } // getRootAnalyzer().getQueryOptions(); }
-    public Analyzer getRootAnalyzer() { return analyzer_; } // analysisResult_.getAnalyzer(); }
-    public boolean isSingleNodeExec() { return getQueryOptions().num_nodes == 1; }
-    public PlanNodeId getNextNodeId() { return nodeIdGenerator_.getNextId(); }
-    public PlanFragmentId getNextFragmentId() { return fragmentIdGenerator_.getNextId(); }
+    public QueryStmt getQueryStmt() {
+        return queryStmt_;
+    }
 
-    public boolean isInsert() { return statement_ instanceof InsertStmt; }
+    public TQueryOptions getQueryOptions() {
+        return queryOptions_;
+    } // getRootAnalyzer().getQueryOptions(); }
+
+    public Analyzer getRootAnalyzer() {
+        return analyzer_;
+    } // analysisResult_.getAnalyzer(); }
+
+    public boolean isSingleNodeExec() {
+        return getQueryOptions().num_nodes == 1;
+    }
+
+    public PlanNodeId getNextNodeId() {
+        return nodeIdGenerator_.getNextId();
+    }
+
+    public PlanFragmentId getNextFragmentId() {
+        return fragmentIdGenerator_.getNextId();
+    }
+
+    public boolean isInsert() {
+        return statement_ instanceof InsertStmt;
+    }
 }

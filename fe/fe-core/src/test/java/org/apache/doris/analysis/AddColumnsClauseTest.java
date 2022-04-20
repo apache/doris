@@ -42,21 +42,21 @@ public class AddColumnsClauseTest {
     public void testNormal() throws AnalysisException {
         List<ColumnDef> columns = Lists.newArrayList();
         ColumnDef definition = new ColumnDef("col1", new TypeDef(ScalarType.createType(PrimitiveType.INT)),
-                true, null, false, new DefaultValue(true, "0"), "");
+            true, null, false, new DefaultValue(true, "0"), "");
         columns.add(definition);
         definition = new ColumnDef("col2", new TypeDef(ScalarType.createType(PrimitiveType.INT)), true, null, false,
-                new DefaultValue(true, "0"), "");
+            new DefaultValue(true, "0"), "");
         columns.add(definition);
         AddColumnsClause clause = new AddColumnsClause(columns, null, null);
         clause.analyze(analyzer);
         Assert.assertEquals("ADD COLUMN (`col1` int(11) NOT NULL DEFAULT \"0\" COMMENT \"\", "
-                + "`col2` int(11) NOT NULL DEFAULT \"0\" COMMENT \"\")", clause.toString());
+            + "`col2` int(11) NOT NULL DEFAULT \"0\" COMMENT \"\")", clause.toString());
 
         clause = new AddColumnsClause(columns, "", null);
         clause.analyze(analyzer);
         Assert.assertEquals("ADD COLUMN (`col1` int(11) NOT NULL DEFAULT \"0\" COMMENT \"\", "
                 + "`col2` int(11) NOT NULL DEFAULT \"0\" COMMENT \"\")",
-                            clause.toString());
+            clause.toString());
         Assert.assertNull(clause.getRollupName());
 
         clause = new AddColumnsClause(columns, "testTable", null);
@@ -64,7 +64,7 @@ public class AddColumnsClauseTest {
 
         Assert.assertEquals("ADD COLUMN (`col1` int(11) NOT NULL DEFAULT \"0\" COMMENT \"\", "
                 + "`col2` int(11) NOT NULL DEFAULT \"0\" COMMENT \"\") IN `testTable`",
-                clause.toString());
+            clause.toString());
         Assert.assertNull(clause.getProperties());
         Assert.assertEquals("testTable", clause.getRollupName());
     }

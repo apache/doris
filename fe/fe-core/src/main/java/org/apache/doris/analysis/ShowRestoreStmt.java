@@ -38,12 +38,12 @@ import java.util.function.Predicate;
 
 public class ShowRestoreStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("Label").add("Timestamp").add("DbName").add("State")
-            .add("AllowLoad").add("ReplicationNum").add("ReplicaAllocation")
-            .add("RestoreObjs").add("CreateTime").add("MetaPreparedTime").add("SnapshotFinishedTime")
-            .add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks").add("Progress")
-            .add("TaskErrMsg").add("Status").add("Timeout")
-            .build();
+        .add("JobId").add("Label").add("Timestamp").add("DbName").add("State")
+        .add("AllowLoad").add("ReplicationNum").add("ReplicaAllocation")
+        .add("RestoreObjs").add("CreateTime").add("MetaPreparedTime").add("SnapshotFinishedTime")
+        .add("DownloadFinishedTime").add("FinishedTime").add("UnfinishedTasks").add("Progress")
+        .add("TaskErrMsg").add("Status").add("Timeout")
+        .build();
 
     private String dbName;
     private Expr where;
@@ -78,7 +78,7 @@ public class ShowRestoreStmt extends ShowStmt {
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                    ConnectContext.get().getQualifiedUser(), dbName);
+                ConnectContext.get().getQualifiedUser(), dbName);
         }
 
         if (where == null) {
@@ -87,7 +87,7 @@ public class ShowRestoreStmt extends ShowStmt {
         boolean valid = analyzeWhereClause();
         if (!valid) {
             throw new AnalysisException("Where clause should like: LABEL = \"your_label_name\", "
-                    + " or LABEL LIKE \"matcher\"");
+                + " or LABEL LIKE \"matcher\"");
         }
     }
 
@@ -176,9 +176,11 @@ public class ShowRestoreStmt extends ShowStmt {
             return label -> true;
         }
         if (isAccurateMatch) {
-            return CaseSensibility.LABEL.getCaseSensibility() ? label -> label.equals(labelValue) : label -> label.equalsIgnoreCase(labelValue);
+            return CaseSensibility.LABEL.getCaseSensibility() ? label -> label.equals(labelValue) :
+                label -> label.equalsIgnoreCase(labelValue);
         } else {
-            PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+            PatternMatcher patternMatcher =
+                PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
             return patternMatcher::match;
         }
     }

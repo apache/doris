@@ -112,7 +112,7 @@ public class RuntimeProfile {
                 return counter;
             } else {
                 Preconditions.checkState(parentCounterName.equals(ROOT_COUNTER)
-                        || this.counterMap.containsKey(parentCounterName));
+                    || this.counterMap.containsKey(parentCounterName));
                 Counter newCounter = new Counter(type, 0);
                 this.counterMap.put(name, newCounter);
 
@@ -148,7 +148,7 @@ public class RuntimeProfile {
                 } else {
                     if (counter.getType() != tcounter.type) {
                         LOG.error("Cannot update counters with the same name but different types"
-                                + " type=" + tcounter.type);
+                            + " type=" + tcounter.type);
                     } else {
                         counter.setValue(tcounter.value);
                     }
@@ -158,7 +158,7 @@ public class RuntimeProfile {
             if (node.child_counters_map != null) {
                 // update childCounters
                 for (Map.Entry<String, Set<String>> entry :
-                        node.child_counters_map.entrySet()) {
+                    node.child_counters_map.entrySet()) {
                     String parentCounterName = entry.getKey();
 
                     counterLock.writeLock().lock();
@@ -233,9 +233,9 @@ public class RuntimeProfile {
         if (counter.getValue() != 0) {
             try (Formatter fmt = new Formatter()) {
                 builder.append("(Active: ")
-                        .append(this.printCounter(counter.getValue(), counter.getType()))
-                        .append(", % non-child: ").append(fmt.format("%.2f", localTimePercent))
-                        .append("%)");
+                    .append(this.printCounter(counter.getValue(), counter.getType()))
+                    .append(", % non-child: ").append(fmt.format("%.2f", localTimePercent))
+                    .append("%)");
             }
         }
         builder.append("\n");
@@ -245,7 +245,7 @@ public class RuntimeProfile {
         try {
             for (String key : this.infoStringsDisplayOrder) {
                 builder.append(prefix).append("   - ").append(key).append(": ")
-                        .append(this.infoStrings.get(key)).append("\n");
+                    .append(this.infoStrings.get(key)).append("\n");
             }
         } finally {
             infoStringsLock.readLock().unlock();
@@ -286,7 +286,7 @@ public class RuntimeProfile {
                 Counter counter = this.counterMap.get(childCounterName);
                 Preconditions.checkState(counter != null);
                 builder.append(prefix).append("   - ").append(childCounterName).append(": ")
-                        .append(printCounter(counter.getValue(), counter.getType())).append("\n");
+                    .append(printCounter(counter.getValue(), counter.getType())).append("\n");
                 this.printChildCounters(prefix + "  ", childCounterName, builder);
             }
         } finally {
@@ -304,7 +304,7 @@ public class RuntimeProfile {
                     builder.append(tmpValue);
                 } else {
                     builder.append(pair.first).append(pair.second)
-                            .append(" (").append(tmpValue).append(")");
+                        .append(" (").append(tmpValue).append(")");
                 }
                 break;
             }
@@ -349,7 +349,7 @@ public class RuntimeProfile {
                     builder.append(tmpValue);
                 } else {
                     builder.append(pair.first).append(pair.second)
-                            .append(" ").append("/sec");
+                        .append(" ").append("/sec");
                 }
                 break;
             }
@@ -400,7 +400,7 @@ public class RuntimeProfile {
     // Each child profile needs to calculate the time proportion consumed by itself
     public void computeTimeInChildProfile() {
         childMap.values().
-                forEach(RuntimeProfile::computeTimeInProfile);
+            forEach(RuntimeProfile::computeTimeInProfile);
     }
 
     public void computeTimeInProfile() {
@@ -440,7 +440,7 @@ public class RuntimeProfile {
         childLock.writeLock().lock();
         try {
             this.childList.sort((profile1, profile2) -> Long.compare(profile2.first.getCounterTotalTime().getValue(),
-                    profile1.first.getCounterTotalTime().getValue()));
+                profile1.first.getCounterTotalTime().getValue()));
         } finally {
             childLock.writeLock().unlock();
         }

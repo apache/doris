@@ -17,7 +17,6 @@
 
 package org.apache.doris.master;
 
-import com.google.common.collect.ImmutableSet;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -26,6 +25,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
+
+import com.google.common.collect.ImmutableSet;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,7 +80,8 @@ public class PartitionInMemoryInfoCollector extends MasterDaemon {
                     }
                 }
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("Update database[{}] partition in memory info, partitionInMemoryCount : {}.", db.getFullName(), partitionInMemoryCount);
+                    LOG.debug("Update database[{}] partition in memory info, partitionInMemoryCount : {}.",
+                        db.getFullName(), partitionInMemoryCount);
                 }
             } catch (Exception e) {
                 LOG.warn("Update database[" + db.getFullName() + "] partition in memory info failed", e);

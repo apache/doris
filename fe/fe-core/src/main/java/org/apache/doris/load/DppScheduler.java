@@ -31,7 +31,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -51,9 +50,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 
+import com.google.gson.Gson;
+
 public class DppScheduler {
     private static final Logger LOG = LogManager.getLogger(DppScheduler.class);
-    
+
     private static final String HADOOP_CLIENT = PaloFe.DORIS_HOME_DIR + Config.dpp_hadoop_client_path;
     private static final String DPP_OUTPUT_DIR = "export";
     private static final String JOB_CONFIG_DIR = PaloFe.DORIS_HOME_DIR + "/temp/job_conf";
@@ -68,14 +69,14 @@ public class DppScheduler {
 
     // hadoop command
     private static final String HADOOP_BISTREAMING_CMD = "%s bistreaming %s -D mapred.job.name=\"%s\" "
-            + "-input %s -output %s "
-            + "-mapper \"sh mapred/mapper.sh\" "
-            + "-reducer \"sh mapred/reducer.sh '\\\"%s\\\"'\" "
-            + "-partitioner com.baidu.sos.mapred.lib.MapIntPartitioner "
-            + "-cacheArchive %s/dpp/x86_64-scm-linux-gnu.tar.gz#tc "
-            + "-cacheArchive %s/dpp/pypy.tar.gz#pypy "
-            + "-cacheArchive %s/dpp/palo_dpp_mr.tar.gz#mapred " 
-            + "-numReduceTasks %d -file \"%s\" ";
+        + "-input %s -output %s "
+        + "-mapper \"sh mapred/mapper.sh\" "
+        + "-reducer \"sh mapred/reducer.sh '\\\"%s\\\"'\" "
+        + "-partitioner com.baidu.sos.mapred.lib.MapIntPartitioner "
+        + "-cacheArchive %s/dpp/x86_64-scm-linux-gnu.tar.gz#tc "
+        + "-cacheArchive %s/dpp/pypy.tar.gz#pypy "
+        + "-cacheArchive %s/dpp/palo_dpp_mr.tar.gz#mapred "
+        + "-numReduceTasks %d -file \"%s\" ";
     private static final String HADOOP_STATUS_CMD = "%s job %s -status %s";
     private static final String HADOOP_KILL_CMD = "%s job %s -kill %s";
     private static final String HADOOP_LS_CMD = "%s fs %s -ls %s";
@@ -90,7 +91,7 @@ public class DppScheduler {
 
     private String hadoopConfig;
     private String applicationsPath;
-    
+
     public DppScheduler(DppConfig dppConfig) {
         hadoopConfig = getHadoopConfigsStr(dppConfig.getHadoopConfigs());
         applicationsPath = dppConfig.getFsDefaultName() + dppConfig.getApplicationsPath();
@@ -103,7 +104,7 @@ public class DppScheduler {
         }
         return String.format("-D %s", StringUtils.join(configs, " -D "));
     }
-   
+
     public EtlSubmitResult submitEtlJob(long jobId, String loadLabel, String clusterName,
                                         String dbName, Map<String, Object> jobConf, int retry) {
         String etlJobId = null;
@@ -129,7 +130,7 @@ public class DppScheduler {
                 }
             }
         }
-        
+
         // create job config file
         String configDirPath = JOB_CONFIG_DIR + "/" + jobId;
         File configDir = new File(configDirPath);
@@ -178,7 +179,7 @@ public class DppScheduler {
         // create input path
         Set<String> inputPaths = getInputPaths(jobConf);
         String inputPath = StringUtils.join(inputPaths, " -input ");
-        
+
         // reduce num
         int reduceNumByInputSize = 0;
         try {
@@ -191,7 +192,7 @@ public class DppScheduler {
         int reduceNumByTablet = calcReduceNumByTablet(jobConf);
         int reduceNum = Math.min(reduceNumByInputSize, reduceNumByTablet);
         LOG.info("calculate reduce num. reduceNum: {}, reduceNumByInputSize: {}, reduceNumByTablet: {}",
-                 reduceNum, reduceNumByInputSize, reduceNumByTablet);
+            reduceNum, reduceNumByInputSize, reduceNumByTablet);
 
         // rm path
         String outputPath = (String) jobConf.get("output_path");
@@ -200,8 +201,8 @@ public class DppScheduler {
         // submit etl job
         String etlJobName = String.format(ETL_JOB_NAME, dbName, loadLabel);
         String hadoopRunCmd = String.format(HADOOP_BISTREAMING_CMD, HADOOP_CLIENT, hadoopConfig, etlJobName, inputPath,
-                outputPath, hadoopConfig, applicationsPath, applicationsPath, applicationsPath, reduceNum,
-                configFile.getAbsolutePath());
+            outputPath, hadoopConfig, applicationsPath, applicationsPath, applicationsPath, reduceNum,
+            configFile.getAbsolutePath());
         LOG.info(hadoopRunCmd);
         String outputLine = null;
         List<String> hadoopRunCmdList = Util.shellSplit(hadoopRunCmd);
@@ -220,7 +221,7 @@ public class DppScheduler {
                 }
 
                 if (outputLine.toLowerCase().contains("error")
-                        || outputLine.toLowerCase().contains("exception")) {
+                    || outputLine.toLowerCase().contains("exception")) {
                     failMsgs.add(outputLine);
                 }
 
@@ -251,7 +252,7 @@ public class DppScheduler {
                 }
             }
         }
-         
+
         if (etlJobId == null) {
             status.setStatusCode(TStatusCode.CANCELLED);
         }
@@ -259,7 +260,7 @@ public class DppScheduler {
     }
 
     private void prepareDppApplications() throws LoadException {
-        String[] envp = { "LC_ALL=" + Config.locale };
+        String[] envp = {"LC_ALL=" + Config.locale};
         String hadoopDppDir = applicationsPath + "/dpp";
         boolean needUpload = false;
 
@@ -314,7 +315,7 @@ public class DppScheduler {
                 long hadoopSize = fileMap.get(fileName);
                 if (localSize != hadoopSize) {
                     LOG.info("dpp files size are different. file: {}, local: {}, hadoop: {}", fileName, localSize,
-                            hadoopSize);
+                        hadoopSize);
                     needUpload = true;
                     break;
                 }
@@ -339,7 +340,7 @@ public class DppScheduler {
             CommandResult putResult = null;
             for (File file : localFiles) {
                 hadoopPutCmd = String.format(HADOOP_PUT_CMD, HADOOP_CLIENT, hadoopPutConfig,
-                        LOCAL_DPP_DIR + "/" + file.getName(), hadoopDppDir);
+                    LOCAL_DPP_DIR + "/" + file.getName(), hadoopDppDir);
                 LOG.info(hadoopPutCmd);
                 putResult = Util.executeCommand(hadoopPutCmd, envp);
                 if (putResult.getReturnCode() != 0) {
@@ -349,7 +350,7 @@ public class DppScheduler {
             }
         }
     }
-    
+
     private Set<String> getInputPaths(Map<String, Object> jobConf) {
         Set<String> inputPaths = new HashSet<String>();
         Map<String, Map> tables = (Map<String, Map>) jobConf.get("tables");
@@ -362,12 +363,12 @@ public class DppScheduler {
         }
         return inputPaths;
     }
-    
+
     private int calcReduceNumByInputSize(Set<String> inputPaths) throws InputSizeInvalidException {
-        String[] envp = { "LC_ALL=" + Config.locale };
+        String[] envp = {"LC_ALL=" + Config.locale};
         int reduceNum = 0;
         String hadoopCountCmd = String.format(HADOOP_COUNT_CMD, HADOOP_CLIENT, hadoopConfig,
-                StringUtils.join(inputPaths, " "));
+            StringUtils.join(inputPaths, " "));
         LOG.info(hadoopCountCmd);
         CommandResult result = Util.executeCommand(hadoopCountCmd, envp);
         if (result.getReturnCode() != 0) {
@@ -390,7 +391,7 @@ public class DppScheduler {
         if (inputSizeLimitGB != 0) {
             if (totalSizeB > inputSizeLimitGB * GB) {
                 String failMsg = "Input file size[" + (float) totalSizeB / GB + "GB]"
-                        + " exceeds system limit[" + inputSizeLimitGB + "GB]";
+                    + " exceeds system limit[" + inputSizeLimitGB + "GB]";
                 LOG.warn(failMsg);
                 throw new InputSizeInvalidException(failMsg);
             }
@@ -401,7 +402,7 @@ public class DppScheduler {
         }
         return reduceNum;
     }
-    
+
     private int calcReduceNumByTablet(Map<String, Object> jobConf) {
         int reduceNum = 0;
         Map<String, Map> tables = (Map<String, Map>) jobConf.get("tables");
@@ -415,19 +416,19 @@ public class DppScheduler {
                     // key range
                     List<Object> rangeList = (List<Object>) view.get("key_ranges");
                     reduceNum += rangeList.size();
-                } 
+                }
             }
         }
         return reduceNum;
     }
-    
+
     public EtlStatus getEtlJobStatus(String etlJobId) {
         EtlStatus status = new EtlStatus();
         status.setState(TEtlState.RUNNING);
         String hadoopStatusCmd = String.format(HADOOP_STATUS_CMD, HADOOP_CLIENT, hadoopConfig, etlJobId);
         LOG.info(hadoopStatusCmd);
 
-        String[] envp = { "LC_ALL=" + Config.locale };
+        String[] envp = {"LC_ALL=" + Config.locale};
         CommandResult result = Util.executeCommand(hadoopStatusCmd, envp);
         String stdout = result.getStdout();
         if (result.getReturnCode() != 0) {
@@ -485,7 +486,7 @@ public class DppScheduler {
     }
 
     public Map<String, Long> getEtlFiles(String outputPath) {
-        String[] envp = { "LC_ALL=" + Config.locale };
+        String[] envp = {"LC_ALL=" + Config.locale};
         Map<String, Long> fileMap = Maps.newHashMap();
 
         String fileDir = outputPath + "/" + DPP_OUTPUT_DIR;
@@ -501,7 +502,7 @@ public class DppScheduler {
                 LOG.info("hadoop dir does not exist. dir: {}", outputPath);
                 return null;
             }
-            
+
             // check outputPath + DPP_OUTPUT_DIR exist
             hadoopTestCmd = String.format(HADOOP_TEST_CMD, HADOOP_CLIENT, hadoopConfig, "-d", fileDir);
             LOG.info(hadoopTestCmd);
@@ -533,21 +534,21 @@ public class DppScheduler {
         }
         return fileMap;
     }
-    
+
     public void killEtlJob(String etlJobId) {
-        String[] envp = { "LC_ALL=" + Config.locale };
+        String[] envp = {"LC_ALL=" + Config.locale};
         String hadoopKillCmd = String.format(HADOOP_KILL_CMD, HADOOP_CLIENT, hadoopConfig, etlJobId);
         LOG.info(hadoopKillCmd);
         Util.executeCommand(hadoopKillCmd, envp);
     }
-    
+
     public void deleteEtlOutputPath(String outputPath) {
-        String[] envp = { "LC_ALL=" + Config.locale };
+        String[] envp = {"LC_ALL=" + Config.locale};
         String hadoopRmCmd = String.format(HADOOP_RMR_CMD, HADOOP_CLIENT, hadoopConfig, outputPath);
         LOG.info(hadoopRmCmd);
         Util.executeCommand(hadoopRmCmd, envp);
     }
-    
+
     public static String getEtlOutputPath(String fsDefaultName, String outputPath, long dbId, String loadLabel,
                                           String etlOutputDir) {
         return String.format(ETL_OUTPUT_PATH, fsDefaultName, outputPath, dbId, loadLabel, etlOutputDir);

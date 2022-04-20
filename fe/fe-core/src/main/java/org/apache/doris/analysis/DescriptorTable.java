@@ -47,7 +47,7 @@ public class DescriptorTable {
     private final HashMap<TupleId, TupleDescriptor> tupleDescs = new HashMap<TupleId, TupleDescriptor>();
     // List of referenced tables with no associated TupleDescriptor to ship to the BE.
     // For example, the output table of an insert query.
-    private final List<Table> referencedTables = new ArrayList<Table>();;
+    private final List<Table> referencedTables = new ArrayList<Table>();
     private final IdGenerator<TupleId> tupleIdGenerator_ = TupleId.createGenerator();
     private final IdGenerator<SlotId> slotIdGenerator_ = SlotId.createGenerator();
     private final HashMap<SlotId, SlotDescriptor> slotDescs = Maps.newHashMap();
@@ -83,7 +83,7 @@ public class DescriptorTable {
         tupleDescs.put(d.getId(), d);
         // create copies of slots
         TupleDescriptor src = tupleDescs.get(srcId);
-        for (SlotDescriptor slot: src.getSlots()) {
+        for (SlotDescriptor slot : src.getSlots()) {
             copySlotDescriptor(d, slot);
         }
         d.computeStatAndMemLayout();
@@ -120,7 +120,7 @@ public class DescriptorTable {
      * Marks all slots in list as materialized.
      */
     public void markSlotsMaterialized(List<SlotId> ids) {
-        for (SlotId id: ids) {
+        for (SlotId id : ids) {
             getSlotDesc(id).setIsMaterialized(true);
         }
     }
@@ -151,7 +151,7 @@ public class DescriptorTable {
                 // an inline view of a constant select has a materialized tuple
                 // but its table has no id
                 if (tupleD.getTable() != null
-                        && tupleD.getTable().getId() >= 0) {
+                    && tupleD.getTable().getId() >= 0) {
                     referencedTbls.add(tupleD.getTable());
                 }
                 for (SlotDescriptor slotD : tupleD.getMaterializedSlots()) {

@@ -17,9 +17,10 @@
 
 package org.apache.doris.httpv2.entity;
 
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 
-import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 
 public class RestResult extends RestBaseResult {
@@ -39,7 +40,7 @@ public class RestResult extends RestBaseResult {
         Gson gson = new Gson();
         addResultEntry("status", status);
         if (status != ActionStatus.OK) {
-          addResultEntry("msg", msg);
+            addResultEntry("msg", msg);
         }
         return gson.toJson(resultMap);
     }

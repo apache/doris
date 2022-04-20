@@ -44,7 +44,7 @@ import io.fabric8.kubernetes.client.KubernetesClientException;
 
 public class K8sDeployManager extends DeployManager {
     private static final Logger LOG = LogManager.getLogger(K8sDeployManager.class);
-    
+
     public static final String ENV_APP_NAMESPACE = "APP_NAMESPACE";
     // each SERVICE (FE/BE/OBSERVER/BROKER) represents a module of Palo, such as Frontends, Backends, ...
     // and each service has a name in k8s.
@@ -52,7 +52,7 @@ public class K8sDeployManager extends DeployManager {
     public static final String ENV_FE_OBSERVER_SERVICE = "FE_OBSERVER_SERVICE";
     public static final String ENV_BE_SERVICE = "BE_SERVICE";
     public static final String ENV_BROKER_SERVICE = "BROKER_SERVICE";
-    
+
     // we arbitrarily set all broker name as what ENV_BROKER_NAME specified.
     public static final String ENV_BROKER_NAME = "BROKER_NAME";
 
@@ -69,7 +69,7 @@ public class K8sDeployManager extends DeployManager {
     public static final String K8S_CA_CERT_FILE = "cce-ca.pem";
     public static final String K8S_CLIENT_CERT_FILE = "cce-admin.pem";
     public static final String K8S_CLIENT_KEY_FILE = "cce-admin-key.pem";
-    
+
     public static final String TEST_MASTER_URL = "https://127.0.0.1:1111/";
     public static final String TEST_NAMESPACE = "default";
     public static final String TEST_SERVICENAME = "palo-fe";
@@ -82,9 +82,9 @@ public class K8sDeployManager extends DeployManager {
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+                                    String envBackendServiceGroup, String envBrokerServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                   envBrokerServiceGroup);
+            envBrokerServiceGroup);
 
         // namespace
         appNamespace = Strings.nullToEmpty(System.getenv(ENV_APP_NAMESPACE));
@@ -122,7 +122,7 @@ public class K8sDeployManager extends DeployManager {
             endpoints = endpoints(appNamespace, groupName);
         } catch (Exception e) {
             LOG.warn("encounter exception when get endpoint from namespace {}, service: {}",
-                     appNamespace, groupName, e);
+                appNamespace, groupName, e);
             return null;
         }
         if (endpoints == null) {
@@ -184,14 +184,14 @@ public class K8sDeployManager extends DeployManager {
         if (client != null) {
             return client;
         }
-        
+
         try {
             if (Config.with_k8s_certs) {
                 // for test only
                 ConfigBuilder configBuilder = new ConfigBuilder().withMasterUrl(TEST_MASTER_URL)
-                        .withTrustCerts(true)
-                        .withCaCertFile(K8S_CA_CERT_FILE).withClientCertFile(K8S_CLIENT_CERT_FILE)
-                        .withClientKeyFile(K8S_CLIENT_KEY_FILE);
+                    .withTrustCerts(true)
+                    .withCaCertFile(K8S_CA_CERT_FILE).withClientCertFile(K8S_CLIENT_CERT_FILE)
+                    .withClientKeyFile(K8S_CLIENT_KEY_FILE);
                 client = new DefaultKubernetesClient(configBuilder.build());
             } else {
                 // When accessing k8s api within the pod, no params need to be provided.

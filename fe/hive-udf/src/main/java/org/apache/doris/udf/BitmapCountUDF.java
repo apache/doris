@@ -19,6 +19,7 @@ package org.apache.doris.udf;
 
 import org.apache.doris.common.BitmapValueUtil;
 import org.apache.doris.common.io.BitmapValue;
+
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -48,16 +49,16 @@ public class BitmapCountUDF extends GenericUDF {
     }
 
     @Override
-    public Object evaluate(DeferredObject[]  args) throws HiveException {
-        if(args[0] == null){
+    public Object evaluate(DeferredObject[] args) throws HiveException {
+        if (args[0] == null) {
             return 0;
         }
         byte[] inputBytes = this.inputOI.getPrimitiveJavaObject(args[0].get());
 
-        try{
+        try {
             BitmapValue bitmapValue = BitmapValueUtil.deserializeToBitmap(inputBytes);
             return bitmapValue.cardinality();
-        }catch (IOException ioException){
+        } catch (IOException ioException) {
             ioException.printStackTrace();
             throw new HiveException(ioException);
         }

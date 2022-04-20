@@ -34,9 +34,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -44,6 +41,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 import java.util.Arrays;
@@ -82,15 +82,15 @@ public class DataDescription {
     private static final Logger LOG = LogManager.getLogger(DataDescription.class);
     // function isn't built-in function, hll_hash is not built-in function in hadoop load.
     private static final List<String> HADOOP_SUPPORT_FUNCTION_NAMES = Arrays.asList(
-            "strftime",
-            "time_format",
-            "alignment_timestamp",
-            "default_value",
-            "md5sum",
-            "replace_value",
-            "now",
-            FunctionSet.HLL_HASH,
-            "substitute");
+        "strftime",
+        "time_format",
+        "alignment_timestamp",
+        "default_value",
+        "md5sum",
+        "replace_value",
+        "now",
+        FunctionSet.HLL_HASH,
+        "substitute");
 
     private final String tableName;
     private final PartitionNames partitionNames;
@@ -131,7 +131,8 @@ public class DataDescription {
      * For hadoop load, this param is also used to persistence.
      * The function in this param is copied from 'parsedColumnExprList'
      */
-    private final Map<String, Pair<String, List<String>>> columnToHadoopFunction = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, Pair<String, List<String>>> columnToHadoopFunction =
+        Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private boolean isHadoopLoad = false;
 
@@ -148,7 +149,7 @@ public class DataDescription {
                            boolean isNegative,
                            List<Expr> columnMappingList) {
         this(tableName, partitionNames, filePaths, columns, columnSeparator, fileFormat, null,
-                isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
+            isNegative, columnMappingList, null, null, LoadTask.MergeType.APPEND, null, null, null);
     }
 
     public DataDescription(String tableName,
@@ -242,7 +243,7 @@ public class DataDescription {
     // eg: k2 = substitute(k1)
     // this is used for creating derivative column from existing column
     private static void validateSubstituteFunction(List<String> args, Map<String, String> columnNameMap)
-            throws AnalysisException {
+        throws AnalysisException {
         if (args.size() != 1) {
             throw new AnalysisException("Should has only one argument: " + args);
         }
@@ -256,7 +257,7 @@ public class DataDescription {
     }
 
     private static void validateAlignmentTimestamp(List<String> args, Map<String, String> columnNameMap)
-            throws AnalysisException {
+        throws AnalysisException {
         if (args.size() != 2) {
             throw new AnalysisException("Function alignment_timestamp args size is not 2");
         }
@@ -276,7 +277,7 @@ public class DataDescription {
     }
 
     private static void validateStrftime(List<String> args, Map<String, String> columnNameMap) throws
-            AnalysisException {
+        AnalysisException {
         if (args.size() != 2) {
             throw new AnalysisException("Function strftime needs 2 args");
         }
@@ -296,7 +297,7 @@ public class DataDescription {
     }
 
     private static void validateTimeFormat(List<String> args, Map<String, String> columnNameMap) throws
-            AnalysisException {
+        AnalysisException {
         if (args.size() != 3) {
             throw new AnalysisException("Function time_format needs 3 args");
         }
@@ -573,7 +574,8 @@ public class DataDescription {
      *      columnToHadoopFunction = {"col3": "strftime("%Y-%m-%d %H:%M:%S", tmp_col3)"}
      */
     private void analyzeColumns() throws AnalysisException {
-        if ((fileFieldNames == null || fileFieldNames.isEmpty()) && (columnsFromPath != null && !columnsFromPath.isEmpty())) {
+        if ((fileFieldNames == null || fileFieldNames.isEmpty()) &&
+            (columnsFromPath != null && !columnsFromPath.isEmpty())) {
             throw new AnalysisException("Can not specify columns_from_path without column_list");
         }
 
@@ -619,17 +621,17 @@ public class DataDescription {
         for (Expr columnExpr : columnMappingList) {
             if (!(columnExpr instanceof BinaryPredicate)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "Expr: " + columnExpr.toSql());
+                    + "Expr: " + columnExpr.toSql());
             }
             BinaryPredicate predicate = (BinaryPredicate) columnExpr;
             if (predicate.getOp() != Operator.EQ) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "The mapping operator error, op: " + predicate.getOp());
+                    + "The mapping operator error, op: " + predicate.getOp());
             }
             Expr child0 = predicate.getChild(0);
             if (!(child0 instanceof SlotRef)) {
                 throw new AnalysisException("Mapping function expr only support the column or eq binary predicate. "
-                        + "The mapping column error. column: " + child0.toSql());
+                    + "The mapping column error. column: " + child0.toSql());
             }
             String column = ((SlotRef) child0).getColumnName();
             if (!columnMappingNames.add(column)) {
@@ -639,7 +641,7 @@ public class DataDescription {
             Expr child1 = predicate.getChild(1);
             if (isHadoopLoad && !(child1 instanceof FunctionCallExpr)) {
                 throw new AnalysisException("Hadoop load only supports the designated function. "
-                        + "The error mapping function is:" + child1.toSql());
+                    + "The error mapping function is:" + child1.toSql());
             }
             ImportColumnDesc importColumnDesc = new ImportColumnDesc(column, child1);
             parsedColumnExprList.add(importColumnDesc);
@@ -663,7 +665,7 @@ public class DataDescription {
             throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
         } catch (AnalysisException e) {
             LOG.warn("analyze columns' statement failed, sql={}, error={}",
-                    columnsSQL, parser.getErrorMsg(columnsSQL), e);
+                columnsSQL, parser.getErrorMsg(columnsSQL), e);
             String errorMessage = parser.getErrorMsg(columnsSQL);
             if (errorMessage == null) {
                 throw e;
@@ -720,7 +722,8 @@ public class DataDescription {
         }
         // check olapTable schema and sequenceCol
         if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
-            throw new AnalysisException("Table " + olapTable.getName() + " has sequence column, need to specify the sequence column");
+            throw new AnalysisException(
+                "Table " + olapTable.getName() + " has sequence column, need to specify the sequence column");
         }
         if (hasSequenceCol() && !olapTable.hasSequenceCol()) {
             throw new AnalysisException("There is no sequence column in the table " + olapTable.getName());
@@ -745,7 +748,7 @@ public class DataDescription {
         }
         if (!hasSourceSequenceCol) {
             throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + olapTable.getName()
-                    + " or the COLUMNS and SET clause");
+                + " or the COLUMNS and SET clause");
         }
     }
 
@@ -786,19 +789,19 @@ public class DataDescription {
 
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tableName,
-                PrivPredicate.LOAD)) {
+            PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(), fullDbName + ": " + tableName);
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(), fullDbName + ": " + tableName);
         }
 
         // check hive table auth
         if (isLoadFromTable()) {
             if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, srcTableName,
-                    PrivPredicate.SELECT)) {
+                PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                        ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(), fullDbName + ": " + srcTableName);
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(), fullDbName + ": " + srcTableName);
             }
         }
     }

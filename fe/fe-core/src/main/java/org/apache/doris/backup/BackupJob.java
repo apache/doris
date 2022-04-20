@@ -158,13 +158,14 @@ public class BackupJob extends AbstractJob {
 
     public synchronized boolean finishTabletSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {
         Preconditions.checkState(task.getJobId() == jobId);
-        
+
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTaskStatus().getErrorMsgs()));
             // snapshot task could not finish if status_code is OLAP_ERR_VERSION_ALREADY_MERGED,
             // so cancel this job
             if (request.getTaskStatus().getStatusCode() == TStatusCode.OLAP_ERR_VERSION_ALREADY_MERGED) {
-                status = new Status(ErrCode.OLAP_VERSION_ALREADY_MERGED, "make snapshot failed, version already merged");
+                status =
+                    new Status(ErrCode.OLAP_VERSION_ALREADY_MERGED, "make snapshot failed, version already merged");
                 cancelInternal();
             }
             return false;
@@ -178,16 +179,16 @@ public class BackupJob extends AbstractJob {
         // Full path will look like:
         //      /path/to/your/be/data/snapshot/20180410102311.0.86400/10006/352781111/
         SnapshotInfo info = new SnapshotInfo(task.getDbId(), task.getTableId(), task.getPartitionId(),
-                task.getIndexId(), task.getTabletId(), task.getBackendId(),
-                task.getSchemaHash(), request.getSnapshotPath(),
-                request.getSnapshotFiles());
-        
+            task.getIndexId(), task.getTabletId(), task.getBackendId(),
+            task.getSchemaHash(), request.getSnapshotPath(),
+            request.getSnapshotFiles());
+
         snapshotInfos.put(task.getTabletId(), info);
         taskProgress.remove(task.getTabletId());
         Long oldValue = unfinishedTaskIds.remove(task.getTabletId());
         taskErrMsg.remove(task.getTabletId());
         LOG.debug("get finished snapshot info: {}, unfinished tasks num: {}, remove result: {}. {}",
-                info, unfinishedTaskIds.size(), (oldValue != null), this);
+            info, unfinishedTaskIds.size(), (oldValue != null), this);
 
         return oldValue != null;
     }
@@ -204,7 +205,7 @@ public class BackupJob extends AbstractJob {
         Map<Long, List<String>> tabletFileMap = request.getTabletFiles();
         if (tabletFileMap.isEmpty()) {
             LOG.warn("upload snapshot files failed because nothing is uploaded. be: {}. {}",
-                     task.getBackendId(), this);
+                task.getBackendId(), this);
             return false;
         }
 
@@ -212,7 +213,7 @@ public class BackupJob extends AbstractJob {
         Map<Long, List<String>> newTabletFileMap = Maps.newHashMap();
         for (Map.Entry<Long, List<String>> entry : tabletFileMap.entrySet()) {
             List<String> files = entry.getValue().stream()
-                    .map(name -> Repository.decodeFileNameWithChecksum(name).first).collect(Collectors.toList());
+                .map(name -> Repository.decodeFileNameWithChecksum(name).first).collect(Collectors.toList());
             newTabletFileMap.put(entry.getKey(), files);
         }
 
@@ -225,14 +226,14 @@ public class BackupJob extends AbstractJob {
             if (tabletFiles.size() != uploadedFiles.size()) {
                 LOG.warn("upload snapshot files failed because file num is wrong. "
                         + "expect: {}, actual:{}, tablet: {}, be: {}. {}",
-                         tabletFiles.size(), uploadedFiles.size(), tabletId, task.getBackendId(), this);
+                    tabletFiles.size(), uploadedFiles.size(), tabletId, task.getBackendId(), this);
                 return false;
             }
 
             if (!Collections2.filter(tabletFiles, Predicates.not(Predicates.in(uploadedFiles))).isEmpty()) {
                 LOG.warn("upload snapshot files failed because file is different. "
                         + "expect: [{}], actual: [{}], tablet: {}, be: {}. {}",
-                         tabletFiles, uploadedFiles, tabletId, task.getBackendId(), this);
+                    tabletFiles, uploadedFiles, tabletId, task.getBackendId(), this);
                 return false;
             }
 
@@ -244,7 +245,7 @@ public class BackupJob extends AbstractJob {
         Long oldValue = unfinishedTaskIds.remove(task.getSignature());
         taskErrMsg.remove(task.getSignature());
         LOG.debug("get finished upload snapshot task, unfinished tasks num: {}, remove result: {}. {}",
-                unfinishedTaskIds.size(), (oldValue != null), this);
+            unfinishedTaskIds.size(), (oldValue != null), this);
         return oldValue != null;
     }
 
@@ -292,7 +293,7 @@ public class BackupJob extends AbstractJob {
                 return;
             }
         }
-        
+
         LOG.debug("run backup job: {}", this);
 
         // run job base on current state
@@ -332,7 +333,7 @@ public class BackupJob extends AbstractJob {
     public synchronized Status cancel() {
         if (isDone()) {
             return new Status(ErrCode.COMMON_ERROR,
-                    "Job with label " + label + " can not be cancelled. state: " + state);
+                "Job with label " + label + " can not be cancelled. state: " + state);
         }
 
         status = new Status(ErrCode.COMMON_ERROR, "user cancelled");
@@ -365,7 +366,7 @@ public class BackupJob extends AbstractJob {
                 status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
                 return;
             }
-            switch (tbl.getType()){
+            switch (tbl.getType()) {
                 case OLAP:
                     checkOlapTable((OlapTable) tbl, tableRef);
                     if (getContent() == BackupContent.ALL) {
@@ -379,17 +380,17 @@ public class BackupJob extends AbstractJob {
                     if (odbcTable.getOdbcCatalogResourceName() != null) {
                         String odbcResourceName = odbcTable.getOdbcCatalogResourceName();
                         Resource resource = Catalog.getCurrentCatalog().getResourceMgr()
-                                .getResource(odbcResourceName);
+                            .getResource(odbcResourceName);
                         if (resource == null) {
                             status = new Status(ErrCode.NOT_FOUND, "resource " + odbcResourceName
-                                    + " related to " + tblName + "does not exist.");
+                                + " related to " + tblName + "does not exist.");
                             return;
                         }
                     }
                     break;
                 default:
                     status = new Status(ErrCode.COMMON_ERROR,
-                            "backup job does not support this type of table " + tblName);
+                        "backup job does not support this type of table " + tblName);
                     return;
             }
         }
@@ -419,17 +420,18 @@ public class BackupJob extends AbstractJob {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
                         status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                                + " does not exist  in table" + backupTableRef.getName().getTbl());
+                            + " does not exist  in table" + backupTableRef.getName().getTbl());
                         return;
                     }
                 }
             }
-        }  finally {
+        } finally {
             olapTable.readUnlock();
         }
     }
 
-    private void prepareSnapshotTaskForOlapTable(OlapTable olapTable, TableRef backupTableRef, AgentBatchTask batchTask) {
+    private void prepareSnapshotTaskForOlapTable(OlapTable olapTable, TableRef backupTableRef,
+                                                 AgentBatchTask batchTask) {
         olapTable.readLock();
         try {
             // check backup table again
@@ -438,7 +440,7 @@ public class BackupJob extends AbstractJob {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
                         status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                                + " does not exist  in table" + backupTableRef.getName().getTbl());
+                            + " does not exist  in table" + backupTableRef.getName().getTbl());
                         return;
                     }
                 }
@@ -466,22 +468,22 @@ public class BackupJob extends AbstractJob {
                         Replica replica = chooseReplica(tablet, visibleVersion);
                         if (replica == null) {
                             status = new Status(ErrCode.COMMON_ERROR,
-                                    "failed to choose replica to make snapshot for tablet " + tablet.getId()
-                                            + ". visible version: " + visibleVersion);
+                                "failed to choose replica to make snapshot for tablet " + tablet.getId()
+                                    + ". visible version: " + visibleVersion);
                             return;
                         }
                         SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
-                                jobId, dbId, olapTable.getId(), partition.getId(),
-                                index.getId(), tablet.getId(),
-                                visibleVersion,
-                                schemaHash, timeoutMs, false /* not restore task */);
+                            jobId, dbId, olapTable.getId(), partition.getId(),
+                            index.getId(), tablet.getId(),
+                            visibleVersion,
+                            schemaHash, timeoutMs, false /* not restore task */);
                         batchTask.addTask(task);
                         unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
                     }
                 }
 
                 LOG.info("snapshot for partition {}, version: {}",
-                        partition.getId(), visibleVersion);
+                    partition.getId(), visibleVersion);
             }
         } finally {
             olapTable.readUnlock();
@@ -501,7 +503,7 @@ public class BackupJob extends AbstractJob {
                     OlapTable olapTable = (OlapTable) table;
                     // only copy visible indexes
                     List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
-                            : tableRef.getPartitionNames().getPartitionNames();
+                        : tableRef.getPartitionNames().getPartitionNames();
                     OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, IndexExtState.VISIBLE, true);
                     if (copiedTbl == null) {
                         status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + tblName);
@@ -526,11 +528,11 @@ public class BackupJob extends AbstractJob {
                     copiedTables.add(copiedOdbcTable);
                     if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
                         Resource resource = Catalog.getCurrentCatalog().getResourceMgr()
-                                .getResource(copiedOdbcTable.getOdbcCatalogResourceName());
+                            .getResource(copiedOdbcTable.getOdbcCatalogResourceName());
                         Resource copiedResource = resource.clone();
                         if (copiedResource == null) {
                             status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc resource: "
-                                    + resource.getName());
+                                + resource.getName());
                             return;
                         }
                         copiedResources.add(copiedResource);
@@ -587,7 +589,7 @@ public class BackupJob extends AbstractJob {
                 return;
             }
             Preconditions.checkState(brokers.size() == 1);
-            
+
             // allot tasks
             int index = 0;
             for (int batch = 0; batch < batchNum; batch++) {
@@ -605,7 +607,7 @@ public class BackupJob extends AbstractJob {
                 }
                 long signature = catalog.getNextId();
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
-                        brokers.get(0), repo.getStorage().getProperties(), repo.getStorage().getStorageType());
+                    brokers.get(0), repo.getStorage().getProperties(), repo.getStorage().getStorageType());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
             }
@@ -639,10 +641,10 @@ public class BackupJob extends AbstractJob {
 
     private void saveMetaInfo() {
         String createTimeStr = TimeUtils.longToTimeString(createTime, new SimpleDateFormat(
-                "yyyy-MM-dd-HH-mm-ss"));
+            "yyyy-MM-dd-HH-mm-ss"));
         // local job dir: backup/label__createtime/
         localJobDirPath = Paths.get(BackupHandler.BACKUP_ROOT_DIR.toString(),
-                                    label + "__" + createTimeStr).normalize();
+            label + "__" + createTimeStr).normalize();
 
         try {
             // 1. create local job dir of this backup job
@@ -650,7 +652,8 @@ public class BackupJob extends AbstractJob {
             if (jobDir.exists()) {
                 // if dir exists, delete it first
                 Files.walk(localJobDirPath,
-                           FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                        FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile)
+                    .forEach(File::delete);
             }
             if (!jobDir.mkdir()) {
                 status = new Status(ErrCode.COMMON_ERROR, "Failed to create tmp dir: " + localJobDirPath);
@@ -661,14 +664,15 @@ public class BackupJob extends AbstractJob {
             File metaInfoFile = new File(jobDir, Repository.FILE_META_INFO);
             if (!metaInfoFile.createNewFile()) {
                 status = new Status(ErrCode.COMMON_ERROR,
-                        "Failed to create meta info file: " + metaInfoFile.toString());
+                    "Failed to create meta info file: " + metaInfoFile.toString());
                 return;
             }
             backupMeta.writeToFile(metaInfoFile);
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
 
             // 3. save job info file
-            jobInfo = BackupJobInfo.fromCatalog(createTime, label, dbName, dbId, getContent(), backupMeta, snapshotInfos);
+            jobInfo =
+                BackupJobInfo.fromCatalog(createTime, label, dbName, dbId, getContent(), backupMeta, snapshotInfos);
             LOG.debug("job info: {}. {}", jobInfo, this);
             File jobInfoFile = new File(jobDir, Repository.PREFIX_JOB_INFO + createTimeStr);
             if (!jobInfoFile.createNewFile()) {
@@ -696,7 +700,7 @@ public class BackupJob extends AbstractJob {
         // log
         catalog.getEditLog().logBackupJob(this);
         LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
-                 localMetaInfoFilePath, localJobInfoFilePath, this);
+            localMetaInfoFilePath, localJobInfoFilePath, this);
     }
 
     private void releaseSnapshots() {
@@ -708,7 +712,7 @@ public class BackupJob extends AbstractJob {
         AgentBatchTask batchTask = new AgentBatchTask();
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
-                    info.getTabletId(), info.getPath());
+                info.getTabletId(), info.getPath());
             batchTask.addTask(releaseTask);
         }
         AgentTaskExecutor.submit(batchTask);
@@ -764,12 +768,12 @@ public class BackupJob extends AbstractJob {
         for (Replica replica : tablet.getReplicas()) {
             replicaIds.add(replica.getId());
         }
-        
+
         Collections.sort(replicaIds);
         for (Long replicaId : replicaIds) {
             Replica replica = tablet.getReplicaById(replicaId);
             if (replica.getLastFailedVersion() < 0 && (replica.getVersion() > visibleVersion
-                    || (replica.getVersion() == visibleVersion))) {
+                || (replica.getVersion() == visibleVersion))) {
                 return replica;
             }
         }
@@ -801,7 +805,8 @@ public class BackupJob extends AbstractJob {
                 File jobDir = new File(localJobDirPath.toString());
                 if (jobDir.exists()) {
                     Files.walk(localJobDirPath,
-                               FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                            FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile)
+                        .forEach(File::delete);
                 }
             } catch (Exception e) {
                 LOG.warn("failed to clean the backup job dir: " + localJobDirPath.toString());
@@ -818,7 +823,7 @@ public class BackupJob extends AbstractJob {
         catalog.getEditLog().logBackupJob(this);
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
     }
-    
+
     public List<String> getInfo() {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
@@ -832,10 +837,10 @@ public class BackupJob extends AbstractJob {
         info.add(TimeUtils.longToTimeString(finishedTime));
         info.add(Joiner.on(", ").join(unfinishedTaskIds.entrySet()));
         info.add(Joiner.on(", ").join(taskProgress.entrySet().stream().map(
-                e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
-                        Collectors.toList())));
+            e -> "[" + e.getKey() + ": " + e.getValue().first + "/" + e.getValue().second + "]").collect(
+            Collectors.toList())));
         info.add(Joiner.on(", ").join(taskErrMsg.entrySet().stream().map(n -> "[" + n.getKey() + ": " + n.getValue()
-                + "]").collect(Collectors.toList())));
+            + "]").collect(Collectors.toList())));
         info.add(status.toString());
         info.add(String.valueOf(timeoutMs / 1000));
         return info;

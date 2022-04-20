@@ -19,6 +19,7 @@ package org.apache.doris.external.iceberg;
 
 
 import org.apache.doris.catalog.IcebergProperty;
+
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.TableIdentifier;
 
@@ -30,6 +31,7 @@ import java.util.List;
 public interface IcebergCatalog {
     /**
      * Initialize a catalog given a map of catalog properties.
+     *
      * @param icebergProperty
      */
     default void initialize(IcebergProperty icebergProperty) {
@@ -37,6 +39,7 @@ public interface IcebergCatalog {
 
     /**
      * Check whether table exists.
+     *
      * @param tableIdentifier
      */
     default boolean tableExists(TableIdentifier tableIdentifier) {
@@ -45,12 +48,14 @@ public interface IcebergCatalog {
 
     /**
      * Load a table
+     *
      * @param tableIdentifier
      */
     Table loadTable(TableIdentifier tableIdentifier) throws DorisIcebergException;
 
     /**
      * Return all the identifiers under this db.
+     *
      * @param db
      */
     List<TableIdentifier> listTables(String db) throws DorisIcebergException;

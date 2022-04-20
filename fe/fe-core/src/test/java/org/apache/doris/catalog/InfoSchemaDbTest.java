@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
+
 import org.junit.Assert;
 import org.junit.Test;
 

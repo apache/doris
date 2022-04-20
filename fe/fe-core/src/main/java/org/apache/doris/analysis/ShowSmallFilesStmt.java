@@ -32,15 +32,15 @@ import com.google.common.base.Strings;
 
 public class ShowSmallFilesStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Id", ScalarType.createVarchar(32)))
-                    .addColumn(new Column("DbName", ScalarType.createVarchar(256)))
-                    .addColumn(new Column("Catalog", ScalarType.createVarchar(32)))
-                    .addColumn(new Column("FileName", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("FileSize", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("IsContent", ScalarType.createVarchar(16)))
-                    .addColumn(new Column("MD5", ScalarType.createVarchar(16)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Id", ScalarType.createVarchar(32)))
+            .addColumn(new Column("DbName", ScalarType.createVarchar(256)))
+            .addColumn(new Column("Catalog", ScalarType.createVarchar(32)))
+            .addColumn(new Column("FileName", ScalarType.createVarchar(16)))
+            .addColumn(new Column("FileSize", ScalarType.createVarchar(16)))
+            .addColumn(new Column("IsContent", ScalarType.createVarchar(16)))
+            .addColumn(new Column("MD5", ScalarType.createVarchar(16)))
+            .build();
 
     private String dbName;
 
@@ -48,7 +48,9 @@ public class ShowSmallFilesStmt extends ShowStmt {
         this.dbName = dbName;
     }
 
-    public String getDbName() { return dbName; }
+    public String getDbName() {
+        return dbName;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -64,7 +66,7 @@ public class ShowSmallFilesStmt extends ShowStmt {
 
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
+                ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }
     }
 

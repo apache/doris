@@ -36,8 +36,8 @@ public class RewriteDateLiteralRuleTest {
         dorisAssert = new DorisAssert(ctx);
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
         String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME_1
-                + " (k1 datetime, k2 int) "
-                + "distributed by hash(k2) buckets 3 properties('replication_num' = '1');";
+            + " (k1 datetime, k2 int) "
+            + "distributed by hash(k2) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
     }
 
@@ -120,7 +120,7 @@ public class RewriteDateLiteralRuleTest {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
             Assert.assertTrue(e.getMessage().contains(
-                    "Incorrect datetime value: '2021030125334455' in expression: `k1` > '2021030125334455'"));
+                "Incorrect datetime value: '2021030125334455' in expression: `k1` > '2021030125334455'"));
         }
 
         query = "select k1 > '2021030125334455' from " + DB_NAME + ".tb1";
@@ -132,7 +132,7 @@ public class RewriteDateLiteralRuleTest {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
             Assert.assertTrue(e.getMessage().contains(
-                    "Incorrect datetime value: '2021-03-32 23:33:55' in expression: `k1` > '2021-03-32 23:33:55'"));
+                "Incorrect datetime value: '2021-03-32 23:33:55' in expression: `k1` > '2021-03-32 23:33:55'"));
         }
 
         query = "select * from " + DB_NAME + ".tb1 where k1 > '2021-03- 03 23:33:55'";
@@ -140,7 +140,7 @@ public class RewriteDateLiteralRuleTest {
             dorisAssert.query(query).explainQuery();
         } catch (AnalysisException e) {
             Assert.assertTrue(e.getMessage().contains(
-                    "Incorrect datetime value: '2021-03- 03 23:33:55' in expression: `k1` > '2021-03- 03 23:33:55'"));
+                "Incorrect datetime value: '2021-03- 03 23:33:55' in expression: `k1` > '2021-03- 03 23:33:55'"));
         }
 
         query = "select k1 > '2021-03- 03 23:33:55' from " + DB_NAME + ".tb1";

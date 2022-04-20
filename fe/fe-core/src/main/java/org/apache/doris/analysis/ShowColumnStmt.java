@@ -30,27 +30,27 @@ import com.google.common.collect.Lists;
 public class ShowColumnStmt extends ShowStmt {
     private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "COLUMNS");
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Null", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Key", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Default", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Field", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Null", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Key", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Default", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
+            .build();
 
     private static final ShowResultSetMetaData META_DATA_VERBOSE =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Collation", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Null", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Key", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Default", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Privileges", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Comment", ScalarType.createVarchar(20)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Field", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Collation", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Null", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Key", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Default", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Extra", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Privileges", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Comment", ScalarType.createVarchar(20)))
+            .build();
 
     private ShowResultSetMetaData metaData;
     private TableName tableName;
@@ -159,8 +159,8 @@ public class ShowColumnStmt extends ShowStmt {
 
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
-                new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+            new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
+            where, null, null, null, LimitElement.NO_LIMIT);
         analyzer.setSchemaInfo(tableName.getDb(), tableName.getTbl(), null);
 
         return selectStmt;

@@ -38,7 +38,7 @@ public class CreateViewStmt extends BaseViewStmt {
     private final String comment;
 
     public CreateViewStmt(boolean ifNotExists, TableName tableName, List<ColWithComment> cols,
-            String comment, QueryStmt queryStmt) {
+                          String comment, QueryStmt queryStmt) {
         super(tableName, cols, queryStmt);
         this.ifNotExists = ifNotExists;
         this.comment = Strings.nullToEmpty(comment);
@@ -59,7 +59,7 @@ public class CreateViewStmt extends BaseViewStmt {
 
         // check privilege
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.CREATE)) {
+            tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 

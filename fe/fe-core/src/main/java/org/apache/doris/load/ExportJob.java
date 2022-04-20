@@ -45,6 +45,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -52,7 +53,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.MysqlScanNode;
@@ -170,7 +170,7 @@ public class ExportJob implements Writable {
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
     private List<String> exportColumns = Lists.newArrayList();
-    private String columns ;
+    private String columns;
 
 
     public ExportJob() {
@@ -258,7 +258,7 @@ public class ExportJob implements Writable {
         plan();
     }
 
-    
+
     private String genNames() {
         String names = "";
         for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
@@ -360,12 +360,12 @@ public class ExportJob implements Writable {
                 scanNodes.add(olapScanNode);
             }
             LOG.info("total {} tablets of export job {}, and assign them to {} coordinators",
-                    size, id, fragments.size());
+                size, id, fragments.size());
         }
 
         // add conjunct
         if (whereExpr != null) {
-            for (ScanNode scanNode: scanNodes) {
+            for (ScanNode scanNode : scanNodes) {
                 scanNode.addConjuncts(whereExpr.getConjuncts());
             }
         }
@@ -391,7 +391,7 @@ public class ExportJob implements Writable {
             SlotDescriptor slotDesc = dstDescMap.get(slot.getColumnName());
             if (slotDesc == null) {
                 throw new UserException("unknown column reference in where statement, reference="
-                        + slot.getColumnName());
+                    + slot.getColumnName());
             }
             smap.getLhs().add(slot);
             smap.getRhs().add(new SlotRef(slotDesc));
@@ -431,10 +431,10 @@ public class ExportJob implements Writable {
 
     private OlapScanNode genOlapScanNodeByLocation(List<TScanRangeLocations> locations) {
         OlapScanNode olapScanNode = OlapScanNode.createOlapScanNodeByLocation(
-                new PlanNodeId(nextId.getAndIncrement()),
-                exportTupleDesc,
-                "OlapScanNodeForExport",
-                locations);
+            new PlanNodeId(nextId.getAndIncrement()),
+            exportTupleDesc,
+            "OlapScanNodeForExport",
+            locations);
 
         return olapScanNode;
     }
@@ -444,12 +444,12 @@ public class ExportJob implements Writable {
         switch (exportTable.getType()) {
             case OLAP:
                 fragment = new PlanFragment(
-                        new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.RANDOM);
+                    new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.RANDOM);
                 break;
             case ODBC:
             case MYSQL:
                 fragment = new PlanFragment(
-                        new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
+                    new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
                 break;
             default:
                 break;
@@ -489,8 +489,8 @@ public class ExportJob implements Writable {
             ScanNode scanNode = nodes.get(i);
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
-                    id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode),
-                    TimeUtils.DEFAULT_TIME_ZONE, true);
+                id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode),
+                TimeUtils.DEFAULT_TIME_ZONE, true);
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }
@@ -710,7 +710,7 @@ public class ExportJob implements Writable {
 
     public boolean isExpired(long curTime) {
         return (curTime - createTimeMs) / 1000 > Config.history_job_keep_max_second
-                && (state == ExportJob.JobState.CANCELLED || state == ExportJob.JobState.FINISHED);
+            && (state == ExportJob.JobState.CANCELLED || state == ExportJob.JobState.FINISHED);
     }
 
     public String getLabel() {
@@ -720,19 +720,19 @@ public class ExportJob implements Writable {
     @Override
     public String toString() {
         return "ExportJob [jobId=" + id
-                + ", label=" + label
-                + ", dbId=" + dbId
-                + ", tableId=" + tableId
-                + ", state=" + state
-                + ", path=" + exportPath
-                + ", partitions=(" + StringUtils.join(partitions, ",") + ")"
-                + ", progress=" + progress
-                + ", createTimeMs=" + TimeUtils.longToTimeString(createTimeMs)
-                + ", exportStartTimeMs=" + TimeUtils.longToTimeString(startTimeMs)
-                + ", exportFinishTimeMs=" + TimeUtils.longToTimeString(finishTimeMs)
-                + ", failMsg=" + failMsg
-                + ", files=(" + StringUtils.join(exportedFiles, ",") + ")"
-                + "]";
+            + ", label=" + label
+            + ", dbId=" + dbId
+            + ", tableId=" + tableId
+            + ", state=" + state
+            + ", path=" + exportPath
+            + ", partitions=(" + StringUtils.join(partitions, ",") + ")"
+            + ", progress=" + progress
+            + ", createTimeMs=" + TimeUtils.longToTimeString(createTimeMs)
+            + ", exportStartTimeMs=" + TimeUtils.longToTimeString(startTimeMs)
+            + ", exportFinishTimeMs=" + TimeUtils.longToTimeString(finishTimeMs)
+            + ", failMsg=" + failMsg
+            + ", files=(" + StringUtils.join(exportedFiles, ",") + ")"
+            + "]";
     }
 
     public static ExportJob read(DataInput in) throws IOException {
@@ -855,7 +855,7 @@ public class ExportJob implements Writable {
         }
         // parse the origin stmt to get where expr
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
-                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
+            Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         ExportStmt stmt = null;
         try {
             stmt = (ExportStmt) SqlParserUtils.getStmt(parser, origStmt.idx);

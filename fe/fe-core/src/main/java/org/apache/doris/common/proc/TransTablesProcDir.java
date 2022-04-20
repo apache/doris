@@ -31,9 +31,9 @@ import java.util.List;
 
 public class TransTablesProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TableId")
-            .add("CommittedPartitionIds")
-            .build();
+        .add("TableId")
+        .add("CommittedPartitionIds")
+        .build();
 
     private long dbId;
     private long txnId;

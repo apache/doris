@@ -213,12 +213,29 @@ public class SlotDescriptor {
         return slotOffset;
     }
 
-    public String getLabel() { return label; }
-    public void setLabel(String label) { this.label = label; }
-    public void setSourceExprs(List<Expr> exprs) { sourceExprs = exprs; }
-    public void setSourceExpr(Expr expr) { sourceExprs = Collections.singletonList(expr); }
-    public void addSourceExpr(Expr expr) { sourceExprs.add(expr); }
-    public List<Expr> getSourceExprs() { return sourceExprs; }
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public void setSourceExprs(List<Expr> exprs) {
+        sourceExprs = exprs;
+    }
+
+    public void setSourceExpr(Expr expr) {
+        sourceExprs = Collections.singletonList(expr);
+    }
+
+    public void addSourceExpr(Expr expr) {
+        sourceExprs.add(expr);
+    }
+
+    public List<Expr> getSourceExprs() {
+        return sourceExprs;
+    }
 
 
     /**
@@ -239,12 +256,24 @@ public class SlotDescriptor {
      * of the other descriptor, but not necessarily ids.
      */
     public boolean LayoutEquals(SlotDescriptor other) {
-        if (!getType().equals(other.getType())) return false;
-        if (isNullable != other.isNullable) return false;
-        if (getByteSize() != other.getByteSize()) return false;
-        if (getByteOffset() != other.getByteOffset()) return false;
-        if (getNullIndicatorByte() != other.getNullIndicatorByte()) return false;
-        if (getNullIndicatorBit() != other.getNullIndicatorBit()) return false;
+        if (!getType().equals(other.getType())) {
+            return false;
+        }
+        if (isNullable != other.isNullable) {
+            return false;
+        }
+        if (getByteSize() != other.getByteSize()) {
+            return false;
+        }
+        if (getByteOffset() != other.getByteOffset()) {
+            return false;
+        }
+        if (getNullIndicatorByte() != other.getNullIndicatorByte()) {
+            return false;
+        }
+        if (getNullIndicatorBit() != other.getNullIndicatorBit()) {
+            return false;
+        }
         return true;
     }
 
@@ -252,12 +281,12 @@ public class SlotDescriptor {
     public TSlotDescriptor toThrift() {
         if (originType != null) {
             return new TSlotDescriptor(id.asInt(), parent.getId().asInt(), originType.toThrift(), -1,
-                    byteOffset, nullIndicatorByte,
-                    nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
+                byteOffset, nullIndicatorByte,
+                nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
         } else {
             return new TSlotDescriptor(id.asInt(), parent.getId().asInt(), type.toThrift(), -1,
-                    byteOffset, nullIndicatorByte,
-                    nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
+                byteOffset, nullIndicatorByte,
+                nullIndicatorBit, ((column != null) ? column.getName() : ""), slotIdx, isMaterialized);
         }
     }
 
@@ -266,11 +295,11 @@ public class SlotDescriptor {
         String typeStr = (type == null ? "null" : type.toString());
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId)
-                .add("col", colStr).add("type", typeStr).add("materialized", isMaterialized)
-                .add("byteSize", byteSize).add("byteOffset", byteOffset)
-                .add("nullIndicatorByte", nullIndicatorByte)
-                .add("nullIndicatorBit", nullIndicatorBit)
-                .add("slotIdx", slotIdx).toString();
+            .add("col", colStr).add("type", typeStr).add("materialized", isMaterialized)
+            .add("byteSize", byteSize).add("byteOffset", byteOffset)
+            .add("nullIndicatorByte", nullIndicatorByte)
+            .add("nullIndicatorBit", nullIndicatorBit)
+            .add("slotIdx", slotIdx).toString();
     }
 
     @Override

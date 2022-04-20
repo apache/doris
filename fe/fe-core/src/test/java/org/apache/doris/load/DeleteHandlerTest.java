@@ -32,7 +32,6 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -53,12 +52,12 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.Collection;
 import java.util.List;
@@ -124,6 +123,7 @@ public class DeleteHandlerTest {
             @Mock
             public void logSaveTransactionId(long transactionId) {
             }
+
             @Mock
             public void logInsertTransactionState(TransactionState transactionState) {
             }
@@ -189,10 +189,10 @@ public class DeleteHandlerTest {
     @Test(expected = DdlException.class)
     public void testUnQuorumTimeout() throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
-                new IntLiteral(3));
+            new IntLiteral(3));
 
         DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
-                new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
+            new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         new Expectations(globalTransactionMgr) {
             {
@@ -215,10 +215,10 @@ public class DeleteHandlerTest {
     @Test
     public void testQuorumTimeout() throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
-                new IntLiteral(3));
+            new IntLiteral(3));
 
         DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
-                new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
+            new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
         finishedReplica.add(new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
@@ -236,7 +236,7 @@ public class DeleteHandlerTest {
         new MockUp<GlobalTransactionMgr>() {
             @Mock
             public TransactionState getTransactionState(long transactionId) {
-                TransactionState transactionState =  new TransactionState();
+                TransactionState transactionState = new TransactionState();
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 return transactionState;
             }
@@ -249,7 +249,7 @@ public class DeleteHandlerTest {
         }
         try {
             deleteHandler.process(deleteStmt);
-        }catch (QueryStateException e) {
+        } catch (QueryStateException e) {
         }
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
@@ -263,10 +263,10 @@ public class DeleteHandlerTest {
     @Test
     public void testNormalTimeout() throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
-                new IntLiteral(3));
+            new IntLiteral(3));
 
         DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
-                new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
+            new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
         finishedReplica.add(new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
@@ -285,7 +285,7 @@ public class DeleteHandlerTest {
         new MockUp<GlobalTransactionMgr>() {
             @Mock
             public TransactionState getTransactionState(long transactionId) {
-                TransactionState transactionState =  new TransactionState();
+                TransactionState transactionState = new TransactionState();
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 return transactionState;
             }
@@ -313,10 +313,10 @@ public class DeleteHandlerTest {
     @Test(expected = DdlException.class)
     public void testCommitFail(@Mocked MarkedCountDownLatch countDownLatch) throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
-                new IntLiteral(3));
+            new IntLiteral(3));
 
         DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
-                new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
+            new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
         finishedReplica.add(new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
@@ -345,7 +345,8 @@ public class DeleteHandlerTest {
         new Expectations(globalTransactionMgr) {
             {
                 try {
-                    globalTransactionMgr.commitTransaction(anyLong, (List<Table>) any, anyLong, (List<TabletCommitInfo>) any, (TxnCommitAttachment) any);
+                    globalTransactionMgr.commitTransaction(anyLong, (List<Table>) any, anyLong,
+                        (List<TabletCommitInfo>) any, (TxnCommitAttachment) any);
                 } catch (UserException e) {
                 }
                 result = new UserException("commit fail");
@@ -373,12 +374,13 @@ public class DeleteHandlerTest {
     }
 
     @Test
-    public void testPublishFail(@Mocked MarkedCountDownLatch countDownLatch, @Mocked AgentTaskExecutor taskExecutor) throws DdlException, QueryStateException {
+    public void testPublishFail(@Mocked MarkedCountDownLatch countDownLatch, @Mocked AgentTaskExecutor taskExecutor)
+        throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
-                new IntLiteral(3));
+            new IntLiteral(3));
 
         DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
-                new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
+            new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
         finishedReplica.add(new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
@@ -432,10 +434,10 @@ public class DeleteHandlerTest {
     @Test
     public void testNormal(@Mocked MarkedCountDownLatch countDownLatch) throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
-                new IntLiteral(3));
+            new IntLiteral(3));
 
         DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
-                new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
+            new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
 
         Set<Replica> finishedReplica = Sets.newHashSet();
         finishedReplica.add(new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));

@@ -80,7 +80,7 @@ public class RepositoryMgr extends Daemon implements Writable {
                 }
 
                 LOG.info("successfully adding repo {} to repository mgr. is replay: {}",
-                         repo.getName(), isReplay);
+                    repo.getName(), isReplay);
                 return Status.OK;
             }
             return new Status(ErrCode.COMMON_ERROR, "repository with same name already exist: " + repo.getName());

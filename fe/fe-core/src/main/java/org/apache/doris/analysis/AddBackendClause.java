@@ -96,7 +96,7 @@ public class AddBackendClause extends BackendClause {
 
     public boolean isFree() {
         return this.isFree;
-    } 
+    }
 
     public String getDestCluster() {
         return destCluster;

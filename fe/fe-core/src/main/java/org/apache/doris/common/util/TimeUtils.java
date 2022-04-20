@@ -55,37 +55,37 @@ public class TimeUtils {
 
     // set CST to +08:00 instead of America/Chicago
     public static final ImmutableMap<String, String> timeZoneAliasMap = ImmutableMap.of(
-            "CST", DEFAULT_TIME_ZONE, "PRC", DEFAULT_TIME_ZONE, "UTC", UTC_TIME_ZONE);
+        "CST", DEFAULT_TIME_ZONE, "PRC", DEFAULT_TIME_ZONE, "UTC", UTC_TIME_ZONE);
 
     // NOTICE: Date formats are not synchronized.
     // it must be used as synchronized externally.
     private static final SimpleDateFormat DATE_FORMAT;
     private static final SimpleDateFormat DATETIME_FORMAT;
     private static final SimpleDateFormat TIME_FORMAT;
-    
+
     private static final Pattern DATETIME_FORMAT_REG =
-            Pattern.compile("^((\\d{2}(([02468][048])|([13579][26]))[\\-\\/\\s]?((((0?[13578])|(1[02]))[\\-\\/\\s]?"
-                    + "((0?[1-9])|([1-2][0-9])|(3[01])))|(((0?[469])|(11))[\\-\\/\\s]?"
-                    + "((0?[1-9])|([1-2][0-9])|(30)))|(0?2[\\-\\/\\s]?((0?[1-9])|([1-2][0-9])))))|("
-                    + "\\d{2}(([02468][1235679])|([13579][01345789]))[\\-\\/\\s]?((((0?[13578])|(1[02]))"
-                    + "[\\-\\/\\s]?((0?[1-9])|([1-2][0-9])|(3[01])))|(((0?[469])|(11))[\\-\\/\\s]?"
-                    + "((0?[1-9])|([1-2][0-9])|(30)))|(0?2[\\-\\/\\s]?((0?[1-9])|(1[0-9])|(2[0-8]))))))"
-                    + "(\\s(((0?[0-9])|([1][0-9])|([2][0-3]))\\:([0-5]?[0-9])((\\s)|(\\:([0-5]?[0-9])))))?$");
-    
+        Pattern.compile("^((\\d{2}(([02468][048])|([13579][26]))[\\-\\/\\s]?((((0?[13578])|(1[02]))[\\-\\/\\s]?"
+            + "((0?[1-9])|([1-2][0-9])|(3[01])))|(((0?[469])|(11))[\\-\\/\\s]?"
+            + "((0?[1-9])|([1-2][0-9])|(30)))|(0?2[\\-\\/\\s]?((0?[1-9])|([1-2][0-9])))))|("
+            + "\\d{2}(([02468][1235679])|([13579][01345789]))[\\-\\/\\s]?((((0?[13578])|(1[02]))"
+            + "[\\-\\/\\s]?((0?[1-9])|([1-2][0-9])|(3[01])))|(((0?[469])|(11))[\\-\\/\\s]?"
+            + "((0?[1-9])|([1-2][0-9])|(30)))|(0?2[\\-\\/\\s]?((0?[1-9])|(1[0-9])|(2[0-8]))))))"
+            + "(\\s(((0?[0-9])|([1][0-9])|([2][0-3]))\\:([0-5]?[0-9])((\\s)|(\\:([0-5]?[0-9])))))?$");
+
     private static final Pattern TIMEZONE_OFFSET_FORMAT_REG = Pattern.compile("^[+-]?\\d{1,2}:\\d{2}$");
 
     public static Date MIN_DATE = null;
     public static Date MAX_DATE = null;
-    
+
     public static Date MIN_DATETIME = null;
     public static Date MAX_DATETIME = null;
 
     private static ThreadLocal<SimpleDateFormat> datetimeFormatThreadLocal =
-            ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
+        ThreadLocal.withInitial(() -> new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
 
     static {
         TIME_ZONE = new SimpleTimeZone(8 * 3600 * 1000, "");
-        
+
         DATE_FORMAT = new SimpleDateFormat("yyyy-MM-dd");
         DATE_FORMAT.setTimeZone(TIME_ZONE);
 
@@ -107,15 +107,15 @@ public class TimeUtils {
             System.exit(-1);
         }
     }
-    
+
     public static long getStartTime() {
         return System.nanoTime();
     }
-    
+
     public static long getEstimatedTime(long startTime) {
         return System.nanoTime() - startTime;
     }
-    
+
     public static synchronized String getCurrentFormatTime() {
         return DATETIME_FORMAT.format(new Date());
     }
@@ -142,7 +142,7 @@ public class TimeUtils {
         }
         return TimeZone.getTimeZone(ZoneId.of(timeZone, timeZoneAliasMap));
     }
-    
+
     public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {
         if (timeStamp <= 0L) {
             return FeConstants.null_string;
@@ -156,7 +156,7 @@ public class TimeUtils {
         datetimeFormatTimeZone.setTimeZone(timeZone);
         return longToTimeString(timeStamp, datetimeFormatTimeZone);
     }
-    
+
     public static synchronized Date getTimeAsDate(String timeString) {
         try {
             Date date = TIME_FORMAT.parse(timeString);
@@ -248,8 +248,8 @@ public class TimeUtils {
             if (match) {
                 boolean positive = value.charAt(0) != '-';
                 value = (positive ? "+" : "-") + String.format("%02d:%02d",
-                        Integer.parseInt(value.replaceAll("[+-]", "").split(":")[0]),
-                        Integer.parseInt(value.replaceAll("[+-]", "").split(":")[1]));
+                    Integer.parseInt(value.replaceAll("[+-]", "").split(":")[0]),
+                    Integer.parseInt(value.replaceAll("[+-]", "").split(":")[1]));
 
                 // timezone offsets around the world extended from -12:00 to +14:00
                 int tz = Integer.parseInt(value.substring(1, 3)) * 100 + Integer.parseInt(value.substring(4, 6));

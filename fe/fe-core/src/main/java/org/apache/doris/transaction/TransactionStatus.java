@@ -24,17 +24,17 @@ public enum TransactionStatus {
     VISIBLE(3),
     ABORTED(4),
     PRECOMMITTED(5);
-    
+
     private final int flag;
-    
+
     private TransactionStatus(int flag) {
         this.flag = flag;
     }
-    
+
     public int value() {
         return flag;
     }
-    
+
     public static TransactionStatus valueOf(int flag) {
         switch (flag) {
             case 0:
@@ -53,7 +53,7 @@ public enum TransactionStatus {
                 return null;
         }
     }
-    
+
     public boolean isFinalStatus() {
         return this == TransactionStatus.VISIBLE || this == TransactionStatus.ABORTED;
     }

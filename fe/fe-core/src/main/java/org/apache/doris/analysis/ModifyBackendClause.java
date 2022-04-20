@@ -45,9 +45,9 @@ public class ModifyBackendClause extends BackendClause {
         super.analyze(analyzer);
         tag = PropertyAnalyzer.analyzeBackendTagProperties(properties, null);
         isQueryDisabled = PropertyAnalyzer.analyzeBackendDisableProperties(properties,
-                PropertyAnalyzer.PROPERTIES_DISABLE_QUERY, null);
+            PropertyAnalyzer.PROPERTIES_DISABLE_QUERY, null);
         isLoadDisabled = PropertyAnalyzer.analyzeBackendDisableProperties(properties,
-                PropertyAnalyzer.PROPERTIES_DISABLE_LOAD, null);
+            PropertyAnalyzer.PROPERTIES_DISABLE_LOAD, null);
         if (tag != null) {
             analyzedProperties.put(tag.type, tag.value);
         }
@@ -59,7 +59,7 @@ public class ModifyBackendClause extends BackendClause {
         }
         if (!properties.isEmpty()) {
             throw new AnalysisException("unknown properties setting for key ("
-                    + StringUtils.join(properties.keySet(), ",") + ")");
+                + StringUtils.join(properties.keySet(), ",") + ")");
         }
     }
 

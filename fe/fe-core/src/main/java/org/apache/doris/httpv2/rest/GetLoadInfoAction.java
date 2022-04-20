@@ -25,13 +25,13 @@ import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
-
-import com.google.common.base.Strings;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -58,16 +58,16 @@ public class GetLoadInfoAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_load_info", method = RequestMethod.GET)
     public Object execute(
-            @PathVariable(value = DB_KEY) final String dbName,
-            HttpServletRequest request, HttpServletResponse response) {
+        @PathVariable(value = DB_KEY) final String dbName,
+        HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
 
         this.catalog = Catalog.getCurrentCatalog();
         String fullDbName = getFullDbName(dbName);
 
         Load.JobInfo info = new Load.JobInfo(fullDbName,
-                request.getParameter(LABEL_KEY),
-                ConnectContext.get().getClusterName());
+            request.getParameter(LABEL_KEY),
+            ConnectContext.get().getClusterName());
         if (Strings.isNullOrEmpty(info.dbName)) {
             return new RestBaseResult("No database selected");
         }
@@ -90,7 +90,7 @@ public class GetLoadInfoAction extends RestBaseController {
             } else {
                 for (String tblName : info.tblNames) {
                     checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), info.dbName, tblName,
-                            PrivPredicate.LOAD);
+                        PrivPredicate.LOAD);
                 }
             }
         } catch (DdlException | MetaNotFoundException e) {

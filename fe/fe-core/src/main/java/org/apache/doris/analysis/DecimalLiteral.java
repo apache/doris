@@ -165,7 +165,7 @@ public class DecimalLiteral extends LiteralExpr {
                 return this.compareLiteral(decimalLiteral);
             } catch (AnalysisException e) {
                 throw new ClassCastException("Those two values cannot be compared: " + value
-                        + " and " + expr.toSqlImpl());
+                    + " and " + expr.toSqlImpl());
             }
         }
     }

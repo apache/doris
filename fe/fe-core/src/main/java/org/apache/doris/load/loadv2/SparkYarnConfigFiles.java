@@ -19,6 +19,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -34,6 +35,7 @@ import java.io.File;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.OutputKeys;
@@ -74,9 +76,9 @@ public class SparkYarnConfigFiles {
     private void createConfigFiles(Map<String, String> properties) {
         LOG.info("create config file, properties size: {}", properties.size());
         configFiles.add(new XMLConfigFile(configDir + "/" + HADOOP_CONF_FILE,
-                getPropertiesByPrefix(properties, HADOOP_PREFIX)));
+            getPropertiesByPrefix(properties, HADOOP_PREFIX)));
         configFiles.add(new XMLConfigFile(configDir + "/" + YARN_CONF_FILE,
-                getPropertiesByPrefix(properties, YARN_PREFIX)));
+            getPropertiesByPrefix(properties, YARN_PREFIX)));
     }
 
     public void prepare() throws LoadException {
@@ -89,7 +91,8 @@ public class SparkYarnConfigFiles {
 
         boolean needUpdate = false;
         boolean needReplace = false;
-        CHECK: {
+        CHECK:
+        {
             if (!checkConfigDirExists(this.configDir)) {
                 needUpdate = true;
                 break CHECK;
@@ -109,7 +112,7 @@ public class SparkYarnConfigFiles {
             updateConfig(needReplace);
         }
         LOG.info("init spark yarn config success, config dir={}, config file size={}",
-                configDir, configFiles.size());
+            configDir, configFiles.size());
     }
 
     private boolean checkConfigDirExists(String dir) {
@@ -231,8 +234,8 @@ public class SparkYarnConfigFiles {
 
         private Node appendNode(Node parent, String tag, String content) {
             Element child = null;
-            if (parent instanceof  Document) {
-                child = ((Document)parent).createElement(tag);
+            if (parent instanceof Document) {
+                child = ((Document) parent).createElement(tag);
             } else {
                 child = parent.getOwnerDocument().createElement(tag);
             }

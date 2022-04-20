@@ -22,17 +22,17 @@ import org.apache.doris.common.util.Daemon;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardWatchEventKinds;
 import java.nio.file.WatchEvent;
+import java.nio.file.WatchEvent.Kind;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
-import java.nio.file.WatchEvent.Kind;
 
 /*
  * used for watch config changed
@@ -54,8 +54,8 @@ public class ConfigWatcher extends Daemon {
         try {
             WatchService watchService = FileSystems.getDefault().newWatchService();
             configPath.register(watchService, StandardWatchEventKinds.ENTRY_CREATE,
-                                StandardWatchEventKinds.ENTRY_MODIFY,
-                                StandardWatchEventKinds.ENTRY_DELETE);
+                StandardWatchEventKinds.ENTRY_MODIFY,
+                StandardWatchEventKinds.ENTRY_DELETE);
             // start an infinite loop
             while (true) {
                 // retrieve and remove the next watch key
@@ -67,11 +67,11 @@ public class ConfigWatcher extends Daemon {
                     if (kind == StandardWatchEventKinds.OVERFLOW) {
                         continue;
                     }
-                    
+
                     final WatchEvent<Path> watchEventPath = (WatchEvent<Path>) watchEvent;
                     final Path filePath = watchEventPath.context();
                     LOG.info("config watcher [" + kind + " -> " + filePath + "]");
-                    
+
                     if (kind == StandardWatchEventKinds.ENTRY_CREATE) {
                         handleCreate(filePath);
                     } else if (kind == StandardWatchEventKinds.ENTRY_MODIFY) {

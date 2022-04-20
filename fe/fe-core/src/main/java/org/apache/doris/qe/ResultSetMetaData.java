@@ -29,18 +29,21 @@ public interface ResultSetMetaData {
 
     /**
      * Whats the number of columns in the ResultSet?
+     *
      * @return the number
      */
     int getColumnCount();
 
     /**
      * Get all columns
+     *
      * @return all the columns as list
      */
     List<Column> getColumns();
 
     /**
      * Get a column at some index
+     *
      * @param idx the index of column
      * @return column data
      */
@@ -48,6 +51,7 @@ public interface ResultSetMetaData {
 
     /**
      * Remove a column at some index
+     *
      * @param idx the index of column
      * @return column data
      */

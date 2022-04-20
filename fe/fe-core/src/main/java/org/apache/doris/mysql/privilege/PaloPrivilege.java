@@ -33,26 +33,26 @@ public enum PaloPrivilege {
     USAGE_PRIV("Usage_priv", 8, "Privilege for using resource");
 
     public static PaloPrivilege[] privileges = {
-            NODE_PRIV,
-            ADMIN_PRIV,
-            GRANT_PRIV,
-            SELECT_PRIV,
-            LOAD_PRIV,
-            ALTER_PRIV,
-            CREATE_PRIV,
-            DROP_PRIV,
-            USAGE_PRIV
+        NODE_PRIV,
+        ADMIN_PRIV,
+        GRANT_PRIV,
+        SELECT_PRIV,
+        LOAD_PRIV,
+        ALTER_PRIV,
+        CREATE_PRIV,
+        DROP_PRIV,
+        USAGE_PRIV
     };
 
     public static Map<PaloPrivilege, String> privInPaloToMysql =
         ImmutableMap.<PaloPrivilege, String>builder() // No NODE_PRIV and ADMIN_PRIV in the mysql
-                .put(SELECT_PRIV, "SELECT")
-                .put(LOAD_PRIV, "INSERT")
-                .put(ALTER_PRIV, "ALTER")
-                .put(CREATE_PRIV, "CREATE")
-                .put(DROP_PRIV, "DROP")
-                .put(USAGE_PRIV, "USAGE")
-                .build();
+            .put(SELECT_PRIV, "SELECT")
+            .put(LOAD_PRIV, "INSERT")
+            .put(ALTER_PRIV, "ALTER")
+            .put(CREATE_PRIV, "CREATE")
+            .put(DROP_PRIV, "DROP")
+            .put(USAGE_PRIV, "USAGE")
+            .build();
 
     private String name;
     private int idx;

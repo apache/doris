@@ -28,7 +28,7 @@ public class MysqlPasswordTest {
     @Test
     public void testMakePassword() {
         Assert.assertEquals("*6C8989366EAF75BB670AD8EA7A7FC1176A95CEF4",
-                new String(MysqlPassword.makeScrambledPassword("mypass")));
+            new String(MysqlPassword.makeScrambledPassword("mypass")));
 
         Assert.assertEquals("", new String(MysqlPassword.makeScrambledPassword("")));
 
@@ -36,10 +36,10 @@ public class MysqlPasswordTest {
         Assert.assertEquals("", new String(MysqlPassword.makeScrambledPassword(null)));
 
         Assert.assertEquals("*9A6EC51164108A8D3DA3BE3F35A56F6499B6FC32",
-                new String(MysqlPassword.makeScrambledPassword("aBc@321")));
+            new String(MysqlPassword.makeScrambledPassword("aBc@321")));
 
         Assert.assertEquals(new String(new byte[0]),
-                new String(MysqlPassword.getSaltFromPassword(new byte[0])));
+            new String(MysqlPassword.getSaltFromPassword(new byte[0])));
 
     }
 
@@ -50,18 +50,18 @@ public class MysqlPasswordTest {
         byte[] codePass = MysqlPassword.scramble(publicSeed, "mypass");
 
         Assert.assertTrue(MysqlPassword.checkScramble(codePass,
-                publicSeed,
-                MysqlPassword.getSaltFromPassword("*6C8989366EAF75BB670AD8EA7A7FC1176A95CEF4".getBytes("UTF-8"))));
+            publicSeed,
+            MysqlPassword.getSaltFromPassword("*6C8989366EAF75BB670AD8EA7A7FC1176A95CEF4".getBytes("UTF-8"))));
 
         Assert.assertFalse(MysqlPassword.checkScramble(codePass,
-                publicSeed,
-                MysqlPassword.getSaltFromPassword("*9A6EC51164108A8D3DA3BE3F35A56F6499B6FC32".getBytes("UTF-8"))));
+            publicSeed,
+            MysqlPassword.getSaltFromPassword("*9A6EC51164108A8D3DA3BE3F35A56F6499B6FC32".getBytes("UTF-8"))));
     }
 
     @Test
     public void testCheckPassword() throws AnalysisException {
         Assert.assertEquals("*9A6EC51164108A8D3DA3BE3F35A56F6499B6FC32",
-                new String(MysqlPassword.checkPassword("*9A6EC51164108A8D3DA3BE3F35A56F6499B6FC32")));
+            new String(MysqlPassword.checkPassword("*9A6EC51164108A8D3DA3BE3F35A56F6499B6FC32")));
 
         Assert.assertEquals("", new String(MysqlPassword.checkPassword(null)));
     }

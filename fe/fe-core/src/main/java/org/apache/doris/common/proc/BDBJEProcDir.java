@@ -29,9 +29,9 @@ import java.util.Map;
 import java.util.TreeMap;
 
 // SHOW PROC "/bdbje"
-public class BDBJEProcDir implements ProcDirInterface  {
+public class BDBJEProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("DbNames").add("JournalNumber").add("Comment").build();
+        .add("DbNames").add("JournalNumber").add("Comment").build();
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {

@@ -25,6 +25,7 @@ import java.util.concurrent.Callable;
 /**
  * The StatisticsTask belongs to one StatisticsJob.
  * A job may be split into multiple tasks but a task can only belong to one job.
+ *
  * @granularityDesc, @categoryDesc, @statsTypeList
  * These three attributes indicate which statistics this task is responsible for collecting.
  * In general, a task will collect more than one @StatsType at the same time
@@ -33,7 +34,7 @@ import java.util.concurrent.Callable;
  * @granularityDesc: StatsGranularity=partition
  */
 public class StatisticsTask implements Callable<StatisticsTaskResult> {
-    protected long id = Catalog.getCurrentCatalog().getNextId();;
+    protected long id = Catalog.getCurrentCatalog().getNextId();
     protected long jobId;
     protected StatsGranularityDesc granularityDesc;
     protected StatsCategoryDesc categoryDesc;

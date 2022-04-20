@@ -20,6 +20,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.mysql.MysqlServer;
 import org.apache.doris.qe.ConnectScheduler;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.xnio.OptionMap;
@@ -46,14 +47,16 @@ public class NMysqlServer extends MysqlServer {
     private AcceptingChannel<StreamConnection> server;
 
     // default task service.
-    private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_mysql_service_task_threads_num, "doris-mysql-nio-pool", true);
+    private ExecutorService taskService =
+        ThreadPoolManager.newDaemonCacheThreadPool(Config.max_mysql_service_task_threads_num, "doris-mysql-nio-pool",
+            true);
 
     public NMysqlServer(int port, ConnectScheduler connectScheduler) {
         this.port = port;
         this.xnioWorker = Xnio.getInstance().createWorkerBuilder()
-                .setWorkerName("doris-mysql-nio")
-                .setWorkerIoThreads(Config.mysql_service_io_threads_num)
-                .setExternalExecutorService(taskService).build();
+            .setWorkerName("doris-mysql-nio")
+            .setWorkerIoThreads(Config.mysql_service_io_threads_num)
+            .setExternalExecutorService(taskService).build();
         // connectScheduler only used for idle check.
         this.acceptListener = new AcceptListener(connectScheduler);
     }
@@ -64,7 +67,8 @@ public class NMysqlServer extends MysqlServer {
     public boolean start() {
         try {
             server = xnioWorker.createStreamConnectionServer(new InetSocketAddress(port),
-                    acceptListener, OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
+                acceptListener,
+                OptionMap.create(Options.TCP_NODELAY, true, Options.BACKLOG, Config.mysql_nio_backlog_num));
             server.resumeAccepts();
             running = true;
             LOG.info("Open mysql server success on {}", port);

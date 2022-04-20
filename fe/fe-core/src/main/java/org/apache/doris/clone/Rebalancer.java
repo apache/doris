@@ -26,8 +26,8 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 
 import java.util.List;
@@ -73,10 +73,10 @@ public abstract class Rebalancer {
     // The returned TabletSchedCtx should have the tablet id at least. {srcReplica, destBe} can be complete here or
     // later(when createBalanceTask called).
     protected abstract List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            ClusterLoadStatistic clusterStat, TStorageMedium medium);
+        ClusterLoadStatistic clusterStat, TStorageMedium medium);
 
     public AgentTask createBalanceTask(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
-            throws SchedException {
+        throws SchedException {
         completeSchedCtx(tabletCtx, backendsWorkingSlots);
         if (tabletCtx.getBalanceType() == TabletSchedCtx.BalanceType.BE_BALANCE) {
             return tabletCtx.createCloneReplicaAndTask();
@@ -92,7 +92,7 @@ public abstract class Rebalancer {
     // 2. If you want to generate {srcReplica, destBe} here, just do it.
     // 3. You should check the path slots of src & dest.
     protected abstract void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
-            throws SchedException;
+        throws SchedException;
 
     public Long getToDeleteReplicaId(TabletSchedCtx tabletCtx) {
         return -1L;

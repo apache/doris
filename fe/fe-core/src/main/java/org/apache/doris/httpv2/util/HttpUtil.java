@@ -29,8 +29,8 @@ import static org.springframework.http.HttpHeaders.CONNECTION;
 public class HttpUtil {
     public static boolean isKeepAlive(HttpServletRequest request) {
         if (!request.getHeader(CONNECTION).equals("close") &&
-                (request.getProtocol().equals("") ||
-                        request.getHeader(CONNECTION).equals("keep-alive"))) {
+            (request.getProtocol().equals("") ||
+                request.getHeader(CONNECTION).equals("keep-alive"))) {
             return true;
         }
         return false;
@@ -51,10 +51,10 @@ public class HttpUtil {
         BufferedReader reader = null;
         try {
             reader = request.getReader();
-            while (null != (line = reader.readLine()))
+            while (null != (line = reader.readLine())) {
                 data.append(new String(line.getBytes("utf-8")));
+            }
         } catch (IOException e) {
-        } finally {
         }
         return data.toString();
     }

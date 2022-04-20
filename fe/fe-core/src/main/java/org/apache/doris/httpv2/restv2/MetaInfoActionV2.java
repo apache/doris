@@ -50,7 +50,6 @@ import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
 import lombok.Getter;
 import lombok.Setter;
 
@@ -71,21 +70,21 @@ public class MetaInfoActionV2 extends RestBaseController {
     /**
      * Get all databases
      * {
-     * 	"msg": "success",
-     * 	"code": 0,
-     * 	"data": [
-     * 		"default_cluster:db1",
-     * 		"default_cluster:doris_audit_db__",
-     * 		"default_cluster:information_schema"
-     * 	],
-     * 	"count": 0
+     * "msg": "success",
+     * "code": 0,
+     * "data": [
+     * "default_cluster:db1",
+     * "default_cluster:doris_audit_db__",
+     * "default_cluster:information_schema"
+     * ],
+     * "count": 0
      * }
      */
     @RequestMapping(path = "/api/meta/" + NAMESPACES + "/{" + NS_KEY + "}/" + DATABASES,
-            method = {RequestMethod.GET})
+        method = {RequestMethod.GET})
     public Object getAllDatabases(
-            @PathVariable(value = NS_KEY) String ns,
-            HttpServletRequest request, HttpServletResponse response) {
+        @PathVariable(value = NS_KEY) String ns,
+        HttpServletRequest request, HttpServletResponse response) {
         checkWithCookie(request, response, false);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -103,7 +102,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), fullName,
-                    PrivPredicate.SHOW)) {
+                PrivPredicate.SHOW)) {
                 continue;
             }
             dbNameSet.add(db);
@@ -116,23 +115,24 @@ public class MetaInfoActionV2 extends RestBaseController {
         return ResponseEntityBuilder.ok(dbNames.subList(fromToIndex.first, fromToIndex.second));
     }
 
-    /** Get all tables of a database
+    /**
+     * Get all tables of a database
      * {
-     * 	"msg": "success",
-     * 	"code": 0,
-     * 	"data": [
-     * 		"tbl1",
-     * 		"tbl2"
-     * 	],
-     * 	"count": 0
+     * "msg": "success",
+     * "code": 0,
+     * "data": [
+     * "tbl1",
+     * "tbl2"
+     * ],
+     * "count": 0
      * }
      */
 
     @RequestMapping(path = "/api/meta/" + NAMESPACES + "/{" + NS_KEY + "}/" + DATABASES + "/{" + DB_KEY + "}/" + TABLES,
-            method = {RequestMethod.GET})
+        method = {RequestMethod.GET})
     public Object getTables(
-            @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
-            HttpServletRequest request, HttpServletResponse response) {
+        @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
+        HttpServletRequest request, HttpServletResponse response) {
         checkWithCookie(request, response, false);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -152,7 +152,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         try {
             for (Table tbl : db.getTables()) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
-                        PrivPredicate.SHOW)) {
+                    PrivPredicate.SHOW)) {
                     continue;
                 }
                 tblNames.add(tbl.getName());
@@ -170,38 +170,38 @@ public class MetaInfoActionV2 extends RestBaseController {
 
     /**
      * {
-     *     "msg": "success",
-     *     "code": 0,
-     *     "data": {
-     *         "engineType": "OLAP",
-     *         "schemaInfo": {
-     *             "schemaMap": {
-     *                 "tbl1": {
-     *                     "schema": {
-     *                         "field": "k2",
-     *                         "type": "INT",
-     *                         "isNull": "true",
-     *                         "defaultVal": null,
-     *                         "key": "true",
-     *                         "aggrType": "None",
-     *                         "comment": ""
-     *                     },
-     *                     "keyType": "DUP_KEYS",
-     *                     "baseIndex": true
-     *                 }
-     *             }
-     *         }
-     *     },
-     *     "count": 0
+     * "msg": "success",
+     * "code": 0,
+     * "data": {
+     * "engineType": "OLAP",
+     * "schemaInfo": {
+     * "schemaMap": {
+     * "tbl1": {
+     * "schema": {
+     * "field": "k2",
+     * "type": "INT",
+     * "isNull": "true",
+     * "defaultVal": null,
+     * "key": "true",
+     * "aggrType": "None",
+     * "comment": ""
+     * },
+     * "keyType": "DUP_KEYS",
+     * "baseIndex": true
+     * }
+     * }
+     * }
+     * },
+     * "count": 0
      * }
      */
     @RequestMapping(path = "/api/meta/" + NAMESPACES + "/{" + NS_KEY + "}/" + DATABASES + "/{" + DB_KEY + "}/" + TABLES
-            + "/{" + TABLE_KEY + "}/schema",
-            method = {RequestMethod.GET})
+        + "/{" + TABLE_KEY + "}/schema",
+        method = {RequestMethod.GET})
     public Object getTableSchema(
-            @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
-            @PathVariable(value = TABLE_KEY) String tblName,
-            HttpServletRequest request, HttpServletResponse response) throws UserException {
+        @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
+        @PathVariable(value = TABLE_KEY) String tblName,
+        HttpServletRequest request, HttpServletResponse response) throws UserException {
         checkWithCookie(request, response, false);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -277,7 +277,7 @@ public class MetaInfoActionV2 extends RestBaseController {
             schema.setDefaultVal(column.getDefaultValue());
             schema.setKey(String.valueOf(column.isKey()));
             schema.setAggrType(column.getAggregationType() == null ?
-                    "None" : column.getAggregationType().toString());
+                "None" : column.getAggregationType().toString());
             schema.setComment(column.getComment());
         }
         return schema;
@@ -294,7 +294,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         propMap.put("isBase", isBaseIndex);
         propMap.put("tableType", tbl.getEngine());
         if (tbl.getType() == Table.TableType.OLAP) {
-            propMap.put("keyType", ((OlapTable)tbl).getKeysType());
+            propMap.put("keyType", ((OlapTable) tbl).getKeysType());
         }
         propMap.put("schema", generateSchema(tbl.getBaseSchema()));
     }

@@ -41,13 +41,13 @@ import java.util.stream.Collectors;
  * When the table name and specified partitions in the two DataDescriptors are same,
  * the BrokerFileGroup information corresponding to the two DataDescriptors will be aggregated together.
  * eg1：
- * 
+ *
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
  *  INTO TABLE `tbl1`
  *  PARTITION (p1, p2)
- * 
+ *
  *  and
- * 
+ *
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
  *  INTO TABLE `tbl1`
  *  PARTITION (p1, p2)
@@ -55,65 +55,65 @@ import java.util.stream.Collectors;
  *  will be aggregated together, because they have same table name and specified partitions
  *  =>
  *  FileGroupAggKey(tbl1, [p1, p2]) => List(file1, file2);
- * 
+ *
  * eg2:
- * 
+ *
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
  *  INTO TABLE `tbl1`
  *  PARTITION (p1)
- * 
+ *
  *  and
- * 
+ *
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
  *  INTO TABLE `tbl1`
  *  PARTITION (p2)
- * 
+ *
  *  will NOT be aggregated together, because they have same table name but different specified partitions
  *  FileGroupAggKey(tbl1, [p1]) => List(file1);
  *  FileGroupAggKey(tbl1, [p2]) => List(file2);
- * 
+ *
  * eg3:
- * 
+ *
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
  *  INTO TABLE `tbl1`
  *  PARTITION (p1, p2)
- * 
+ *
  *  and
- * 
+ *
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
  *  INTO TABLE `tbl1`
  *  PARTITION (p2, p3)
- * 
+ *
  *  will throw an Exception, because there is an overlap partition(p2) between 2 data descriptions. And we
  *  currently not allow this. You can equal the data descriptions like this:
- *  
+ *
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
  *  INTO TABLE `tbl1`
  *  PARTITION (p1)
- * 
+ *
  *  and
- * 
+ *
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
  *  INTO TABLE `tbl1`
- *  PARTITION (p3) 
- *  
+ *  PARTITION (p3)
+ *
  *  and
- * 
+ *
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
  *  INTO TABLE `tbl1`
- *  PARTITION (p2) 
- *  
+ *  PARTITION (p2)
+ *
  *  and
- *  
+ *
  *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
  *  INTO TABLE `tbl1`
  *  PARTITION (p2)
- *  
+ *
  *  they will be aggregate like:
  *  FileGroupAggKey(tbl1, [p1]) => List(file1);
  *  FileGroupAggKey(tbl1, [p3]) => List(file2);
  *  FileGroupAggKey(tbl1, [p2]) => List(file1, file2);
- *  
+ *
  *  Although this transformation can be done automatically by system, but it change the "max_filter_ratio".
  *  So we have to let user decide what to do.
  */
@@ -179,10 +179,12 @@ public class BrokerFileGroupAggInfo implements Writable {
         if (fileGroupList == null) {
             // check if there are overlapping partitions of same table
             if (tableIdToPartitionIds.containsKey(fileGroup.getTableId())
-                    && tableIdToPartitionIds.get(fileGroup.getTableId()).stream().anyMatch(id -> fileGroup.getPartitionIds().contains(id))) {
-                throw new DdlException("There are overlapping partitions of same table in data description of load job stmt");
+                && tableIdToPartitionIds.get(fileGroup.getTableId()).stream()
+                .anyMatch(id -> fileGroup.getPartitionIds().contains(id))) {
+                throw new DdlException(
+                    "There are overlapping partitions of same table in data description of load job stmt");
             }
-            
+
             fileGroupList = Lists.newArrayList();
             aggKeyToFileGroups.put(fileGroupAggKey, fileGroupList);
         }

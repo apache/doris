@@ -68,13 +68,13 @@ public class GroupingFunctionCallExpr extends FunctionCallExpr {
             if (expr instanceof SlotRef) {
                 continue;
             } else {
-               // throw new AnalysisException("GROUPING functions required columns as parameters");
+                // throw new AnalysisException("GROUPING functions required columns as parameters");
             }
         }
         Type[] childTypes = new Type[1];
         childTypes[0] = Type.BIGINT;
         fn = getBuiltinFunction(analyzer, getFnName().getFunction(), childTypes,
-                Function.CompareMode.IS_IDENTICAL);
+            Function.CompareMode.IS_IDENTICAL);
         this.type = fn.getReturnType();
     }
 

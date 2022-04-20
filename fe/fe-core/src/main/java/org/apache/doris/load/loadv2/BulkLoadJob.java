@@ -46,10 +46,6 @@ import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -97,7 +93,8 @@ public abstract class BulkLoadJob extends LoadJob {
         super(jobType);
     }
 
-    public BulkLoadJob(EtlJobType jobType, long dbId, String label, OriginStatement originStmt, UserIdentity userInfo) throws MetaNotFoundException {
+    public BulkLoadJob(EtlJobType jobType, long dbId, String label, OriginStatement originStmt, UserIdentity userInfo)
+        throws MetaNotFoundException {
         super(jobType, dbId, label);
         this.originStmt = originStmt;
         this.authorizationInfo = gatherAuthInfo();
@@ -122,11 +119,11 @@ public abstract class BulkLoadJob extends LoadJob {
             switch (stmt.getEtlJobType()) {
                 case BROKER:
                     bulkLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                            stmt.getBrokerDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
+                        stmt.getBrokerDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
                     break;
                 case SPARK:
                     bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                            stmt.getResourceDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
+                        stmt.getResourceDesc(), stmt.getOrigStmt(), stmt.getUserInfo());
                     break;
                 case MINI:
                 case DELETE:
@@ -174,8 +171,8 @@ public abstract class BulkLoadJob extends LoadJob {
     public Set<String> getTableNamesForShow() {
         Optional<Database> db = Catalog.getCurrentCatalog().getDb(dbId);
         return fileGroupAggInfo.getAllTableIds().stream()
-                .map(tableId -> db.flatMap(d -> d.getTable(tableId)).map(Table::getName).orElse(String.valueOf(tableId)))
-                .collect(Collectors.toSet());
+            .map(tableId -> db.flatMap(d -> d.getTable(tableId)).map(Table::getName).orElse(String.valueOf(tableId)))
+            .collect(Collectors.toSet());
     }
 
     @Override
@@ -199,9 +196,9 @@ public abstract class BulkLoadJob extends LoadJob {
             // check if job has been completed
             if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                        .add("state", state)
-                        .add("error_msg", "this task will be ignored when job is: " + state)
-                        .build());
+                    .add("state", state)
+                    .add("error_msg", "this task will be ignored when job is: " + state)
+                    .build());
                 return;
             }
             LoadTask loadTask = idToTasks.get(taskId);
@@ -259,7 +256,7 @@ public abstract class BulkLoadJob extends LoadJob {
         // Reset dataSourceInfo, it will be re-created in analyze
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt.originStmt),
-                Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
+            Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         LoadStmt stmt;
         try {
             Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbId);
@@ -270,10 +267,10 @@ public abstract class BulkLoadJob extends LoadJob {
             checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
         } catch (Exception e) {
             LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("origin_stmt", originStmt)
-                    .add("msg", "The failure happens in analyze, the load job will be cancelled with error:"
-                            + e.getMessage())
-                    .build(), e);
+                .add("origin_stmt", originStmt)
+                .add("msg", "The failure happens in analyze, the load job will be cancelled with error:"
+                    + e.getMessage())
+                .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), false, true);
         }
     }
@@ -339,7 +336,8 @@ public abstract class BulkLoadJob extends LoadJob {
             }
             String filePathListName = StringUtils.join(filePathList, ",");
             String brokerUserName = getBrokerUserName();
-            AuditEvent auditEvent = new LoadAuditEvent.AuditEventBuilder().setEventType(AuditEvent.EventType.LOAD_SUCCEED)
+            AuditEvent auditEvent =
+                new LoadAuditEvent.AuditEventBuilder().setEventType(AuditEvent.EventType.LOAD_SUCCEED)
                     .setJobId(id).setLabel(label).setLoadType(jobType.name()).setDb(dbName).setTableList(tableListName)
                     .setFilePathList(filePathListName).setBrokerUser(brokerUserName).setTimestamp(createTimestamp)
                     .setLoadStartTime(loadStartTimestamp).setLoadFinishTime(finishTimestamp)

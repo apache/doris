@@ -78,7 +78,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                 for (BrokerFileGroup fileGroup : fileGroups) {
                     if (fileGroup.getFilePaths().size() != fileGroup.getFileSize().size()) {
                         LOG.warn("Cannot get file size, file path count {}, file size count {}",
-                                fileGroup.getFilePaths().size(), fileGroup.getFileSize().size());
+                            fileGroup.getFilePaths().size(), fileGroup.getFileSize().size());
                         throw new AnalysisException("Cannot get file size.");
                     }
                     List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
@@ -86,7 +86,7 @@ public class BrokerLoadPendingTask extends LoadTask {
                     for (int i = 0; i < fileGroup.getFilePaths().size(); i++) {
                         tableTotalFileSize += fileGroup.getFileSize().get(i);
                         TBrokerFileStatus fileStatus = new TBrokerFileStatus(fileGroup.getFilePaths().get(i),
-                                false, fileGroup.getFileSize().get(i), false);
+                            false, fileGroup.getFileSize().get(i), false);
                         fileStatuses.add(fileStatus);
                     }
                     fileStatusList.add(fileStatuses);
@@ -106,14 +106,14 @@ public class BrokerLoadPendingTask extends LoadTask {
                             // Because we can not read an empty parquet or orc file.
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                        .add("empty file", fstatus).build());
+                                    .add("empty file", fstatus).build());
                             }
                         } else {
                             groupFileSize += fstatus.size;
                             filteredFileStatuses.add(fstatus);
                             if (LOG.isDebugEnabled()) {
                                 LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
-                                        .add("file_status", fstatus).build());
+                                    .add("file_status", fstatus).build());
                             }
                         }
                     }
@@ -121,10 +121,10 @@ public class BrokerLoadPendingTask extends LoadTask {
                     tableTotalFileSize += groupFileSize;
                     tableTotalFileNum += filteredFileStatuses.size();
                     LOG.info("get {} files in file group {} for table {}. size: {}. job: {}, broker: {} ",
-                            filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
-                            callback.getCallbackId(),
-                            brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER ?
-                                    BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
+                        filteredFileStatuses.size(), groupNum, entry.getKey(), groupFileSize,
+                        callback.getCallbackId(),
+                        brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER ?
+                            BrokerUtil.getAddress(brokerDesc) : brokerDesc.getStorageType());
                     groupNum++;
                 }
             }
@@ -133,7 +133,7 @@ public class BrokerLoadPendingTask extends LoadTask {
             totalFileNum += tableTotalFileNum;
             ((BrokerPendingTaskAttachment) attachment).addFileStatus(aggKey, fileStatusList);
             LOG.info("get {} files to be loaded. total size: {}. cost: {} ms, job: {}",
-                    tableTotalFileNum, tableTotalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());
+                tableTotalFileNum, tableTotalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());
         }
 
         ((BrokerLoadJob) callback).setLoadFileInfo(totalFileNum, totalFileSize);

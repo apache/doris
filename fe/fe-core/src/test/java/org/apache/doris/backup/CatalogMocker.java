@@ -83,7 +83,7 @@ public class CatalogMocker {
     // db
     public static final String TEST_DB_NAME = "test_db";
     public static final long TEST_DB_ID = 20000;
-    
+
     // single partition olap table
     public static final String TEST_TBL_NAME = "test_tbl";
     public static final long TEST_TBL_ID = 30000;
@@ -104,7 +104,7 @@ public class CatalogMocker {
     public static final String MYSQL_PWD = "mysql-pwd";
     public static final String MYSQL_DB = "mysql-db";
     public static final String MYSQL_TBL = "mysql-tbl";
-    
+
     // partition olap table with a rollup
     public static final String TEST_TBL2_NAME = "test_tbl2";
     public static final long TEST_TBL2_ID = 30002;
@@ -165,13 +165,13 @@ public class CatalogMocker {
         k8.setIsKey(true);
 
         Column v1 = new Column("v1",
-                ScalarType.createChar(10), false, AggregateType.REPLACE, "none", " value1");
+            ScalarType.createChar(10), false, AggregateType.REPLACE, "none", " value1");
         Column v2 = new Column("v2",
-                ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.MAX, "none", " value2");
+            ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.MAX, "none", " value2");
         Column v3 = new Column("v3",
-                ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.MIN, "none", " value3");
+            ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.MIN, "none", " value3");
         Column v4 = new Column("v4",
-                ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "", " value4");
+            ScalarType.createType(PrimitiveType.INT), false, AggregateType.SUM, "", " value4");
 
         TEST_TBL_BASE_SCHEMA.add(k1);
         TEST_TBL_BASE_SCHEMA.add(k2);
@@ -237,19 +237,19 @@ public class CatalogMocker {
         MaterializedIndex baseIndex = new MaterializedIndex(TEST_TBL_ID, IndexState.NORMAL);
         DistributionInfo distributionInfo = new RandomDistributionInfo(32);
         Partition partition =
-                new Partition(TEST_SINGLE_PARTITION_ID, TEST_SINGLE_PARTITION_NAME, baseIndex, distributionInfo);
+            new Partition(TEST_SINGLE_PARTITION_ID, TEST_SINGLE_PARTITION_NAME, baseIndex, distributionInfo);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setReplicaAllocation(TEST_SINGLE_PARTITION_ID, new ReplicaAllocation((short) 3));
         partitionInfo.setIsInMemory(TEST_SINGLE_PARTITION_ID, false);
         DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
         partitionInfo.setDataProperty(TEST_SINGLE_PARTITION_ID, dataProperty);
         OlapTable olapTable = new OlapTable(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA,
-                                            KeysType.AGG_KEYS, partitionInfo, distributionInfo);
+            KeysType.AGG_KEYS, partitionInfo, distributionInfo);
         Deencapsulation.setField(olapTable, "baseIndexId", TEST_TBL_ID);
 
         Tablet tablet0 = new Tablet(TEST_TABLET0_ID);
         TabletMeta tabletMeta = new TabletMeta(TEST_DB_ID, TEST_TBL_ID, TEST_SINGLE_PARTITION_ID,
-                                               TEST_TBL_ID, SCHEMA_HASH, TStorageMedium.HDD);
+            TEST_TBL_ID, SCHEMA_HASH, TStorageMedium.HDD);
         baseIndex.addTablet(tablet0, tabletMeta);
         Replica replica0 = new Replica(TEST_REPLICA0_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica1 = new Replica(TEST_REPLICA1_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
@@ -260,7 +260,7 @@ public class CatalogMocker {
         tablet0.addReplica(replica2);
 
         olapTable.setIndexMeta(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1,
-                TStorageType.COLUMN, KeysType.AGG_KEYS);
+            TStorageType.COLUMN, KeysType.AGG_KEYS);
         olapTable.addPartition(partition);
         db.createTable(olapTable);
 
@@ -284,28 +284,28 @@ public class CatalogMocker {
         MaterializedIndex baseIndexP1 = new MaterializedIndex(TEST_TBL2_ID, IndexState.NORMAL);
         MaterializedIndex baseIndexP2 = new MaterializedIndex(TEST_TBL2_ID, IndexState.NORMAL);
         DistributionInfo distributionInfo2 =
-                new HashDistributionInfo(32, Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(1)));
+            new HashDistributionInfo(32, Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(1)));
         Partition partition1 =
-                new Partition(TEST_PARTITION1_ID, TEST_PARTITION1_NAME, baseIndexP1, distributionInfo2);
+            new Partition(TEST_PARTITION1_ID, TEST_PARTITION1_NAME, baseIndexP1, distributionInfo2);
         Partition partition2 =
-                new Partition(TEST_PARTITION2_ID, TEST_PARTITION2_NAME, baseIndexP2, distributionInfo2);
+            new Partition(TEST_PARTITION2_ID, TEST_PARTITION2_NAME, baseIndexP2, distributionInfo2);
         RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
-        
+
         PartitionKey rangeP1Lower =
-                PartitionKey.createInfinityPartitionKey(Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)), false);
+            PartitionKey.createInfinityPartitionKey(Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)), false);
         PartitionKey rangeP1Upper =
-                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
-                                                Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
+            PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
+                Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP1 = Range.closedOpen(rangeP1Lower, rangeP1Upper);
         PartitionItem item1 = new RangePartitionItem(rangeP1);
         rangePartitionInfo.setItem(TEST_PARTITION1_ID, false, item1);
 
         PartitionKey rangeP2Lower =
-                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
-                        Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
+            PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
+                Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         PartitionKey rangeP2Upper =
-                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20")),
-                        Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
+            PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20")),
+                Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP2 = Range.closedOpen(rangeP2Lower, rangeP2Upper);
         PartitionItem item2 = new RangePartitionItem(rangeP2);
         rangePartitionInfo.setItem(TEST_PARTITION1_ID, false, item2);
@@ -318,12 +318,12 @@ public class CatalogMocker {
         rangePartitionInfo.setDataProperty(TEST_PARTITION2_ID, dataPropertyP2);
 
         OlapTable olapTable2 = new OlapTable(TEST_TBL2_ID, TEST_TBL2_NAME, TEST_TBL_BASE_SCHEMA,
-                KeysType.AGG_KEYS, rangePartitionInfo, distributionInfo2);
+            KeysType.AGG_KEYS, rangePartitionInfo, distributionInfo2);
         Deencapsulation.setField(olapTable2, "baseIndexId", TEST_TBL2_ID);
 
         Tablet baseTabletP1 = new Tablet(TEST_BASE_TABLET_P1_ID);
         TabletMeta tabletMetaBaseTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
-                                                           TEST_TBL2_ID, SCHEMA_HASH, TStorageMedium.HDD);
+            TEST_TBL2_ID, SCHEMA_HASH, TStorageMedium.HDD);
         baseIndexP1.addTablet(baseTabletP1, tabletMetaBaseTabletP1);
         Replica replica3 = new Replica(TEST_REPLICA3_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica4 = new Replica(TEST_REPLICA4_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
@@ -335,7 +335,7 @@ public class CatalogMocker {
 
         Tablet baseTabletP2 = new Tablet(TEST_BASE_TABLET_P2_ID);
         TabletMeta tabletMetaBaseTabletP2 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION2_ID,
-                                                           TEST_TBL2_ID, SCHEMA_HASH, TStorageMedium.HDD);
+            TEST_TBL2_ID, SCHEMA_HASH, TStorageMedium.HDD);
         baseIndexP2.addTablet(baseTabletP2, tabletMetaBaseTabletP2);
         Replica replica6 = new Replica(TEST_REPLICA6_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica7 = new Replica(TEST_REPLICA7_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
@@ -347,7 +347,7 @@ public class CatalogMocker {
 
 
         olapTable2.setIndexMeta(TEST_TBL2_ID, TEST_TBL2_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1,
-                TStorageType.COLUMN, KeysType.AGG_KEYS);
+            TStorageType.COLUMN, KeysType.AGG_KEYS);
         olapTable2.addPartition(partition1);
         olapTable2.addPartition(partition2);
 
@@ -355,25 +355,25 @@ public class CatalogMocker {
         MaterializedIndex rollupIndexP1 = new MaterializedIndex(TEST_ROLLUP_ID, IndexState.NORMAL);
         Tablet rollupTabletP1 = new Tablet(TEST_ROLLUP_TABLET_P1_ID);
         TabletMeta tabletMetaRollupTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
-                                                             TEST_ROLLUP_TABLET_P1_ID, ROLLUP_SCHEMA_HASH,
-                                                             TStorageMedium.HDD);
+            TEST_ROLLUP_TABLET_P1_ID, ROLLUP_SCHEMA_HASH,
+            TStorageMedium.HDD);
         rollupIndexP1.addTablet(rollupTabletP1, tabletMetaRollupTabletP1);
         Replica replica9 = new Replica(TEST_REPLICA9_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica10 = new Replica(TEST_REPLICA10_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
         Replica replica11 = new Replica(TEST_REPLICA11_ID, BACKEND3_ID, 0, ReplicaState.NORMAL);
-        
+
         rollupTabletP1.addReplica(replica9);
         rollupTabletP1.addReplica(replica10);
         rollupTabletP1.addReplica(replica11);
-        
+
         partition1.createRollupIndex(rollupIndexP1);
 
         // rollup index p2
         MaterializedIndex rollupIndexP2 = new MaterializedIndex(TEST_ROLLUP_ID, IndexState.NORMAL);
         Tablet rollupTabletP2 = new Tablet(TEST_ROLLUP_TABLET_P2_ID);
         TabletMeta tabletMetaRollupTabletP2 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,
-                                                             TEST_ROLLUP_TABLET_P2_ID, ROLLUP_SCHEMA_HASH,
-                                                             TStorageMedium.HDD);
+            TEST_ROLLUP_TABLET_P2_ID, ROLLUP_SCHEMA_HASH,
+            TStorageMedium.HDD);
         rollupIndexP2.addTablet(rollupTabletP2, tabletMetaRollupTabletP2);
         Replica replica12 = new Replica(TEST_REPLICA12_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica13 = new Replica(TEST_REPLICA13_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
@@ -385,7 +385,7 @@ public class CatalogMocker {
         partition2.createRollupIndex(rollupIndexP2);
 
         olapTable2.setIndexMeta(TEST_ROLLUP_ID, TEST_ROLLUP_NAME, TEST_ROLLUP_SCHEMA, 0, ROLLUP_SCHEMA_HASH,
-                                      (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS);
+            (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS);
         db.createTable(olapTable2);
 
         return db;

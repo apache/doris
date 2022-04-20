@@ -73,7 +73,7 @@ public class UnitTestUtil {
         Replica replica1 = new Replica(replicaId, backendId, ReplicaState.NORMAL, version, 0);
         Replica replica2 = new Replica(replicaId + 1, backendId + 1, ReplicaState.NORMAL, version, 0);
         Replica replica3 = new Replica(replicaId + 2, backendId + 2, ReplicaState.NORMAL, version, 0);
-        
+
         // tablet
         Tablet tablet = new Tablet(tabletId);
 
@@ -115,18 +115,18 @@ public class UnitTestUtil {
         partitionInfo.setIsInMemory(partitionId, false);
         partitionInfo.setTabletType(partitionId, TTabletType.TABLET_TYPE_DISK);
         OlapTable table = new OlapTable(tableId, TABLE_NAME, columns,
-                                        KeysType.AGG_KEYS, partitionInfo, distributionInfo);
+            KeysType.AGG_KEYS, partitionInfo, distributionInfo);
         Deencapsulation.setField(table, "baseIndexId", indexId);
         table.addPartition(partition);
         table.setIndexMeta(indexId, TABLE_NAME, columns, 0, SCHEMA_HASH, (short) 1, TStorageType.COLUMN,
-                KeysType.AGG_KEYS);
+            KeysType.AGG_KEYS);
 
         // db
         Database db = new Database(dbId, DB_NAME);
         db.createTable(table);
         return db;
     }
-    
+
     public static Backend createBackend(long id, String host, int heartPort, int bePort, int httpPort) {
         Backend backend = new Backend(id, host, heartPort);
         backend.updateOnce(bePort, httpPort, 10000);
@@ -143,7 +143,7 @@ public class UnitTestUtil {
         backend.updateDisks(backendDisks);
         return backend;
     }
-    
+
     public static Method getPrivateMethod(Class c, String methodName, Class[] params) {
         Method method = null;
         try {
@@ -154,7 +154,7 @@ public class UnitTestUtil {
         }
         return method;
     }
-    
+
     public static Class getInnerClass(Class c, String className) {
         Class innerClass = null;
         for (Class tmpClass : c.getDeclaredClasses()) {
@@ -165,13 +165,13 @@ public class UnitTestUtil {
         }
         return innerClass;
     }
-    
+
     public static void initDppConfig() {
         Map<String, String> defaultConfigs = Maps.newHashMap();
         defaultConfigs.put("hadoop_palo_path", "/user/palo2");
         defaultConfigs.put("hadoop_http_port", "1234");
         defaultConfigs.put("hadoop_configs",
-                "mapred.job.tracker=host:111;fs.default.name=hdfs://host:112;hadoop.job.ugi=user,password");
+            "mapred.job.tracker=host:111;fs.default.name=hdfs://host:112;hadoop.job.ugi=user,password");
 
         try {
             Load.dppDefaultConfig = DppConfig.create(defaultConfigs);

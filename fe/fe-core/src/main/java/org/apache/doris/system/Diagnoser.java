@@ -87,7 +87,8 @@ public class Diagnoser {
             results.add(Lists.newArrayList("MaterializedIndex", "Not exist", ""));
             return results;
         }
-        results.add(Lists.newArrayList("MaterializedIndex", tbl.getIndexNameById(mIndex.getId()) + ": " + mIndex.getId(), ""));
+        results.add(
+            Lists.newArrayList("MaterializedIndex", tbl.getIndexNameById(mIndex.getId()) + ": " + mIndex.getId(), ""));
         // replica info
         Tablet tablet = mIndex.getTablet(tabletId);
         List<Replica> replicas = tablet.getReplicas();
@@ -99,7 +100,9 @@ public class Diagnoser {
         // replica
         short replicaNum = tbl.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
         if (replicas.size() != replicaNum) {
-            results.add(Lists.newArrayList("ReplicasNum", "Replica num is " + replicas.size() + ", expected: " + replicaNum, ""));
+            results.add(
+                Lists.newArrayList("ReplicasNum", "Replica num is " + replicas.size() + ", expected: " + replicaNum,
+                    ""));
         } else {
             results.add(Lists.newArrayList("ReplicasNum", "OK", ""));
         }
@@ -141,23 +144,26 @@ public class Diagnoser {
             // version
             if (replica.getVersion() != partition.getVisibleVersion()) {
                 versionErr.append("Replica on backend " + replica.getBackendId() + "'s version (" +
-                        replica.getVersion() + ") does not equal" +
-                        " to partition visible version (" + partition.getVisibleVersion() + ")");
+                    replica.getVersion() + ") does not equal" +
+                    " to partition visible version (" + partition.getVisibleVersion() + ")");
             }
             // status
             if (!replica.isAlive()) {
                 statusErr.append("Replica on backend " + replica.getBackendId() + "'s state is " + replica.getState()
-                        + ", and is bad: " + (replica.isBad() ? "Yes" : "No"));
+                    + ", and is bad: " + (replica.isBad() ? "Yes" : "No"));
             }
             if (replica.getVersionCount() > Config.min_version_count_indicate_replica_compaction_too_slow) {
                 compactionErr.append("Replica on backend " + replica.getBackendId() + "'s version count is too high: "
-                        + replica.getVersionCount());
+                    + replica.getVersionCount());
             }
         }
-        results.add(Lists.newArrayList("ReplicaBackendStatus", (backendErr.length() == 0 ? "OK" : backendErr.toString()), ""));
-        results.add(Lists.newArrayList("ReplicaVersionStatus", (versionErr.length() == 0 ? "OK" : versionErr.toString()), ""));
+        results.add(
+            Lists.newArrayList("ReplicaBackendStatus", (backendErr.length() == 0 ? "OK" : backendErr.toString()), ""));
+        results.add(
+            Lists.newArrayList("ReplicaVersionStatus", (versionErr.length() == 0 ? "OK" : versionErr.toString()), ""));
         results.add(Lists.newArrayList("ReplicaStatus", (statusErr.length() == 0 ? "OK" : statusErr.toString()), ""));
-        results.add(Lists.newArrayList("ReplicaCompactionStatus", (compactionErr.length() == 0 ? "OK" : compactionErr.toString()), ""));
+        results.add(Lists.newArrayList("ReplicaCompactionStatus",
+            (compactionErr.length() == 0 ? "OK" : compactionErr.toString()), ""));
         return results;
     }
 }

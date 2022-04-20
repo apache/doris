@@ -31,9 +31,14 @@ public class PlanFragmentId extends Id<PlanFragmentId> {
     public static IdGenerator<PlanFragmentId> createGenerator() {
         return new IdGenerator<PlanFragmentId>() {
             @Override
-            public PlanFragmentId getNextId() { return new PlanFragmentId(nextId_++); }
+            public PlanFragmentId getNextId() {
+                return new PlanFragmentId(nextId_++);
+            }
+
             @Override
-            public PlanFragmentId getMaxId() { return new PlanFragmentId(nextId_ - 1); }
+            public PlanFragmentId getMaxId() {
+                return new PlanFragmentId(nextId_ - 1);
+            }
         };
     }
 

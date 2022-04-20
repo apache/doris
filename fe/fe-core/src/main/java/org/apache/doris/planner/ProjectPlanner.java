@@ -67,7 +67,7 @@ public class ProjectPlanner {
 
     private Set<SlotId> getSlotIds(List<Expr> resultExprs, PlanNode root) {
         List<Expr> resExprs = Expr.substituteList(resultExprs,
-                root.getOutputSmap(), analyzer, false);
+            root.getOutputSmap(), analyzer, false);
         Set<SlotId> result = Sets.newHashSet();
         for (Expr expr : resExprs) {
             List<SlotId> slotIdList = Lists.newArrayList();

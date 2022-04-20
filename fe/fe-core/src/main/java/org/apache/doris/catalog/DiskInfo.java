@@ -23,14 +23,14 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
-import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+
+import com.google.gson.annotations.SerializedName;
 
 public class DiskInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(DiskInfo.class);
@@ -39,7 +39,7 @@ public class DiskInfo implements Writable {
         ONLINE,
         OFFLINE
     }
-    
+
     private static final long DEFAULT_CAPACITY_B = 1024 * 1024 * 1024 * 1024L; // 1T
 
     @SerializedName("rootPath")
@@ -146,21 +146,23 @@ public class DiskInfo implements Writable {
      */
     public boolean exceedLimit(boolean floodStage) {
         LOG.debug("flood stage: {}, diskAvailableCapacityB: {}, totalCapacityB: {}",
-                floodStage, diskAvailableCapacityB, totalCapacityB);
+            floodStage, diskAvailableCapacityB, totalCapacityB);
         if (floodStage) {
             return diskAvailableCapacityB < Config.storage_flood_stage_left_capacity_bytes &&
-                    (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB > (Config.storage_flood_stage_usage_percent / 100.0);
+                (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB >
+                    (Config.storage_flood_stage_usage_percent / 100.0);
         } else {
             return diskAvailableCapacityB < Config.storage_min_left_capacity_bytes ||
-                    (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB > (Config.storage_high_watermark_usage_percent / 100.0);
+                (double) (totalCapacityB - diskAvailableCapacityB) / totalCapacityB >
+                    (Config.storage_high_watermark_usage_percent / 100.0);
         }
     }
 
     @Override
     public String toString() {
         return "DiskInfo [rootPath=" + rootPath + "(" + pathHash + "), totalCapacityB=" + totalCapacityB
-                + ", dataUsedCapacityB=" + dataUsedCapacityB + ", diskAvailableCapacityB="
-                + diskAvailableCapacityB + ", state=" + state + ", medium: " + storageMedium + "]";
+            + ", dataUsedCapacityB=" + dataUsedCapacityB + ", diskAvailableCapacityB="
+            + diskAvailableCapacityB + ", state=" + state + ", medium: " + storageMedium + "]";
     }
 
     @Override

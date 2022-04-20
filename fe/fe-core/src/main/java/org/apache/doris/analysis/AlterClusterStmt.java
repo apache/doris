@@ -51,7 +51,7 @@ public class AlterClusterStmt extends DdlStmt {
         }
 
         if (properties == null || properties.size() == 0
-                || !properties.containsKey(CreateClusterStmt.CLUSTER_INSTANCE_NUM)) {
+            || !properties.containsKey(CreateClusterStmt.CLUSTER_INSTANCE_NUM)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PARAMETER);
         }
         try {

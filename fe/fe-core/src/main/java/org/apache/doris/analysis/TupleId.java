@@ -34,9 +34,14 @@ public class TupleId extends Id<TupleId> {
     public static IdGenerator<TupleId> createGenerator() {
         return new IdGenerator<TupleId>() {
             @Override
-            public TupleId getNextId() { return new TupleId(nextId_++); }
+            public TupleId getNextId() {
+                return new TupleId(nextId_++);
+            }
+
             @Override
-            public TupleId getMaxId() { return new TupleId(nextId_ - 1); }
+            public TupleId getMaxId() {
+                return new TupleId(nextId_ - 1);
+            }
         };
     }
 }

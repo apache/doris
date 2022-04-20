@@ -64,7 +64,7 @@ public class RoutineLoadJobTest {
     public void testAfterAbortedReasonOffsetOutOfRange(@Mocked Catalog catalog,
                                                        @Injectable TransactionState transactionState,
                                                        @Injectable RoutineLoadTaskInfo routineLoadTaskInfo)
-            throws UserException {
+        throws UserException {
 
         List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Lists.newArrayList();
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
@@ -183,13 +183,14 @@ public class RoutineLoadJobTest {
     public void testGetShowInfo(@Mocked KafkaProgress kafkaProgress) {
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
-        ErrorReason errorReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR, TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString());
+        ErrorReason errorReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
+            TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString());
         Deencapsulation.setField(routineLoadJob, "pauseReason", errorReason);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
 
         List<String> showInfo = routineLoadJob.getShowInfo();
         Assert.assertEquals(true, showInfo.stream().filter(entity -> !Strings.isNullOrEmpty(entity))
-                .anyMatch(entity -> entity.equals(errorReason.toString())));
+            .anyMatch(entity -> entity.equals(errorReason.toString())));
     }
 
     @Test
@@ -250,7 +251,8 @@ public class RoutineLoadJobTest {
         new MockUp<KafkaUtil>() {
             @Mock
             public List<Integer> getAllKafkaPartitions(String brokerList, String topic,
-                    Map<String, String> convertedCustomProperties) throws UserException {
+                                                       Map<String, String> convertedCustomProperties)
+                throws UserException {
                 return Lists.newArrayList(1, 2, 3);
             }
         };
@@ -318,33 +320,33 @@ public class RoutineLoadJobTest {
     @Test
     public void testGetShowCreateInfo() throws UserException {
         KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", "test", 1,
-                11, "localhost:9092", "test_topic");
+            11, "localhost:9092", "test_topic");
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
         String showCreateInfo = routineLoadJob.getShowCreateInfo();
         String expect = "CREATE ROUTINE LOAD test_load ON 11\n" +
-                "WITH APPEND\n" +
-                "PROPERTIES\n" +
-                "(\n" +
-                "\"desired_concurrent_number\" = \"0\",\n" +
-                "\"max_error_number\" = \"10\",\n" +
-                "\"max_batch_interval\" = \"10\",\n" +
-                "\"max_batch_rows\" = \"10\",\n" +
-                "\"max_batch_size\" = \"104857600\",\n" +
-                "\"format\" = \"csv\",\n" +
-                "\"strip_outer_array\" = \"false\",\n" +
-                "\"num_as_string\" = \"false\",\n" +
-                "\"fuzzy_parse\" = \"false\",\n" +
-                "\"strict_mode\" = \"false\",\n" +
-                "\"timezone\" = \"Asia/Shanghai\",\n" +
-                "\"exec_mem_limit\" = \"2147483648\"\n" +
-                ")\n" +
-                "FROM KAFKA\n" +
-                "(\n" +
-                "\"kafka_broker_list\" = \"localhost:9092\",\n" +
-                "\"kafka_topic\" = \"test_topic\"\n" +
-                ");";
+            "WITH APPEND\n" +
+            "PROPERTIES\n" +
+            "(\n" +
+            "\"desired_concurrent_number\" = \"0\",\n" +
+            "\"max_error_number\" = \"10\",\n" +
+            "\"max_batch_interval\" = \"10\",\n" +
+            "\"max_batch_rows\" = \"10\",\n" +
+            "\"max_batch_size\" = \"104857600\",\n" +
+            "\"format\" = \"csv\",\n" +
+            "\"strip_outer_array\" = \"false\",\n" +
+            "\"num_as_string\" = \"false\",\n" +
+            "\"fuzzy_parse\" = \"false\",\n" +
+            "\"strict_mode\" = \"false\",\n" +
+            "\"timezone\" = \"Asia/Shanghai\",\n" +
+            "\"exec_mem_limit\" = \"2147483648\"\n" +
+            ")\n" +
+            "FROM KAFKA\n" +
+            "(\n" +
+            "\"kafka_broker_list\" = \"localhost:9092\",\n" +
+            "\"kafka_topic\" = \"test_topic\"\n" +
+            ");";
         System.out.println(showCreateInfo);
         Assert.assertEquals(expect, showCreateInfo);
     }

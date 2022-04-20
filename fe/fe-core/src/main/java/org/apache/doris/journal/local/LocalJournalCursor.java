@@ -118,7 +118,7 @@ public final class LocalJournalCursor implements JournalCursor {
         }
 
         this.currentStream = new DataInputStream(new BufferedInputStream(
-                new EditLogFileInputStream(new File(imageDir, "edits." + fileName))));
+            new EditLogFileInputStream(new File(imageDir, "edits." + fileName))));
 
         while (scannedKey < fromKey) {
             short opCode = currentStream.readShort();
@@ -148,8 +148,8 @@ public final class LocalJournalCursor implements JournalCursor {
                         if (nextFilePositionIndex < editFileSequenceNumbers.size()) {
                             currentStream.close();
                             currentStream = new DataInputStream(new BufferedInputStream(new EditLogFileInputStream(
-                                    new File(imageDir, "edits." + editFileSequenceNumbers
-                                            .get(nextFilePositionIndex)))));
+                                new File(imageDir, "edits." + editFileSequenceNumbers
+                                    .get(nextFilePositionIndex)))));
                             nextFilePositionIndex++;
                             continue;
                         } else {
@@ -160,8 +160,8 @@ public final class LocalJournalCursor implements JournalCursor {
                     if (nextFilePositionIndex < editFileSequenceNumbers.size()) {
                         currentStream.close();
                         currentStream = new DataInputStream(
-                                new BufferedInputStream(new EditLogFileInputStream(new File(
-                                        imageDir, "edits." + editFileSequenceNumbers.get(nextFilePositionIndex)))));
+                            new BufferedInputStream(new EditLogFileInputStream(new File(
+                                imageDir, "edits." + editFileSequenceNumbers.get(nextFilePositionIndex)))));
                         nextFilePositionIndex++;
                         continue;
                     } else {

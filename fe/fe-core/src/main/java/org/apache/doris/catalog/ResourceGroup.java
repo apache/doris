@@ -57,8 +57,8 @@ public class ResourceGroup implements Writable {
         }
         if (type == ResourceType.CPU_SHARE || type == ResourceType.IO_SHARE) {
             if (value < 100 || value > 1000) {
-                throw new DdlException("Value for resource type(" 
-                                       + desc + ") has to be in [100, 1000]");
+                throw new DdlException("Value for resource type("
+                    + desc + ") has to be in [100, 1000]");
             }
         }
         quotaByType.put(type, value);
@@ -75,6 +75,7 @@ public class ResourceGroup implements Writable {
     public Map<ResourceType, Integer> getQuotaMap() {
         return quotaByType;
     }
+
     public static Builder builder() {
         return new Builder();
     }

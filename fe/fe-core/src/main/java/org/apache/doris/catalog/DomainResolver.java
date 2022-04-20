@@ -58,7 +58,7 @@ public class DomainResolver extends MasterDaemon {
         // domain names
         Set<String> allDomains = Sets.newHashSet();
         auth.getAllDomains(allDomains);
-        
+
         // resolve domain name
         Map<String, Set<String>> resolvedIPsMap = Maps.newHashMap();
         for (String domain : allDomains) {
@@ -78,9 +78,8 @@ public class DomainResolver extends MasterDaemon {
 
     /**
      * Check if domain name is valid
-     * 
-     * @param host:
-     *            currently is the user's whitelist bns or dns name
+     *
+     * @param host: currently is the user's whitelist bns or dns name
      * @return true of false
      */
     public boolean isValidDomain(String domainName) {

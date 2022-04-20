@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
@@ -38,6 +36,9 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -53,13 +54,13 @@ import java.util.stream.Stream;
 
 public class TabletHealthProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("DbId").add("DbName").add("TabletNum").add("HealthyNum").add("ReplicaMissingNum")
-            .add("VersionIncompleteNum").add("ReplicaRelocatingNum").add("RedundantNum")
-            .add("ReplicaMissingInClusterNum").add("ReplicaMissingForTagNum")
-            .add("ForceRedundantNum").add("ColocateMismatchNum").add("ColocateRedundantNum")
-            .add("NeedFurtherRepairNum").add("UnrecoverableNum").add("ReplicaCompactionTooSlowNum")
-            .add("InconsistentNum").add("OversizeNum").add("CloningNum")
-            .build();
+        .add("DbId").add("DbName").add("TabletNum").add("HealthyNum").add("ReplicaMissingNum")
+        .add("VersionIncompleteNum").add("ReplicaRelocatingNum").add("RedundantNum")
+        .add("ReplicaMissingInClusterNum").add("ReplicaMissingForTagNum")
+        .add("ForceRedundantNum").add("ColocateMismatchNum").add("ColocateRedundantNum")
+        .add("NeedFurtherRepairNum").add("UnrecoverableNum").add("ReplicaCompactionTooSlowNum")
+        .add("InconsistentNum").add("OversizeNum").add("CloningNum")
+        .build();
 
     private Catalog catalog;
 
@@ -86,12 +87,12 @@ public class TabletHealthProcDir implements ProcDirInterface {
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         List<DBTabletStatistic> statistics = catalog.getDbIds().parallelStream()
-                // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : catalog.getDbNullable(id)))
-                .filter(Objects::nonNull).map(DBTabletStatistic::new)
-                // sort by dbName
-                .sorted(Comparator.comparing(db -> db.db.getFullName()))
-                .collect(Collectors.toList());
+            // skip information_schema database
+            .flatMap(id -> Stream.of(id == 0 ? null : catalog.getDbNullable(id)))
+            .filter(Objects::nonNull).map(DBTabletStatistic::new)
+            // sort by dbName
+            .sorted(Comparator.comparing(db -> db.db.getFullName()))
+            .collect(Collectors.toList());
 
         List<List<String>> rows = new ArrayList<>(statistics.size() + 1);
         for (DBTabletStatistic statistic : statistics) {
@@ -168,17 +169,19 @@ public class TabletHealthProcDir implements ProcDirInterface {
             ColocateTableIndex colocateTableIndex = Catalog.getCurrentColocateIndex();
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             this.cloningTabletIds = AgentTaskQueue.getTask(db.getId(), TTaskType.CLONE)
-                    .stream().map(AgentTask::getTabletId).collect(Collectors.toSet());
+                .stream().map(AgentTask::getTabletId).collect(Collectors.toSet());
             this.cloningNum = cloningTabletIds.size();
             db.getTables().stream().filter(t -> t != null && t.getType() == Table.TableType.OLAP).forEach(t -> {
                 OlapTable olapTable = (OlapTable) t;
                 ColocateTableIndex.GroupId groupId = colocateTableIndex.isColocateTable(olapTable.getId()) ?
-                        colocateTableIndex.getGroup(olapTable.getId()) : null;
+                    colocateTableIndex.getGroup(olapTable.getId()) : null;
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {
-                        ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                        ReplicaAllocation replicaAlloc =
+                            olapTable.getPartitionInfo().getReplicaAllocation(partition.getId());
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
+                            MaterializedIndex.IndexExtState.VISIBLE)) {
                             List<Tablet> tablets = materializedIndex.getTablets();
                             for (int i = 0; i < tablets.size(); ++i) {
                                 Tablet tablet = tablets.get(i);
@@ -186,9 +189,11 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                 Tablet.TabletStatus res = null;
                                 if (groupId != null) {
                                     Set<Long> backendsSet = colocateTableIndex.getTabletBackendsByGroup(groupId, i);
-                                    res = tablet.getColocateHealthStatus(partition.getVisibleVersion(), replicaAlloc, backendsSet);
+                                    res = tablet.getColocateHealthStatus(partition.getVisibleVersion(), replicaAlloc,
+                                        backendsSet);
                                 } else {
-                                    Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair = tablet.getHealthStatusWithPriority(
+                                    Pair<Tablet.TabletStatus, TabletSchedCtx.Priority> pair =
+                                        tablet.getHealthStatusWithPriority(
                                             infoService, db.getClusterName(),
                                             partition.getVisibleVersion(),
                                             replicaAlloc, aliveBeIdsInCluster);
@@ -255,7 +260,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                     oversizeTabletIds.add(tablet.getId());
                                 }
                                 for (Replica replica : tablet.getReplicas()) {
-                                    if (replica.getVersionCount() > Config.min_version_count_indicate_replica_compaction_too_slow) {
+                                    if (replica.getVersionCount() >
+                                        Config.min_version_count_indicate_replica_compaction_too_slow) {
                                         replicaCompactionTooSlowNum++;
                                         replicaCompactionTooSlowTabletIds.add(tablet.getId());
                                         break;

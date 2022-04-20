@@ -37,7 +37,8 @@ import java.util.Map;
  * Currently only support loading from hive table
  */
 public class HiveTable extends Table {
-    private static final String PROPERTY_MISSING_MSG = "Hive %s is null. Please add properties('%s'='xxx') when create table";
+    private static final String PROPERTY_MISSING_MSG =
+        "Hive %s is null. Please add properties('%s'='xxx') when create table";
 
     private static final String HIVE_DB = "database";
     private static final String HIVE_TABLE = "table";
@@ -75,7 +76,7 @@ public class HiveTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of hive table, "
-                    + "they are: database, table and 'hive.metastore.uris'");
+                + "they are: database, table and 'hive.metastore.uris'");
         }
 
         Map<String, String> copiedProps = Maps.newHashMap(properties);
@@ -135,7 +136,7 @@ public class HiveTable extends Table {
     public TTableDescriptor toThrift() {
         THiveTable tHiveTable = new THiveTable(getHiveDb(), getHiveTable(), getHiveProperties());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE,
-                fullSchema.size(), 0, getName(), "");
+            fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setHiveTable(tHiveTable);
         return tTableDescriptor;
     }

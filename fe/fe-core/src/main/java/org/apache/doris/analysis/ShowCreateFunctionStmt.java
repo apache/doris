@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSearchDesc;
@@ -30,12 +29,14 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
+import com.google.common.base.Strings;
+
 public class ShowCreateFunctionStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Function Signature", ScalarType.createVarchar(256)))
-                    .addColumn(new Column("Create Function", ScalarType.createVarchar(1024)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Function Signature", ScalarType.createVarchar(256)))
+            .addColumn(new Column("Create Function", ScalarType.createVarchar(1024)))
+            .build();
     private String dbName;
     private final FunctionName functionName;
     private final FunctionArgsDef argsDef;
@@ -53,9 +54,13 @@ public class ShowCreateFunctionStmt extends ShowStmt {
         return dbName;
     }
 
-    public FunctionName getFunctionName() { return functionName; }
+    public FunctionName getFunctionName() {
+        return functionName;
+    }
 
-    public FunctionSearchDesc getFunction() { return function; }
+    public FunctionSearchDesc getFunction() {
+        return function;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -76,7 +81,7 @@ public class ShowCreateFunctionStmt extends ShowStmt {
         // check operation privilege
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
+                ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }
         // analyze arguments
         argsDef.analyze(analyzer);
@@ -87,7 +92,7 @@ public class ShowCreateFunctionStmt extends ShowStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("SHOW CREATE FUNCTION ").append(functionName).append(argsDef)
-                .append(" IN ").append(dbName);
+            .append(" IN ").append(dbName);
         return stringBuilder.toString();
     }
 

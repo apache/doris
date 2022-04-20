@@ -34,12 +34,8 @@ import org.apache.doris.load.sync.SyncFailMsg;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.SyncJob;
 
-import com.alibaba.otter.canal.client.CanalConnector;
-import com.alibaba.otter.canal.client.CanalConnectors;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,6 +43,10 @@ import org.apache.logging.log4j.Logger;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Map;
+
+import com.alibaba.otter.canal.client.CanalConnector;
+import com.alibaba.otter.canal.client.CanalConnectors;
+import com.google.gson.annotations.SerializedName;
 
 public class CanalSyncJob extends SyncJob {
     private static final Logger LOG = LogManager.getLogger(CanalSyncJob.class);
@@ -80,7 +80,7 @@ public class CanalSyncJob extends SyncJob {
 
     private void init() throws DdlException {
         CanalConnector connector = CanalConnectors.newSingleConnector(
-                new InetSocketAddress(remote.getIp(), remote.getPort()), remote.getDestination(), username, password);
+            new InetSocketAddress(remote.getIp(), remote.getPort()), remote.getDestination(), username, password);
         // create channels
         initChannels();
         // create client
@@ -110,7 +110,7 @@ public class CanalSyncJob extends SyncJob {
                     }
                 }
                 CanalSyncChannel syncChannel = new CanalSyncChannel(channelDescription.getChannelId(), this, db,
-                        olapTable, colNames, channelDescription.getSrcDatabase(), channelDescription.getSrcTableName());
+                    olapTable, colNames, channelDescription.getSrcDatabase(), channelDescription.getSrcTableName());
                 if (channelDescription.getPartitionNames() != null) {
                     syncChannel.setPartitions(channelDescription.getPartitionNames());
                 }
@@ -165,11 +165,11 @@ public class CanalSyncJob extends SyncJob {
     @Override
     public void execute() throws UserException {
         LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                .add("remote ip", remote.getIp())
-                .add("remote port", remote.getPort())
-                .add("msg", "Try to start canal client.")
-                .add("debug", debug)
-                .build());
+            .add("remote ip", remote.getIp())
+            .add("remote port", remote.getPort())
+            .add("msg", "Try to start canal client.")
+            .add("debug", debug)
+            .build());
 
         // init
         if (!isInit()) {
@@ -198,14 +198,14 @@ public class CanalSyncJob extends SyncJob {
             }
             failMsg = new SyncFailMsg(msgType, errMsg);
             LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                    .add("MsgType", msgType.name())
-                    .add("msg", "Cancel canal sync job.")
-                    .add("errMsg", errMsg)
-                    .build());
+                .add("MsgType", msgType.name())
+                .add("msg", "Cancel canal sync job.")
+                .add("errMsg", errMsg)
+                .build());
         } catch (UserException e) {
             LOG.warn(new LogBuilder(LogKey.SYNC_JOB, id)
-                    .add("msg", "Failed to cancel canal sync job.")
-                    .build(), e);
+                .add("msg", "Failed to cancel canal sync job.")
+                .build(), e);
         }
     }
 
@@ -213,31 +213,31 @@ public class CanalSyncJob extends SyncJob {
     public void pause() throws UserException {
         unprotectedStopClient(JobState.PAUSED);
         LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                .add("remote ip", remote.getIp())
-                .add("remote port", remote.getPort())
-                .add("msg", "Pause canal sync job.")
-                .add("debug", debug)
-                .build());
+            .add("remote ip", remote.getIp())
+            .add("remote port", remote.getPort())
+            .add("msg", "Pause canal sync job.")
+            .add("debug", debug)
+            .build());
     }
 
     @Override
     public void resume() throws UserException {
         updateState(JobState.PENDING, false);
         LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                .add("remote ip", remote.getIp())
-                .add("remote port", remote.getPort())
-                .add("msg", "Resume canal sync job.")
-                .add("debug", debug)
-                .build());
+            .add("remote ip", remote.getIp())
+            .add("remote port", remote.getPort())
+            .add("msg", "Resume canal sync job.")
+            .add("debug", debug)
+            .build());
     }
 
     public void unprotectedStartClient() throws UserException {
         client.startup();
         updateState(JobState.RUNNING, false);
         LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                .add("name", jobName)
-                .add("msg", "Client has been started.")
-                .build());
+            .add("name", jobName)
+            .add("msg", "Client has been started.")
+            .build());
     }
 
     public void unprotectedStopClient(JobState jobState) throws UserException {
@@ -249,9 +249,9 @@ public class CanalSyncJob extends SyncJob {
         }
         updateState(jobState, false);
         LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                .add("name", jobName)
-                .add("msg", "Client has been stopped.")
-                .build());
+            .add("name", jobName)
+            .add("msg", "Client has been stopped.")
+            .build());
     }
 
     @Override
@@ -278,15 +278,15 @@ public class CanalSyncJob extends SyncJob {
             }
         } catch (UserException e) {
             LOG.error(new LogBuilder(LogKey.SYNC_JOB, id)
-                    .add("desired_state", info.getJobState())
-                    .add("msg", "replay update state error.")
-                    .add("reason", e.getMessage())
-                    .build(), e);
+                .add("desired_state", info.getJobState())
+                .add("msg", "replay update state error.")
+                .add("reason", e.getMessage())
+                .build(), e);
         }
         LOG.info(new LogBuilder(LogKey.SYNC_JOB, info.getId())
-                .add("desired_state:", info.getJobState())
-                .add("msg", "replay update sync job state")
-                .build());
+            .add("desired_state:", info.getJobState())
+            .add("msg", "replay update sync job state")
+            .build());
     }
 
     @Override
@@ -301,8 +301,8 @@ public class CanalSyncJob extends SyncJob {
     public String getJobConfig() {
         StringBuilder sb = new StringBuilder();
         sb.append("address:").append(remote.getIp()).append(":").append(remote.getPort()).append(",")
-                .append("destination:").append(remote.getDestination()).append(",")
-                .append("batchSize:").append(batchSize);
+            .append("destination:").append(remote.getDestination()).append(",")
+            .append("batchSize:").append(batchSize);
         return sb.toString();
     }
 
@@ -313,13 +313,13 @@ public class CanalSyncJob extends SyncJob {
     @Override
     public String toString() {
         return "SyncJob [jobId=" + id
-                + ", jobName=" +jobName
-                + ", dbId=" + dbId
-                + ", state=" + jobState
-                + ", createTimeMs=" + TimeUtils.longToTimeString(createTimeMs)
-                + ", lastStartTimeMs=" + TimeUtils.longToTimeString(lastStartTimeMs)
-                + ", lastStopTimeMs=" + TimeUtils.longToTimeString(lastStopTimeMs)
-                + ", finishTimeMs=" + TimeUtils.longToTimeString(finishTimeMs)
-                + "]";
+            + ", jobName=" + jobName
+            + ", dbId=" + dbId
+            + ", state=" + jobState
+            + ", createTimeMs=" + TimeUtils.longToTimeString(createTimeMs)
+            + ", lastStartTimeMs=" + TimeUtils.longToTimeString(lastStartTimeMs)
+            + ", lastStopTimeMs=" + TimeUtils.longToTimeString(lastStopTimeMs)
+            + ", finishTimeMs=" + TimeUtils.longToTimeString(finishTimeMs)
+            + "]";
     }
 }

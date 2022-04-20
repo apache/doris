@@ -17,10 +17,6 @@
 
 package org.apache.doris.plugin;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.plugin.PluginInfo.PluginType;
@@ -32,6 +28,10 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Map;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class PluginLoaderTest {
 
@@ -51,8 +51,8 @@ public class PluginLoaderTest {
     @Test
     public void testMovePlugin() {
         PluginInfo pf =
-                new PluginInfo("test-plugin", PluginType.STORAGE, "test/test", DigitalVersion.CURRENT_DORIS_VERSION,
-                        DigitalVersion.JDK_1_8_0, "test/test", "libtest.so", "test/test");
+            new PluginInfo("test-plugin", PluginType.STORAGE, "test/test", DigitalVersion.CURRENT_DORIS_VERSION,
+                DigitalVersion.JDK_1_8_0, "test/test", "libtest.so", "test/test");
 
         try {
             PluginLoader util = new DynamicPluginLoader(PluginTestUtil.getTestPathString("source"), pf);
@@ -69,7 +69,7 @@ public class PluginLoaderTest {
     public void testDynamicLoadPlugin() {
         try {
             PluginInfo info = new PluginInfo("test", PluginType.STORAGE, "test", DigitalVersion.CURRENT_DORIS_VERSION,
-                    DigitalVersion.JDK_1_8_0, "plugin.PluginTest", "libtest.so", "plugin_test.jar");
+                DigitalVersion.JDK_1_8_0, "plugin.PluginTest", "libtest.so", "plugin_test.jar");
 
             DynamicPluginLoader util = new DynamicPluginLoader(PluginTestUtil.getTestPathString(""), info);
             Plugin p = util.dynamicLoadPlugin(true);

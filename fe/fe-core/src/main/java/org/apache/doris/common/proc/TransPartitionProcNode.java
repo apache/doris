@@ -28,9 +28,9 @@ import java.util.List;
 
 public class TransPartitionProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("PartitionId")
-            .add("CommittedVersion")
-            .build();
+        .add("PartitionId")
+        .add("CommittedVersion")
+        .build();
 
     private long dbId;
     private long tid;

@@ -21,11 +21,11 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+
+import com.google.gson.annotations.SerializedName;
 
 public class SyncFailMsg implements Writable {
     public enum MsgType {
@@ -89,6 +89,6 @@ public class SyncFailMsg implements Writable {
         SyncFailMsg other = (SyncFailMsg) obj;
 
         return msgType.equals(other.msgType)
-                && msg.equals(other.msg);
+            && msg.equals(other.msg);
     }
 }

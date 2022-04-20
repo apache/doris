@@ -23,6 +23,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -79,7 +80,7 @@ public abstract class Cache {
         }
         if (rowBatchBuilder.getRowSize() > Config.cache_result_max_row_count) {
             LOG.info("can not be cached. rowbatch size {} is more than {}", rowBatchBuilder.getRowSize(),
-                    Config.cache_result_max_row_count);
+                Config.cache_result_max_row_count);
             return false;
         } else {
             return true;

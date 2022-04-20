@@ -41,7 +41,7 @@ import java.util.Map;
 
 /*
  * Required env variables:
- * 
+ *
  *  FE_EXIST_HOSTS={{fe_hosts}}
  *  FE_INIT_NUMBER={{fe_init_number}}
  *  ENV_AMBARI_HOST={{ambari_server_host}}
@@ -77,7 +77,7 @@ public class AmbariDeployManager extends DeployManager {
     // url
     public static final String URL_BLUEPRINT = "http://%s/api/v1/clusters/%s?format=blueprint";
     public static final String URL_COMPONENTS = "http://%s/api/v1/clusters/%s/services/%s/components/%s";
-    
+
     // keywords in json
     public static final String KEY_BE_HEARTBEAT_PORT = "be_heartbeat_service_port";
     public static final String KEY_FE_EDIT_LOG_PORT = "fe_edit_log_port";
@@ -86,7 +86,7 @@ public class AmbariDeployManager extends DeployManager {
     public static final String KEY_HOST_COMPONENTS = "host_components";
     public static final String KEY_HOST_ROLES = "HostRoles";
     public static final String KEY_HOST_NAME = "host_name";
-    
+
     private String authInfo;
     private String encodedAuthInfo;
     private String ambariUrl;
@@ -112,17 +112,17 @@ public class AmbariDeployManager extends DeployManager {
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+                                    String envBackendServiceGroup, String envBrokerServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                   envBrokerServiceGroup);
-        
+            envBrokerServiceGroup);
+
         this.feConfigNode = Strings.nullToEmpty(System.getenv(ENV_AMBARI_FE_COMPONENTS_CONFIG));
         this.beConfigNode = Strings.nullToEmpty(System.getenv(ENV_AMBARI_BE_COMPONENTS_CONFIG));
         this.brokerConfigNode = Strings.nullToEmpty(System.getenv(ENV_AMBARI_BROKER_COMPONENTS_CONFIG));
 
         if (Strings.isNullOrEmpty(feConfigNode) || Strings.isNullOrEmpty(beConfigNode)) {
             LOG.error("failed to get fe config node: {} or be config node: {}. env var: {}, {}",
-                      feConfigNode, beConfigNode, ENV_AMBARI_FE_COMPONENTS_CONFIG, ENV_AMBARI_BE_COMPONENTS_CONFIG);
+                feConfigNode, beConfigNode, ENV_AMBARI_FE_COMPONENTS_CONFIG, ENV_AMBARI_BE_COMPONENTS_CONFIG);
             System.exit(-1);
         }
 
@@ -132,7 +132,7 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         LOG.info("get fe, be and broker config node name: {}, {}, {}",
-                 feConfigNode, beConfigNode, brokerConfigNode);
+            feConfigNode, beConfigNode, brokerConfigNode);
 
         // 1. auth info
         authInfo = System.getenv(ENV_AUTH_INFO);
@@ -146,7 +146,7 @@ public class AmbariDeployManager extends DeployManager {
             LOG.error("failed to get ambari host {} or ambari port {}", ambariHost, ambariPort);
             System.exit(-1);
         }
-        
+
         int port = -1;
         try {
             port = Integer.valueOf(ambariPort);
@@ -181,7 +181,7 @@ public class AmbariDeployManager extends DeployManager {
             System.exit(-1);
         }
     }
-    
+
     @Override
     protected boolean init() {
         super.init();
@@ -267,7 +267,7 @@ public class AmbariDeployManager extends DeployManager {
     private Integer getBeHeartbeatPort() {
         return getPort(beConfigNode, KEY_BE_HEARTBEAT_PORT);
     }
-    
+
     private Integer getBrokerIpcPort() {
         return getPort(brokerConfigNode, KEY_BROKER_IPC_PORT);
     }

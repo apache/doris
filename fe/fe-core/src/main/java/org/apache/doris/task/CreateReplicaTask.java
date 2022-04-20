@@ -160,7 +160,7 @@ public class CreateReplicaTask extends AgentTask {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {
                 LOG.debug("CreateReplicaTask current latch count: {}, backend: {}, tablet:{}",
-                          latch.getCount(), backendId, tabletId);
+                    latch.getCount(), backendId, tabletId);
             }
         }
     }
@@ -215,7 +215,7 @@ public class CreateReplicaTask extends AgentTask {
             }
             // when doing schema change, some modified column has a prefix in name.
             // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-            if(column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
+            if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
                 tColumn.setColumnName(column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()));
             }
             tColumn.setVisible(column.isVisible());

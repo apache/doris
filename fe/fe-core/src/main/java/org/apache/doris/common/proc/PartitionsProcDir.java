@@ -63,13 +63,13 @@ import java.util.stream.Collectors;
  */
 public class PartitionsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("PartitionId").add("PartitionName")
-            .add("VisibleVersion").add("VisibleVersionTime")
-            .add("State").add("PartitionKey").add("Range").add("DistributionKey")
-            .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime")
-            .add("RemoteStorageResource").add("RemoteStorageCooldownTime")
-            .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
-            .build();
+        .add("PartitionId").add("PartitionName")
+        .add("VisibleVersion").add("VisibleVersionTime")
+        .add("State").add("PartitionKey").add("Range").add("DistributionKey")
+        .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime")
+        .add("RemoteStorageResource").add("RemoteStorageCooldownTime")
+        .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
+        .build();
 
     private Database db;
     private OlapTable olapTable;
@@ -91,7 +91,8 @@ public class PartitionsProcDir implements ProcDirInterface {
         }
         if (subExpr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
-            if (subExpr.getChild(1) instanceof StringLiteral && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
+            if (subExpr.getChild(1) instanceof StringLiteral &&
+                binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
                 return ((StringLiteral) subExpr.getChild(1)).getValue().equals(element);
             }
             long leftVal;
@@ -101,7 +102,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             } else {
                 leftVal = Long.parseLong(element.toString());
-                rightVal = ((IntLiteral)subExpr.getChild(1)).getLongValue();
+                rightVal = ((IntLiteral) subExpr.getChild(1)).getLongValue();
             }
             switch (binaryPredicate.getOp()) {
                 case EQ:
@@ -121,7 +122,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     Preconditions.checkState(false, "No defined binary operator.");
             }
         } else {
-            return like((String)element, ((StringLiteral) subExpr.getChild(1)).getValue());
+            return like((String) element, ((StringLiteral) subExpr.getChild(1)).getValue());
         }
         return true;
     }
@@ -135,7 +136,8 @@ public class PartitionsProcDir implements ProcDirInterface {
         return str.matches(expr);
     }
 
-    public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs, LimitElement limitElement) throws AnalysisException {
+    public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs,
+                                          LimitElement limitElement) throws AnalysisException {
         List<List<Comparable>> partitionInfos = getPartitionInfos();
         List<List<Comparable>> filterPartitionInfos;
         //where
@@ -177,7 +179,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             if (endIndex > filterPartitionInfos.size()) {
                 endIndex = filterPartitionInfos.size();
             }
-            filterPartitionInfos = filterPartitionInfos.subList(beginIndex,endIndex);
+            filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
         }
 
         return getBasicProcResult(filterPartitionInfos);
@@ -214,9 +216,10 @@ public class PartitionsProcDir implements ProcDirInterface {
             // this is to be consistent with the behaviour before 0.12
             if (tblPartitionInfo.getType() == PartitionType.RANGE || tblPartitionInfo.getType() == PartitionType.LIST) {
                 partitionIds = tblPartitionInfo.getPartitionItemEntryList(isTempPartition, true).stream()
-                        .map(Map.Entry::getKey).collect(Collectors.toList());
+                    .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
-                Collection<Partition> partitions = isTempPartition ? olapTable.getTempPartitions() : olapTable.getPartitions();
+                Collection<Partition> partitions =
+                    isTempPartition ? olapTable.getTempPartitions() : olapTable.getPartitions();
                 partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
             }
 
@@ -233,7 +236,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(partition.getState());
 
                 if (tblPartitionInfo.getType() == PartitionType.RANGE
-                        || tblPartitionInfo.getType() == PartitionType.LIST) {
+                    || tblPartitionInfo.getType() == PartitionType.LIST) {
                     List<Column> partitionColumns = tblPartitionInfo.getPartitionColumns();
                     List<String> colNames = new ArrayList<>();
                     for (Column column : partitionColumns) {
@@ -278,7 +281,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 long dataSize = partition.getDataSize();
                 Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
-                        + sizePair.second;
+                    + sizePair.second;
                 partitionInfo.add(readableSize);
                 partitionInfo.add(tblPartitionInfo.getIsInMemory(partitionId));
                 // replica allocation

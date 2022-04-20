@@ -32,10 +32,10 @@ import com.google.common.base.Strings;
 // show load profile "/10014/e0f7390f5363419e-b416a2a79996083e/e0f7390f5363419e-b416a2a799960906" # show instance tree graph
 public class ShowLoadProfileStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA_TASK_IDS =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TaskId", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("ActiveTime", ScalarType.createVarchar(64)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("TaskId", ScalarType.createVarchar(128)))
+            .addColumn(new Column("ActiveTime", ScalarType.createVarchar(64)))
+            .build();
 
     public enum PathType {
         JOB_IDS,

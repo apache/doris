@@ -24,8 +24,6 @@ import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
 
-import com.google.gson.reflect.TypeToken;
-
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -42,6 +40,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+import com.google.gson.reflect.TypeToken;
+
 /*
  * used to forward http requests from manager to be.
  */
@@ -50,13 +50,13 @@ public class HttpUtils {
 
     static List<Pair<String, Integer>> getFeList() {
         return Catalog.getCurrentCatalog().getFrontends(null)
-                .stream().filter(Frontend::isAlive).map(fe -> new Pair<>(fe.getHost(), Config.http_port))
-                .collect(Collectors.toList());
+            .stream().filter(Frontend::isAlive).map(fe -> new Pair<>(fe.getHost(), Config.http_port))
+            .collect(Collectors.toList());
     }
 
     static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
         StringBuilder url = new StringBuilder("http://")
-                .append(ipPort.first).append(":").append(ipPort.second).append(path);
+            .append(ipPort.first).append(":").append(ipPort.second).append(path);
         boolean isFirst = true;
         for (Map.Entry<String, String> entry : arguments.entrySet()) {
             if (!Strings.isNullOrEmpty(entry.getValue())) {
@@ -98,10 +98,10 @@ public class HttpUtils {
         }
 
         RequestConfig config = RequestConfig.custom()
-                .setConnectTimeout(2000)
-                .setConnectionRequestTimeout(2000)
-                .setSocketTimeout(2000)
-                .build();
+            .setConnectTimeout(2000)
+            .setConnectionRequestTimeout(2000)
+            .setSocketTimeout(2000)
+            .build();
         request.setConfig(config);
     }
 
@@ -111,7 +111,8 @@ public class HttpUtils {
     }
 
     static String parseResponse(String response) {
-        ResponseBody responseEntity = GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>() {}.getType());
+        ResponseBody responseEntity = GsonUtils.GSON.fromJson(response, new TypeToken<ResponseBody>() {
+        }.getType());
         if (responseEntity.getCode() != REQUEST_SUCCESS_CODE) {
             throw new RuntimeException(responseEntity.getMsg());
         }

@@ -26,8 +26,8 @@ import com.google.common.collect.ImmutableList;
 
 public class TransStateProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("State").add("Number")
-            .build();
+        .add("State").add("Number")
+        .build();
 
     private long dbId;
 
@@ -54,7 +54,7 @@ public class TransStateProcDir implements ProcDirInterface {
         if (Strings.isNullOrEmpty(state)) {
             throw new AnalysisException("State is not set");
         }
-        
+
         if (!state.equals("running") && !state.equals("finished")) {
             throw new AnalysisException("State is invalid");
         }

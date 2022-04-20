@@ -36,8 +36,8 @@ public class UploadTask extends AgentTask {
     private StorageBackend.StorageType storageType;
 
     public UploadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, Long dbId,
-            Map<String, String> srcToDestPath, FsBroker broker, Map<String, String> brokerProperties,
-            StorageBackend.StorageType storageType) {
+                      Map<String, String> srcToDestPath, FsBroker broker, Map<String, String> brokerProperties,
+                      StorageBackend.StorageType storageType) {
         super(resourceInfo, backendId, TTaskType.UPLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;

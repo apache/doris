@@ -59,12 +59,12 @@ public class DistributedPlannerTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         // create table tbl1
         String createTblStmtStr = "create table db1.tbl1(k1 int, k2 varchar(32), v bigint sum) "
-                + "AGGREGATE KEY(k1,k2) distributed by hash(k1) buckets 1 properties('replication_num' = '1');";
+            + "AGGREGATE KEY(k1,k2) distributed by hash(k1) buckets 1 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
         // create table tbl2
         createTblStmtStr = "create table db1.tbl2(k3 int, k4 varchar(32)) "
-                + "DUPLICATE KEY(k3) distributed by hash(k3) buckets 1 properties('replication_num' = '1');";
+            + "DUPLICATE KEY(k3) distributed by hash(k3) buckets 1 properties('replication_num' = '1');";
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
@@ -112,7 +112,7 @@ public class DistributedPlannerTest {
         };
 
         PlanFragment assertFragment = Deencapsulation.invoke(distributedPlanner, "createAssertFragment",
-                assertNumRowsNode, inputFragment);
+            assertNumRowsNode, inputFragment);
         Assert.assertFalse(assertFragment.isPartitioned());
         Assert.assertSame(assertNumRowsNode, assertFragment.getPlanRoot());
     }
@@ -124,7 +124,7 @@ public class DistributedPlannerTest {
         DistributedPlanner distributedPlanner = new DistributedPlanner(plannerContext);
 
         PlanFragment assertFragment = Deencapsulation.invoke(distributedPlanner, "createAssertFragment",
-                assertNumRowsNode, inputFragment);
+            assertNumRowsNode, inputFragment);
         Assert.assertSame(assertFragment, inputFragment);
         Assert.assertTrue(assertFragment.getPlanRoot() instanceof AssertNumRowsNode);
     }

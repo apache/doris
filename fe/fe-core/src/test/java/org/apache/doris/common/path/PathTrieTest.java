@@ -17,18 +17,12 @@
 
 package org.apache.doris.common.path;
 
-import static com.google.common.collect.Maps.newHashMap;
-
-import org.apache.doris.service.ExecuteEnv;
-
-import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Map;
 
-import mockit.Injectable;
+import static com.google.common.collect.Maps.newHashMap;
 
 public class PathTrieTest {
     @Test
@@ -58,14 +52,14 @@ public class PathTrieTest {
         Assert.assertEquals(params.get("index"), "index1");
         Assert.assertEquals(params.get("docId"), "12");
     }
-    
+
     @Test
     public void testEmptyPath() {
         PathTrie<String> trie = new PathTrie<>();
         trie.insert("/", "walla");
         Assert.assertEquals(trie.retrieve(""), "walla");
     }
-    
+
     @Test
     public void testDifferentNamesOnDifferentPath() {
         PathTrie<String> trie = new PathTrie<>();

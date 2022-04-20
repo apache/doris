@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -25,6 +24,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -72,12 +73,12 @@ public class CancelAlterTableStmt extends CancelStmt {
 
         // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
-                                                                dbTableName.getTbl(),
-                                                                PrivPredicate.ALTER)) {
+            dbTableName.getTbl(),
+            PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL ALTER TABLE",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                dbTableName.getDb() + ": " + dbTableName.getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                dbTableName.getDb() + ": " + dbTableName.getTbl());
         }
     }
 
@@ -88,7 +89,7 @@ public class CancelAlterTableStmt extends CancelStmt {
         stringBuilder.append(" FROM " + dbTableName.toSql());
         if (!CollectionUtils.isEmpty(alterJobIdList)) {
             stringBuilder.append(" (")
-            .append(String.join(",",alterJobIdList.stream().map(String::valueOf).collect(Collectors.toList())));
+                .append(String.join(",", alterJobIdList.stream().map(String::valueOf).collect(Collectors.toList())));
             stringBuilder.append(")");
         }
         return stringBuilder.toString();

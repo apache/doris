@@ -25,6 +25,7 @@ public class VectorizedUtil {
      * 1. Return false if there is no current connection (Rule1 to be changed)
      * 2. Returns the vectorized switch value of the query 'globalState.enableQueryVec'
      * 3. If it is not currently a query, return the vectorized switch value of the session 'enableVectorizedEngine'
+     *
      * @return true: vec. false: non-vec
      */
     public static boolean isVectorized() {
@@ -47,7 +48,7 @@ public class VectorizedUtil {
      * and will not affect other queries in the same session.
      * Therefore, even if the vectorization switch of the current query is turned off,
      * the vectorization properties of subsequent queries will not be affected.
-     *
+     * <p>
      * Session: set enable_vectorized_engine=true;
      * Query1: select * from table (vec)
      * Query2: select * from t1 left join (select count(*) as count from t2) t3 on t1.k1=t3.count (switch to non-vec)

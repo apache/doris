@@ -49,7 +49,7 @@ public class SnapshotInfo implements Writable {
     }
 
     public SnapshotInfo(long dbId, long tblId, long partitionId, long indexId, long tabletId,
-            long beId, int schemaHash, String path, List<String> files) {
+                        long beId, int schemaHash, String path, List<String> files) {
         this.dbId = dbId;
         this.tblId = tblId;
         this.partitionId = partitionId;

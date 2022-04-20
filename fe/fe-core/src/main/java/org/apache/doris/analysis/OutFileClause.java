@@ -23,11 +23,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
@@ -225,7 +225,8 @@ public class OutFileClause {
             switch (resultType.getPrimitiveType()) {
                 case BOOLEAN:
                     if (!type.equals("boolean")) {
-                        throw new AnalysisException("project field type is BOOLEAN, should use boolean, but the type of column "
+                        throw new AnalysisException(
+                            "project field type is BOOLEAN, should use boolean, but the type of column "
                                 + i + " is " + type);
                     }
                     break;
@@ -234,7 +235,7 @@ public class OutFileClause {
                 case INT:
                     if (!type.equals("int32")) {
                         throw new AnalysisException("project field type is TINYINT/SMALLINT/INT, should use int32, "
-                                + "but the definition type of column " + i + " is " + type);
+                            + "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case BIGINT:
@@ -242,18 +243,20 @@ public class OutFileClause {
                 case DATETIME:
                     if (!type.equals("int64")) {
                         throw new AnalysisException("project field type is BIGINT/DATE/DATETIME, should use int64, " +
-                                "but the definition type of column " + i + " is " + type);
+                            "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case FLOAT:
                     if (!type.equals("float")) {
-                        throw new AnalysisException("project field type is FLOAT, should use float, but the definition type of column "
+                        throw new AnalysisException(
+                            "project field type is FLOAT, should use float, but the definition type of column "
                                 + i + " is " + type);
                     }
                     break;
                 case DOUBLE:
                     if (!type.equals("double")) {
-                        throw new AnalysisException("project field type is DOUBLE, should use double, but the definition type of column "
+                        throw new AnalysisException(
+                            "project field type is DOUBLE, should use double, but the definition type of column "
                                 + i + " is " + type);
                     }
                     break;
@@ -262,23 +265,27 @@ public class OutFileClause {
                 case STRING:
                 case DECIMALV2:
                     if (!type.equals("byte_array")) {
-                        throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL, should use byte_array, " +
+                        throw new AnalysisException(
+                            "project field type is CHAR/VARCHAR/STRING/DECIMAL, should use byte_array, " +
                                 "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case HLL:
                 case BITMAP:
-                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
+                    if (ConnectContext.get() != null &&
+                        ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
                         if (!type.equals("byte_array")) {
                             throw new AnalysisException("project field type is HLL/BITMAP, should use byte_array, " +
-                                    "but the definition type of column " + i + " is " + type);
+                                "but the definition type of column " + i + " is " + type);
                         }
                     } else {
-                        throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
+                        throw new AnalysisException(
+                            "Parquet format does not support column type: " + resultType.getPrimitiveType());
                     }
                     break;
                 default:
-                    throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
+                    throw new AnalysisException(
+                        "Parquet format does not support column type: " + resultType.getPrimitiveType());
             }
         }
     }
@@ -317,11 +324,13 @@ public class OutFileClause {
                     break;
                 case HLL:
                 case BITMAP:
-                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
+                    if (ConnectContext.get() != null &&
+                        ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
                         column.add("byte_array");
                     }
                 default:
-                    throw new AnalysisException("currently parquet do not support column type: " + expr.getType().getPrimitiveType());
+                    throw new AnalysisException(
+                        "currently parquet do not support column type: " + expr.getType().getPrimitiveType());
             }
             column.add("col" + i);
             this.schema.add(column);
@@ -335,8 +344,9 @@ public class OutFileClause {
 
         if (filePath.startsWith(LOCAL_FILE_PREFIX)) {
             if (!Config.enable_outfile_to_local) {
-                throw new AnalysisException("Exporting results to local disk is not allowed." 
-                    + " To enable this feature, you need to add `enable_outfile_to_local=true` in fe.conf and restart FE");
+                throw new AnalysisException("Exporting results to local disk is not allowed."
+                    +
+                    " To enable this feature, you need to add `enable_outfile_to_local=true` in fe.conf and restart FE");
             }
             isLocalOutput = true;
             filePath = filePath.substring(LOCAL_FILE_PREFIX.length() - 1); // leave last '/'
@@ -394,7 +404,7 @@ public class OutFileClause {
         if (processedPropKeys.size() != properties.size()) {
             LOG.debug("{} vs {}", processedPropKeys, properties);
             throw new AnalysisException("Unknown properties: " + properties.keySet().stream()
-                    .filter(k -> !processedPropKeys.contains(k)).collect(Collectors.toList()));
+                .filter(k -> !processedPropKeys.contains(k)).collect(Collectors.toList()));
         }
     }
 
@@ -431,7 +441,7 @@ public class OutFileClause {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
             } else if (entry.getKey().startsWith(HDFS_PROP_PREFIX)
-                    && storageType == StorageBackend.StorageType.HDFS) {
+                && storageType == StorageBackend.StorageType.HDFS) {
                 brokerProps.put(entry.getKey().substring(HDFS_PROP_PREFIX.length()), entry.getValue());
                 processedPropKeys.add(entry.getKey());
             }
@@ -449,10 +459,10 @@ public class OutFileClause {
      * example:
      * SELECT citycode FROM table1 INTO OUTFILE "file:///root/doris/"
      * FORMAT AS PARQUET PROPERTIES ("schema"="required,int32,siteid;", "parquet.compression"="snappy");
-     *
+     * <p>
      * schema: it defined the schema of parquet file, it consists of 3 field: competition type, data type, column name
      * multiple columns is split by `;`
-     *
+     * <p>
      * prefix with 'parquet.' defines the properties of parquet file,
      * currently only supports: compression, disable_dictionary, version
      */
@@ -490,7 +500,7 @@ public class OutFileClause {
                 throw new AnalysisException("currently only support required type");
             }
             if (!PARQUET_DATA_TYPES.contains(properties[1])) {
-                throw new AnalysisException("data type is not supported:"+properties[1]);
+                throw new AnalysisException("data type is not supported:" + properties[1]);
             }
             List<String> column = new ArrayList<>();
             column.addAll(Arrays.asList(properties));
@@ -501,12 +511,12 @@ public class OutFileClause {
 
     private boolean isCsvFormat() {
         return fileFormatType == TFileFormatType.FORMAT_CSV_BZ2
-                || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
-                || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
-                || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
-                || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
+            || fileFormatType == TFileFormatType.FORMAT_CSV_DEFLATE
+            || fileFormatType == TFileFormatType.FORMAT_CSV_GZ
+            || fileFormatType == TFileFormatType.FORMAT_CSV_LZ4FRAME
+            || fileFormatType == TFileFormatType.FORMAT_CSV_LZO
+            || fileFormatType == TFileFormatType.FORMAT_CSV_LZOP
+            || fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN;
     }
 
     private boolean isParquetFormat() {

@@ -27,8 +27,18 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.service.ExecuteEnv;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Preconditions;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.File;
+import java.io.IOException;
+import java.util.List;
+
+import com.clearspring.analytics.util.Lists;
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Cursor;
 import com.sleepycat.je.Database;
@@ -39,15 +49,6 @@ import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.File;
-import java.io.IOException;
-import java.util.List;
 
 /**
  * This class is mainly used to view the data in bdbje.
@@ -92,7 +93,8 @@ public class BDBDebugger {
         httpServer.start();
 
         // MySQl server
-        QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
+        QeService qeService =
+            new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
         qeService.start();
 
         ThreadPoolManager.registerAllThreadPoolMetric();

@@ -24,7 +24,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -33,6 +32,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.regex.Pattern;
+
+import com.google.gson.annotations.SerializedName;
 
 public class SqlBlockRule implements Writable {
 
@@ -77,7 +78,8 @@ public class SqlBlockRule implements Writable {
         this.name = name;
     }
 
-    public SqlBlockRule(String name, String sql, String sqlHash, Long partitionNum, Long tabletNum, Long cardinality, Boolean global, Boolean enable) {
+    public SqlBlockRule(String name, String sql, String sqlHash, Long partitionNum, Long tabletNum, Long cardinality,
+                        Boolean global, Boolean enable) {
         this.name = name;
         this.sql = sql;
         this.sqlHash = sqlHash;
@@ -92,11 +94,13 @@ public class SqlBlockRule implements Writable {
     }
 
     public static SqlBlockRule fromCreateStmt(CreateSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(), stmt.getTabletNum(), stmt.getCardinality(), stmt.isGlobal(), stmt.isEnable());
+        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(),
+            stmt.getTabletNum(), stmt.getCardinality(), stmt.isGlobal(), stmt.isEnable());
     }
 
     public static SqlBlockRule fromAlterStmt(AlterSqlBlockRuleStmt stmt) {
-        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(), stmt.getTabletNum(), stmt.getCardinality(), stmt.getGlobal(), stmt.getEnable());
+        return new SqlBlockRule(stmt.getRuleName(), stmt.getSql(), stmt.getSqlHash(), stmt.getPartitionNum(),
+            stmt.getTabletNum(), stmt.getCardinality(), stmt.getGlobal(), stmt.getEnable());
     }
 
     public String getName() {
@@ -169,10 +173,10 @@ public class SqlBlockRule implements Writable {
 
     public List<String> getShowInfo() {
         return Lists.newArrayList(this.name, this.sql, this.sqlHash,
-                this.partitionNum == null ? "0" : Long.toString(this.partitionNum),
-                this.tabletNum == null ? "0" : Long.toString(this.tabletNum),
-                this.cardinality == null ? "0" : Long.toString(this.cardinality),
-                String.valueOf(this.global), String.valueOf(this.enable));
+            this.partitionNum == null ? "0" : Long.toString(this.partitionNum),
+            this.tabletNum == null ? "0" : Long.toString(this.tabletNum),
+            this.cardinality == null ? "0" : Long.toString(this.cardinality),
+            String.valueOf(this.global), String.valueOf(this.enable));
     }
 
     @Override

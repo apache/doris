@@ -62,16 +62,16 @@ public class AdminStmtTest {
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        
+
         String sql = "CREATE TABLE test.tbl1 (\n" +
-                "  `id` int(11) NULL COMMENT \"\",\n" +
-                "  `id2` bitmap bitmap_union NULL\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`id`)\n" +
-                "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\"\n" +
-                ");";
+            "  `id` int(11) NULL COMMENT \"\",\n" +
+            "  `id2` bitmap bitmap_union NULL\n" +
+            ") ENGINE=OLAP\n" +
+            "AGGREGATE KEY(`id`)\n" +
+            "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\"\n" +
+            ");";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
@@ -107,21 +107,22 @@ public class AdminStmtTest {
 
         // set replica to bad
         String adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'status' = 'bad');";
-        AdminSetReplicaStatusStmt stmt = (AdminSetReplicaStatusStmt) UtFrameUtils.parseAndAnalyzeStmt(adminStmt, connectContext);
+            + backendId + "', 'status' = 'bad');";
+        AdminSetReplicaStatusStmt stmt =
+            (AdminSetReplicaStatusStmt) UtFrameUtils.parseAndAnalyzeStmt(adminStmt, connectContext);
         Catalog.getCurrentCatalog().setReplicaStatus(stmt);
         replica = Catalog.getCurrentInvertedIndex().getReplica(tabletId, backendId);
         Assert.assertTrue(replica.isBad());
 
         // set replica to ok
         adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
-                + backendId + "', 'status' = 'ok');";
+            + backendId + "', 'status' = 'ok');";
         stmt = (AdminSetReplicaStatusStmt) UtFrameUtils.parseAndAnalyzeStmt(adminStmt, connectContext);
         Catalog.getCurrentCatalog().setReplicaStatus(stmt);
         replica = Catalog.getCurrentInvertedIndex().getReplica(tabletId, backendId);
         Assert.assertFalse(replica.isBad());
     }
-    
+
     @Test
     public void testSetReplicaStatusOperationLog() throws IOException, AnalysisException {
         String fileName = "./SetReplicaStatusOperationLog";
@@ -130,20 +131,20 @@ public class AdminStmtTest {
             File file = new File(fileName);
             file.createNewFile();
             DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
-            
+
             SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(10000, 100001, ReplicaStatus.BAD);
             log.write(out);
             out.flush();
             out.close();
-            
+
             // 2. Read objects from file
             DataInputStream in = new DataInputStream(new FileInputStream(file));
-            
+
             SetReplicaStatusOperationLog readLog = SetReplicaStatusOperationLog.read(in);
             Assert.assertEquals(log.getBackendId(), readLog.getBackendId());
             Assert.assertEquals(log.getTabletId(), readLog.getTabletId());
             Assert.assertEquals(log.getReplicaStatus(), readLog.getReplicaStatus());
-            
+
             in.close();
         } finally {
             File file = new File(fileName);

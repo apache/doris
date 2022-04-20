@@ -17,8 +17,6 @@
 
 package org.apache.doris.udf;
 
-import com.google.common.base.Preconditions;
-
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -28,11 +26,13 @@ import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 
-import sun.misc.Unsafe;
+import com.google.common.base.Preconditions;
 
 import java.lang.reflect.Field;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
+
+import sun.misc.Unsafe;
 
 public class UdfUtils {
     public static final Unsafe UNSAFE;
@@ -42,15 +42,15 @@ public class UdfUtils {
 
     static {
         UNSAFE = (Unsafe) AccessController.doPrivileged(
-                (PrivilegedAction<Object>) () -> {
-                    try {
-                        Field f = Unsafe.class.getDeclaredField("theUnsafe");
-                        f.setAccessible(true);
-                        return f.get(null);
-                    } catch (NoSuchFieldException | IllegalAccessException e) {
-                        throw new Error();
-                    }
-                });
+            (PrivilegedAction<Object>) () -> {
+                try {
+                    Field f = Unsafe.class.getDeclaredField("theUnsafe");
+                    f.setAccessible(true);
+                    return f.get(null);
+                } catch (NoSuchFieldException | IllegalAccessException e) {
+                    throw new Error();
+                }
+            });
         BYTE_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
     }
 
@@ -69,12 +69,12 @@ public class UdfUtils {
                     type = ScalarType.createVarcharType(scalarType.getLen());
                 } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
                     Preconditions.checkState(scalarType.isSetPrecision()
-                            && scalarType.isSetScale());
+                        && scalarType.isSetScale());
                     type = ScalarType.createDecimalV2Type(scalarType.getPrecision(),
-                            scalarType.getScale());
+                        scalarType.getScale());
                 } else {
                     type = ScalarType.createType(
-                            PrimitiveType.fromThrift(scalarType.getType()));
+                        PrimitiveType.fromThrift(scalarType.getType()));
                 }
                 break;
             }
@@ -89,7 +89,7 @@ public class UdfUtils {
     }
 
     public static void copyMemory(
-            Object src, long srcOffset, Object dst, long dstOffset, long length) {
+        Object src, long srcOffset, Object dst, long dstOffset, long length) {
         // Check if dstOffset is before or after srcOffset to determine if we should copy
         // forward or backwards. This is necessary in case src and dst overlap.
         if (dstOffset < srcOffset) {

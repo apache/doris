@@ -47,7 +47,8 @@ public class ColocationGroupBackendSeqsProcNode implements ProcNodeInterface {
             if (bucketNum == 0) {
                 bucketNum = backendsSeq.get(tag).size();
             } else if (bucketNum != backendsSeq.get(tag).size()) {
-                throw new AnalysisException("Invalid bucket number: " + bucketNum + " vs. " + backendsSeq.get(tag).size());
+                throw new AnalysisException(
+                    "Invalid bucket number: " + bucketNum + " vs. " + backendsSeq.get(tag).size());
             }
         }
         result.setNames(titleNames);

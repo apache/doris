@@ -34,13 +34,14 @@ import java.util.ArrayList;
  * Internal representation of a builtin aggregate function.
  */
 public class BuiltinAggregateFunction extends Function {
-    private final Operator                          op_;
+    private final Operator op_;
     // this is to judge the analytic function
     private boolean isAnalyticFn = false;
-    
+
     public boolean isAnalyticFn() {
         return isAnalyticFn;
     }
+
     // TODO: this is not used yet until the planner understand this.
     private org.apache.doris.catalog.Type intermediateType_;
     private boolean reqIntermediateTuple = false;
@@ -48,12 +49,12 @@ public class BuiltinAggregateFunction extends Function {
     public boolean isReqIntermediateTuple() {
         return reqIntermediateTuple;
     }
-    
+
     public BuiltinAggregateFunction(Operator op, ArrayList<Type> argTypes,
-      Type retType, org.apache.doris.catalog.Type intermediateType, boolean isAnalyticFn)
-      throws AnalysisException {
+                                    Type retType, org.apache.doris.catalog.Type intermediateType, boolean isAnalyticFn)
+        throws AnalysisException {
         super(FunctionName.createBuiltinName(op.toString()), argTypes,
-          retType, false);
+            retType, false);
         Preconditions.checkState(intermediateType != null);
         Preconditions.checkState(op != null);
         // may be no need to analyze
@@ -122,14 +123,15 @@ public class BuiltinAggregateFunction extends Function {
         LEAD("LEAD", TAggregationOp.LEAD, null),
         FIRST_VALUE_REWRITE("FIRST_VALUE_REWRITE", null, null);
 
-        private final String         description;
+        private final String description;
         private final TAggregationOp thriftOp;
 
         // The intermediate type for this function if it is constant regardless of
         // input type. Set to null if it can only be determined during analysis.
         private final org.apache.doris.catalog.Type intermediateType;
+
         private Operator(String description, TAggregationOp thriftOp,
-          org.apache.doris.catalog.Type intermediateType) {
+                         org.apache.doris.catalog.Type intermediateType) {
             this.description = description;
             this.thriftOp = thriftOp;
             this.intermediateType = intermediateType;

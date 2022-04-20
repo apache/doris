@@ -31,18 +31,23 @@ public class AttachmentRequest {
         TSerializer serializer = new TSerializer();
         serializedRequest = serializer.serialize(request);
     }
+
     public void setSerializedRequest(byte[] request) {
         this.serializedRequest = request;
     }
+
     public byte[] getSerializedRequest() {
         return serializedRequest;
     }
+
     public void setSerializedResult(byte[] result) {
         this.serializedResult = result;
     }
+
     public byte[] getSerializedResult() {
         return serializedResult;
     }
+
     public void getResult(TBase result) throws TException {
         TDeserializer deserializer = new TDeserializer();
         deserializer.deserialize(result, serializedResult);

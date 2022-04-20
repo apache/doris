@@ -49,9 +49,9 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class BrokerMgr {
     public static final ImmutableList<String> BROKER_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("IP").add("HostName").add("Port").add("Alive")
-            .add("LastStartTime").add("LastUpdateTime").add("ErrMsg")
-            .build();
+        .add("Name").add("IP").add("HostName").add("Port").add("Alive")
+        .add("LastStartTime").add("LastUpdateTime").add("ErrMsg")
+        .build();
 
     public static final int HOSTNAME_INDEX = 2;
 
@@ -200,7 +200,7 @@ public class BrokerMgr {
                 for (FsBroker addr : addressList) {
                     if (addr.port == pair.second) {
                         throw new DdlException("Broker(" + pair.first + ":" + pair.second
-                                + ") has already in brokers.");
+                            + ") has already in brokers.");
                     }
                 }
                 addedBrokerAddress.add(new FsBroker(pair.first, pair.second));

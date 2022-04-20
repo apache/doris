@@ -110,13 +110,13 @@ public class RLTaskTxnCommitAttachment extends TxnCommitAttachment {
     @Override
     public String toString() {
         return "RLTaskTxnCommitAttachment [filteredRows=" + filteredRows
-                + ", loadedRows=" + loadedRows
-                + ", unselectedRows=" + unselectedRows
-                + ", receivedBytes=" + receivedBytes
-                + ", taskExecutionTimeMs=" + taskExecutionTimeMs
-                + ", taskId=" + taskId
-                + ", jobId=" + jobId
-                + ", progress=" + progress.toString() + "]";
+            + ", loadedRows=" + loadedRows
+            + ", unselectedRows=" + unselectedRows
+            + ", receivedBytes=" + receivedBytes
+            + ", taskExecutionTimeMs=" + taskExecutionTimeMs
+            + ", taskId=" + taskId
+            + ", jobId=" + jobId
+            + ", progress=" + progress.toString() + "]";
     }
 
     @Override

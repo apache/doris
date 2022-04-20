@@ -24,7 +24,6 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
 
 import com.google.common.collect.Lists;
-import com.google.protobuf.ByteString;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -35,6 +34,8 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
+
+import com.google.protobuf.ByteString;
 
 /**
  * According to the query partition range and cache hit, the rowbatch to update the cache is constructed
@@ -100,21 +101,22 @@ public class RowBatchBuilder {
         }
     }
 
-    public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(String sql, long partitionKey, long lastVersion, long lastestTime) {
+    public InternalService.PUpdateCacheRequest buildSqlUpdateRequest(String sql, long partitionKey, long lastVersion,
+                                                                     long lastestTime) {
         if (updateRequest == null) {
             updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
-                    .setSqlKey(CacheProxy.getMd5(sql))
-                    .setCacheType(InternalService.CacheType.SQL_CACHE).build();
+                .setSqlKey(CacheProxy.getMd5(sql))
+                .setCacheType(InternalService.CacheType.SQL_CACHE).build();
         }
         updateRequest = updateRequest.toBuilder()
-                .addValues(InternalService.PCacheValue.newBuilder()
-                        .setParam(InternalService.PCacheParam.newBuilder()
-                                .setPartitionKey(partitionKey)
-                                .setLastVersion(lastVersion)
-                                .setLastVersionTime(lastestTime)
-                                .build()).setDataSize(dataSize).addAllRows(
-                                rowList.stream().map(row -> ByteString.copyFrom(row))
-                                        .collect(Collectors.toList()))).build();
+            .addValues(InternalService.PCacheValue.newBuilder()
+                .setParam(InternalService.PCacheParam.newBuilder()
+                    .setPartitionKey(partitionKey)
+                    .setLastVersion(lastVersion)
+                    .setLastVersionTime(lastestTime)
+                    .build()).setDataSize(dataSize).addAllRows(
+                    rowList.stream().map(row -> ByteString.copyFrom(row))
+                        .collect(Collectors.toList()))).build();
         return updateRequest;
     }
 
@@ -142,8 +144,8 @@ public class RowBatchBuilder {
     public InternalService.PUpdateCacheRequest buildPartitionUpdateRequest(String sql) {
         if (updateRequest == null) {
             updateRequest = InternalService.PUpdateCacheRequest.newBuilder()
-                    .setSqlKey(CacheProxy.getMd5(sql))
-                    .setCacheType(InternalService.CacheType.PARTITION_CACHE).build();
+                .setSqlKey(CacheProxy.getMd5(sql))
+                .setCacheType(InternalService.CacheType.PARTITION_CACHE).build();
         }
         HashMap<Long, List<byte[]>> partRowMap = new HashMap<>();
         List<byte[]> partitionRowList;
@@ -172,14 +174,14 @@ public class RowBatchBuilder {
                 data_size += buf.length;
             }
             updateRequest = updateRequest.toBuilder()
-                    .addValues(InternalService.PCacheValue.newBuilder()
-                            .setParam(InternalService.PCacheParam.newBuilder()
-                                    .setPartitionKey(key)
-                                    .setLastVersion(partition.getPartition().getVisibleVersion())
-                                    .setLastVersionTime(partition.getPartition().getVisibleVersionTime())
-                                    .build()).setDataSize(dataSize).addAllRows(
-                                    partitionRowList.stream().map(row -> ByteString.copyFrom(row))
-                                            .collect(Collectors.toList()))).build();
+                .addValues(InternalService.PCacheValue.newBuilder()
+                    .setParam(InternalService.PCacheParam.newBuilder()
+                        .setPartitionKey(key)
+                        .setLastVersion(partition.getPartition().getVisibleVersion())
+                        .setLastVersionTime(partition.getPartition().getVisibleVersionTime())
+                        .build()).setDataSize(dataSize).addAllRows(
+                        partitionRowList.stream().map(row -> ByteString.copyFrom(row))
+                            .collect(Collectors.toList()))).build();
         }
         return updateRequest;
     }

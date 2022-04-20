@@ -22,11 +22,10 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import com.google.common.base.Strings;
 
 /**
- * used to isolate the use for the database name and user name in the catalog, 
- * all using the database name and user name place need to call the appropriate 
- * method to makeup full name or get real name, full name is made up generally 
+ * used to isolate the use for the database name and user name in the catalog,
+ * all using the database name and user name place need to call the appropriate
+ * method to makeup full name or get real name, full name is made up generally
  * in stmt's analyze.
- * 
  */
 
 public class ClusterNamespace {
@@ -56,7 +55,7 @@ public class ClusterNamespace {
             return false;
         }
         final String[] ele = str.split(CLUSTER_DELIMITER);
-        return (ele.length > 1) ? true : false;
+        return ele.length > 1;
     }
 
     private static String linkString(String cluster, String name) {
@@ -64,7 +63,7 @@ public class ClusterNamespace {
             return null;
         }
         if (name.contains(CLUSTER_DELIMITER) || name.equalsIgnoreCase(PaloAuth.ROOT_USER)
-                || name.equalsIgnoreCase(PaloAuth.ADMIN_USER)) {
+            || name.equalsIgnoreCase(PaloAuth.ADMIN_USER)) {
             return name;
         }
         final StringBuilder sb = new StringBuilder(cluster);

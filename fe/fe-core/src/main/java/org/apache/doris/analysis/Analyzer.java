@@ -110,7 +110,7 @@ public class Analyzer {
     // map from lowercase table alias to descriptor.
     // protected final Map<String, TupleDescriptor> aliasMap             = Maps.newHashMap();
     // map from lowercase qualified column name ("alias.col") to descriptor
-    private final Map<String, SlotDescriptor>  slotRefMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, SlotDescriptor> slotRefMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     // map from tuple id to list of conjuncts referencing tuple
     private final Map<TupleId, List<ExprId>> tuplePredicates = Maps.newHashMap();
@@ -168,19 +168,50 @@ public class Analyzer {
         isSubquery = true;
         globalState.containsSubquery = true;
     }
-    public boolean setHasPlanHints() { return globalState.hasPlanHints = true; }
-    public boolean hasPlanHints() { return globalState.hasPlanHints; }
-    public void setIsWithClause() { isWithClause = true; }
-    public boolean isWithClause() { return isWithClause; }
-    
-    public void setUDFAllowed(boolean val) { this.isUDFAllowed = val; }
-    public boolean isUDFAllowed() { return this.isUDFAllowed; }
-    public void setTimezone(String timezone) { this.timezone = timezone; }
-    public String getTimezone() { return timezone; }
 
-    public void putAssignedRuntimeFilter(RuntimeFilter rf) { assignedRuntimeFilters.add(rf); }
-    public List<RuntimeFilter> getAssignedRuntimeFilter() { return assignedRuntimeFilters; }
-    public void clearAssignedRuntimeFilters() { assignedRuntimeFilters.clear(); }
+    public boolean setHasPlanHints() {
+        return globalState.hasPlanHints = true;
+    }
+
+    public boolean hasPlanHints() {
+        return globalState.hasPlanHints;
+    }
+
+    public void setIsWithClause() {
+        isWithClause = true;
+    }
+
+    public boolean isWithClause() {
+        return isWithClause;
+    }
+
+    public void setUDFAllowed(boolean val) {
+        this.isUDFAllowed = val;
+    }
+
+    public boolean isUDFAllowed() {
+        return this.isUDFAllowed;
+    }
+
+    public void setTimezone(String timezone) {
+        this.timezone = timezone;
+    }
+
+    public String getTimezone() {
+        return timezone;
+    }
+
+    public void putAssignedRuntimeFilter(RuntimeFilter rf) {
+        assignedRuntimeFilters.add(rf);
+    }
+
+    public List<RuntimeFilter> getAssignedRuntimeFilter() {
+        return assignedRuntimeFilters;
+    }
+
+    public void clearAssignedRuntimeFilters() {
+        assignedRuntimeFilters.clear();
+    }
 
     public long getAutoBroadcastJoinThreshold() {
         return globalState.autoBroadcastJoinThreshold;
@@ -222,7 +253,7 @@ public class Analyzer {
 
         // set of conjuncts that have been assigned to some PlanNode
         private Set<ExprId> assignedConjuncts =
-                Collections.newSetFromMap(new IdentityHashMap<ExprId, Boolean>());
+            Collections.newSetFromMap(new IdentityHashMap<ExprId, Boolean>());
 
         // map from outer-joined tuple id, ie, one that is nullable in this select block,
         // to the last Join clause (represented by its rhs table ref) that outer-joined it
@@ -423,7 +454,7 @@ public class Analyzer {
      * Analyzer constructor for nested select block with the specified global state.
      */
     private Analyzer(Analyzer parentAnalyzer, GlobalState globalState) {
-        ancestors =  Lists.newArrayList(parentAnalyzer);
+        ancestors = Lists.newArrayList(parentAnalyzer);
         ancestors.addAll(parentAnalyzer.ancestors);
         this.globalState = globalState;
     }
@@ -437,8 +468,13 @@ public class Analyzer {
         return new Analyzer(parentAnalyzer, globalState);
     }
 
-    public void setIsExplain() { globalState.isExplain = true; }
-    public boolean isExplain() { return globalState.isExplain; }
+    public void setIsExplain() {
+        globalState.isExplain = true;
+    }
+
+    public boolean isExplain() {
+        return globalState.isExplain;
+    }
 
     public int incrementCallDepth() {
         return ++callDepth;
@@ -464,14 +500,14 @@ public class Analyzer {
             List<String> queryStmtLabels = view.getQueryStmt().getColLabels();
             if (viewLabels.size() > queryStmtLabels.size()) {
                 throw new AnalysisException("WITH-clause view '" + view.getName() +
-                        "' returns " + queryStmtLabels.size() + " columns, but " +
-                        viewLabels.size() + " labels were specified. The number of column " +
-                        "labels must be smaller or equal to the number of returned columns.");
+                    "' returns " + queryStmtLabels.size() + " columns, but " +
+                    viewLabels.size() + " labels were specified. The number of column " +
+                    "labels must be smaller or equal to the number of returned columns.");
             }
         }
         if (localViews.put(view.getName(), view) != null) {
             throw new AnalysisException(
-                    String.format("Duplicate table alias: '%s'", view.getName()));
+                String.format("Duplicate table alias: '%s'", view.getName()));
         }
     }
 
@@ -591,12 +627,14 @@ public class Analyzer {
      * path could not be resolved. The privilege requests are added to ensure that
      * an AuthorizationException is preferred over an AnalysisException so as not to
      * accidentally reveal the non-existence of tables/databases.
-     *
+     * <p>
      * TODO(zc): support collection table ref
      */
     public TableRef resolveTableRef(TableRef tableRef) throws AnalysisException {
         // Return the table if it is already resolved.
-        if (tableRef.isResolved()) return tableRef;
+        if (tableRef.isResolved()) {
+            return tableRef;
+        }
         // Try to find a matching local view.
         TableName tableName = tableRef.getName();
         if (!tableName.isFullyQualified()) {
@@ -606,7 +644,9 @@ public class Analyzer {
             Analyzer analyzer = this;
             do {
                 View localView = analyzer.localViews.get(viewAlias);
-                if (localView != null) return new InlineViewRef(localView, tableRef);
+                if (localView != null) {
+                    return new InlineViewRef(localView, tableRef);
+                }
                 analyzer = (analyzer.ancestors.isEmpty() ? null : analyzer.ancestors.get(0));
             } while (analyzer != null);
         }
@@ -627,12 +667,12 @@ public class Analyzer {
         Table table = database.getTableOrAnalysisException(tableName.getTbl());
 
         if (table.getType() == TableType.OLAP && (((OlapTable) table).getState() == OlapTableState.RESTORE
-                || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
+            || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
             Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream().filter(
-                    partition -> partition.getState() == PartitionState.RESTORE
+                partition -> partition.getState() == PartitionState.RESTORE
             ).collect(Collectors.toList()).isEmpty();
 
-            if(!isNotRestoring){
+            if (!isNotRestoring) {
                 // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
                 // support query that partitions is not restoring.
             } else {
@@ -672,6 +712,7 @@ public class Analyzer {
     /**
      * Only the top-level `query vec` value of the query analyzer represents the value of the entire query.
      * Other sub-analyzers cannot represent the value of `query vec`.
+     *
      * @return
      */
     public boolean enableQueryVec() {
@@ -756,13 +797,13 @@ public class Analyzer {
         }
         if (d == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, colName,
-                                                newTblName == null ? "table list" : newTblName.toString());
+                newTblName == null ? "table list" : newTblName.toString());
         }
 
         Column col = d.getTable().getColumn(colName);
         if (col == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, colName,
-                                                newTblName == null ? d.getTable().getName() : newTblName.toString());
+                newTblName == null ? d.getTable().getName() : newTblName.toString());
         }
 
         // Make column name case insensitive
@@ -789,7 +830,7 @@ public class Analyzer {
      * so it should always is not nullable
      */
     public SlotDescriptor registerVirtualColumnRef(String colName, Type type, TupleDescriptor tupleDescriptor)
-            throws AnalysisException {
+        throws AnalysisException {
         // Make column name case insensitive
         String key = colName;
         SlotDescriptor result = slotRefMap.get(key);
@@ -816,8 +857,8 @@ public class Analyzer {
         for (TupleDescriptor desc : tupleByAlias.get(tblName.toString())) {
             //result = desc;
             if (!colName.equalsIgnoreCase(Column.DELETE_SIGN) && !isVisible(desc.getId())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR, 
-                        Joiner.on(".").join(tblName.getTbl(),colName));
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR,
+                    Joiner.on(".").join(tblName.getTbl(), colName));
             }
             Column col = desc.getTable().getColumn(colName);
             if (col != null) {
@@ -885,18 +926,20 @@ public class Analyzer {
      */
     public void registerFullOuterJoinedConjunct(Expr e) {
         Preconditions.checkState(
-                !globalState.fullOuterJoinedConjuncts.containsKey(e.getId()));
+            !globalState.fullOuterJoinedConjuncts.containsKey(e.getId()));
         List<TupleId> tids = Lists.newArrayList();
         e.getIds(tids, null);
-        for (TupleId tid: tids) {
-            if (!globalState.fullOuterJoinedTupleIds.containsKey(tid)) continue;
+        for (TupleId tid : tids) {
+            if (!globalState.fullOuterJoinedTupleIds.containsKey(tid)) {
+                continue;
+            }
             TableRef currentOuterJoin = globalState.fullOuterJoinedTupleIds.get(tid);
             globalState.fullOuterJoinedConjuncts.put(e.getId(), currentOuterJoin);
             break;
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("registerFullOuterJoinedConjunct: " +
-                    globalState.fullOuterJoinedConjuncts.toString());
+                globalState.fullOuterJoinedConjuncts.toString());
         }
     }
 
@@ -905,12 +948,12 @@ public class Analyzer {
      * rhsRef.
      */
     public void registerFullOuterJoinedTids(List<TupleId> tids, TableRef rhsRef) {
-        for (TupleId tid: tids) {
+        for (TupleId tid : tids) {
             globalState.fullOuterJoinedTupleIds.put(tid, rhsRef);
         }
         if (LOG.isTraceEnabled()) {
             LOG.trace("registerFullOuterJoinedTids: " +
-                    globalState.fullOuterJoinedTupleIds.toString());
+                globalState.fullOuterJoinedTupleIds.toString());
         }
     }
 
@@ -919,12 +962,12 @@ public class Analyzer {
      * All tuple of outer join should be null in slot desc
      */
     public void registerOuterJoinedTids(List<TupleId> tids, TableRef rhsRef) {
-        for (TupleId tid: tids) {
+        for (TupleId tid : tids) {
             globalState.outerJoinedTupleIds.put(tid, rhsRef);
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("registerOuterJoinedTids: " +
-                    globalState.outerJoinedTupleIds.toString());
+                globalState.outerJoinedTupleIds.toString());
         }
     }
 
@@ -941,15 +984,15 @@ public class Analyzer {
      * Result: t2.k1 is nullable
      *
      * @throws VecNotImplException In some cases, it is not possible to directly modify the column property to nullable.
-     *     It will report an error and fall back from vectorized mode to non-vectorized mode for execution.
-     *     If the nullside column of the outer join is a column that must return non-null like count(*)
-     *     then there is no way to force the column to be nullable.
-     *     At this time, vectorization cannot support this situation,
-     *     so it is necessary to fall back to non-vectorization for processing.
-     *     For example:
-     *       Query: select * from t1 left join (select k1, count(k2) as count_k2 from t2 group by k1) tmp on t1.k1=tmp.k1
-     *       Origin: tmp.k1 not null, tmp.count_k2 not null
-     *       Result: throw VecNotImplException
+     *                             It will report an error and fall back from vectorized mode to non-vectorized mode for execution.
+     *                             If the nullside column of the outer join is a column that must return non-null like count(*)
+     *                             then there is no way to force the column to be nullable.
+     *                             At this time, vectorization cannot support this situation,
+     *                             so it is necessary to fall back to non-vectorization for processing.
+     *                             For example:
+     *                             Query: select * from t1 left join (select k1, count(k2) as count_k2 from t2 group by k1) tmp on t1.k1=tmp.k1
+     *                             Origin: tmp.k1 not null, tmp.count_k2 not null
+     *                             Result: throw VecNotImplException
      */
     public void changeAllOuterJoinTupleToNull() throws VecNotImplException {
         for (TupleId tid : globalState.outerJoinedTupleIds.keySet()) {
@@ -973,7 +1016,7 @@ public class Analyzer {
         for (Expr sourceExpr : slotDescriptor.getSourceExprs()) {
             if (!sourceExpr.isNullable()) {
                 throw new VecNotImplException("The slot (" + slotDescriptor.toString()
-                        + ") could not be changed to nullable");
+                    + ") could not be changed to nullable");
             }
         }
     }
@@ -1007,7 +1050,7 @@ public class Analyzer {
         globalState.onSlotToLiteralExpr.add(expr);
     }
 
-    public void registerOnSlotToLiteralDeDuplication(Pair<Expr,Expr> pair) {
+    public void registerOnSlotToLiteralDeDuplication(Pair<Expr, Expr> pair) {
         globalState.onSlotToLiteralDeDuplication.add(pair);
     }
 
@@ -1062,7 +1105,7 @@ public class Analyzer {
 
     // Register all conjuncts and handle constant conjuncts with ids
     public void registerConjuncts(Expr e, boolean fromHavingClause, List<TupleId> ids) throws AnalysisException {
-        for (Expr conjunct: e.getConjuncts()) {
+        for (Expr conjunct : e.getConjuncts()) {
             registerConjunct(conjunct);
             if (ids != null) {
                 for (TupleId id : ids) {
@@ -1086,6 +1129,7 @@ public class Analyzer {
 
     /**
      * register expr id
+     *
      * @param expr
      */
     void registerExprId(Expr expr) {
@@ -1102,14 +1146,14 @@ public class Analyzer {
 
         e.setId(globalState.conjunctIdGenerator.getNextId());
         globalState.conjuncts.put(e.getId(), e);
-        
+
         // LOG.info("registered conjunct " + p.getId().toString() + ": " + p.toSql());
         ArrayList<TupleId> tupleIds = Lists.newArrayList();
         ArrayList<SlotId> slotIds = Lists.newArrayList();
         e.getIds(tupleIds, slotIds);
         // register full join conjuncts
         registerFullOuterJoinedConjunct(e);
-       
+
         // update tuplePredicates
         for (TupleId id : tupleIds) {
             if (!tuplePredicates.containsKey(id)) {
@@ -1176,7 +1220,7 @@ public class Analyzer {
         // have been
         // implicitly cast to a type different than NULL.
         if (lhs instanceof NullLiteral || rhs instanceof NullLiteral
-                || lhs.getType().isNull() || rhs.getType().isNull()) {
+            || lhs.getType().isNull() || rhs.getType().isNull()) {
             return;
         }
         // create an eq predicate between lhs and rhs
@@ -1206,7 +1250,9 @@ public class Analyzer {
     public List<Expr> getUnassignedConjuncts(List<TupleId> tupleIds) {
         List<Expr> result = Lists.newArrayList();
         for (Expr e : getUnassignedConjuncts(tupleIds, true)) {
-            if (canEvalPredicate(tupleIds, e)) result.add(e);
+            if (canEvalPredicate(tupleIds, e)) {
+                result.add(e);
+            }
         }
         return result;
     }
@@ -1217,7 +1263,7 @@ public class Analyzer {
      * Outer Join clause are excluded.
      */
     public List<Expr> getUnassignedConjuncts(
-            List<TupleId> tupleIds, boolean inclOjConjuncts) {
+        List<TupleId> tupleIds, boolean inclOjConjuncts) {
         List<Expr> result = Lists.newArrayList();
         for (Expr e : globalState.conjuncts.values()) {
             // handle constant conjuncts
@@ -1235,10 +1281,10 @@ public class Analyzer {
                 }
             }
             if (e.isBoundByTupleIds(tupleIds)
-                    && !e.isAuxExpr()
-                    && !globalState.assignedConjuncts.contains(e.getId())
-                    && ((inclOjConjuncts && !e.isConstant())
-                    || !globalState.ojClauseByConjunct.containsKey(e.getId()))) {
+                && !e.isAuxExpr()
+                && !globalState.assignedConjuncts.contains(e.getId())
+                && ((inclOjConjuncts && !e.isConstant())
+                || !globalState.ojClauseByConjunct.containsKey(e.getId()))) {
                 result.add(e);
             }
         }
@@ -1259,11 +1305,11 @@ public class Analyzer {
         }
         for (Expr e : globalState.conjuncts.values()) {
             if (e.isBoundByTupleIds(tupleIds)
-                    && !e.isAuxExpr()
-                    && !eqJoinConjunctIds.contains(e.getId())  // to exclude to conjuncts like (A.id = B.id)
-                    && !globalState.ojClauseByConjunct.containsKey(e.getId())
-                    && !globalState.sjClauseByConjunct.containsKey(e.getId())
-                    && canEvalPredicate(tupleIds, e)) {
+                && !e.isAuxExpr()
+                && !eqJoinConjunctIds.contains(e.getId())  // to exclude to conjuncts like (A.id = B.id)
+                && !globalState.ojClauseByConjunct.containsKey(e.getId())
+                && !globalState.sjClauseByConjunct.containsKey(e.getId())
+                && canEvalPredicate(tupleIds, e)) {
                 result.add(e);
             }
         }
@@ -1277,9 +1323,9 @@ public class Analyzer {
     public List<Expr> getAllUnassignedConjuncts(List<TupleId> tupleIds) {
         List<Expr> result = Lists.newArrayList();
         for (Expr e : globalState.conjuncts.values()) {
-            if (!e.isAuxExpr() 
-                && e.isBoundByTupleIds(tupleIds) 
-                && !globalState.assignedConjuncts.contains(e.getId()) 
+            if (!e.isAuxExpr()
+                && e.isBoundByTupleIds(tupleIds)
+                && !globalState.assignedConjuncts.contains(e.getId())
                 && !globalState.ojClauseByConjunct.containsKey(e.getId())) {
                 result.add(e);
             }
@@ -1316,11 +1362,13 @@ public class Analyzer {
     public boolean evalAfterJoin(Expr e) {
         List<TupleId> tids = Lists.newArrayList();
         e.getIds(tids, null);
-        if (tids.isEmpty()) return false;
+        if (tids.isEmpty()) {
+            return false;
+        }
         if (tids.size() > 1 || isOjConjunct(e) || isFullOuterJoined(e)
-                || (isOuterJoined(tids.get(0))
-                && (!e.isOnClauseConjunct() || isIjConjunct(e)))
-                || (isAntiJoinedConjunct(e) && !isSemiJoined(tids.get(0)))) {
+            || (isOuterJoined(tids.get(0))
+            && (!e.isOnClauseConjunct() || isIjConjunct(e)))
+            || (isAntiJoinedConjunct(e) && !isSemiJoined(tids.get(0)))) {
             return true;
         }
         return false;
@@ -1373,7 +1421,9 @@ public class Analyzer {
 
     public TableRef getAntiJoinRef(Expr e) {
         TableRef tblRef = globalState.sjClauseByConjunct.get(e.getId());
-        if (tblRef == null) return null;
+        if (tblRef == null) {
+            return null;
+        }
         return (tblRef.getJoinOp().isAntiJoin()) ? tblRef : null;
     }
 
@@ -1390,8 +1440,10 @@ public class Analyzer {
     }
 
     public boolean containsOuterJoinedTid(List<TupleId> tids) {
-        for (TupleId tid: tids) {
-            if (isOuterJoined(tid)) return true;
+        for (TupleId tid : tids) {
+            if (isOuterJoined(tid)) {
+                return true;
+            }
         }
         return false;
     }
@@ -1431,7 +1483,7 @@ public class Analyzer {
     public List<Expr> getRemainConjuncts(List<TupleId> tupleIds) {
         Set<ExprId> remainConjunctIds = Sets.newHashSet();
         for (TupleId tupleId : tupleIds) {
-            if (tuplePredicates.get(tupleId) !=null) {
+            if (tuplePredicates.get(tupleId) != null) {
                 remainConjunctIds.addAll(tuplePredicates.get(tupleId));
             }
         }
@@ -1452,7 +1504,7 @@ public class Analyzer {
         return new ArrayList<>(globalState.onSlotEqSlotExpr);
     }
 
-    public Set<Pair<Expr,Expr>> getOnSlotEqSlotDeDuplication() {
+    public Set<Pair<Expr, Expr>> getOnSlotEqSlotDeDuplication() {
         return Sets.newHashSet(globalState.onSlotEqSlotDeDuplication);
     }
 
@@ -1486,7 +1538,7 @@ public class Analyzer {
      */
     public void setVisibleSemiJoinedTuple(TupleId tid) {
         Preconditions.checkState(tid == null
-                || globalState.semiJoinedTupleIds.containsKey(tid));
+            || globalState.semiJoinedTupleIds.containsKey(tid));
         Preconditions.checkState(tid == null || visibleSemiJoinedTupleId == null);
         visibleSemiJoinedTupleId = tid;
     }
@@ -1495,9 +1547,14 @@ public class Analyzer {
      * Return true if this analyzer has no ancestors. (i.e. false for the analyzer created
      * for inline views/ union operands, etc.)
      */
-    public boolean isRootAnalyzer() { return ancestors.isEmpty(); }
+    public boolean isRootAnalyzer() {
+        return ancestors.isEmpty();
+    }
 
-    public boolean hasAncestors() { return !ancestors.isEmpty(); }
+    public boolean hasAncestors() {
+        return !ancestors.isEmpty();
+    }
+
     public Analyzer getParentAnalyzer() {
         return hasAncestors() ? ancestors.get(0) : null;
     }
@@ -1507,10 +1564,17 @@ public class Analyzer {
      * to return an empty result set, e.g., due to a limit 0 or a constant predicate
      * that evaluates to false.
      */
-    public boolean hasEmptyResultSet() { return hasEmptyResultSet; }
-    public void setHasEmptyResultSet() { hasEmptyResultSet = true; }
+    public boolean hasEmptyResultSet() {
+        return hasEmptyResultSet;
+    }
 
-    public boolean hasEmptySpjResultSet() { return hasEmptySpjResultSet; }
+    public void setHasEmptyResultSet() {
+        hasEmptyResultSet = true;
+    }
+
+    public boolean hasEmptySpjResultSet() {
+        return hasEmptySpjResultSet;
+    }
 
     public void setHasLimitOffsetClause(boolean hasLimitOffset) {
         this.hasLimitOffsetClause = hasLimitOffset;
@@ -1524,7 +1588,7 @@ public class Analyzer {
      * join.
      */
     public void registerOnClauseConjuncts(List<Expr> conjuncts, TableRef rhsRef)
-            throws AnalysisException {
+        throws AnalysisException {
         Preconditions.checkNotNull(rhsRef);
         Preconditions.checkNotNull(conjuncts);
         List<ExprId> ojConjuncts = null;
@@ -1535,7 +1599,7 @@ public class Analyzer {
                 globalState.conjunctsByOjClause.put(rhsRef.getId(), ojConjuncts);
             }
         }
-        for (Expr conjunct: conjuncts) {
+        for (Expr conjunct : conjuncts) {
             conjunct.setIsOnClauseConjunct(true);
             registerConjunct(conjunct);
             if (rhsRef.getJoinOp().isOuterJoin()) {
@@ -1561,10 +1625,12 @@ public class Analyzer {
      * Throws an AnalysisException if there is an error evaluating `conjunct`
      */
     private void markConstantConjunct(Expr conjunct, boolean fromHavingClause)
-            throws AnalysisException {
-        if (!conjunct.isConstant() || isOjConjunct(conjunct)) return;
+        throws AnalysisException {
+        if (!conjunct.isConstant() || isOjConjunct(conjunct)) {
+            return;
+        }
         if ((!fromHavingClause && !hasEmptySpjResultSet)
-                || (fromHavingClause && !hasEmptyResultSet)) {
+            || (fromHavingClause && !hasEmptyResultSet)) {
             try {
                 if (conjunct instanceof BetweenPredicate) {
                     // Rewrite the BetweenPredicate into a CompoundPredicate so we can evaluate it
@@ -1626,13 +1692,15 @@ public class Analyzer {
         return globalState.ojClauseByConjunct.get(e.getId());
     }
 
-   /**
+    /**
      * Returns false if 'e' originates from an outer-join On-clause and it is incorrect to
      * evaluate 'e' at a node materializing 'tids'. Returns true otherwise.
      */
     public boolean canEvalOuterJoinedConjunct(Expr e, List<TupleId> tids) {
         TableRef outerJoin = getOjRef(e);
-        if (outerJoin == null) return true;
+        if (outerJoin == null) {
+            return true;
+        }
         return tids.containsAll(outerJoin.getAllTableRefIds());
     }
 
@@ -1648,11 +1716,15 @@ public class Analyzer {
         // Contains all equi-join conjuncts that have one child fully bound by one of the
         // rhs table ref ids (the other child is not bound by that rhs table ref id).
         List<ExprId> conjunctIds = Lists.newArrayList();
-        for (TupleId rhsId: rhsTblRefIds) {
+        for (TupleId rhsId : rhsTblRefIds) {
             List<ExprId> cids = globalState.eqJoinConjuncts.get(rhsId);
-            if (cids == null) continue;
-            for (ExprId eid: cids) {
-                if (!conjunctIds.contains(eid)) conjunctIds.add(eid);
+            if (cids == null) {
+                continue;
+            }
+            for (ExprId eid : cids) {
+                if (!conjunctIds.contains(eid)) {
+                    conjunctIds.add(eid);
+                }
             }
         }
 
@@ -1668,16 +1740,18 @@ public class Analyzer {
         List<TupleId> nodeTblRefIds = Lists.newArrayList(lhsTblRefIds);
         nodeTblRefIds.addAll(rhsTblRefIds);
         List<Expr> result = Lists.newArrayList();
-        for (ExprId conjunctId: conjunctIds) {
+        for (ExprId conjunctId : conjunctIds) {
             Expr e = globalState.conjuncts.get(conjunctId);
             Preconditions.checkState(e != null);
             if (!canEvalFullOuterJoinedConjunct(e, nodeTblRefIds) ||
-                    !canEvalAntiJoinedConjunct(e, nodeTblRefIds) ||
-                    !canEvalOuterJoinedConjunct(e, nodeTblRefIds)) {
+                !canEvalAntiJoinedConjunct(e, nodeTblRefIds) ||
+                !canEvalOuterJoinedConjunct(e, nodeTblRefIds)) {
                 continue;
             }
 
-            if (ojClauseConjuncts != null && !ojClauseConjuncts.contains(conjunctId)) continue;
+            if (ojClauseConjuncts != null && !ojClauseConjuncts.contains(conjunctId)) {
+                continue;
+            }
             result.add(e);
         }
         return result;
@@ -1773,13 +1847,13 @@ public class Analyzer {
      * If lastCompatibleType is null, returns expr.getType() (if valid).
      * If types are not compatible throws an exception reporting
      * the incompatible types and their expr.toSql().
-     *
+     * <p>
      * lastCompatibleExpr is passed for error reporting purposes,
      * but note that lastCompatibleExpr may not yet have lastCompatibleType,
      * because it was not cast yet.
      */
     public Type getCompatibleType(Type lastCompatibleType, Expr lastCompatibleExpr, Expr expr)
-            throws AnalysisException {
+        throws AnalysisException {
         Type newCompatibleType;
         if (lastCompatibleType == null) {
             newCompatibleType = expr.getType();
@@ -1788,9 +1862,9 @@ public class Analyzer {
         }
         if (!newCompatibleType.isValid()) {
             throw new AnalysisException(String.format(
-                    "Incompatible return types '%s' and '%s' of exprs '%s' and '%s'.",
-                    lastCompatibleType.toSql(), expr.getType().toSql(),
-                    lastCompatibleExpr.toSql(), expr.toSql()));
+                "Incompatible return types '%s' and '%s' of exprs '%s' and '%s'.",
+                lastCompatibleType.toSql(), expr.getType().toSql(),
+                lastCompatibleExpr.toSql(), expr.toSql()));
         }
         return newCompatibleType;
     }
@@ -1830,8 +1904,10 @@ public class Analyzer {
      * Throw an AnalysisException if the types are incompatible.
      */
     public void castToSetOpsCompatibleTypes(List<List<Expr>> exprLists)
-            throws AnalysisException {
-        if (exprLists == null || exprLists.size() < 2) return;
+        throws AnalysisException {
+        if (exprLists == null || exprLists.size() < 2) {
+            return;
+        }
 
         // Determine compatible types for exprs, position by position.
         List<Expr> firstList = exprLists.get(0);
@@ -1844,7 +1920,7 @@ public class Analyzer {
             for (int j = 1; j < exprLists.size(); ++j) {
                 Preconditions.checkState(exprLists.get(j).size() == firstList.size());
                 compatibleType = getCompatibleType(compatibleType,
-                        lastCompatibleExpr, exprLists.get(j).get(i));
+                    lastCompatibleExpr, exprLists.get(j).get(i));
                 lastCompatibleExpr = exprLists.get(j).get(i);
             }
             // Now that we've found a compatible type, add implicit casts if necessary.
@@ -1928,7 +2004,8 @@ public class Analyzer {
         if (globalState.context == null) {
             return false;
         }
-        return !globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
+        return !globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() &&
+            !globalState.context.getSessionVariable().isDisableJoinReorder();
     }
 
     public boolean enableInferPredicate() {
@@ -1956,9 +2033,10 @@ public class Analyzer {
         if (globalState.context == null) {
             return false;
         }
-        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
+        return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() &&
+            !globalState.context.getSessionVariable().isDisableJoinReorder();
     }
-    
+
     public boolean safeIsEnableFoldConstantByBe() {
         if (globalState.context == null) {
             return false;
@@ -1971,10 +2049,10 @@ public class Analyzer {
      * 'tupleIds', otherwise false:
      * - the predicate needs to be bound by tupleIds
      * - a Where clause predicate can only be correctly evaluated if for all outer-joined
-     *   referenced tids the last join to outer-join this tid has been materialized
+     * referenced tids the last join to outer-join this tid has been materialized
      * - an On clause predicate against the non-nullable side of an Outer Join clause
-     *   can only be correctly evaluated by the join node that materializes the
-     *   Outer Join clause
+     * can only be correctly evaluated by the join node that materializes the
+     * Outer Join clause
      */
     private boolean canEvalPredicate(PlanNode node, Expr e) {
         return canEvalPredicate(node.getTblRefIds(), e);
@@ -1985,22 +2063,22 @@ public class Analyzer {
      * 'tupleIds', otherwise false:
      * - The predicate needs to be bound by tupleIds.
      * - For On-clause predicates:
-     *   - If the predicate is from an anti-join On-clause it must be evaluated by the
-     *     corresponding anti-join node.
-     *   - Predicates from the On-clause of an inner or semi join are evaluated at the
-     *     node that materializes the required tuple ids, unless they reference outer
-     *     joined tuple ids. In that case, the predicates are evaluated at the join node
-     *     of the corresponding On-clause.
-     *   - Predicates referencing full-outer joined tuples are assigned at the originating
-     *     join if it is a full-outer join, otherwise at the last full-outer join that does
-     *     not materialize the table ref ids of the originating join.
-     *   - Predicates from the On-clause of a left/right outer join are assigned at
-     *     the corresponding outer join node with the exception of simple predicates
-     *     that only reference a single tuple id. Those may be assigned below the
-     *     outer join node if they are from the same On-clause that makes the tuple id
-     *     nullable.
+     * - If the predicate is from an anti-join On-clause it must be evaluated by the
+     * corresponding anti-join node.
+     * - Predicates from the On-clause of an inner or semi join are evaluated at the
+     * node that materializes the required tuple ids, unless they reference outer
+     * joined tuple ids. In that case, the predicates are evaluated at the join node
+     * of the corresponding On-clause.
+     * - Predicates referencing full-outer joined tuples are assigned at the originating
+     * join if it is a full-outer join, otherwise at the last full-outer join that does
+     * not materialize the table ref ids of the originating join.
+     * - Predicates from the On-clause of a left/right outer join are assigned at
+     * the corresponding outer join node with the exception of simple predicates
+     * that only reference a single tuple id. Those may be assigned below the
+     * outer join node if they are from the same On-clause that makes the tuple id
+     * nullable.
      * - Otherwise, a predicate can only be correctly evaluated if for all outer-joined
-     *   referenced tids the last join to outer-join this tid has been materialized.
+     * referenced tids the last join to outer-join this tid has been materialized.
      */
     public boolean canEvalPredicate(List<TupleId> tupleIds, Expr e) {
         if (!e.isBoundByTupleIds(tupleIds)) {
@@ -2013,10 +2091,14 @@ public class Analyzer {
         }
 
         if (e.isOnClauseConjunct()) {
-         
-            if (isAntiJoinedConjunct(e)) return canEvalAntiJoinedConjunct(e, tupleIds);
+
+            if (isAntiJoinedConjunct(e)) {
+                return canEvalAntiJoinedConjunct(e, tupleIds);
+            }
             if (isIjConjunct(e) || isSjConjunct(e)) {
-                if (!containsOuterJoinedTid(tids)) return true;
+                if (!containsOuterJoinedTid(tids)) {
+                    return true;
+                }
                 // If the predicate references an outer-joined tuple, then evaluate it at
                 // the join that the On-clause belongs to.
                 TableRef onClauseTableRef = null;
@@ -2029,11 +2111,15 @@ public class Analyzer {
                 return tupleIds.containsAll(onClauseTableRef.getAllTableRefIds());
             }
 
-            if (isFullOuterJoined(e)) return canEvalFullOuterJoinedConjunct(e, tupleIds);
+            if (isFullOuterJoined(e)) {
+                return canEvalFullOuterJoinedConjunct(e, tupleIds);
+            }
             if (isOjConjunct(e)) {
                 // Force this predicate to be evaluated by the corresponding outer join node.
                 // The join node will pick up the predicate later via getUnassignedOjConjuncts().
-                if (tids.size() > 1) return false;
+                if (tids.size() > 1) {
+                    return false;
+                }
                 // Optimization for single-tid predicates: Legal to assign below the outer join
                 // if the predicate is from the same On-clause that makes tid nullable
                 // (otherwise e needn't be true when that tuple is set).
@@ -2042,7 +2128,7 @@ public class Analyzer {
             }
         }
 
-        for (TupleId tid: tids) {
+        for (TupleId tid : tids) {
             TableRef rhsRef = getLastOjClause(tid);
             // this is not outer-joined; ignore
             if (rhsRef == null) {
@@ -2063,12 +2149,14 @@ public class Analyzer {
      */
     public boolean canEvalAntiJoinedConjunct(Expr e, List<TupleId> nodeTupleIds) {
         TableRef antiJoinRef = getAntiJoinRef(e);
-        if (antiJoinRef == null) return true;
+        if (antiJoinRef == null) {
+            return true;
+        }
         List<TupleId> tids = Lists.newArrayList();
         e.getIds(tids, null);
         if (tids.size() > 1) {
             return nodeTupleIds.containsAll(antiJoinRef.getAllTableRefIds())
-                    && antiJoinRef.getAllTableRefIds().containsAll(nodeTupleIds);
+                && antiJoinRef.getAllTableRefIds().containsAll(nodeTupleIds);
         }
         // A single tid conjunct that is anti-joined can be safely assigned to a
         // node below the anti join that specified it.
@@ -2081,7 +2169,9 @@ public class Analyzer {
      */
     public boolean canEvalFullOuterJoinedConjunct(Expr e, List<TupleId> tids) {
         TableRef fullOuterJoin = getFullOuterJoinRef(e);
-        if (fullOuterJoin == null) return true;
+        if (fullOuterJoin == null) {
+            return true;
+        }
         return tids.containsAll(fullOuterJoin.getAllTableRefIds());
     }
 
@@ -2092,6 +2182,7 @@ public class Analyzer {
     public List<Expr> getUnassignedConjuncts(PlanNode node) {
         return getUnassignedConjuncts(node.getTblRefIds());
     }
+
     /**
      * Returns true if e must be evaluated by a join node. Note that it may still be
      * safe to evaluate e elsewhere as well, but in any case the join must evaluate e.
@@ -2105,26 +2196,27 @@ public class Analyzer {
         }
 
         if (tids.size() > 1 || globalState.ojClauseByConjunct.containsKey(e.getId())
-                || globalState.outerJoinedTupleIds.containsKey(e.getId()) && whereClauseConjuncts.contains(e.getId())
-                ||  globalState.conjunctsByOjClause.containsKey(e.getId())) {
+            || globalState.outerJoinedTupleIds.containsKey(e.getId()) && whereClauseConjuncts.contains(e.getId())
+            || globalState.conjunctsByOjClause.containsKey(e.getId())) {
             return true;
         }
 
         return false;
     }
+
     /**
      * Mark all slots that are referenced in exprs as materialized.
      */
     public void materializeSlots(List<Expr> exprs) {
         List<SlotId> slotIds = Lists.newArrayList();
 
-        for (Expr e: exprs) {
+        for (Expr e : exprs) {
             Preconditions.checkState(e.isAnalyzed);
             e.getIds(null, slotIds);
         }
 
-        for (TupleDescriptor tupleDesc: this.getDescTbl().getTupleDescs()) {
-            for (SlotDescriptor slotDesc: tupleDesc.getSlots()) {
+        for (TupleDescriptor tupleDesc : this.getDescTbl().getTupleDescs()) {
+            for (SlotDescriptor slotDesc : tupleDesc.getSlots()) {
                 if (slotIds.contains(slotDesc.getId())) {
                     slotDesc.setIsMaterialized(true);
                 }
@@ -2132,7 +2224,9 @@ public class Analyzer {
         }
     }
 
-    public Map<String, View> getLocalViews() { return localViews; }
+    public Map<String, View> getLocalViews() {
+        return localViews;
+    }
 
     public boolean isOuterJoined(TupleId tid) {
         return globalState.outerJoinedTupleIds.containsKey(tid);
@@ -2219,7 +2313,9 @@ public class Analyzer {
     public boolean hasOuterJoinedValueTransferTarget(List<SlotId> sids) {
         for (SlotId srcSid : sids) {
             for (SlotId dstSid : getValueTransferTargets(srcSid)) {
-                if (isOuterJoined(getTupleId(dstSid))) return true;
+                if (isOuterJoined(getTupleId(dstSid))) {
+                    return true;
+                }
             }
         }
         return false;

@@ -33,10 +33,10 @@ import com.google.common.base.Preconditions;
 /*
  *  SHOW ALL GRANTS;
  *      show all grants.
- *      
+ *
  *  SHOW GRANTS:
  *      show grants of current user
- *      
+ *
  *  SHOW GRANTS FOR user@'xxx';
  *      show grants for specified user identity
  */
@@ -46,6 +46,7 @@ import com.google.common.base.Preconditions;
 public class ShowGrantsStmt extends ShowStmt {
 
     private static final ShowResultSetMetaData META_DATA;
+
     static {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String col : AuthProcDir.TITLE_NAMES) {

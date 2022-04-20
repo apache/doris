@@ -28,7 +28,7 @@ import org.apache.doris.common.AnalysisException;
 /**
  * rewrite alias function to real function
  */
-public class RewriteAliasFunctionRule implements ExprRewriteRule{
+public class RewriteAliasFunctionRule implements ExprRewriteRule {
     public static RewriteAliasFunctionRule INSTANCE = new RewriteAliasFunctionRule();
 
     @Override
@@ -41,7 +41,7 @@ public class RewriteAliasFunctionRule implements ExprRewriteRule{
                     return ((FunctionCallExpr) expr).rewriteExpr();
                 } else if (originFn instanceof CastExpr) {
                     return ((CastExpr) originFn).rewriteExpr(((AliasFunction) fn).getParameters(),
-                            ((FunctionCallExpr) expr).getParams().exprs());
+                        ((FunctionCallExpr) expr).getParams().exprs());
                 }
             }
 

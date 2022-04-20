@@ -46,7 +46,7 @@ import org.apache.logging.log4j.Logger;
  * that child node. Typically, an ExchangeNode only has a single sender child but,
  * e.g., for distributed union queries an ExchangeNode may have one sender child per
  * union operand.
- *
+ * <p>
  * If a (optional) SortInfo field is set, the ExchangeNode will merge its
  * inputs on the parameters specified in the SortInfo object. It is assumed that the
  * inputs are also sorted individually on the same SortInfo parameter.
@@ -78,7 +78,9 @@ public class ExchangeNode extends PlanNode {
             this.conjuncts = Lists.newArrayList();
         }
         // Only apply the limit at the receiver if there are multiple senders.
-        if (inputNode.getFragment().isPartitioned()) limit = inputNode.limit;
+        if (inputNode.getFragment().isPartitioned()) {
+            limit = inputNode.limit;
+        }
         computeTupleIds();
     }
 
@@ -125,7 +127,7 @@ public class ExchangeNode extends PlanNode {
         this.mergeInfo = info;
         this.offset = offset;
         this.planNodeName = VectorizedUtil.isVectorized() ? "V" + MERGING_EXCHANGE_NODE
-                : MERGING_EXCHANGE_NODE;
+            : MERGING_EXCHANGE_NODE;
     }
 
     @Override

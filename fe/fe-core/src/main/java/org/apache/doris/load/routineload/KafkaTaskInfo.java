@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,6 +41,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import com.google.gson.Gson;
 
 public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     private static final Logger LOG = LogManager.getLogger(KafkaTaskInfo.class);
@@ -54,14 +55,15 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
     // Last fetched and cached latest partition offsets.
     private List<Pair<Integer, Long>> cachedPartitionWithLatestOffsets = Lists.newArrayList();
 
-    public KafkaTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs, Map<Integer, Long> partitionIdToOffset) {
+    public KafkaTaskInfo(UUID id, long jobId, String clusterName, long timeoutMs,
+                         Map<Integer, Long> partitionIdToOffset) {
         super(id, jobId, clusterName, timeoutMs);
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
     public KafkaTaskInfo(KafkaTaskInfo kafkaTaskInfo, Map<Integer, Long> partitionIdToOffset) {
         super(UUID.randomUUID(), kafkaTaskInfo.getJobId(), kafkaTaskInfo.getClusterName(),
-                kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId());
+            kafkaTaskInfo.getTimeoutMs(), kafkaTaskInfo.getBeId());
         this.partitionIdToOffset = partitionIdToOffset;
     }
 
@@ -84,7 +86,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setDb(database.getFullName());
         tRoutineLoadTask.setTbl(tbl.getName());
         // label = job_name+job_id+task_id+txn_id
-        String label = Joiner.on("-").join(routineLoadJob.getName(), routineLoadJob.getId(), DebugUtil.printId(id), txnId);
+        String label =
+            Joiner.on("-").join(routineLoadJob.getName(), routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);
         tRoutineLoadTask.setAuthCode(routineLoadJob.getAuthCode());
         TKafkaLoadInfo tKafkaLoadInfo = new TKafkaLoadInfo();
@@ -126,6 +129,7 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tPlanFragment.getOutputSink().getOlapTableSink().setTxnId(txnId);
         return tExecPlanFragmentParams;
     }
+
     // implement method for compatibility
     public String getHeaderType() {
         return "";

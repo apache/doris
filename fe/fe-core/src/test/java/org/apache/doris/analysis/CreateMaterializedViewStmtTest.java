@@ -74,7 +74,8 @@ public class CreateMaterializedViewStmtTest {
                 result = "default";
             }
         };
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
@@ -99,7 +100,7 @@ public class CreateMaterializedViewStmtTest {
         FunctionParams functionParams = new FunctionParams(true, fnChildren);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(FunctionSet.COUNT, functionParams);
         functionCallExpr.setFn(AggregateFunction.createBuiltin(FunctionSet.COUNT,
-                new ArrayList<>(), Type.BIGINT, Type.BIGINT, false, true, true));
+            new ArrayList<>(), Type.BIGINT, Type.BIGINT, false, true, true));
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem2);
 
@@ -137,13 +138,13 @@ public class CreateMaterializedViewStmtTest {
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt =
-                new CreateMaterializedViewStmt("test", selectStmt, null);
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
         } catch (AnalysisException e) {
             Assert.assertTrue(
-                    e.getMessage().contains("The function count must match pattern:count(column)"));
+                e.getMessage().contains("The function count must match pattern:count(column)"));
             System.out.print(e.getMessage());
         }
     }
@@ -151,7 +152,8 @@ public class CreateMaterializedViewStmtTest {
     @Test
     public void testAggregateWithFunctionColumnInSelectClause(@Injectable ArithmeticExpr arithmeticExpr,
                                                               @Injectable SelectStmt selectStmt,
-                                                              @Injectable AggregateFunction aggregateFunction) throws UserException {
+                                                              @Injectable AggregateFunction aggregateFunction)
+        throws UserException {
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", Lists.newArrayList(arithmeticExpr));
         Deencapsulation.setField(functionCallExpr, "fn", aggregateFunction);
         SelectList selectList = new SelectList();
@@ -169,7 +171,8 @@ public class CreateMaterializedViewStmtTest {
             }
         };
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
@@ -200,7 +203,8 @@ public class CreateMaterializedViewStmtTest {
             }
         };
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
@@ -233,7 +237,8 @@ public class CreateMaterializedViewStmtTest {
             }
         };
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
@@ -268,7 +273,8 @@ public class CreateMaterializedViewStmtTest {
                 result = "k1";
             }
         };
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
@@ -312,7 +318,8 @@ public class CreateMaterializedViewStmtTest {
                 result = "k2";
             }
         };
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
@@ -366,7 +373,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.INT;
             }
         };
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
@@ -376,7 +384,8 @@ public class CreateMaterializedViewStmtTest {
     }
 
     @Test
-    public void testDuplicateColumn(@Injectable SelectStmt selectStmt, @Injectable AggregateFunction aggregateFunction) throws UserException {
+    public void testDuplicateColumn(@Injectable SelectStmt selectStmt, @Injectable AggregateFunction aggregateFunction)
+        throws UserException {
         SelectList selectList = new SelectList();
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "k1");
@@ -397,7 +406,8 @@ public class CreateMaterializedViewStmtTest {
                 result = selectList;
             }
         };
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
@@ -443,7 +453,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.INT;
             }
         };
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
@@ -459,7 +470,8 @@ public class CreateMaterializedViewStmtTest {
                                                          @Injectable SelectStmt selectStmt,
                                                          @Injectable Column column3,
                                                          @Injectable SlotDescriptor slotDescriptor,
-                                                         @Injectable AggregateFunction aggregateFunction) throws UserException {
+                                                         @Injectable AggregateFunction aggregateFunction)
+        throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -501,7 +513,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.INT;
             }
         };
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
@@ -579,7 +592,8 @@ public class CreateMaterializedViewStmtTest {
         };
 
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.assertEquals(KeysType.AGG_KEYS, createMaterializedViewStmt.getMVKeysType());
@@ -617,8 +631,11 @@ public class CreateMaterializedViewStmtTest {
 
     @Test
     public void testMVColumnsWithoutOrderbyWithoutAggregation(@Injectable SlotRef slotRef1,
-                                                              @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
-                                                              @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+                                                              @Injectable SlotRef slotRef2,
+                                                              @Injectable SlotRef slotRef3,
+                                                              @Injectable SlotRef slotRef4,
+                                                              @Injectable TableRef tableRef,
+                                                              @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -681,7 +698,8 @@ public class CreateMaterializedViewStmtTest {
         };
 
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.assertEquals(KeysType.DUP_KEYS, createMaterializedViewStmt.getMVKeysType());
@@ -717,8 +735,12 @@ public class CreateMaterializedViewStmtTest {
      */
     @Test
     public void testMVColumnsWithoutOrderbyWithoutAggregationWithFloat(@Injectable SlotRef slotRef1,
-                                                                       @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
-                                                                       @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+                                                                       @Injectable SlotRef slotRef2,
+                                                                       @Injectable SlotRef slotRef3,
+                                                                       @Injectable SlotRef slotRef4,
+                                                                       @Injectable TableRef tableRef,
+                                                                       @Injectable SelectStmt selectStmt)
+        throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -779,7 +801,8 @@ public class CreateMaterializedViewStmtTest {
         };
 
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.assertEquals(KeysType.DUP_KEYS, createMaterializedViewStmt.getMVKeysType());
@@ -815,8 +838,12 @@ public class CreateMaterializedViewStmtTest {
     */
     @Test
     public void testMVColumnsWithoutOrderbyWithoutAggregationWithVarchar(@Injectable SlotRef slotRef1,
-                                                                         @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
-                                                                         @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+                                                                         @Injectable SlotRef slotRef2,
+                                                                         @Injectable SlotRef slotRef3,
+                                                                         @Injectable SlotRef slotRef4,
+                                                                         @Injectable TableRef tableRef,
+                                                                         @Injectable SelectStmt selectStmt)
+        throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -877,7 +904,8 @@ public class CreateMaterializedViewStmtTest {
         };
 
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.assertEquals(KeysType.DUP_KEYS, createMaterializedViewStmt.getMVKeysType());
@@ -913,7 +941,8 @@ public class CreateMaterializedViewStmtTest {
      */
     @Test
     public void testMVColumnsWithFirstFloat(@Injectable SlotRef slotRef1,
-                                            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+                                            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt)
+        throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -947,7 +976,8 @@ public class CreateMaterializedViewStmtTest {
         };
 
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail("The first column could not be float or double, use decimal instead");
@@ -961,7 +991,8 @@ public class CreateMaterializedViewStmtTest {
     */
     @Test
     public void testMVColumnsWithFirstVarchar(@Injectable SlotRef slotRef1,
-                                              @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
+                                              @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt)
+        throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -995,7 +1026,8 @@ public class CreateMaterializedViewStmtTest {
         };
 
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.assertEquals(KeysType.DUP_KEYS, createMaterializedViewStmt.getMVKeysType());
@@ -1071,7 +1103,8 @@ public class CreateMaterializedViewStmtTest {
             }
         };
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.assertEquals(KeysType.AGG_KEYS, createMaterializedViewStmt.getMVKeysType());
@@ -1130,7 +1163,8 @@ public class CreateMaterializedViewStmtTest {
             }
         };
 
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.assertEquals(KeysType.AGG_KEYS, createMaterializedViewStmt.getMVKeysType());
@@ -1153,7 +1187,8 @@ public class CreateMaterializedViewStmtTest {
                                       @Injectable SlotDescriptor slotDescriptor2,
                                       @Injectable SlotDescriptor slotDescriptor3,
                                       @Injectable SlotDescriptor slotDescriptor4) {
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         SlotRef slotRef = new SlotRef(new TableName("db", "table"), "a");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
@@ -1167,7 +1202,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.LARGEINT;
             }
         };
-        MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr);
+        MVColumnItem mvColumnItem =
+            Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr);
         Assert.assertEquals(Type.LARGEINT, mvColumnItem.getType());
 
         SlotRef slotRef2 = new SlotRef(new TableName("db", "table"), "a");
@@ -1183,7 +1219,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.BIGINT;
             }
         };
-        MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);
+        MVColumnItem mvColumnItem2 =
+            Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);
         Assert.assertEquals(Type.BIGINT, mvColumnItem2.getType());
 
         SlotRef slotRef3 = new SlotRef(new TableName("db", "table"), "a");
@@ -1199,7 +1236,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.VARCHAR;
             }
         };
-        MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
+        MVColumnItem mvColumnItem3 =
+            Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
         Assert.assertEquals(Type.VARCHAR, mvColumnItem3.getType());
 
         SlotRef slotRef4 = new SlotRef(new TableName("db", "table"), "a");
@@ -1215,7 +1253,8 @@ public class CreateMaterializedViewStmtTest {
                 result = Type.DOUBLE;
             }
         };
-        MVColumnItem mvColumnItem4 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr4);
+        MVColumnItem mvColumnItem4 =
+            Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr4);
         Assert.assertEquals(Type.DOUBLE, mvColumnItem4.getType());
 
     }
@@ -1228,7 +1267,8 @@ public class CreateMaterializedViewStmtTest {
                                                 @Injectable Column column2,
                                                 @Injectable SlotDescriptor slotDescriptor3,
                                                 @Injectable Column column3) {
-        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        CreateMaterializedViewStmt createMaterializedViewStmt =
+            new CreateMaterializedViewStmt("test", selectStmt, null);
         SlotRef slotRef = new SlotRef(new TableName("db", "table"), "a");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
@@ -1242,8 +1282,9 @@ public class CreateMaterializedViewStmtTest {
                 result = ScalarType.createVarchar(50);
             }
         };
-        MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr);
-        Assert.assertEquals(50, ((ScalarType)mvColumnItem.getType()).getLength());
+        MVColumnItem mvColumnItem =
+            Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr);
+        Assert.assertEquals(50, ((ScalarType) mvColumnItem.getType()).getLength());
 
         SlotRef slotRef2 = new SlotRef(new TableName("db", "table"), "a");
         List<Expr> params2 = Lists.newArrayList();
@@ -1255,12 +1296,13 @@ public class CreateMaterializedViewStmtTest {
                 slotDescriptor2.getColumn();
                 result = column2;
                 column2.getOriginType();
-                result = ScalarType.createDecimalV2Type(10,1);
+                result = ScalarType.createDecimalV2Type(10, 1);
             }
         };
-        MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);
-        Assert.assertEquals(new Integer(10), ((ScalarType)mvColumnItem2.getType()).getPrecision());
-        Assert.assertEquals(1, ((ScalarType)mvColumnItem2.getType()).getScalarScale());
+        MVColumnItem mvColumnItem2 =
+            Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr2);
+        Assert.assertEquals(new Integer(10), ((ScalarType) mvColumnItem2.getType()).getPrecision());
+        Assert.assertEquals(1, ((ScalarType) mvColumnItem2.getType()).getScalarScale());
 
         SlotRef slotRef3 = new SlotRef(new TableName("db", "table"), "a");
         List<Expr> params3 = Lists.newArrayList();
@@ -1275,8 +1317,9 @@ public class CreateMaterializedViewStmtTest {
                 result = ScalarType.createChar(5);
             }
         };
-        MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
-        Assert.assertEquals(5, ((ScalarType)mvColumnItem3.getType()).getLength());
+        MVColumnItem mvColumnItem3 =
+            Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", functionCallExpr3);
+        Assert.assertEquals(5, ((ScalarType) mvColumnItem3.getType()).getLength());
     }
 }
 

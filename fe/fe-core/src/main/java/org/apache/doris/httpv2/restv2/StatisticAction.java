@@ -23,20 +23,20 @@ import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.collect.Maps;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping("/rest/v2")
@@ -65,7 +65,7 @@ public class StatisticAction extends RestBaseController {
 
     private int getTblCount(Catalog catalog) {
         return catalog.getDbIds().stream().map(catalog::getDbNullable).filter(Objects::nonNull)
-                .map(db -> db.getTables().size()).reduce(Integer::sum).orElse(0);
+            .map(db -> db.getTables().size()).reduce(Integer::sum).orElse(0);
     }
 
     private long getDiskOccupancy(SystemInfoService infoService) {

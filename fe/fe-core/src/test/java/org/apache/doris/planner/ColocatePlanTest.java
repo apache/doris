@@ -29,15 +29,14 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.lang.StringUtils;
-
-import java.io.File;
-import java.util.List;
-import java.util.UUID;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.io.File;
+import java.util.List;
+import java.util.UUID;
 
 public class ColocatePlanTest {
     private static final String COLOCATE_ENABLE = "colocate: true";
@@ -56,21 +55,22 @@ public class ColocatePlanTest {
         // distributed by hash(k1, k2) buckets 10
         // properties ("replication_num" = "2");
         String createColocateTblStmtStr = "create table db1.test_colocate(k1 int, k2 int, k3 int, k4 int) "
-                + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
-                + "'colocate_with' = 'group1');";
-        CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
+            + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2',"
+            + "'colocate_with' = 'group1');";
+        CreateTableStmt createColocateTableStmt =
+            (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createColocateTableStmt);
         String createTblStmtStr = "create table db1.test(k1 int, k2 int, k3 int, k4 int)"
-                + "partition by range(k1) (partition p1 values less than (\"1\"), partition p2 values less than (\"2\"))"
-                + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2')";
+            + "partition by range(k1) (partition p1 values less than (\"1\"), partition p2 values less than (\"2\"))"
+            + "distributed by hash(k1, k2) buckets 10 properties('replication_num' = '2')";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
         String createMultiPartitionTableStmt = "create table db1.test_multi_partition(k1 int, k2 int)"
-                + "partition by range(k1) (partition p1 values less than(\"1\"), partition p2 values less than (\"2\"))"
-                + "distributed by hash(k2) buckets 10 properties ('replication_num' = '2', 'colocate_with' = 'group2')";
+            + "partition by range(k1) (partition p1 values less than(\"1\"), partition p2 values less than (\"2\"))"
+            + "distributed by hash(k2) buckets 10 properties ('replication_num' = '2', 'colocate_with' = 'group2')";
         CreateTableStmt createMultiTableStmt = (CreateTableStmt) UtFrameUtils.
-                parseAndAnalyzeStmt(createMultiPartitionTableStmt, ctx);
+            parseAndAnalyzeStmt(createMultiPartitionTableStmt, ctx);
         Catalog.getCurrentCatalog().createTable(createMultiTableStmt);
     }
 
@@ -86,7 +86,7 @@ public class ColocatePlanTest {
     @Test
     public void sqlDistributedSmallerThanData1() throws Exception {
         String sql = "explain select * from (select k1 from db1.test_colocate group by k1) a , db1.test_colocate b "
-                + "where a.k1=b.k1";
+            + "where a.k1=b.k1";
         String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertEquals(2, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertTrue(plan1.contains(DistributedPlanColocateRule.REDISTRIBUTED_SRC_DATA));
@@ -96,7 +96,7 @@ public class ColocatePlanTest {
     @Test
     public void sqlDistributedSmallerThanData2() throws Exception {
         String sql = "explain select * from (select k1 from db1.test_colocate group by k1, k2) a , db1.test_colocate b "
-                + "where a.k1=b.k1";
+            + "where a.k1=b.k1";
         String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertTrue(plan1.contains(DistributedPlanColocateRule.INCONSISTENT_DISTRIBUTION_OF_TABLE_AND_QUERY));
     }
@@ -106,7 +106,8 @@ public class ColocatePlanTest {
     // 2. hash columns = agg output columns = distributed columns
     @Test
     public void sqlAggAndJoinSameAsTableMeta() throws Exception {
-        String sql = "explain select * from (select k1, k2 from db1.test_colocate group by k1, k2) a , db1.test_colocate b "
+        String sql =
+            "explain select * from (select k1, k2 from db1.test_colocate group by k1, k2) a , db1.test_colocate b "
                 + "where a.k1=b.k1 and a.k2=b.k2";
         String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "AGGREGATE"));
@@ -119,7 +120,7 @@ public class ColocatePlanTest {
     @Test
     public void sqlAggAndJoinMoreThanTableMeta() throws Exception {
         String sql = "explain select * from (select k1, k2, k3 from db1.test_colocate group by k1, k2, k3) a , "
-                + "db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 and a.k3=b.k3";
+            + "db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 and a.k3=b.k3";
         String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertTrue(plan1.contains(COLOCATE_ENABLE));
@@ -131,7 +132,7 @@ public class ColocatePlanTest {
     @Test
     public void sqlAggMoreThanTableMeta() throws Exception {
         String sql = "explain select * from (select k1, k2, k3 from db1.test_colocate group by k1, k2, k3) a , "
-                + "db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2";
+            + "db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2";
         String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "AGGREGATE"));
         Assert.assertTrue(plan1.contains(COLOCATE_ENABLE));
@@ -174,15 +175,16 @@ public class ColocatePlanTest {
 
     @Test
     public void checkColocatePlanFragment() throws Exception {
-        String sql = "select a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
+        String sql =
+            "select a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
         StmtExecutor executor = UtFrameUtils.getSqlStmtExecutor(ctx, sql);
         Planner planner = executor.planner();
         Coordinator coordinator = Deencapsulation.getField(executor, "coord");
         boolean isColocateFragment0 = Deencapsulation.invoke(coordinator, "isColocateFragment",
-                planner.getFragments().get(1), planner.getFragments().get(1).getPlanRoot());
+            planner.getFragments().get(1), planner.getFragments().get(1).getPlanRoot());
         Assert.assertFalse(isColocateFragment0);
         boolean isColocateFragment1 = Deencapsulation.invoke(coordinator, "isColocateFragment",
-                planner.getFragments().get(2), planner.getFragments().get(2).getPlanRoot());
+            planner.getFragments().get(2), planner.getFragments().get(2).getPlanRoot());
         Assert.assertTrue(isColocateFragment1);
     }
 
@@ -190,13 +192,14 @@ public class ColocatePlanTest {
     @Test
     public void rollupAndMoreThanOneInstanceWithoutColocate() throws Exception {
         String createColocateTblStmtStr = "create table db1.test_colocate_one_backend(k1 int, k2 int, k3 int, k4 int) "
-                + "distributed by hash(k1, k2, k3) buckets 10 properties('replication_num' = '1');";
-        CreateTableStmt createColocateTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
+            + "distributed by hash(k1, k2, k3) buckets 10 properties('replication_num' = '1');";
+        CreateTableStmt createColocateTableStmt =
+            (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createColocateTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createColocateTableStmt);
 
         String sql = "select a.k1, a.k2, sum(a.k3) "
-                + "from db1.test_colocate_one_backend a join[shuffle] db1.test_colocate_one_backend b on a.k1=b.k1 "
-                + "group by rollup(a.k1, a.k2);";
+            + "from db1.test_colocate_one_backend a join[shuffle] db1.test_colocate_one_backend b on a.k1=b.k1 "
+            + "group by rollup(a.k1, a.k2);";
         Deencapsulation.setField(ctx.getSessionVariable(), "parallelExecInstanceNum", 2);
         String plan1 = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql);
         Assert.assertEquals(2, StringUtils.countMatches(plan1, "AGGREGATE"));

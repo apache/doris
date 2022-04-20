@@ -86,7 +86,7 @@ public class MetaWriter {
     }
 
     public long doWork(String name, WriteMethod method) throws IOException {
-        if(delegate == null){
+        if (delegate == null) {
             return method.write();
         }
         return delegate.doWork(name, method);
@@ -101,13 +101,15 @@ public class MetaWriter {
         long startPosition = MetaHeader.write(imageFile);
         List<MetaIndex> metaIndices = Lists.newArrayList();
         try (CountingDataOutputStream dos = new CountingDataOutputStream(new BufferedOutputStream(
-                new FileOutputStream(imageFile, true)), startPosition)) {
+            new FileOutputStream(imageFile, true)), startPosition)) {
             writer.setDelegate(dos, metaIndices);
             long replayedJournalId = catalog.getReplayedJournalId();
-            checksum.setRef(writer.doWork("header", () -> catalog.saveHeader(dos, replayedJournalId, checksum.getRef())));
+            checksum.setRef(
+                writer.doWork("header", () -> catalog.saveHeader(dos, replayedJournalId, checksum.getRef())));
             checksum.setRef(writer.doWork("masterInfo", () -> catalog.saveMasterInfo(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("frontends", () -> catalog.saveFrontends(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("backends", () -> Catalog.getCurrentSystemInfo().saveBackends(dos, checksum.getRef())));
+            checksum.setRef(
+                writer.doWork("backends", () -> Catalog.getCurrentSystemInfo().saveBackends(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("db", () -> catalog.saveDb(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("loadJob", () -> catalog.saveLoadJob(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("alterJob", () -> catalog.saveAlterJob(dos, checksum.getRef())));
@@ -120,9 +122,12 @@ public class MetaWriter {
             checksum.setRef(writer.doWork("syncJob", () -> catalog.saveSyncJobs(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("backupHandler", () -> catalog.saveBackupHandler(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("paloAuth", () -> catalog.savePaloAuth(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("transactionState", () -> catalog.saveTransactionState(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("colocateTableIndex", () -> catalog.saveColocateTableIndex(dos, checksum.getRef())));
-            checksum.setRef(writer.doWork("routineLoadJobs", () -> catalog.saveRoutineLoadJobs(dos, checksum.getRef())));
+            checksum.setRef(
+                writer.doWork("transactionState", () -> catalog.saveTransactionState(dos, checksum.getRef())));
+            checksum.setRef(
+                writer.doWork("colocateTableIndex", () -> catalog.saveColocateTableIndex(dos, checksum.getRef())));
+            checksum.setRef(
+                writer.doWork("routineLoadJobs", () -> catalog.saveRoutineLoadJobs(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("loadJobV2", () -> catalog.saveLoadJobsV2(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("smallFiles", () -> catalog.saveSmallFiles(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("plugins", () -> catalog.savePlugins(dos, checksum.getRef())));
@@ -133,7 +138,7 @@ public class MetaWriter {
 
         long saveImageEndTime = System.currentTimeMillis();
         LOG.info("finished save image {} in {} ms. checksum is {}",
-                imageFile.getAbsolutePath(), (saveImageEndTime - saveImageStartTime), checksum.getRef());
+            imageFile.getAbsolutePath(), (saveImageEndTime - saveImageStartTime), checksum.getRef());
     }
 
 }

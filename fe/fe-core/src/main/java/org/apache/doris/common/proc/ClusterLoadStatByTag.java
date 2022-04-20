@@ -34,7 +34,7 @@ import java.util.Set;
 // SHOW PROC "/cluster_balance/cluster_load_stat"
 public class ClusterLoadStatByTag implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add(
-            "Tag").build();
+        "Tag").build();
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {

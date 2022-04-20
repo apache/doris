@@ -18,11 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
 
-import org.apache.doris.common.AnalysisException;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;

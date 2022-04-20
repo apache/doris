@@ -20,17 +20,17 @@ package org.apache.doris.analysis;
 public class RedirectStatus {
     private boolean isForwardToMaster;
     private boolean needToWaitJournalSync;
-    
+
     public RedirectStatus() {
         isForwardToMaster = true;
-        needToWaitJournalSync  = true;
+        needToWaitJournalSync = true;
     }
-    
+
     public RedirectStatus(boolean isForwardToMaster, boolean needToWaitJournalSync) {
         this.isForwardToMaster = isForwardToMaster;
-        this.needToWaitJournalSync  = needToWaitJournalSync;
+        this.needToWaitJournalSync = needToWaitJournalSync;
     }
-    
+
     public boolean isForwardToMaster() {
         return isForwardToMaster;
     }
@@ -46,8 +46,8 @@ public class RedirectStatus {
     public void setNeedToWaitJournalSync(boolean needToWaitJournalSync) {
         this.needToWaitJournalSync = needToWaitJournalSync;
     }
-    
-    public static RedirectStatus FORWARD_NO_SYNC  = new RedirectStatus(true, false);
+
+    public static RedirectStatus FORWARD_NO_SYNC = new RedirectStatus(true, false);
     public static RedirectStatus FORWARD_WITH_SYNC = new RedirectStatus(true, true);
-    public static RedirectStatus NO_FORWARD =   new RedirectStatus(false, false);
+    public static RedirectStatus NO_FORWARD = new RedirectStatus(false, false);
 }

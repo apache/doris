@@ -99,10 +99,10 @@ public class IcebergUtils {
             org.apache.iceberg.types.Type icebergType = convertDorisToIceberg(columnDef.getType());
             if (isNullable) {
                 nestedFields.add(
-                        Types.NestedField.optional(nextId(), columnDef.getName(), icebergType, columnDef.getComment()));
+                    Types.NestedField.optional(nextId(), columnDef.getName(), icebergType, columnDef.getComment()));
             } else {
                 nestedFields.add(
-                        Types.NestedField.required(nextId(), columnDef.getName(), icebergType, columnDef.getComment()));
+                    Types.NestedField.required(nextId(), columnDef.getName(), icebergType, columnDef.getComment()));
             }
         }
         return new Schema(nestedFields);
@@ -118,7 +118,7 @@ public class IcebergUtils {
                     throw e;
                 }
                 LOG.warn("Unsupported data type in Doris, ignore column[{}], with error: {}",
-                        nestedField.name(), e.getMessage());
+                    nestedField.name(), e.getMessage());
                 continue;
             }
         }
@@ -146,52 +146,52 @@ public class IcebergUtils {
 
     public static List<String> getIdentityPartitionField(PartitionSpec spec) {
         return PartitionSpecVisitor.visit(spec,
-                new PartitionSpecVisitor<String>() {
-                    @Override
-                    public String identity(String sourceName, int sourceId) {
-                        return sourceName;
-                    }
-
-                    @Override
-                    public String bucket(String sourceName, int sourceId, int numBuckets) {
-                        return null;
-                    }
-
-                    @Override
-                    public String truncate(String sourceName, int sourceId, int width) {
-                        return null;
-                    }
-
-                    @Override
-                    public String year(String sourceName, int sourceId) {
-                        return null;
-                    }
-
-                    @Override
-                    public String month(String sourceName, int sourceId) {
-                        return null;
-                    }
-
-                    @Override
-                    public String day(String sourceName, int sourceId) {
-                        return null;
-                    }
-
-                    @Override
-                    public String hour(String sourceName, int sourceId) {
-                        return null;
-                    }
-
-                    @Override
-                    public String alwaysNull(int fieldId, String sourceName, int sourceId) {
-                        return null;
-                    }
-
-                    @Override
-                    public String unknown(int fieldId, String sourceName, int sourceId, String transform) {
-                        return null;
-                    }
+            new PartitionSpecVisitor<String>() {
+                @Override
+                public String identity(String sourceName, int sourceId) {
+                    return sourceName;
                 }
+
+                @Override
+                public String bucket(String sourceName, int sourceId, int numBuckets) {
+                    return null;
+                }
+
+                @Override
+                public String truncate(String sourceName, int sourceId, int width) {
+                    return null;
+                }
+
+                @Override
+                public String year(String sourceName, int sourceId) {
+                    return null;
+                }
+
+                @Override
+                public String month(String sourceName, int sourceId) {
+                    return null;
+                }
+
+                @Override
+                public String day(String sourceName, int sourceId) {
+                    return null;
+                }
+
+                @Override
+                public String hour(String sourceName, int sourceId) {
+                    return null;
+                }
+
+                @Override
+                public String alwaysNull(int fieldId, String sourceName, int sourceId) {
+                    return null;
+                }
+
+                @Override
+                public String unknown(int fieldId, String sourceName, int sourceId, String transform) {
+                    return null;
+                }
+            }
         ).stream().filter(Objects::nonNull).collect(Collectors.toList());
     }
 
@@ -333,11 +333,11 @@ public class IcebergUtils {
             SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
             StringBuilder sb = new StringBuilder();
             sb.append(dateLiteral.getYear())
-                    .append(dateLiteral.getMonth())
-                    .append(dateLiteral.getDay())
-                    .append(dateLiteral.getHour())
-                    .append(dateLiteral.getMinute())
-                    .append(dateLiteral.getSecond());
+                .append(dateLiteral.getMonth())
+                .append(dateLiteral.getDay())
+                .append(dateLiteral.getHour())
+                .append(dateLiteral.getMinute())
+                .append(dateLiteral.getSecond());
             Date date;
             try {
                 date = formatter.parse(sb.toString());
@@ -375,7 +375,7 @@ public class IcebergUtils {
 
     private static int findWidth(IntLiteral literal) {
         Preconditions.checkArgument(literal.getValue() > 0 && literal.getValue() < Integer.MAX_VALUE,
-                "Unsupported width " + literal.getValue());
+            "Unsupported width " + literal.getValue());
         return (int) literal.getValue();
     }
 
@@ -387,16 +387,16 @@ public class IcebergUtils {
 
     public static Set<String> getAllDataFilesPath(org.apache.iceberg.Table table, TableOperations ops) {
         org.apache.iceberg.Table dataFilesTable = MetadataTableUtils.createMetadataTableInstance(
-                ops, table.name(), table.name(), MetadataTableType.ALL_DATA_FILES);
+            ops, table.name(), table.name(), MetadataTableType.ALL_DATA_FILES);
 
         Set<String> dataFilesPath = Sets.newHashSet();
         TableScan tableScan = dataFilesTable.newScan();
         List<CombinedScanTask> tasks = Lists.newArrayList(tableScan.planTasks());
         tasks.forEach(task ->
-                task.files().forEach(fileScanTask -> {
-                    Lists.newArrayList(fileScanTask.asDataTask().rows())
-                            .forEach(row -> dataFilesPath.add(row.get(1, String.class)));
-                })
+            task.files().forEach(fileScanTask -> {
+                Lists.newArrayList(fileScanTask.asDataTask().rows())
+                    .forEach(row -> dataFilesPath.add(row.get(1, String.class)));
+            })
         );
 
         return dataFilesPath;

@@ -33,10 +33,10 @@ import java.util.Map;
 // show proc "/cluster_balance/cluster_load_stat/location_default/HDD";
 public class ClusterLoadStatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BeId").add("Cluster").add("Available").add("UsedCapacity").add("Capacity")
-            .add("UsedPercent").add("ReplicaNum").add("CapCoeff").add("ReplCoeff").add("Score")
-            .add("Class")
-            .build();
+        .add("BeId").add("Cluster").add("Available").add("UsedCapacity").add("Capacity")
+        .add("UsedPercent").add("ReplicaNum").add("CapCoeff").add("ReplCoeff").add("Score")
+        .add("Class")
+        .build();
 
     private Table<String, Tag, ClusterLoadStatistic> statMap;
     private Tag tag;

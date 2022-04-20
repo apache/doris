@@ -33,13 +33,14 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
 
+import org.junit.Assert;
+import org.junit.Test;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import com.clearspring.analytics.util.Lists;
-import org.junit.Assert;
-import org.junit.Test;
 
 public class ExtractCommonFactorsRuleTest {
 
@@ -83,7 +84,7 @@ public class ExtractCommonFactorsRuleTest {
 
         ExtractCommonFactorsRule extractCommonFactorsRule = new ExtractCommonFactorsRule();
         Map<SlotRef, RangeSet<LiteralExpr>> result = Deencapsulation.invoke(extractCommonFactorsRule,
-                "mergeTwoClauseRange", clause1, clause2);
+            "mergeTwoClauseRange", clause1, clause2);
         Assert.assertEquals(1, result.size());
         Assert.assertTrue(result.containsKey(k1SlotRef));
         Set<Range<LiteralExpr>> k1ResultRangeSet = result.get(k1SlotRef).asRanges();
@@ -122,7 +123,7 @@ public class ExtractCommonFactorsRuleTest {
 
         ExtractCommonFactorsRule extractCommonFactorsRule = new ExtractCommonFactorsRule();
         Map<SlotRef, InPredicate> result = Deencapsulation.invoke(extractCommonFactorsRule,
-                "mergeTwoClauseIn", clause1, clause2);
+            "mergeTwoClauseIn", clause1, clause2);
         Assert.assertEquals(1, result.size());
         Assert.assertTrue(result.containsKey(k1SlotRef));
         InPredicate k1Result = result.get(k1SlotRef);
@@ -146,7 +147,7 @@ public class ExtractCommonFactorsRuleTest {
 
         ExtractCommonFactorsRule extractCommonFactorsRule = new ExtractCommonFactorsRule();
         Expr result = Deencapsulation.invoke(extractCommonFactorsRule,
-                "rangeSetToCompoundPredicate", slotRef, rangeSet);
+            "rangeSetToCompoundPredicate", slotRef, rangeSet);
         Assert.assertTrue(result instanceof CompoundPredicate);
         CompoundPredicate compoundPredicate = (CompoundPredicate) result;
         Assert.assertEquals(CompoundPredicate.Operator.OR, compoundPredicate.getOp());

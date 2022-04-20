@@ -68,12 +68,14 @@ public class BatchRollupJobTest {
     @Test
     public void testBatchRollup() throws Exception {
         // create table tbl1
-        String createTblStmtStr1 = "create table db1.tbl1(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        String createTblStmtStr1 =
+            "create table db1.tbl1(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
         // batch add 3 rollups
-        String stmtStr = "alter table db1.tbl1 add rollup r1(k1) duplicate key(k1), r2(k1, k2) duplicate key(k1), r3(k2) duplicate key(k2);";
+        String stmtStr =
+            "alter table db1.tbl1 add rollup r1(k1) duplicate key(k1), r2(k1, k2) duplicate key(k1), r3(k2) duplicate key(k2);";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
 
@@ -92,7 +94,7 @@ public class BatchRollupJobTest {
             }
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
-                        "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
+                    "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(5000);
             }
             System.out.println("rollup job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
@@ -118,12 +120,14 @@ public class BatchRollupJobTest {
     @Test
     public void testCancelBatchRollup() throws Exception {
         // create table tbl2
-        String createTblStmtStr1 = "create table db1.tbl2(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        String createTblStmtStr1 =
+            "create table db1.tbl2(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
         // batch add 3 rollups
-        String stmtStr = "alter table db1.tbl2 add rollup r1(k1) duplicate key(k1), r2(k1, k2) duplicate key(k1), r3(k2) duplicate key(k2);";
+        String stmtStr =
+            "alter table db1.tbl2 add rollup r1(k1) duplicate key(k1), r2(k1, k2) duplicate key(k1), r3(k2) duplicate key(k2);";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
 
@@ -142,7 +146,7 @@ public class BatchRollupJobTest {
             }
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println(
-                        "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
+                    "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(5000);
             }
             System.out.println("rollup job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());

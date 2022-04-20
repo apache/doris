@@ -70,7 +70,7 @@ public class DorisAssert {
 
     public DorisAssert withDatabase(String dbName) throws Exception {
         CreateDbStmt createDbStmt =
-                (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt("create database " + dbName + ";", ctx);
+            (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt("create database " + dbName + ";", ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         return this;
     }
@@ -97,7 +97,8 @@ public class DorisAssert {
 
     public DorisAssert dropTable(String tableName, boolean isForce) throws Exception {
         DropTableStmt dropTableStmt =
-                (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop table " + tableName + (isForce ? " force" : "") + ";", ctx);
+            (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt(
+                "drop table " + tableName + (isForce ? " force" : "") + ";", ctx);
         Catalog.getCurrentCatalog().dropTable(dropTableStmt);
         return this;
     }
@@ -110,7 +111,7 @@ public class DorisAssert {
 
     public DorisAssert dropView(String tableName) throws Exception {
         DropTableStmt dropTableStmt =
-                (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop view " + tableName + ";", ctx);
+            (DropTableStmt) UtFrameUtils.parseAndAnalyzeStmt("drop view " + tableName + ";", ctx);
         Catalog.getCurrentCatalog().dropTable(dropTableStmt);
         return this;
     }
@@ -124,7 +125,7 @@ public class DorisAssert {
     // Add materialized view to the schema
     public DorisAssert withMaterializedView(String sql) throws Exception {
         CreateMaterializedViewStmt createMaterializedViewStmt =
-                (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+            (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         Catalog.getCurrentCatalog().createMaterializedView(createMaterializedViewStmt);
         checkAlterJob();
         // waiting table state to normal
@@ -152,7 +153,7 @@ public class DorisAssert {
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println("alter job " + alterJobV2.getDbId()
-                        + " is running. state: " + alterJobV2.getJobState());
+                    + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(100);
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
@@ -208,10 +209,10 @@ public class DorisAssert {
             return explainString;
         }
 
-        public Planner internalExecuteOneAndGetPlan() throws Exception{
+        public Planner internalExecuteOneAndGetPlan() throws Exception {
             SqlScanner input = new SqlScanner(new StringReader(sql), ctx.getSessionVariable().getSqlMode());
             SqlParser parser = new SqlParser(input);
-            List<StatementBase> stmts =  SqlParserUtils.getMultiStmts(parser);
+            List<StatementBase> stmts = SqlParserUtils.getMultiStmts(parser);
             StmtExecutor stmtExecutor = new StmtExecutor(connectContext, stmts.get(0));
             stmtExecutor.execute();
 

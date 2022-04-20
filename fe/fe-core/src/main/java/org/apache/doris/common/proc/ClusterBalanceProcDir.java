@@ -31,7 +31,7 @@ import com.google.common.collect.Lists;
 public class ClusterBalanceProcDir implements ProcDirInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Item").add("Number").build();
+        .add("Item").add("Number").build();
 
     public static final String CLUSTER_LOAD = "cluster_load_stat";
     public static final String WORKING_SLOTS = "working_slots";
@@ -71,7 +71,7 @@ public class ClusterBalanceProcDir implements ProcDirInterface {
         TabletChecker tabletChecker = Catalog.getCurrentCatalog().getTabletChecker();
         result.addRow(Lists.newArrayList(CLUSTER_LOAD, String.valueOf(tabletScheduler.getStatisticMap().size())));
         result.addRow(Lists.newArrayList(WORKING_SLOTS,
-                                         String.valueOf(tabletScheduler.getBackendsWorkingSlots().size())));
+            String.valueOf(tabletScheduler.getBackendsWorkingSlots().size())));
         result.addRow(Lists.newArrayList(SCHED_STAT, tabletScheduler.getStat().getLastSnapshot() == null ? "0" : "1"));
 
         result.addRow(Lists.newArrayList(PRIORITY_REPAIR, String.valueOf(tabletChecker.getPrioPartitionNum())));

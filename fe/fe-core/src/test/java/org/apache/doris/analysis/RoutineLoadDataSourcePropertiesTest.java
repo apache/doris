@@ -65,7 +65,8 @@ public class RoutineLoadDataSourcePropertiesTest {
         properties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, "127.0.0.1:8080");
         properties.put(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY, "test");
         properties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "0, 1, 2");
-        properties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "2021-10-10 11:00:00, 2021-10-10 11:00:00, 2021-10-10 12:00:00");
+        properties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY,
+            "2021-10-10 11:00:00, 2021-10-10 11:00:00, 2021-10-10 12:00:00");
         dsProperties = new RoutineLoadDataSourceProperties("KAFKA", properties, false);
         dsProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         try {
@@ -106,8 +107,10 @@ public class RoutineLoadDataSourcePropertiesTest {
             Assert.assertEquals(Long.valueOf(1578585600000L), partitinOffsets.get(1).second);
             Assert.assertEquals(Long.valueOf(1578585600000L), partitinOffsets.get(2).second);
             Assert.assertEquals(2, dsProperties.getCustomKafkaProperties().size());
-            Assert.assertEquals("1578585600000", dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS));
-            Assert.assertEquals("2020-01-10 00:00:00", dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS));
+            Assert.assertEquals("1578585600000",
+                dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS));
+            Assert.assertEquals("2020-01-10 00:00:00",
+                dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS));
             Assert.assertTrue(dsProperties.isOffsetsForTimes());
         } catch (AnalysisException e) {
             Assert.fail(e.getMessage());
@@ -127,8 +130,10 @@ public class RoutineLoadDataSourcePropertiesTest {
             List<Pair<Integer, Long>> partitinOffsets = dsProperties.getKafkaPartitionOffsets();
             Assert.assertEquals(0, partitinOffsets.size());
             Assert.assertEquals(2, dsProperties.getCustomKafkaProperties().size());
-            Assert.assertEquals("1578585600000", dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS));
-            Assert.assertEquals("2020-01-10 00:00:00", dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS));
+            Assert.assertEquals("1578585600000",
+                dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS));
+            Assert.assertEquals("2020-01-10 00:00:00",
+                dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS));
         } catch (AnalysisException e) {
             Assert.fail(e.getMessage());
         }
@@ -147,7 +152,8 @@ public class RoutineLoadDataSourcePropertiesTest {
             List<Pair<Integer, Long>> partitinOffsets = dsProperties.getKafkaPartitionOffsets();
             Assert.assertEquals(0, partitinOffsets.size());
             Assert.assertEquals(1, dsProperties.getCustomKafkaProperties().size());
-            Assert.assertEquals(KafkaProgress.OFFSET_END, dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS));
+            Assert.assertEquals(KafkaProgress.OFFSET_END,
+                dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS));
         } catch (AnalysisException e) {
             Assert.fail(e.getMessage());
         }
@@ -168,7 +174,8 @@ public class RoutineLoadDataSourcePropertiesTest {
             dsProperties.analyze();
             Assert.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Only one of kafka_offsets and kafka_default_offsets can be set."));
+            Assert.assertTrue(
+                e.getMessage().contains("Only one of kafka_offsets and kafka_default_offsets can be set."));
         }
 
         // can not set datetime formatted offset and integer offset together
@@ -183,7 +190,8 @@ public class RoutineLoadDataSourcePropertiesTest {
             dsProperties.analyze();
             Assert.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("The offset of the partition cannot be specified by the timestamp " +
+            Assert.assertTrue(
+                e.getMessage().contains("The offset of the partition cannot be specified by the timestamp " +
                     "and the offset at the same time"));
         }
 
@@ -229,7 +237,8 @@ public class RoutineLoadDataSourcePropertiesTest {
         // normal, with datetime
         properties = Maps.newHashMap();
         properties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, "0, 1, 2");
-        properties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY, "2021-10-10 11:00:00, 2021-10-10 11:00:00, 2021-10-10 12:00:00");
+        properties.put(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY,
+            "2021-10-10 11:00:00, 2021-10-10 11:00:00, 2021-10-10 12:00:00");
         dsProperties = new RoutineLoadDataSourceProperties("KAFKA", properties, true);
         dsProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);
         try {
@@ -265,8 +274,10 @@ public class RoutineLoadDataSourcePropertiesTest {
             Assert.assertEquals(Long.valueOf(1578585600000L), partitinOffsets.get(1).second);
             Assert.assertEquals(Long.valueOf(1578585600000L), partitinOffsets.get(2).second);
             Assert.assertEquals(2, dsProperties.getCustomKafkaProperties().size());
-            Assert.assertEquals("1578585600000", dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS));
-            Assert.assertEquals("2020-01-10 00:00:00", dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS));
+            Assert.assertEquals("1578585600000",
+                dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS));
+            Assert.assertEquals("2020-01-10 00:00:00",
+                dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS));
         } catch (AnalysisException e) {
             Assert.fail(e.getMessage());
         }
@@ -282,8 +293,10 @@ public class RoutineLoadDataSourcePropertiesTest {
             List<Pair<Integer, Long>> partitinOffsets = dsProperties.getKafkaPartitionOffsets();
             Assert.assertEquals(0, partitinOffsets.size());
             Assert.assertEquals(2, dsProperties.getCustomKafkaProperties().size());
-            Assert.assertEquals("1578614400000", dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS));
-            Assert.assertEquals("2020-01-10 00:00:00", dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS));
+            Assert.assertEquals("1578614400000",
+                dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS));
+            Assert.assertEquals("2020-01-10 00:00:00",
+                dsProperties.getCustomKafkaProperties().get(CreateRoutineLoadStmt.KAFKA_ORIGIN_DEFAULT_OFFSETS));
         } catch (AnalysisException e) {
             Assert.fail(e.getMessage());
         }
@@ -301,7 +314,8 @@ public class RoutineLoadDataSourcePropertiesTest {
             dsProperties.analyze();
             Assert.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("kafka_default_offsets can only be set to OFFSET_BEGINNING, OFFSET_END or date time"));
+            Assert.assertTrue(e.getMessage()
+                .contains("kafka_default_offsets can only be set to OFFSET_BEGINNING, OFFSET_END or date time"));
         }
 
         // can not set datetime formatted offset and integer offset together
@@ -315,7 +329,8 @@ public class RoutineLoadDataSourcePropertiesTest {
             dsProperties.analyze();
             Assert.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("The offset of the partition cannot be specified by the timestamp " +
+            Assert.assertTrue(
+                e.getMessage().contains("The offset of the partition cannot be specified by the timestamp " +
                     "and the offset at the same time"));
         }
 

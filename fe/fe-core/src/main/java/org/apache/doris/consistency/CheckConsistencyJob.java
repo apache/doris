@@ -60,7 +60,7 @@ public class CheckConsistencyJob {
 
     private JobState state;
     private long tabletId;
-    
+
     // backend id -> check sum
     // add backend id to this map only after sending task
     private Map<Long, Long> checksumMap;
@@ -124,7 +124,7 @@ public class CheckConsistencyJob {
         if (ConnectContext.get() != null) {
             resourceInfo = ConnectContext.get().toResourceCtx();
         }
-        
+
         Tablet tablet = null;
 
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -145,7 +145,8 @@ public class CheckConsistencyJob {
             }
 
             // check partition's replication num. if 1 replication. skip
-            short replicaNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+            short replicaNum =
+                olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
             if (replicaNum == (short) 1) {
                 LOG.debug("partition[{}]'s replication num is 1. skip consistency check", partition.getId());
                 return false;
@@ -171,7 +172,7 @@ public class CheckConsistencyJob {
             for (Replica replica : tablet.getReplicas()) {
                 // 1. if state is CLONE, do not send task at this time
                 if (replica.getState() == ReplicaState.CLONE
-                        || replica.getState() == ReplicaState.DECOMMISSION) {
+                    || replica.getState() == ReplicaState.DECOMMISSION) {
                     continue;
                 }
 
@@ -180,12 +181,12 @@ public class CheckConsistencyJob {
                 }
 
                 CheckConsistencyTask task = new CheckConsistencyTask(resourceInfo, replica.getBackendId(),
-                                                                     tabletMeta.getDbId(),
-                                                                     tabletMeta.getTableId(),
-                                                                     tabletMeta.getPartitionId(),
-                                                                     tabletMeta.getIndexId(),
-                                                                     tabletId, checkedSchemaHash,
-                                                                     checkedVersion);
+                    tabletMeta.getDbId(),
+                    tabletMeta.getTableId(),
+                    tabletMeta.getPartitionId(),
+                    tabletMeta.getIndexId(),
+                    tabletId, checkedSchemaHash,
+                    checkedVersion);
 
                 // add task to send
                 batchTask.addTask(task);
@@ -289,7 +290,7 @@ public class CheckConsistencyJob {
             // check if schema has changed
             if (checkedSchemaHash != olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId())) {
                 LOG.info("index[{}]'s schema hash has been changed. [{} -> {}]. retry", tabletMeta.getIndexId(),
-                        checkedSchemaHash, olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId()));
+                    checkedSchemaHash, olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId()));
                 return -1;
             }
 
@@ -301,14 +302,14 @@ public class CheckConsistencyJob {
                     Map.Entry<Long, Long> entry = iter.next();
                     if (tablet.getReplicaByBackendId(entry.getKey()) == null) {
                         LOG.debug("tablet[{}]'s replica in backend[{}] does not exist. remove from checksumMap",
-                                  tabletId, entry.getKey());
+                            tabletId, entry.getKey());
                         iter.remove();
                         continue;
                     }
 
                     if (entry.getValue() == -1) {
                         LOG.debug("tablet[{}] has unfinished replica check sum task. backend[{}]",
-                                  tabletId, entry.getKey());
+                            tabletId, entry.getKey());
                         isFinished = false;
                     }
                 }
@@ -362,8 +363,8 @@ public class CheckConsistencyJob {
 
             // log
             ConsistencyCheckInfo info = new ConsistencyCheckInfo(db.getId(), table.getId(), partition.getId(),
-                                                                 index.getId(), tabletId, lastCheckTime,
-                                                                 checkedVersion, isConsistent);
+                index.getId(), tabletId, lastCheckTime,
+                checkedVersion, isConsistent);
             Catalog.getCurrentCatalog().getEditLog().logFinishConsistencyCheck(info);
             return 1;
 

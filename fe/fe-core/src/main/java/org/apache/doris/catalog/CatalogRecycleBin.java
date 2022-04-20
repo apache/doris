@@ -73,7 +73,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             LOG.error("db[{}] already in recycle bin.", db.getId());
             return false;
         }
-        
+
         // db should be empty. all tables are recycled before
         Preconditions.checkState(db.getTables().isEmpty());
 
@@ -120,7 +120,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         // recycle partition
         RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
-                range, listPartitionItem, dataProperty, replicaAlloc, isInMemory);
+            range, listPartitionItem, dataProperty, replicaAlloc, isInMemory);
         idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
         idToPartition.put(partition.getId(), partitionInfo);
         LOG.info("recycle partition[{}-{}]", partition.getId(), partition.getName());
@@ -294,7 +294,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 break;
             }
         }
-        
+
         if (dbInfo == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
@@ -439,7 +439,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         if (partitionInfo.getType() == PartitionType.RANGE) {
             recoverItem = new RangePartitionItem(recoverRange);
         } else if (partitionInfo.getType() == PartitionType.LIST) {
-            recoverItem = recoverPartitionInfo.getListPartitionItem();;
+            recoverItem = recoverPartitionInfo.getListPartitionItem();
         }
         // check if partition item is invalid
         if (partitionInfo.getAnyIntersectItem(recoverItem, false) != null) {
@@ -551,7 +551,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 if (!idToDatabase.containsKey(dbId)) {
                     LOG.error("db[{}] is neither in catalog nor in recycle bin"
                             + " when rebuilding inverted index from recycle bin, partition[{}]",
-                              dbId, partitionId);
+                        dbId, partitionId);
                     continue;
                 }
             } else {
@@ -562,7 +562,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 if (!idToTable.containsKey(tableId)) {
                     LOG.error("table[{}] is neither in catalog nor in recycle bin"
                             + " when rebuilding inverted index from recycle bin, partition[{}]",
-                              tableId, partitionId);
+                        tableId, partitionId);
                     continue;
                 }
                 RecycleTableInfo tableInfo = idToTable.get(tableId);
@@ -597,7 +597,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         eraseTable(currentTimeMs);
         eraseDatabase(currentTimeMs);
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         int count = idToDatabase.size();
@@ -696,8 +696,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         public void readFields(DataInput in) throws IOException {
             db = Database.read(in);
-            
-            int count  = in.readInt();
+
+            int count = in.readInt();
             for (int i = 0; i < count; i++) {
                 String tableName = Text.readString(in);
                 tableNames.add(tableName);
@@ -712,7 +712,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         public RecycleTableInfo() {
             // for persist
         }
-        
+
         public RecycleTableInfo(long dbId, Table table) {
             this.dbId = dbId;
             this.table = table;
@@ -826,7 +826,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             isInMemory = in.readBoolean();
         }
     }
-    
+
     // currently only used when loading image. So no synchronized protected.
     public List<Long> getAllDbIds() {
         return Lists.newArrayList(idToDatabase.keySet());

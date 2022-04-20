@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -28,15 +27,17 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+
+import com.google.gson.annotations.SerializedName;
 
 public abstract class Resource implements Writable {
     private static final Logger LOG = LogManager.getLogger(OdbcCatalogResource.class);
@@ -79,6 +80,7 @@ public abstract class Resource implements Writable {
 
     /**
      * Get resource instance by resource name and type
+     *
      * @param type
      * @param name
      * @return
@@ -113,6 +115,7 @@ public abstract class Resource implements Writable {
 
     /**
      * Modify properties in child resources
+     *
      * @param properties
      * @throws DdlException
      */
@@ -120,6 +123,7 @@ public abstract class Resource implements Writable {
 
     /**
      * Check properties in child resources
+     *
      * @param properties
      * @throws AnalysisException
      */

@@ -24,7 +24,7 @@ import java.util.Map;
 
 /**
  * Base Plugin
- *
+ * <p>
  * Note: plugin is thread-unsafe and work in parallel
  */
 public abstract class Plugin implements Closeable {
@@ -52,7 +52,8 @@ public abstract class Plugin implements Closeable {
         return PLUGIN_DEFAULT_FLAGS;
     }
 
-    public void setVariable(String key, String value) { }
+    public void setVariable(String key, String value) {
+    }
 
     public Map<String, String> variable() {
         return Collections.EMPTY_MAP;

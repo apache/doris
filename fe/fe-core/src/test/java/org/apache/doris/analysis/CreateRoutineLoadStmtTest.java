@@ -119,9 +119,9 @@ public class CreateRoutineLoadStmtTest {
         customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
-                                                                                loadPropertyList, properties,
-                                                                                typeName, customProperties,
-                                                                                LoadTask.MergeType.APPEND);
+            loadPropertyList, properties,
+            typeName, customProperties,
+            LoadTask.MergeType.APPEND);
 
         new MockUp<StatementBase>() {
             @Mock
@@ -170,9 +170,9 @@ public class CreateRoutineLoadStmtTest {
         customProperties.put(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY, kafkaPartitionString);
 
         CreateRoutineLoadStmt createRoutineLoadStmt = new CreateRoutineLoadStmt(labelName, tableNameString,
-                                                                                loadPropertyList, properties,
-                                                                                typeName, customProperties,
-                                                                                LoadTask.MergeType.APPEND);
+            loadPropertyList, properties,
+            typeName, customProperties,
+            LoadTask.MergeType.APPEND);
         new MockUp<StatementBase>() {
             @Mock
             public void analyze(Analyzer analyzer1) {
@@ -180,7 +180,7 @@ public class CreateRoutineLoadStmtTest {
             }
         };
 
-        new Expectations(){
+        new Expectations() {
             {
                 ctx.getSessionVariable();
                 result = sessionVariable;
@@ -193,7 +193,8 @@ public class CreateRoutineLoadStmtTest {
 
         Assert.assertNotNull(createRoutineLoadStmt.getRoutineLoadDesc());
         Assert.assertEquals(columnSeparator, createRoutineLoadStmt.getRoutineLoadDesc().getColumnSeparator());
-        Assert.assertEquals(partitionNames.getPartitionNames(), createRoutineLoadStmt.getRoutineLoadDesc().getPartitionNames().getPartitionNames());
+        Assert.assertEquals(partitionNames.getPartitionNames(),
+            createRoutineLoadStmt.getRoutineLoadDesc().getPartitionNames().getPartitionNames());
         Assert.assertEquals(2, createRoutineLoadStmt.getDesiredConcurrentNum());
         Assert.assertEquals(0, createRoutineLoadStmt.getMaxErrorNum());
         Assert.assertEquals(serverAddress, createRoutineLoadStmt.getKafkaBrokerList());

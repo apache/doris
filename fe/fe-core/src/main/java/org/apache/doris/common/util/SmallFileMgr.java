@@ -76,7 +76,7 @@ public class SmallFileMgr implements Writable {
         }
 
         public SmallFile(Long dbId, String catalogName, String fileName, Long id, String content, long size,
-                String md5, boolean isContent) {
+                         String md5, boolean isContent) {
             this.dbId = dbId;
             this.catalog = catalogName;
             this.name = fileName;
@@ -167,7 +167,7 @@ public class SmallFileMgr implements Writable {
         String dbName = stmt.getDbName();
         Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         downloadAndAddFile(db.getId(), stmt.getCatalogName(), stmt.getFileName(),
-                stmt.getDownloadUrl(), stmt.getChecksum(), stmt.isSaveContent());
+            stmt.getDownloadUrl(), stmt.getChecksum(), stmt.isSaveContent());
     }
 
     public void dropFile(DropFileStmt stmt) throws DdlException {
@@ -177,7 +177,7 @@ public class SmallFileMgr implements Writable {
     }
 
     private void downloadAndAddFile(long dbId, String catalog, String fileName, String downloadUrl, String md5sum,
-            boolean saveContent) throws DdlException {
+                                    boolean saveContent) throws DdlException {
         synchronized (files) {
             if (idToFiles.size() >= Config.max_small_file_number) {
                 throw new DdlException("File number exceeds limit: " + Config.max_small_file_number);
@@ -203,7 +203,7 @@ public class SmallFileMgr implements Writable {
             Catalog.getCurrentCatalog().getEditLog().logCreateSmallFile(smallFile);
 
             LOG.info("finished to add file {} from url {}. current file number: {}", fileName, downloadUrl,
-                    idToFiles.size());
+                idToFiles.size());
         }
     }
 
@@ -239,7 +239,7 @@ public class SmallFileMgr implements Writable {
                 }
 
                 LOG.info("finished to remove file {}. current file number: {}. is replay: {}",
-                        fileName, idToFiles.size(), isReplay);
+                    fileName, idToFiles.size(), isReplay);
             } else {
                 throw new DdlException("No such file: " + fileName);
             }
@@ -265,7 +265,7 @@ public class SmallFileMgr implements Writable {
     }
 
     public SmallFile getSmallFile(long dbId, String catalog, String fileName, boolean needContent)
-            throws DdlException {
+        throws DdlException {
         synchronized (files) {
             SmallFiles smallFiles = files.get(dbId, catalog);
             if (smallFiles == null) {
@@ -288,7 +288,7 @@ public class SmallFileMgr implements Writable {
     }
 
     private SmallFile downloadAndCheck(long dbId, String catalog, String fileName,
-            String downloadUrl, String md5sum, boolean saveContent) throws DdlException {
+                                       String downloadUrl, String md5sum, boolean saveContent) throws DdlException {
         try {
             URL url = new URL(downloadUrl);
             // get file length
@@ -298,19 +298,20 @@ public class SmallFileMgr implements Writable {
             }
             urlConnection.setReadTimeout(10000); // 10s
             urlConnection.getInputStream();
-            
+
             int contentLength = urlConnection.getContentLength();
             if (contentLength == -1 || contentLength > Config.max_small_file_size_bytes) {
-                throw new DdlException("Failed to download file from url: " + url + ", invalid content length: " + contentLength);
+                throw new DdlException(
+                    "Failed to download file from url: " + url + ", invalid content length: " + contentLength);
             }
-            
+
             int bytesRead = 0;
             String base64Content = null;
             MessageDigest digest = MessageDigest.getInstance("MD5");
             if (saveContent) {
                 // download from url, and check file size
                 bytesRead = 0;
-                byte buf[] = new byte[contentLength];
+                byte[] buf = new byte[contentLength];
                 try (BufferedInputStream in = new BufferedInputStream(url.openStream())) {
                     while (bytesRead < contentLength) {
                         bytesRead += in.read(buf, bytesRead, contentLength - bytesRead);
@@ -319,13 +320,13 @@ public class SmallFileMgr implements Writable {
                     // check if there still has data(should not happen)
                     if (in.read() != -1) {
                         throw new DdlException("Failed to download file from url: " + url
-                                + ", content length does not equals to actual file length");
+                            + ", content length does not equals to actual file length");
                     }
                 }
 
                 if (bytesRead != contentLength) {
                     throw new DdlException("Failed to download file from url: " + url
-                            + ", invalid read bytes: " + bytesRead + ", expected: " + contentLength);
+                        + ", invalid read bytes: " + bytesRead + ", expected: " + contentLength);
                 }
 
                 digest.update(buf, 0, bytesRead);
@@ -351,7 +352,7 @@ public class SmallFileMgr implements Writable {
             if (!Strings.isNullOrEmpty(md5sum)) {
                 if (!checksum.equalsIgnoreCase(md5sum)) {
                     throw new DdlException("Invalid md5sum of file in url: " + downloadUrl + ", read: " + checksum
-                            + ", expected: " + checksum);
+                        + ", expected: " + checksum);
                 }
             }
 
@@ -359,11 +360,11 @@ public class SmallFileMgr implements Writable {
             long fileId = Catalog.getCurrentCatalog().getNextId();
             if (saveContent) {
                 smallFile = new SmallFile(dbId, catalog, fileName, fileId, base64Content, bytesRead,
-                        checksum, true /* is content */);
+                    checksum, true /* is content */);
             } else {
                 // only save download url
                 smallFile = new SmallFile(dbId, catalog, fileName, fileId, downloadUrl, bytesRead,
-                        checksum, false /* not content */);
+                    checksum, false /* not content */);
             }
             return smallFile;
         } catch (IOException | NoSuchAlgorithmException e) {
@@ -424,7 +425,8 @@ public class SmallFileMgr implements Writable {
             outputStream.close();
 
             if (!checkMd5(file, smallFile.md5)) {
-                throw new DdlException("write file " + fileName +" failed. md5 is invalid. expected: " + smallFile.md5);
+                throw new DdlException(
+                    "write file " + fileName + " failed. md5 is invalid. expected: " + smallFile.md5);
             }
         } catch (IOException e) {
             LOG.warn("failed to write file: {}", fileName, e);
@@ -449,7 +451,8 @@ public class SmallFileMgr implements Writable {
     }
 
     private File getAbsoluteFile(long dbId, String catalog, String fileName) {
-        return Paths.get(Config.small_file_dir, String.valueOf(dbId), catalog, fileName).normalize().toAbsolutePath().toFile();
+        return Paths.get(Config.small_file_dir, String.valueOf(dbId), catalog, fileName).normalize().toAbsolutePath()
+            .toFile();
     }
 
     public List<List<String>> getInfo(String dbName) throws DdlException {

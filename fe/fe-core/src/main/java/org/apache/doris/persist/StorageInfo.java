@@ -43,7 +43,7 @@ public class StorageInfo {
     public void setClusterID(int clusterID) {
         this.clusterID = clusterID;
     }
-    
+
     public long getEditsSeq() {
         return editsSeq;
     }

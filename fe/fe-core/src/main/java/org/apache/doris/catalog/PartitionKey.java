@@ -56,7 +56,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
     // Factory methods
     public static PartitionKey createInfinityPartitionKey(List<Column> columns, boolean isMax)
-            throws AnalysisException {
+        throws AnalysisException {
         PartitionKey partitionKey = new PartitionKey();
         for (Column column : columns) {
             partitionKey.keys.add(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), isMax));
@@ -66,13 +66,13 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     }
 
     public static PartitionKey createPartitionKey(List<PartitionValue> keys, List<Column> columns)
-            throws AnalysisException {
+        throws AnalysisException {
         PartitionKey partitionKey = new PartitionKey();
         Preconditions.checkArgument(keys.size() <= columns.size());
         int i;
         for (i = 0; i < keys.size(); ++i) {
             partitionKey.keys.add(keys.get(i).getValue(
-                    Type.fromPrimitiveType(columns.get(i).getDataType())));
+                Type.fromPrimitiveType(columns.get(i).getDataType())));
             partitionKey.types.add(columns.get(i).getDataType());
         }
 
@@ -88,7 +88,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     }
 
     public static PartitionKey createListPartitionKey(List<PartitionValue> values, List<Column> columns)
-            throws AnalysisException {
+        throws AnalysisException {
         // for multi list partition:
         //
         // PARTITION BY LIST(k1, k2)
@@ -110,7 +110,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         // )
         //
         Preconditions.checkArgument(values.size() == columns.size(),
-                "in value size[" + values.size() + "] is not equal to partition column size[" + columns.size() + "].");
+            "in value size[" + values.size() + "] is not equal to partition column size[" + columns.size() + "].");
 
         PartitionKey partitionKey = new PartitionKey();
         for (int i = 0; i < values.size(); i++) {

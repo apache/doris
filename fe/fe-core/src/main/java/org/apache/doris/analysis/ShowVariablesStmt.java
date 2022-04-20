@@ -33,10 +33,10 @@ public class ShowVariablesStmt extends ShowStmt {
     private static final String NAME_COL = "Variable_name";
     private static final String VALUE_COL = "Value";
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column(NAME_COL, ScalarType.createVarchar(20)))
-                    .addColumn(new Column(VALUE_COL, ScalarType.createVarchar(20)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column(NAME_COL, ScalarType.createVarchar(20)))
+            .addColumn(new Column(VALUE_COL, ScalarType.createVarchar(20)))
+            .build();
 
     private SetType type;
     private String pattern;
@@ -98,8 +98,8 @@ public class ShowVariablesStmt extends ShowStmt {
         // change
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
-                new FromClause(Lists.newArrayList(new TableRef(tableName, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+            new FromClause(Lists.newArrayList(new TableRef(tableName, null))),
+            where, null, null, null, LimitElement.NO_LIMIT);
         LOG.debug("select stmt is {}", selectStmt.toSql());
 
         // DB: type

@@ -20,12 +20,6 @@ package org.apache.doris.load.sync.canal;
 import org.apache.doris.load.sync.model.Events;
 import org.apache.doris.load.sync.position.EntryPosition;
 
-import com.alibaba.otter.canal.common.CanalException;
-import com.alibaba.otter.canal.protocol.CanalEntry;
-import com.alibaba.otter.canal.protocol.Message;
-
-import com.google.protobuf.InvalidProtocolBufferException;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.SystemUtils;
@@ -37,6 +31,11 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 
+import com.alibaba.otter.canal.common.CanalException;
+import com.alibaba.otter.canal.protocol.CanalEntry;
+import com.alibaba.otter.canal.protocol.Message;
+import com.google.protobuf.InvalidProtocolBufferException;
+
 public class CanalUtils {
     private static Logger logger = LogManager.getLogger(CanalUtils.class);
 
@@ -44,8 +43,8 @@ public class CanalUtils {
     private static final String DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
     private static SimpleDateFormat simpleDateFormat = new SimpleDateFormat(DATE_FORMAT);
 
-    private static String context_format     = null;
-    private static String row_format         = null;
+    private static String context_format = null;
+    private static String row_format = null;
     private static String transaction_format = null;
 
     static {
@@ -55,11 +54,12 @@ public class CanalUtils {
         context_format += "| End : [{}] " + SEP;
         context_format += "----------------------------------------------------------" + SEP;
         row_format = SEP
-                + "----------------> binlog[{}:{}] , name[{},{}] , eventType : {} , executeTime : {}({}) , gtid : ({}) , delay : {} ms"
-                + SEP;
+            +
+            "----------------> binlog[{}:{}] , name[{},{}] , eventType : {} , executeTime : {}({}) , gtid : ({}) , delay : {} ms"
+            + SEP;
         transaction_format = SEP
-                + "================> binlog[{}:{}] , executeTime : {}({}) , gtid : ({}) , delay : {}ms"
-                + SEP;
+            + "================> binlog[{}:{}] , executeTime : {}({}) , gtid : ({}) , delay : {}ms"
+            + SEP;
     }
 
     public static void printSummary(Events<CanalEntry.Entry, EntryPosition> dataEvents) {
@@ -70,7 +70,8 @@ public class CanalUtils {
         String startPosition = buildPositionForDump(entries.get(0));
         String endPosition = buildPositionForDump(entries.get(entries.size() - 1));
         SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
-        logger.info(context_format, dataEvents.getId(), entries.size(), dataEvents.getMemSize(), format.format(new Date()), startPosition, endPosition);
+        logger.info(context_format, dataEvents.getId(), entries.size(), dataEvents.getMemSize(),
+            format.format(new Date()), startPosition, endPosition);
     }
 
     public static void printSummary(Message message, int size, long memsize) {
@@ -81,7 +82,8 @@ public class CanalUtils {
         String startPosition = buildPositionForDump(message.getEntries().get(0));
         String endPosition = buildPositionForDump(message.getEntries().get(message.getEntries().size() - 1));
         SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
-        logger.info(context_format, message.getId(), size, memsize, format.format(new Date()), startPosition, endPosition);
+        logger.info(context_format, message.getId(), size, memsize, format.format(new Date()), startPosition,
+            endPosition);
     }
 
     public static String buildPositionForDump(CanalEntry.Entry entry) {
@@ -91,16 +93,16 @@ public class CanalUtils {
         SimpleDateFormat format = new SimpleDateFormat(DATE_FORMAT);
         StringBuilder sb = new StringBuilder();
         sb.append(header.getLogfileName())
-                .append(":")
-                .append(header.getLogfileOffset())
-                .append(":")
-                .append(header.getExecuteTime())
-                .append("(")
-                .append(format.format(date))
-                .append(")");
+            .append(":")
+            .append(header.getLogfileOffset())
+            .append(":")
+            .append(header.getExecuteTime())
+            .append("(")
+            .append(format.format(date))
+            .append(")");
         if (StringUtils.isNotEmpty(entry.getHeader().getGtid())) {
             sb.append(" gtid(").append(entry.getHeader().getGtid())
-                    .append(")");
+                .append(")");
         }
         return sb.toString();
     }
@@ -120,10 +122,10 @@ public class CanalUtils {
         Date date = new Date(executeTime);
         CanalEntry.EventType eventType = rowChange.getEventType();
         logger.info(row_format, header.getLogfileName(),
-                String.valueOf(header.getLogfileOffset()), header.getSchemaName(),
-                header.getTableName(), eventType,
-                String.valueOf(header.getExecuteTime()), simpleDateFormat.format(date),
-                header.getGtid(), String.valueOf(delayTime));
+            String.valueOf(header.getLogfileOffset()), header.getSchemaName(),
+            header.getTableName(), eventType,
+            String.valueOf(header.getExecuteTime()), simpleDateFormat.format(date),
+            header.getGtid(), String.valueOf(delayTime));
         if (eventType == CanalEntry.EventType.QUERY || rowChange.getIsDdl()) {
             logger.info(" sql ----> " + rowChange.getSql() + SEP);
             return;
@@ -145,15 +147,15 @@ public class CanalUtils {
         for (CanalEntry.Column column : columns) {
             try {
                 if (StringUtils.containsIgnoreCase(column.getMysqlType(), "BLOB")
-                        || StringUtils.containsIgnoreCase(column.getMysqlType(), "BINARY")) {
+                    || StringUtils.containsIgnoreCase(column.getMysqlType(), "BINARY")) {
                     // get value bytes
                     builder.append(column.getName())
-                            .append(" : ")
-                            .append(new String(column.getValue().getBytes("ISO-8859-1"), "UTF-8"));
+                        .append(" : ")
+                        .append(new String(column.getValue().getBytes("ISO-8859-1"), "UTF-8"));
                 } else {
                     builder.append(column.getName())
-                            .append(" : ")
-                            .append(column.getValue());
+                        .append(" : ")
+                        .append(column.getValue());
                 }
             } catch (UnsupportedEncodingException e) {
             }
@@ -196,10 +198,10 @@ public class CanalUtils {
             throw new CanalException("parse event has an error , data:" + entry.toString(), e);
         }
         // print transaction begin info, thread ID, time consumption
-        logger.info(transaction_format,entry.getHeader().getLogfileName(),
-                String.valueOf(entry.getHeader().getLogfileOffset()),
-                String.valueOf(entry.getHeader().getExecuteTime()), simpleDateFormat.format(date),
-                entry.getHeader().getGtid(), String.valueOf(delayTime));
+        logger.info(transaction_format, entry.getHeader().getLogfileName(),
+            String.valueOf(entry.getHeader().getLogfileOffset()),
+            String.valueOf(entry.getHeader().getExecuteTime()), simpleDateFormat.format(date),
+            entry.getHeader().getGtid(), String.valueOf(delayTime));
         logger.info(" BEGIN ----> Thread id: {}", begin.getThreadId());
         printXAInfo(begin.getPropsList());
     }
@@ -219,9 +221,9 @@ public class CanalUtils {
         logger.info(" END ----> transaction id: {}", end.getTransactionId());
         printXAInfo(end.getPropsList());
         logger.info(transaction_format, entry.getHeader().getLogfileName(),
-                String.valueOf(entry.getHeader().getLogfileOffset()),
-                String.valueOf(entry.getHeader().getExecuteTime()), simpleDateFormat.format(date),
-                entry.getHeader().getGtid(), String.valueOf(delayTime));
+            String.valueOf(entry.getHeader().getLogfileOffset()),
+            String.valueOf(entry.getHeader().getExecuteTime()), simpleDateFormat.format(date),
+            entry.getHeader().getGtid(), String.valueOf(delayTime));
     }
 
     public static boolean isDML(CanalEntry.EventType eventType) {

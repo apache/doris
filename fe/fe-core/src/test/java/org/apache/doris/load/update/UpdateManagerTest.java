@@ -24,14 +24,15 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Maps;
 
+import org.junit.Assert;
+import org.junit.Test;
+
 import java.util.List;
 import java.util.Map;
 
 import com.clearspring.analytics.util.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
-import org.junit.Assert;
-import org.junit.Test;
 
 public class UpdateManagerTest {
 

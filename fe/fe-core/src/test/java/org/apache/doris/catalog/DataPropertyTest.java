@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TStorageMedium;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -34,7 +35,8 @@ public class DataPropertyTest {
         Assert.assertNotEquals(DataProperty.MAX_COOLDOWN_TIME_MS, dataProperty.getCooldownTimeMs());
 
         long storageCooldownTimeMs = System.currentTimeMillis() + 24 * 3600 * 1000L;
-        dataProperty = new DataProperty(TStorageMedium.SSD, storageCooldownTimeMs, "", DataProperty.MAX_COOLDOWN_TIME_MS);
+        dataProperty =
+            new DataProperty(TStorageMedium.SSD, storageCooldownTimeMs, "", DataProperty.MAX_COOLDOWN_TIME_MS);
         Assert.assertEquals(storageCooldownTimeMs, dataProperty.getCooldownTimeMs());
 
         dataProperty = new DataProperty(TStorageMedium.HDD);

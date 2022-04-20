@@ -17,7 +17,6 @@
 
 package org.apache.doris.ldap;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
@@ -30,7 +29,10 @@ import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,7 +48,7 @@ public class LdapPrivsChecker {
 
     public static boolean hasGlobalPrivFromLdap(UserIdentity currentUser, PrivPredicate wanted) {
         return hasTblPatternPrivs(currentUser, wanted, null, null, PaloAuth.PrivLevel.GLOBAL)
-                || hasResourcePatternPrivs(currentUser, wanted, null, PaloAuth.PrivLevel.GLOBAL);
+            || hasResourcePatternPrivs(currentUser, wanted, null, PaloAuth.PrivLevel.GLOBAL);
     }
 
     public static boolean hasDbPrivFromLdap(UserIdentity currentUser, String db, PrivPredicate wanted) {
@@ -126,14 +128,14 @@ public class LdapPrivsChecker {
                     break;
                 case DATABASE:
                     if (level.equals(PaloAuth.PrivLevel.DATABASE) && db != null
-                            && entry.getKey().getQualifiedDb().equals(db)) {
+                        && entry.getKey().getQualifiedDb().equals(db)) {
                         savedPrivs.or(entry.getValue());
                         return;
                     }
                     break;
                 case TABLE:
                     if (level.equals(PaloAuth.PrivLevel.TABLE) && db != null && tbl != null
-                            && entry.getKey().getQualifiedDb().equals(db) && entry.getKey().getTbl().equals(tbl)) {
+                        && entry.getKey().getQualifiedDb().equals(db) && entry.getKey().getTbl().equals(tbl)) {
                         savedPrivs.or(entry.getValue());
                         return;
                     }
@@ -144,13 +146,15 @@ public class LdapPrivsChecker {
         }
     }
 
-    private static void getCurrentUserResourcePrivs(UserIdentity currentUser, String resourceName, PrivBitSet savedPrivs,
+    private static void getCurrentUserResourcePrivs(UserIdentity currentUser, String resourceName,
+                                                    PrivBitSet savedPrivs,
                                                     PaloAuth.PrivLevel level) {
         if (!hasLdapPrivs(currentUser)) {
             return;
         }
         PaloRole currentUserLdapPrivs = ConnectContext.get().getLdapGroupsPrivs();
-        for (Map.Entry<ResourcePattern, PrivBitSet> entry : currentUserLdapPrivs.getResourcePatternToPrivs().entrySet()) {
+        for (Map.Entry<ResourcePattern, PrivBitSet> entry : currentUserLdapPrivs.getResourcePatternToPrivs()
+            .entrySet()) {
             switch (entry.getKey().getPrivLevel()) {
                 case GLOBAL:
                     if (level.equals(PaloAuth.PrivLevel.GLOBAL)) {
@@ -160,7 +164,7 @@ public class LdapPrivsChecker {
                     break;
                 case RESOURCE:
                     if (level.equals(PaloAuth.PrivLevel.RESOURCE) && resourceName != null
-                            && entry.getKey().getResourceName().equals(resourceName)) {
+                        && entry.getKey().getResourceName().equals(resourceName)) {
                         savedPrivs.or(entry.getValue());
                         return;
                     }
@@ -191,7 +195,8 @@ public class LdapPrivsChecker {
         }
         PaloRole currentUserLdapPrivs = ConnectContext.get().getLdapGroupsPrivs();
         for (Map.Entry<TablePattern, PrivBitSet> entry : currentUserLdapPrivs.getTblPatternToPrivs().entrySet()) {
-            if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.TABLE) && entry.getKey().getQualifiedDb().equals(db)) {
+            if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.TABLE) &&
+                entry.getKey().getQualifiedDb().equals(db)) {
                 return true;
             }
         }
@@ -205,19 +210,21 @@ public class LdapPrivsChecker {
         }
         UserIdentity currentUser = context.getCurrentUserIdentity();
         return currentUser.getQualifiedUser().equals(userIdent.getQualifiedUser())
-                && currentUser.getHost().equals(userIdent.getHost());
+            && currentUser.getHost().equals(userIdent.getHost());
     }
 
     public static boolean hasLdapPrivs(UserIdentity userIdent) {
         return LdapConfig.ldap_authentication_enabled && isCurrentUser(userIdent)
-                && ConnectContext.get().getLdapGroupsPrivs() != null;
+            && ConnectContext.get().getLdapGroupsPrivs() != null;
     }
 
     public static Map<TablePattern, PrivBitSet> getLdapAllDbPrivs(UserIdentity userIdentity) {
         Map<TablePattern, PrivBitSet> ldapDbPrivs = Maps.newConcurrentMap();
-        if (!hasLdapPrivs(userIdentity)) return ldapDbPrivs;
+        if (!hasLdapPrivs(userIdentity)) {
+            return ldapDbPrivs;
+        }
         for (Map.Entry<TablePattern, PrivBitSet> entry : ConnectContext.get().getLdapGroupsPrivs()
-                .getTblPatternToPrivs().entrySet()) {
+            .getTblPatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.DATABASE)) {
                 ldapDbPrivs.put(entry.getKey(), entry.getValue());
             }
@@ -227,9 +234,11 @@ public class LdapPrivsChecker {
 
     public static Map<TablePattern, PrivBitSet> getLdapAllTblPrivs(UserIdentity userIdentity) {
         Map<TablePattern, PrivBitSet> ldapTblPrivs = Maps.newConcurrentMap();
-        if (!hasLdapPrivs(userIdentity)) return ldapTblPrivs;
+        if (!hasLdapPrivs(userIdentity)) {
+            return ldapTblPrivs;
+        }
         for (Map.Entry<TablePattern, PrivBitSet> entry : ConnectContext.get().getLdapGroupsPrivs()
-                .getTblPatternToPrivs().entrySet()) {
+            .getTblPatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.TABLE)) {
                 ldapTblPrivs.put(entry.getKey(), entry.getValue());
             }
@@ -239,9 +248,11 @@ public class LdapPrivsChecker {
 
     public static Map<ResourcePattern, PrivBitSet> getLdapAllResourcePrivs(UserIdentity userIdentity) {
         Map<ResourcePattern, PrivBitSet> ldapResourcePrivs = Maps.newConcurrentMap();
-        if (!hasLdapPrivs(userIdentity)) return ldapResourcePrivs;
+        if (!hasLdapPrivs(userIdentity)) {
+            return ldapResourcePrivs;
+        }
         for (Map.Entry<ResourcePattern, PrivBitSet> entry : ConnectContext.get().getLdapGroupsPrivs()
-                .getResourcePatternToPrivs().entrySet()) {
+            .getResourcePatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.RESOURCE)) {
                 ldapResourcePrivs.put(entry.getKey(), entry.getValue());
             }

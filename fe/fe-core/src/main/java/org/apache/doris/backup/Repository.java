@@ -130,7 +130,7 @@ public class Repository implements Writable {
             return PREFIX_JOB_INFO;
         } else {
             return PREFIX_JOB_INFO
-                    + TimeUtils.longToTimeString(createTime, new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss"));
+                + TimeUtils.longToTimeString(createTime, new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss"));
         }
     }
 
@@ -233,7 +233,7 @@ public class Repository implements Writable {
                 createTime = TimeUtils.timeStringToLong((String) root.get("create_time"));
                 if (createTime == -1) {
                     return new Status(ErrCode.COMMON_ERROR,
-                            "failed to parse create time of repository: " + root.get("create_time"));
+                        "failed to parse create time of repository: " + root.get("create_time"));
                 }
                 return Status.OK;
 
@@ -246,7 +246,7 @@ public class Repository implements Writable {
 
         } else if (remoteFiles.size() > 1) {
             return new Status(ErrCode.COMMON_ERROR,
-                    "Invalid repository dir. expected one repo info file. get more: " + remoteFiles);
+                "Invalid repository dir. expected one repo info file. get more: " + remoteFiles);
         } else {
             // repo is already exist, get repo info
             JSONObject root = new JSONObject();
@@ -260,35 +260,35 @@ public class Repository implements Writable {
     // eg: location/__palo_repository_repo_name/__repo_info
     public String assembleRepoInfoFilePath() {
         return Joiner.on(PATH_DELIMITER).join(location,
-                joinPrefix(PREFIX_REPO, name),
-                FILE_REPO_INFO);
+            joinPrefix(PREFIX_REPO, name),
+            FILE_REPO_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__meta
     public String assembleMetaInfoFilePath(String label) {
         return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
-                joinPrefix(PREFIX_SNAPSHOT_DIR, label),
-                FILE_META_INFO);
+            joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+            FILE_META_INFO);
     }
 
     // eg: location/__palo_repository_repo_name/__my_sp1/__info_2018-01-01-08-00-00
     public String assembleJobInfoFilePath(String label, long createTime) {
         return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
-                joinPrefix(PREFIX_SNAPSHOT_DIR, label),
-                jobInfoFileNameWithTimestamp(createTime));
+            joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+            jobInfoFileNameWithTimestamp(createTime));
     }
 
     // eg:
     // __palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10020/__10022/
     public String getRepoTabletPathBySnapshotInfo(String label, SnapshotInfo info) {
         String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
-                joinPrefix(PREFIX_SNAPSHOT_DIR, label),
-                DIR_SNAPSHOT_CONTENT,
-                joinPrefix(PREFIX_DB, info.getDbId()),
-                joinPrefix(PREFIX_TBL, info.getTblId()),
-                joinPrefix(PREFIX_PART, info.getPartitionId()),
-                joinPrefix(PREFIX_IDX, info.getIndexId()),
-                joinPrefix(PREFIX_COMMON, info.getTabletId()));
+            joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+            DIR_SNAPSHOT_CONTENT,
+            joinPrefix(PREFIX_DB, info.getDbId()),
+            joinPrefix(PREFIX_TBL, info.getTblId()),
+            joinPrefix(PREFIX_PART, info.getPartitionId()),
+            joinPrefix(PREFIX_IDX, info.getIndexId()),
+            joinPrefix(PREFIX_COMMON, info.getTabletId()));
         try {
             // we need to normalize the path to avoid double "/" in path, or else some client such as S3 sdk can not
             // handle it correctly.
@@ -301,9 +301,9 @@ public class Repository implements Writable {
 
     public String getRepoPath(String label, String childPath) {
         String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
-                joinPrefix(PREFIX_SNAPSHOT_DIR, label),
-                DIR_SNAPSHOT_CONTENT,
-                childPath);
+            joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+            DIR_SNAPSHOT_CONTENT,
+            childPath);
         try {
             URI uri = new URI(path);
             return uri.normalize().toString();
@@ -332,7 +332,7 @@ public class Repository implements Writable {
             return true;
         } catch (URISyntaxException e) {
             errMsg = TimeUtils.longToTimeString(System.currentTimeMillis())
-                    + ": Invalid path. " + path + ", error: " + e.getMessage();
+                + ": Invalid path. " + path + ", error: " + e.getMessage();
             return false;
         }
     }
@@ -342,7 +342,7 @@ public class Repository implements Writable {
         // list with prefix:
         // eg. __palo_repository_repo_name/__ss_*
         String listPath = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name), PREFIX_SNAPSHOT_DIR)
-                + "*";
+            + "*";
         List<RemoteFile> result = Lists.newArrayList();
         Status st = storage.list(listPath, result);
         if (!st.ok()) {
@@ -370,15 +370,15 @@ public class Repository implements Writable {
     // /location/__palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10032/__10023/__3481721
     public String assembleRemoteSnapshotPath(String label, SnapshotInfo info) {
         String path = Joiner.on(PATH_DELIMITER).join(location,
-                joinPrefix(PREFIX_REPO, name),
-                joinPrefix(PREFIX_SNAPSHOT_DIR, label),
-                DIR_SNAPSHOT_CONTENT,
-                joinPrefix(PREFIX_DB, info.getDbId()),
-                joinPrefix(PREFIX_TBL, info.getTblId()),
-                joinPrefix(PREFIX_PART, info.getPartitionId()),
-                joinPrefix(PREFIX_IDX, info.getIndexId()),
-                joinPrefix(PREFIX_COMMON, info.getTabletId()),
-                joinPrefix(PREFIX_COMMON, info.getSchemaHash()));
+            joinPrefix(PREFIX_REPO, name),
+            joinPrefix(PREFIX_SNAPSHOT_DIR, label),
+            DIR_SNAPSHOT_CONTENT,
+            joinPrefix(PREFIX_DB, info.getDbId()),
+            joinPrefix(PREFIX_TBL, info.getTblId()),
+            joinPrefix(PREFIX_PART, info.getPartitionId()),
+            joinPrefix(PREFIX_IDX, info.getIndexId()),
+            joinPrefix(PREFIX_COMMON, info.getTabletId()),
+            joinPrefix(PREFIX_COMMON, info.getSchemaHash()));
         LOG.debug("get remote tablet snapshot path: {}", path);
         return path;
     }
@@ -386,7 +386,7 @@ public class Repository implements Writable {
     public Status getSnapshotInfoFile(String label, String backupTimestamp, List<BackupJobInfo> infos) {
         String remoteInfoFilePath = assembleJobInfoFilePath(label, -1) + backupTimestamp;
         File localInfoFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
-                + "info_" + System.currentTimeMillis());
+            + "info_" + System.currentTimeMillis());
         try {
             Status st = download(remoteInfoFilePath, localInfoFile.getPath());
             if (!st.ok()) {
@@ -397,7 +397,7 @@ public class Repository implements Writable {
             infos.add(jobInfo);
         } catch (IOException e) {
             return new Status(ErrCode.COMMON_ERROR, "Failed to create job info from file: "
-                    + "" + localInfoFile.getName() + ". msg: " + e.getMessage());
+                + "" + localInfoFile.getName() + ". msg: " + e.getMessage());
         } finally {
             localInfoFile.delete();
         }
@@ -408,7 +408,7 @@ public class Repository implements Writable {
     public Status getSnapshotMetaFile(String label, List<BackupMeta> backupMetas, int metaVersion) {
         String remoteMetaFilePath = assembleMetaInfoFilePath(label);
         File localMetaFile = new File(BackupHandler.BACKUP_ROOT_DIR + PATH_DELIMITER
-                + "meta_" + System.currentTimeMillis());
+            + "meta_" + System.currentTimeMillis());
 
         try {
             Status st = download(remoteMetaFilePath, localMetaFile.getAbsolutePath());
@@ -422,7 +422,7 @@ public class Repository implements Writable {
         } catch (IOException e) {
             LOG.warn("failed to read backup meta from file", e);
             return new Status(ErrCode.COMMON_ERROR, "Failed create backup meta from file: "
-                    + localMetaFile.getAbsolutePath() + ", msg: " + e.getMessage());
+                + localMetaFile.getAbsolutePath() + ", msg: " + e.getMessage());
         } catch (IllegalArgumentException e) {
             LOG.warn("failed to set meta version", e);
             return new Status(ErrCode.COMMON_ERROR, e.getMessage());
@@ -454,7 +454,8 @@ public class Repository implements Writable {
         if (storage instanceof BrokerStorage) {
             // this may be a retry, so we should first delete remote file
             String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
-            LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}", localFilePath, tmpRemotePath, finalRemotePath);
+            LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}", localFilePath,
+                tmpRemotePath, finalRemotePath);
             st = storage.delete(tmpRemotePath);
             if (!st.ok()) {
                 return st;
@@ -504,21 +505,21 @@ public class Repository implements Writable {
         }
         if (remoteFiles.size() != 1) {
             return new Status(ErrCode.COMMON_ERROR,
-                    "Expected one file with path: " + remoteFilePath + ". get: " + remoteFiles.size());
+                "Expected one file with path: " + remoteFilePath + ". get: " + remoteFiles.size());
         }
         if (!remoteFiles.get(0).isFile()) {
             return new Status(ErrCode.COMMON_ERROR, "Expected file with path: " + remoteFilePath + ". but get dir");
         }
 
         String remoteFilePathWithChecksum = replaceFileNameWithChecksumFileName(remoteFilePath,
-                remoteFiles.get(0).getName());
+            remoteFiles.get(0).getName());
         LOG.debug("get download filename with checksum: " + remoteFilePathWithChecksum);
 
         // 1. get checksum from remote file name
         Pair<String, String> pair = decodeFileNameWithChecksum(remoteFilePathWithChecksum);
         if (pair == null) {
             return new Status(ErrCode.COMMON_ERROR,
-                    "file name should contains checksum: " + remoteFilePathWithChecksum);
+                "file name should contains checksum: " + remoteFilePathWithChecksum);
         }
         if (!remoteFilePath.endsWith(pair.first)) {
             return new Status(ErrCode.COMMON_ERROR, "File does not exist: " + remoteFilePath);
@@ -543,7 +544,7 @@ public class Repository implements Writable {
 
         if (!localMd5sum.equals(md5sum)) {
             return new Status(ErrCode.BAD_FILE,
-                    "md5sum does not equal. local: " + localMd5sum + ", remote: " + md5sum);
+                "md5sum does not equal. local: " + localMd5sum + ", remote: " + md5sum);
         }
 
         return Status.OK;
@@ -554,7 +555,7 @@ public class Repository implements Writable {
         Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
         if (be == null) {
             return new Status(ErrCode.COMMON_ERROR, "backend " + beId + " is missing. "
-                    + "failed to send upload snapshot task");
+                + "failed to send upload snapshot task");
         }
         // only Broker storage backend need to get broker addr, other type return a fake one;
         if (storage.getStorageType() != StorageBackend.StorageType.BROKER) {
@@ -568,12 +569,12 @@ public class Repository implements Writable {
             brokerAddr = catalog.getBrokerMgr().getBroker(((BrokerStorage) storage).getBrokerName(), be.getHost());
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
-                    + ((BrokerStorage) storage).getBrokerName() + " when try to send upload snapshot task: "
-                    + e.getMessage());
+                + ((BrokerStorage) storage).getBrokerName() + " when try to send upload snapshot task: "
+                + e.getMessage());
         }
         if (brokerAddr == null) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
-                    + ((BrokerStorage) storage).getBrokerName() + " when try to send upload snapshot task");
+                + ((BrokerStorage) storage).getBrokerName() + " when try to send upload snapshot task");
         }
         brokerAddrs.add(brokerAddr);
         return Status.OK;
@@ -593,7 +594,7 @@ public class Repository implements Writable {
     }
 
     public List<List<String>> getSnapshotInfos(String snapshotName, String timestamp)
-            throws AnalysisException {
+        throws AnalysisException {
         List<List<String>> snapshotInfos = Lists.newArrayList();
         if (Strings.isNullOrEmpty(snapshotName)) {
             // get all snapshot infos
@@ -601,7 +602,7 @@ public class Repository implements Writable {
             Status status = listSnapshots(snapshotNames);
             if (!status.ok()) {
                 throw new AnalysisException(
-                        "Failed to list snapshot in repo: " + name + ", err: " + status.getErrMsg());
+                    "Failed to list snapshot in repo: " + name + ", err: " + status.getErrMsg());
             }
 
             for (String ssName : snapshotNames) {

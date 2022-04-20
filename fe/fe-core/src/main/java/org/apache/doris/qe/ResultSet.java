@@ -28,7 +28,7 @@ public interface ResultSet {
      * Moves the cursor froward one row from its current position.
      *
      * @return <code>true</code> if the new current row is valid;
-     *<code>false</code> if there are no more rows
+     * <code>false</code> if there are no more rows
      */
     boolean next();
 
@@ -50,6 +50,7 @@ public interface ResultSet {
     /**
      * Retrieves the value of the designated column in the current row
      * of this <code>ResultSet</code> object as String
+     *
      * @param col the column index
      * @return the column value
      */
@@ -58,6 +59,7 @@ public interface ResultSet {
     /**
      * Retrieves the value of the designated column in the current row
      * of this <code>ResultSet</code> object as byte
+     *
      * @param col the column index
      * @return the column value
      */
@@ -66,6 +68,7 @@ public interface ResultSet {
     /**
      * Retrieves the value of the designated column in the current row
      * of this <code>ResultSet</code> object as short
+     *
      * @param col the column index
      * @return the column value
      */
@@ -74,6 +77,7 @@ public interface ResultSet {
     /**
      * Retrieves the value of the designated column in the current row
      * of this <code>ResultSet</code> object as int
+     *
      * @param col the column index
      * @return the column value
      */
@@ -82,6 +86,7 @@ public interface ResultSet {
     /**
      * Retrieves the value of the designated column in the current row
      * of this <code>ResultSet</code> object as long
+     *
      * @param col the column index
      * @return the column value
      */

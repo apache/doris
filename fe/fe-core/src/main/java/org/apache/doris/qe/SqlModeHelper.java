@@ -18,16 +18,17 @@
 package org.apache.doris.qe;
 
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Splitter;
-import com.google.common.collect.Maps;
-import org.apache.commons.lang.StringUtils;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Splitter;
+import com.google.common.collect.Maps;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,7 +61,7 @@ public class SqlModeHelper {
     public static final long MODE_NO_ZERO_DATE = 1L << 24;
     public static final long MODE_INVALID_DATES = 1L << 25;
     public static final long MODE_ERROR_FOR_DIVISION_BY_ZERO = 1L << 26;
-    public static final long MODE_HIGH_NOT_PRECEDENCE = 1L <<29;
+    public static final long MODE_HIGH_NOT_PRECEDENCE = 1L << 29;
     public static final long MODE_NO_ENGINE_SUBSTITUTION = 1L << 30;
     public static final long MODE_PAD_CHAR_TO_FULL_LENGTH = 1L << 31;
     public static final long MODE_TIME_TRUNCATE_FRACTIONAL = 1L << 32;
@@ -75,15 +76,15 @@ public class SqlModeHelper {
     public static final long MODE_DEFAULT = 0L;
 
     public static final long MODE_ALLOWED_MASK =
-            (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT | MODE_ANSI_QUOTES |
-                    MODE_IGNORE_SPACE | MODE_NOT_USED | MODE_ONLY_FULL_GROUP_BY |
-                    MODE_NO_UNSIGNED_SUBTRACTION | MODE_NO_DIR_IN_CREATE |
-                    MODE_NO_AUTO_VALUE_ON_ZERO | MODE_NO_BACKSLASH_ESCAPES |
-                    MODE_STRICT_TRANS_TABLES | MODE_STRICT_ALL_TABLES | MODE_NO_ZERO_IN_DATE |
-                    MODE_NO_ZERO_DATE | MODE_INVALID_DATES | MODE_ERROR_FOR_DIVISION_BY_ZERO |
-                    MODE_HIGH_NOT_PRECEDENCE | MODE_NO_ENGINE_SUBSTITUTION |
-                    MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TRADITIONAL | MODE_ANSI |
-                    MODE_TIME_TRUNCATE_FRACTIONAL);
+        (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT | MODE_ANSI_QUOTES |
+            MODE_IGNORE_SPACE | MODE_NOT_USED | MODE_ONLY_FULL_GROUP_BY |
+            MODE_NO_UNSIGNED_SUBTRACTION | MODE_NO_DIR_IN_CREATE |
+            MODE_NO_AUTO_VALUE_ON_ZERO | MODE_NO_BACKSLASH_ESCAPES |
+            MODE_STRICT_TRANS_TABLES | MODE_STRICT_ALL_TABLES | MODE_NO_ZERO_IN_DATE |
+            MODE_NO_ZERO_DATE | MODE_INVALID_DATES | MODE_ERROR_FOR_DIVISION_BY_ZERO |
+            MODE_HIGH_NOT_PRECEDENCE | MODE_NO_ENGINE_SUBSTITUTION |
+            MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TRADITIONAL | MODE_ANSI |
+            MODE_TIME_TRUNCATE_FRACTIONAL);
 
     public static final long MODE_COMBINE_MASK = (MODE_ANSI | MODE_TRADITIONAL);
 
@@ -116,10 +117,10 @@ public class SqlModeHelper {
         sqlModeSet.put("TIME_TRUNCATE_FRACTIONAL", MODE_TIME_TRUNCATE_FRACTIONAL);
 
         combineModeSet.put("ANSI", (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT |
-                MODE_ANSI_QUOTES | MODE_IGNORE_SPACE | MODE_ONLY_FULL_GROUP_BY));
+            MODE_ANSI_QUOTES | MODE_IGNORE_SPACE | MODE_ONLY_FULL_GROUP_BY));
         combineModeSet.put("TRADITIONAL", (MODE_STRICT_TRANS_TABLES | MODE_STRICT_ALL_TABLES |
-                MODE_NO_ZERO_IN_DATE | MODE_NO_ZERO_DATE | MODE_ERROR_FOR_DIVISION_BY_ZERO |
-                MODE_NO_ENGINE_SUBSTITUTION));
+            MODE_NO_ZERO_IN_DATE | MODE_NO_ZERO_DATE | MODE_ERROR_FOR_DIVISION_BY_ZERO |
+            MODE_NO_ENGINE_SUBSTITUTION));
     }
 
     // convert long type SQL MODE to string type that user can read
@@ -145,7 +146,7 @@ public class SqlModeHelper {
     // convert string type SQL MODE to long type that session can store
     public static Long encode(String sqlMode) throws DdlException {
         List<String> names =
-                Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
+            Splitter.on(',').trimResults().omitEmptyStrings().splitToList(sqlMode);
 
         // empty string parse to 0
         long resultCode = 0L;

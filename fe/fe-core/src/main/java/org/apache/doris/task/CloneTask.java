@@ -37,7 +37,7 @@ public class CloneTask extends AgentTask {
 
     private long srcPathHash = -1;
     private long destPathHash = -1;
-    
+
     private int timeoutS;
 
     private int taskVersion = VERSION_1;
@@ -95,7 +95,8 @@ public class CloneTask extends AgentTask {
         sb.append("tablet id: ").append(tabletId).append(", schema hash: ").append(schemaHash);
         sb.append(", storageMedium: ").append(storageMedium.name());
         sb.append(", visible version(hash): ").append(visibleVersion);
-        sb.append(", src backend: ").append(srcBackends.get(0).getHost()).append(", src path hash: ").append(srcPathHash);
+        sb.append(", src backend: ").append(srcBackends.get(0).getHost()).append(", src path hash: ")
+            .append(srcPathHash);
         sb.append(", dest backend: ").append(backendId).append(", dest path hash: ").append(destPathHash);
         return sb.toString();
     }

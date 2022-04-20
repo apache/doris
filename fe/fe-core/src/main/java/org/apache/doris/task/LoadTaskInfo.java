@@ -31,36 +31,61 @@ import java.util.List;
 
 public interface LoadTaskInfo {
     public boolean getNegative();
+
     public long getTxnId();
+
     public int getTimeout();
+
     public long getMemLimit();
+
     public String getTimezone();
+
     public PartitionNames getPartitions();
+
     public LoadTask.MergeType getMergeType();
+
     public Expr getDeleteCondition();
+
     public boolean hasSequenceCol();
+
     public String getSequenceCol();
+
     public TFileType getFileType();
+
     public TFileFormatType getFormatType();
+
     public String getJsonPaths();
+
     public String getJsonRoot();
+
     public boolean isStripOuterArray();
+
     public boolean isFuzzyParse();
+
     public boolean isNumAsString();
+
     public boolean isReadJsonByLine();
+
     public String getPath();
 
     public double getMaxFilterRatio();
 
     public ImportColumnDescs getColumnExprDescs();
+
     public boolean isStrictMode();
 
     public Expr getPrecedingFilter();
+
     public Expr getWhereExpr();
+
     public Separator getColumnSeparator();
+
     public Separator getLineDelimiter();
+
     public int getSendBatchParallelism();
+
     public boolean isLoadToSingleTablet();
+
     public String getHeaderType();
 
     public static class ImportColumnDescs {

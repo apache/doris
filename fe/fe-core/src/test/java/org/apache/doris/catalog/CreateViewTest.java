@@ -51,8 +51,9 @@ public class CreateViewTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         // create table
         String createTableStmtStr = "create table test.tbl1(k1 int, k2 int, v1 int, v2 int) duplicate key(k1)"
-                + " distributed by hash(k2) buckets 1 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTableStmtStr, connectContext);
+            + " distributed by hash(k2) buckets 1 properties('replication_num' = '1');";
+        CreateTableStmt createTableStmt =
+            (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTableStmtStr, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
 
@@ -71,20 +72,20 @@ public class CreateViewTest {
     public void testNormal() throws DdlException {
 
         ExceptionChecker.expectThrowsNoException(
-                () -> createView("create view test.view1(t1, t2, t3, t4) as select 'a', 'b', 1, 1.2;"));
+            () -> createView("create view test.view1(t1, t2, t3, t4) as select 'a', 'b', 1, 1.2;"));
 
         ExceptionChecker.expectThrowsNoException(
-                () -> createView("create view test.view2 as select k1, k2, v1, v2 from test.tbl1;"));
+            () -> createView("create view test.view2 as select k1, k2, v1, v2 from test.tbl1;"));
 
         ExceptionChecker.expectThrowsNoException(
-                () -> createView("create view test.view3 as select \"hello ' world\" as a1;"));
+            () -> createView("create view test.view3 as select \"hello ' world\" as a1;"));
 
         ExceptionChecker.expectThrowsNoException(
-                () -> createView("create view test.view4 as select abs(-1) as s1;"));
+            () -> createView("create view test.view4 as select abs(-1) as s1;"));
 
         ExceptionChecker.expectThrowsNoException(
-                () -> createView("create view test.view5 as select * from test.tbl1 where hour(now()) > 3" +
-                        " and curdate() > '2021-06-26';"));
+            () -> createView("create view test.view5 as select * from test.tbl1 where hour(now()) > 3" +
+                " and curdate() > '2021-06-26';"));
 
         Database db = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:test");
 
@@ -113,16 +114,16 @@ public class CreateViewTest {
         View view5 = (View) db.getTableOrDdlException("view5");
         System.out.println(view5.getDdlSql());
         Assert.assertTrue(view5.getDdlSql().contains("hour") && view5.getDdlSql().contains("now")
-                && view5.getDdlSql().contains("curdate"));
+            && view5.getDdlSql().contains("curdate"));
     }
 
     @Test
     public void testNestedViews() throws Exception {
         ExceptionChecker.expectThrowsNoException(
-                () -> createView("create view test.nv1 as select * from test.tbl1;"));
+            () -> createView("create view test.nv1 as select * from test.tbl1;"));
 
         ExceptionChecker.expectThrowsNoException(
-                () -> createView("create view test.nv2 as select * from test.nv1;"));
+            () -> createView("create view test.nv2 as select * from test.nv1;"));
 
         String sql = "select * from test.nv2";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);

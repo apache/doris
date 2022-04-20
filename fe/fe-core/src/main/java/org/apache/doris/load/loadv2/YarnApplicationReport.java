@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.LoadException;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Maps;
@@ -38,23 +39,23 @@ import java.util.Map;
  * Input sample:
  * -------------------
  * Application Report :
- * 	Application-Id : application_1573630236805_6763648
- * 	Application-Name : doris_label_test
- * 	Application-Type : SPARK-2.4.1
- * 	User : test
- * 	Queue : test-queue
- * 	Start-Time : 1597654469958
- * 	Finish-Time : 1597654801939
- * 	Progress : 100%
- * 	State : FINISHED
- * 	Final-State : SUCCEEDED
- * 	Tracking-URL : 127.0.0.1:8004/history/application_1573630236805_6763648/1
- * 	RPC Port : 40236
- * 	AM Host : host-name
- * 	------------------
- *
- * 	Output:
- * 	ApplicationReport
+ * Application-Id : application_1573630236805_6763648
+ * Application-Name : doris_label_test
+ * Application-Type : SPARK-2.4.1
+ * User : test
+ * Queue : test-queue
+ * Start-Time : 1597654469958
+ * Finish-Time : 1597654801939
+ * Progress : 100%
+ * State : FINISHED
+ * Final-State : SUCCEEDED
+ * Tracking-URL : 127.0.0.1:8004/history/application_1573630236805_6763648/1
+ * RPC Port : 40236
+ * AM Host : host-name
+ * ------------------
+ * <p>
+ * Output:
+ * ApplicationReport
  */
 public class YarnApplicationReport {
     private static final String APPLICATION_ID = "Application-Id";

@@ -18,6 +18,7 @@
 package org.apache.doris.udf;
 
 import org.apache.doris.thrift.*;
+
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.Test;
@@ -63,14 +64,14 @@ public class UdfExecutorTest {
         params.setInputOffsetsPtrs(0);
 
         TBinaryProtocol.Factory factory =
-                new TBinaryProtocol.Factory();
+            new TBinaryProtocol.Factory();
         TSerializer serializer = new TSerializer(factory);
 
         UdfExecutor executor;
         executor = new UdfExecutor(serializer.serialize(params));
 
         executor.evaluate();
-        for (int i = 0; i < 10; i ++) {
+        for (int i = 0; i < 10; i++) {
             assert (UdfUtils.UNSAFE.getByte(outputNull + i) == 0);
             assert (UdfUtils.UNSAFE.getInt(outputBuffer + 4 * i) == 1);
         }
@@ -124,7 +125,7 @@ public class UdfExecutorTest {
         UdfUtils.UNSAFE.putLong(inputNullPtr, inputNull1);
         UdfUtils.UNSAFE.putLong(inputNullPtr + 8, inputNull2);
 
-        for (int i = 0; i < batchSize; i ++) {
+        for (int i = 0; i < batchSize; i++) {
             UdfUtils.UNSAFE.putInt(null, inputBuffer1 + i * 4, i);
             UdfUtils.UNSAFE.putInt(null, inputBuffer2 + i * 4, i);
 
@@ -140,14 +141,14 @@ public class UdfExecutorTest {
         params.setInputOffsetsPtrs(0);
 
         TBinaryProtocol.Factory factory =
-                new TBinaryProtocol.Factory();
+            new TBinaryProtocol.Factory();
         TSerializer serializer = new TSerializer(factory);
 
         UdfExecutor executor;
         executor = new UdfExecutor(serializer.serialize(params));
 
         executor.evaluate();
-        for (int i = 0; i < batchSize; i ++) {
+        for (int i = 0; i < batchSize; i++) {
             if (i % 2 == 0) {
                 assert (UdfUtils.UNSAFE.getByte(outputNull + i) == 1);
             } else {
@@ -192,13 +193,13 @@ public class UdfExecutorTest {
         long[] inputOffsets2 = new long[batchSize];
         long inputBufferSize1 = 0;
         long inputBufferSize2 = 0;
-        for (int i = 0; i < batchSize; i ++) {
+        for (int i = 0; i < batchSize; i++) {
             input1[i] = "Input1_" + i;
             input2[i] = "Input2_" + i;
-            inputOffsets1[i] = i == 0? input1[i].getBytes(StandardCharsets.UTF_8).length + 1:
-                    inputOffsets1[i - 1] + input1[i].getBytes(StandardCharsets.UTF_8).length + 1;
-            inputOffsets2[i] = i == 0? input2[i].getBytes(StandardCharsets.UTF_8).length + 1:
-                    inputOffsets2[i - 1] + input2[i].getBytes(StandardCharsets.UTF_8).length + 1;
+            inputOffsets1[i] = i == 0 ? input1[i].getBytes(StandardCharsets.UTF_8).length + 1 :
+                inputOffsets1[i - 1] + input1[i].getBytes(StandardCharsets.UTF_8).length + 1;
+            inputOffsets2[i] = i == 0 ? input2[i].getBytes(StandardCharsets.UTF_8).length + 1 :
+                inputOffsets2[i - 1] + input2[i].getBytes(StandardCharsets.UTF_8).length + 1;
             inputBufferSize1 += input1[i].getBytes(StandardCharsets.UTF_8).length;
             inputBufferSize2 += input2[i].getBytes(StandardCharsets.UTF_8).length;
         }
@@ -237,30 +238,30 @@ public class UdfExecutorTest {
         UdfUtils.UNSAFE.putLong(inputOffsetsPtr, inputOffset1);
         UdfUtils.UNSAFE.putLong(inputOffsetsPtr + 8, inputOffset2);
 
-        for (int i = 0; i < batchSize; i ++) {
+        for (int i = 0; i < batchSize; i++) {
             if (i == 0) {
                 UdfUtils.copyMemory(input1[i].getBytes(StandardCharsets.UTF_8),
-                        UdfUtils.BYTE_ARRAY_OFFSET, null, inputBuffer1,
-                        input1[i].getBytes(StandardCharsets.UTF_8).length);
+                    UdfUtils.BYTE_ARRAY_OFFSET, null, inputBuffer1,
+                    input1[i].getBytes(StandardCharsets.UTF_8).length);
                 UdfUtils.copyMemory(input2[i].getBytes(StandardCharsets.UTF_8),
-                        UdfUtils.BYTE_ARRAY_OFFSET, null, inputBuffer2,
-                        input2[i].getBytes(StandardCharsets.UTF_8).length);
+                    UdfUtils.BYTE_ARRAY_OFFSET, null, inputBuffer2,
+                    input2[i].getBytes(StandardCharsets.UTF_8).length);
             } else {
                 UdfUtils.copyMemory(input1[i].getBytes(StandardCharsets.UTF_8),
-                        UdfUtils.BYTE_ARRAY_OFFSET, null, inputBuffer1 + inputOffsets1[i - 1],
-                        input1[i].getBytes(StandardCharsets.UTF_8).length);
+                    UdfUtils.BYTE_ARRAY_OFFSET, null, inputBuffer1 + inputOffsets1[i - 1],
+                    input1[i].getBytes(StandardCharsets.UTF_8).length);
                 UdfUtils.copyMemory(input2[i].getBytes(StandardCharsets.UTF_8),
-                        UdfUtils.BYTE_ARRAY_OFFSET, null, inputBuffer2 + inputOffsets2[i - 1],
-                        input2[i].getBytes(StandardCharsets.UTF_8).length);
+                    UdfUtils.BYTE_ARRAY_OFFSET, null, inputBuffer2 + inputOffsets2[i - 1],
+                    input2[i].getBytes(StandardCharsets.UTF_8).length);
             }
             UdfUtils.UNSAFE.putInt(null, inputOffset1 + 4L * i,
-                    Integer.parseUnsignedInt(String.valueOf(inputOffsets1[i])));
+                Integer.parseUnsignedInt(String.valueOf(inputOffsets1[i])));
             UdfUtils.UNSAFE.putInt(null, inputOffset2 + 4L * i,
-                    Integer.parseUnsignedInt(String.valueOf(inputOffsets2[i])));
+                Integer.parseUnsignedInt(String.valueOf(inputOffsets2[i])));
             UdfUtils.UNSAFE.putChar(null, inputBuffer1 + inputOffsets1[i] - 1,
-                    UdfUtils.END_OF_STRING);
+                UdfUtils.END_OF_STRING);
             UdfUtils.UNSAFE.putChar(null, inputBuffer2 + inputOffsets2[i] - 1,
-                    UdfUtils.END_OF_STRING);
+                UdfUtils.END_OF_STRING);
 
         }
         params.setInputBufferPtrs(inputBufferPtr);
@@ -268,24 +269,24 @@ public class UdfExecutorTest {
         params.setInputOffsetsPtrs(inputOffsetsPtr);
 
         TBinaryProtocol.Factory factory =
-                new TBinaryProtocol.Factory();
+            new TBinaryProtocol.Factory();
         TSerializer serializer = new TSerializer(factory);
 
         UdfExecutor executor;
         executor = new UdfExecutor(serializer.serialize(params));
 
         executor.evaluate();
-        for (int i = 0; i < batchSize; i ++) {
+        for (int i = 0; i < batchSize; i++) {
             byte[] bytes = new byte[input1[i].getBytes(StandardCharsets.UTF_8).length +
-                    input2[i].getBytes(StandardCharsets.UTF_8).length];
+                input2[i].getBytes(StandardCharsets.UTF_8).length];
             assert (UdfUtils.UNSAFE.getByte(outputNull + i) == 0);
             if (i == 0) {
                 UdfUtils.copyMemory(null, outputBuffer, bytes, UdfUtils.BYTE_ARRAY_OFFSET,
-                        bytes.length);
+                    bytes.length);
             } else {
                 long lastOffset = UdfUtils.UNSAFE.getInt(null, outputOffset + 4 * (i - 1));
                 UdfUtils.copyMemory(null, outputBuffer + lastOffset, bytes, UdfUtils.BYTE_ARRAY_OFFSET,
-                        bytes.length);
+                    bytes.length);
             }
             long curOffset = UdfUtils.UNSAFE.getInt(null, outputOffset + 4 * i);
             assert (new String(bytes, StandardCharsets.UTF_8).equals(input1[i] + input2[i]));

@@ -123,11 +123,11 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testFromLoadStmt2(@Injectable LoadStmt loadStmt,
-                                 @Injectable DataDescription dataDescription,
-                                 @Injectable LabelName labelName,
-                                 @Injectable Database database,
-                                 @Injectable OlapTable olapTable,
-                                 @Mocked Catalog catalog) {
+                                  @Injectable DataDescription dataDescription,
+                                  @Injectable LabelName labelName,
+                                  @Injectable Database database,
+                                  @Injectable OlapTable olapTable,
+                                  @Mocked Catalog catalog) {
 
         String label = "label";
         long dbId = 1;
@@ -178,7 +178,8 @@ public class BrokerLoadJobTest {
         new MockUp<Load>() {
             @Mock
             public void checkAndCreateSource(Database db, DataDescription dataDescription,
-                    Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) {
+                                             Map<Long, Map<Long, List<Source>>> tableToPartitionSources,
+                                             EtlJobType jobType) {
 
             }
         };
@@ -337,15 +338,15 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testPendingTaskOnFinishedWithUserInfo(@Mocked BrokerPendingTaskAttachment attachment,
-                                          @Mocked Catalog catalog,
-                                          @Injectable BrokerDesc brokerDesc,
-                                          @Injectable LoadTaskCallback callback,
-                                          @Injectable Database database,
-                                          @Injectable FileGroupAggKey aggKey,
-                                          @Mocked OlapTable olapTable,
-                                          @Mocked PlanFragment sinkFragment,
-                                          @Mocked OlapTableSink olapTableSink,
-                                          @Mocked BrokerScanNode scanNode) throws Exception{
+                                                      @Mocked Catalog catalog,
+                                                      @Injectable BrokerDesc brokerDesc,
+                                                      @Injectable LoadTaskCallback callback,
+                                                      @Injectable Database database,
+                                                      @Injectable FileGroupAggKey aggKey,
+                                                      @Mocked OlapTable olapTable,
+                                                      @Mocked PlanFragment sinkFragment,
+                                                      @Mocked OlapTableSink olapTableSink,
+                                                      @Mocked BrokerScanNode scanNode) throws Exception {
         List<Column> schema = new ArrayList<>();
         schema.add(new Column("a", PrimitiveType.BIGINT));
         Map<String, String> properties = new HashMap<>();
@@ -361,16 +362,16 @@ public class BrokerLoadJobTest {
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         RuntimeProfile jobProfile = new RuntimeProfile("test");
-        LoadLoadingTask task = new LoadLoadingTask(database, olapTable,brokerDesc, fileGroups,
-                100, 100, false, 100, callback, "",
-                100, 1, 1, true, jobProfile, false);
+        LoadLoadingTask task = new LoadLoadingTask(database, olapTable, brokerDesc, fileGroups,
+            100, 100, false, 100, callback, "",
+            100, 1, 1, true, jobProfile, false);
         try {
             UserIdentity userInfo = new UserIdentity("root", "localhost");
             userInfo.setIsAnalyzed();
             task.init(loadId,
-                    attachment.getFileStatusByTable(aggKey),
-                    attachment.getFileNumByTable(aggKey),
-                    userInfo);
+                attachment.getFileStatusByTable(aggKey),
+                attachment.getFileNumByTable(aggKey),
+                userInfo);
             LoadingTaskPlanner planner = Deencapsulation.getField(task, "planner");
             Analyzer al = Deencapsulation.getField(planner, "analyzer");
             Assert.assertFalse(al.isUDFAllowed());

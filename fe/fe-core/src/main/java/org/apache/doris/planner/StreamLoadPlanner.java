@@ -53,11 +53,11 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -106,16 +106,17 @@ public class StreamLoadPlanner {
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
         if (destTable.getKeysType() != KeysType.UNIQUE_KEYS
-                && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
+            && taskInfo.getMergeType() != LoadTask.MergeType.APPEND) {
             throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
         }
         if (taskInfo.getMergeType() != LoadTask.MergeType.APPEND
-                && !destTable.hasDeleteSign() ) {
+            && !destTable.hasDeleteSign()) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
 
         if (destTable.hasSequenceCol() && !taskInfo.hasSequenceCol()) {
-            throw new UserException("Table " + destTable.getName() + " has sequence column, need to specify the sequence column");
+            throw new UserException(
+                "Table " + destTable.getName() + " has sequence column, need to specify the sequence column");
         }
         if (!destTable.hasSequenceCol() && taskInfo.hasSequenceCol()) {
             throw new UserException("There is no sequence column in the table " + destTable.getName());
@@ -152,7 +153,7 @@ public class StreamLoadPlanner {
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), taskInfo.getTimeout(),
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
+            taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet());
         olapTableSink.complete();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -250,10 +251,10 @@ public class StreamLoadPlanner {
             PartitionPruner partitionPruner = null;
             if (destTable.getPartitionInfo().getType() == PartitionType.RANGE) {
                 partitionPruner = new RangePartitionPruner(itemById,
-                        partitionInfo.getPartitionColumns(), columnFilters);
+                    partitionInfo.getPartitionColumns(), columnFilters);
             } else if (destTable.getPartitionInfo().getType() == PartitionType.LIST) {
                 partitionPruner = new ListPartitionPruner(itemById,
-                        partitionInfo.getPartitionColumns(), columnFilters);
+                    partitionInfo.getPartitionColumns(), columnFilters);
             }
             partitionIds.addAll(partitionPruner.prune());
             return partitionIds;

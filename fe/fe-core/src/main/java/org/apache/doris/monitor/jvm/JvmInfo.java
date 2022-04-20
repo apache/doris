@@ -50,13 +50,13 @@ public class JvmInfo {
         }
 
         long heapInit = memoryMXBean.getHeapMemoryUsage().getInit() < 0 ?
-                0 : memoryMXBean.getHeapMemoryUsage().getInit();
+            0 : memoryMXBean.getHeapMemoryUsage().getInit();
         long heapMax = memoryMXBean.getHeapMemoryUsage().getMax() < 0 ?
-                0 : memoryMXBean.getHeapMemoryUsage().getMax();
+            0 : memoryMXBean.getHeapMemoryUsage().getMax();
         long nonHeapInit = memoryMXBean.getNonHeapMemoryUsage().getInit() < 0 ?
-                0 : memoryMXBean.getNonHeapMemoryUsage().getInit();
+            0 : memoryMXBean.getNonHeapMemoryUsage().getInit();
         long nonHeapMax = memoryMXBean.getNonHeapMemoryUsage().getMax() < 0 ?
-                0 : memoryMXBean.getNonHeapMemoryUsage().getMax();
+            0 : memoryMXBean.getNonHeapMemoryUsage().getMax();
         long directMemoryMax = 0;
         try {
             Class<?> vmClass = Class.forName("sun.misc.VM");
@@ -65,7 +65,7 @@ public class JvmInfo {
             // ignore
         }
         String[] inputArguments = runtimeMXBean.getInputArguments()
-                .toArray(new String[runtimeMXBean.getInputArguments().size()]);
+            .toArray(new String[runtimeMXBean.getInputArguments().size()]);
         Mem mem = new Mem(heapInit, heapMax, nonHeapInit, nonHeapMax, directMemoryMax);
 
         String bootClassPath;
@@ -105,8 +105,8 @@ public class JvmInfo {
         long configuredMaxHeapSize = -1;
         try {
             @SuppressWarnings("unchecked") Class<? extends PlatformManagedObject> clazz =
-                    (Class<? extends PlatformManagedObject>)
-                            Class.forName("com.sun.management.HotSpotDiagnosticMXBean");
+                (Class<? extends PlatformManagedObject>)
+                    Class.forName("com.sun.management.HotSpotDiagnosticMXBean");
             Class<?> vmOptionClazz = Class.forName("com.sun.management.VMOption");
             PlatformManagedObject hotSpotDiagnosticMXBean = ManagementFactory.getPlatformMXBean(clazz);
             Method vmOptionMethod = clazz.getMethod("getVMOption", String.class);
@@ -126,7 +126,7 @@ public class JvmInfo {
 
             try {
                 Object useCompressedOopsVmOptionObject = vmOptionMethod.invoke(hotSpotDiagnosticMXBean,
-                        "UseCompressedOops");
+                    "UseCompressedOops");
                 useCompressedOops = (String) valueMethod.invoke(useCompressedOopsVmOptionObject);
             } catch (Exception ignored) {
             }
@@ -139,7 +139,7 @@ public class JvmInfo {
 
             try {
                 Object initialHeapSizeVmOptionObject = vmOptionMethod.invoke(hotSpotDiagnosticMXBean,
-                        "InitialHeapSize");
+                    "InitialHeapSize");
                 configuredInitialHeapSize = Long.parseLong((String) valueMethod.invoke(initialHeapSizeVmOptionObject));
             } catch (Exception ignored) {
             }
@@ -161,12 +161,12 @@ public class JvmInfo {
         }
 
         INSTANCE = new JvmInfo(pid, System.getProperty("java.version"), runtimeMXBean.getVmName(),
-                runtimeMXBean.getVmVersion(),
-                runtimeMXBean.getVmVendor(), runtimeMXBean.getStartTime(), configuredInitialHeapSize,
-                configuredMaxHeapSize,
-                mem, inputArguments, bootClassPath, classPath, systemProperties,
-                gcCollectors, memoryPools, onError, onOutOfMemoryError,
-                useCompressedOops, useG1GC, useSerialGC);
+            runtimeMXBean.getVmVersion(),
+            runtimeMXBean.getVmVendor(), runtimeMXBean.getStartTime(), configuredInitialHeapSize,
+            configuredMaxHeapSize,
+            mem, inputArguments, bootClassPath, classPath, systemProperties,
+            gcCollectors, memoryPools, onError, onOutOfMemoryError,
+            useCompressedOops, useG1GC, useSerialGC);
     }
 
     public static JvmInfo jvmInfo() {

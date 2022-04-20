@@ -25,5 +25,6 @@ public class DistributedPlanColocateRule {
     public static final String SUPPORT_ONLY_OLAP_TABLE = "Only olap table support colocate plan";
     public static final String TABLE_NOT_IN_THE_SAME_GROUP = "Tables are not in the same group";
     public static final String COLOCATE_GROUP_IS_NOT_STABLE = "Colocate group is not stable";
-    public static final String INCONSISTENT_DISTRIBUTION_OF_TABLE_AND_QUERY = "Inconsistent distribution of table and querie";
+    public static final String INCONSISTENT_DISTRIBUTION_OF_TABLE_AND_QUERY =
+        "Inconsistent distribution of table and querie";
 }

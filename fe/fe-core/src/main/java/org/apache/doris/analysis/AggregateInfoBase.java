@@ -40,7 +40,7 @@ import java.util.List;
  */
 public abstract class AggregateInfoBase {
     private static final Logger LOG =
-            LoggerFactory.getLogger(AggregateInfoBase.class);
+        LoggerFactory.getLogger(AggregateInfoBase.class);
 
     // For aggregations: All unique grouping expressions from a select block.
     // For analytics: Empty.
@@ -74,13 +74,13 @@ public abstract class AggregateInfoBase {
     protected ArrayList<Integer> materializedSlots = Lists.newArrayList();
 
     protected AggregateInfoBase(ArrayList<Expr> groupingExprs,
-                                ArrayList<FunctionCallExpr> aggExprs)  {
+                                ArrayList<FunctionCallExpr> aggExprs) {
         Preconditions.checkState(groupingExprs != null || aggExprs != null);
         this.groupingExprs =
-                groupingExprs != null ? Expr.cloneList(groupingExprs) : new ArrayList<Expr>();
+            groupingExprs != null ? Expr.cloneList(groupingExprs) : new ArrayList<Expr>();
         Preconditions.checkState(aggExprs != null || !(this instanceof AnalyticInfo));
         aggregateExprs =
-                aggExprs != null ? Expr.cloneList(aggExprs) : new ArrayList<FunctionCallExpr>();
+            aggExprs != null ? Expr.cloneList(aggExprs) : new ArrayList<FunctionCallExpr>();
     }
 
     /**
@@ -88,9 +88,9 @@ public abstract class AggregateInfoBase {
      */
     protected AggregateInfoBase(AggregateInfoBase other) {
         groupingExprs =
-                (other.groupingExprs != null) ? Expr.cloneList(other.groupingExprs) : null;
+            (other.groupingExprs != null) ? Expr.cloneList(other.groupingExprs) : null;
         aggregateExprs =
-                (other.aggregateExprs != null) ? Expr.cloneList(other.aggregateExprs) : null;
+            (other.aggregateExprs != null) ? Expr.cloneList(other.aggregateExprs) : null;
         intermediateTupleDesc = other.intermediateTupleDesc;
         outputTupleDesc = other.outputTupleDesc;
         materializedSlots = Lists.newArrayList(other.materializedSlots);
@@ -120,10 +120,10 @@ public abstract class AggregateInfoBase {
      */
     private TupleDescriptor createTupleDesc(Analyzer analyzer, boolean isOutputTuple) {
         TupleDescriptor result =
-                analyzer.getDescTbl().createTupleDescriptor(
-                        tupleDebugName() + (isOutputTuple ? "-out" : "-intermed"));
+            analyzer.getDescTbl().createTupleDescriptor(
+                tupleDebugName() + (isOutputTuple ? "-out" : "-intermed"));
         List<Expr> exprs = Lists.newArrayListWithCapacity(
-                groupingExprs.size() + aggregateExprs.size());
+            groupingExprs.size() + aggregateExprs.size());
         exprs.addAll(groupingExprs);
         exprs.addAll(aggregateExprs);
 
@@ -131,7 +131,7 @@ public abstract class AggregateInfoBase {
         // if agg is grouping set, so we should set all groupingExpr unless last groupingExpr
         // must set be be nullable
         boolean isGroupingSet = !groupingExprs.isEmpty() &&
-                groupingExprs.get(groupingExprs.size() - 1) instanceof VirtualSlotRef;
+            groupingExprs.get(groupingExprs.size() - 1) instanceof VirtualSlotRef;
 
         for (int i = 0; i < exprs.size(); ++i) {
             Expr expr = exprs.get(i);
@@ -151,7 +151,7 @@ public abstract class AggregateInfoBase {
                 }
             } else {
                 Preconditions.checkArgument(expr instanceof FunctionCallExpr);
-                FunctionCallExpr aggExpr = (FunctionCallExpr)expr;
+                FunctionCallExpr aggExpr = (FunctionCallExpr) expr;
                 if (aggExpr.isMergeAggFn()) {
                     slotDesc.setLabel(aggExpr.getChild(0).toSql());
                     slotDesc.setSourceExpr(aggExpr.getChild(0));
@@ -160,13 +160,14 @@ public abstract class AggregateInfoBase {
                     slotDesc.setSourceExpr(aggExpr);
                 }
 
-                if (isOutputTuple && aggExpr.getFn().getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT) &&
-                        groupingExprs.size() == 0) {
+                if (isOutputTuple &&
+                    aggExpr.getFn().getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT) &&
+                    groupingExprs.size() == 0) {
                     slotDesc.setIsNullable(true);
                 }
 
                 if (!isOutputTuple) {
-                    Type intermediateType = ((AggregateFunction)aggExpr.fn).getIntermediateType();
+                    Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
                     if (intermediateType != null) {
                         // Use the output type as intermediate if the function has a wildcard decimal.
                         if (!intermediateType.isWildcardDecimal()) {
@@ -194,12 +195,30 @@ public abstract class AggregateInfoBase {
     public abstract void materializeRequiredSlots(Analyzer analyzer,
                                                   ExprSubstitutionMap smap);
 
-    public ArrayList<Expr> getGroupingExprs() { return groupingExprs; }
-    public ArrayList<FunctionCallExpr> getAggregateExprs() { return aggregateExprs; }
-    public TupleDescriptor getOutputTupleDesc() { return outputTupleDesc; }
-    public TupleDescriptor getIntermediateTupleDesc() { return intermediateTupleDesc; }
-    public TupleId getIntermediateTupleId() { return intermediateTupleDesc.getId(); }
-    public TupleId getOutputTupleId() { return outputTupleDesc.getId(); }
+    public ArrayList<Expr> getGroupingExprs() {
+        return groupingExprs;
+    }
+
+    public ArrayList<FunctionCallExpr> getAggregateExprs() {
+        return aggregateExprs;
+    }
+
+    public TupleDescriptor getOutputTupleDesc() {
+        return outputTupleDesc;
+    }
+
+    public TupleDescriptor getIntermediateTupleDesc() {
+        return intermediateTupleDesc;
+    }
+
+    public TupleId getIntermediateTupleId() {
+        return intermediateTupleDesc.getId();
+    }
+
+    public TupleId getOutputTupleId() {
+        return outputTupleDesc.getId();
+    }
+
     public boolean requiresIntermediateTuple() {
         Preconditions.checkNotNull(intermediateTupleDesc);
         Preconditions.checkNotNull(outputTupleDesc);
@@ -212,9 +231,11 @@ public abstract class AggregateInfoBase {
      * its output type.
      */
     public static <T extends Expr> boolean requiresIntermediateTuple(List<T> aggExprs) {
-        for (Expr aggExpr: aggExprs) {
+        for (Expr aggExpr : aggExprs) {
             Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
-            if (intermediateType != null) return true;
+            if (intermediateType != null) {
+                return true;
+            }
         }
         return false;
     }
@@ -224,10 +245,13 @@ public abstract class AggregateInfoBase {
      * is depend on argument
      */
     public static <T extends Expr> boolean requiresIntermediateTuple(List<T> aggExprs, boolean noGrouping) {
-        for (Expr aggExpr: aggExprs) {
+        for (Expr aggExpr : aggExprs) {
             Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
-            if (intermediateType != null) return true;
-            if (noGrouping && ((AggregateFunction) aggExpr.fn).getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT)) {
+            if (intermediateType != null) {
+                return true;
+            }
+            if (noGrouping &&
+                ((AggregateFunction) aggExpr.fn).getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT)) {
                 return true;
             }
         }
@@ -237,13 +261,13 @@ public abstract class AggregateInfoBase {
     public String debugString() {
         StringBuilder out = new StringBuilder();
         out.append(MoreObjects.toStringHelper(this)
-                .add("grouping_exprs", Expr.debugString(groupingExprs))
-                .add("aggregate_exprs", Expr.debugString(aggregateExprs))
-                .add("intermediate_tuple", (intermediateTupleDesc == null)
-                        ? "null" : intermediateTupleDesc.debugString())
-                .add("output_tuple", (outputTupleDesc == null)
-                        ? "null" : outputTupleDesc.debugString())
-                .toString());
+            .add("grouping_exprs", Expr.debugString(groupingExprs))
+            .add("aggregate_exprs", Expr.debugString(aggregateExprs))
+            .add("intermediate_tuple", (intermediateTupleDesc == null)
+                ? "null" : intermediateTupleDesc.debugString())
+            .add("output_tuple", (outputTupleDesc == null)
+                ? "null" : outputTupleDesc.debugString())
+            .toString());
         return out.toString();
     }
 

@@ -26,11 +26,11 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 public class ShowCreateRoutineLoadStmt extends ShowStmt {
 
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("JobId", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("JobName", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("CreateStmt", ScalarType.createVarchar(65535)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("JobId", ScalarType.createVarchar(128)))
+            .addColumn(new Column("JobName", ScalarType.createVarchar(128)))
+            .addColumn(new Column("CreateStmt", ScalarType.createVarchar(65535)))
+            .build();
 
     private final LabelName labelName;
 

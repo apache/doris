@@ -33,11 +33,11 @@ import org.apache.parquet.Strings;
 public class ShowTableStatsStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
-            new ImmutableList.Builder<String>()
-                    .add("table_name")
-                    .add(TableStats.ROW_COUNT)
-                    .add(TableStats.DATA_SIZE)
-                    .build();
+        new ImmutableList.Builder<String>()
+            .add("table_name")
+            .add(TableStats.ROW_COUNT)
+            .add(TableStats.DATA_SIZE)
+            .build();
 
     private TableName tableName;
 

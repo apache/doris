@@ -92,15 +92,18 @@ public class ThriftServer {
 
     private void createSimpleServer() throws TTransportException {
         TServer.Args args = new TServer.Args(new TServerSocket(port)).protocolFactory(
-          new TBinaryProtocol.Factory()).processor(processor);
+            new TBinaryProtocol.Factory()).processor(processor);
         server = new TSimpleServer(args);
     }
 
     private void createThreadedServer() throws TTransportException {
         TThreadedSelectorServer.Args args =
-          new TThreadedSelectorServer.Args(new TNonblockingServerSocket(port, Config.thrift_client_timeout_ms)).protocolFactory(
-            new TBinaryProtocol.Factory()).processor(processor);
-        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
+            new TThreadedSelectorServer.Args(
+                new TNonblockingServerSocket(port, Config.thrift_client_timeout_ms)).protocolFactory(
+                new TBinaryProtocol.Factory()).processor(processor);
+        ThreadPoolExecutor threadPoolExecutor =
+            ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool",
+                true);
         args.executorService(threadPoolExecutor);
         server = new TThreadedSelectorServer(args);
     }
@@ -112,9 +115,11 @@ public class ThriftServer {
             .backlog(Config.thrift_backlog_num);
 
         TThreadPoolServer.Args serverArgs =
-          new TThreadPoolServer.Args(new TServerSocket(socketTransportArgs)).protocolFactory(
-            new TBinaryProtocol.Factory()).processor(processor);
-        ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
+            new TThreadPoolServer.Args(new TServerSocket(socketTransportArgs)).protocolFactory(
+                new TBinaryProtocol.Factory()).processor(processor);
+        ThreadPoolExecutor threadPoolExecutor =
+            ThreadPoolManager.newDaemonCacheThreadPool(Config.thrift_server_max_worker_threads, "thrift-server-pool",
+                true);
         serverArgs.executorService(threadPoolExecutor);
         server = new TThreadPoolServer(serverArgs);
     }

@@ -31,7 +31,6 @@ import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,10 +41,13 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-/**  TableProperty contains additional information about OlapTable
- *  TableProperty includes properties to persistent the additional information
- *  Different properties is recognized by prefix such as dynamic_partition
- *  If there is different type properties is added, write a method such as buildDynamicProperty to build it.
+import com.google.gson.annotations.SerializedName;
+
+/**
+ * TableProperty contains additional information about OlapTable
+ * TableProperty includes properties to persistent the additional information
+ * Different properties is recognized by prefix such as dynamic_partition
+ * If there is different type properties is added, write a method such as buildDynamicProperty to build it.
  */
 public class TableProperty implements Writable {
     private static final Logger LOG = LogManager.getLogger(TableProperty.class);
@@ -107,6 +109,7 @@ public class TableProperty implements Writable {
 
     /**
      * Reset properties to correct values.
+     *
      * @return this for chained
      */
     public TableProperty resetPropertiesForRestore() {
@@ -119,11 +122,11 @@ public class TableProperty implements Writable {
 
     public TableProperty buildDynamicProperty() throws DdlException {
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)
-                && Boolean.valueOf(properties.get(DynamicPartitionProperty.ENABLE))
-                && !Config.dynamic_partition_enable) {
+            && Boolean.valueOf(properties.get(DynamicPartitionProperty.ENABLE))
+            && !Config.dynamic_partition_enable) {
             throw new DdlException("Could not create table with dynamic partition "
-                    + "when fe config dynamic_partition_enable is false. "
-                    + "Please ADMIN SET FRONTEND CONFIG (\"dynamic_partition_enable\" = \"true\") firstly.");
+                + "when fe config dynamic_partition_enable is false. "
+                + "Please ADMIN SET FRONTEND CONFIG (\"dynamic_partition_enable\" = \"true\") firstly.");
         }
         executeBuildDynamicProperty();
         return this;
@@ -158,7 +161,7 @@ public class TableProperty implements Writable {
 
     public TableProperty buildStorageFormat() {
         storageFormat = TStorageFormat.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT,
-                TStorageFormat.DEFAULT.name()));
+            TStorageFormat.DEFAULT.name()));
         return this;
     }
 
@@ -181,13 +184,13 @@ public class TableProperty implements Writable {
         this.replicaAlloc = replicaAlloc;
         // set it to "properties" so that this info can be persisted
         properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                replicaAlloc.toCreateStmt());
+            replicaAlloc.toCreateStmt());
     }
 
     public void setRemoteStorageResource(String resourceName) {
         this.remoteStorageResource = resourceName;
         properties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE,
-                resourceName);
+            resourceName);
     }
 
     public ReplicaAllocation getReplicaAllocation() {
@@ -252,21 +255,21 @@ public class TableProperty implements Writable {
 
     public static TableProperty read(DataInput in) throws IOException {
         TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
-                .executeBuildDynamicProperty()
-                .buildInMemory()
-                .buildStorageFormat()
-                .buildDataSortInfo()
-                .buildRemoteStorageResource();
+            .executeBuildDynamicProperty()
+            .buildInMemory()
+            .buildStorageFormat()
+            .buildDataSortInfo()
+            .buildRemoteStorageResource();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
             if (!Strings.isNullOrEmpty(repNum)) {
                 ReplicaAllocation replicaAlloc = new ReplicaAllocation(Short.valueOf(repNum));
                 tableProperty.properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                        replicaAlloc.toCreateStmt());
+                    replicaAlloc.toCreateStmt());
             } else {
                 tableProperty.properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
-                        ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt());
+                    ReplicaAllocation.DEFAULT_ALLOCATION.toCreateStmt());
             }
         }
         tableProperty.removeDuplicateReplicaNumProperty();
@@ -279,7 +282,7 @@ public class TableProperty implements Writable {
     // the "dynamic_partition.replication_allocation", result in unable to set "dynamic_partition.replication_allocation".
     private void removeDuplicateReplicaNumProperty() {
         if (properties.containsKey(DynamicPartitionProperty.REPLICATION_NUM)
-                && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
+            && properties.containsKey(DynamicPartitionProperty.REPLICATION_ALLOCATION)) {
             properties.remove(DynamicPartitionProperty.REPLICATION_NUM);
         }
     }

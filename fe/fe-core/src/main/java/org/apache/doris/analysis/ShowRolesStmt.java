@@ -29,6 +29,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowRolesStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA;
+
     static {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 

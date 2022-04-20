@@ -54,7 +54,7 @@ public class UpdatePlanner extends Planner {
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator =
-            PlanFragmentId.createGenerator();
+        PlanFragmentId.createGenerator();
 
     private long targetDBId;
     private OlapTable targetTable;
@@ -94,12 +94,12 @@ public class UpdatePlanner extends Planner {
         // 2. gen olap table sink
         OlapTableSink olapTableSink = new OlapTableSink(targetTable, computeTargetTupleDesc(), null);
         olapTableSink.init(analyzer.getContext().queryId(), txnId, targetDBId,
-                analyzer.getContext().getSessionVariable().queryTimeoutS,
-                analyzer.getContext().getSessionVariable().sendBatchParallelism, false);
+            analyzer.getContext().getSessionVariable().queryTimeoutS,
+            analyzer.getContext().getSessionVariable().sendBatchParallelism, false);
         olapTableSink.complete();
         // 3. gen plan fragment
         PlanFragment planFragment = new PlanFragment(fragmentIdGenerator.getNextId(), olapScanNode,
-                DataPartition.RANDOM);
+            DataPartition.RANDOM);
         planFragment.setSink(olapTableSink);
         planFragment.setOutputExprs(computeOutputExprs());
         planFragment.finalize(null);
@@ -128,20 +128,20 @@ public class UpdatePlanner extends Planner {
      * There are three Rules of output exprs:
      * RuleA: columns that need to be updated,
      * use the right child of a set expr
-     *     base column: (k1, v1)
-     *     update stmt: set v1=1
-     *     output expr: k1, 1(use 1 as output expr)
+     * base column: (k1, v1)
+     * update stmt: set v1=1
+     * output expr: k1, 1(use 1 as output expr)
      * RuleB: columns that do not need to be updated,
      * just add the original value of column -> slot ref
-     *     base column: (k1, v1)
-     *     update stmt: set v1 = 1
-     *     output expr: k1(use k1 slot ref as output expr), 1
+     * base column: (k1, v1)
+     * update stmt: set v1 = 1
+     * output expr: k1(use k1 slot ref as output expr), 1
      * RuleC: the output columns is being added by the schema change job,
      * need to add default value expr in output expr
-     *     base column: (k1, v1)
-     *     schema change job: add v2 column
-     *     full column: (k1, v1, v2)
-     *     output expr: k1, v1, default_value(v2)
+     * base column: (k1, v1)
+     * schema change job: add v2 column
+     * full column: (k1, v1, v2)
+     * output expr: k1, v1, default_value(v2)
      */
     private List<Expr> computeOutputExprs() throws AnalysisException {
         Map<String, Expr> columnNameToSetExpr = Maps.newHashMap();
@@ -164,8 +164,8 @@ public class UpdatePlanner extends Planner {
             Column column = targetTable.getFullSchema().get(i);
             // pay attention to case ignore of column name
             String originColumnName = (column.getName().startsWith(SHADOW_NAME_PRFIX) ?
-                    column.getName().substring(SHADOW_NAME_PRFIX.length()) : column.getName())
-                    .toLowerCase();
+                column.getName().substring(SHADOW_NAME_PRFIX.length()) : column.getName())
+                .toLowerCase();
             Expr setExpr = columnNameToSetExpr.get(originColumnName);
             SlotDescriptor srcSlotDesc = columnNameToSrcSlotDesc.get(originColumnName);
             if (setExpr != null) {

@@ -31,7 +31,7 @@ import java.io.IOException;
  */
 public class FeServer {
     private static final Logger LOG = LogManager.getLogger(FeServer.class);
-    
+
     private int port;
     private ThriftServer server;
 
@@ -42,7 +42,7 @@ public class FeServer {
     public void start() throws IOException {
         // setup frontend server
         TProcessor tprocessor = new FrontendService.Processor<FrontendService.Iface>(
-                new FrontendServiceImpl(ExecuteEnv.getInstance()));
+            new FrontendServiceImpl(ExecuteEnv.getInstance()));
         server = new ThriftServer(port, tprocessor);
         server.start();
         LOG.info("thrift server started.");

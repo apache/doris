@@ -51,17 +51,17 @@ public class AuditEventProcessorTest {
     @Test
     public void testAuditEvent() {
         AuditEvent event = new AuditEvent.AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-                .setTimestamp(System.currentTimeMillis())
-                .setClientIp("127.0.0.1")
-                .setUser("user1")
-                .setDb("db1")
-                .setState("EOF")
-                .setQueryTime(2000)
-                .setScanBytes(100000)
-                .setScanRows(200000)
-                .setReturnRows(1)
-                .setStmtId(1234)
-                .setStmt("select * from tbl1").build();
+            .setTimestamp(System.currentTimeMillis())
+            .setClientIp("127.0.0.1")
+            .setUser("user1")
+            .setDb("db1")
+            .setState("EOF")
+            .setQueryTime(2000)
+            .setScanBytes(100000)
+            .setScanRows(200000)
+            .setReturnRows(1)
+            .setStmtId(1234)
+            .setStmt("select * from tbl1").build();
 
         Assert.assertEquals("127.0.0.1", event.clientIp);
         Assert.assertEquals(200000, event.scanRows);
@@ -76,17 +76,17 @@ public class AuditEventProcessorTest {
             long start = System.currentTimeMillis();
             for (int i = 0; i < 10000; i++) {
                 AuditEvent event = new AuditEvent.AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-                        .setTimestamp(System.currentTimeMillis())
-                        .setClientIp("127.0.0.1")
-                        .setUser("user1")
-                        .setDb("db1")
-                        .setState("EOF")
-                        .setQueryTime(2000)
-                        .setScanBytes(100000)
-                        .setScanRows(200000)
-                        .setReturnRows(i)
-                        .setStmtId(1234)
-                        .setStmt("select * from tbl1").build();
+                    .setTimestamp(System.currentTimeMillis())
+                    .setClientIp("127.0.0.1")
+                    .setUser("user1")
+                    .setDb("db1")
+                    .setState("EOF")
+                    .setQueryTime(2000)
+                    .setScanBytes(100000)
+                    .setScanRows(200000)
+                    .setReturnRows(i)
+                    .setStmtId(1234)
+                    .setStmt("select * from tbl1").build();
                 if (auditLogBuilder.eventFilter(event.type)) {
                     auditLogBuilder.exec(event);
                 }
@@ -102,17 +102,17 @@ public class AuditEventProcessorTest {
         long start = System.currentTimeMillis();
         for (int i = 0; i < 10000; i++) {
             AuditEvent event = new AuditEvent.AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-                    .setTimestamp(System.currentTimeMillis())
-                    .setClientIp("127.0.0.1")
-                    .setUser("user1")
-                    .setDb("db1")
-                    .setState("EOF")
-                    .setQueryTime(2000)
-                    .setScanBytes(100000)
-                    .setScanRows(200000)
-                    .setReturnRows(i)
-                    .setStmtId(1234)
-                    .setStmt("select * from tbl1").build();
+                .setTimestamp(System.currentTimeMillis())
+                .setClientIp("127.0.0.1")
+                .setUser("user1")
+                .setDb("db1")
+                .setState("EOF")
+                .setQueryTime(2000)
+                .setScanBytes(100000)
+                .setScanRows(200000)
+                .setReturnRows(i)
+                .setStmtId(1234)
+                .setStmt("select * from tbl1").build();
             processor.handleAuditEvent(event);
         }
         long total = System.currentTimeMillis() - start;

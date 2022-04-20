@@ -40,13 +40,13 @@ public class ReplicaPersistInfoTest {
         File file = new File("./replicaInfo");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         ReplicaPersistInfo info2 = ReplicaPersistInfo.createForLoad(1, 2, 3, 4, 5, 7, 0, 8, 9);
         info2.write(dos);
 
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
@@ -56,7 +56,7 @@ public class ReplicaPersistInfoTest {
         dis.close();
         file.delete();
     }
-    
+
     @Test
     public void testGet() throws Exception {
         ReplicaPersistInfo info = ReplicaPersistInfo.createForLoad(0, 1, 2, 3, 4, 5, 7, 0, 8);

@@ -17,10 +17,11 @@
 
 package org.apache.doris.mysql.privilege;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
+
+import mockit.Expectations;
 
 public class MockedAuth {
 

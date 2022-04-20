@@ -54,25 +54,25 @@ import java.util.Set;
  * specification. An instance of a TableRef (and not a subclass thereof) represents
  * an unresolved table reference that must be resolved during analysis. All resolved
  * table references are subclasses of TableRef.
- *
+ * <p>
  * The analysis of table refs follows a two-step process:
- *
+ * <p>
  * 1. Resolution: A table ref's path is resolved and then the generic TableRef is
  * replaced by a concrete table ref (a BaseTableRef, CollectionTableRef or ViewRef)
  * in the originating stmt and that is given the resolved path. This step is driven by
  * Analyzer.resolveTableRef().
- *
+ * <p>
  * 2. Analysis/registration: After resolution, the concrete table ref is analyzed
  * to register a tuple descriptor for its resolved path and register other table-ref
  * specific state with the analyzer (e.g., whether it is outer/semi joined, etc.).
- *
+ * <p>
  * Therefore, subclasses of TableRef should never call the analyze() of its superclass.
- *
+ * <p>
  * TODO for 2.3: The current TableRef class hierarchy and the related two-phase analysis
  * feels convoluted and is hard to follow. We should reorganize the TableRef class
  * structure for clarity of analysis and avoid a table ref 'switching genders' in between
  * resolution and registration.
- *
+ * <p>
  * TODO for 2.3: Rename this class to CollectionRef and re-consider the naming and
  * structure of all subclasses.
  */
@@ -173,15 +173,15 @@ public class TableRef implements ParseNode, Writable {
         joinOp = other.joinOp;
         // NOTE: joinHints and sortHints maybe changed after clone. so we new one List.
         joinHints =
-                (other.joinHints != null) ? Lists.newArrayList(other.joinHints) : null;
+            (other.joinHints != null) ? Lists.newArrayList(other.joinHints) : null;
         sortHints =
-                (other.sortHints != null) ? Lists.newArrayList(other.sortHints) : null;
+            (other.sortHints != null) ? Lists.newArrayList(other.sortHints) : null;
         onClause = (other.onClause != null) ? other.onClause.clone().reset() : null;
         partitionNames = (other.partitionNames != null) ? new PartitionNames(other.partitionNames) : null;
         commonHints = other.commonHints;
 
         usingColNames =
-                (other.usingColNames != null) ? Lists.newArrayList(other.usingColNames) : null;
+            (other.usingColNames != null) ? Lists.newArrayList(other.usingColNames) : null;
         // The table ref links are created at the statement level, so cloning a set of linked
         // table refs is the responsibility of the statement.
         leftTblRef = null;
@@ -389,11 +389,11 @@ public class TableRef implements ParseNode, Writable {
         for (String hint : joinHints) {
             if (hint.toUpperCase().equals("BROADCAST")) {
                 if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
-                        || joinOp == JoinOperator.FULL_OUTER_JOIN
-                        || joinOp == JoinOperator.RIGHT_SEMI_JOIN
-                        || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
+                    || joinOp == JoinOperator.FULL_OUTER_JOIN
+                    || joinOp == JoinOperator.RIGHT_SEMI_JOIN
+                    || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
                     throw new AnalysisException(
-                            joinOp.toString() + " does not support BROADCAST.");
+                        joinOp.toString() + " does not support BROADCAST.");
                 }
                 if (isPartitionJoin) {
                     throw new AnalysisException("Conflicting JOIN hint: " + hint);
@@ -457,17 +457,17 @@ public class TableRef implements ParseNode, Writable {
                 // to the left of us
                 if (leftTblRef.getDesc().getTable().getColumn(colName) == null) {
                     throw new AnalysisException("Unknown column " + colName + " for alias " + leftTblRef.getAlias()
-                            + " (in" + " \"" + this.toSql() + "\")");
+                        + " (in" + " \"" + this.toSql() + "\")");
                 }
                 if (desc.getTable().getColumn(colName) == null) {
                     throw new AnalysisException("Unknown column " + colName + " for alias " + getAlias() + " (in \"" +
-                            this.toSql() + "\")");
+                        this.toSql() + "\")");
                 }
 
                 // create predicate "<left>.colName = <right>.colName"
                 BinaryPredicate eqPred = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                        new SlotRef(leftTblRef.getAliasAsName(), colName),
-                        new SlotRef(getAliasAsName(), colName));
+                    new SlotRef(leftTblRef.getAliasAsName(), colName),
+                    new SlotRef(getAliasAsName(), colName));
                 if (onClause == null) {
                     onClause = eqPred;
                 } else {
@@ -492,12 +492,12 @@ public class TableRef implements ParseNode, Writable {
         // at this point, both 'this' and leftTblRef have been analyzed and registered;
         // register the tuple ids of the TableRefs on the nullable side of an outer join
         if (joinOp == JoinOperator.LEFT_OUTER_JOIN
-                || joinOp == JoinOperator.FULL_OUTER_JOIN) {
+            || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(getId().asList(), this);
             analyzer.registerOuterJoinedMaterilizeTids(getMaterializedTupleIds());
         }
         if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
-                || joinOp == JoinOperator.FULL_OUTER_JOIN) {
+            || joinOp == JoinOperator.FULL_OUTER_JOIN) {
             analyzer.registerOuterJoinedTids(leftTblRef.getAllTableRefIds(), this);
             analyzer.registerOuterJoinedMaterilizeTids(leftTblRef.getAllMaterializedTupleIds());
         }
@@ -513,14 +513,14 @@ public class TableRef implements ParseNode, Writable {
         // register the tuple id of the rhs of a left semi join
         TupleId semiJoinedTupleId = null;
         if (joinOp == JoinOperator.LEFT_SEMI_JOIN
-                || joinOp == JoinOperator.LEFT_ANTI_JOIN
-                || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            || joinOp == JoinOperator.LEFT_ANTI_JOIN
+            || joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
             analyzer.registerSemiJoinedTid(getId(), this);
             semiJoinedTupleId = getId();
         }
         // register the tuple id of the lhs of a right semi join
         if (joinOp == JoinOperator.RIGHT_SEMI_JOIN
-                || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
+            || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
             analyzer.registerSemiJoinedTid(leftTblRef.getId(), this);
             semiJoinedTupleId = leftTblRef.getId();
         }
@@ -543,11 +543,11 @@ public class TableRef implements ParseNode, Writable {
             onClause.checkReturnsBool("ON clause", true);
             if (onClause.contains(Expr.isAggregatePredicate())) {
                 throw new AnalysisException(
-                        "aggregate function not allowed in ON clause: " + toSql());
+                    "aggregate function not allowed in ON clause: " + toSql());
             }
             if (onClause.contains(AnalyticExpr.class)) {
                 throw new AnalysisException(
-                        "analytic expression not allowed in ON clause: " + toSql());
+                    "analytic expression not allowed in ON clause: " + toSql());
             }
             Set<TupleId> onClauseTupleIds = Sets.newHashSet();
             List<Expr> conjuncts = onClause.getConjuncts();
@@ -563,9 +563,9 @@ public class TableRef implements ParseNode, Writable {
                 onClauseTupleIds.addAll(tupleIds);
             }
         } else if (!isRelative() && !isCorrelated()
-                && (getJoinOp().isOuterJoin() || getJoinOp().isSemiJoin())) {
+            && (getJoinOp().isOuterJoin() || getJoinOp().isSemiJoin())) {
             throw new AnalysisException(
-                    joinOp.toString() + " requires an ON or USING clause.");
+                joinOp.toString() + " requires an ON or USING clause.");
         } else {
             // Indicate that this table ref has an empty ON-clause.
             analyzer.registerOnClauseConjuncts(Collections.<Expr>emptyList(), this);
@@ -573,9 +573,11 @@ public class TableRef implements ParseNode, Writable {
     }
 
     public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
-            throws AnalysisException {
+        throws AnalysisException {
         Preconditions.checkState(isAnalyzed);
-        if (onClause != null) onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
+        if (onClause != null) {
+            onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
+        }
     }
 
     private String joinOpToSql() {
@@ -621,7 +623,9 @@ public class TableRef implements ParseNode, Writable {
     public String tableRefToSql() {
         String aliasSql = null;
         String alias = getExplicitAlias();
-        if (alias != null) aliasSql = ToSqlUtils.getIdentSql(alias);
+        if (alias != null) {
+            aliasSql = ToSqlUtils.getIdentSql(alias);
+        }
 
         // TODO(zc):
         // List<String> path = rawPath_;
@@ -704,7 +708,9 @@ public class TableRef implements ParseNode, Writable {
      * Returns the explicit alias if this table ref has one, null otherwise.
      */
     public String getExplicitAlias() {
-        if (hasExplicitAlias()) return getUniqueAlias();
+        if (hasExplicitAlias()) {
+            return getUniqueAlias();
+        }
         return null;
     }
 

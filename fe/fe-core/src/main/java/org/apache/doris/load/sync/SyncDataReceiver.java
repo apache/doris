@@ -32,5 +32,4 @@ public class SyncDataReceiver extends SyncLifeCycle {
     @Override
     public void process() {
     }
-
 }

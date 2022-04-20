@@ -23,12 +23,13 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Sets;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Set;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * Used in
@@ -67,7 +68,7 @@ public class CommonUserProperties implements Writable {
     String getSqlBlockRules() {
         return sqlBlockRules;
     }
-    
+
     String[] getSqlBlockRulesSplit() {
         return sqlBlockRulesSplit;
     }
@@ -84,7 +85,7 @@ public class CommonUserProperties implements Writable {
         this.sqlBlockRules = sqlBlockRules;
         setSqlBlockRulesSplit(sqlBlockRules);
     }
-    
+
     void setSqlBlockRulesSplit(String sqlBlockRules) {
         // split
         this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");

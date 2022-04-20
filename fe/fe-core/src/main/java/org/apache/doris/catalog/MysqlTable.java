@@ -62,7 +62,7 @@ public class MysqlTable extends Table {
     }
 
     public MysqlTable(long id, String name, List<Column> schema, Map<String, String> properties)
-            throws DdlException {
+        throws DdlException {
         super(id, name, TableType.MYSQL, schema);
         validate(properties);
     }
@@ -70,7 +70,7 @@ public class MysqlTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of mysql table, "
-                    + "they are: odbc_catalog_resource or [host, port, user, password] and database and table");
+                + "they are: odbc_catalog_resource or [host, port, user, password] and database and table");
         }
 
         if (properties.containsKey(ODBC_CATALOG_RESOURCE)) {
@@ -84,31 +84,31 @@ public class MysqlTable extends Table {
 
             // 2. check resource usage privilege
             if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
-                    odbcCatalogResourceName,
-                    PrivPredicate.USAGE)) {
+                odbcCatalogResourceName,
+                PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
-                        + "'@'" + ConnectContext.get().getRemoteIP()
-                        + "' for resource '" + odbcCatalogResourceName + "'");
+                    + "'@'" + ConnectContext.get().getRemoteIP()
+                    + "' for resource '" + odbcCatalogResourceName + "'");
             }
         } else {
             // Set up
             host = properties.get(MYSQL_HOST);
             if (Strings.isNullOrEmpty(host)) {
                 throw new DdlException("Host of MySQL table is null. "
-                        + "Please set proper resource or add properties('host'='xxx.xxx.xxx.xxx') when create table");
+                    + "Please set proper resource or add properties('host'='xxx.xxx.xxx.xxx') when create table");
             }
 
             port = properties.get(MYSQL_PORT);
             if (Strings.isNullOrEmpty(port)) {
                 // Maybe null pointer or number convert
                 throw new DdlException("Port of MySQL table is null. "
-                        + "Please set proper resource or add properties('port'='3306') when create table");
+                    + "Please set proper resource or add properties('port'='3306') when create table");
             } else {
                 try {
                     Integer.valueOf(port);
                 } catch (Exception e) {
                     throw new DdlException("Port of MySQL table must be a number."
-                            + "Please set proper resource or add properties('port'='3306') when create table");
+                        + "Please set proper resource or add properties('port'='3306') when create table");
 
                 }
             }
@@ -116,39 +116,40 @@ public class MysqlTable extends Table {
             userName = properties.get(MYSQL_USER);
             if (Strings.isNullOrEmpty(userName)) {
                 throw new DdlException("User of MySQL table is null. "
-                        + "Please set proper resource or add properties('user'='root') when create table");
+                    + "Please set proper resource or add properties('user'='root') when create table");
             }
 
             passwd = properties.get(MYSQL_PASSWORD);
             if (passwd == null) {
                 throw new DdlException("Password of MySQL table is null. "
-                        + "Please set proper resource or add properties('password'='xxxx') when create table");
+                    + "Please set proper resource or add properties('password'='xxxx') when create table");
             }
         }
-        
+
         mysqlDatabaseName = properties.get(MYSQL_DATABASE);
         if (Strings.isNullOrEmpty(mysqlDatabaseName)) {
             throw new DdlException("Database of MySQL table is null. "
-                    + "Please add properties('database'='xxxx') when create table");
+                + "Please add properties('database'='xxxx') when create table");
         }
 
         mysqlTableName = properties.get(MYSQL_TABLE);
         if (Strings.isNullOrEmpty(mysqlTableName)) {
             throw new DdlException("Database of MySQL table is null. "
-                    + "Please add properties('table'='xxxx') when create table");
+                + "Please add properties('table'='xxxx') when create table");
         }
     }
-    
+
     private String getPropertyFromResource(String propertyName) {
         OdbcCatalogResource odbcCatalogResource = (OdbcCatalogResource)
-                (Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName));
+            (Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName));
         if (odbcCatalogResource == null) {
             throw new RuntimeException("Resource does not exist. name: " + odbcCatalogResourceName);
         }
-        
+
         String property = odbcCatalogResource.getProperties(propertyName);
         if (property == null) {
-            throw new RuntimeException("The property:" + propertyName + " do not set in resource " + odbcCatalogResourceName);
+            throw new RuntimeException(
+                "The property:" + propertyName + " do not set in resource " + odbcCatalogResourceName);
         }
         return property;
     }
@@ -194,10 +195,10 @@ public class MysqlTable extends Table {
     }
 
     public TTableDescriptor toThrift() {
-        TMySQLTable tMySQLTable = 
-                new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(), mysqlDatabaseName, mysqlTableName);
+        TMySQLTable tMySQLTable =
+            new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(), mysqlDatabaseName, mysqlTableName);
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.MYSQL_TABLE,
-                fullSchema.size(), 0, getName(), "");
+            fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setMysqlTable(tMySQLTable);
         return tTableDescriptor;
     }

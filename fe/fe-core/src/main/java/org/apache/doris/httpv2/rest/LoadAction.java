@@ -43,10 +43,9 @@ import org.springframework.web.servlet.view.RedirectView;
 
 import java.util.List;
 
+import io.netty.handler.codec.http.HttpHeaderNames;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
-import io.netty.handler.codec.http.HttpHeaderNames;
 
 @RestController
 public class LoadAction extends RestBaseController {
@@ -62,8 +61,9 @@ public class LoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        if(Config.disable_mini_load) {
-            ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been disabled by default, if you need to add disable_mini_load=false in fe.conf.");
+        if (Config.disable_mini_load) {
+            ResponseEntity entity = ResponseEntityBuilder.notFound(
+                "The mini load operation has been disabled by default, if you need to add disable_mini_load=false in fe.conf.");
             return entity;
         } else {
             this.isStreamLoad = false;
@@ -83,8 +83,8 @@ public class LoadAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
     public Object streamLoad2PC(HttpServletRequest request,
-                                   HttpServletResponse response,
-                                   @PathVariable(value = DB_KEY) String db) {
+                                HttpServletResponse response,
+                                @PathVariable(value = DB_KEY) String db) {
         this.isStreamLoad = true;
         executeCheckPassword(request, response);
         return executeStreamLoad2PC(request, db);
@@ -147,9 +147,9 @@ public class LoadAction extends RestBaseController {
             } else {
                 // Choose a backend sequentially.
                 SystemInfoService.BeAvailablePredicate beAvailablePredicate =
-                        new SystemInfoService.BeAvailablePredicate(false, false, true);
+                    new SystemInfoService.BeAvailablePredicate(false, false, true);
                 List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                        1, beAvailablePredicate, false, clusterName, null, null);
+                    1, beAvailablePredicate, false, clusterName, null, null);
                 if (backendIds == null) {
                     return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
                 }
@@ -163,7 +163,7 @@ public class LoadAction extends RestBaseController {
             }
 
             LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
-                    redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
+                redirectAddr.toString(), isStreamLoad, dbName, tableName, label);
 
             RedirectView redirectView = redirectTo(request, redirectAddr);
             return redirectView;
@@ -196,9 +196,9 @@ public class LoadAction extends RestBaseController {
 
             // Choose a backend sequentially.
             SystemInfoService.BeAvailablePredicate beAvailablePredicate =
-                    new SystemInfoService.BeAvailablePredicate(false, false, true);
+                new SystemInfoService.BeAvailablePredicate(false, false, true);
             List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                    1, beAvailablePredicate, false, clusterName, null, null);
+                1, beAvailablePredicate, false, clusterName, null, null);
             if (backendIds == null) {
                 return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
             }
@@ -211,7 +211,7 @@ public class LoadAction extends RestBaseController {
             TNetworkAddress redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
 
             LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
-                    redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
+                redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
 
             RedirectView redirectView = redirectTo(request, redirectAddr);
             return redirectView;

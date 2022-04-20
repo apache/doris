@@ -110,7 +110,7 @@ public class SyncJobManagerTest {
         Assert.assertTrue(syncJob1 instanceof CanalSyncJob);
 
         Map<Long, Map<String, List<SyncJob>>> dbIdToJobNameToSyncJobs =
-                Deencapsulation.getField(manager, "dbIdToJobNameToSyncJobs");
+            Deencapsulation.getField(manager, "dbIdToJobNameToSyncJobs");
         Assert.assertEquals(1, dbIdToJobNameToSyncJobs.size());
         Map<String, List<SyncJob>> jobNameToSyncJobs = dbIdToJobNameToSyncJobs.values().iterator().next();
         Assert.assertEquals(1, jobNameToSyncJobs.size());
@@ -392,8 +392,8 @@ public class SyncJobManagerTest {
         Deencapsulation.setField(canalSyncJob, "channels", Lists.newArrayList());
 
         SyncJobUpdateStateInfo info = new SyncJobUpdateStateInfo(jobId,
-                JobState.CANCELLED, -1L, -1L, -1L,
-                new SyncFailMsg(MsgType.USER_CANCEL, "user cancel"));
+            JobState.CANCELLED, -1L, -1L, -1L,
+            new SyncFailMsg(MsgType.USER_CANCEL, "user cancel"));
         SyncJobManager manager = new SyncJobManager();
 
         // add a sync job to manager

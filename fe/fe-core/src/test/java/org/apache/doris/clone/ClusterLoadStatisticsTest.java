@@ -70,11 +70,11 @@ public class ClusterLoadStatisticsTest {
         diskInfo3.setAvailableCapacityB(490000);
         diskInfo3.setDataUsedCapacityB(10000);
         disks.put(diskInfo3.getRootPath(), diskInfo3);
-        
+
         be1.setDisks(ImmutableMap.copyOf(disks));
         be1.setAlive(true);
         be1.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        
+
 
         // be2
         be2 = new Backend(10002, "192.168.0.2", 9052);
@@ -124,7 +124,7 @@ public class ClusterLoadStatisticsTest {
         systemInfoService.addBackend(be1);
         systemInfoService.addBackend(be2);
         systemInfoService.addBackend(be3);
-        
+
         // tablet
         invertedIndex = new TabletInvertedIndex();
 
@@ -145,7 +145,7 @@ public class ClusterLoadStatisticsTest {
     @Test
     public void test() {
         ClusterLoadStatistic loadStatistic = new ClusterLoadStatistic(SystemInfoService.DEFAULT_CLUSTER,
-                Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+            Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
         loadStatistic.init();
         List<List<String>> infos = loadStatistic.getClusterStatistic(TStorageMedium.HDD);
         System.out.println(infos);

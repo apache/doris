@@ -17,16 +17,19 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class BackupTest {
 
@@ -60,7 +63,7 @@ public class BackupTest {
         }
         AbstractBackupTableRefClause tableRefClause = new AbstractBackupTableRefClause(false, tblRefs);
         stmt = new BackupStmt(new LabelName(testDB, "label1"), "repo",
-                tableRefClause, null);
+            tableRefClause, null);
         return stmt;
     }
 

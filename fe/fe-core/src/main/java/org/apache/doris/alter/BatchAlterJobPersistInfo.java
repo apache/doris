@@ -25,9 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- *
  * used for batch log AlterJob to editLog in one atomic operation
- *
  */
 public class BatchAlterJobPersistInfo implements Writable {
 

@@ -22,12 +22,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+
+import com.google.gson.annotations.SerializedName;
 
 public class AlterRoutineLoadJobOperationLog implements Writable {
 
@@ -39,7 +39,7 @@ public class AlterRoutineLoadJobOperationLog implements Writable {
     private RoutineLoadDataSourceProperties dataSourceProperties;
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
-            RoutineLoadDataSourceProperties dataSourceProperties) {
+                                           RoutineLoadDataSourceProperties dataSourceProperties) {
         this.jobId = jobId;
         this.jobProperties = jobProperties;
         this.dataSourceProperties = dataSourceProperties;

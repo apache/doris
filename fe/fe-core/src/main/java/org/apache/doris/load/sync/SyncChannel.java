@@ -24,7 +24,6 @@ import org.apache.doris.common.UserException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 import org.apache.thrift.TException;
 
 import java.util.List;
@@ -45,7 +44,8 @@ public class SyncChannel {
     protected String srcTable;
     protected SyncChannelCallback callback;
 
-    public SyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
+    public SyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase,
+                       String srcTable) {
         this.id = id;
         this.jobId = syncJob.getId();
         this.db = db;
@@ -57,15 +57,15 @@ public class SyncChannel {
     }
 
     public void beginTxn(long batchId) throws UserException, TException, TimeoutException,
-            InterruptedException, ExecutionException {
+        InterruptedException, ExecutionException {
     }
 
     public void abortTxn(String reason) throws TException, TimeoutException,
-            InterruptedException, ExecutionException {
+        InterruptedException, ExecutionException {
     }
 
     public void commitTxn() throws TException, TimeoutException,
-            InterruptedException, ExecutionException {
+        InterruptedException, ExecutionException {
     }
 
     public void initTxn(long timeoutSecond) {

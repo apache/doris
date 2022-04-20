@@ -18,9 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
@@ -42,7 +42,7 @@ public class MVColumnItem {
     private String baseColumnName;
 
     public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
-            Expr defineExpr, String baseColumnName) {
+                        Expr defineExpr, String baseColumnName) {
         this.name = name;
         this.type = type;
         this.aggregationType = aggregateType;

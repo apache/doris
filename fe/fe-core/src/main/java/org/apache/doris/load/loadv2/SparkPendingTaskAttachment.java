@@ -53,8 +53,8 @@ public class SparkPendingTaskAttachment extends TaskAttachment {
     @Override
     public String toString() {
         return "SparkPendingTaskAttachment{" +
-                "appId='" + appId + '\'' +
-                ", outputPath='" + outputPath + '\'' +
-                '}';
+            "appId='" + appId + '\'' +
+            ", outputPath='" + outputPath + '\'' +
+            '}';
     }
 }

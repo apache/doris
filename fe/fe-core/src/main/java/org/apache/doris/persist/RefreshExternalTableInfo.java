@@ -17,12 +17,11 @@
 
 package org.apache.doris.persist;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.io.Text;
-
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +29,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+
+import com.google.gson.annotations.SerializedName;
 
 public class RefreshExternalTableInfo implements Writable {
     public static final Logger LOG = LoggerFactory.getLogger(RefreshExternalTableInfo.class);
@@ -49,7 +50,7 @@ public class RefreshExternalTableInfo implements Writable {
         this.dbName = dbName;
         this.tableName = tableName;
         this.newSchema = newSchema;
-        
+
     }
 
     public String getDbName() {
@@ -59,7 +60,7 @@ public class RefreshExternalTableInfo implements Writable {
     public String getTableName() {
         return tableName;
     }
-    
+
     public List<Column> getNewSchema() {
         return newSchema;
     }
@@ -86,6 +87,6 @@ public class RefreshExternalTableInfo implements Writable {
         RefreshExternalTableInfo info = (RefreshExternalTableInfo) obj;
 
         return (dbName.equals(info.dbName))
-                && (tableName.equals(info.tableName)) && (newSchema.equals(newSchema));
+            && (tableName.equals(info.tableName)) && (newSchema.equals(newSchema));
     }
 }

@@ -34,7 +34,7 @@ import com.google.common.collect.ImmutableList;
 // admin show frontend config;
 public class AdminShowConfigStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("Key").add(
-            "Value").add("Type").add("IsMutable").add("MasterOnly").add("Comment").build();
+        "Value").add("Type").add("IsMutable").add("MasterOnly").add("Comment").build();
 
     private ConfigType type;
 

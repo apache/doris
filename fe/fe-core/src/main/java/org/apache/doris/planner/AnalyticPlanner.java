@@ -60,13 +60,13 @@ import java.util.List;
  * not minimal). The generated plan has the following structure:
  * ...
  * (
- *  (
- *    (
- *      analytic node  <-- group of analytic exprs with compatible window
- *    )+               <-- group of analytic exprs with compatible ordering
- *    sort node?
- *  )+                 <-- group of analytic exprs with compatible partitioning
- *  hash exchange?
+ * (
+ * (
+ * analytic node  <-- group of analytic exprs with compatible window
+ * )+               <-- group of analytic exprs with compatible ordering
+ * sort node?
+ * )+                 <-- group of analytic exprs with compatible partitioning
+ * hash exchange?
  * )*                  <-- group of analytic exprs that have different partitioning
  * input plan node
  * ...
@@ -97,12 +97,14 @@ public class AnalyticPlanner {
      * on a prefix of their required sort exprs)
      * TODO: when merging sort groups, recognize equivalent exprs
      * (using the equivalence classes) rather than looking for expr equality
+     *
      * @throws AnalysisException
      * @throws UserException
      */
     public PlanNode createSingleNodePlan(PlanNode root,
-            List<Expr> groupingExprs, List<Expr> inputPartitionExprs) throws AnalysisException,
-            UserException {
+                                         List<Expr> groupingExprs, List<Expr> inputPartitionExprs)
+        throws AnalysisException,
+        UserException {
         List<WindowGroup> windowGroups = collectWindowGroups();
 
         for (int i = 0; i < windowGroups.size(); ++i) {
@@ -130,7 +132,7 @@ public class AnalyticPlanner {
         for (PartitionGroup partitionGroup : partitionGroups) {
             for (int i = 0; i < partitionGroup.sortGroups.size(); ++i) {
                 newRoot = createSortGroupPlan(newRoot, partitionGroup.sortGroups.get(i),
-                                           i == 0 ? partitionGroup.partitionByExprs : null);
+                    i == 0 ? partitionGroup.partitionByExprs : null);
             }
         }
 
@@ -182,7 +184,7 @@ public class AnalyticPlanner {
                 for (PartitionGroup pg2 : partitionGroups) {
                     if (pg1 != pg2) {
                         long ndv = Expr.getNumDistinctValues(
-                                       Expr.intersect(pg1.partitionByExprs, pg2.partitionByExprs));
+                            Expr.intersect(pg1.partitionByExprs, pg2.partitionByExprs));
 
                         if (ndv == -1 || ndv < 1 || ndv < numNodes) {
                             // didn't get a usable value or the number of partitions is too small
@@ -209,10 +211,12 @@ public class AnalyticPlanner {
      * That partition group is placed at the front of partitionGroups, with its
      * partition exprs reduced to the intersection, and the intersecting groupingExprs
      * are returned in inputPartitionExprs.
+     *
      * @throws AnalysisException
      */
     private void computeInputPartitionExprs(List<PartitionGroup> partitionGroups,
-            List<Expr> groupingExprs, int numNodes, List<Expr> inputPartitionExprs) throws AnalysisException {
+                                            List<Expr> groupingExprs, int numNodes, List<Expr> inputPartitionExprs)
+        throws AnalysisException {
         inputPartitionExprs.clear();
         // find partition group with maximum intersection
         long maxNdv = 0;
@@ -226,7 +230,7 @@ public class AnalyticPlanner {
             //      Expr.intersect(analyzer_, pg.partitionByExprs, groupingExprs,
             //          analyzer_.getEquivClassSmap(), l1, l2);
             Expr.intersect(analyzer, pg.partitionByExprs, groupingExprs,
-                           null, l1, l2);
+                null, l1, l2);
 
             // TODO: also look at l2 and take the max?
             long ndv = Expr.getNumDistinctValues(l1);
@@ -275,14 +279,14 @@ public class AnalyticPlanner {
 
         // order by ascending combined output tuple size
         Collections.sort(partitionGroups,
-        new Comparator<PartitionGroup>() {
-            public int compare(PartitionGroup pg1, PartitionGroup pg2) {
-                Preconditions.checkState(pg1.totalOutputTupleSize > 0);
-                Preconditions.checkState(pg2.totalOutputTupleSize > 0);
-                int diff = pg1.totalOutputTupleSize - pg2.totalOutputTupleSize;
-                return (diff < 0 ? -1 : (diff > 0 ? 1 : 0));
-            }
-        });
+            new Comparator<PartitionGroup>() {
+                public int compare(PartitionGroup pg1, PartitionGroup pg2) {
+                    Preconditions.checkState(pg1.totalOutputTupleSize > 0);
+                    Preconditions.checkState(pg2.totalOutputTupleSize > 0);
+                    int diff = pg1.totalOutputTupleSize - pg2.totalOutputTupleSize;
+                    return (diff < 0 ? -1 : (diff > 0 ? 1 : 0));
+                }
+            });
 
         if (nonPartitioning != null) {
             partitionGroups.add(nonPartitioning);
@@ -296,6 +300,7 @@ public class AnalyticPlanner {
     /**
      * Create SortInfo, including sort tuple, to sort entire input row
      * on sortExprs.
+     *
      * @throws AnalysisException
      */
     private SortInfo createSortInfo(
@@ -303,7 +308,7 @@ public class AnalyticPlanner {
         List<Boolean> nullsFirst) throws AnalysisException {
         // create tuple for sort output = the entire materialized input in a single tuple
         TupleDescriptor sortTupleDesc =
-                analyzer.getDescTbl().createTupleDescriptor("sort-tuple");
+            analyzer.getDescTbl().createTupleDescriptor("sort-tuple");
         ExprSubstitutionMap sortSmap = new ExprSubstitutionMap();
         List<Expr> sortSlotExprs = Lists.newArrayList();
         sortTupleDesc.setIsMaterialized(true);
@@ -343,13 +348,15 @@ public class AnalyticPlanner {
             for (int i = 0; i < inputSmap.size(); ++i) {
                 Expr rhsExpr = inputSmap.getRhs().get(i);
                 // Ignore substitutions that are irrelevant at this plan node and its ancestors.
-                if (!rhsExpr.isBoundByTupleIds(input.getTupleIds())) continue;
+                if (!rhsExpr.isBoundByTupleIds(input.getTupleIds())) {
+                    continue;
+                }
                 rhsExpr.collect(TupleIsNullPredicate.class, tupleIsNullPredsToMaterialize);
             }
             Expr.removeDuplicates(tupleIsNullPredsToMaterialize);
 
             // Materialize relevant unique TupleIsNullPredicates.
-            for (Expr tupleIsNullPred: tupleIsNullPredsToMaterialize) {
+            for (Expr tupleIsNullPred : tupleIsNullPredsToMaterialize) {
                 SlotDescriptor sortSlotDesc = analyzer.addSlotDescriptor(sortTupleDesc);
                 sortSlotDesc.setType(tupleIsNullPred.getType());
                 sortSlotDesc.setIsMaterialized(true);
@@ -366,7 +373,7 @@ public class AnalyticPlanner {
 
         SortInfo sortInfo = new SortInfo(sortExprs, isAsc, nullsFirst);
         ExprSubstitutionMap smap =
-                sortInfo.createMaterializedOrderExprs(sortTupleDesc, analyzer);
+            sortInfo.createMaterializedOrderExprs(sortTupleDesc, analyzer);
         sortSlotExprs.addAll(smap.getLhs());
         sortSmap = ExprSubstitutionMap.combine(sortSmap, smap);
         sortInfo.substituteOrderingExprs(sortSmap, analyzer);
@@ -382,6 +389,7 @@ public class AnalyticPlanner {
      * Marks the SortNode as requiring its input to be partitioned if partitionExprs
      * is not null (partitionExprs represent the data partition of the entire partition
      * group of which this sort group is a part).
+     *
      * @throws AnalysisException
      * @throws UserException
      */
@@ -401,11 +409,11 @@ public class AnalyticPlanner {
             // first sort on partitionExprs (direction doesn't matter)
             List<Expr> sortExprs = Lists.newArrayList(partitionByExprs);
             List<Boolean> isAsc =
-                    Lists.newArrayList(Collections.nCopies(sortExprs.size(), Boolean.TRUE));
+                Lists.newArrayList(Collections.nCopies(sortExprs.size(), Boolean.TRUE));
             // TODO: utilize a direction and nulls/first last that has benefit
             // for subsequent sort groups
             List<Boolean> nullsFirst =
-                    Lists.newArrayList(Collections.nCopies(sortExprs.size(), Boolean.FALSE));
+                Lists.newArrayList(Collections.nCopies(sortExprs.size(), Boolean.FALSE));
 
             // then sort on orderByExprs
             for (OrderByElement orderByElement : sortGroup.orderByElements) {
@@ -468,8 +476,8 @@ public class AnalyticPlanner {
 
             if (!windowGroup.partitionByExprs.isEmpty()) {
                 partitionByEq = createNullMatchingEquals(
-                                    Expr.trySubstituteList(windowGroup.partitionByExprs, sortSmap, analyzer, false),
-                                    sortTupleId, bufferedSmap);
+                    Expr.trySubstituteList(windowGroup.partitionByExprs, sortSmap, analyzer, false),
+                    sortTupleId, bufferedSmap);
                 LOG.trace("partitionByEq: " + partitionByEq.debugString());
             }
 
@@ -477,19 +485,19 @@ public class AnalyticPlanner {
 
             if (!windowGroup.orderByElements.isEmpty()) {
                 orderByEq = createNullMatchingEquals(
-                                OrderByElement.getOrderByExprs(OrderByElement.substitute(
-                                            windowGroup.orderByElements, sortSmap, analyzer)),
-                                sortTupleId, bufferedSmap);
+                    OrderByElement.getOrderByExprs(OrderByElement.substitute(
+                        windowGroup.orderByElements, sortSmap, analyzer)),
+                    sortTupleId, bufferedSmap);
                 LOG.trace("orderByEq: " + orderByEq.debugString());
             }
 
             AnalyticEvalNode node = new AnalyticEvalNode(ctx_.getNextNodeId(), newRoot,
-                    windowGroup.analyticFnCalls, windowGroup.partitionByExprs,
-                    windowGroup.orderByElements,
-                    windowGroup.window,
-                    windowGroup.physicalIntermediateTuple,
-                    windowGroup.physicalOutputTuple, windowGroup.logicalToPhysicalSmap,
-                    partitionByEq, orderByEq, bufferedTupleDesc);
+                windowGroup.analyticFnCalls, windowGroup.partitionByExprs,
+                windowGroup.orderByElements,
+                windowGroup.window,
+                windowGroup.physicalIntermediateTuple,
+                windowGroup.physicalOutputTuple, windowGroup.logicalToPhysicalSmap,
+                partitionByEq, orderByEq, bufferedTupleDesc);
             node.init(analyzer);
             newRoot = node;
         }
@@ -499,6 +507,7 @@ public class AnalyticPlanner {
 
     /**
      * Create a predicate that checks if all exprs are equal or both sides are null.
+     *
      * @throws AnalysisException
      */
     private Expr createNullMatchingEquals(List<Expr> exprs, TupleId inputTid,
@@ -512,15 +521,17 @@ public class AnalyticPlanner {
     /**
      * Create an unanalyzed predicate that checks if elements >= i are equal or
      * both sides are null.
-     *
+     * <p>
      * The predicate has the form
      * ((lhs[i] is null && rhs[i] is null) || (
-     *   lhs[i] is not null && rhs[i] is not null && lhs[i] = rhs[i]))
+     * lhs[i] is not null && rhs[i] is not null && lhs[i] = rhs[i]))
      * && <createEqualsAux(i + 1)>
+     *
      * @throws AnalysisException
      */
     private Expr createNullMatchingEqualsAux(List<Expr> elements, int i,
-            TupleId inputTid, ExprSubstitutionMap bufferedSmap) throws AnalysisException {
+                                             TupleId inputTid, ExprSubstitutionMap bufferedSmap)
+        throws AnalysisException {
         if (i > elements.size() - 1) {
             return new BoolLiteral(true);
         }
@@ -531,15 +542,15 @@ public class AnalyticPlanner {
         Expr rhs = lhs.trySubstitute(bufferedSmap, analyzer, false);
 
         Expr bothNull = new CompoundPredicate(Operator.AND,
-                                              new IsNullPredicate(lhs, false), new IsNullPredicate(rhs, false));
+            new IsNullPredicate(lhs, false), new IsNullPredicate(rhs, false));
         Expr lhsEqRhsNotNull = new CompoundPredicate(Operator.AND,
-                new CompoundPredicate(Operator.AND,
-                                      new IsNullPredicate(lhs, true), new IsNullPredicate(rhs, true)),
-                new BinaryPredicate(BinaryPredicate.Operator.EQ, lhs, rhs));
+            new CompoundPredicate(Operator.AND,
+                new IsNullPredicate(lhs, true), new IsNullPredicate(rhs, true)),
+            new BinaryPredicate(BinaryPredicate.Operator.EQ, lhs, rhs));
         Expr remainder = createNullMatchingEqualsAux(elements, i + 1, inputTid, bufferedSmap);
         return new CompoundPredicate(CompoundPredicate.Operator.AND,
-                                     new CompoundPredicate(Operator.OR, bothNull, lhsEqRhsNotNull),
-                                     remainder);
+            new CompoundPredicate(Operator.OR, bothNull, lhsEqRhsNotNull),
+            remainder);
     }
 
     /**
@@ -583,7 +594,7 @@ public class AnalyticPlanner {
          */
         private static boolean requiresIndependentEval(AnalyticExpr analyticExpr) {
             return analyticExpr.getFnCall().getFnName().getFunction().equals(
-                       AnalyticExpr.FIRST_VALUE_REWRITE);
+                AnalyticExpr.FIRST_VALUE_REWRITE);
         }
 
         /**
@@ -592,7 +603,7 @@ public class AnalyticPlanner {
          */
         public boolean isCompatible(AnalyticExpr analyticExpr) {
             if (requiresIndependentEval(analyticExprs.get(0)) ||
-                    requiresIndependentEval(analyticExpr)) {
+                requiresIndependentEval(analyticExpr)) {
                 return false;
             }
 
@@ -663,14 +674,14 @@ public class AnalyticPlanner {
 
                 //        SlotDescriptor physicalOutputSlot =analyzer.getDescTbl().copySlotDescriptor(logicalOutputSlot, physicalOutputTuple);
                 SlotDescriptor physicalOutputSlot = analyzer.getDescTbl().copySlotDescriptor(physicalOutputTuple,
-                                                    logicalOutputSlot);
+                    logicalOutputSlot);
                 physicalOutputSlot.setIsMaterialized(true);
                 //        in impala setIntermediateType only used in uda
 
                 if (requiresIntermediateTuple) {
                     SlotDescriptor logicalIntermediateSlot = logicalIntermediateSlots.get(i);
                     SlotDescriptor physicalIntermediateSlot = analyzer.getDescTbl().copySlotDescriptor(
-                                physicalIntermediateTuple, logicalIntermediateSlot);
+                        physicalIntermediateTuple, logicalIntermediateSlot);
                     physicalIntermediateSlot.setIsMaterialized(true);
                 }
 
@@ -697,17 +708,17 @@ public class AnalyticPlanner {
             for (WindowGroup group : groups) {
                 if (group.isCompatible(analyticExpr)) {
                     group.add((AnalyticExpr) analyticInfo.getAnalyticExprs().get(i),
-                              analyticInfo.getOutputTupleDesc().getSlots().get(i),
-                              analyticInfo.getIntermediateTupleDesc().getSlots().get(i));
+                        analyticInfo.getOutputTupleDesc().getSlots().get(i),
+                        analyticInfo.getIntermediateTupleDesc().getSlots().get(i));
                     match = true;
                     break;
                 }
             }
             if (!match) {
                 groups.add(new WindowGroup(
-                               (AnalyticExpr) analyticInfo.getAnalyticExprs().get(i),
-                               analyticInfo.getOutputTupleDesc().getSlots().get(i),
-                               analyticInfo.getIntermediateTupleDesc().getSlots().get(i)));
+                    (AnalyticExpr) analyticInfo.getAnalyticExprs().get(i),
+                    analyticInfo.getOutputTupleDesc().getSlots().get(i),
+                    analyticInfo.getIntermediateTupleDesc().getSlots().get(i)));
             }
         }
 
@@ -737,7 +748,7 @@ public class AnalyticPlanner {
          */
         public boolean isCompatible(WindowGroup windowGroup) {
             return Expr.equalSets(windowGroup.partitionByExprs, partitionByExprs)
-                   && windowGroup.orderByElements.equals(orderByElements);
+                && windowGroup.orderByElements.equals(orderByElements);
         }
 
         public void add(WindowGroup windowGroup) {
@@ -803,16 +814,17 @@ public class AnalyticPlanner {
         private static class SizeLt implements Comparator<WindowGroup> {
             public int compare(WindowGroup wg1, WindowGroup wg2) {
                 Preconditions.checkState(wg1.physicalOutputTuple != null
-                                         && wg1.physicalOutputTuple.getByteSize() != -1);
+                    && wg1.physicalOutputTuple.getByteSize() != -1);
                 Preconditions.checkState(wg2.physicalOutputTuple != null
-                                         && wg2.physicalOutputTuple.getByteSize() != -1);
+                    && wg2.physicalOutputTuple.getByteSize() != -1);
                 int diff = wg1.physicalOutputTuple.getByteSize()
-                           - wg2.physicalOutputTuple.getByteSize();
+                    - wg2.physicalOutputTuple.getByteSize();
                 return (diff < 0 ? -1 : (diff > 0 ? 1 : 0));
             }
         }
 
         private static final SizeLt SIZE_LT;
+
         static {
             SIZE_LT = new SizeLt();
         }
@@ -898,14 +910,14 @@ public class AnalyticPlanner {
          */
         public void orderSortGroups() {
             Collections.sort(sortGroups,
-            new Comparator<SortGroup>() {
-                public int compare(SortGroup sg1, SortGroup sg2) {
-                    Preconditions.checkState(sg1.totalOutputTupleSize > 0);
-                    Preconditions.checkState(sg2.totalOutputTupleSize > 0);
-                    int diff = sg1.totalOutputTupleSize - sg2.totalOutputTupleSize;
-                    return (diff < 0 ? -1 : (diff > 0 ? 1 : 0));
-                }
-            });
+                new Comparator<SortGroup>() {
+                    public int compare(SortGroup sg1, SortGroup sg2) {
+                        Preconditions.checkState(sg1.totalOutputTupleSize > 0);
+                        Preconditions.checkState(sg2.totalOutputTupleSize > 0);
+                        int diff = sg1.totalOutputTupleSize - sg2.totalOutputTupleSize;
+                        return (diff < 0 ? -1 : (diff > 0 ? 1 : 0));
+                    }
+                });
 
             for (SortGroup sortGroup : sortGroups) {
                 sortGroup.orderWindowGroups();

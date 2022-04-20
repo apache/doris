@@ -17,10 +17,12 @@
 
 package org.apache.doris.common.util;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;

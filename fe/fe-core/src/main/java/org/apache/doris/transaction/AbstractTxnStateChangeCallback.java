@@ -41,7 +41,8 @@ public abstract class AbstractTxnStateChangeCallback implements TxnStateChangeCa
     }
 
     @Override
-    public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason) throws UserException {
+    public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
+        throws UserException {
 
     }
 

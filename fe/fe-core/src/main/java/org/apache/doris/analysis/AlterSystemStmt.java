@@ -43,19 +43,19 @@ public class AlterSystemStmt extends DdlStmt {
 
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "NODE");
+                "NODE");
         }
 
         Preconditions.checkState((alterClause instanceof AddBackendClause)
-                || (alterClause instanceof DropBackendClause)
-                || (alterClause instanceof DecommissionBackendClause)
-                || (alterClause instanceof AddObserverClause)
-                || (alterClause instanceof DropObserverClause)
-                || (alterClause instanceof AddFollowerClause)
-                || (alterClause instanceof DropFollowerClause)
-                || (alterClause instanceof ModifyBrokerClause)
-                || (alterClause instanceof AlterLoadErrorUrlClause)
-                || (alterClause instanceof ModifyBackendClause));
+            || (alterClause instanceof DropBackendClause)
+            || (alterClause instanceof DecommissionBackendClause)
+            || (alterClause instanceof AddObserverClause)
+            || (alterClause instanceof DropObserverClause)
+            || (alterClause instanceof AddFollowerClause)
+            || (alterClause instanceof DropFollowerClause)
+            || (alterClause instanceof ModifyBrokerClause)
+            || (alterClause instanceof AlterLoadErrorUrlClause)
+            || (alterClause instanceof ModifyBackendClause));
 
         alterClause.analyze(analyzer);
     }

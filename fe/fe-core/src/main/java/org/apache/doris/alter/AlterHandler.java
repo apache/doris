@@ -59,20 +59,20 @@ public abstract class AlterHandler extends MasterDaemon {
     /**
      * lock to perform atomic operations.
      * eg.
-     *  When job is finished, it will be moved from alterJobs to finishedOrCancelledAlterJobs,
-     *  and this requires atomic operations. So the lock must be held to do this operations.
-     *  Operations like Get or Put do not need lock.
+     * When job is finished, it will be moved from alterJobs to finishedOrCancelledAlterJobs,
+     * and this requires atomic operations. So the lock must be held to do this operations.
+     * Operations like Get or Put do not need lock.
      */
     protected ReentrantLock lock = new ReentrantLock();
-    
+
     protected void lock() {
         lock.lock();
     }
-    
+
     protected void unlock() {
         lock.unlock();
     }
-    
+
     public AlterHandler(String name) {
         this(name, FeConstants.default_scheduler_interval_millisecond);
     }
@@ -90,8 +90,8 @@ public abstract class AlterHandler extends MasterDaemon {
         List<AlterJobV2> unfinishedAlterJobList = new ArrayList<>();
         for (AlterJobV2 alterJob : alterJobsV2.values()) {
             if (alterJob.getTableId() == tblId
-                    && alterJob.getJobState() != AlterJobV2.JobState.FINISHED
-                    && alterJob.getJobState() != AlterJobV2.JobState.CANCELLED) {
+                && alterJob.getJobState() != AlterJobV2.JobState.FINISHED
+                && alterJob.getJobState() != AlterJobV2.JobState.CANCELLED) {
                 unfinishedAlterJobList.add(alterJob);
             }
         }
@@ -117,10 +117,11 @@ public abstract class AlterHandler extends MasterDaemon {
             AlterJobV2 alterJobV2 = iterator.next().getValue();
             if (alterJobV2.isExpire()) {
                 iterator.remove();
-                RemoveAlterJobV2OperationLog log = new RemoveAlterJobV2OperationLog(alterJobV2.getJobId(), alterJobV2.getType());
+                RemoveAlterJobV2OperationLog log =
+                    new RemoveAlterJobV2OperationLog(alterJobV2.getJobId(), alterJobV2.getType());
                 Catalog.getCurrentCatalog().getEditLog().logRemoveExpiredAlterJobV2(log);
                 LOG.info("remove expired {} job {}. finish at {}", alterJobV2.getType(),
-                        alterJobV2.getJobId(), TimeUtils.longToTimeString(alterJobV2.getFinishedTimeMs()));
+                    alterJobV2.getJobId(), TimeUtils.longToTimeString(alterJobV2.getFinishedTimeMs()));
             }
         }
     }
@@ -161,16 +162,17 @@ public abstract class AlterHandler extends MasterDaemon {
     public abstract List<List<Comparable>> getAlterJobInfosByDb(Database db);
 
     /*
-     * entry function. handle alter ops 
+     * entry function. handle alter ops
      */
     public abstract void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
-            throws UserException;
+        throws UserException;
 
     /*
      * entry function. handle alter ops for external table
      */
     public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
-            throws UserException {};
+        throws UserException {
+    }
 
     /*
      * cancel alter ops
@@ -189,7 +191,7 @@ public abstract class AlterHandler extends MasterDaemon {
      *      After alter table process starts, there are some load job being processed.
      * Case 2.1:
      *      None of them succeed on this replica. so the version is still 1. We should modify the replica's version to X.
-     * Case 2.2 
+     * Case 2.2
      *      There are new load jobs after alter task, and at least one of them is succeed on this replica.
      *      So the replica's version should be larger than X. So we don't need to modify the replica version
      *      because its already looks like normal.
@@ -217,7 +219,7 @@ public abstract class AlterHandler extends MasterDaemon {
             }
 
             LOG.info("before handle alter task tablet {}, replica: {}, task version: {}",
-                    task.getSignature(), replica, task.getVersion());
+                task.getSignature(), replica, task.getVersion());
             boolean versionChanged = false;
             if (replica.getVersion() < task.getVersion()) {
                 replica.updateVersionInfo(task.getVersion(), replica.getDataSize(), replica.getRowCount());
@@ -226,10 +228,10 @@ public abstract class AlterHandler extends MasterDaemon {
 
             if (versionChanged) {
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
-                        task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
-                        replica.getId(), replica.getVersion(), -1, 
-                        replica.getDataSize(), replica.getRowCount(),
-                        replica.getLastFailedVersion(), replica.getLastSuccessVersion());
+                    task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
+                    replica.getId(), replica.getVersion(), -1,
+                    replica.getDataSize(), replica.getRowCount(),
+                    replica.getLastFailedVersion(), replica.getLastSuccessVersion());
                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);
             }
 

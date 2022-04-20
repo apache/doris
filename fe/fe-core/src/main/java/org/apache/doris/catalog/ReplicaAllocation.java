@@ -23,10 +23,8 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,6 +32,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+
+import com.clearspring.analytics.util.Lists;
+import com.google.gson.annotations.SerializedName;
 
 // ReplicaAllocation is used to describe the distribution of replicas of a tablet.
 // By default, 3 replicas of a tablet are distributed on 3 BE nodes with Tag "default".
@@ -99,8 +100,12 @@ public class ReplicaAllocation implements Writable {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         ReplicaAllocation that = (ReplicaAllocation) o;
         return that.allocMap.equals(this.allocMap);
     }

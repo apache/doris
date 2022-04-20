@@ -25,8 +25,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.Gson;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -35,6 +33,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import com.google.gson.Gson;
+import com.google.gson.annotations.SerializedName;
 
 /*
  * TagSet represents a set of tags.
@@ -174,7 +175,7 @@ public class TagSet implements Writable {
             TagSet tagSet = getTagsByType(type);
             if (!tagSet.isEmpty()) {
                 map.put(type, Joiner.on(",").join(
-                        tagSet.getAllTags().stream().map(t -> t.value).collect(Collectors.toList())));
+                    tagSet.getAllTags().stream().map(t -> t.value).collect(Collectors.toList())));
             }
         }
         return gson.toJson(map);

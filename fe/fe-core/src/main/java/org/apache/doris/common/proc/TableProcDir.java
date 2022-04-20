@@ -35,18 +35,18 @@ import com.google.common.collect.Lists;
  */
 public class TableProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Nodes")
-            .build();
+        .add("Nodes")
+        .build();
 
     public static final String INDEX_SCHEMA = "index_schema";
     private static final String PARTITIONS = "partitions";
     private static final String TEMP_PARTITIONS = "temp_partitions";
 
     private static final ImmutableList<String> CHILDREN_NODES = new ImmutableList.Builder<String>()
-            .add(PARTITIONS)
-            .add(TEMP_PARTITIONS)
-            .add(INDEX_SCHEMA)
-            .build();
+        .add(PARTITIONS)
+        .add(TEMP_PARTITIONS)
+        .add(INDEX_SCHEMA)
+        .build();
 
     private Database db;
     private Table table;

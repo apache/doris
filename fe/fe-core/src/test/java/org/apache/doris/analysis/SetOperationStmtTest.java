@@ -44,6 +44,7 @@ public class SetOperationStmtTest {
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
+
     @Test
     public void testNormal() throws Exception {
         String sql = "select k1,k2 from t where k1='a' union select k1,k2 from t where k1='b';";
@@ -67,7 +68,7 @@ public class SetOperationStmtTest {
         stmt = (SetOperationStmt) SqlParserUtils.getFirstStmt(parser);
         Assert.assertEquals(SetOperationStmt.Operation.EXCEPT, stmt.getOperands().get(1).getOperation());
         sql = "select k1,k2 from t where k1='a' union select k1,k2 from t where k1='b' intersect select k1,k2 from t "
-                + "where k1='c' except select k1,k2 from t where k1='d';";
+            + "where k1='c' except select k1,k2 from t where k1='d';";
         input = new SqlScanner(new StringReader(sql));
         parser = new SqlParser(input);
         stmt = (SetOperationStmt) SqlParserUtils.getFirstStmt(parser);

@@ -33,9 +33,9 @@ import com.google.common.collect.ImmutableList;
 // show data skew from tbl [partition(p1, p2, ...)]
 public class ShowDataSkewStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BucketIdx").add("AvgDataSize")
-            .add("Graph").add("Percent")
-            .build();
+        .add("BucketIdx").add("AvgDataSize")
+        .add("Graph").add("Percent")
+        .build();
 
     private TableRef tblRef;
 
@@ -48,12 +48,12 @@ public class ShowDataSkewStmt extends ShowStmt {
         super.analyze(analyzer);
         tblRef.getName().analyze(analyzer);
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblRef.getName().getDb(),
-                tblRef.getName().getTbl(),
-                PrivPredicate.SHOW)) {
+            tblRef.getName().getTbl(),
+            PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA SKEW",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
-                    tblRef.getName().getDb() + "." + tblRef.getName().getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                tblRef.getName().getDb() + "." + tblRef.getName().getTbl());
         }
         PartitionNames partitionNames = tblRef.getPartitionNames();
         if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {

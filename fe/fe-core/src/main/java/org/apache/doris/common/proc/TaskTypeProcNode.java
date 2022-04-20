@@ -30,8 +30,8 @@ import java.util.List;
 public class TaskTypeProcNode implements ProcDirInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("FailedNum").add("TotalNum")
-            .build();
+        .add("BackendId").add("FailedNum").add("TotalNum")
+        .build();
 
     private TTaskType type;
 

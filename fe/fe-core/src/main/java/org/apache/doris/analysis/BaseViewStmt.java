@@ -98,8 +98,8 @@ public class BaseViewStmt extends DdlStmt {
             for (int i = 0; i < viewDefStmt.getBaseTblResultExprs().size(); ++i) {
                 PrimitiveType type = viewDefStmt.getBaseTblResultExprs().get(i).getType().getPrimitiveType();
                 finalCols.add(new Column(
-                        viewDefStmt.getColLabels().get(i),
-                        ScalarType.createType(type)));
+                    viewDefStmt.getColLabels().get(i),
+                    ScalarType.createType(type)));
             }
         }
         // Set for duplicate columns

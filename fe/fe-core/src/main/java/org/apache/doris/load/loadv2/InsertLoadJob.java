@@ -48,8 +48,9 @@ public class InsertLoadJob extends LoadJob {
         super(EtlJobType.INSERT);
     }
 
-    public InsertLoadJob(String label, long transactionId, long dbId, long tableId, long createTimestamp, String failMsg,
-            String trackingUrl) throws MetaNotFoundException {
+    public InsertLoadJob(String label, long transactionId, long dbId, long tableId, long createTimestamp,
+                         String failMsg,
+                         String trackingUrl) throws MetaNotFoundException {
         super(EtlJobType.INSERT, dbId, label);
         this.tableId = tableId;
         this.transactionId = transactionId;
@@ -76,7 +77,7 @@ public class InsertLoadJob extends LoadJob {
     @Override
     public Set<String> getTableNamesForShow() {
         String name = Catalog.getCurrentCatalog().getDb(dbId).flatMap(db -> db.getTable(tableId))
-                .map(Table::getName).orElse(String.valueOf(tableId));
+            .map(Table::getName).orElse(String.valueOf(tableId));
         return Sets.newHashSet(name);
     }
 

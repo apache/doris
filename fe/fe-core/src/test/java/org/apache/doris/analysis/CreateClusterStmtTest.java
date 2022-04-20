@@ -62,7 +62,7 @@ public class CreateClusterStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster", stmt.getClusterName());
         String sql = "CREATE CLUSTER " + "testCluster" + " PROPERTIES(\"instance_num\"=" + "\"" + "2" + "\")"
-                + "IDENTIFIED BY '" + "password" + "'";
+            + "IDENTIFIED BY '" + "password" + "'";
         Assert.assertEquals(sql, stmt.toSql());
     }
 

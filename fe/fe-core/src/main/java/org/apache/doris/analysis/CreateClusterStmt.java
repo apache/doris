@@ -89,7 +89,7 @@ public class CreateClusterStmt extends DdlStmt {
         if (instanceNum < 0) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_CREATE_ISTANCE_NUM_ERROR);
         }
-        
+
         final String password = passwd;
         if (!Strings.isNullOrEmpty(password)) {
             scramblePassword = MysqlPassword.makeScrambledPassword(password);
@@ -101,7 +101,7 @@ public class CreateClusterStmt extends DdlStmt {
     @Override
     public String toSql() {
         final String sql = "CREATE CLUSTER " + clusterName + " PROPERTIES(\"instance_num\"=" + "\"" + instanceNum
-                + "\")" + "IDENTIFIED BY '" + passwd + "'";
+            + "\")" + "IDENTIFIED BY '" + passwd + "'";
         return sql;
     }
 

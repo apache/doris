@@ -40,7 +40,7 @@ public class RangePartitionDesc extends PartitionDesc {
     @Override
     public void checkPartitionKeyValueType(PartitionKeyDesc partitionKeyDesc) throws AnalysisException {
         if (partitionKeyDesc.getPartitionType() != PartitionKeyValueType.FIXED &&
-                partitionKeyDesc.getPartitionType() != PartitionKeyValueType.LESS_THAN) {
+            partitionKeyDesc.getPartitionType() != PartitionKeyValueType.LESS_THAN) {
             throw new AnalysisException("You can only use fixed or less than values to create range partitions");
         }
     }
@@ -58,7 +58,7 @@ public class RangePartitionDesc extends PartitionDesc {
             idx++;
         }
         sb.append(")\n(\n");
-        
+
         for (int i = 0; i < singlePartitionDescs.size(); i++) {
             if (i != 0) {
                 sb.append(",\n");
@@ -76,7 +76,7 @@ public class RangePartitionDesc extends PartitionDesc {
 
     @Override
     public PartitionInfo toPartitionInfo(List<Column> schema, Map<String, Long> partitionNameToId, boolean isTemp)
-            throws DdlException {
+        throws DdlException {
         List<Column> partitionColumns = new ArrayList<>();
 
         // check and get partition column
@@ -96,7 +96,7 @@ public class RangePartitionDesc extends PartitionDesc {
                 }
                 if (column.getType().isComplexType()) {
                     throw new DdlException("Complex type column can't be partition column: "
-                            + column.getType().toString());
+                        + column.getType().toString());
                 }
             }
             if (!find) {

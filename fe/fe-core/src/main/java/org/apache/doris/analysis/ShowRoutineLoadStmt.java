@@ -67,27 +67,27 @@ import java.util.List;
 public class ShowRoutineLoadStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
-            new ImmutableList.Builder<String>()
-                    .add("Id")
-                    .add("Name")
-                    .add("CreateTime")
-                    .add("PauseTime")
-                    .add("EndTime")
-                    .add("DbName")
-                    .add("TableName")
-                    .add("State")
-                    .add("DataSourceType")
-                    .add("CurrentTaskNum")
-                    .add("JobProperties")
-                    .add("DataSourceProperties")
-                    .add("CustomProperties")
-                    .add("Statistic")
-                    .add("Progress")
-                    .add("Lag")
-                    .add("ReasonOfStateChanged")
-                    .add("ErrorLogUrls")
-                    .add("OtherMsg")
-                    .build();
+        new ImmutableList.Builder<String>()
+            .add("Id")
+            .add("Name")
+            .add("CreateTime")
+            .add("PauseTime")
+            .add("EndTime")
+            .add("DbName")
+            .add("TableName")
+            .add("State")
+            .add("DataSourceType")
+            .add("CurrentTaskNum")
+            .add("JobProperties")
+            .add("DataSourceProperties")
+            .add("CustomProperties")
+            .add("Statistic")
+            .add("Progress")
+            .add("Lag")
+            .add("ReasonOfStateChanged")
+            .add("ErrorLogUrls")
+            .add("OtherMsg")
+            .build();
 
     private final LabelName labelName;
     private String dbFullName; // optional

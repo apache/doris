@@ -79,7 +79,7 @@ public class HashDistributionDesc extends DistributionDesc {
                 if (columnDef.getName().equals(columnName)) {
                     if (columnDef.getType().isScalarType(PrimitiveType.STRING)) {
                         throw new AnalysisException("String Type should not be used in distribution column["
-                                + columnDef.getName() + "].");
+                            + columnDef.getName() + "].");
                     }
                 }
             }
@@ -111,7 +111,7 @@ public class HashDistributionDesc extends DistributionDesc {
     @Override
     public DistributionInfo toDistributionInfo(List<Column> columns) throws DdlException {
         List<Column> distributionColumns = Lists.newArrayList();
-        
+
         // check and get distribution column
         for (String colName : distributionColumnNames) {
             boolean find = false;

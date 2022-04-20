@@ -71,11 +71,11 @@ public class LinkDbStmt extends DdlStmt {
 
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "ADMIN");
+                "ADMIN");
         }
 
         if (Strings.isNullOrEmpty(src.getCluster()) || Strings.isNullOrEmpty(dest.getCluster())
-                || Strings.isNullOrEmpty(src.getDb()) || Strings.isNullOrEmpty(dest.getDb())) {
+            || Strings.isNullOrEmpty(src.getDb()) || Strings.isNullOrEmpty(dest.getDb())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_PARAMETER);
         }
         srcCluster = src.getCluster();

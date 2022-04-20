@@ -32,9 +32,9 @@ import java.util.Map;
 
 public class BackendProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("RootPath").add("DataUsedCapacity").add("OtherUsedCapacity").add("AvailCapacity")
-            .add("TotalCapacity").add("TotalUsedPct").add("State").add("PathHash")
-            .build();
+        .add("RootPath").add("DataUsedCapacity").add("OtherUsedCapacity").add("AvailCapacity")
+        .add("TotalCapacity").add("TotalUsedPct").add("State").add("PathHash")
+        .build();
 
     private Backend backend;
 
@@ -52,13 +52,13 @@ public class BackendProcNode implements ProcNodeInterface {
         for (Map.Entry<String, DiskInfo> entry : backend.getDisks().entrySet()) {
             List<String> info = Lists.newArrayList();
             info.add(entry.getKey());
-            
+
             // data used
             long dataUsedB = entry.getValue().getDataUsedCapacityB();
             Pair<Double, String> dataUsedUnitPair = DebugUtil.getByteUint(dataUsedB);
             info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(dataUsedUnitPair.first) + " "
-                    + dataUsedUnitPair.second);
-            
+                + dataUsedUnitPair.second);
+
             // avail
             long availB = entry.getValue().getAvailableCapacityB();
             Pair<Double, String> availUnitPair = DebugUtil.getByteUint(availB);
@@ -71,7 +71,7 @@ public class BackendProcNode implements ProcNodeInterface {
 
             info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(otherUnitPair.first) + " " + otherUnitPair.second);
             info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(availUnitPair.first) + " " + availUnitPair.second);
-            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalUnitPair.first) + " "  + totalUnitPair.second);
+            info.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalUnitPair.first) + " " + totalUnitPair.second);
 
             // total used percent
             double used = 0.0;

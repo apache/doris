@@ -21,12 +21,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+
+import com.google.gson.annotations.SerializedName;
 
 // Persist the info when removing batch of expired txns
 public class ModifyCommentOperationLog implements Writable {
@@ -47,7 +47,8 @@ public class ModifyCommentOperationLog implements Writable {
     @SerializedName(value = "tblComment")
     private String tblComment;
 
-    private ModifyCommentOperationLog(Type type, long dbId, long tblId, Map<String, String> colToComment, String tblComment) {
+    private ModifyCommentOperationLog(Type type, long dbId, long tblId, Map<String, String> colToComment,
+                                      String tblComment) {
         this.type = type;
         this.dbId = dbId;
         this.tblId = tblId;

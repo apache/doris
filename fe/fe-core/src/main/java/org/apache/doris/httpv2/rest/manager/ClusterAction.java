@@ -47,13 +47,13 @@ public class ClusterAction extends RestBaseController {
 
     // Returns mysql and http connection information for the cluster.
     // {
-    //		"mysql":[
-    //			""
-    //		],
-    //		"http":[
-    //			""
-    //		]
-    //	}
+    //    "mysql":[
+    //      ""
+    //    ],
+    //    "http":[
+    //      ""
+    //    ]
+    //  }
     @RequestMapping(path = "/cluster_info/conn_info", method = RequestMethod.GET)
     public Object clusterInfo(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
@@ -61,9 +61,9 @@ public class ClusterAction extends RestBaseController {
 
         Map<String, List<String>> result = Maps.newHashMap();
         List<String> frontends = Catalog.getCurrentCatalog().getFrontends(null)
-                .stream().filter(Frontend::isAlive)
-                .map(Frontend::getHost)
-                .collect(Collectors.toList());
+            .stream().filter(Frontend::isAlive)
+            .map(Frontend::getHost)
+            .collect(Collectors.toList());
 
         result.put("mysql", frontends.stream().map(ip -> ip + ":" + Config.query_port).collect(Collectors.toList()));
         result.put("http", frontends.stream().map(ip -> ip + ":" + Config.http_port).collect(Collectors.toList()));

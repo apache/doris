@@ -65,9 +65,11 @@ public class AlterJobV2Test {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
-        createTable("CREATE TABLE test.schema_change_test(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
+        createTable(
+            "CREATE TABLE test.schema_change_test(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
-        createTable("CREATE TABLE test.segmentv2(k1 int, k2 int, v1 int sum) distributed by hash(k1) buckets 3 properties('replication_num' = '1', 'storage_format' = 'v1');");
+        createTable(
+            "CREATE TABLE test.segmentv2(k1 int, k2 int, v1 int sum) distributed by hash(k1) buckets 3 properties('replication_num' = '1', 'storage_format' = 'v1');");
     }
 
     @AfterClass
@@ -97,7 +99,8 @@ public class AlterJobV2Test {
         waitAlterJobDone(alterJobs);
         // 3. check show alter table column
         String showAlterStmtStr = "show alter table column from test;";
-        ShowAlterStmt showAlterStmt = (ShowAlterStmt) UtFrameUtils.parseAndAnalyzeStmt(showAlterStmtStr, connectContext);
+        ShowAlterStmt showAlterStmt =
+            (ShowAlterStmt) UtFrameUtils.parseAndAnalyzeStmt(showAlterStmtStr, connectContext);
         ShowExecutor showExecutor = new ShowExecutor(connectContext, showAlterStmt);
         ShowResultSet showResultSet = showExecutor.execute();
         System.out.println(showResultSet.getMetaData());
@@ -107,7 +110,8 @@ public class AlterJobV2Test {
     private void waitAlterJobDone(Map<Long, AlterJobV2> alterJobs) throws Exception {
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
-                System.out.println("alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
+                System.out.println(
+                    "alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(1000);
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
@@ -132,13 +136,14 @@ public class AlterJobV2Test {
         waitAlterJobDone(alterJobs);
         // 3. check show alter table column
         String showAlterStmtStr = "show alter table rollup from test;";
-        ShowAlterStmt showAlterStmt = (ShowAlterStmt) UtFrameUtils.parseAndAnalyzeStmt(showAlterStmtStr, connectContext);
+        ShowAlterStmt showAlterStmt =
+            (ShowAlterStmt) UtFrameUtils.parseAndAnalyzeStmt(showAlterStmtStr, connectContext);
         ShowExecutor showExecutor = new ShowExecutor(connectContext, showAlterStmt);
         ShowResultSet showResultSet = showExecutor.execute();
         System.out.println(showResultSet.getMetaData());
         System.out.println(showResultSet.getResultRows());
     }
-    
+
     @Test
     @Deprecated
     public void testAlterSegmentV2() throws Exception {
@@ -196,25 +201,26 @@ public class AlterJobV2Test {
     public void testDupTableSchemaChange() throws Exception {
 
         createTable("CREATE TABLE test.dup_table (\n" +
-                "  k1 bigint(20) NULL ,\n" +
-                "  k2 bigint(20) NULL ,\n" +
-                "  k3 bigint(20) NULL,\n" +
-                "  v1 bigint(20) NULL ,\n" +
-                "  v2 varchar(1) NULL,\n" +
-                "  v3 varchar(1) NULL \n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(k1, k2, k3)\n" +
-                "PARTITION BY RANGE(k1, v1)\n" +
-                "(PARTITION p1 VALUES LESS THAN (\"10\", \"10\"))\n" +
-                "DISTRIBUTED BY HASH(v1,k2) BUCKETS 10\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");");
+            "  k1 bigint(20) NULL ,\n" +
+            "  k2 bigint(20) NULL ,\n" +
+            "  k3 bigint(20) NULL,\n" +
+            "  v1 bigint(20) NULL ,\n" +
+            "  v2 varchar(1) NULL,\n" +
+            "  v3 varchar(1) NULL \n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(k1, k2, k3)\n" +
+            "PARTITION BY RANGE(k1, v1)\n" +
+            "(PARTITION p1 VALUES LESS THAN (\"10\", \"10\"))\n" +
+            "DISTRIBUTED BY HASH(v1,k2) BUCKETS 10\n" +
+            "PROPERTIES (\n" +
+            "\"replication_num\" = \"1\"\n" +
+            ");");
 
 
         alterTable("alter table test.dup_table add rollup r1(v1,v2,k2,k1);");
         Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
-        ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table modify column v2 varchar(2);"));
+        ExceptionChecker.expectThrowsNoException(
+            () -> alterTable("alter table test.dup_table modify column v2 varchar(2);"));
     }
 }

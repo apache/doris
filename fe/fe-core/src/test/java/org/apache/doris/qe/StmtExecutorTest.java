@@ -248,7 +248,8 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testShow(@Mocked ShowStmt showStmt, @Mocked SqlParser parser, @Mocked ShowExecutor executor) throws Exception {
+    public void testShow(@Mocked ShowStmt showStmt, @Mocked SqlParser parser, @Mocked ShowExecutor executor)
+        throws Exception {
         new Expectations() {
             {
                 showStmt.analyze((Analyzer) any);
@@ -283,7 +284,8 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testShowNull(@Mocked ShowStmt showStmt, @Mocked SqlParser parser, @Mocked ShowExecutor executor) throws Exception {
+    public void testShowNull(@Mocked ShowStmt showStmt, @Mocked SqlParser parser, @Mocked ShowExecutor executor)
+        throws Exception {
         new Expectations() {
             {
                 showStmt.analyze((Analyzer) any);
@@ -354,7 +356,8 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testKillOtherFail(@Mocked KillStmt killStmt, @Mocked SqlParser parser, @Mocked ConnectContext killCtx) throws Exception {
+    public void testKillOtherFail(@Mocked KillStmt killStmt, @Mocked SqlParser parser, @Mocked ConnectContext killCtx)
+        throws Exception {
         Catalog killCatalog = AccessTestUtil.fetchAdminCatalog();
 
         new Expectations() {
@@ -411,7 +414,8 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testKillOther(@Mocked KillStmt killStmt, @Mocked SqlParser parser, @Mocked ConnectContext killCtx) throws Exception {
+    public void testKillOther(@Mocked KillStmt killStmt, @Mocked SqlParser parser, @Mocked ConnectContext killCtx)
+        throws Exception {
         Catalog killCatalog = AccessTestUtil.fetchAdminCatalog();
         new Expectations() {
             {
@@ -502,7 +506,8 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testSet(@Mocked SetStmt setStmt, @Mocked SqlParser parser, @Mocked SetExecutor executor) throws Exception {
+    public void testSet(@Mocked SetStmt setStmt, @Mocked SqlParser parser, @Mocked SetExecutor executor)
+        throws Exception {
         new Expectations() {
             {
                 setStmt.analyze((Analyzer) any);
@@ -535,12 +540,13 @@ public class StmtExecutorTest {
         Deencapsulation.setField(stmtExecutor, "parsedStmt", null);
         Deencapsulation.setField(stmtExecutor, "originStmt", new OriginStatement("show databases;", 1));
         stmtExecutor.execute();
-        StatementBase newstmt = (StatementBase)Deencapsulation.getField(stmtExecutor, "parsedStmt");
+        StatementBase newstmt = (StatementBase) Deencapsulation.getField(stmtExecutor, "parsedStmt");
         Assert.assertTrue(newstmt.getUserInfo() != null);
     }
 
     @Test
-    public void testSetFail(@Mocked SetStmt setStmt, @Mocked SqlParser parser, @Mocked SetExecutor executor) throws Exception {
+    public void testSetFail(@Mocked SetStmt setStmt, @Mocked SqlParser parser, @Mocked SetExecutor executor)
+        throws Exception {
         new Expectations() {
             {
                 setStmt.analyze((Analyzer) any);

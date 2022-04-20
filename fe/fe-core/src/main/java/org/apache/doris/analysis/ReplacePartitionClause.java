@@ -38,7 +38,7 @@ public class ReplacePartitionClause extends AlterTableClause {
     // "isStrictMode" is got from property "strict_range", and default is true.
     // If true, when replacing partition, the range of partitions must same as the range of temp partitions.
     private boolean isStrictRange;
-    
+
     // "useTempPartitionName" is got from property "use_temp_partition_name", and default is false.
     // If false, after replacing, the replaced partition's name will remain unchanged.
     // Otherwise, the replaced partition's name will be the temp partitions name.
@@ -53,7 +53,7 @@ public class ReplacePartitionClause extends AlterTableClause {
     private boolean useTempPartitionName;
 
     public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
-            Map<String, String> properties) {
+                                  Map<String, String> properties) {
         super(AlterOpType.REPLACE_PARTITION);
         this.partitionNames = partitionNames;
         this.tempPartitionNames = tempPartitionNames;
@@ -90,9 +90,10 @@ public class ReplacePartitionClause extends AlterTableClause {
             throw new AnalysisException("Only support replace partitions with temp partitions");
         }
 
-        this.isStrictRange = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_STRICT_RANGE, true);
+        this.isStrictRange =
+            PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_STRICT_RANGE, true);
         this.useTempPartitionName = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, false);
+            PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, false);
 
         if (properties != null && !properties.isEmpty()) {
             throw new AnalysisException("Unknown properties: " + properties.keySet());

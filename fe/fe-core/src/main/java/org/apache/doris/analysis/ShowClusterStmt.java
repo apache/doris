@@ -59,9 +59,9 @@ public class ShowClusterStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                                                                   PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                                                  PaloPrivilege.NODE_PRIV),
-                                                                                    Operator.OR))) {
+            PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                    PaloPrivilege.NODE_PRIV),
+                Operator.OR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }

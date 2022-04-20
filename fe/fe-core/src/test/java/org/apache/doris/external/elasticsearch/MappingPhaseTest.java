@@ -79,11 +79,11 @@ public class MappingPhaseTest extends EsTestCase {
         SearchContext searchContext = new SearchContext(table);
         // type not exists
         ExceptionChecker.expectThrows(DorisEsException.class,
-                () -> mappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json")));
+            () -> mappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json")));
     }
 
     @Test
-    public void testWorkFlow(@Injectable EsRestClient client) throws Exception{
+    public void testWorkFlow(@Injectable EsRestClient client) throws Exception {
         EsTable table = fakeEsTable("fake", "test", "doc", columns);
         SearchContext searchContext1 = new SearchContext(table);
         String jsonMapping = loadJsonFromFile("data/es/test_index_mapping.json");
@@ -109,7 +109,8 @@ public class MappingPhaseTest extends EsTestCase {
         MappingPhase mappingPhase = new MappingPhase(null);
         EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
         SearchContext searchContext = new SearchContext(esTableAfter7X);
-        mappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping_field_mult_analyzer.json"));
+        mappingPhase.resolveFields(searchContext,
+            loadJsonFromFile("data/es/test_index_mapping_field_mult_analyzer.json"));
         assertFalse(searchContext.docValueFieldsContext().containsKey("k3"));
 
     }

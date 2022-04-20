@@ -67,13 +67,13 @@ import java.util.concurrent.TimeUnit;
 /**
  * This rule replaces a constant Expr with its equivalent LiteralExpr by evaluating the
  * Expr in the BE. Exprs that are already LiteralExprs are not changed.
- *
+ * <p>
  * TODO: Expressions fed into this rule are currently not required to be analyzed
  * in order to support constant folding in expressions that contain unresolved
  * references to select-list aliases (such expressions cannot be analyzed).
  * The cross-dependencies between rule transformations and analysis are vague at the
  * moment and make rule application overly complicated.
- *
+ * <p>
  * Examples:
  * 1 + 1 + 1 --> 3
  * toupper('abc') --> 'ABC'
@@ -128,13 +128,14 @@ public class FoldConstantsRule implements ExprRewriteRule {
     /**
      * fold constant expr by BE
      * SysVariableDesc and InformationFunction need handling specially
+     *
      * @param exprMap
      * @param analyzer
      * @return
      * @throws AnalysisException
      */
     public boolean apply(Map<String, Expr> exprMap, Analyzer analyzer, boolean changed)
-            throws AnalysisException {
+        throws AnalysisException {
         // root_expr_id_string:
         //     child_expr_id_string : texpr
         //     child_expr_id_string : texpr
@@ -144,7 +145,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         Map<String, Map<String, Expr>> sysVarsMap = new HashMap<>();
         // map to collect InformationFunction
         Map<String, Map<String, Expr>> infoFnsMap = new HashMap<>();
-        for (Map.Entry<String, Expr> entry : exprMap.entrySet()){
+        for (Map.Entry<String, Expr> entry : exprMap.entrySet()) {
             Map<String, TExpr> constMap = new HashMap<>();
             Map<String, Expr> oriConstMap = new HashMap<>();
             Map<String, Expr> sysVarMap = new HashMap<>();
@@ -188,15 +189,16 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
     /**
      * get all constant children expr from a expr
+     *
      * @param expr
      * @param constExprMap
      * @param analyzer
      * @throws AnalysisException
      */
     // public only for unit test
-    public void getConstExpr(Expr expr, Map<String,TExpr> constExprMap, Map<String, Expr> oriConstMap,
-                              Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
-            throws AnalysisException {
+    public void getConstExpr(Expr expr, Map<String, TExpr> constExprMap, Map<String, Expr> oriConstMap,
+                             Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
+        throws AnalysisException {
         if (expr.isConstant()) {
             // Do not constant fold cast(null as dataType) because we cannot preserve the
             // cast-to-types and that can lead to query failures, e.g., CTAS
@@ -232,9 +234,10 @@ public class FoldConstantsRule implements ExprRewriteRule {
         }
     }
 
-    private void recursiveGetChildrenConstExpr(Expr expr, Map<String,TExpr> constExprMap, Map<String, Expr> oriConstMap,
+    private void recursiveGetChildrenConstExpr(Expr expr, Map<String, TExpr> constExprMap,
+                                               Map<String, Expr> oriConstMap,
                                                Analyzer analyzer, Map<String, Expr> sysVarMap,
-                                               Map<String, Expr> infoFnMap)throws AnalysisException {
+                                               Map<String, Expr> infoFnMap) throws AnalysisException {
         for (int i = 0; i < expr.getChildren().size(); i++) {
             final Expr child = expr.getChildren().get(i);
             getConstExpr(child, constExprMap, oriConstMap, analyzer, sysVarMap, infoFnMap);
@@ -288,6 +291,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
     /**
      * put all rewritten expr back to ori expr map
+     *
      * @param exprMap
      * @param resultMap
      */
@@ -310,6 +314,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
     /**
      * find and replace constant child expr of a expr by literal expr
+     *
      * @param expr
      * @param key
      * @param literalExpr
@@ -333,6 +338,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
     /**
      * calc all constant exprs by BE
+     *
      * @param map
      * @param context
      * @return
@@ -363,19 +369,22 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
             TFoldConstantParams tParams = new TFoldConstantParams(map, queryGlobals);
             tParams.setVecExec(VectorizedUtil.isVectorized());
-            
-            Future<InternalService.PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
+
+            Future<InternalService.PConstantExprResult> future =
+                BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
             InternalService.PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
 
             if (result.getStatus().getStatusCode() == 0) {
-                for (Map.Entry<String, InternalService.PExprResultMap> entry : result.getExprResultMapMap().entrySet()) {
+                for (Map.Entry<String, InternalService.PExprResultMap> entry : result.getExprResultMapMap()
+                    .entrySet()) {
                     Map<String, Expr> tmp = new HashMap<>();
-                    for (Map.Entry<String, InternalService.PExprResult> entry1 : entry.getValue().getMapMap().entrySet()) {
+                    for (Map.Entry<String, InternalService.PExprResult> entry1 : entry.getValue().getMapMap()
+                        .entrySet()) {
                         TPrimitiveType type = TPrimitiveType.findByValue(entry1.getValue().getType().getType());
                         Expr retExpr = null;
                         if (entry1.getValue().getSuccess()) {
                             retExpr = LiteralExpr.create(entry1.getValue().getContent(),
-                                    Type.fromPrimitiveType(PrimitiveType.fromThrift(type)));
+                                Type.fromPrimitiveType(PrimitiveType.fromThrift(type)));
                         } else {
                             retExpr = allConstMap.get(entry1.getKey());
                         }

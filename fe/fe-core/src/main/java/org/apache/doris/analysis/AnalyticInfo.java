@@ -54,7 +54,7 @@ public final class AnalyticInfo extends AggregateInfoBase {
         super(new ArrayList<Expr>(), new ArrayList<FunctionCallExpr>());
         this.analyticExprs = Expr.cloneList(analyticExprs);
         // Extract the analytic function calls for each analytic expr.
-        for (Expr analyticExpr: analyticExprs) {
+        for (Expr analyticExpr : analyticExprs) {
             aggregateExprs.add(((AnalyticExpr) analyticExpr).getFnCall());
         }
         analyticTupleSmap = new ExprSubstitutionMap();
@@ -67,14 +67,22 @@ public final class AnalyticInfo extends AggregateInfoBase {
     private AnalyticInfo(AnalyticInfo other) {
         super(other);
         analyticExprs =
-                (other.analyticExprs != null) ? Expr.cloneList(other.analyticExprs) : null;
+            (other.analyticExprs != null) ? Expr.cloneList(other.analyticExprs) : null;
         analyticTupleSmap = other.analyticTupleSmap.clone();
         commonPartitionExprs = Expr.cloneList(other.commonPartitionExprs);
     }
 
-    public ArrayList<Expr> getAnalyticExprs() { return analyticExprs; }
-    public ExprSubstitutionMap getSmap() { return analyticTupleSmap; }
-    public List<Expr> getCommonPartitionExprs() { return commonPartitionExprs; }
+    public ArrayList<Expr> getAnalyticExprs() {
+        return analyticExprs;
+    }
+
+    public ExprSubstitutionMap getSmap() {
+        return analyticTupleSmap;
+    }
+
+    public List<Expr> getCommonPartitionExprs() {
+        return commonPartitionExprs;
+    }
 
     /**
      * Creates complete AnalyticInfo for analyticExprs, including tuple descriptors and
@@ -96,7 +104,7 @@ public final class AnalyticInfo extends AggregateInfoBase {
         Preconditions.checkState(analyticExprs.size() == result.outputTupleDesc.getSlots().size());
         for (int i = 0; i < analyticExprs.size(); ++i) {
             result.analyticTupleSmap.put(result.analyticExprs.get(i),
-                    new SlotRef(result.outputTupleDesc.getSlots().get(i)));
+                new SlotRef(result.outputTupleDesc.getSlots().get(i)));
             result.outputTupleDesc.getSlots().get(i).setSourceExpr(result.analyticExprs.get(i));
         }
 
@@ -114,15 +122,19 @@ public final class AnalyticInfo extends AggregateInfoBase {
      */
     private List<Expr> computeCommonPartitionExprs() {
         List<Expr> result = Lists.newArrayList();
-        for (Expr analyticExpr: analyticExprs) {
+        for (Expr analyticExpr : analyticExprs) {
             Preconditions.checkState(analyticExpr.isAnalyzed());
             List<Expr> partitionExprs = ((AnalyticExpr) analyticExpr).getPartitionExprs();
-            if (partitionExprs == null) continue;
+            if (partitionExprs == null) {
+                continue;
+            }
             if (result.isEmpty()) {
                 result.addAll(partitionExprs);
             } else {
                 result.retainAll(partitionExprs);
-                if (result.isEmpty()) break;
+                if (result.isEmpty()) {
+                    break;
+                }
             }
         }
         return result;
@@ -134,7 +146,9 @@ public final class AnalyticInfo extends AggregateInfoBase {
         List<Expr> exprs = Lists.newArrayList();
         for (int i = 0; i < analyticExprs.size(); ++i) {
             SlotDescriptor outputSlotDesc = outputTupleDesc.getSlots().get(i);
-            if (!outputSlotDesc.isMaterialized()) continue;
+            if (!outputSlotDesc.isMaterialized()) {
+                continue;
+            }
             intermediateTupleDesc.getSlots().get(i).setIsMaterialized(true);
             exprs.add(analyticExprs.get(i));
             materializedSlots.add(i);
@@ -154,11 +168,13 @@ public final class AnalyticInfo extends AggregateInfoBase {
 
         // Check materialized slots.
         int numMaterializedSlots = 0;
-        for (SlotDescriptor slotDesc: slots) {
-            if (slotDesc.isMaterialized()) ++numMaterializedSlots;
+        for (SlotDescriptor slotDesc : slots) {
+            if (slotDesc.isMaterialized()) {
+                ++numMaterializedSlots;
+            }
         }
         Preconditions.checkState(numMaterializedSlots ==
-                materializedSlots.size());
+            materializedSlots.size());
 
         // Check that analytic expr return types match the slot descriptors.
         int slotIdx = 0;
@@ -166,9 +182,9 @@ public final class AnalyticInfo extends AggregateInfoBase {
             Expr analyticExpr = analyticExprs.get(i);
             Type slotType = slots.get(slotIdx).getType();
             Preconditions.checkState(analyticExpr.getType().equals(slotType),
-                    String.format("Analytic expr %s returns type %s but its analytic tuple " +
-                                    "slot has type %s", analyticExpr.toSql(),
-                            analyticExpr.getType().toString(), slotType.toString()));
+                String.format("Analytic expr %s returns type %s but its analytic tuple " +
+                        "slot has type %s", analyticExpr.toSql(),
+                    analyticExpr.getType().toString(), slotType.toString()));
             ++slotIdx;
         }
     }
@@ -177,15 +193,19 @@ public final class AnalyticInfo extends AggregateInfoBase {
     public String debugString() {
         StringBuilder out = new StringBuilder(super.debugString());
         out.append(MoreObjects.toStringHelper(this)
-                .add("analytic_exprs", Expr.debugString(analyticExprs))
-                .add("smap", analyticTupleSmap.debugString())
-                .toString());
+            .add("analytic_exprs", Expr.debugString(analyticExprs))
+            .add("smap", analyticTupleSmap.debugString())
+            .toString());
         return out.toString();
     }
 
     @Override
-    protected String tupleDebugName() { return "analytic-tuple"; }
+    protected String tupleDebugName() {
+        return "analytic-tuple";
+    }
 
     @Override
-    public AnalyticInfo clone() { return new AnalyticInfo(this); }
+    public AnalyticInfo clone() {
+        return new AnalyticInfo(this);
+    }
 }

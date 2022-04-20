@@ -60,8 +60,8 @@ public class ResourceMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(ResourceMgr.class);
 
     public static final ImmutableList<String> RESOURCE_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Name").add("ResourceType").add("Item").add("Value")
-            .build();
+        .add("Name").add("ResourceType").add("Item").add("Value")
+        .build();
 
     // { resourceName -> Resource}
     @SerializedName(value = "nameToResource")
@@ -73,8 +73,8 @@ public class ResourceMgr implements Writable {
 
     public void createResource(CreateResourceStmt stmt) throws DdlException {
         if (stmt.getResourceType() != ResourceType.SPARK
-                && stmt.getResourceType() != ResourceType.ODBC_CATALOG
-                && stmt.getResourceType() != ResourceType.S3) {
+            && stmt.getResourceType() != ResourceType.ODBC_CATALOG
+            && stmt.getResourceType() != ResourceType.S3) {
             throw new DdlException("Only support SPARK, ODBC_CATALOG and REMOTE_STORAGE resource.");
         }
         Resource resource = Resource.fromStmt(stmt);
@@ -245,7 +245,7 @@ public class ResourceMgr implements Writable {
                 Resource resource = entry.getValue();
                 // check resource privs
                 if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(), resource.getName(),
-                                                                             PrivPredicate.SHOW)) {
+                    PrivPredicate.SHOW)) {
                     continue;
                 }
                 resource.getProcNodeData(result);

@@ -40,8 +40,8 @@ import java.util.List;
  */
 public class IndicesProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("IndexId").add("IndexName").add("State").add("LastConsistencyCheckTime")
-            .build();
+        .add("IndexId").add("IndexName").add("State").add("LastConsistencyCheckTime")
+        .build();
 
     private Database db;
     private OlapTable olapTable;
@@ -105,14 +105,14 @@ public class IndicesProcDir implements ProcDirInterface {
         if (Strings.isNullOrEmpty(indexIdStr)) {
             throw new AnalysisException("Index id is null");
         }
-        
+
         long indexId;
         try {
             indexId = Long.valueOf(indexIdStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid index id format: " + indexIdStr);
         }
-        
+
         olapTable.readLock();
         try {
             MaterializedIndex materializedIndex = partition.getIndex(indexId);

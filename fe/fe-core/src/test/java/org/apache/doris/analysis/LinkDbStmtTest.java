@@ -55,7 +55,7 @@ public class LinkDbStmtTest {
         stmt.analyze(analyzer);
 
         Assert.assertEquals("LINK DATABASE " + stmt.getSrcCluster() + "." + stmt.getSrcDb()
-                + " " + stmt.getDestCluster() + "." + stmt.getDestDb(), stmt.toString());
+            + " " + stmt.getDestCluster() + "." + stmt.getDestDb(), stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

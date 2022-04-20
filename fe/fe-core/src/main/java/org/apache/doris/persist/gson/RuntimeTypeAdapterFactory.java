@@ -19,6 +19,10 @@
 
 package org.apache.doris.persist.gson;
 
+import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -31,15 +35,11 @@ import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
-import java.io.IOException;
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 /**
  * Adapts values whose runtime type may differ from their declaration type. This
  * is necessary when a field's type is not the same type that GSON should create
  * when deserializing that field. For example, consider these types:
- * 
+ *
  * <pre>
  * {
  *     &#64;code
@@ -67,7 +67,7 @@ import java.util.Map;
  * <p>
  * Without additional type information, the serialized JSON is ambiguous. Is
  * the bottom shape in this drawing a rectangle or a diamond?
- * 
+ *
  * <pre>
  *    {@code
  *   {
@@ -84,11 +84,11 @@ import java.util.Map;
  *     }
  *   }}
  * </pre>
- * 
+ * <p>
  * This class addresses this problem by adding type information to the
  * serialized JSON and honoring that type information when the JSON is
  * deserialized:
- * 
+ *
  * <pre>
  *    {@code
  *   {
@@ -107,7 +107,7 @@ import java.util.Map;
  *     }
  *   }}
  * </pre>
- * 
+ * <p>
  * Both the type field name ({@code "type"}) and the type labels ({@code
  * "Rectangle"}) are configurable.
  *
@@ -116,18 +116,18 @@ import java.util.Map;
  * field
  * name to the {@link #of} factory method. If you don't supply an explicit type
  * field name, {@code "type"} will be used.
- * 
+ *
  * <pre>
  * {
  *     &#64;code
  *     RuntimeTypeAdapterFactory<Shape> shapeAdapterFactory = RuntimeTypeAdapterFactory.of(Shape.class, "type");
  * }
  * </pre>
- * 
+ * <p>
  * Next register all of your subtypes. Every subtype must be explicitly
  * registered. This protects your application from injection attacks. If you
  * don't supply an explicit type label, the type's simple name will be used.
- * 
+ *
  * <pre>
  *    {@code
  *   shapeAdapterFactory.registerSubtype(Rectangle.class, "Rectangle");
@@ -135,19 +135,19 @@ import java.util.Map;
  *   shapeAdapterFactory.registerSubtype(Diamond.class, "Diamond");
  * }
  * </pre>
- * 
+ * <p>
  * Finally, register the type adapter factory in your application's GSON
  * builder:
- * 
+ *
  * <pre>
  * {
  *     &#64;code
  *     Gson gson = new GsonBuilder().registerTypeAdapterFactory(shapeAdapterFactory).create();
  * }
  * </pre>
- * 
+ * <p>
  * Like {@code GsonBuilder}, this API supports chaining:
- * 
+ *
  * <pre>
  * {
  *     &#64;code
@@ -159,7 +159,7 @@ import java.util.Map;
  * <h3>Serialization and deserialization</h3>
  * In order to serialize and deserialize a polymorphic object,
  * you must specify the base type explicitly.
- * 
+ *
  * <pre>
  * {
  *     &#64;code
@@ -167,9 +167,9 @@ import java.util.Map;
  *     String json = gson.toJson(diamond, Shape.class);
  * }
  * </pre>
- * 
+ * <p>
  * And then:
- * 
+ *
  * <pre>
  * {
  *     &#64;code
@@ -223,9 +223,8 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
      * Registers {@code type} identified by {@code label}. Labels are case
      * sensitive.
      *
-     * @throws IllegalArgumentException
-     *             if either {@code type} or {@code label}
-     *             have already been registered on this type adapter.
+     * @throws IllegalArgumentException if either {@code type} or {@code label}
+     *                                  have already been registered on this type adapter.
      */
     public RuntimeTypeAdapterFactory<T> registerSubtype(Class<? extends T> type, String label) {
         if (type == null || label == null) {
@@ -243,9 +242,8 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
      * Registers {@code type} identified by its {@link Class#getSimpleName simple
      * name}. Labels are case sensitive.
      *
-     * @throws IllegalArgumentException
-     *             if either {@code type} or its simple name
-     *             have already been registered on this type adapter.
+     * @throws IllegalArgumentException if either {@code type} or its simple name
+     *                                  have already been registered on this type adapter.
      */
     public RuntimeTypeAdapterFactory<T> registerSubtype(Class<? extends T> type) {
         return registerSubtype(type, type.getSimpleName());
@@ -277,14 +275,14 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
 
                 if (labelJsonElement == null) {
                     throw new JsonParseException("cannot deserialize " + baseType
-                            + " because it does not define a field named " + typeFieldName);
+                        + " because it does not define a field named " + typeFieldName);
                 }
                 String label = labelJsonElement.getAsString();
                 @SuppressWarnings("unchecked") // registration requires that subtype extends T
                 TypeAdapter<R> delegate = (TypeAdapter<R>) labelToDelegate.get(label);
                 if (delegate == null) {
                     throw new JsonParseException("cannot deserialize " + baseType + " subtype named " + label
-                            + "; did you forget to register a subtype?");
+                        + "; did you forget to register a subtype?");
                 }
                 return delegate.fromJsonTree(jsonElement);
             }
@@ -297,7 +295,7 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
                 TypeAdapter<R> delegate = (TypeAdapter<R>) subtypeToDelegate.get(srcType);
                 if (delegate == null) {
                     throw new JsonParseException(
-                            "cannot serialize " + srcType.getName() + "; did you forget to register a subtype?");
+                        "cannot serialize " + srcType.getName() + "; did you forget to register a subtype?");
                 }
                 JsonObject jsonObject = delegate.toJsonTree(value).getAsJsonObject();
 
@@ -310,7 +308,7 @@ public final class RuntimeTypeAdapterFactory<T> implements TypeAdapterFactory {
 
                 if (jsonObject.has(typeFieldName)) {
                     throw new JsonParseException("cannot serialize " + srcType.getName()
-                            + " because it already defines a field named " + typeFieldName);
+                        + " because it already defines a field named " + typeFieldName);
                 }
                 clone.add(typeFieldName, new JsonPrimitive(label));
 

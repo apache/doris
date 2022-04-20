@@ -59,11 +59,11 @@ public class DppConfigTest {
         configMap.put("hadoop_palo_path", "/user/palo2");
         configMap.put("hadoop_http_port", "1234");
         configMap.put("hadoop_configs", "mapred.job.tracker=127.0.0.1:111;fs.default.name=hdfs://127.0.0.1:112;"
-                        + "hadoop.job.ugi=user,password;mapred.job.priority=NORMAL");
+            + "hadoop.job.ugi=user,password;mapred.job.priority=NORMAL");
         DppConfig dppConfig = DppConfig.create(configMap);
 
         Assert.assertEquals(String.format("/user/palo2/%d/applications/%s", clusterId, FeConstants.dpp_version),
-                dppConfig.getApplicationsPath());
+            dppConfig.getApplicationsPath());
         Assert.assertEquals(String.format("/user/palo2/%d/output", clusterId), dppConfig.getOutputPath());
         Assert.assertEquals("hdfs://127.0.0.1:112", dppConfig.getFsDefaultName());
         Assert.assertEquals("user,password", dppConfig.getHadoopJobUgiStr());
@@ -130,7 +130,7 @@ public class DppConfigTest {
         configMap.put("hadoop_palo_path", "/user/palo2");
         configMap.put("hadoop_http_port", "1234");
         configMap.put("hadoop_configs", "mapred.job.tracker=127.0.0.1:111;fs.default.name=hdfs://127.0.0.1:112;"
-                        + "hadoop.job.ugi=user,password;mapred.job.priority=NORMAL");
+            + "hadoop.job.ugi=user,password;mapred.job.priority=NORMAL");
         DppConfig dppConfig = DppConfig.create(configMap);
 
         File file = new File("./dppConfigTest");

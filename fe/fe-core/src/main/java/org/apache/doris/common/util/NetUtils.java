@@ -34,12 +34,13 @@ import java.util.List;
 public class NetUtils {
     private static final Logger LOG = LogManager.getLogger(NetUtils.class);
 
-    public static final String EDIT_LOG_PORT_SUGGESTION = "Please change the 'edit_log_port' in fe.conf and try again." +
+    public static final String EDIT_LOG_PORT_SUGGESTION =
+        "Please change the 'edit_log_port' in fe.conf and try again." +
             " But if this is not the first time your start this FE, please DO NOT change it. " +
             " You need to find the service that occupies the port and shut it down, and then return the port to Doris.";
     public static final String QUERY_PORT_SUGGESTION = "Please change the 'query_port' in fe.conf and try again.";
     public static final String HTTP_PORT_SUGGESTION = "Please change the 'http_port' in fe.conf and try again. " +
-            "But you need to make sure that ALL FEs http_port are same.";
+        "But you need to make sure that ALL FEs http_port are same.";
     public static final String RPC_PORT_SUGGESTION = "Please change the 'rpc_port' in fe.conf and try again.";
 
     // Target format is "host:port"

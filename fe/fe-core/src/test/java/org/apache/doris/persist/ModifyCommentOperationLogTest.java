@@ -16,10 +16,10 @@
 // under the License.
 package org.apache.doris.persist;
 
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Test;
-
-import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;

@@ -20,29 +20,30 @@ package org.apache.doris.external.elasticsearch;
 import org.codehaus.jackson.JsonParser;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.junit.Test;
+import org.junit.Assert;
 
 import java.util.HashMap;
 import java.util.Map;
 
-import static org.junit.Assert.assertEquals;
-
-public class EsNodeInfoTest  extends EsTestCase{
+public class EsNodeInfoTest extends EsTestCase {
 
     @Test
     public void parsePublishAddressTest() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
-        JsonParser jsonParser = mapper.getJsonFactory().createJsonParser(loadJsonFromFile("data/es/test_nodes_http.json"));
-        Map<String, Map<String, Object>> nodesData = (Map<String, Map<String, Object>>) mapper.readValue(jsonParser, Map.class).get("nodes");
+        JsonParser jsonParser =
+            mapper.getJsonFactory().createJsonParser(loadJsonFromFile("data/es/test_nodes_http.json"));
+        Map<String, Map<String, Object>> nodesData =
+            (Map<String, Map<String, Object>>) mapper.readValue(jsonParser, Map.class).get("nodes");
         Map<String, EsNodeInfo> nodesMap = new HashMap<>();
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
             EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue(), false);
             if ("node-A".equals(node.getName())) {
-                assertEquals("10.0.0.1", node.getPublishAddress().hostname);
-                assertEquals(8200, node.getPublishAddress().port);
+                Assert.assertEquals("10.0.0.1", node.getPublishAddress().hostname);
+                Assert.assertEquals(8200, node.getPublishAddress().port);
             }
             if ("node-B".equals(node.getName())) {
-                assertEquals("10.0.0.2", node.getPublishAddress().hostname);
-                assertEquals(8200, node.getPublishAddress().port);
+                Assert.assertEquals("10.0.0.2", node.getPublishAddress().hostname);
+                Assert.assertEquals(8200, node.getPublishAddress().port);
             }
         }
     }

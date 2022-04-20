@@ -20,12 +20,6 @@ package org.apache.doris.journal.bdbje;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 
-import com.sleepycat.bind.tuple.TupleBinding;
-import com.sleepycat.je.Database;
-import com.sleepycat.je.DatabaseEntry;
-import com.sleepycat.je.LockMode;
-import com.sleepycat.je.OperationStatus;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -33,9 +27,15 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.util.List;
 
+import com.sleepycat.bind.tuple.TupleBinding;
+import com.sleepycat.je.Database;
+import com.sleepycat.je.DatabaseEntry;
+import com.sleepycat.je.LockMode;
+import com.sleepycat.je.OperationStatus;
+
 public class BDBJournalCursor implements JournalCursor {
     private static final Logger LOG = LogManager.getLogger(BDBJournalCursor.class);
-    
+
     private long toKey;
     private long currentKey;
     private BDBEnvironment environment;
@@ -43,7 +43,7 @@ public class BDBJournalCursor implements JournalCursor {
     private Database database;
     private int nextDbPositionIndex;
     private final int maxTryTime = 3;
-    
+
     public static BDBJournalCursor getJournalCursor(BDBEnvironment env, long fromKey, long toKey) {
         if (toKey < fromKey || fromKey < 0) {
             System.out.println("Invalid key range!");
@@ -68,7 +68,7 @@ public class BDBJournalCursor implements JournalCursor {
             throw new NullPointerException("dbNames is null.");
         }
         this.nextDbPositionIndex = 0;
-        
+
         // find the db which may contain the fromKey
         String dbName = null;
         for (long db : dbNames) {
@@ -79,14 +79,14 @@ public class BDBJournalCursor implements JournalCursor {
                 break;
             }
         }
-        
+
         if (dbName == null) {
             LOG.error("Can not find the key:{}, fail to get journal cursor. will exit.", fromKey);
             System.exit(-1);
         }
         this.database = env.openDatabase(dbName);
     }
-    
+
     @Override
     public JournalEntity next() {
         JournalEntity ret = null;
@@ -97,7 +97,7 @@ public class BDBJournalCursor implements JournalCursor {
         DatabaseEntry theKey = new DatabaseEntry();
         TupleBinding<Long> myBinding = TupleBinding.getPrimitiveBinding(Long.class);
         myBinding.objectToEntry(key, theKey);
-        
+
         DatabaseEntry theData = new DatabaseEntry();
         // if current db does not contain any more data, then we go to search the next db
         try {
@@ -138,7 +138,7 @@ public class BDBJournalCursor implements JournalCursor {
                     // we will get NOTFOUND.
                     // So we simply throw a exception and let the replayer get the max id again.
                     throw new Exception(
-                            "Failed to find key " + currentKey + " in database " + database.getDatabaseName());
+                        "Failed to find key " + currentKey + " in database " + database.getDatabaseName());
                 } else {
                     LOG.error("fail to get journal {}, status: {}, will exit", currentKey, operationStatus);
                     System.exit(-1);
@@ -152,6 +152,6 @@ public class BDBJournalCursor implements JournalCursor {
 
     @Override
     public void close() {
-        
+
     }
 }

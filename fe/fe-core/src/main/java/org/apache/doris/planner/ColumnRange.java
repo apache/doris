@@ -17,22 +17,22 @@
 
 package org.apache.doris.planner;
 
-import java.util.List;
-import java.util.Optional;
-
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
 
+import java.util.List;
+import java.util.Optional;
+
 /**
  * There are two kinds of predicates for a column: `is null` predicate and other predicates that
  * the value of a column is not null, e.g., col=1, col>2, col in (1,2,3), etc.
- *
+ * <p>
  * This can represent both conjunctive and disjunctive predicates for a column.
- *
+ * <p>
  * The meaning of the predicates is: `conjunctiveIsNull` AND (`rangeSet` OR `disjunctiveIsNull`)
- *
+ * <p>
  * Notes about internal state:
  * 1. If `conjunctiveIsNull` and  `disjunctiveIsNull` are both false and `rangeSet` is null,
  * it means that there is no filter for the column. See {@link ColumnRange#hasFilter()}.

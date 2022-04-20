@@ -41,14 +41,14 @@ import javax.servlet.http.HttpServletResponse;
  * This class is used to get current query_id of connection_id.
  * Every connection holds at most one query at every point.
  * So we can get query_id firstly, and get query by query_id.
- *
+ * <p>
  * {
- * 	"msg": "OK",
- * 	"code": 0,
- * 	"data": {
- * 		"query_id": "b52513ce3f0841ca-9cb4a96a268f2dba"
- *  },
- * 	"count": 0
+ * "msg": "OK",
+ * "code": 0,
+ * "data": {
+ * "query_id": "b52513ce3f0841ca-9cb4a96a268f2dba"
+ * },
+ * "count": 0
  * }
  */
 @RestController

@@ -101,7 +101,7 @@ public abstract class QueryStmt extends StatementBase {
     /**
      * Select list item alias does not have to be unique.
      * This list contains all the non-unique aliases. For example,
-     *  select int_col a, string_col a from alltypessmall;
+     * select int_col a, string_col a from alltypessmall;
      * Both columns are using the same alias "a".
      */
     protected final ArrayList<Expr> ambiguousAliasList;
@@ -146,20 +146,20 @@ public abstract class QueryStmt extends StatementBase {
      * If the tuple id in `disableMVRewriteTupleIds`, the expr which belongs to this tuple will not be MVRewritten.
      * Initially this set is an empty set.
      * When the scan node is unable to match any index in selecting the materialized view,
-     *   the tuple is added to this set.
+     * the tuple is added to this set.
      * The query will be re-executed, and this tuple will not be mv rewritten.
      * For example:
      * TableA: (k1 int, k2 int, k3 int)
      * MV: (k1 int, mv_bitmap_union_k2 bitmap bitmap_union)
      * Query: select k3, bitmap_union(to_bitmap(k2)) from TableA
      * First analyze: MV rewriter enable and this set is empty
-     *     select k3, bitmap_union(mv_bitmap_union_k2) from TableA
+     * select k3, bitmap_union(mv_bitmap_union_k2) from TableA
      * SingleNodePlanner: could not select any index for TableA
-     *     Add table to disableMVRewriteTupleIds.
+     * Add table to disableMVRewriteTupleIds.
      * `disableMVRewriteTupleIds` = {TableA}
      * Re-executed:
      * Second analyze: MV rewrite disable in table and use origin stmt.
-     *     select k3, bitmap_union(to_bitmap(k2)) from TableA
+     * select k3, bitmap_union(to_bitmap(k2)) from TableA
      * SingleNodePlanner: base index selected
      */
     private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
@@ -174,17 +174,21 @@ public abstract class QueryStmt extends StatementBase {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (isAnalyzed()) return;
+        if (isAnalyzed()) {
+            return;
+        }
         super.analyze(analyzer);
         analyzeLimit(analyzer);
-        if (hasWithClause()) withClause_.analyze(analyzer);
+        if (hasWithClause()) {
+            withClause_.analyze(analyzer);
+        }
     }
 
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
         // TODO chenhao
         if (limitElement.getOffset() > 0 && !hasOrderByClause()) {
             throw new AnalysisException("OFFSET requires an ORDER BY clause: " +
-                    limitElement.toSql().trim());
+                limitElement.toSql().trim());
         }
         limitElement.analyze(analyzer);
     }
@@ -193,21 +197,21 @@ public abstract class QueryStmt extends StatementBase {
      * Returns a list containing all the materialized tuple ids that this stmt is
      * correlated with (i.e., those tuple ids from outer query blocks that TableRefs
      * inside this stmt are rooted at).
-     *
+     * <p>
      * Throws if this stmt contains an illegal mix of un/correlated table refs.
      * A statement is illegal if it contains a TableRef correlated with a parent query
      * block as well as a table ref with an absolute path (e.g. a BaseTabeRef). Such a
      * statement would generate a Subplan containing a base table scan (very expensive),
      * and should therefore be avoided.
-     *
+     * <p>
      * In other words, the following cases are legal:
      * (1) only uncorrelated table refs
      * (2) only correlated table refs
      * (3) a mix of correlated table refs and table refs rooted at those refs
-     *     (the statement is 'self-contained' with respect to correlation)
+     * (the statement is 'self-contained' with respect to correlation)
      */
     public List<TupleId> getCorrelatedTupleIds(Analyzer analyzer)
-            throws AnalysisException {
+        throws AnalysisException {
         // Correlated tuple ids of this stmt.
         List<TupleId> correlatedTupleIds = Lists.newArrayList();
         // First correlated and absolute table refs. Used for error detection/reporting.
@@ -220,7 +224,9 @@ public abstract class QueryStmt extends StatementBase {
         List<TableRef> tblRefs = Lists.newArrayList();
         collectTableRefs(tblRefs);
         for (TableRef tblRef : tblRefs) {
-            if (absoluteRef == null && !tblRef.isRelative()) absoluteRef = tblRef;
+            if (absoluteRef == null && !tblRef.isRelative()) {
+                absoluteRef = tblRef;
+            }
             /*if (tblRef.isCorrelated()) {
              *   
              *   // Check if the correlated table ref is rooted at a tuple descriptor from within
@@ -237,9 +243,9 @@ public abstract class QueryStmt extends StatementBase {
             }*/
             if (correlatedRef != null && absoluteRef != null) {
                 throw new AnalysisException(String.format(
-                        "Nested query is illegal because it contains a table reference '%s' " +
-                                "correlated with an outer block as well as an uncorrelated one '%s':\n%s",
-                        correlatedRef.tableRefToSql(), absoluteRef.tableRefToSql(), toSql()));
+                    "Nested query is illegal because it contains a table reference '%s' " +
+                        "correlated with an outer block as well as an uncorrelated one '%s':\n%s",
+                    correlatedRef.tableRefToSql(), absoluteRef.tableRefToSql(), toSql()));
             }
             tblRefIds.add(tblRef.getId());
         }
@@ -305,13 +311,13 @@ public abstract class QueryStmt extends StatementBase {
             // equal count distinct
             orderingExprs.set(i, rewriteQueryExprByMvColumnExpr(orderingExprs.get(i), analyzer));
             OrderByElement orderByElement = new OrderByElement(orderingExprs.get(i), isAscOrder.get(i),
-                    nullsFirstParams.get(i));
+                nullsFirstParams.get(i));
             orderByElementsAfterAnalyzed.add(orderByElement);
         }
 
         if (!analyzer.isRootAnalyzer() && hasOffset() && !hasLimit()) {
             throw new AnalysisException("Order-by with offset without limit not supported" +
-                    " in nested queries.");
+                " in nested queries.");
         }
 
         sortInfo = new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);
@@ -354,9 +360,9 @@ public abstract class QueryStmt extends StatementBase {
         for (Expr orderingExpr : sortInfo.getOrderingExprs()) {
             if (orderingExpr.getType().isComplexType()) {
                 throw new AnalysisException(String.format(
-                        "ORDER BY expression '%s' with "
-                                + "complex type '%s' is not supported.",
-                        orderingExpr.toSql(), orderingExpr.getType().toSql()));
+                    "ORDER BY expression '%s' with "
+                        + "complex type '%s' is not supported.",
+                    orderingExpr.toSql(), orderingExpr.getType().toSql()));
             }
         }
 
@@ -364,7 +370,7 @@ public abstract class QueryStmt extends StatementBase {
 
         for (int i = 0; i < smap.size(); ++i) {
             if (!(smap.getLhs().get(i) instanceof SlotRef)
-                    || !(smap.getRhs().get(i) instanceof SlotRef)) {
+                || !(smap.getRhs().get(i) instanceof SlotRef)) {
                 continue;
             }
             // TODO(zc)
@@ -387,7 +393,9 @@ public abstract class QueryStmt extends StatementBase {
      */
     protected Expr getFirstAmbiguousAlias(List<Expr> exprs) {
         for (Expr exp : exprs) {
-            if (ambiguousAliasList.contains(exp)) return exp;
+            if (ambiguousAliasList.contains(exp)) {
+                return exp;
+            }
         }
         return null;
     }
@@ -427,25 +435,30 @@ public abstract class QueryStmt extends StatementBase {
     // select list items.  Return null if not an ordinal expression.
     private Expr trySubstituteOrdinal(Expr expr, String errorPrefix,
                                       Analyzer analyzer) throws AnalysisException {
-        if (!(expr instanceof IntLiteral)) return null;
+        if (!(expr instanceof IntLiteral)) {
+            return null;
+        }
         expr.analyze(analyzer);
-        if (!expr.getType().isIntegerType()) return null;
+        if (!expr.getType().isIntegerType()) {
+            return null;
+        }
         long pos = ((IntLiteral) expr).getLongValue();
         if (pos < 1) {
             throw new AnalysisException(
-                    errorPrefix + ": ordinal must be >= 1: " + expr.toSql());
+                errorPrefix + ": ordinal must be >= 1: " + expr.toSql());
         }
         if (pos > resultExprs.size()) {
             throw new AnalysisException(
-                    errorPrefix + ": ordinal exceeds number of items in select list: "
-                            + expr.toSql());
+                errorPrefix + ": ordinal exceeds number of items in select list: "
+                    + expr.toSql());
         }
 
         // Create copy to protect against accidentally shared state.
         return resultExprs.get((int) pos - 1).clone();
     }
 
-    public void getWithClauseTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
+    public void getWithClauseTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet)
+        throws AnalysisException {
         if (withClause_ != null) {
             withClause_.getTables(analyzer, tableMap, parentViewNameSet);
         }
@@ -459,6 +472,7 @@ public abstract class QueryStmt extends StatementBase {
 
     /**
      * collect all exprs of a QueryStmt to a map
+     *
      * @param exprMap
      */
     public void collectExprs(Map<String, Expr> exprMap) {
@@ -466,6 +480,7 @@ public abstract class QueryStmt extends StatementBase {
 
     /**
      * put all rewritten exprs back to the ori QueryStmt
+     *
      * @param rewrittenExprMap
      */
     public void putBackExprs(Map<String, Expr> rewrittenExprMap) {
@@ -487,6 +502,7 @@ public abstract class QueryStmt extends StatementBase {
 
     /**
      * register expr_id of expr and its children, if not set
+     *
      * @param expr
      */
     public void registerExprId(Expr expr) {
@@ -500,6 +516,7 @@ public abstract class QueryStmt extends StatementBase {
 
     /**
      * check whether expr and it's children contain alias
+     *
      * @param expr expr to be checked
      * @return true if contains, otherwise false
      */
@@ -523,7 +540,8 @@ public abstract class QueryStmt extends StatementBase {
     //                "left join (select siteid, citycode from tmp) b on a.siteid = b.siteid;";
     // tmp in child stmt "(select siteid, citycode from tmp)" do not contain with_Clause
     // so need to check is view name by parentViewNameSet. issue link: https://github.com/apache/incubator-doris/issues/4598
-    public abstract void getTables(Analyzer analyzer, Map<Long, Table> tables, Set<String> parentViewNameSet) throws AnalysisException;
+    public abstract void getTables(Analyzer analyzer, Map<Long, Table> tables, Set<String> parentViewNameSet)
+        throws AnalysisException;
 
     // get TableRefs in this query, including physical TableRefs of this statement and
     // nested statements of inline views and with_Clause.
@@ -691,10 +709,14 @@ public abstract class QueryStmt extends StatementBase {
     }
 
     public ArrayList<OrderByElement> cloneOrderByElements() {
-        if (orderByElements == null) return null;
+        if (orderByElements == null) {
+            return null;
+        }
         ArrayList<OrderByElement> result =
-                Lists.newArrayListWithCapacity(orderByElements.size());
-        for (OrderByElement o : orderByElements) result.add(o.clone());
+            Lists.newArrayListWithCapacity(orderByElements.size());
+        for (OrderByElement o : orderByElements) {
+            result.add(o.clone());
+        }
         return result;
     }
 
@@ -728,8 +750,9 @@ public abstract class QueryStmt extends StatementBase {
     public void reset() {
         super.reset();
         if (orderByElements != null) {
-            for (OrderByElement o : orderByElements)
+            for (OrderByElement o : orderByElements) {
                 o.getExpr().reset();
+            }
         }
         limitElement.reset();
         resultExprs.clear();
@@ -753,7 +776,7 @@ public abstract class QueryStmt extends StatementBase {
     public abstract QueryStmt clone();
 
     public abstract void substituteSelectList(Analyzer analyzer, List<String> newColLabels)
-            throws AnalysisException, UserException;
+        throws AnalysisException, UserException;
 
     public void setOutFileClause(OutFileClause outFileClause) {
         this.outFileClause = outFileClause;

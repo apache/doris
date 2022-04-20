@@ -61,7 +61,7 @@ public class RangePartitionPruner implements PartitionPruner {
                                    PartitionKey minKey,
                                    PartitionKey maxKey,
                                    int complex)
-            throws AnalysisException {
+        throws AnalysisException {
         LOG.debug("column idx {}, column filters {}", columnIdx, partitionColumnFilters);
         // the last column in partition Key
         if (columnIdx == partitionColumns.size()) {
@@ -76,13 +76,13 @@ public class RangePartitionPruner implements PartitionPruner {
         PartitionColumnFilter filter = partitionColumnFilters.get(keyColumn.getName());
         if (null == filter) {
             minKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), false),
-                    keyColumn.getDataType());
+                keyColumn.getDataType());
             maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
-                    keyColumn.getDataType());
+                keyColumn.getDataType());
             Collection<Long> result = null;
             try {
                 result = Lists.newArrayList(
-                        rangeMap.subRangeMap(Range.closed(minKey, maxKey)).asMapOfRanges().values());
+                    rangeMap.subRangeMap(Range.closed(minKey, maxKey)).asMapOfRanges().values());
             } catch (IllegalArgumentException e) {
                 result = Lists.newArrayList();
             }
@@ -93,14 +93,14 @@ public class RangePartitionPruner implements PartitionPruner {
         InPredicate inPredicate = filter.getInPredicate();
         if (null == inPredicate || inPredicate.getChildren().size() * complex > 100) {
             if (filter.lowerBoundInclusive && filter.upperBoundInclusive
-                    && filter.lowerBound != null && filter.upperBound != null
-                    && 0 == filter.lowerBound.compareLiteral(filter.upperBound)) {
+                && filter.lowerBound != null && filter.upperBound != null
+                && 0 == filter.lowerBound.compareLiteral(filter.upperBound)) {
 
                 // eg: [10, 10], [null, null]
                 if (filter.lowerBound instanceof NullLiteral && filter.upperBound instanceof NullLiteral) {
                     // replace Null with min value
                     LiteralExpr minKeyValue = LiteralExpr.createInfinity(
-                            Type.fromPrimitiveType(keyColumn.getDataType()), false);
+                        Type.fromPrimitiveType(keyColumn.getDataType()), false);
                     minKey.pushColumn(minKeyValue, keyColumn.getDataType());
                     maxKey.pushColumn(minKeyValue, keyColumn.getDataType());
                 } else {
@@ -139,19 +139,19 @@ public class RangePartitionPruner implements PartitionPruner {
                 if (filter.upperBoundInclusive && columnIdx != lastColumnId) {
                     Column column = partitionColumns.get(columnIdx + 1);
                     maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(column.getDataType()), true),
-                            column.getDataType());
+                        column.getDataType());
                     pushMaxCount++;
                 }
             } else {
                 maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
-                        keyColumn.getDataType());
+                    keyColumn.getDataType());
                 pushMaxCount++;
             }
 
             Collection<Long> result = null;
             try {
                 result = Lists.newArrayList(rangeMap.subRangeMap(
-                            Range.range(minKey, lowerType, maxKey, upperType)).asMapOfRanges().values());
+                    Range.range(minKey, lowerType, maxKey, upperType)).asMapOfRanges().values());
             } catch (IllegalArgumentException e) {
                 result = Lists.newArrayList();
             }

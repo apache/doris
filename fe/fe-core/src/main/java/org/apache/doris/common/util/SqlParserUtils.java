@@ -25,6 +25,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,25 +60,25 @@ public class SqlParserUtils {
         List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
         /*
          * When user execute query by some client library such as python MysqlDb, if user execute like:
-         * 
+         *
          *      "select * from tbl1;"  (with a comma at the end of statement)
-         *      
+         *
          * The sql parser will produce 2 statements: SelectStmt and EmptyStmt.
          * Here we discard the second EmptyStmt to make it act like one single statement.
          * This is for some compatibility. Because in python MysqlDb, if the first SelectStmt results in
          * some warnings, it will try to execute a 'SHOW WARNINGS' statement right after the SelectStmt,
          * but before the execution of EmptyStmt. So there will be an exception:
-         * 
+         *
          *      (2014, "Commands out of sync; you can't run this command now")
-         * 
+         *
          * I though it is a flaw of python MysqlDb.
          * However, in order to maintain the consistency of user use, here we remove all EmptyStmt
          * at the end to prevent errors.(Leave at least one statement)
-         * 
+         *
          * But if user execute statements like:
-         * 
+         *
          *      "select * from tbl1;;select 2"
-         *      
+         *
          * If first "select * from tbl1" has warnings, python MysqlDb will still throw exception.
          */
         while (stmts.size() > 1 && stmts.get(stmts.size() - 1) instanceof EmptyStmt) {
@@ -104,7 +105,7 @@ public class SqlParserUtils {
             }
         } catch (Exception e) {
             String errorMsg = String.format("get exception when parse stmt. Origin stmt is %s . Error msg is %s.",
-                    originStmt, e.getMessage());
+                originStmt, e.getMessage());
             throw new AnalysisException(errorMsg);
         }
         statementBase.analyze(analyzer);

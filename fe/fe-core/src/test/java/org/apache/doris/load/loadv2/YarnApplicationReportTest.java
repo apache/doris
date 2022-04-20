@@ -27,19 +27,19 @@ import org.junit.Test;
 
 public class YarnApplicationReportTest {
     private final String runningReport = "Application Report :\n" +
-            "Application-Id : application_15888888888_0088\n" +
-            "Application-Name : label0\n" +
-            "Application-Type : SPARK-2.4.1\n" +
-            "User : test\n" +
-            "Queue : test-queue\n" +
-            "Start-Time : 1597654469958\n" +
-            "Finish-Time : 0\n" +
-            "Progress : 50%\n" +
-            "State : RUNNING\n" +
-            "Final-State : UNDEFINED\n" +
-            "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
-            "RPC Port : 40236\n" +
-            "AM Host : host-name";
+        "Application-Id : application_15888888888_0088\n" +
+        "Application-Name : label0\n" +
+        "Application-Type : SPARK-2.4.1\n" +
+        "User : test\n" +
+        "Queue : test-queue\n" +
+        "Start-Time : 1597654469958\n" +
+        "Finish-Time : 0\n" +
+        "Progress : 50%\n" +
+        "State : RUNNING\n" +
+        "Final-State : UNDEFINED\n" +
+        "Tracking-URL : http://127.0.0.1:8080/proxy/application_1586619723848_0088/\n" +
+        "RPC Port : 40236\n" +
+        "AM Host : host-name";
 
     @Test
     public void testParseToReport() {

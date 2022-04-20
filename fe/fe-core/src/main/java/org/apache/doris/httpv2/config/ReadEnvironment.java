@@ -57,7 +57,7 @@ public class ReadEnvironment implements ApplicationContextAware {
             system.cleanUp();
             system.beforeInitialize();
             system.initialize(new LoggingInitializationContext(environment),
-                    logConfig, logFile);
+                logConfig, logFile);
         } catch (Exception ex) {
             ex.printStackTrace();
         }

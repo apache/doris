@@ -43,7 +43,7 @@ public class StatisticsManager {
     }
 
     public void alterTableStatistics(AlterTableStatsStmt stmt)
-            throws AnalysisException {
+        throws AnalysisException {
         Table table = validateTableName(stmt.getTableName());
         statistics.updateTableStats(table.getId(), stmt.getProperties());
     }
@@ -60,25 +60,25 @@ public class StatisticsManager {
     }
 
     public List<List<String>> showTableStatsList(String dbName, String tableName)
-            throws AnalysisException {
+        throws AnalysisException {
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
         List<List<String>> result = Lists.newArrayList();
         if (tableName != null) {
             Table table = db.getTableOrAnalysisException(tableName);
             // check priv
             if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
-                    PrivPredicate.SHOW)) {
+                PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
-                        ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(),
-                        dbName + ": " + tableName);
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    dbName + ": " + tableName);
             }
             // get stats
             result.add(showTableStats(table));
         } else {
             for (Table table : db.getTables()) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, table.getName(),
-                        PrivPredicate.SHOW)) {
+                    PrivPredicate.SHOW)) {
                     continue;
                 }
                 try {
@@ -96,11 +96,11 @@ public class StatisticsManager {
         Table table = validateTableName(tableName);
         // check priv
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.SHOW)) {
+            tableName.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                tableName.getDb() + ": " + tableName.getTbl());
         }
         // get stats
         List<List<String>> result = Lists.newArrayList();

@@ -28,8 +28,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,6 +40,8 @@ import org.springframework.web.servlet.view.RedirectView;
 import java.lang.reflect.Type;
 import java.util.List;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -86,7 +86,7 @@ public class ColocateMetaService extends RestBaseController {
     }
 
     public Object executeWithoutPassword(HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
+        throws DdlException {
         executeCheckPassword(request, response);
         RedirectView redirectView = redirectToMaster(request, response);
         if (redirectView != null) {
@@ -104,7 +104,7 @@ public class ColocateMetaService extends RestBaseController {
 
     @RequestMapping(path = "/api/colocate/group_stable", method = {RequestMethod.POST, RequestMethod.DELETE})
     public Object group_stable(HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
+        throws DdlException {
         executeWithoutPassword(request, response);
         GroupId groupId = checkAndGetGroupId(request);
 
@@ -119,7 +119,7 @@ public class ColocateMetaService extends RestBaseController {
 
     @RequestMapping(path = "/api/colocate/bucketseq", method = RequestMethod.POST)
     public Object bucketseq(HttpServletRequest request, HttpServletResponse response, @RequestBody String meta)
-            throws DdlException {
+        throws DdlException {
         executeWithoutPassword(request, response);
         final String clusterName = ConnectContext.get().getClusterName();
         GroupId groupId = checkAndGetGroupId(request);
@@ -132,7 +132,7 @@ public class ColocateMetaService extends RestBaseController {
         ColocateGroupSchema groupSchema = Catalog.getCurrentColocateIndex().getGroupSchema(groupId);
         if (backendsPerBucketSeq.size() != groupSchema.getBucketsNum()) {
             return ResponseEntityBuilder.okWithCommonError("Invalid bucket num. expected: "
-                    + groupSchema.getBucketsNum() + ", actual: " + backendsPerBucketSeq.size());
+                + groupSchema.getBucketsNum() + ", actual: " + backendsPerBucketSeq.size());
         }
 
         List<Long> clusterBackendIds = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
@@ -140,26 +140,26 @@ public class ColocateMetaService extends RestBaseController {
         for (List<Long> backendIds : backendsPerBucketSeq) {
             if (backendIds.size() != groupSchema.getReplicaAlloc().getTotalReplicaNum()) {
                 return ResponseEntityBuilder.okWithCommonError("Invalid backend num per bucket. expected: "
-                        + groupSchema.getReplicaAlloc().getTotalReplicaNum() + ", actual: " + backendIds.size());
+                    + groupSchema.getReplicaAlloc().getTotalReplicaNum() + ", actual: " + backendIds.size());
             }
             for (Long beId : backendIds) {
                 if (!clusterBackendIds.contains(beId)) {
                     return ResponseEntityBuilder.okWithCommonError("The backend " + beId
-                            + " does not exist or not available");
+                        + " does not exist or not available");
                 }
             }
         }
 
         int bucketsNum = colocateIndex.getBackendsPerBucketSeq(groupId).size();
         Preconditions.checkState(backendsPerBucketSeq.size() == bucketsNum,
-                backendsPerBucketSeq.size() + " vs. " + bucketsNum);
+            backendsPerBucketSeq.size() + " vs. " + bucketsNum);
         updateBackendPerBucketSeq(groupId, backendsPerBucketSeq);
         LOG.info("the group {} backendsPerBucketSeq meta has been changed to {}", groupId, backendsPerBucketSeq);
         return ResponseEntityBuilder.ok();
     }
 
     private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq)
-            throws DdlException {
+        throws DdlException {
         throw new DdlException("Currently not support");
         /*
         colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);

@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
@@ -29,6 +27,10 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,13 +63,14 @@ public class ShowStreamLoadStmt extends ShowStmt {
     private ArrayList<OrderByPair> orderByPairs;
 
     private ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Label").add("Db").add("Table").add("User")
-            .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
-            .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")
-            .add("StartTime").add("FinishTime")
-            .build();
+        .add("Label").add("Db").add("Table").add("User")
+        .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
+        .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")
+        .add("StartTime").add("FinishTime")
+        .build();
 
-    public ShowStreamLoadStmt(String db, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
+    public ShowStreamLoadStmt(String db, Expr labelExpr, List<OrderByElement> orderByElements,
+                              LimitElement limitElement) {
         this.dbName = db;
         this.whereClause = labelExpr;
         this.orderByElements = orderByElements;
@@ -184,7 +187,8 @@ public class ShowStreamLoadStmt extends ShowStmt {
         boolean hasLabel = false;
         boolean hasState = false;
 
-        CHECK: {
+        CHECK:
+        {
             if (subExpr instanceof BinaryPredicate) {
                 BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
                 if (binaryPredicate.getOp() != Operator.EQ) {
@@ -254,8 +258,8 @@ public class ShowStreamLoadStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\","
-                    + " or LABEL LIKE \"matcher\", " + " or STATUS = \"SUCCESS|FAIL\", "
-                    + " or compound predicate with operator AND");
+                + " or LABEL LIKE \"matcher\", " + " or STATUS = \"SUCCESS|FAIL\", "
+                + " or compound predicate with operator AND");
         }
     }
 

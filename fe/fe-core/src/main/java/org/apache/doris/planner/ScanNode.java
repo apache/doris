@@ -20,9 +20,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Range;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
@@ -42,7 +39,9 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -55,7 +54,7 @@ import java.util.Set;
 /**
  * Representation of the common elements of all scan nodes.
  */
-abstract public class ScanNode extends PlanNode {
+public abstract class ScanNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(ScanNode.class);
     protected final TupleDescriptor desc;
     // Use this if partition_prune_algorithm_version is 1.
@@ -119,7 +118,7 @@ abstract public class ScanNode extends PlanNode {
      *                           only applicable to HDFS; less than or equal to zero means no
      *                           maximum.
      */
-    abstract public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength);
+    public abstract List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength);
 
     // TODO(ML): move it into PrunerOptimizer
     public void computeColumnFilter() {
@@ -392,7 +391,7 @@ abstract public class ScanNode extends PlanNode {
     @Override
     public String toString() {
         return MoreObjects.toStringHelper(this).add("tid", desc.getId().asInt()).add("tblName",
-                desc.getTable().getName()).add("keyRanges", "").addValue(
-                super.debugString()).toString();
+            desc.getTable().getName()).add("keyRanges", "").addValue(
+            super.debugString()).toString();
     }
 }

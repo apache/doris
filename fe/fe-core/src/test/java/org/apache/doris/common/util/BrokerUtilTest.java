@@ -59,6 +59,7 @@ import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
@@ -159,7 +160,7 @@ public class BrokerUtilTest {
     @Test
     public void testReadFile(@Mocked TPaloBrokerService.Client client, @Mocked Catalog catalog,
                              @Injectable BrokerMgr brokerMgr)
-            throws TException, UserException, UnsupportedEncodingException {
+        throws TException, UserException, UnsupportedEncodingException {
         // list response
         TBrokerListResponse listResponse = new TBrokerListResponse();
         TBrokerOperationStatus status = new TBrokerOperationStatus();
@@ -227,7 +228,7 @@ public class BrokerUtilTest {
     @Test
     public void testWriteFile(@Mocked TPaloBrokerService.Client client, @Mocked Catalog catalog,
                               @Injectable BrokerMgr brokerMgr)
-            throws TException, UserException, UnsupportedEncodingException {
+        throws TException, UserException, UnsupportedEncodingException {
         // open writer response
         TBrokerOpenWriterResponse openWriterResponse = new TBrokerOpenWriterResponse();
         TBrokerOperationStatus status = new TBrokerOperationStatus();

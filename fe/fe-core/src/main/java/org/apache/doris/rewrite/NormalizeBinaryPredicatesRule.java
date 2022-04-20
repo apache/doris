@@ -29,7 +29,7 @@ import org.apache.doris.common.AnalysisException;
  * Normalizes binary predicates of the form <expr> <op> <slot> so that the slot is
  * on the left hand side. Predicates where <slot> is wrapped in a cast (implicit or
  * explicit) are normalized, too.
- *
+ * <p>
  * Examples:
  * 5 > id -> id < 5
  */
@@ -38,9 +38,15 @@ public class NormalizeBinaryPredicatesRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
-        if (!(expr instanceof BinaryPredicate)) return expr;
-        if (expr.getChild(0).unwrapSlotRef(false) != null) return expr;
-        if (expr.getChild(1).unwrapSlotRef(false) == null) return expr;
+        if (!(expr instanceof BinaryPredicate)) {
+            return expr;
+        }
+        if (expr.getChild(0).unwrapSlotRef(false) != null) {
+            return expr;
+        }
+        if (expr.getChild(1).unwrapSlotRef(false) == null) {
+            return expr;
+        }
 
         BinaryPredicate.Operator op = ((BinaryPredicate) expr).getOp();
 

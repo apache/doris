@@ -165,7 +165,8 @@ public class ShowExportStmt extends ShowStmt {
                     valid = true;
                 }
 
-            } else if (whereExpr instanceof LikePredicate && ((LikePredicate) whereExpr).getOp() == LikePredicate.Operator.LIKE) {
+            } else if (whereExpr instanceof LikePredicate &&
+                ((LikePredicate) whereExpr).getOp() == LikePredicate.Operator.LIKE) {
                 if ("label".equals(leftKey) && whereExpr.getChild(1) instanceof StringLiteral) {
                     label = whereExpr.getChild(1).getStringValue();
                     isLabelUseLike = true;
@@ -176,8 +177,8 @@ public class ShowExportStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like below: "
-                    + " ID = $your_job_id, or STATE = \"PENDING|EXPORTING|FINISHED|CANCELLED\", " +
-                    "or LABEL = \"xxx\" or LABEL like \"xxx%\"");
+                + " ID = $your_job_id, or STATE = \"PENDING|EXPORTING|FINISHED|CANCELLED\", " +
+                "or LABEL = \"xxx\" or LABEL like \"xxx%\"");
         }
     }
 

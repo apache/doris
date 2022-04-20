@@ -26,9 +26,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
-import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 import java.util.Set;
@@ -37,19 +37,19 @@ import java.util.TreeSet;
 /**
  * UPDATE is a DML statement that modifies rows in a table.
  * The current update syntax only supports updating the filtered data of a single table.
- *
+ * <p>
  * UPDATE table_reference
- *     SET assignment_list
- *     [WHERE where_condition]
- *
+ * SET assignment_list
+ * [WHERE where_condition]
+ * <p>
  * value:
- *     {expr}
- *
+ * {expr}
+ * <p>
  * assignment:
- *     col_name = value
- *
+ * col_name = value
+ * <p>
  * assignment_list:
- *     assignment [, assignment] ...
+ * assignment [, assignment] ...
  */
 public class UpdateStmt extends DdlStmt {
 
@@ -106,7 +106,7 @@ public class UpdateStmt extends DdlStmt {
         Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
         targetTable = database.getTableOrAnalysisException(tableName.getTbl());
         if (targetTable.getType() != Table.TableType.OLAP
-                || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS) {
+            || ((OlapTable) targetTable).getKeysType() != KeysType.UNIQUE_KEYS) {
             throw new AnalysisException("Only unique olap table could be updated.");
         }
         // step3: register tuple desc
@@ -126,18 +126,18 @@ public class UpdateStmt extends DdlStmt {
         for (Expr setExpr : setExprs) {
             if (!(setExpr instanceof BinaryPredicate)) {
                 throw new AnalysisException("Set function expr only support eq binary predicate. "
-                        + "Expr: " + setExpr.toSql());
+                    + "Expr: " + setExpr.toSql());
             }
             BinaryPredicate predicate = (BinaryPredicate) setExpr;
             if (predicate.getOp() != BinaryPredicate.Operator.EQ) {
                 throw new AnalysisException("Set function expr only support eq binary predicate. "
-                        + "The predicate operator error, op: " + predicate.getOp());
+                    + "The predicate operator error, op: " + predicate.getOp());
             }
             Expr lhs = predicate.getChild(0);
             if (!(lhs instanceof SlotRef)) {
                 throw new AnalysisException("Set function expr only support eq binary predicate "
-                        + "which's child(0) must be a column name. "
-                        + "The child(0) expr error. expr: " + lhs.toSql());
+                    + "which's child(0) must be a column name. "
+                    + "The child(0) expr error. expr: " + lhs.toSql());
             }
             String column = ((SlotRef) lhs).getColumnName();
             if (!columnMappingNames.add(column)) {

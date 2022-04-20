@@ -60,7 +60,7 @@ public final class QeProcessorImpl implements QeProcessor {
         coordinatorMap = new ConcurrentHashMap<>();
         // write profile to ProfileManager when query is running.
         writeProfileExecutor = ThreadPoolManager.newDaemonProfileThreadPool(1, 100,
-                "profile-write-pool", true);
+            "profile-write-pool", true);
         queryToInstancesNum = new ConcurrentHashMap<>();
         userToInstancesCount = new ConcurrentHashMap<>();
     }
@@ -96,7 +96,7 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         QueryInfo queryInfo = coordinatorMap.get(queryId);
         if (queryInfo.getConnectContext() != null &&
-                !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
+            !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
         ) {
             String user = queryInfo.getConnectContext().getQualifiedUser();
             long maxQueryInstances = queryInfo.getConnectContext().getCatalog().getAuth().getMaxQueryInstances(user);
@@ -127,7 +127,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 LOG.debug("deregister query id {}", DebugUtil.printId(queryId));
             }
             if (queryInfo.getConnectContext() != null &&
-                    !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
+                !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
             ) {
                 Integer num = queryToInstancesNum.remove(queryId);
                 if (num != null) {
@@ -135,7 +135,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     AtomicInteger instancesNum = userToInstancesCount.get(user);
                     if (instancesNum == null) {
                         LOG.warn("WTF?? query {} in queryToInstancesNum but not in userToInstancesCount",
-                                DebugUtil.printId(queryId)
+                            DebugUtil.printId(queryId)
                         );
                     } else {
                         instancesNum.addAndGet(-num);
@@ -158,15 +158,15 @@ public final class QeProcessorImpl implements QeProcessor {
             }
             final String queryIdStr = DebugUtil.printId(info.getConnectContext().queryId());
             final QueryStatisticsItem item = new QueryStatisticsItem.Builder()
-                    .queryId(queryIdStr)
-                    .queryStartTime(info.getStartExecTime())
-                    .sql(info.getSql())
-                    .user(context.getQualifiedUser())
-                    .connId(String.valueOf(context.getConnectionId()))
-                    .db(context.getDatabase())
-                    .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
-                    .profile(info.getCoord().getQueryProfile())
-                    .isReportSucc(context.getSessionVariable().enableProfile()).build();
+                .queryId(queryIdStr)
+                .queryStartTime(info.getStartExecTime())
+                .sql(info.getSql())
+                .user(context.getQualifiedUser())
+                .connId(String.valueOf(context.getConnectionId()))
+                .db(context.getDatabase())
+                .fragmentInstanceInfos(info.getCoord().getFragmentInstanceInfos())
+                .profile(info.getCoord().getQueryProfile())
+                .isReportSucc(context.getSessionVariable().enableProfile()).build();
             querySet.put(queryIdStr, item);
         }
         return querySet;
@@ -176,8 +176,8 @@ public final class QeProcessorImpl implements QeProcessor {
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
         if (params.isSetProfile()) {
             LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
-                    DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
-                    params.backend_num, beAddr);
+                DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
+                params.backend_num, beAddr);
             LOG.debug("params: {}", params);
         }
         final TReportExecStatusResult result = new TReportExecStatusResult();

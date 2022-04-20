@@ -36,12 +36,12 @@ import java.util.List;
 import java.util.Map;
 
 public class RangeUtils {
-    
+
     public static final Comparator<Map.Entry<Long, PartitionItem>> RANGE_MAP_ENTRY_COMPARATOR =
-            Comparator.comparing(o -> (((RangePartitionItem)o.getValue()).getItems()).lowerEndpoint());
+        Comparator.comparing(o -> (((RangePartitionItem) o.getValue()).getItems()).lowerEndpoint());
 
     public static final Comparator<PartitionItem> RANGE_COMPARATOR =
-            Comparator.comparing(o -> ((RangePartitionItem) o).getItems().lowerEndpoint());
+        Comparator.comparing(o -> ((RangePartitionItem) o).getItems().lowerEndpoint());
 
     public static void checkRangeIntersect(Range<PartitionKey> range1, Range<PartitionKey> range2) throws DdlException {
         if (range2.isConnected(range1)) {
@@ -57,6 +57,7 @@ public class RangeUtils {
         }
         return false;
     }
+
     /*
      * Pass only if the 2 range lists are exactly same
      * What is "exactly same"?
@@ -64,15 +65,15 @@ public class RangeUtils {
      *      2. {[0, 10), [15, 20)} exactly same as {[0, 10), [15, 18), [18, 20)}
      *      3. {[0, 10), [15, 20)} exactly same as {[0, 10), [15, 20)}
      *      4. {[0, 10), [15, 20)} NOT exactly same as {[0, 20)}
-     *      
+     *
      *  Here I will use an example to explain the algorithm:
      *      list1: {[0, 10), [15, 20)}
      *      list2: {[0, 10), [15, 18), [18, 20)}
-     *  
+     *
      *  1. sort 2 lists first (the above 2 lists are already sorted)
      *  2. Begin to compare ranges from index 0: [0, 10) and [0, 10)
      *      2.1 lower bounds (0 and 0) are equal.
-     *      2.2 upper bounds (10 and 10) are equal. 
+     *      2.2 upper bounds (10 and 10) are equal.
      *  3. Begin to compare next 2 ranges [15, 20) and [15, 18)
      *      3.1 lower bounds (15 and 15) are equal.
      *      3.2 upper bounds (20 and 18) are not equal. and 20 > 18
@@ -82,7 +83,8 @@ public class RangeUtils {
      *      4.2 upper bounds (20 and 20) are equal.
      *  5. Not more next ranges, so 2 lists are equal.
      */
-    public static void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2) throws DdlException {
+    public static void checkPartitionItemListsMatch(List<PartitionItem> list1, List<PartitionItem> list2)
+        throws DdlException {
         Collections.sort(list1, RangeUtils.RANGE_COMPARATOR);
         Collections.sort(list2, RangeUtils.RANGE_COMPARATOR);
 
@@ -93,9 +95,9 @@ public class RangeUtils {
         while (true) {
             if (range1.lowerEndpoint().compareTo(range2.lowerEndpoint()) != 0) {
                 throw new DdlException("2 range lists are not stricly matched. "
-                        + range1.lowerEndpoint() + " vs. " + range2.lowerEndpoint());
+                    + range1.lowerEndpoint() + " vs. " + range2.lowerEndpoint());
             }
-            
+
             int res = range1.upperEndpoint().compareTo(range2.upperEndpoint());
             if (res == 0) {
                 ++idx1;
@@ -123,7 +125,7 @@ public class RangeUtils {
 
         if (idx1 < list1.size() || idx2 < list2.size()) {
             throw new DdlException("2 range lists are not stricly matched. "
-                    + list1 + " vs. " + list2);
+                + list1 + " vs. " + list2);
         }
     }
 
@@ -201,7 +203,7 @@ public class RangeUtils {
 
     // check if any ranges in "rangesToBeChecked" conflict with ranges in "baseRanges".
     public static void checkRangeConflict(List<PartitionItem> baseRanges,
-            List<PartitionItem> rangesToBeChecked) throws DdlException {
+                                          List<PartitionItem> rangesToBeChecked) throws DdlException {
 
         RangeMap<PartitionKey, Long> baseRangeMap = TreeRangeMap.create();
         long idx = 0;

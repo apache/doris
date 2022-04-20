@@ -61,11 +61,11 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-
-import com.google.common.base.Preconditions;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -80,7 +80,7 @@ public class MasterImpl {
     public MasterImpl() {
         reportHandler.start();
     }
-    
+
     public TMasterResult finishTask(TFinishTaskRequest request) {
         TMasterResult result = new TMasterResult();
         TStatus tStatus = new TStatus(TStatusCode.OK);
@@ -113,13 +113,13 @@ public class MasterImpl {
         long backendId = backend.getId();
         TTaskType taskType = request.getTaskType();
         long signature = request.getSignature();
-        
+
         AgentTask task = AgentTaskQueue.getTask(backendId, taskType, signature);
         if (task == null) {
             if (taskType != TTaskType.DROP && taskType != TTaskType.RELEASE_SNAPSHOT
-                    && taskType != TTaskType.CLEAR_TRANSACTION_TASK) {
+                && taskType != TTaskType.CLEAR_TRANSACTION_TASK) {
                 String errMsg = "cannot find task. type: " + taskType + ", backendId: " + backendId
-                        + ", signature: " + signature;
+                    + ", signature: " + signature;
                 LOG.warn(errMsg);
                 tStatus.setStatusCode(TStatusCode.CANCELLED);
                 List<String> errorMsgs = new ArrayList<String>();
@@ -131,20 +131,20 @@ public class MasterImpl {
             if (taskStatus.getStatusCode() != TStatusCode.OK) {
                 task.failed();
                 String errMsg = "task type: " + taskType + ", status_code: " + taskStatus.getStatusCode().toString() +
-                        (taskStatus.isSetErrorMsgs() ? (", status_message: " + taskStatus.getErrorMsgs()) : "") +
-                        ", backendId: " + backend + ", signature: " + signature;
+                    (taskStatus.isSetErrorMsgs() ? (", status_message: " + taskStatus.getErrorMsgs()) : "") +
+                    ", backendId: " + backend + ", signature: " + signature;
                 task.setErrorMsg(errMsg);
                 // We start to let FE perceive the task's error msg
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
-                        && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
-                        && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
-                        && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO
-                        && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE) {
+                    && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
+                    && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
+                    && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO
+                    && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE) {
                     return result;
                 }
             }
         }
- 
+
         try {
             List<TTabletInfo> finishTabletInfos;
             switch (taskType) {
@@ -173,7 +173,8 @@ public class MasterImpl {
                     break;
                 case SCHEMA_CHANGE:
                 case ROLLUP:
-                    throw new RuntimeException("Schema change and rollup job is not used any more, use alter task instead");
+                    throw new RuntimeException(
+                        "Schema change and rollup job is not used any more, use alter task instead");
                 case CLONE:
                     finishClone(task, request);
                     break;
@@ -236,13 +237,14 @@ public class MasterImpl {
         try {
             CreateReplicaTask createReplicaTask = (CreateReplicaTask) task;
             if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
-                createReplicaTask.countDownToZero(task.getBackendId() + ": " + request.getTaskStatus().getErrorMsgs().toString());
+                createReplicaTask.countDownToZero(
+                    task.getBackendId() + ": " + request.getTaskStatus().getErrorMsgs().toString());
             } else {
                 long tabletId = createReplicaTask.getTabletId();
 
                 if (request.isSetFinishTabletInfos()) {
                     Replica replica = Catalog.getCurrentInvertedIndex().getReplica(createReplicaTask.getTabletId(),
-                            createReplicaTask.getBackendId());
+                        createReplicaTask.getBackendId());
                     replica.setPathHash(request.getFinishTabletInfos().get(0).getPathHash());
 
                     if (createReplicaTask.isRecoverTask()) {
@@ -251,17 +253,20 @@ public class MasterImpl {
                          * So we set replica back to good.
                          */
                         replica.setBad(false);
-                        LOG.info("finish recover create replica task. set replica to good. tablet {}, replica {}, backend {}",
-                                tabletId, task.getBackendId(), replica.getId());
+                        LOG.info(
+                            "finish recover create replica task. set replica to good. tablet {}, replica {}, backend {}",
+                            tabletId, task.getBackendId(), replica.getId());
                     }
                 }
-                
+
                 // this should be called before 'countDownLatch()'
-                Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), request.getReportVersion(), task.getDbId(), task.getTableId());
-                
+                Catalog.getCurrentSystemInfo()
+                    .updateBackendReportVersion(task.getBackendId(), request.getReportVersion(), task.getDbId(),
+                        task.getTableId());
+
                 createReplicaTask.countDownLatch(task.getBackendId(), task.getSignature());
                 LOG.debug("finish create replica. tablet id: {}, be: {}, report version: {}",
-                        tabletId, task.getBackendId(), request.getReportVersion());
+                    tabletId, task.getBackendId(), request.getReportVersion());
             }
         } finally {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
@@ -275,22 +280,24 @@ public class MasterImpl {
         try {
             UpdateTabletMetaInfoTask tabletTask = (UpdateTabletMetaInfoTask) task;
             if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
-                tabletTask.countDownToZero(task.getBackendId() + ": " + request.getTaskStatus().getErrorMsgs().toString());
+                tabletTask.countDownToZero(
+                    task.getBackendId() + ": " + request.getTaskStatus().getErrorMsgs().toString());
             } else {
                 tabletTask.countDownLatch(task.getBackendId(), tabletTask.getTablets());
-                LOG.debug("finish update tablet meta. tablet id: {}, be: {}", tabletTask.getTablets(), task.getBackendId());
+                LOG.debug("finish update tablet meta. tablet id: {}, be: {}", tabletTask.getTablets(),
+                    task.getBackendId());
             }
         } finally {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPDATE_TABLET_META_INFO, task.getSignature());
         }
     }
-    
+
     private void finishRealtimePush(AgentTask task, TFinishTaskRequest request) {
         List<TTabletInfo> finishTabletInfos = request.getFinishTabletInfos();
         Preconditions.checkState(finishTabletInfos != null && !finishTabletInfos.isEmpty());
-        
+
         PushTask pushTask = (PushTask) task;
-        
+
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
@@ -299,7 +306,7 @@ public class MasterImpl {
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             return;
-        } 
+        }
 
         long tableId = pushTask.getTableId();
         long partitionId = pushTask.getPartitionId();
@@ -349,10 +356,10 @@ public class MasterImpl {
             // should be done before addReplicaPersistInfos and countDownLatch
             long reportVersion = request.getReportVersion();
             Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion,
-                                                                       task.getDbId(), task.getTableId());
+                task.getDbId(), task.getTableId());
 
             List<Long> tabletIds = finishTabletInfos.stream().map(
-                    tTabletInfo -> tTabletInfo.getTabletId()).collect(Collectors.toList());
+                tTabletInfo -> tTabletInfo.getTabletId()).collect(Collectors.toList());
             List<TabletMeta> tabletMetaList = Catalog.getCurrentInvertedIndex().getTabletMetaList(tabletIds);
 
             // handle load job
@@ -368,7 +375,8 @@ public class MasterImpl {
                     TabletMeta tabletMeta = tabletMetaList.get(i);
                     checkReplica(finishTabletInfos.get(i), tabletMeta);
                     long tabletId = tabletIds.get(i);
-                    Replica replica = findRelatedReplica(olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
+                    Replica replica =
+                        findRelatedReplica(olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
                     // if the replica is under schema change, could not find the replica with aim schema hash
                     if (replica != null) {
                         job.addFinishedReplica(replica);
@@ -383,7 +391,7 @@ public class MasterImpl {
                     TabletMeta tabletMeta = tabletMetaList.get(i);
                     long tabletId = tabletIds.get(i);
                     Replica replica = findRelatedReplica(olapTable, partition,
-                            backendId, tabletId, tabletMeta.getIndexId());
+                        backendId, tabletId, tabletMeta.getIndexId());
                     if (replica != null) {
                         deleteJob.addFinishedReplica(partitionId, pushTabletId, replica);
                         pushTask.countDownLatch(backendId, pushTabletId);
@@ -391,7 +399,8 @@ public class MasterImpl {
                 }
             } else if (pushTask.getPushType() == TPushType.LOAD_V2) {
                 long loadJobId = pushTask.getLoadJobId();
-                org.apache.doris.load.loadv2.LoadJob job = Catalog.getCurrentCatalog().getLoadManager().getLoadJob(loadJobId);
+                org.apache.doris.load.loadv2.LoadJob job =
+                    Catalog.getCurrentCatalog().getLoadManager().getLoadJob(loadJobId);
                 if (job == null) {
                     throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
                 }
@@ -399,14 +408,15 @@ public class MasterImpl {
                     TabletMeta tabletMeta = tabletMetaList.get(i);
                     checkReplica(finishTabletInfos.get(i), tabletMeta);
                     long tabletId = tabletIds.get(i);
-                    Replica replica = findRelatedReplica(olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
+                    Replica replica =
+                        findRelatedReplica(olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
                     // if the replica is under schema change, could not find the replica with aim schema hash
                     if (replica != null) {
                         ((SparkLoadJob) job).addFinishedReplica(replica.getId(), pushTabletId, backendId);
                     }
                 }
             }
-            
+
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.debug("finish push replica. tabletId: {}, backendId: {}", pushTabletId, backendId);
         } catch (MetaNotFoundException e) {
@@ -418,7 +428,7 @@ public class MasterImpl {
     }
 
     private void checkReplica(TTabletInfo tTabletInfo, TabletMeta tabletMeta)
-            throws MetaNotFoundException {
+        throws MetaNotFoundException {
         long tabletId = tTabletInfo.getTabletId();
         // during finishing stage, index's schema hash switched, when old schema hash finished
         // current index hash != old schema hash and alter job's new schema hash != old schema hash
@@ -430,10 +440,10 @@ public class MasterImpl {
             throw new MetaNotFoundException("tablet " + tabletId + " does not exist");
         }
     }
-    
+
     private Replica findRelatedReplica(OlapTable olapTable, Partition partition,
-                                                 long backendId, long tabletId, long indexId)
-            throws MetaNotFoundException {
+                                       long backendId, long tabletId, long indexId)
+        throws MetaNotFoundException {
         // both normal index and rollingup index are in inverted index
         // this means the index is dropped during load
         if (indexId == TabletInvertedIndex.NOT_EXIST_VALUE) {
@@ -441,7 +451,7 @@ public class MasterImpl {
             return null;
         }
         MaterializedIndex index = partition.getIndex(indexId);
-        if (index == null) { 
+        if (index == null) {
             // In alter job v2 case
             // alter job is always == null, so that we could remove the condition
             // if alter job is always null, then could not covert it to a rollup
@@ -466,16 +476,16 @@ public class MasterImpl {
         }
         Replica replica = tablet.getReplicaByBackendId(backendId);
         if (replica == null) {
-            LOG.warn("could not find replica with backend {} in tablet {} in rollup index {} ", 
-                    backendId, tabletId, indexId);
+            LOG.warn("could not find replica with backend {} in tablet {} in rollup index {} ",
+                backendId, tabletId, indexId);
         }
         return replica;
     }
-    
+
     private void finishPush(AgentTask task, TFinishTaskRequest request) {
         List<TTabletInfo> finishTabletInfos = request.getFinishTabletInfos();
         Preconditions.checkState(finishTabletInfos != null && !finishTabletInfos.isEmpty());
-        
+
         PushTask pushTask = (PushTask) task;
         // if replica report already update replica version and load checker add new version push task,
         // we might get new version push task, so check task version first
@@ -484,20 +494,20 @@ public class MasterImpl {
         long taskVersion = pushTask.getVersion();
         if (finishVersion != taskVersion) {
             LOG.debug("finish tablet version is not consistent with task. "
-                    + "finish version: {}, task: {}", 
-                    finishVersion, pushTask);
+                    + "finish version: {}, task: {}",
+                finishVersion, pushTask);
             return;
         }
-        
+
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
         Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
-            AgentTaskQueue.removePushTask(backendId, signature, finishVersion, 
-                                          pushTask.getPushType(), pushTask.getTaskType());
+            AgentTaskQueue.removePushTask(backendId, signature, finishVersion,
+                pushTask.getPushType(), pushTask.getTaskType());
             return;
-        } 
+        }
 
         long tableId = pushTask.getTableId();
         long partitionId = pushTask.getPartitionId();
@@ -542,15 +552,15 @@ public class MasterImpl {
             // update replica version
             List<ReplicaPersistInfo> infos = new LinkedList<ReplicaPersistInfo>();
             List<Long> tabletIds = finishTabletInfos.stream().map(
-                    finishTabletInfo -> finishTabletInfo.getTabletId()).collect(Collectors.toList());
+                finishTabletInfo -> finishTabletInfo.getTabletId()).collect(Collectors.toList());
             List<TabletMeta> tabletMetaList = Catalog.getCurrentInvertedIndex().getTabletMetaList(tabletIds);
             for (int i = 0; i < tabletMetaList.size(); i++) {
                 TabletMeta tabletMeta = tabletMetaList.get(i);
                 TTabletInfo tTabletInfo = finishTabletInfos.get(i);
                 long indexId = tabletMeta.getIndexId();
                 ReplicaPersistInfo info = updateReplicaInfo(olapTable, partition,
-                        backendId, pushIndexId, indexId,
-                        tTabletInfo, pushState);
+                    backendId, pushIndexId, indexId,
+                    tTabletInfo, pushState);
                 if (info != null) {
                     infos.add(info);
                 }
@@ -559,7 +569,7 @@ public class MasterImpl {
             // should be done before addReplicaPersistInfos and countDownLatch
             long reportVersion = request.getReportVersion();
             Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion,
-                                                                       task.getDbId(), task.getTableId());
+                task.getDbId(), task.getTableId());
 
             if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
                 // handle load job
@@ -568,7 +578,7 @@ public class MasterImpl {
                 if (job == null) {
                     throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
                 }
-                
+
                 Preconditions.checkState(!infos.isEmpty());
                 for (ReplicaPersistInfo info : infos) {
                     job.addReplicaPersistInfos(info);
@@ -577,28 +587,28 @@ public class MasterImpl {
                 // report delete task must match version and version hash
                 if (pushTask.getVersion() != request.getRequestVersion()) {
                     throw new MetaNotFoundException("delete task is not match. [" + pushTask.getVersion() + "-"
-                            + request.getRequestVersion() + "]");
+                        + request.getRequestVersion() + "]");
                 }
             }
 
             AgentTaskQueue.removePushTask(backendId, signature, finishVersion,
-                                          pushTask.getPushType(), pushTask.getTaskType());
+                pushTask.getPushType(), pushTask.getTaskType());
             LOG.debug("finish push replica. tabletId: {}, backendId: {}", pushTabletId, backendId);
         } catch (MetaNotFoundException e) {
             AgentTaskQueue.removePushTask(backendId, signature, finishVersion,
-                                          pushTask.getPushType(), pushTask.getTaskType());
+                pushTask.getPushType(), pushTask.getTaskType());
             LOG.warn("finish push replica error", e);
         } finally {
             olapTable.writeUnlock();
         }
     }
-    
+
     private void finishClearAlterTask(AgentTask task, TFinishTaskRequest request) {
         ClearAlterTask clearAlterTask = (ClearAlterTask) task;
         clearAlterTask.setFinished(true);
         AgentTaskQueue.removeTask(task.getBackendId(), task.getTaskType(), task.getSignature());
     }
-    
+
     private void finishPublishVersion(AgentTask task, TFinishTaskRequest request) {
         List<Long> errorTabletIds = null;
         if (request.isSetErrorTabletIds()) {
@@ -608,7 +618,8 @@ public class MasterImpl {
         if (request.isSetReportVersion()) {
             // report version is required. here we check if set, for compatibility.
             long reportVersion = request.getReportVersion();
-            Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+            Catalog.getCurrentSystemInfo()
+                .updateBackendReportVersion(task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
         }
 
         PublishVersionTask publishVersionTask = (PublishVersionTask) task;
@@ -619,15 +630,15 @@ public class MasterImpl {
             // not remove the task from queue and be will retry
             return;
         }
-        AgentTaskQueue.removeTask(publishVersionTask.getBackendId(), 
-                                  publishVersionTask.getTaskType(), 
-                                  publishVersionTask.getSignature());
+        AgentTaskQueue.removeTask(publishVersionTask.getBackendId(),
+            publishVersionTask.getTaskType(),
+            publishVersionTask.getSignature());
     }
-    
+
     private ReplicaPersistInfo updateReplicaInfo(OlapTable olapTable, Partition partition,
                                                  long backendId, long pushIndexId, long indexId,
                                                  TTabletInfo tTabletInfo, PartitionState pushState)
-            throws MetaNotFoundException {
+        throws MetaNotFoundException {
         long tabletId = tTabletInfo.getTabletId();
         int schemaHash = tTabletInfo.getSchemaHash();
         long version = tTabletInfo.getVersion();
@@ -639,7 +650,7 @@ public class MasterImpl {
             if (pushState != PartitionState.ROLLUP && indexId != TabletInvertedIndex.NOT_EXIST_VALUE) {
                 // this probably should not happened. add log to observe(cmy)
                 LOG.warn("push task report tablet[{}] with different index[{}] and is not in ROLLUP. push index[{}]",
-                         tabletId, indexId, pushIndexId);
+                    tabletId, indexId, pushIndexId);
                 return null;
             }
 
@@ -663,13 +674,13 @@ public class MasterImpl {
         Replica replica = tablet.getReplicaByBackendId(backendId);
         if (replica == null) {
             throw new MetaNotFoundException("cannot find replica in tablet[" + tabletId + "], backend[" + backendId
-                    + "]");
+                + "]");
         }
         replica.updateVersionInfo(version, dataSize, rowCount);
 
         LOG.debug("replica[{}] report schemaHash:{}", replica.getId(), schemaHash);
         return ReplicaPersistInfo.createForLoad(olapTable.getId(), partition.getId(), pushIndexId, tabletId,
-                replica.getId(), version, schemaHash, dataSize, rowCount);
+            replica.getId(), version, schemaHash, dataSize, rowCount);
     }
 
     private void finishDropReplica(AgentTask task) {
@@ -698,12 +709,12 @@ public class MasterImpl {
 
         if (checkConsistencyTask.getVersion() != request.getRequestVersion()) {
             LOG.warn("check consistency task is not match. [{}-{}]",
-                     checkConsistencyTask.getVersion(), request.getRequestVersion());
+                checkConsistencyTask.getVersion(), request.getRequestVersion());
             return;
         }
 
         Catalog.getCurrentCatalog().getConsistencyChecker().handleFinishedConsistencyCheck(checkConsistencyTask,
-                                                                                     request.getTabletChecksum());
+            request.getTabletChecksum());
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CHECK_CONSISTENCY, task.getSignature());
     }
 
@@ -735,7 +746,7 @@ public class MasterImpl {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.MOVE, task.getSignature());
         }
     }
-    
+
     private void finishRecoverTablet(AgentTask task) {
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.RECOVER_TABLET, task.getSignature());
     }

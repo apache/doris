@@ -79,23 +79,25 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
         Map<String, EtlPartitionConf> etlPartitions = createEtlPartitions();
         Preconditions.checkNotNull(etlPartitions);
         taskConf.setEtlPartitions(etlPartitions);
-    
+
         LoadErrorHub.Param info = load.getLoadErrorHubInfo();
         // hadoop load only support mysql load error hub
         if (info != null && info.getType() == HubType.MYSQL_TYPE) {
             taskConf.setHubInfo(new EtlErrorHubInfo(this.job.getId(), info));
         }
-    
+
         etlTaskConf = taskConf.toDppTaskConf();
         Preconditions.checkNotNull(etlTaskConf);
 
         // add table indexes to transaction state
-        TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(job.getDbId(), job.getTransactionId());
+        TransactionState txnState =
+            Catalog.getCurrentGlobalTransactionMgr().getTransactionState(job.getDbId(), job.getTransactionId());
         if (txnState == null) {
             throw new LoadException("txn does not exist: " + job.getTransactionId());
         }
         for (long tableId : job.getIdToTableLoadInfo().keySet()) {
-            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
+            OlapTable table =
+                (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
                 txnState.addTableIndexes(table);
@@ -113,7 +115,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
 
         DppScheduler dppScheduler = new DppScheduler(job.getHadoopDppConfig());
         EtlSubmitResult result = dppScheduler.submitEtlJob(job.getId(), job.getLabel(), job.getHadoopCluster(),
-                db.getFullName(), etlTaskConf, retry);
+            db.getFullName(), etlTaskConf, retry);
 
         if (result != null && result.getStatus().getStatusCode() == TStatusCode.OK) {
             job.setHadoopEtlJobId(result.getEtlJobId());
@@ -129,7 +131,8 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             long tableId = tableEntry.getKey();
             TableLoadInfo tableLoadInfo = tableEntry.getValue();
 
-            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
+            OlapTable table =
+                (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
                 // columns
@@ -256,7 +259,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                             dppColumn.put("name", column.getName());
                             dppColumn.put("is_key", true);
                             dppColumn.put("is_implicit", true);
-                            columnRefs.add(keySize, dppColumn); 
+                            columnRefs.add(keySize, dppColumn);
                             ++keySize;
                         }
                     }
@@ -322,7 +325,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 }
 
                 return new EtlPartitionInfo(table.getId(), partitionColumnNames, "range", startKeys, endKeys,
-                        isMaxPartition);
+                    isMaxPartition);
             case UNPARTITIONED:
                 break;
             default:
@@ -337,7 +340,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
         String loadLabel = job.getLabel();
         DppConfig dppConfig = job.getHadoopDppConfig();
         String outputPath = DppScheduler.getEtlOutputPath(dppConfig.getFsDefaultName(), dppConfig.getOutputPath(),
-                job.getDbId(), loadLabel, job.getHadoopEtlOutputDir());
+            job.getDbId(), loadLabel, job.getHadoopEtlOutputDir());
         return outputPath;
     }
 
@@ -375,12 +378,12 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             taskConf.put("output_file_pattern", outputFilePattern);
             taskConf.put("output_path", outputPath);
             taskConf.put("tables",
-                    Maps.transformValues(etlPartitions, new Function<EtlPartitionConf, Map<String, Object>>() {
-                        @Override
-                        public Map<String, Object> apply(EtlPartitionConf partition) {
-                            return partition.toDppPartitionConf();
-                        }
-                    }));
+                Maps.transformValues(etlPartitions, new Function<EtlPartitionConf, Map<String, Object>>() {
+                    @Override
+                    public Map<String, Object> apply(EtlPartitionConf partition) {
+                        return partition.toDppPartitionConf();
+                    }
+                }));
             if (hubInfo != null) {
                 taskConf.put("hub_info", hubInfo.toDppHubInfo());
             }
@@ -436,26 +439,26 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
         public Map<String, Object> toDppPartitionConf() {
             Map<String, Object> partitionConf = Maps.newHashMap();
             partitionConf.put("source_file_schema",
-                    Maps.transformValues(sources, new Function<EtlSource, Map<String, Object>>() {
-                        @Override
-                        public Map<String, Object> apply(EtlSource source) {
-                            return source.toDppSource();
-                        }
-                    }));
+                Maps.transformValues(sources, new Function<EtlSource, Map<String, Object>>() {
+                    @Override
+                    public Map<String, Object> apply(EtlSource source) {
+                        return source.toDppSource();
+                    }
+                }));
             partitionConf.put("columns",
-                    Maps.transformValues(columns, new Function<EtlColumn, Map<String, Object>>() {
-                        @Override
-                        public Map<String, Object> apply(EtlColumn column) {
-                            return column.toDppColumn();
-                        }
-                    }));
+                Maps.transformValues(columns, new Function<EtlColumn, Map<String, Object>>() {
+                    @Override
+                    public Map<String, Object> apply(EtlColumn column) {
+                        return column.toDppColumn();
+                    }
+                }));
             partitionConf.put("views",
-                    Maps.transformValues(indices, new Function<EtlIndex, Map<String, Object>>() {
-                        @Override
-                        public Map<String, Object> apply(EtlIndex index) {
-                            return index.toDppView();
-                        }
-                    }));
+                Maps.transformValues(indices, new Function<EtlIndex, Map<String, Object>>() {
+                    @Override
+                    public Map<String, Object> apply(EtlIndex index) {
+                        return index.toDppView();
+                    }
+                }));
             if (partitionInfo != null) {
                 partitionConf.put("partition_info", partitionInfo.toDppPartitionInfo());
             }

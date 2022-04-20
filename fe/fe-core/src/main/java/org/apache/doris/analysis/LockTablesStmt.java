@@ -66,12 +66,12 @@ public class LockTablesStmt extends StatementBase {
 
             // check auth
             if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                    tableName,
-                    PrivPredicate.SELECT)) {
+                tableName,
+                PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
-                        ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(),
-                        dbName + ": " + tableName);
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    dbName + ": " + tableName);
             }
         }
     }

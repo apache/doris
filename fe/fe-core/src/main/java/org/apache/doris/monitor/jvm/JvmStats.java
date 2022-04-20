@@ -28,8 +28,8 @@ import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryUsage;
 import java.lang.management.RuntimeMXBean;
-import java.lang.management.ThreadMXBean;
 import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -70,10 +70,10 @@ public class JvmStats {
                     continue;
                 }
                 pools.add(new MemoryPool(name,
-                        usage.getUsed() < 0 ? 0 : usage.getUsed(),
-                        usage.getMax() < 0 ? 0 : usage.getMax(),
-                        peakUsage.getUsed() < 0 ? 0 : peakUsage.getUsed(),
-                        peakUsage.getMax() < 0 ? 0 : peakUsage.getMax()
+                    usage.getUsed() < 0 ? 0 : usage.getUsed(),
+                    usage.getMax() < 0 ? 0 : usage.getMax(),
+                    peakUsage.getUsed() < 0 ? 0 : peakUsage.getUsed(),
+                    peakUsage.getMax() < 0 ? 0 : peakUsage.getMax()
                 ));
             } catch (Exception ex) {
                 /* ignore some JVMs might barf here with:
@@ -82,7 +82,7 @@ public class JvmStats {
             }
         }
         Mem mem = new Mem(heapCommitted, heapUsed, heapMax, nonHeapCommitted, nonHeapUsed,
-                Collections.unmodifiableList(pools));
+            Collections.unmodifiableList(pools));
 
         int threadsNew = 0;
         int threadsRunnable = 0;
@@ -90,28 +90,43 @@ public class JvmStats {
         int threadsWaiting = 0;
         int threadsTimedWaiting = 0;
         int threadsTerminated = 0;
-        long threadIds[] = threadMXBean.getAllThreadIds();
+        long[] threadIds = threadMXBean.getAllThreadIds();
         for (ThreadInfo threadInfo : threadMXBean.getThreadInfo(threadIds, 0)) {
-            if (threadInfo == null) continue; // race protection
+            if (threadInfo == null) {
+                continue; // race protection
+            }
             switch (threadInfo.getThreadState()) {
-                case NEW:           threadsNew++;           break;
-                case RUNNABLE:      threadsRunnable++;      break;
-                case BLOCKED:       threadsBlocked++;       break;
-                case WAITING:       threadsWaiting++;       break;
-                case TIMED_WAITING: threadsTimedWaiting++;  break;
-                case TERMINATED:    threadsTerminated++;    break;
-                default:                                    break;
+                case NEW:
+                    threadsNew++;
+                    break;
+                case RUNNABLE:
+                    threadsRunnable++;
+                    break;
+                case BLOCKED:
+                    threadsBlocked++;
+                    break;
+                case WAITING:
+                    threadsWaiting++;
+                    break;
+                case TIMED_WAITING:
+                    threadsTimedWaiting++;
+                    break;
+                case TERMINATED:
+                    threadsTerminated++;
+                    break;
+                default:
+                    break;
             }
         }
         Threads threads = new Threads(threadMXBean.getThreadCount(), threadMXBean.getPeakThreadCount(), threadsNew,
-                threadsRunnable, threadsBlocked, threadsWaiting, threadsTimedWaiting, threadsTerminated);
+            threadsRunnable, threadsBlocked, threadsWaiting, threadsTimedWaiting, threadsTerminated);
 
         List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
         GarbageCollector[] collectors = new GarbageCollector[gcMxBeans.size()];
         for (int i = 0; i < collectors.length; i++) {
             GarbageCollectorMXBean gcMxBean = gcMxBeans.get(i);
             collectors[i] = new GarbageCollector(GcNames.getByGcName(gcMxBean.getName(), gcMxBean.getName()),
-                    gcMxBean.getCollectionCount(), gcMxBean.getCollectionTime());
+                gcMxBean.getCollectionCount(), gcMxBean.getCollectionTime());
         }
         GarbageCollectors garbageCollectors = new GarbageCollectors(collectors);
         List<BufferPool> bufferPoolsList = Collections.emptyList();
@@ -120,18 +135,18 @@ public class JvmStats {
             bufferPoolsList = new ArrayList<>(bufferPools.size());
             for (BufferPoolMXBean bufferPool : bufferPools) {
                 bufferPoolsList.add(new BufferPool(bufferPool.getName(), bufferPool.getCount(),
-                        bufferPool.getTotalCapacity(), bufferPool.getMemoryUsed()));
+                    bufferPool.getTotalCapacity(), bufferPool.getMemoryUsed()));
             }
         } catch (Exception e) {
             // buffer pools are not available
         }
 
         Classes classes = new Classes(classLoadingMXBean.getLoadedClassCount(),
-                classLoadingMXBean.getTotalLoadedClassCount(),
-                classLoadingMXBean.getUnloadedClassCount());
+            classLoadingMXBean.getTotalLoadedClassCount(),
+            classLoadingMXBean.getUnloadedClassCount());
 
         return new JvmStats(System.currentTimeMillis(), runtimeMXBean.getUptime(), mem, threads,
-                garbageCollectors, bufferPoolsList, classes);
+            garbageCollectors, bufferPoolsList, classes);
     }
 
     private final long timestamp;

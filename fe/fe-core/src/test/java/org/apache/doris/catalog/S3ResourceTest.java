@@ -28,9 +28,6 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -42,6 +39,10 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.HashMap;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class S3ResourceTest {
     private String name;
@@ -128,7 +129,7 @@ public class S3ResourceTest {
         Assert.assertEquals("2000", s3Resource.getProperty("s3_connection_timeout_ms"));
     }
 
-    @Test (expected = DdlException.class)
+    @Test(expected = DdlException.class)
     public void testAbnormalResource(@Mocked Catalog catalog, @Injectable PaloAuth auth) throws UserException {
         new Expectations() {
             {
@@ -145,7 +146,7 @@ public class S3ResourceTest {
     }
 
     @Test
-    public void testSerialization() throws Exception{
+    public void testSerialization() throws Exception {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();

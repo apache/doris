@@ -25,6 +25,7 @@ import com.google.common.base.Strings;
 public class UserException extends Exception {
     private InternalErrorCode errorCode;
     private ErrorCode mysqlErrorCode;
+
     public UserException(String msg, Throwable cause) {
         super(Strings.nullToEmpty(msg), cause);
         errorCode = InternalErrorCode.INTERNAL_ERR;

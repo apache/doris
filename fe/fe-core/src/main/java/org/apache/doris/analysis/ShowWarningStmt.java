@@ -24,11 +24,11 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 // Show Warning stmt
 public class ShowWarningStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Level", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Code", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Message", ScalarType.createVarchar(20)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Level", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Code", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Message", ScalarType.createVarchar(20)))
+            .build();
 
     @Override
     public void analyze(Analyzer analyzer) {

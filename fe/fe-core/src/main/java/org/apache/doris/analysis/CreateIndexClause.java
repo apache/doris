@@ -71,7 +71,7 @@ public class CreateIndexClause extends AlterTableClause {
         }
         indexDef.analyze();
         this.index = new Index(indexDef.getIndexName(), indexDef.getColumns(), indexDef.getIndexType(),
-                indexDef.getComment());
+            indexDef.getComment());
     }
 
     @Override

@@ -28,22 +28,22 @@ import java.util.List;
 
 public class TransProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TransactionId")
-            .add("Label")
-            .add("Coordinator")
-            .add("TransactionStatus")
-            .add("LoadJobSourceType")
-            .add("PrepareTime")
-            .add("PreCommitTime")
-            .add("CommitTime")
-            .add("PublishTime")
-            .add("FinishTime")
-            .add("Reason")
-            .add("ErrorReplicasCount")
-            .add("ListenerId")
-            .add("TimeoutMs")
-            .add("ErrMsg")
-            .build();
+        .add("TransactionId")
+        .add("Label")
+        .add("Coordinator")
+        .add("TransactionStatus")
+        .add("LoadJobSourceType")
+        .add("PrepareTime")
+        .add("PreCommitTime")
+        .add("CommitTime")
+        .add("PublishTime")
+        .add("FinishTime")
+        .add("Reason")
+        .add("ErrorReplicasCount")
+        .add("ListenerId")
+        .add("TimeoutMs")
+        .add("ErrMsg")
+        .build();
 
     public static final int MAX_SHOW_ENTRIES = 2000;
 

@@ -28,8 +28,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Mocked;
-
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -75,7 +73,7 @@ public class SyncJobTest {
         long lastStartTimeMs = 1621914540L;
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
         SyncJobUpdateStateInfo info = new SyncJobUpdateStateInfo(
-                jobId, jobState, lastStartTimeMs, -1L, -1L, failMsg);
+            jobId, jobState, lastStartTimeMs, -1L, -1L, failMsg);
         info.write(out);
         out.flush();
         out.close();

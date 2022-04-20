@@ -45,7 +45,7 @@ public enum ResourceType {
 
     static {
         ImmutableSortedMap.Builder<String, ResourceType> builder =
-                ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
+            ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
         for (ResourceType type : ResourceType.values()) {
             builder.put(type.desc, type);
         }

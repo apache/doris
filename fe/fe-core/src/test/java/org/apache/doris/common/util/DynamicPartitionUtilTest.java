@@ -21,12 +21,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Maps;
 
-import com.clearspring.analytics.util.Lists;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -38,12 +36,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 
+import com.clearspring.analytics.util.Lists;
+
 public class DynamicPartitionUtilTest {
 
     private static final String FORMAT = "yyyy-MM-dd";
 
     private static Map<String, String> getDynamProp(String timeUnit, int start, int end, int startOfWeek,
-            int startOfMonth) {
+                                                    int startOfMonth) {
         Map<String, String> prop = Maps.newHashMap();
         prop.put(DynamicPartitionProperty.ENABLE, "true");
         prop.put(DynamicPartitionProperty.TIME_UNIT, timeUnit);
@@ -64,7 +64,7 @@ public class DynamicPartitionUtilTest {
     private static ZonedDateTime getZonedDateTimeFromStr(String dateStr) throws DateTimeException {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern(FORMAT);
         return LocalDate.parse(dateStr, formatter).atStartOfDay(
-                TimeUtils.getOrSystemTimeZone(TimeUtils.DEFAULT_TIME_ZONE).toZoneId());
+            TimeUtils.getOrSystemTimeZone(TimeUtils.DEFAULT_TIME_ZONE).toZoneId());
     }
 
     private static TimeZone getCTSTimeZone() {
@@ -74,29 +74,29 @@ public class DynamicPartitionUtilTest {
     @Test
     public void testGetPartitionRangeString() throws DateTimeException {
         // TimeUnit: DAY
-        
+
         // 1. 2020-05-25, offset -7
         DynamicPartitionProperty property = new DynamicPartitionProperty(getDynamProp("DAY", -3, 3, -1, -1));
         String res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-25"), -7,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-05-18", res);
         String partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "DAY");
         Assert.assertEquals("20200518", partName);
         // 2. 2020-05-25, offset 0
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-25"), 0,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-05-25", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "DAY");
         Assert.assertEquals("20200525", partName);
         // 3. 2020-05-25, offset 7
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-25"), 7,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-06-01", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "DAY");
         Assert.assertEquals("20200601", partName);
         // 4. 2020-02-28, offset 3
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-02-28"), 3,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-03-02", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "DAY");
         Assert.assertEquals("20200302", partName);
@@ -105,7 +105,7 @@ public class DynamicPartitionUtilTest {
         // 1. 2020-05-25, start day: MONDAY, offset 0
         property = new DynamicPartitionProperty(getDynamProp("WEEK", -3, 3, 1, -1));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-25"), 0,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-05-25", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "WEEK");
         Assert.assertEquals("2020_22", partName);
@@ -113,7 +113,7 @@ public class DynamicPartitionUtilTest {
         // 2. 2020-05-28, start day: MONDAY, offset 0
         property = new DynamicPartitionProperty(getDynamProp("WEEK", -3, 3, 1, -1));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-28"), 0,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-05-25", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "WEEK");
         Assert.assertEquals("2020_22", partName);
@@ -121,7 +121,7 @@ public class DynamicPartitionUtilTest {
         // 3. 2020-05-25, start day: SUNDAY, offset 0
         property = new DynamicPartitionProperty(getDynamProp("WEEK", -3, 3, 7, -1));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-25"), 0,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-05-31", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "WEEK");
         Assert.assertEquals("2020_23", partName);
@@ -129,7 +129,7 @@ public class DynamicPartitionUtilTest {
         // 4. 2020-05-25, start day: MONDAY, offset -2
         property = new DynamicPartitionProperty(getDynamProp("WEEK", -3, 3, 1, -1));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-25"), -2,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-05-11", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "WEEK");
         Assert.assertEquals("2020_20", partName);
@@ -137,7 +137,7 @@ public class DynamicPartitionUtilTest {
         // 5. 2020-02-29, start day: WED, offset 0
         property = new DynamicPartitionProperty(getDynamProp("WEEK", -3, 3, 3, -1));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-02-29"), 0,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-02-26", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "WEEK");
         Assert.assertEquals("2020_09", partName);
@@ -145,7 +145,7 @@ public class DynamicPartitionUtilTest {
         // 6. 2020-02-29, start day: TUS, offset 1
         property = new DynamicPartitionProperty(getDynamProp("WEEK", -3, 3, 2, -1));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-02-29"), 1,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-03-03", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "WEEK");
         Assert.assertEquals("2020_10", partName);
@@ -153,7 +153,7 @@ public class DynamicPartitionUtilTest {
         // 6. 2020-01-01, start day: MONDAY, offset -1
         property = new DynamicPartitionProperty(getDynamProp("WEEK", -3, 3, 1, -1));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-01-01"), -1,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2019-12-23", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "WEEK");
         Assert.assertEquals("2019_52", partName);
@@ -161,7 +161,7 @@ public class DynamicPartitionUtilTest {
         // 6. 2020-01-01, start day: MONDAY, offset 0
         property = new DynamicPartitionProperty(getDynamProp("WEEK", -3, 3, 1, -1));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-01-01"), 0,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2019-12-30", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "WEEK");
         Assert.assertEquals("2019_53", partName);
@@ -170,7 +170,7 @@ public class DynamicPartitionUtilTest {
         // 1. 2020-05-25, start day: 1, offset 0
         property = new DynamicPartitionProperty(getDynamProp("MONTH", -3, 3, -1, 1));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-25"), 0,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-05-01", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "MONTH");
         Assert.assertEquals("202005", partName);
@@ -178,7 +178,7 @@ public class DynamicPartitionUtilTest {
         // 2. 2020-05-25, start day: 26, offset 0
         property = new DynamicPartitionProperty(getDynamProp("MONTH", -3, 3, -1, 26));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-25"), 0,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-04-26", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "MONTH");
         Assert.assertEquals("202004", partName);
@@ -186,7 +186,7 @@ public class DynamicPartitionUtilTest {
         // 3. 2020-05-25, start day: 26, offset -1
         property = new DynamicPartitionProperty(getDynamProp("MONTH", -3, 3, -1, 26));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-25"), -1,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-03-26", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "MONTH");
         Assert.assertEquals("202003", partName);
@@ -194,7 +194,7 @@ public class DynamicPartitionUtilTest {
         // 4. 2020-02-29, start day: 26, offset 3
         property = new DynamicPartitionProperty(getDynamProp("MONTH", -3, 3, -1, 26));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-02-29"), 3,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-05-26", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "MONTH");
         Assert.assertEquals("202005", partName);
@@ -202,7 +202,7 @@ public class DynamicPartitionUtilTest {
         // 5. 2020-02-29, start day: 27, offset 0
         property = new DynamicPartitionProperty(getDynamProp("MONTH", -3, 3, -1, 27));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-02-29"), 0,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2020-02-27", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "MONTH");
         Assert.assertEquals("202002", partName);
@@ -210,7 +210,7 @@ public class DynamicPartitionUtilTest {
         // 6. 2020-02-29, start day: 27, offset -3
         property = new DynamicPartitionProperty(getDynamProp("MONTH", -3, 3, -1, 27));
         res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-02-29"), -3,
-                FORMAT);
+            FORMAT);
         Assert.assertEquals("2019-11-27", res);
         partName = DynamicPartitionUtil.getFormattedPartitionName(getCTSTimeZone(), res, "MONTH");
         Assert.assertEquals("201911", partName);

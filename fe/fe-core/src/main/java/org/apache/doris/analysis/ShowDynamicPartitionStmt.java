@@ -30,24 +30,24 @@ import com.google.common.base.Strings;
 public class ShowDynamicPartitionStmt extends ShowStmt {
     private String db;
     private static final ShowResultSetMetaData SHOW_DYNAMIC_PARTITION_META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Enable", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("TimeUnit", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Start", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("End", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Prefix", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Buckets", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("ReplicationNum", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("ReplicaAllocation", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("StartOf", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("LastUpdateTime", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("LastSchedulerTime", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("State", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("LastCreatePartitionMsg", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("LastDropPartitionMsg", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("ReservedHistoryPeriods", ScalarType.createVarchar(20)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Enable", ScalarType.createVarchar(20)))
+            .addColumn(new Column("TimeUnit", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Start", ScalarType.createVarchar(20)))
+            .addColumn(new Column("End", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Prefix", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Buckets", ScalarType.createVarchar(20)))
+            .addColumn(new Column("ReplicationNum", ScalarType.createVarchar(20)))
+            .addColumn(new Column("ReplicaAllocation", ScalarType.createVarchar(128)))
+            .addColumn(new Column("StartOf", ScalarType.createVarchar(20)))
+            .addColumn(new Column("LastUpdateTime", ScalarType.createVarchar(20)))
+            .addColumn(new Column("LastSchedulerTime", ScalarType.createVarchar(20)))
+            .addColumn(new Column("State", ScalarType.createVarchar(20)))
+            .addColumn(new Column("LastCreatePartitionMsg", ScalarType.createVarchar(20)))
+            .addColumn(new Column("LastDropPartitionMsg", ScalarType.createVarchar(20)))
+            .addColumn(new Column("ReservedHistoryPeriods", ScalarType.createVarchar(20)))
+            .build();
 
     ShowDynamicPartitionStmt(String db) {
         this.db = db;

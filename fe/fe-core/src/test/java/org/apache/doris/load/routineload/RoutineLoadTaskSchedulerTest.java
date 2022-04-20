@@ -61,7 +61,7 @@ public class RoutineLoadTaskSchedulerTest {
                                 @Mocked GlobalTransactionMgr globalTransactionMgr,
                                 @Mocked BackendService.Client client,
                                 @Mocked ClientPool clientPool) throws LoadException,
-            MetaNotFoundException, AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
+        MetaNotFoundException, AnalysisException, LabelAlreadyUsedException, BeginTransactionException {
         long beId = 100L;
 
         Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
@@ -72,7 +72,7 @@ public class RoutineLoadTaskSchedulerTest {
 
         Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
         KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1l, "default_cluster", 20000,
-                partitionIdToOffset);
+            partitionIdToOffset);
         routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
 
         Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();

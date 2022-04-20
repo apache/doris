@@ -31,16 +31,17 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
+
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
+import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import java.util.Map;
 
 /*
  * calc row count from replica to table
@@ -83,7 +84,7 @@ public class RowCountAction extends RestBaseController {
                         long tabletRowCount = 0L;
                         for (Replica replica : tablet.getReplicas()) {
                             if (replica.checkVersionCatchUp(version, false)
-                                    && replica.getRowCount() > tabletRowCount) {
+                                && replica.getRowCount() > tabletRowCount) {
                                 tabletRowCount = replica.getRowCount();
                             }
                         }

@@ -145,12 +145,12 @@ public class VariableMgr {
             switch (field.getType().getSimpleName()) {
                 case "boolean":
                     if (value.equalsIgnoreCase("ON")
-                            || value.equalsIgnoreCase("TRUE")
-                            || value.equalsIgnoreCase("1")) {
+                        || value.equalsIgnoreCase("TRUE")
+                        || value.equalsIgnoreCase("1")) {
                         field.setBoolean(obj, true);
                     } else if (value.equalsIgnoreCase("OFF")
-                            || value.equalsIgnoreCase("FALSE")
-                            || value.equalsIgnoreCase("0")) {
+                        || value.equalsIgnoreCase("FALSE")
+                        || value.equalsIgnoreCase("0")) {
                         field.setBoolean(obj, false);
                     } else {
                         throw new IllegalAccessException();
@@ -553,7 +553,8 @@ public class VariableMgr {
 
     public static void createDefaultSessionVariableForCkpt() {
         defaultSessionVariableForCkpt = new SessionVariable();
-        ImmutableSortedMap.Builder<String, VarContext> builder = getStringVarContextBuilder(defaultSessionVariableForCkpt);
+        ImmutableSortedMap.Builder<String, VarContext> builder =
+            getStringVarContextBuilder(defaultSessionVariableForCkpt);
         ctxByVarNameForCkpt = builder.build();
     }
 
@@ -563,9 +564,10 @@ public class VariableMgr {
     }
 
     @NotNull
-    private static ImmutableSortedMap.Builder<String, VarContext> getStringVarContextBuilder(SessionVariable sessionVariable) {
+    private static ImmutableSortedMap.Builder<String, VarContext> getStringVarContextBuilder(
+        SessionVariable sessionVariable) {
         ImmutableSortedMap.Builder<String, VarContext> builder =
-                ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
+            ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
         for (Field field : SessionVariable.class.getDeclaredFields()) {
             VarAttr attr = field.getAnnotation(VarAttr.class);
             if (attr == null) {
@@ -574,8 +576,8 @@ public class VariableMgr {
 
             field.setAccessible(true);
             builder.put(attr.name(),
-                    new VarContext(field, sessionVariable, SESSION | attr.flag(),
-                            getValue(sessionVariable, field)));
+                new VarContext(field, sessionVariable, SESSION | attr.flag(),
+                    getValue(sessionVariable, field)));
         }
 
         // Variables only exist in global environment.
@@ -587,7 +589,7 @@ public class VariableMgr {
 
             field.setAccessible(true);
             builder.put(attr.name(),
-                    new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
+                new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
         }
         return builder;
     }

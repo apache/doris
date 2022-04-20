@@ -54,7 +54,7 @@ public abstract class RoutineLoadTaskInfo {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskInfo.class);
 
     private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
-    
+
     protected UUID id;
     protected long txnId = -1L;
     protected long jobId;
@@ -88,15 +88,15 @@ public abstract class RoutineLoadTaskInfo {
         this(id, jobId, clusterName, timeoutMs);
         this.previousBeId = previousBeId;
     }
-    
+
     public UUID getId() {
         return id;
     }
-    
+
     public long getJobId() {
         return jobId;
     }
-    
+
     public String getClusterName() {
         return clusterName;
     }
@@ -116,7 +116,7 @@ public abstract class RoutineLoadTaskInfo {
     public long getBeId() {
         return beId;
     }
-    
+
     public long getTxnId() {
         return txnId;
     }
@@ -153,7 +153,7 @@ public abstract class RoutineLoadTaskInfo {
 
         if (isRunning() && System.currentTimeMillis() - executeStartTimeMs > timeoutMs) {
             LOG.info("task {} is timeout. start: {}, timeout: {}", DebugUtil.printId(id),
-                    executeStartTimeMs, timeoutMs);
+                executeStartTimeMs, timeoutMs);
             return true;
         }
         return false;
@@ -170,10 +170,10 @@ public abstract class RoutineLoadTaskInfo {
         try {
             MetricRepo.COUNTER_LOAD_ADD.increase(1L);
             txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                    routineLoadJob.getDbId(), Lists.newArrayList(routineLoadJob.getTableId()), DebugUtil.printId(id), null,
-                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                    TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),
-                    timeoutMs / 1000);
+                routineLoadJob.getDbId(), Lists.newArrayList(routineLoadJob.getTableId()), DebugUtil.printId(id), null,
+                new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK, routineLoadJob.getId(),
+                timeoutMs / 1000);
         } catch (DuplicatedRequestException e) {
             // should not happen, because we didn't pass request id in when begin transaction
             LOG.warn("failed to begin txn for routine load task: {}, {}", DebugUtil.printId(id), e.getMessage());
@@ -186,7 +186,7 @@ public abstract class RoutineLoadTaskInfo {
             return false;
         } catch (MetaNotFoundException | QuotaExceedException e) {
             LOG.warn("failed to begin txn for routine load task: {}, job id: {}",
-                    DebugUtil.printId(id), jobId, e);
+                DebugUtil.printId(id), jobId, e);
             throw e;
         }
         routineLoadJob.jobStatistic.runningTxnIds.add(txnId);

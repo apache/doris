@@ -29,11 +29,11 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -53,15 +53,15 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
     private Set<String> loadAnnotationSet;
 
     private final String[] STREAM_LOAD_ANNONATION_NAMES = {"Label", "Db", "Table", "User", "ClientIp",
-            "Status", "Message", "Url", "TotalRows", "LoadedRows", "FilteredRows", "UnselectedRows",
-            "LoadBytes", "StartTime", "FinishTime"};
+        "Status", "Message", "Url", "TotalRows", "LoadedRows", "FilteredRows", "UnselectedRows",
+        "LoadBytes", "StartTime", "FinishTime"};
 
     private Set<String> streamLoadAnnotationSet;
 
     public AuditLogBuilder() {
         pluginInfo = new PluginInfo(PluginMgr.BUILTIN_PLUGIN_PREFIX + "AuditLogBuilder", PluginType.AUDIT,
-                "builtin audit logger", DigitalVersion.fromString("0.12.0"), 
-                DigitalVersion.fromString("1.8.31"), AuditLogBuilder.class.getName(), null, null);
+            "builtin audit logger", DigitalVersion.fromString("0.12.0"),
+            DigitalVersion.fromString("1.8.31"), AuditLogBuilder.class.getName(), null, null);
         loadAnnotationSet = Sets.newHashSet(LOAD_ANNONATION_NAMES);
         streamLoadAnnotationSet = Sets.newHashSet(STREAM_LOAD_ANNONATION_NAMES);
     }
@@ -78,19 +78,19 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
     @Override
     public void exec(AuditEvent event) {
         try {
-           switch (event.type) {
-               case AFTER_QUERY:
-                   auditQueryLog(event);
-                   break;
-               case LOAD_SUCCEED:
-                   auditLoadLog(event);
-                   break;
-               case STREAM_LOAD_FINISH:
-                   auditStreamLoadLog(event);
-                   break;
-               default:
-                   break;
-           }
+            switch (event.type) {
+                case AFTER_QUERY:
+                    auditQueryLog(event);
+                    break;
+                case LOAD_SUCCEED:
+                    auditLoadLog(event);
+                    break;
+                case STREAM_LOAD_FINISH:
+                    auditStreamLoadLog(event);
+                    break;
+                default:
+                    break;
+            }
         } catch (Exception e) {
             LOG.debug("failed to process audit event", e);
         }

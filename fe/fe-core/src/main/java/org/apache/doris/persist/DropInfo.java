@@ -26,24 +26,24 @@ import java.io.IOException;
 public class DropInfo implements Writable {
     private long dbId;
     private long tableId;
-    
+
     private long indexId;
     private boolean forceDrop = false;
 
     public DropInfo() {
     }
-    
+
     public DropInfo(long dbId, long tableId, long indexId, boolean forceDrop) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.indexId = indexId;
         this.forceDrop = forceDrop;
     }
-    
+
     public long getDbId() {
         return this.dbId;
     }
-    
+
     public long getTableId() {
         return this.tableId;
     }
@@ -55,7 +55,7 @@ public class DropInfo implements Writable {
     public boolean isForceDrop() {
         return forceDrop;
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(dbId);
@@ -86,19 +86,19 @@ public class DropInfo implements Writable {
         dropInfo.readFields(in);
         return dropInfo;
     }
-    
-    public boolean equals (Object obj) {
+
+    public boolean equals(Object obj) {
         if (this == obj) {
             return true;
         }
-        
+
         if (!(obj instanceof DropInfo)) {
             return false;
         }
-        
+
         DropInfo info = (DropInfo) obj;
-        
+
         return (dbId == info.dbId) && (tableId == info.tableId) && (indexId == info.indexId)
-                && (forceDrop == info.forceDrop);
+            && (forceDrop == info.forceDrop);
     }
 }

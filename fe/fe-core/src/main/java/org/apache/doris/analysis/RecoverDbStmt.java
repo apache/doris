@@ -51,11 +51,12 @@ public class RecoverDbStmt extends DdlStmt {
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
 
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                                                               PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ALTER_PRIV,
-                                                                                              PaloPrivilege.CREATE_PRIV,
-                                                                                              PaloPrivilege.ADMIN_PRIV),
-                                                                                Operator.OR))) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+            PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ALTER_PRIV,
+                    PaloPrivilege.CREATE_PRIV,
+                    PaloPrivilege.ADMIN_PRIV),
+                Operator.OR))) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
+                dbName);
         }
     }
 

@@ -39,9 +39,9 @@ public class CreateFileStmt extends DdlStmt {
     private static final String PROP_URL = "url";
     private static final String PROP_MD5 = "md5";
     private static final String PROP_SAVE_CONTENT = "save_content";
-    
+
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(PROP_CATALOG).add(PROP_URL).add(PROP_MD5).build();
+        .add(PROP_CATALOG).add(PROP_URL).add(PROP_MD5).build();
 
     private final String fileName;
     private String dbName;
@@ -116,7 +116,7 @@ public class CreateFileStmt extends DdlStmt {
 
     private void analyzeProperties() throws AnalysisException {
         Optional<String> optional = properties.keySet().stream().filter(
-                entity -> !PROPERTIES_SET.contains(entity)).findFirst();
+            entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid property");
         }
@@ -134,7 +134,7 @@ public class CreateFileStmt extends DdlStmt {
         if (properties.containsKey(PROP_MD5)) {
             checksum = properties.get(PROP_MD5);
         }
-        
+
         if (properties.containsKey(PROP_SAVE_CONTENT)) {
             throw new AnalysisException("'save_content' property is not supported yet");
             /*
@@ -163,8 +163,8 @@ public class CreateFileStmt extends DdlStmt {
         sb.append(map.toString());
         return sb.toString();
     }
-    
-    @Override 
+
+    @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
     }

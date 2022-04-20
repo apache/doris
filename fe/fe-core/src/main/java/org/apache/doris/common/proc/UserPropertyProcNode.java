@@ -27,8 +27,8 @@ import com.google.common.collect.ImmutableList;
  */
 public class UserPropertyProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Key").add("Value")
-            .build();
+        .add("Key").add("Value")
+        .build();
 
     private PaloAuth auth;
     private String qualifiedUser;

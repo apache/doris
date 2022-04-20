@@ -31,11 +31,11 @@ import java.util.Map;
 // e.g. "/api/{database}/{table}", can match "/api/db_name/tb_name", and the map is 
 // {database => db_name, table => tb_name}
 public class PathTrie<T> {
-    
+
     private static final char PATH_SEPARATOR = '/';
     private static final char LEFT_BRACE = '{';
     private static final char RIGHT_BRACE = '}';
-    
+
     private static final String ASTERISK_WILDCARD = "*";
 
     // Some path may have been encoded, so they need a Decoder, Invoker should supply 
@@ -104,19 +104,19 @@ public class PathTrie<T> {
         }
         return root.retrieve(strings, index, params);
     }
-    
+
     public class TrieNode<T> {
         private transient String key;
         private transient T value;
         private boolean isWildcard;
         private final String wildcard;
-        
+
         private transient String namedWildcard;
-        
+
         private ImmutableMap<String, TrieNode<T>> children;
-        
+
         private final TrieNode<T> parent;
-        
+
         public TrieNode(String key, T value, TrieNode<T> parent, String wildcard) {
             this.key = key;
             this.wildcard = wildcard;
@@ -130,32 +130,32 @@ public class PathTrie<T> {
                 namedWildcard = null;
             }
         }
-        
+
         public void updateKeyWithNamedWildcard(String key) {
             this.key = key;
             namedWildcard = key.substring(key.indexOf(LEFT_BRACE) + 1, key.indexOf(RIGHT_BRACE));
         }
-        
+
         public boolean isWildcard() {
             return isWildcard;
         }
-        
+
         public synchronized void addChild(TrieNode<T> child) {
             Map<String, TrieNode<T>> temp = Maps.newHashMap(children);
             temp.put(child.key, child);
             children = ImmutableMap.copyOf(temp);
         }
-        
+
         public TrieNode<T> getChild(String key) {
             return children.get(key);
         }
-        
+
         // construct the trie tree by inserting recursively.
         public synchronized void insert(String[] path, int index, T value) {
             if (index >= path.length) {
                 return;
             }
-            
+
             String token = path[index];
             String key = token;
             if (isNamedWildcard(token)) {
@@ -175,7 +175,7 @@ public class PathTrie<T> {
                 if (isNamedWildcard(token)) {
                     node.updateKeyWithNamedWildcard(token);
                 }
-                
+
                 // In case the target(last) node already exist but without a value
                 // than the value should be updated.
                 if (index == (path.length - 1)) {
@@ -185,28 +185,28 @@ public class PathTrie<T> {
                     }
                 }
             }
-            
+
             node.insert(path, index + 1, value);
         }
-        
+
         private boolean isNamedWildcard(String key) {
             return key.indexOf(LEFT_BRACE) != -1 && key.indexOf(RIGHT_BRACE) != -1;
         }
-        
+
         private boolean isNamedWildcard() {
             return namedWildcard != null;
         }
-        
+
         private String namedWildcard() {
             return namedWildcard;
         }
-        
+
         // Retrieve the trie tree recursively and build the map.
         public T retrieve(String[] path, int index, Map<String, String> params) {
             if (index >= path.length) {
                 return null;
             }
-            
+
             String token = path[index];
             TrieNode<T> node = children.get(token);
             boolean usedWildcard;
@@ -226,13 +226,13 @@ public class PathTrie<T> {
                     usedWildcard = token.equals(wildcard);
                 }
             }
-            
+
             put(params, node, token);
-            
+
             if (index == (path.length - 1)) {
                 return node.value;
             }
-            
+
             T res = node.retrieve(path, index + 1, params);
             if (res == null && !usedWildcard) {
                 node = children.get(wildcard);
@@ -241,10 +241,10 @@ public class PathTrie<T> {
                     res = node.retrieve(path, index + 1, params);
                 }
             }
-            
+
             return res;
         }
-        
+
         private void put(Map<String, String> params, TrieNode<T> node, String value) {
             if (params != null && node.isNamedWildcard()) {
                 params.put(node.namedWildcard(), decoder.decode(value));

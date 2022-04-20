@@ -36,7 +36,7 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     private Classification clazz = Classification.INIT;
 
     public RootPathLoadStatistic(long beId, String path, Long pathHash, TStorageMedium storageMedium,
-            long capacityB, long usedCapacityB, DiskState diskState) {
+                                 long capacityB, long usedCapacityB, DiskState diskState) {
         this.beId = beId;
         this.path = path;
         this.pathHash = pathHash;
@@ -89,23 +89,23 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
     public BalanceStatus isFit(long tabletSize, boolean isSupplement) {
         if (diskState == DiskState.OFFLINE) {
             return new BalanceStatus(ErrCode.COMMON_ERROR,
-                    toString() + " does not fit tablet with size: " + tabletSize + ", offline");
+                toString() + " does not fit tablet with size: " + tabletSize + ", offline");
         }
 
         if (isSupplement) {
             if ((usedCapacityB + tabletSize) / (double) capacityB > (Config.storage_flood_stage_usage_percent / 100.0)
-                    && capacityB - usedCapacityB - tabletSize < Config.storage_flood_stage_left_capacity_bytes) {
+                && capacityB - usedCapacityB - tabletSize < Config.storage_flood_stage_left_capacity_bytes) {
                 return new BalanceStatus(ErrCode.COMMON_ERROR,
-                        toString() + " does not fit tablet with size: " + tabletSize + ", limitation reached");
+                    toString() + " does not fit tablet with size: " + tabletSize + ", limitation reached");
             } else {
                 return BalanceStatus.OK;
             }
         }
 
         if ((usedCapacityB + tabletSize) / (double) capacityB > (Config.storage_high_watermark_usage_percent / 100.0)
-                || capacityB - usedCapacityB - tabletSize < Config.storage_min_left_capacity_bytes) {
+            || capacityB - usedCapacityB - tabletSize < Config.storage_min_left_capacity_bytes) {
             return new BalanceStatus(ErrCode.COMMON_ERROR,
-                    toString() + " does not fit tablet with size: " + tabletSize);
+                toString() + " does not fit tablet with size: " + tabletSize);
         }
         return BalanceStatus.OK;
     }

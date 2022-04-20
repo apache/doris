@@ -41,11 +41,7 @@ public class MVColumnOneChildPattern implements MVColumnPattern {
         if (functionCallExpr.getChildren().size() != 1) {
             return false;
         }
-        if (functionCallExpr.getChild(0).unwrapSlotRef() == null) {
-            return false;
-        } else {
-            return true;
-        }
+        return functionCallExpr.getChild(0).unwrapSlotRef() != null;
     }
 
     @Override

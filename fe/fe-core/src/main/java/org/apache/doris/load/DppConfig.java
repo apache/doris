@@ -133,7 +133,7 @@ public class DppConfig implements Writable {
                 } catch (Exception e) {
                     throw new LoadException("Load cluster " + PRIORITY + " format error");
                 }
-            }  else {
+            } else {
                 throw new LoadException("Unknown load cluster config key: " + key);
             }
         }
@@ -210,8 +210,8 @@ public class DppConfig implements Writable {
 
         if (bosParameters > 0 && bosParameters < 2) {
             throw new LoadException("You should specify 3 parameters (" + LoadStmt.BOS_ENDPOINT + ", "
-                    + LoadStmt.BOS_ACCESSKEY + ", " + LoadStmt.BOS_SECRET_ACCESSKEY
-                    + ") when loading data from BOS");
+                + LoadStmt.BOS_ACCESSKEY + ", " + LoadStmt.BOS_SECRET_ACCESSKEY
+                + ") when loading data from BOS");
         }
 
         if (hadoopConfigs.isEmpty()) {
@@ -289,7 +289,7 @@ public class DppConfig implements Writable {
 
     public String getApplicationsPath() {
         return String.format("%s/%d/%s/%s", paloPath, Catalog.getCurrentCatalog().getClusterId(), APPLICATIONS_PATH,
-                FeConstants.dpp_version);
+            FeConstants.dpp_version);
     }
 
     public String getOutputPath() {
@@ -373,7 +373,7 @@ public class DppConfig implements Writable {
         } else {
             out.writeBoolean(false);
         }
-        
+
         if (priority == null) {
             priority = TPriority.NORMAL;
         }

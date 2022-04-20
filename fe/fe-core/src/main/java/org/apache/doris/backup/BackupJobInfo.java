@@ -185,7 +185,7 @@ public class BackupJobInfo implements Writable {
                 tblInfo.partitions.remove(partName);
             } else {
                 LOG.info("Ignore error: exclude partition " + partName + " of table " + tblName
-                        + " does not exist in snapshot");
+                    + " does not exist in snapshot");
             }
         }
     }
@@ -297,7 +297,7 @@ public class BackupJobInfo implements Writable {
             briefBackupJobInfo.backupTime = backupJobInfo.backupTime;
             briefBackupJobInfo.content = backupJobInfo.content;
             for (Map.Entry<String, BackupOlapTableInfo> olapTableEntry :
-                    backupJobInfo.backupOlapTableObjects.entrySet()) {
+                backupJobInfo.backupOlapTableObjects.entrySet()) {
                 BriefBackupOlapTable briefBackupOlapTable = new BriefBackupOlapTable();
                 briefBackupOlapTable.name = olapTableEntry.getKey();
                 briefBackupOlapTable.partitionNames = Lists.newArrayList(olapTableEntry.getValue().partitions.keySet());
@@ -523,13 +523,13 @@ public class BackupJobInfo implements Writable {
                         partitionInfo.indexes.put(olapTbl.getIndexNameById(index.getId()), idxInfo);
                         // tablets
                         if (content == BackupContent.METADATA_ONLY) {
-                            for (Tablet tablet: index.getTablets()) {
+                            for (Tablet tablet : index.getTablets()) {
                                 idxInfo.tablets.put(tablet.getId(), Lists.newArrayList());
                             }
                         } else {
                             for (Tablet tablet : index.getTablets()) {
                                 idxInfo.tablets.put(tablet.getId(),
-                                        Lists.newArrayList(snapshotInfos.get(tablet.getId()).getFiles()));
+                                    Lists.newArrayList(snapshotInfos.get(tablet.getId()).getFiles()));
                             }
                         }
                         idxInfo.tabletsOrder.addAll(index.getTabletIdsInOrder());
@@ -581,7 +581,7 @@ public class BackupJobInfo implements Writable {
     }
 
     private static BackupJobInfo genFromJson(String json) {
-        /* parse the json string: 
+        /* parse the json string:
          * {
          *   "backup_time": 1522231864000,
          *   "name": "snapshot1",

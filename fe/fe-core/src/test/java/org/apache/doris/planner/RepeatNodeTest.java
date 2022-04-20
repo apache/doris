@@ -76,7 +76,7 @@ public class RepeatNodeTest {
         DescriptorTable descTable = new DescriptorTable();
         TupleDescriptor tuple = descTable.createTupleDescriptor("DstTable");
         node = new RepeatNode(new PlanNodeId(1),
-                new OlapScanNode(new PlanNodeId(0), tuple, "null"), groupingIdList, virtualTuple, groupingList);
+            new OlapScanNode(new PlanNodeId(0), tuple, "null"), groupingIdList, virtualTuple, groupingList);
 
     }
 

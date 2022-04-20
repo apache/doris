@@ -28,6 +28,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Table;
+
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -36,9 +39,6 @@ import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
-
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Table;
 
 import java.io.File;
 import java.util.List;
@@ -67,8 +67,8 @@ public class ColocateTableTest {
 
     @AfterClass
     public static void tearDown() {
-            File file = new File(runningDir);
-            file.delete();
+        File file = new File(runningDir);
+        file.delete();
     }
 
     @Before
@@ -99,16 +99,16 @@ public class ColocateTableTest {
     @Test
     public void testCreateOneTable() throws Exception {
         createTable("create table " + dbName + "." + tableName1 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
 
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
@@ -117,8 +117,11 @@ public class ColocateTableTest {
         Assert.assertEquals(1, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
         Assert.assertEquals(1, index.getAllGroupIds().size());
         Assert.assertEquals(1, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
-        Assert.assertEquals(1, Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
-        Assert.assertEquals(1, Deencapsulation.<Map<GroupId, ColocateGroupSchema>>getField(index, "group2Schema").size());
+        Assert.assertEquals(1,
+            Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq")
+                .size());
+        Assert.assertEquals(1,
+            Deencapsulation.<Map<GroupId, ColocateGroupSchema>>getField(index, "group2Schema").size());
         Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertTrue(index.isColocateTable(tableId));
@@ -142,28 +145,28 @@ public class ColocateTableTest {
     @Test
     public void testCreateTwoTableWithSameGroup() throws Exception {
         createTable("create table " + dbName + "." + tableName1 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
 
         createTable("create table " + dbName + "." + tableName2 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
 
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
@@ -173,8 +176,11 @@ public class ColocateTableTest {
         Assert.assertEquals(2, Deencapsulation.<Multimap<GroupId, Long>>getField(index, "group2Tables").size());
         Assert.assertEquals(1, index.getAllGroupIds().size());
         Assert.assertEquals(2, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
-        Assert.assertEquals(1, Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
-        Assert.assertEquals(1, Deencapsulation.<Map<GroupId, ColocateGroupSchema>>getField(index, "group2Schema").size());
+        Assert.assertEquals(1,
+            Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq")
+                .size());
+        Assert.assertEquals(1,
+            Deencapsulation.<Map<GroupId, ColocateGroupSchema>>getField(index, "group2Schema").size());
         Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertTrue(index.isColocateTable(firstTblId));
@@ -188,7 +194,8 @@ public class ColocateTableTest {
         Assert.assertEquals(1, index.getAllGroupIds().size());
         Assert.assertEquals(1, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
         Assert.assertEquals(1,
-                Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
+            Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq")
+                .size());
         Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertFalse(index.isColocateTable(firstTblId));
@@ -201,7 +208,8 @@ public class ColocateTableTest {
         Assert.assertEquals(0, index.getAllGroupIds().size());
         Assert.assertEquals(0, Deencapsulation.<Map<Long, GroupId>>getField(index, "table2Group").size());
         Assert.assertEquals(0,
-                Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq").size());
+            Deencapsulation.<Table<GroupId, Tag, List<List<Long>>>>getField(index, "group2BackendsPerBucketSeq")
+                .size());
         Assert.assertEquals(0, index.getUnstableGroupIds().size());
 
         Assert.assertFalse(index.isColocateTable(firstTblId));
@@ -211,134 +219,134 @@ public class ColocateTableTest {
     @Test
     public void testBucketNum() throws Exception {
         createTable("create table " + dbName + "." + tableName1 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
 
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("Colocate tables must have same bucket num: 1");
         createTable("create table " + dbName + "." + tableName2 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 2\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 2\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
 
     }
 
     @Test
     public void testReplicationNum() throws Exception {
         createTable("create table " + dbName + "." + tableName1 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
 
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("Colocate tables must have same replication allocation: tag.location.default: 1");
         createTable("create table " + dbName + "." + tableName2 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"2\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"2\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
     }
 
     @Test
     public void testDistributionColumnsSize() throws Exception {
         createTable("create table " + dbName + "." + tableName1 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
 
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("Colocate tables distribution columns size must be same : 2");
         createTable("create table " + dbName + "." + tableName2 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
     }
 
     @Test
     public void testDistributionColumnsType() throws Exception {
         createTable("create table " + dbName + "." + tableName1 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` int NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` int NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
 
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("Colocate tables distribution columns must have the same data type: k2 should be INT");
         createTable("create table " + dbName + "." + tableName2 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
     }
 
 
     @Test
     public void testModifyGroupNameForBucketSeqInconsistent() throws Exception {
         createTable("create table " + dbName + "." + tableName1 + " (\n" +
-                " `k1` int NULL COMMENT \"\",\n" +
-                " `k2` varchar(10) NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`k1`, `k2`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\",\n" +
-                " \"colocate_with\" = \"" + groupName + "\"\n" +
-                ");");
+            " `k1` int NULL COMMENT \"\",\n" +
+            " `k2` varchar(10) NULL COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "DUPLICATE KEY(`k1`, `k2`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 1\n" +
+            "PROPERTIES (\n" +
+            " \"replication_num\" = \"1\",\n" +
+            " \"colocate_with\" = \"" + groupName + "\"\n" +
+            ");");
 
         ColocateTableIndex index = Catalog.getCurrentColocateIndex();
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
@@ -349,7 +357,8 @@ public class ColocateTableTest {
         Assert.assertEquals(1, backendIds1.get(Tag.DEFAULT_BACKEND_TAG).get(0).size());
 
         // set same group name
-        alterTable("ALTER TABLE "+ dbName + "." + tableName1 + " SET (" + "\"colocate_with\" = \"" + groupName + "\")");
+        alterTable(
+            "ALTER TABLE " + dbName + "." + tableName1 + " SET (" + "\"colocate_with\" = \"" + groupName + "\")");
         GroupId groupId2 = index.getGroup(tableId);
 
         // verify groupId group2BackendsPerBucketSeq

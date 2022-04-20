@@ -57,7 +57,7 @@ public class FsBrokerTest {
         File file = new File(fileName1);
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         FsBroker fsBroker = new FsBroker("127.0.0.1", 8118);
         long time = System.currentTimeMillis();
         BrokerHbResponse hbResponse = new BrokerHbResponse("broker", "127.0.0.1", 8118, time);
@@ -65,10 +65,10 @@ public class FsBrokerTest {
         fsBroker.write(dos);
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        
+
         FsBroker readBroker = FsBroker.readIn(dis);
         Assert.assertEquals(fsBroker.ip, readBroker.ip);
         Assert.assertEquals(fsBroker.port, readBroker.port);

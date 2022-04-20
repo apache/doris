@@ -50,7 +50,7 @@ public class LdapAuthenticate {
     {
         if (LdapConfig.user_max_connections <= 0 || LdapConfig.user_max_connections > 10000) {
             LOG.warn("Ldap config user_max_connections is invalid. It should be set between 1 and 10000. " +
-                    "And now, it is set to the default value.");
+                "And now, it is set to the default value.");
         } else {
             userMaxConn = LdapConfig.user_max_connections;
         }
@@ -108,7 +108,7 @@ public class LdapAuthenticate {
         context.setRemoteIP(remoteIp);
         context.setLdapGroupsPrivs(ldapGroupsPrivs);
         LOG.debug("ldap authentication success: identity:{}, privs:{}",
-                context.getCurrentUserIdentity(), context.getLdapGroupsPrivs());
+            context.getCurrentUserIdentity(), context.getLdapGroupsPrivs());
         return true;
     }
 

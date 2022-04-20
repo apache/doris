@@ -27,10 +27,12 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class IsNullPredicate extends Predicate {
     private static final Logger LOG = LogManager.getLogger(IsNullPredicate.class);
@@ -38,25 +40,27 @@ public class IsNullPredicate extends Predicate {
     private static final String IS_NOT_NULL = "is_not_null_pred";
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t: Type.getSupportedTypes()) {
-            if (t.isNull()) continue;
+        for (Type t : Type.getSupportedTypes()) {
+            if (t.isNull()) {
+                continue;
+            }
             String isNullSymbol;
             if (t == Type.BOOLEAN) {
                 isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf10BooleanValE" +
-                        "EES3_PNS2_15FunctionContextERKT_";
+                    "EES3_PNS2_15FunctionContextERKT_";
             } else {
                 String udfType = Function.getUdfType(t.getPrimitiveType());
                 isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf" +
-                        udfType.length() + udfType +
-                        "EEENS2_10BooleanValEPNS2_15FunctionContextERKT_";
+                    udfType.length() + udfType +
+                    "EEENS2_10BooleanValEPNS2_15FunctionContextERKT_";
             }
 
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    IS_NULL, isNullSymbol, Lists.newArrayList(t), Type.BOOLEAN));
+                IS_NULL, isNullSymbol, Lists.newArrayList(t), Type.BOOLEAN));
 
             String isNotNullSymbol = isNullSymbol.replace("7is_null", "11is_not_null");
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    IS_NOT_NULL, isNotNullSymbol, Lists.newArrayList(t), Type.BOOLEAN));
+                IS_NOT_NULL, isNotNullSymbol, Lists.newArrayList(t), Type.BOOLEAN));
         }
     }
 
@@ -106,10 +110,10 @@ public class IsNullPredicate extends Predicate {
         super.analyzeImpl(analyzer);
         if (isNotNull) {
             fn = getBuiltinFunction(
-                    analyzer, IS_NOT_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
+                analyzer, IS_NOT_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
         } else {
             fn = getBuiltinFunction(
-                    analyzer, IS_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
+                analyzer, IS_NULL, collectChildReturnTypes(), Function.CompareMode.IS_INDISTINGUISHABLE);
         }
         Preconditions.checkState(fn != null, "tupleisNull fn == NULL");
 
@@ -135,6 +139,7 @@ public class IsNullPredicate extends Predicate {
     public boolean isNullable() {
         return false;
     }
+
     /**
      * fix issue 6390
      */
@@ -142,7 +147,7 @@ public class IsNullPredicate extends Predicate {
     public Expr getResultValue() throws AnalysisException {
         recursiveResetChildrenResult();
         final Expr childValue = getChild(0);
-        if(!(childValue instanceof LiteralExpr)) {
+        if (!(childValue instanceof LiteralExpr)) {
             return this;
         }
         return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);

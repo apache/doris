@@ -35,8 +35,8 @@ public class DownloadTask extends AgentTask {
     private StorageBackend.StorageType storageType;
 
     public DownloadTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
-            Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties,
-            StorageBackend.StorageType storageType) {
+                        Map<String, String> srcToDestPath, FsBroker brokerAddr, Map<String, String> brokerProperties,
+                        StorageBackend.StorageType storageType) {
         super(resourceInfo, backendId, TTaskType.DOWNLOAD, dbId, -1, -1, -1, -1, signature);
         this.jobId = jobId;
         this.srcToDestPath = srcToDestPath;

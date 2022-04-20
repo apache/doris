@@ -82,9 +82,9 @@ public class RoutineLoadScheduler extends MasterDaemon {
                 if (desiredConcurrentTaskNum <= 0) {
                     // the job will be rescheduled later.
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("msg", "the current concurrent num is less than or equal to zero, "
-                                             + "job will be rescheduled later")
-                                     .build());
+                        .add("msg", "the current concurrent num is less than or equal to zero, "
+                            + "job will be rescheduled later")
+                        .build());
                     continue;
                 }
                 // check state and divide job into tasks
@@ -101,19 +101,20 @@ public class RoutineLoadScheduler extends MasterDaemon {
 
             if (errorJobState != null) {
                 LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                 .add("current_state", routineLoadJob.getState())
-                                 .add("desired_state", errorJobState)
-                                 .add("warn_msg", "failed to scheduler job, change job state to desired_state with error reason " + userException.getMessage())
-                                 .build(), userException);
+                    .add("current_state", routineLoadJob.getState())
+                    .add("desired_state", errorJobState)
+                    .add("warn_msg", "failed to scheduler job, change job state to desired_state with error reason " +
+                        userException.getMessage())
+                    .build(), userException);
                 try {
                     ErrorReason reason = new ErrorReason(userException.getErrorCode(), userException.getMessage());
                     routineLoadJob.updateState(errorJobState, reason, false);
                 } catch (UserException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("current_state", routineLoadJob.getState())
-                                     .add("desired_state", errorJobState)
-                                     .add("warn_msg", "failed to change state to desired state")
-                                     .build(), e);
+                        .add("current_state", routineLoadJob.getState())
+                        .add("desired_state", errorJobState)
+                        .add("warn_msg", "failed to change state to desired state")
+                        .build(), e);
                 }
             }
         }

@@ -59,7 +59,7 @@ public class FrontendClause extends AlterClause {
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                analyzer.getQualifiedUser());
+                analyzer.getQualifiedUser());
         }
 
         Pair<String, Integer> pair = SystemInfoService.validateHostAndPort(hostPort);

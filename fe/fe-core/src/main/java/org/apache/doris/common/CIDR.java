@@ -41,6 +41,7 @@ public class CIDR {
 
     // Count the number of 1-bits in a 32-bit integer
     private static ImmutableMap<Integer, Integer> maskBitNumMap;
+
     static {
         ImmutableMap.Builder<Integer, Integer> builder = ImmutableMap.builder();
         builder.put(0, 0);
@@ -57,7 +58,7 @@ public class CIDR {
     // Specify IP in CIDR format like: new IPv4("192.168.0.8/16");
     public CIDR(String cidrNotation) {
         // if there is no mask, fill "/32" as suffix
-        if(cidrNotation.indexOf("/") == -1) {
+        if (cidrNotation.indexOf("/") == -1) {
             cidrNotation += "/32";
         }
 
@@ -70,7 +71,7 @@ public class CIDR {
             netmask = netmask << (32 - cidrPart);
         } else {
             throw new IllegalArgumentException(
-                    "Could not parse [" + cidrNotation + "]");
+                "Could not parse [" + cidrNotation + "]");
         }
     }
 
@@ -79,7 +80,7 @@ public class CIDR {
         return contains(toInteger(address));
     }
 
-     // Get the IP in symbolic form, i.e. xxx.xxx.xxx.xxx
+    // Get the IP in symbolic form, i.e. xxx.xxx.xxx.xxx
     public String getIP() {
         return format(address);
     }
@@ -102,7 +103,7 @@ public class CIDR {
         return sb.toString();
     }
 
-     // Get the IP and netmask in CIDR form, i.e. xxx.xxx.xxx.xxx/xx
+    // Get the IP and netmask in CIDR form, i.e. xxx.xxx.xxx.xxx/xx
     public String getCIDR() {
         int numberOfBits = maskBitNumMap.get(netmask);
         return format(address & netmask) + "/" + numberOfBits;
@@ -142,16 +143,16 @@ public class CIDR {
         }
 
         throw new IllegalArgumentException(
-                "Value [" + value + "] not in range [" + begin + "," + end + "]");
+            "Value [" + value + "] not in range [" + begin + "," + end + "]");
     }
 
     // long versions of the values (as unsigned int) which are more suitable for range checking
-    private long networkLong()  {
+    private long networkLong() {
         long network = (address & netmask);
         return network & UNSIGNED_INT_MASK;
     }
 
-    private long broadcastLong(){
+    private long broadcastLong() {
         long network = (address & netmask);
         long broadcast = network | ~(netmask);
         return broadcast & UNSIGNED_INT_MASK;

@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -43,15 +44,15 @@ import java.util.Set;
 //      SHOW VIEW { FROM | IN } table [ FROM db ]
 public class ShowViewStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("View", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("Create View", ScalarType.createVarchar(65535)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("View", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Create View", ScalarType.createVarchar(65535)))
+            .build();
 
     private String db;
     private TableName tbl;
 
-    private List<View> matchViews = Lists.newArrayList();;
+    private List<View> matchViews = Lists.newArrayList();
 
     public ShowViewStmt(String db, TableName tbl) {
         this.db = db;
@@ -88,11 +89,12 @@ public class ShowViewStmt extends ShowStmt {
         tbl.analyze(analyzer);
 
         String dbName = tbl.getDb();
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
+        if (!Catalog.getCurrentCatalog().getAuth()
+            .checkTblPriv(ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
-                    dbName + ": " + getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                dbName + ": " + getTbl());
         }
 
         Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);

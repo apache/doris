@@ -45,12 +45,13 @@ public class PartitionPersistInfo implements Writable {
     private ReplicaAllocation replicaAlloc;
     private boolean isInMemory = false;
     private boolean isTempPartition = false;
-    
+
     public PartitionPersistInfo() {
     }
 
     public PartitionPersistInfo(long dbId, long tableId, Partition partition, Range<PartitionKey> range,
-                                PartitionItem listPartitionItem, DataProperty dataProperty, ReplicaAllocation replicaAlloc,
+                                PartitionItem listPartitionItem, DataProperty dataProperty,
+                                ReplicaAllocation replicaAlloc,
                                 boolean isInMemory, boolean isTempPartition) {
         this.dbId = dbId;
         this.tableId = tableId;
@@ -64,11 +65,11 @@ public class PartitionPersistInfo implements Writable {
         this.isInMemory = isInMemory;
         this.isTempPartition = isTempPartition;
     }
-    
+
     public Long getDbId() {
         return dbId;
     }
-    
+
     public Long getTableId() {
         return tableId;
     }
@@ -131,7 +132,7 @@ public class PartitionPersistInfo implements Writable {
         isInMemory = in.readBoolean();
         isTempPartition = in.readBoolean();
     }
-    
+
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
@@ -139,11 +140,11 @@ public class PartitionPersistInfo implements Writable {
         if (!(obj instanceof PartitionPersistInfo)) {
             return false;
         }
-        
+
         PartitionPersistInfo info = (PartitionPersistInfo) obj;
-        
+
         return dbId.equals(info.dbId)
-                   && tableId.equals(info.tableId)
-                   && partition.equals(info.partition);
+            && tableId.equals(info.tableId)
+            && partition.equals(info.partition);
     }
 }

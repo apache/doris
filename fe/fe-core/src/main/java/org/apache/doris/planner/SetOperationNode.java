@@ -38,13 +38,12 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import org.apache.commons.collections.CollectionUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Node that merges the results of its child plans, Normally, this is done by
@@ -164,10 +163,10 @@ public abstract class SetOperationNode extends PlanNode {
                 }
             }
             materializedResultExprLists.add(
-                    Expr.substituteList(newExprList, getChild(i).getOutputSmap(), analyzer, true));
+                Expr.substituteList(newExprList, getChild(i).getOutputSmap(), analyzer, true));
         }
         Preconditions.checkState(
-                materializedResultExprLists.size() == getChildren().size());
+            materializedResultExprLists.size() == getChildren().size());
 
         materializedConstExprLists.clear();
         for (List<Expr> exprList : constExprLists) {
@@ -222,12 +221,12 @@ public abstract class SetOperationNode extends PlanNode {
      * be returned directly by the set operation node (without materialization into a new tuple).
      */
     private boolean isChildPassthrough(
-            Analyzer analyzer, PlanNode childNode, List<Expr> childExprList) {
+        Analyzer analyzer, PlanNode childNode, List<Expr> childExprList) {
         List<TupleId> childTupleIds = childNode.getTupleIds();
         // Check that if the child outputs a single tuple, then it's not nullable. Tuple
         // nullability can be considered to be part of the physical row layout.
         Preconditions.checkState(childTupleIds.size() != 1 ||
-                !childNode.getNullableTupleIds().contains(childTupleIds.get(0)));
+            !childNode.getNullableTupleIds().contains(childTupleIds.get(0)));
         // If the Union node is inside a subplan, passthrough should be disabled to avoid
         // performance issues by forcing tiny batches.
         // TODO: Remove this as part of IMPALA-4179.
@@ -244,13 +243,13 @@ public abstract class SetOperationNode extends PlanNode {
 
         TupleDescriptor setOpTupleDescriptor = analyzer.getDescTbl().getTupleDesc(tupleId);
         TupleDescriptor childTupleDescriptor =
-                analyzer.getDescTbl().getTupleDesc(childTupleIds.get(0));
+            analyzer.getDescTbl().getTupleDesc(childTupleIds.get(0));
 
         // Verify that the set operation tuple descriptor has one slot for every expression.
         Preconditions.checkState(setOpTupleDescriptor.getSlots().size() == setOpResultExprs.size());
         // Verify that the set operation node has one slot for every child expression.
         Preconditions.checkState(
-                setOpTupleDescriptor.getSlots().size() == childExprList.size());
+            setOpTupleDescriptor.getSlots().size() == childExprList.size());
 
         if (setOpResultExprs.size() != childTupleDescriptor.getSlots().size()) {
             return false;
@@ -260,8 +259,9 @@ public abstract class SetOperationNode extends PlanNode {
         }
 
         for (int i = 0; i < setOpResultExprs.size(); ++i) {
-            if (!setOpTupleDescriptor.getSlots().get(i).isMaterialized())
+            if (!setOpTupleDescriptor.getSlots().get(i).isMaterialized()) {
                 continue;
+            }
             SlotRef setOpSlotRef = setOpResultExprs.get(i).unwrapSlotRef(false);
             SlotRef childSlotRef = childExprList.get(i).unwrapSlotRef(false);
             Preconditions.checkNotNull(setOpSlotRef);
@@ -322,7 +322,7 @@ public abstract class SetOperationNode extends PlanNode {
     }
 
     protected void toThrift(TPlanNode msg, TPlanNodeType nodeType) {
-        Preconditions.checkState( materializedResultExprLists.size() == children.size());
+        Preconditions.checkState(materializedResultExprLists.size() == children.size());
         List<List<TExpr>> texprLists = Lists.newArrayList();
         for (List<Expr> exprList : materializedResultExprLists) {
             texprLists.add(Expr.treesToThrift(exprList));
@@ -335,17 +335,17 @@ public abstract class SetOperationNode extends PlanNode {
         switch (nodeType) {
             case UNION_NODE:
                 msg.union_node = new TUnionNode(
-                        tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
+                    tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
                 msg.node_type = TPlanNodeType.UNION_NODE;
                 break;
             case INTERSECT_NODE:
                 msg.intersect_node = new TIntersectNode(
-                        tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
+                    tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
                 msg.node_type = TPlanNodeType.INTERSECT_NODE;
                 break;
             case EXCEPT_NODE:
                 msg.except_node = new TExceptNode(
-                        tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
+                    tupleId.asInt(), texprLists, constTexprLists, firstMaterializedChildIdx);
                 msg.node_type = TPlanNodeType.EXCEPT_NODE;
                 break;
             default:
@@ -370,15 +370,15 @@ public abstract class SetOperationNode extends PlanNode {
             output.append(prefix).append("constant exprs: ").append("\n");
             for (List<Expr> exprs : constExprLists) {
                 output.append(prefix).append("    ").append(exprs.stream().map(Expr::toSql)
-                        .collect(Collectors.joining(" | "))).append("\n");
+                    .collect(Collectors.joining(" | "))).append("\n");
             }
         }
         if (detailLevel == TExplainLevel.VERBOSE) {
             if (CollectionUtils.isNotEmpty(materializedResultExprLists)) {
                 output.append(prefix).append("child exprs: ").append("\n");
-                for(List<Expr> exprs : materializedResultExprLists) {
+                for (List<Expr> exprs : materializedResultExprLists) {
                     output.append(prefix).append("    ").append(exprs.stream().map(Expr::toSql)
-                            .collect(Collectors.joining(" | "))).append("\n");
+                        .collect(Collectors.joining(" | "))).append("\n");
                 }
             }
             List<String> passThroughNodeIds = Lists.newArrayList();

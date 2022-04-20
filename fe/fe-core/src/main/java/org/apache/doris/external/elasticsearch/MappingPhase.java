@@ -81,18 +81,19 @@ public class MappingPhase implements SearchPhase {
         // After (include) 7.x, type was removed from ES mapping, default type is `_doc`
         // https://www.elastic.co/guide/en/elasticsearch/reference/7.0/removal-of-types.html
         if (rootSchema == null) {
-            if (searchContext.type().equals("_doc") == false) {
+            if (!searchContext.type().equals("_doc")) {
                 throw new DorisEsException("index[" + searchContext.sourceIndex() + "]'s type must be exists, "
-                        + " and after ES7.x type must be `_doc`, but found ["
-                        + searchContext.type() + "], for table ["
-                        + searchContext.esTable().getName() + "]");
+                    + " and after ES7.x type must be `_doc`, but found ["
+                    + searchContext.type() + "], for table ["
+                    + searchContext.esTable().getName() + "]");
             }
             properties = (JSONObject) mappings.get("properties");
         } else {
             properties = (JSONObject) rootSchema.get("properties");
         }
         if (properties == null) {
-            throw new DorisEsException("index[" + searchContext.sourceIndex() + "] type[" + searchContext.type() + "] mapping not found for the ES Cluster");
+            throw new DorisEsException("index[" + searchContext.sourceIndex() + "] type[" + searchContext.type() +
+                "] mapping not found for the ES Cluster");
         }
         for (Column col : searchContext.columns()) {
             String colName = col.getName();

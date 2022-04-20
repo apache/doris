@@ -39,9 +39,9 @@ import java.util.List;
  */
 public class DbsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("DbId").add("DbName").add("TableNum").add("Quota")
-            .add("LastConsistencyCheckTime").add("ReplicaQuota")
-            .build();
+        .add("DbId").add("DbName").add("TableNum").add("Quota")
+        .add("LastConsistencyCheckTime").add("ReplicaQuota")
+        .build();
 
     private Catalog catalog;
 
@@ -103,7 +103,7 @@ public class DbsProcDir implements ProcDirInterface {
                 long dataQuota = db.getDataQuota();
                 Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuota);
                 String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
-                        + quotaUnitPair.second;
+                    + quotaUnitPair.second;
                 dbInfo.add(readableQuota);
 
                 dbInfo.add(TimeUtils.longToTimeString(db.getLastCheckTime()));

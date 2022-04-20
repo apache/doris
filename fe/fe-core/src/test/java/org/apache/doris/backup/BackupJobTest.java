@@ -96,6 +96,7 @@ public class BackupJobTest {
         public MockBackupHandler(Catalog catalog) {
             super(catalog);
         }
+
         @Override
         public RepositoryMgr getRepoMgr() {
             return repoMgr;
@@ -107,6 +108,7 @@ public class BackupJobTest {
         public MockRepositoryMgr() {
             super();
         }
+
         @Override
         public Repository getRepo(long repoId) {
             return repo;
@@ -117,7 +119,7 @@ public class BackupJobTest {
     private EditLog editLog;
 
     private Repository repo = new Repository(repoId, "repo", false, "my_repo",
-            BlobStorage.create("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
+        BlobStorage.create("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
 
     @BeforeClass
     public static void start() {
@@ -125,14 +127,14 @@ public class BackupJobTest {
         File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
         backupDir.mkdirs();
     }
-    
+
     @AfterClass
     public static void end() throws IOException {
         Config.tmp_dir = "./";
         File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
         if (backupDir.exists()) {
             Files.walk(BackupHandler.BACKUP_ROOT_DIR,
-                       FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                FileVisitOption.FOLLOW_LINKS).sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
         }
     }
 
@@ -202,7 +204,7 @@ public class BackupJobTest {
         List<TableRef> tableRefs = Lists.newArrayList();
         tableRefs.add(new TableRef(new TableName(UnitTestUtil.DB_NAME, UnitTestUtil.TABLE_NAME), null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
-                catalog, repo.getId());
+            catalog, repo.getId());
     }
 
     @Test
@@ -212,24 +214,24 @@ public class BackupJobTest {
         job.run();
         Assert.assertEquals(Status.OK, job.getStatus());
         Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
-        
+
         BackupMeta backupMeta = job.getBackupMeta();
         Assert.assertEquals(1, backupMeta.getTables().size());
         OlapTable backupTbl = (OlapTable) backupMeta.getTable(UnitTestUtil.TABLE_NAME);
         List<String> partNames = Lists.newArrayList(backupTbl.getPartitionNames());
         Assert.assertNotNull(backupTbl);
         Assert.assertEquals(backupTbl.getSignature(BackupHandler.SIGNATURE_VERSION, partNames),
-                            ((OlapTable) db.getTableNullable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
+            ((OlapTable) db.getTableNullable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, partNames));
         Assert.assertEquals(1, AgentTaskQueue.getTaskNum());
         AgentTask task = AgentTaskQueue.getTask(backendId, TTaskType.MAKE_SNAPSHOT, tabletId);
         Assert.assertTrue(task instanceof SnapshotTask);
         SnapshotTask snapshotTask = (SnapshotTask) task;
-        
+
         // 2. snapshoting
         job.run();
         Assert.assertEquals(Status.OK, job.getStatus());
         Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
-        
+
         // 3. snapshot finished
         String snapshotPath = "/path/to/snapshot";
         List<String> snapshotFiles = Lists.newArrayList();
@@ -239,7 +241,7 @@ public class BackupJobTest {
         TStatus task_status = new TStatus(TStatusCode.OK);
         TBackend tBackend = new TBackend("", 0, 1);
         TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.MAKE_SNAPSHOT,
-                snapshotTask.getSignature(), task_status);
+            snapshotTask.getSignature(), task_status);
         request.setSnapshotFiles(snapshotFiles);
         request.setSnapshotPath(snapshotPath);
         Assert.assertTrue(job.finishTabletSnapshotTask(snapshotTask, request));
@@ -256,7 +258,7 @@ public class BackupJobTest {
         task = AgentTaskQueue.getTask(backendId, TTaskType.UPLOAD, id.get() - 1);
         Assert.assertTrue(task instanceof UploadTask);
         UploadTask upTask = (UploadTask) task;
-        
+
         Assert.assertEquals(job.getJobId(), upTask.getJobId());
         Map<String, String> srcToDest = upTask.getSrcToDestPath();
         Assert.assertEquals(1, srcToDest.size());
@@ -270,7 +272,7 @@ public class BackupJobTest {
         Assert.assertEquals(BackupJobState.UPLOADING, job.getState());
         Map<Long, List<String>> tabletFileMap = Maps.newHashMap();
         request = new TFinishTaskRequest(tBackend, TTaskType.UPLOAD,
-                upTask.getSignature(), task_status);
+            upTask.getSignature(), task_status);
         request.setTabletFiles(tabletFileMap);
 
         Assert.assertFalse(job.finishSnapshotUploadTask(upTask, request));
@@ -308,8 +310,9 @@ public class BackupJobTest {
             Assert.assertNotNull(olapTable);
             Assert.assertNotNull(restoreMetaInfo.getTable(UnitTestUtil.TABLE_NAME));
             List<String> names = Lists.newArrayList(olapTable.getPartitionNames());
-            Assert.assertEquals(((OlapTable) db.getTableNullable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, names),
-                                olapTable.getSignature(BackupHandler.SIGNATURE_VERSION, names));
+            Assert.assertEquals(
+                ((OlapTable) db.getTableNullable(tblId)).getSignature(BackupHandler.SIGNATURE_VERSION, names),
+                olapTable.getSignature(BackupHandler.SIGNATURE_VERSION, names));
 
             restoreJobInfo = BackupJobInfo.fromFile(job.getLocalJobInfoFilePath());
             Assert.assertEquals(UnitTestUtil.DB_NAME, restoreJobInfo.dbName);
@@ -337,7 +340,7 @@ public class BackupJobTest {
         List<TableRef> tableRefs = Lists.newArrayList();
         tableRefs.add(new TableRef(new TableName(UnitTestUtil.DB_NAME, "unknown_tbl"), null));
         job = new BackupJob("label", dbId, UnitTestUtil.DB_NAME, tableRefs, 13600 * 1000, BackupStmt.BackupContent.ALL,
-                catalog, repo.getId());
+            catalog, repo.getId());
         job.run();
         Assert.assertEquals(Status.ErrCode.NOT_FOUND, job.getStatus().getErrCode());
         Assert.assertEquals(BackupJobState.CANCELLED, job.getState());

@@ -72,7 +72,7 @@ public class JoinCostEvaluationTest {
 
     private PlanFragment createPlanFragment(long cardinality, float avgRowSize, int numNodes) {
         HashJoinNode root
-                = new HashJoinNode(nodeId, node, node, ref, Lists.newArrayList(expr), Lists.newArrayList(expr));
+            = new HashJoinNode(nodeId, node, node, ref, Lists.newArrayList(expr), Lists.newArrayList(expr));
         root.cardinality = cardinality;
         root.avgRowSize = avgRowSize;
         root.numNodes = numNodes;
@@ -124,8 +124,8 @@ public class JoinCostEvaluationTest {
         PlanFragment leftChildFragment = createPlanFragment(0, 0, 0);
         JoinCostEvaluation joinCostEvaluation = new JoinCostEvaluation(node, rightChildFragment, leftChildFragment);
         long hashTableSpace = Math.round((((rhsTreeCardinality / 0.75) * 8)
-                + ((double) rhsTreeCardinality * rhsTreeAvgRowSize) + (nodeArrayLen * 16)
-                + (nodeArrayLen * rhsTreeTupleIdNum * 8)) * PlannerContext.HASH_TBL_SPACE_OVERHEAD);
+            + ((double) rhsTreeCardinality * rhsTreeAvgRowSize) + (nodeArrayLen * 16)
+            + (nodeArrayLen * rhsTreeTupleIdNum * 8)) * PlannerContext.HASH_TBL_SPACE_OVERHEAD);
 
         Assert.assertEquals(hashTableSpace, joinCostEvaluation.constructHashTableSpace());
     }

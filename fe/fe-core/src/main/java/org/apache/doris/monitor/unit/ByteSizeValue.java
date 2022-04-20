@@ -117,7 +117,7 @@ public class ByteSizeValue implements Comparable<ByteSizeValue> {
     }
 
     public static ByteSizeValue parseBytesSizeValue(String sValue, ByteSizeValue defaultValue, String settingName)
-            throws Exception {
+        throws Exception {
         settingName = Objects.requireNonNull(settingName);
         if (sValue == null) {
             return defaultValue;
@@ -127,34 +127,34 @@ public class ByteSizeValue implements Comparable<ByteSizeValue> {
             String lowerSValue = sValue.toLowerCase(Locale.ROOT).trim();
             if (lowerSValue.endsWith("k")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0,
-                        lowerSValue.length() - 1)) * ByteSizeUnit.C1);
+                    lowerSValue.length() - 1)) * ByteSizeUnit.C1);
             } else if (lowerSValue.endsWith("kb")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0,
-                        lowerSValue.length() - 2)) * ByteSizeUnit.C1);
+                    lowerSValue.length() - 2)) * ByteSizeUnit.C1);
             } else if (lowerSValue.endsWith("m")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0,
-                        lowerSValue.length() - 1)) * ByteSizeUnit.C2);
+                    lowerSValue.length() - 1)) * ByteSizeUnit.C2);
             } else if (lowerSValue.endsWith("mb")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0,
-                        lowerSValue.length() - 2)) * ByteSizeUnit.C2);
+                    lowerSValue.length() - 2)) * ByteSizeUnit.C2);
             } else if (lowerSValue.endsWith("g")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0,
-                        lowerSValue.length() - 1)) * ByteSizeUnit.C3);
+                    lowerSValue.length() - 1)) * ByteSizeUnit.C3);
             } else if (lowerSValue.endsWith("gb")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0,
-                        lowerSValue.length() - 2)) * ByteSizeUnit.C3);
+                    lowerSValue.length() - 2)) * ByteSizeUnit.C3);
             } else if (lowerSValue.endsWith("t")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0,
-                        lowerSValue.length() - 1)) * ByteSizeUnit.C4);
+                    lowerSValue.length() - 1)) * ByteSizeUnit.C4);
             } else if (lowerSValue.endsWith("tb")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0,
-                        lowerSValue.length() - 2)) * ByteSizeUnit.C4);
+                    lowerSValue.length() - 2)) * ByteSizeUnit.C4);
             } else if (lowerSValue.endsWith("p")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0,
-                        lowerSValue.length() - 1)) * ByteSizeUnit.C5);
+                    lowerSValue.length() - 1)) * ByteSizeUnit.C5);
             } else if (lowerSValue.endsWith("pb")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0,
-                        lowerSValue.length() - 2)) * ByteSizeUnit.C5);
+                    lowerSValue.length() - 2)) * ByteSizeUnit.C5);
             } else if (lowerSValue.endsWith("b")) {
                 bytes = Long.parseLong(lowerSValue.substring(0, lowerSValue.length() - 1).trim());
             } else if (lowerSValue.equals("-1")) {
@@ -179,34 +179,34 @@ public class ByteSizeValue implements Comparable<ByteSizeValue> {
             String lowerSValue = sValue.toLowerCase(Locale.ROOT).trim();
             if (lowerSValue.endsWith("k")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0, lowerSValue.length() - 1))
-                        * ByteSizeUnit.C1);
+                    * ByteSizeUnit.C1);
             } else if (lowerSValue.endsWith("kb")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0, lowerSValue.length() - 2))
-                        * ByteSizeUnit.C1);
+                    * ByteSizeUnit.C1);
             } else if (lowerSValue.endsWith("m")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0, lowerSValue.length() - 1))
-                        * ByteSizeUnit.C2);
+                    * ByteSizeUnit.C2);
             } else if (lowerSValue.endsWith("mb")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0, lowerSValue.length() - 2))
-                        * ByteSizeUnit.C2);
+                    * ByteSizeUnit.C2);
             } else if (lowerSValue.endsWith("g")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0, lowerSValue.length() - 1))
-                        * ByteSizeUnit.C3);
+                    * ByteSizeUnit.C3);
             } else if (lowerSValue.endsWith("gb")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0, lowerSValue.length() - 2))
-                        * ByteSizeUnit.C3);
+                    * ByteSizeUnit.C3);
             } else if (lowerSValue.endsWith("t")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0, lowerSValue.length() - 1))
-                        * ByteSizeUnit.C4);
+                    * ByteSizeUnit.C4);
             } else if (lowerSValue.endsWith("tb")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0, lowerSValue.length() - 2))
-                        * ByteSizeUnit.C4);
+                    * ByteSizeUnit.C4);
             } else if (lowerSValue.endsWith("p")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0, lowerSValue.length() - 1))
-                        * ByteSizeUnit.C5);
+                    * ByteSizeUnit.C5);
             } else if (lowerSValue.endsWith("pb")) {
                 bytes = (long) (Double.parseDouble(lowerSValue.substring(0, lowerSValue.length() - 2))
-                        * ByteSizeUnit.C5);
+                    * ByteSizeUnit.C5);
             } else if (lowerSValue.endsWith("b")) {
                 bytes = Long.parseLong(lowerSValue.substring(0, lowerSValue.length() - 1).trim());
             } else if (lowerSValue.equals("-1")) {
@@ -218,7 +218,7 @@ public class ByteSizeValue implements Comparable<ByteSizeValue> {
             } else {
                 // Missing units:
                 throw new Exception("failed to parse setting [{}] with value"
-                        + " as a size in bytes: unit is missing or unrecognized");
+                    + " as a size in bytes: unit is missing or unrecognized");
 
             }
         } catch (NumberFormatException e) {

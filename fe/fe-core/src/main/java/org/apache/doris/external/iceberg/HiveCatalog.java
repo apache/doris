@@ -18,6 +18,7 @@
 package org.apache.doris.external.iceberg;
 
 import org.apache.doris.catalog.IcebergProperty;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
@@ -63,9 +64,9 @@ public class HiveCatalog implements IcebergCatalog {
             return hiveCatalog.loadTable(tableIdentifier);
         } catch (Exception e) {
             LOG.warn("Failed to load table[{}] from database[{}], with error: {}",
-                    tableIdentifier.name(), tableIdentifier.namespace(), e.getMessage());
+                tableIdentifier.name(), tableIdentifier.namespace(), e.getMessage());
             throw new DorisIcebergException(String.format("Failed to load table[%s] from database[%s]",
-                    tableIdentifier.name(), tableIdentifier.namespace()), e);
+                tableIdentifier.name(), tableIdentifier.namespace()), e);
         }
     }
 

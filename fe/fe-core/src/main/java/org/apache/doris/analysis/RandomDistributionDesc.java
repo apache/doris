@@ -52,7 +52,7 @@ public class RandomDistributionDesc extends DistributionDesc {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DISTRIBUTED BY RANDOM\n")
-                .append("BUCKETS ").append(numBucket);
+            .append("BUCKETS ").append(numBucket);
         return stringBuilder.toString();
     }
 

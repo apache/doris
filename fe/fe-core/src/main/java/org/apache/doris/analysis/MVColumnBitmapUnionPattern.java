@@ -37,11 +37,7 @@ public class MVColumnBitmapUnionPattern implements MVColumnPattern {
         }
         if (fnExpr.getChild(0) instanceof SlotRef) {
             SlotRef slotRef = (SlotRef) fnExpr.getChild(0);
-            if (slotRef.getType().getPrimitiveType() == PrimitiveType.BITMAP && slotRef.getColumn() != null) {
-                return true;
-            } else {
-                return false;
-            }
+            return slotRef.getType().getPrimitiveType() == PrimitiveType.BITMAP && slotRef.getColumn() != null;
         } else if (fnExpr.getChild(0) instanceof FunctionCallExpr) {
             FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
             if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)) {
@@ -61,7 +57,8 @@ public class MVColumnBitmapUnionPattern implements MVColumnPattern {
 
     @Override
     public String toString() {
-        return FunctionSet.BITMAP_UNION + "(" + FunctionSet.TO_BITMAP + "(column)), type of column could not be integer. "
-                + "Or " + FunctionSet.BITMAP_UNION + "(bitmap_column) in agg table";
+        return FunctionSet.BITMAP_UNION + "(" + FunctionSet.TO_BITMAP +
+            "(column)), type of column could not be integer. "
+            + "Or " + FunctionSet.BITMAP_UNION + "(bitmap_column) in agg table";
     }
 }

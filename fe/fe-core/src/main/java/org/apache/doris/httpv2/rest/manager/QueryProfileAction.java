@@ -35,8 +35,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.JsonParser;
-import com.google.gson.reflect.TypeToken;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -53,6 +51,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import com.google.gson.JsonParser;
+import com.google.gson.reflect.TypeToken;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -82,14 +82,14 @@ public class QueryProfileAction extends RestBaseController {
     private static final String INSTANCE_ID = "instance_id";
 
     public static final ImmutableList<String> QUERY_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add(QUERY_ID).add(NODE).add(USER).add(DEFAULT_DB).add(SQL_STATEMENT)
-            .add(QUERY_TYPE).add(START_TIME).add(END_TIME).add(TOTAL).add(QUERY_STATE)
-            .build();
+        .add(QUERY_ID).add(NODE).add(USER).add(DEFAULT_DB).add(SQL_STATEMENT)
+        .add(QUERY_TYPE).add(START_TIME).add(END_TIME).add(TOTAL).add(QUERY_STATE)
+        .build();
 
     private List<String> requestAllFe(String httpPath, Map<String, String> arguments, String authorization) {
         List<Pair<String, Integer>> frontends = HttpUtils.getFeList();
         ImmutableMap<String, String> header = ImmutableMap.<String, String>builder()
-                .put(NodeAction.AUTHORIZATION, authorization).build();
+            .put(NodeAction.AUTHORIZATION, authorization).build();
         List<String> dataList = Lists.newArrayList();
         for (Pair<String, Integer> ipPort : frontends) {
             String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
@@ -110,7 +110,7 @@ public class QueryProfileAction extends RestBaseController {
                             @RequestParam(value = QUERY_ID_PARA, required = false) String queryId,
                             @RequestParam(value = SEARCH_PARA, required = false) String search,
                             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true")
-                                    boolean isAllNode) {
+                                boolean isAllNode) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
@@ -135,8 +135,8 @@ public class QueryProfileAction extends RestBaseController {
             for (String data : dataList) {
                 try {
                     NodeAction.NodeInfo nodeInfo = GsonUtils.GSON.fromJson(data,
-                            new TypeToken<NodeAction.NodeInfo>() {
-                            }.getType());
+                        new TypeToken<NodeAction.NodeInfo>() {
+                        }.getType());
                     queries.addAll(nodeInfo.getRows());
                 } catch (Exception e) {
                     LOG.warn("parse query info error: {}", data, e);
@@ -146,7 +146,7 @@ public class QueryProfileAction extends RestBaseController {
         }
 
         queries = ProfileManager.getInstance().getAllQueries().stream()
-                .filter(profile -> profile.get(4).equals("Query")).collect(Collectors.toList());
+            .filter(profile -> profile.get(4).equals("Query")).collect(Collectors.toList());
         if (!Strings.isNullOrEmpty(queryId)) {
             queries = queries.stream().filter(q -> q.get(0).equals(queryId)).collect(Collectors.toList());
         }
@@ -177,7 +177,7 @@ public class QueryProfileAction extends RestBaseController {
     public Object queryInfo(HttpServletRequest request, HttpServletResponse response,
                             @PathVariable("query_id") String queryId,
                             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true")
-                                    boolean isAllNode) {
+                                boolean isAllNode) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
@@ -185,7 +185,7 @@ public class QueryProfileAction extends RestBaseController {
         if (isAllNode) {
             String httpPath = "/rest/v2/manager/query/sql/" + queryId;
             ImmutableMap<String, String> arguments = ImmutableMap.<String, String>builder()
-                    .put(IS_ALL_NODE_PARA, "false").build();
+                .put(IS_ALL_NODE_PARA, "false").build();
             List<String> dataList = requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION));
             if (!dataList.isEmpty()) {
                 try {
@@ -198,7 +198,7 @@ public class QueryProfileAction extends RestBaseController {
             }
         } else {
             List<List<String>> queries = ProfileManager.getInstance().getAllQueries().stream()
-                    .filter(query -> query.get(0).equals(queryId)).collect(Collectors.toList());
+                .filter(query -> query.get(0).equals(queryId)).collect(Collectors.toList());
             if (!queries.isEmpty()) {
                 querySql.put("sql", queries.get(0).get(3));
             }
@@ -211,7 +211,7 @@ public class QueryProfileAction extends RestBaseController {
     public Object queryProfileText(HttpServletRequest request, HttpServletResponse response,
                                    @PathVariable("query_id") String queryId,
                                    @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true")
-                                           boolean isAllNode) {
+                                       boolean isAllNode) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
@@ -219,12 +219,12 @@ public class QueryProfileAction extends RestBaseController {
         if (isAllNode) {
             String httpPath = "/rest/v2/manager/query/profile/text/" + queryId;
             ImmutableMap<String, String> arguments = ImmutableMap.<String, String>builder()
-                    .put(IS_ALL_NODE_PARA, "false").build();
+                .put(IS_ALL_NODE_PARA, "false").build();
             List<String> dataList = requestAllFe(httpPath, arguments, request.getHeader(NodeAction.AUTHORIZATION));
             if (!dataList.isEmpty()) {
                 try {
                     String profile =
-                            JsonParser.parseString(dataList.get(0)).getAsJsonObject().get("profile").getAsString();
+                        JsonParser.parseString(dataList.get(0)).getAsJsonObject().get("profile").getAsString();
                     profileMap.put("profile", profile);
                     return ResponseEntityBuilder.ok(profileMap);
                 } catch (Exception e) {
@@ -242,29 +242,29 @@ public class QueryProfileAction extends RestBaseController {
 
     // Returns the fragments and instances for the specified query id.
     // [
-    //		{
-    //			"fragment_id":"",
-    //			"time":"",
-    //			"instance_id":[
-    //				""
-    //			]
-    //		}
+    //    {
+    //      "fragment_id":"",
+    //      "time":"",
+    //      "instance_id":[
+    //        ""
+    //      ]
+    //    }
     // ]
     @RequestMapping(path = "/profile/fragments/{query_id}", method = RequestMethod.GET)
     public Object fragments(HttpServletRequest request, HttpServletResponse response,
                             @PathVariable("query_id") String queryId,
                             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true")
-                                    boolean isAllNode) {
+                                boolean isAllNode) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         if (isAllNode) {
             String httpPath = "/rest/v2/manager/query/profile/fragments/" + queryId;
             ImmutableMap<String, String> arguments = ImmutableMap.<String, String>builder()
-                    .put(IS_ALL_NODE_PARA, "false").build();
+                .put(IS_ALL_NODE_PARA, "false").build();
             List<Pair<String, Integer>> frontends = HttpUtils.getFeList();
             ImmutableMap<String, String> header = ImmutableMap.<String, String>builder()
-                    .put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION)).build();
+                .put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION)).build();
             for (Pair<String, Integer> ipPort : frontends) {
                 String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
                 try {
@@ -294,7 +294,7 @@ public class QueryProfileAction extends RestBaseController {
                                     @RequestParam(value = FRAGMENT_ID, required = false) String fragmentId,
                                     @RequestParam(value = INSTANCE_ID, required = false) String instanceId,
                                     @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true")
-                                            boolean isAllNode) {
+                                        boolean isAllNode) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
@@ -311,7 +311,7 @@ public class QueryProfileAction extends RestBaseController {
             if (!dataList.isEmpty()) {
                 try {
                     String profileGraph =
-                            JsonParser.parseString(dataList.get(0)).getAsJsonObject().get("graph").getAsString();
+                        JsonParser.parseString(dataList.get(0)).getAsJsonObject().get("graph").getAsString();
                     graph.put("graph", profileGraph);
                     return ResponseEntityBuilder.ok(graph);
                 } catch (Exception e) {
@@ -325,13 +325,13 @@ public class QueryProfileAction extends RestBaseController {
                     results = Lists.newArrayList(ProfileTreePrinter.printFragmentTree(treeRoot));
                 } else {
                     ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(queryId, queryId,
-                            fragmentId, instanceId);
+                        fragmentId, instanceId);
                     results = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
                 }
                 graph.put("graph", results.get(0));
             } catch (Exception e) {
                 LOG.warn("get profile graph error, queryId:{}, fragementId:{}, instanceId:{}",
-                        queryId, fragmentId, instanceId, e);
+                    queryId, fragmentId, instanceId, e);
             }
         }
         return ResponseEntityBuilder.ok(graph);

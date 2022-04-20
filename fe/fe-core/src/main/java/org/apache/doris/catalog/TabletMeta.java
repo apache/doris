@@ -40,7 +40,7 @@ public class TabletMeta {
     private ReentrantReadWriteLock lock;
 
     public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
-            TStorageMedium storageMedium) {
+                      TStorageMedium storageMedium) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;

@@ -66,7 +66,7 @@ public class DataStreamSink extends DataSink {
     protected TDataSink toThrift() {
         TDataSink result = new TDataSink(TDataSinkType.DATA_STREAM_SINK);
         TDataStreamSink tStreamSink =
-          new TDataStreamSink(exchNodeId.asInt(), outputPartition.toThrift());
+            new TDataStreamSink(exchNodeId.asInt(), outputPartition.toThrift());
         result.setStreamSink(tStreamSink);
         return result;
     }

@@ -65,9 +65,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -79,6 +76,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.SerializedName;
 
 public abstract class LoadJob extends AbstractTxnStateChangeCallback implements LoadTaskCallback, Writable {
 
@@ -360,7 +361,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         if (ConnectContext.get() != null) {
             jobProperties.put(LoadStmt.EXEC_MEM_LIMIT, ConnectContext.get().getSessionVariable().getMaxExecMemByte());
             jobProperties.put(LoadStmt.TIMEZONE, ConnectContext.get().getSessionVariable().getTimeZone());
-            jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM, ConnectContext.get().getSessionVariable().getSendBatchParallelism());
+            jobProperties.put(LoadStmt.SEND_BATCH_PARALLELISM,
+                ConnectContext.get().getSessionVariable().getSendBatchParallelism());
         }
 
         if (properties == null || properties.isEmpty()) {
@@ -415,7 +417,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         isJobTypeRead = jobTypeRead;
     }
 
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
+    public void beginTxn()
+        throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
+        QuotaExceedException, MetaNotFoundException {
     }
 
     /**
@@ -494,7 +498,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             // It is safe to return directly here without any processing,
             // and other processes will ensure that the job ends properly.
             LOG.warn("the load job {} is in final state: {}, should not update state to {} again",
-                    id, this.state, jobState);
+                id, this.state, jobState);
             return false;
         }
         switch (jobState) {
@@ -555,15 +559,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             }
             if (isCommitting) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                        .add("error_msg", "The txn which belongs to job is committing. "
-                                + "The job could not be cancelled in this step").build());
+                    .add("error_msg", "The txn which belongs to job is committing. "
+                        + "The job could not be cancelled in this step").build());
                 throw new DdlException("Job could not be cancelled while txn is committing");
             }
             if (isTxnDone()) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                        .add("state", state)
-                        .add("error_msg", "Job could not be cancelled when job is " + state)
-                        .build());
+                    .add("state", state)
+                    .add("error_msg", "Job could not be cancelled when job is " + state)
+                    .build());
                 throw new DdlException("Job could not be cancelled when job is finished or cancelled");
             }
 
@@ -581,9 +585,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             return;
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkPrivByAuthInfo(ConnectContext.get(), authorizationInfo,
-                PrivPredicate.LOAD)) {
+            PrivPredicate.LOAD)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                    PaloPrivilege.LOAD_PRIV);
+                PaloPrivilege.LOAD_PRIV);
         }
     }
 
@@ -602,18 +606,18 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             if (tableNames.isEmpty()) {
                 // forward compatibility
                 if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
-                        PrivPredicate.LOAD)) {
+                    PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                            PaloPrivilege.LOAD_PRIV);
+                        PaloPrivilege.LOAD_PRIV);
                 }
             } else {
                 for (String tblName : tableNames) {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                            tblName, PrivPredicate.LOAD)) {
+                        tblName, PrivPredicate.LOAD)) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
-                                command,
-                                ConnectContext.get().getQualifiedUser(),
-                                ConnectContext.get().getRemoteIP(), db.getFullName() + ": " + tblName);
+                            command,
+                            ConnectContext.get().getQualifiedUser(),
+                            ConnectContext.get().getRemoteIP(), db.getFullName() + ": " + tblName);
                     }
                 }
             }
@@ -630,7 +634,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      */
     protected void unprotectedExecuteCancel(FailMsg failMsg, boolean abortTxn) {
         LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id).add("transaction_id", transactionId)
-                .add("error_msg", "Failed to execute load with error: " + failMsg.getMsg()).build());
+            .add("error_msg", "Failed to execute load with error: " + failMsg.getMsg()).build());
 
         // clean the loadingStatus
         loadingStatus.setState(TEtlState.CANCELLED);
@@ -660,15 +664,15 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             // abort txn
             try {
                 LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
-                        .add("transaction_id", transactionId)
-                        .add("msg", "begin to abort txn")
-                        .build());
+                    .add("transaction_id", transactionId)
+                    .add("msg", "begin to abort txn")
+                    .build());
                 Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, transactionId, failMsg.getMsg());
             } catch (UserException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                        .add("transaction_id", transactionId)
-                        .add("error_msg", "failed to abort txn when job is cancelled. " + e.getMessage())
-                        .build());
+                    .add("transaction_id", transactionId)
+                    .add("error_msg", "failed to abort txn when job is cancelled. " + e.getMessage())
+                    .build());
             }
         }
 
@@ -714,8 +718,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     protected void logFinalOperation() {
         Catalog.getCurrentCatalog().getEditLog().logEndLoadJob(
-                new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp,
-                        state, failMsg));
+            new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp, finishTimestamp,
+                state, failMsg));
     }
 
     public void unprotectReadEndOperation(LoadJobFinalOperation loadJobFinalOperation) {
@@ -768,7 +772,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
             // task info
             jobInfo.add("cluster:" + getResourceName() + "; timeout(s):" + getTimeout()
-                    + "; max_filter_ratio:" + getMaxFilterRatio());
+                + "; max_filter_ratio:" + getMaxFilterRatio());
             // error msg
             if (failMsg == null) {
                 jobInfo.add(FeConstants.null_string);
@@ -901,7 +905,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      */
     @Override
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
-            throws UserException {
+        throws UserException {
         if (!txnOperated) {
             return;
         }
@@ -1000,10 +1004,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         LoadJob other = (LoadJob) obj;
 
         return this.id == other.id
-                && this.dbId == other.dbId
-                && this.label.equals(other.label)
-                && this.state.equals(other.state)
-                && this.jobType.equals(other.jobType);
+            && this.dbId == other.dbId
+            && this.label.equals(other.label)
+            && this.state.equals(other.state)
+            && this.jobType.equals(other.jobType);
     }
 
     @Override

@@ -122,16 +122,16 @@ public class PluginMgr implements Writable {
             if (checkDynamicPluginNameExist(info.getName())) {
                 throw new UserException("plugin " + info.getName() + " has already been installed.");
             }
-            
+
             // install plugin
             pluginLoader.install();
             pluginLoader.setStatus(PluginStatus.INSTALLED);
-            
+
             if (!addDynamicPluginNameIfAbsent(info.getName())) {
                 throw new UserException("plugin " + info.getName() + " has already been installed.");
             }
             plugins[info.getTypeId()].put(info.getName(), pluginLoader);
-            
+
             Catalog.getCurrentCatalog().getEditLog().logInstallPlugin(info);
             LOG.info("install plugin {}", info.getName());
             return info;
@@ -190,7 +190,7 @@ public class PluginMgr implements Writable {
      */
     public boolean registerBuiltinPlugin(PluginInfo pluginInfo, Plugin plugin) {
         if (Objects.isNull(pluginInfo) || Objects.isNull(plugin) || Objects.isNull(pluginInfo.getType())
-                || Strings.isNullOrEmpty(pluginInfo.getName())) {
+            || Strings.isNullOrEmpty(pluginInfo.getName())) {
             return false;
         }
 
@@ -281,7 +281,7 @@ public class PluginMgr implements Writable {
                     // plugin may not be loaded successfully
                     LOG.warn("failed to get plugin info for plugin: {}", entry.getKey(), e);
                 }
-                
+
                 r.add(entry.getKey());
                 r.add(pi != null ? pi.getType().name() : "UNKNOWN");
                 r.add(pi != null ? pi.getDescription() : "UNKNOWN");
@@ -296,7 +296,9 @@ public class PluginMgr implements Writable {
                 }
 
                 r.add(loader.getStatus().toString());
-                r.add(pi != null ? "{" + new PrintableMap<>(pi.getProperties(), "=", true, false, true).toString() + "}" : "UNKNOWN");
+                r.add(
+                    pi != null ? "{" + new PrintableMap<>(pi.getProperties(), "=", true, false, true).toString() + "}" :
+                        "UNKNOWN");
                 rows.add(r);
             }
         }

@@ -24,8 +24,6 @@ import org.apache.doris.monitor.jvm.JvmStats.GarbageCollector;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
 
-import com.codahale.metrics.Histogram;
-import com.codahale.metrics.Snapshot;
 import com.google.common.base.Joiner;
 
 import java.util.HashSet;
@@ -34,10 +32,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import com.codahale.metrics.Histogram;
+import com.codahale.metrics.Snapshot;
+
 /*
  * Like this:
- * # HELP doris_fe_job_load_broker_cost_ms doris_fe_job_load_broker_cost_ms 
- * # TYPE doris_fe_job_load_broker_cost_ms gauge 
+ * # HELP doris_fe_job_load_broker_cost_ms doris_fe_job_load_broker_cost_ms
+ * # TYPE doris_fe_job_load_broker_cost_ms gauge
  * doris_fe_job{job="load", type="mini", state="pending"} 0
  */
 public class PrometheusMetricVisitor extends MetricVisitor {
@@ -72,14 +73,19 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         // heap
         sb.append(Joiner.on(" ").join(HELP, JVM_HEAP_SIZE_BYTES, "jvm heap stat\n"));
         sb.append(Joiner.on(" ").join(TYPE, JVM_HEAP_SIZE_BYTES, "gauge\n"));
-        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"max\"} ").append(jvmStats.getMem().getHeapMax().getBytes()).append("\n");
-        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"committed\"} ").append(jvmStats.getMem().getHeapCommitted().getBytes()).append("\n");
-        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"used\"} ").append(jvmStats.getMem().getHeapUsed().getBytes()).append("\n");
+        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"max\"} ").append(jvmStats.getMem().getHeapMax().getBytes())
+            .append("\n");
+        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"committed\"} ")
+            .append(jvmStats.getMem().getHeapCommitted().getBytes()).append("\n");
+        sb.append(JVM_HEAP_SIZE_BYTES).append("{type=\"used\"} ").append(jvmStats.getMem().getHeapUsed().getBytes())
+            .append("\n");
         // non heap
         sb.append(Joiner.on(" ").join(HELP, JVM_NON_HEAP_SIZE_BYTES, "jvm non heap stat\n"));
         sb.append(Joiner.on(" ").join(TYPE, JVM_NON_HEAP_SIZE_BYTES, "gauge\n"));
-        sb.append(JVM_NON_HEAP_SIZE_BYTES).append("{type=\"committed\"} ").append(jvmStats.getMem().getNonHeapCommitted().getBytes()).append("\n");
-        sb.append(JVM_NON_HEAP_SIZE_BYTES).append("{type=\"used\"} ").append(jvmStats.getMem().getNonHeapUsed().getBytes()).append("\n");
+        sb.append(JVM_NON_HEAP_SIZE_BYTES).append("{type=\"committed\"} ")
+            .append(jvmStats.getMem().getNonHeapCommitted().getBytes()).append("\n");
+        sb.append(JVM_NON_HEAP_SIZE_BYTES).append("{type=\"used\"} ")
+            .append(jvmStats.getMem().getNonHeapUsed().getBytes()).append("\n");
 
         // mem pool
         Iterator<MemoryPool> memIter = jvmStats.getMem().iterator();
@@ -88,15 +94,21 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             if (memPool.getName().equalsIgnoreCase("young")) {
                 sb.append(Joiner.on(" ").join(HELP, JVM_YOUNG_SIZE_BYTES, "jvm young mem pool stat\n"));
                 sb.append(Joiner.on(" ").join(TYPE, JVM_YOUNG_SIZE_BYTES, "gauge\n"));
-                sb.append(JVM_YOUNG_SIZE_BYTES).append("{type=\"used\"} ").append(memPool.getUsed().getBytes()).append("\n");
-                sb.append(JVM_YOUNG_SIZE_BYTES).append("{type=\"peak_used\"} ").append(memPool.getPeakUsed().getBytes()).append("\n");
-                sb.append(JVM_YOUNG_SIZE_BYTES).append("{type=\"max\"} ").append(memPool.getMax().getBytes()).append("\n");
+                sb.append(JVM_YOUNG_SIZE_BYTES).append("{type=\"used\"} ").append(memPool.getUsed().getBytes())
+                    .append("\n");
+                sb.append(JVM_YOUNG_SIZE_BYTES).append("{type=\"peak_used\"} ").append(memPool.getPeakUsed().getBytes())
+                    .append("\n");
+                sb.append(JVM_YOUNG_SIZE_BYTES).append("{type=\"max\"} ").append(memPool.getMax().getBytes())
+                    .append("\n");
             } else if (memPool.getName().equalsIgnoreCase("old")) {
                 sb.append(Joiner.on(" ").join(HELP, JVM_OLD_SIZE_BYTES, "jvm old mem pool stat\n"));
                 sb.append(Joiner.on(" ").join(TYPE, JVM_OLD_SIZE_BYTES, "gauge\n"));
-                sb.append(JVM_OLD_SIZE_BYTES).append("{type=\"used\"} ").append(memPool.getUsed().getBytes()).append("\n");
-                sb.append(JVM_OLD_SIZE_BYTES).append("{type=\"peak_used\"} ").append(memPool.getPeakUsed().getBytes()).append("\n");
-                sb.append(JVM_OLD_SIZE_BYTES).append("{type=\"max\"} ").append(memPool.getMax().getBytes()).append("\n");
+                sb.append(JVM_OLD_SIZE_BYTES).append("{type=\"used\"} ").append(memPool.getUsed().getBytes())
+                    .append("\n");
+                sb.append(JVM_OLD_SIZE_BYTES).append("{type=\"peak_used\"} ").append(memPool.getPeakUsed().getBytes())
+                    .append("\n");
+                sb.append(JVM_OLD_SIZE_BYTES).append("{type=\"max\"} ").append(memPool.getMax().getBytes())
+                    .append("\n");
             }
         }
 
@@ -106,11 +118,14 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             BufferPool pool = poolIter.next();
             if (pool.getName().equalsIgnoreCase("direct")) {
                 sb.append(Joiner.on(" ").join(HELP, JVM_DIRECT_BUFFER_POOL_SIZE_BYTES,
-                                              "jvm direct buffer pool stat\n"));
+                    "jvm direct buffer pool stat\n"));
                 sb.append(Joiner.on(" ").join(TYPE, JVM_DIRECT_BUFFER_POOL_SIZE_BYTES, "gauge\n"));
-                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"count\"} ").append(pool.getCount()).append("\n");
-                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"used\"} ").append(pool.getUsed().getBytes()).append("\n");
-                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"capacity\"} ").append(pool.getTotalCapacity().getBytes()).append("\n");
+                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"count\"} ").append(pool.getCount())
+                    .append("\n");
+                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"used\"} ")
+                    .append(pool.getUsed().getBytes()).append("\n");
+                sb.append(JVM_DIRECT_BUFFER_POOL_SIZE_BYTES).append("{type=\"capacity\"} ")
+                    .append(pool.getTotalCapacity().getBytes()).append("\n");
             }
         }
 
@@ -122,12 +137,14 @@ public class PrometheusMetricVisitor extends MetricVisitor {
                 sb.append(Joiner.on(" ").join(HELP, JVM_YOUNG_GC, "jvm young gc stat\n"));
                 sb.append(Joiner.on(" ").join(TYPE, JVM_YOUNG_GC, "gauge\n"));
                 sb.append(JVM_YOUNG_GC).append("{type=\"count\"} ").append(gc.getCollectionCount()).append("\n");
-                sb.append(JVM_YOUNG_GC).append("{type=\"time\"} ").append(gc.getCollectionTime().getMillis()).append("\n");
+                sb.append(JVM_YOUNG_GC).append("{type=\"time\"} ").append(gc.getCollectionTime().getMillis())
+                    .append("\n");
             } else if (gc.getName().equalsIgnoreCase("old")) {
                 sb.append(Joiner.on(" ").join(HELP, JVM_OLD_GC, "jvm old gc stat\n"));
                 sb.append(Joiner.on(" ").join(TYPE, JVM_OLD_GC, "gauge\n"));
                 sb.append(JVM_OLD_GC).append("{type=\"count\"} ").append(gc.getCollectionCount()).append("\n");
-                sb.append(JVM_OLD_GC).append("{type=\"time\"} ").append(gc.getCollectionTime().getMillis()).append("\n");
+                sb.append(JVM_OLD_GC).append("{type=\"time\"} ").append(gc.getCollectionTime().getMillis())
+                    .append("\n");
             }
         }
 
@@ -138,11 +155,14 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         sb.append(JVM_THREAD).append("{type=\"count\"} ").append(threads.getCount()).append("\n");
         sb.append(JVM_THREAD).append("{type=\"peak_count\"} ").append(threads.getPeakCount()).append("\n");
         sb.append(JVM_THREAD).append("{type=\"new_count\"} ").append(threads.getThreadsNewCount()).append("\n");
-        sb.append(JVM_THREAD).append("{type=\"runnable_count\"} ").append(threads.getThreadsRunnableCount()).append("\n");
+        sb.append(JVM_THREAD).append("{type=\"runnable_count\"} ").append(threads.getThreadsRunnableCount())
+            .append("\n");
         sb.append(JVM_THREAD).append("{type=\"blocked_count\"} ").append(threads.getThreadsBlockedCount()).append("\n");
         sb.append(JVM_THREAD).append("{type=\"waiting_count\"} ").append(threads.getThreadsWaitingCount()).append("\n");
-        sb.append(JVM_THREAD).append("{type=\"timed_waiting_count\"} ").append(threads.getThreadsTimedWaitingCount()).append("\n");
-        sb.append(JVM_THREAD).append("{type=\"terminated_count\"} ").append(threads.getThreadsTerminatedCount()).append("\n");
+        sb.append(JVM_THREAD).append("{type=\"timed_waiting_count\"} ").append(threads.getThreadsTimedWaitingCount())
+            .append("\n");
+        sb.append(JVM_THREAD).append("{type=\"terminated_count\"} ").append(threads.getThreadsTerminatedCount())
+            .append("\n");
         return;
     }
 
@@ -163,7 +183,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         if (!labels.isEmpty()) {
             sb.append("{");
             List<String> labelStrs = labels.stream().map(l -> l.getKey() + "=\"" + l.getValue()
-                    + "\"").collect(Collectors.toList());
+                + "\"").collect(Collectors.toList());
             sb.append(Joiner.on(", ").join(labelStrs));
             sb.append("}");
         }
@@ -195,15 +215,16 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         final String NODE_INFO = "node_info";
         sb.append(Joiner.on(" ").join(TYPE, NODE_INFO, "gauge\n"));
         sb.append(NODE_INFO).append("{type=\"fe_node_num\", state=\"total\"} ")
-                .append(Catalog.getCurrentCatalog().getFrontends(null).size()).append("\n");
+            .append(Catalog.getCurrentCatalog().getFrontends(null).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"total\"} ")
-                .append(Catalog.getCurrentSystemInfo().getBackendIds(false).size()).append("\n");
+            .append(Catalog.getCurrentSystemInfo().getBackendIds(false).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"alive\"} ")
-                .append(Catalog.getCurrentSystemInfo().getBackendIds(true).size()).append("\n");
+            .append(Catalog.getCurrentSystemInfo().getBackendIds(true).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"decommissioned\"} ")
-                .append(Catalog.getCurrentSystemInfo().getDecommissionedBackendIds().size()).append("\n");
+            .append(Catalog.getCurrentSystemInfo().getDecommissionedBackendIds().size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"broker_node_num\", state=\"dead\"} ").append(
-                Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count()).append("\n");
+                Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count())
+            .append("\n");
 
         // only master FE has this metrics, to help the Grafana knows who is the master
         if (Catalog.getCurrentCatalog().isMaster()) {

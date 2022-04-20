@@ -155,31 +155,31 @@ public class EsTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of elasticsearch table, "
-                    + "they are: hosts, user, password, index");
+                + "they are: hosts, user, password, index");
         }
 
         if (Strings.isNullOrEmpty(properties.get(HOSTS))
-                || Strings.isNullOrEmpty(properties.get(HOSTS).trim())) {
+            || Strings.isNullOrEmpty(properties.get(HOSTS).trim())) {
             throw new DdlException("Hosts of ES table is null. "
-                    + "Please add properties('hosts'='xxx.xxx.xxx.xxx,xxx.xxx.xxx.xxx') when create table");
+                + "Please add properties('hosts'='xxx.xxx.xxx.xxx,xxx.xxx.xxx.xxx') when create table");
         }
         hosts = properties.get(HOSTS).trim();
         seeds = hosts.split(",");
 
         if (!Strings.isNullOrEmpty(properties.get(USER))
-                && !Strings.isNullOrEmpty(properties.get(USER).trim())) {
+            && !Strings.isNullOrEmpty(properties.get(USER).trim())) {
             userName = properties.get(USER).trim();
         }
 
         if (!Strings.isNullOrEmpty(properties.get(PASSWORD))
-                && !Strings.isNullOrEmpty(properties.get(PASSWORD).trim())) {
+            && !Strings.isNullOrEmpty(properties.get(PASSWORD).trim())) {
             passwd = properties.get(PASSWORD).trim();
         }
 
         if (Strings.isNullOrEmpty(properties.get(INDEX))
-                || Strings.isNullOrEmpty(properties.get(INDEX).trim())) {
+            || Strings.isNullOrEmpty(properties.get(INDEX).trim())) {
             throw new DdlException("Index of ES table is null. "
-                    + "Please add properties('index'='xxxx') when create table");
+                + "Please add properties('index'='xxxx') when create table");
         }
         indexName = properties.get(INDEX).trim();
 
@@ -192,7 +192,7 @@ public class EsTable extends Table {
                 }
             } catch (Exception e) {
                 throw new DdlException("fail to parse ES major version, version= "
-                        + properties.get(VERSION).trim() + ", should be like '6.5.3' ");
+                    + properties.get(VERSION).trim() + ", should be like '6.5.3' ");
             }
         }
 
@@ -223,15 +223,16 @@ public class EsTable extends Table {
         }
 
         if (!Strings.isNullOrEmpty(properties.get(TYPE))
-                && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
+            && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
             mappingType = properties.get(TYPE).trim();
         }
 
         if (!Strings.isNullOrEmpty(properties.get(TRANSPORT))
-                && !Strings.isNullOrEmpty(properties.get(TRANSPORT).trim())) {
+            && !Strings.isNullOrEmpty(properties.get(TRANSPORT).trim())) {
             transport = properties.get(TRANSPORT).trim();
             if (!(TRANSPORT_HTTP.equals(transport) || TRANSPORT_THRIFT.equals(transport))) {
-                throw new DdlException("transport of ES table must be http/https(recommend) or thrift(reserved inner usage),"
+                throw new DdlException(
+                    "transport of ES table must be http/https(recommend) or thrift(reserved inner usage),"
                         + " but value is " + transport);
             }
         }
@@ -265,7 +266,7 @@ public class EsTable extends Table {
     public TTableDescriptor toThrift() {
         TEsTable tEsTable = new TEsTable();
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE,
-                fullSchema.size(), 0, getName(), "");
+            fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setEsTable(tEsTable);
         return tTableDescriptor;
     }
@@ -359,7 +360,7 @@ public class EsTable extends Table {
         } else {
             throw new IOException("invalid partition type: " + partType);
         }
-    
+
     }
 
     public String getHosts() {
@@ -430,7 +431,7 @@ public class EsTable extends Table {
             this.esTablePartitions = esMetaStateTracker.searchContext().tablePartitions();
         } catch (Throwable e) {
             LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster." +
-                    "table id: {}, err: {}", this.name, this.id, e.getMessage());
+                "table id: {}, err: {}", this.name, this.id, e.getMessage());
             this.esTablePartitions = null;
             this.lastMetaDataSyncException = e;
         }

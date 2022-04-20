@@ -94,7 +94,7 @@ public final class ExportChecker extends MasterDaemon {
         if (runningJobNumLimit > 0 && !pendingJobs.isEmpty()) {
             // pending executor running + exporting state
             int runningJobNum = executors.get(JobState.PENDING).getTaskNum()
-                    + executors.get(JobState.EXPORTING).getTaskNum();
+                + executors.get(JobState.EXPORTING).getTaskNum();
             if (runningJobNum >= runningJobNumLimit) {
                 LOG.info("running export job num {} exceeds system limit {}", runningJobNum, runningJobNumLimit);
                 return;

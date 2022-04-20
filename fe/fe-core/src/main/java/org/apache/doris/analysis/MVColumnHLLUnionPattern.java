@@ -32,16 +32,12 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
             return false;
         }
         String fnNameString = fnExpr.getFnName().getFunction();
-        if (!fnNameString.equalsIgnoreCase(FunctionSet.HLL_UNION)){
+        if (!fnNameString.equalsIgnoreCase(FunctionSet.HLL_UNION)) {
             return false;
         }
         if (fnExpr.getChild(0) instanceof SlotRef) {
             SlotRef slotRef = (SlotRef) fnExpr.getChild(0);
-            if (slotRef.getType().getPrimitiveType() == PrimitiveType.HLL && slotRef.getColumn() != null) {
-                return true;
-            } else {
-                return false;
-            }
+            return slotRef.getType().getPrimitiveType() == PrimitiveType.HLL && slotRef.getColumn() != null;
         } else if (fnExpr.getChild(0) instanceof FunctionCallExpr) {
             FunctionCallExpr child0FnExpr = (FunctionCallExpr) fnExpr.getChild(0);
             if (!child0FnExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.HLL_HASH)) {
@@ -62,6 +58,6 @@ public class MVColumnHLLUnionPattern implements MVColumnPattern {
     @Override
     public String toString() {
         return FunctionSet.HLL_UNION + "(" + FunctionSet.HLL_HASH + "(column)) column could not be decimal. "
-                + "Or " + FunctionSet.HLL_UNION + "(hll_column) in agg table";
+            + "Or " + FunctionSet.HLL_UNION + "(hll_column) in agg table";
     }
 }

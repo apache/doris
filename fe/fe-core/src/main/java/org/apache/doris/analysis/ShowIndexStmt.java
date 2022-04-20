@@ -32,20 +32,20 @@ import com.google.common.base.Strings;
 
 public class ShowIndexStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Table", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Non_unique", ScalarType.createVarchar(10)))
-                    .addColumn(new Column("Key_name", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Seq_in_index", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Column_name", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Collation", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Cardinality", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Sub_part", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Packed", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Null", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Index_type", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Comment", ScalarType.createVarchar(80)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Table", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Non_unique", ScalarType.createVarchar(10)))
+            .addColumn(new Column("Key_name", ScalarType.createVarchar(80)))
+            .addColumn(new Column("Seq_in_index", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Column_name", ScalarType.createVarchar(80)))
+            .addColumn(new Column("Collation", ScalarType.createVarchar(80)))
+            .addColumn(new Column("Cardinality", ScalarType.createVarchar(80)))
+            .addColumn(new Column("Sub_part", ScalarType.createVarchar(80)))
+            .addColumn(new Column("Packed", ScalarType.createVarchar(80)))
+            .addColumn(new Column("Null", ScalarType.createVarchar(80)))
+            .addColumn(new Column("Index_type", ScalarType.createVarchar(80)))
+            .addColumn(new Column("Comment", ScalarType.createVarchar(80)))
+            .build();
     private String dbName;
     private TableName tableName;
 
@@ -57,7 +57,7 @@ public class ShowIndexStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        
+
         if (!Strings.isNullOrEmpty(dbName)) {
             // if user specify the `from db`, overwrite the db in tableName with this db.
             // for example:
@@ -69,10 +69,11 @@ public class ShowIndexStmt extends ShowStmt {
         }
         tableName.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
+        if (!Catalog.getCurrentCatalog().getAuth()
+            .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
                 PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
-                    tableName.getDb() + ": " + tableName.toString());
+                tableName.getDb() + ": " + tableName.toString());
         }
     }
 

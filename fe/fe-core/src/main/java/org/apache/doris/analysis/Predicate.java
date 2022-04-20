@@ -63,7 +63,7 @@ public abstract class Predicate extends Expr {
      * what we want.
      */
     public boolean isSingleColumnPredicate(Reference<SlotRef> slotRefRef,
-      Reference<Integer> idxRef) {
+                                           Reference<Integer> idxRef) {
         // find slotref
         SlotRef slotRef = null;
         int i = 0;
@@ -98,12 +98,12 @@ public abstract class Predicate extends Expr {
 
     public static boolean isEquivalencePredicate(Expr expr) {
         return (expr instanceof BinaryPredicate)
-                && ((BinaryPredicate) expr).getOp().isEquivalence();
+            && ((BinaryPredicate) expr).getOp().isEquivalence();
     }
 
     public static boolean isUnNullSafeEquivalencePredicate(Expr expr) {
         return (expr instanceof BinaryPredicate)
-                && ((BinaryPredicate) expr).getOp().isUnNullSafeEquivalence();
+            && ((BinaryPredicate) expr).getOp().isUnNullSafeEquivalence();
     }
 
     public static boolean canPushDownPredicate(Expr expr) {

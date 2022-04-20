@@ -55,10 +55,11 @@ public class UpdateManager {
     private UpdateStmtExecutor addUpdateExecutor(UpdateStmt updateStmt) throws AnalysisException, DdlException {
         writeLock();
         try {
-            List<UpdateStmtExecutor> currentUpdateList = tableIdToCurrentUpdate.get(updateStmt.getTargetTable().getId());
+            List<UpdateStmtExecutor> currentUpdateList =
+                tableIdToCurrentUpdate.get(updateStmt.getTargetTable().getId());
             if (!enableConcurrentUpdate && currentUpdateList != null && currentUpdateList.size() > 0) {
                 throw new DdlException("There is an update operation in progress for the current table. "
-                        + "Please try again later, or set enable_concurrent_update in fe.conf to true");
+                    + "Please try again later, or set enable_concurrent_update in fe.conf to true");
             }
             UpdateStmtExecutor updateStmtExecutor = UpdateStmtExecutor.fromUpdateStmt(updateStmt);
             if (currentUpdateList == null) {
@@ -75,7 +76,8 @@ public class UpdateManager {
     private void removeUpdateExecutor(UpdateStmtExecutor updateStmtExecutor) {
         writeLock();
         try {
-            List<UpdateStmtExecutor> currentUpdateList = tableIdToCurrentUpdate.get(updateStmtExecutor.getTargetTableId());
+            List<UpdateStmtExecutor> currentUpdateList =
+                tableIdToCurrentUpdate.get(updateStmtExecutor.getTargetTableId());
             if (currentUpdateList == null) {
                 return;
             }

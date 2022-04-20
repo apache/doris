@@ -20,10 +20,10 @@
 
 package org.apache.doris.common;
 
-import java.util.Set;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
+
+import java.util.Set;
 
 /**
  * Abstract class representing an alias generator. It uses a prefix and a

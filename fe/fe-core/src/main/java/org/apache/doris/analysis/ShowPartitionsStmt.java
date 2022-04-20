@@ -70,7 +70,7 @@ public class ShowPartitionsStmt extends ShowStmt {
     private ProcNodeInterface node;
 
     public ShowPartitionsStmt(TableName tableName, Expr whereClause, List<OrderByElement> orderByElements,
-            LimitElement limitElement, boolean isTempPartition) {
+                              LimitElement limitElement, boolean isTempPartition) {
         this.dbName = tableName.getDb();
         this.tableName = tableName.getTbl();
         this.whereClause = whereClause;
@@ -91,7 +91,7 @@ public class ShowPartitionsStmt extends ShowStmt {
     }
 
     public Map<String, Expr> getFilterMap() {
-      return filterMap;
+        return filterMap;
     }
 
     public ProcNodeInterface getNode() {
@@ -103,11 +103,11 @@ public class ShowPartitionsStmt extends ShowStmt {
         analyzeImpl(analyzer);
         // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
-                                                                PrivPredicate.SHOW)) {
+            PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW PARTITIONS",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                dbName + ": " + tableName);
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                dbName + ": " + tableName);
         }
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -192,14 +192,14 @@ public class ShowPartitionsStmt extends ShowStmt {
             BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
             if (leftKey.equalsIgnoreCase(FILTER_PARTITION_NAME) || leftKey.equalsIgnoreCase(FILTER_STATE)) {
                 if (binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
-                  throw new AnalysisException(String.format("Only operator =|like are supported for %s", leftKey));
+                    throw new AnalysisException(String.format("Only operator =|like are supported for %s", leftKey));
                 }
             } else if (leftKey.equalsIgnoreCase(FILTER_LAST_CONSISTENCY_CHECK_TIME)) {
                 if (!(subExpr.getChild(1) instanceof StringLiteral)) {
                     throw new AnalysisException("Where clause : LastConsistencyCheckTime =|>=|<=|>|<|!= "
                         + "\"2019-12-22|2019-12-22 22:22:00\"");
                 }
-                subExpr.setChild(1,(subExpr.getChild(1)).castTo(Type.DATETIME));
+                subExpr.setChild(1, (subExpr.getChild(1)).castTo(Type.DATETIME));
             } else if (!leftKey.equalsIgnoreCase(FILTER_PARTITION_ID) && !leftKey.equalsIgnoreCase(FILTER_BUCKETS) &&
                 !leftKey.equalsIgnoreCase(FILTER_REPLICATION_NUM)) {
                 throw new AnalysisException("Only the columns of PartitionId/PartitionName/" +

@@ -83,12 +83,12 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
             inetSocketAddress = (InetSocketAddress) socketAddress;
         } else {
             LOG.warn("fail to get client socket address. server type: {}",
-                    thriftServer.getType());
+                thriftServer.getType());
             return null;
         }
         TNetworkAddress clientAddress = new TNetworkAddress(
-                inetSocketAddress.getHostString(),
-                inetSocketAddress.getPort());
+            inetSocketAddress.getHostString(),
+            inetSocketAddress.getPort());
 
         thriftServer.addConnect(clientAddress);
 

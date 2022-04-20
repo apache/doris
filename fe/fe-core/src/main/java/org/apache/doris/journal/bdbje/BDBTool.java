@@ -24,15 +24,6 @@ import org.apache.doris.meta.MetaContext;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import com.sleepycat.bind.tuple.TupleBinding;
-import com.sleepycat.je.Database;
-import com.sleepycat.je.DatabaseConfig;
-import com.sleepycat.je.DatabaseEntry;
-import com.sleepycat.je.DatabaseException;
-import com.sleepycat.je.Environment;
-import com.sleepycat.je.EnvironmentConfig;
-import com.sleepycat.je.LockMode;
-import com.sleepycat.je.OperationStatus;
 
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
@@ -43,6 +34,16 @@ import java.io.File;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.Map;
+
+import com.sleepycat.bind.tuple.TupleBinding;
+import com.sleepycat.je.Database;
+import com.sleepycat.je.DatabaseConfig;
+import com.sleepycat.je.DatabaseEntry;
+import com.sleepycat.je.DatabaseException;
+import com.sleepycat.je.Environment;
+import com.sleepycat.je.EnvironmentConfig;
+import com.sleepycat.je.LockMode;
+import com.sleepycat.je.OperationStatus;
 
 public class BDBTool {
 
@@ -101,7 +102,7 @@ public class BDBTool {
                         System.err.println("Not a valid from key: " + fromKeyStr);
                         return false;
                     }
-                    
+
                     // set end key
                     Long endKey = fromKey + db.count() - 1;
                     if (options.hasEndKey()) {
@@ -112,13 +113,13 @@ public class BDBTool {
                             return false;
                         }
                     }
-                    
+
                     if (fromKey > endKey) {
                         System.err.println("from key should less than or equal to end key["
-                                + fromKey + " vs. " + endKey + "]");
+                            + fromKey + " vs. " + endKey + "]");
                         return false;
                     }
-                    
+
                     // meta version
                     MetaContext metaContext = new MetaContext();
                     metaContext.setMetaVersion(options.getMetaVersion());
@@ -138,7 +139,7 @@ public class BDBTool {
     }
 
     private void getValueByKey(Database db, Long key)
-            throws UnsupportedEncodingException {
+        throws UnsupportedEncodingException {
 
         DatabaseEntry queryKey = new DatabaseEntry();
         TupleBinding<Long> myBinding = TupleBinding.getPrimitiveBinding(Long.class);

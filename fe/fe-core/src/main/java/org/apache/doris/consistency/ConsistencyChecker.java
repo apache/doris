@@ -53,12 +53,12 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class ConsistencyChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ConsistencyChecker.class);
-    
+
     private static final int MAX_JOB_NUM = 100;
 
     private static final Comparator<MetaObject> COMPARATOR =
-            (first, second) -> Long.signum(first.getLastCheckTime() - second.getLastCheckTime());
-    
+        (first, second) -> Long.signum(first.getLastCheckTime() - second.getLastCheckTime());
+
     // tabletId -> job
     private Map<Long, CheckConsistencyJob> jobs;
 
@@ -68,7 +68,7 @@ public class ConsistencyChecker extends MasterDaemon {
      *       jobs lock
      *       CheckConsistencyJob's synchronized
      *       db lock
-     * 
+     *
      * if reversal is inevitable. use db.tryLock() instead to avoid dead lock
      */
     private ReentrantReadWriteLock jobsLock;
@@ -107,14 +107,14 @@ public class ConsistencyChecker extends MasterDaemon {
         LOG.info("consistency checker will work from {}:00 to {}:00", startTime, endTime);
         return true;
     }
-    
+
     @Override
     protected void runAfterCatalogReady() {
         // for each round. try chose enough new tablets to check
         // only add new job when it's work time
         if (itsTime() && getJobNum() == 0) {
             List<Long> chosenTabletIds = chooseTablets();
-            for(Long tabletId: chosenTabletIds) {
+            for (Long tabletId : chosenTabletIds) {
                 CheckConsistencyJob job = new CheckConsistencyJob(tabletId);
                 addJob(job);
             }
@@ -183,9 +183,9 @@ public class ConsistencyChecker extends MasterDaemon {
 
         if (!isTime) {
             LOG.debug("current time is {}:00, waiting to {}:00 to {}:00",
-                      currentTime, startTime, endTime);
+                currentTime, startTime, endTime);
         }
-        
+
         return isTime;
     }
 
@@ -228,9 +228,9 @@ public class ConsistencyChecker extends MasterDaemon {
     }
 
     /**
-     *  choose a tablet to check it's consistency
-     *  we use a priority queue to sort db/table/partition/index/tablet by 'lastCheckTime'.
-     *  chose a tablet which has the smallest 'lastCheckTime'.
+     * choose a tablet to check it's consistency
+     * we use a priority queue to sort db/table/partition/index/tablet by 'lastCheckTime'.
+     * chose a tablet which has the smallest 'lastCheckTime'.
      */
     private List<Long> chooseTablets() {
         Catalog catalog = Catalog.getCurrentCatalog();
@@ -277,10 +277,11 @@ public class ConsistencyChecker extends MasterDaemon {
                     try {
                         // sort partitions
                         Queue<MetaObject> partitionQueue =
-                                new PriorityQueue<>(Math.max(table.getAllPartitions().size(), 1), COMPARATOR);
+                            new PriorityQueue<>(Math.max(table.getAllPartitions().size(), 1), COMPARATOR);
                         for (Partition partition : table.getPartitions()) {
                             // check partition's replication num. if 1 replication. skip
-                            if (table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() == (short) 1) {
+                            if (table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum() ==
+                                (short) 1) {
                                 LOG.debug("partition[{}]'s replication num is 1. ignore", partition.getId());
                                 continue;
                             }
@@ -288,7 +289,7 @@ public class ConsistencyChecker extends MasterDaemon {
                             // check if this partition has no data
                             if (partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION) {
                                 LOG.debug("partition[{}]'s version is {}. ignore", partition.getId(),
-                                        Partition.PARTITION_INIT_VERSION);
+                                    Partition.PARTITION_INIT_VERSION);
                                 continue;
                             }
                             partitionQueue.add(partition);
@@ -298,15 +299,18 @@ public class ConsistencyChecker extends MasterDaemon {
                             Partition partition = (Partition) chosenOne;
 
                             // sort materializedIndices
-                            List<MaterializedIndex> visibleIndexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
-                            Queue<MetaObject> indexQueue = new PriorityQueue<>(Math.max(visibleIndexes.size(), 1), COMPARATOR);
+                            List<MaterializedIndex> visibleIndexes =
+                                partition.getMaterializedIndices(IndexExtState.VISIBLE);
+                            Queue<MetaObject> indexQueue =
+                                new PriorityQueue<>(Math.max(visibleIndexes.size(), 1), COMPARATOR);
                             indexQueue.addAll(visibleIndexes);
 
                             while ((chosenOne = indexQueue.poll()) != null) {
                                 MaterializedIndex index = (MaterializedIndex) chosenOne;
 
                                 // sort tablets
-                                Queue<MetaObject> tabletQueue = new PriorityQueue<>(Math.max(index.getTablets().size(), 1), COMPARATOR);
+                                Queue<MetaObject> tabletQueue =
+                                    new PriorityQueue<>(Math.max(index.getTablets().size(), 1), COMPARATOR);
                                 tabletQueue.addAll(index.getTablets());
 
                                 while ((chosenOne = tabletQueue.poll()) != null) {
@@ -321,11 +325,11 @@ public class ConsistencyChecker extends MasterDaemon {
                                     if (partition.getVisibleVersion() == tablet.getCheckedVersion()) {
                                         if (tablet.isConsistent()) {
                                             LOG.debug("tablet[{}]'s version[{}] has been checked. ignore",
-                                                    chosenTabletId, tablet.getCheckedVersion());
+                                                chosenTabletId, tablet.getCheckedVersion());
                                         }
                                     } else {
                                         LOG.info("chose tablet[{}-{}-{}-{}-{}] to check consistency", db.getId(),
-                                                table.getId(), partition.getId(), index.getId(), chosenTabletId);
+                                            table.getId(), partition.getId(), index.getId(), chosenTabletId);
 
                                         chosenTablets.add(chosenTabletId);
                                     }

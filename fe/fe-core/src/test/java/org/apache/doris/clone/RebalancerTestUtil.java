@@ -17,9 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -33,6 +30,10 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
@@ -43,6 +44,7 @@ public class RebalancerTestUtil {
     public static Backend createBackend(long id, long totalCap, long usedCap) {
         return createBackend(id, totalCap, Lists.newArrayList(usedCap), 1);
     }
+
     // size of usedCaps should equal to diskNum
     public static Backend createBackend(long id, long totalCap, List<Long> usedCaps, int diskNum) {
         // ip:port won't be checked
@@ -64,18 +66,21 @@ public class RebalancerTestUtil {
     // Create one tablet(and its replicas) for one partition. The replicas will created on backends which are numbered in beIds.
     // The tablet will be added to TabletInvertedIndex & OlapTable.
     // Only use the partition's baseIndex for simplicity
-    public static void createTablet(TabletInvertedIndex invertedIndex, Database db, OlapTable olapTable, String partitionName, TStorageMedium medium,
+    public static void createTablet(TabletInvertedIndex invertedIndex, Database db, OlapTable olapTable,
+                                    String partitionName, TStorageMedium medium,
                                     int tabletId, List<Long> beIds) {
         createTablet(invertedIndex, db, olapTable, partitionName, medium, tabletId, beIds, null);
     }
-    public static void createTablet(TabletInvertedIndex invertedIndex, Database db, OlapTable olapTable, String partitionName, TStorageMedium medium,
+
+    public static void createTablet(TabletInvertedIndex invertedIndex, Database db, OlapTable olapTable,
+                                    String partitionName, TStorageMedium medium,
                                     int tabletId, List<Long> beIds, List<Long> replicaSizes) {
         Partition partition = olapTable.getPartition(partitionName);
         MaterializedIndex baseIndex = partition.getBaseIndex();
         int schemaHash = olapTable.getSchemaHashByIndexId(baseIndex.getId());
 
         TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(), partition.getId(), baseIndex.getId(),
-        schemaHash, medium);
+            schemaHash, medium);
         Tablet tablet = new Tablet(tabletId);
 
         // add tablet to olapTable
@@ -86,11 +91,12 @@ public class RebalancerTestUtil {
     // Create replicas on backends which are numbered in beIds.
     // The tablet & replicas will be added to invertedIndex.
     public static void createReplicasAndAddToIndex(TabletInvertedIndex invertedIndex, TabletMeta tabletMeta,
-                                                Tablet tablet, List<Long> beIds, List<Long> replicaSizes) {
+                                                   Tablet tablet, List<Long> beIds, List<Long> replicaSizes) {
         invertedIndex.addTablet(tablet.getId(), tabletMeta);
 
         IntStream.range(0, beIds.size()).forEach(i -> {
-            Replica replica = new Replica(tablet.getId() + i, beIds.get(i), Replica.ReplicaState.NORMAL, 1, tabletMeta.getOldSchemaHash());
+            Replica replica = new Replica(tablet.getId() + i, beIds.get(i), Replica.ReplicaState.NORMAL, 1,
+                tabletMeta.getOldSchemaHash());
             // We've set pathHash to beId for simplicity
             replica.setPathHash(beIds.get(i));
             if (replicaSizes != null) {

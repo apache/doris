@@ -285,7 +285,7 @@ public class TimeValue implements Comparable<TimeValue> {
     }
 
     public static TimeValue parseTimeValue(String sValue, TimeValue defaultValue, String settingName)
-            throws Exception {
+        throws Exception {
         settingName = Objects.requireNonNull(settingName);
         if (sValue == null) {
             return defaultValue;
@@ -313,7 +313,7 @@ public class TimeValue implements Comparable<TimeValue> {
         } else {
             // Missing units:
             throw new Exception(
-                    "failed to parse setting [{}] with value [{}] as a time value: unit is missing or unrecognized");
+                "failed to parse setting [{}] with value [{}] as a time value: unit is missing or unrecognized");
         }
     }
 
@@ -341,8 +341,12 @@ public class TimeValue implements Comparable<TimeValue> {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
 
         return this.compareTo(((TimeValue) o)) == 0;
     }

@@ -34,10 +34,10 @@ public class TableRowCountActionTest extends DorisHttpTestCase {
     @Test
     public void testTableCount() throws IOException {
         Request request = new Request.Builder()
-                .get()
-                .addHeader("Authorization", rootAuth)
-                .url(URI + PATH_URI)
-                .build();
+            .get()
+            .addHeader("Authorization", rootAuth)
+            .url(URI + PATH_URI)
+            .build();
 
         Response response = networkClient.newCall(request).execute();
         String res = response.body().string();

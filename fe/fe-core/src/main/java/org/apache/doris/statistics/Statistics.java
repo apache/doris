@@ -39,7 +39,7 @@ public class Statistics {
     private Map<Long, TableStats> idToTableStats = Maps.newConcurrentMap();
 
     public void updateTableStats(long tableId, Map<String, String> statsNameToValue)
-            throws AnalysisException {
+        throws AnalysisException {
         TableStats tableStats = idToTableStats.get(tableId);
         if (tableStats == null) {
             tableStats = new TableStats();
@@ -50,7 +50,7 @@ public class Statistics {
 
     public void updateColumnStats(long tableId, String columnName, Type columnType,
                                   Map<String, String> statsNameToValue)
-            throws AnalysisException {
+        throws AnalysisException {
         TableStats tableStats = idToTableStats.get(tableId);
         if (tableStats == null) {
             tableStats = new TableStats();

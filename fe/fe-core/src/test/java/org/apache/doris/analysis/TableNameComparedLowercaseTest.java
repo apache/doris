@@ -53,25 +53,25 @@ public class TableNameComparedLowercaseTest {
         Config.enable_http_server_v2 = false;
         UtFrameUtils.createDorisCluster(runningDir);
         String table1 = "CREATE TABLE db1.TABLE1 (\n" +
-                "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
-                "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
-                "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
-                "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ")";
+            "  `siteid` int(11) NULL DEFAULT \"10\" COMMENT \"\",\n" +
+            "  `citycode` smallint(6) NULL COMMENT \"\",\n" +
+            "  `username` varchar(32) NULL DEFAULT \"\" COMMENT \"\",\n" +
+            "  `pv` bigint(20) NULL DEFAULT \"0\" COMMENT \"\"\n" +
+            ") ENGINE=OLAP\n" +
+            "UNIQUE KEY(`siteid`, `citycode`, `username`)\n" +
+            "COMMENT \"OLAP\"\n" +
+            "DISTRIBUTED BY HASH(`siteid`) BUCKETS 10\n" +
+            "PROPERTIES (\n" +
+            "\"replication_num\" = \"1\",\n" +
+            "\"in_memory\" = \"false\",\n" +
+            "\"storage_format\" = \"V2\"\n" +
+            ")";
         String table2 = "create table db1.TABLE2(k1 int, k2 varchar(32), k3 varchar(32), k4 int, k5 largeint) "
-                + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+            + "AGGREGATE KEY(k1, k2,k3,k4,k5) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
         dorisAssert.withTable(table1)
-                .withTable(table2);
+            .withTable(table2);
     }
 
     @Test
@@ -81,7 +81,8 @@ public class TableNameComparedLowercaseTest {
 
     @Test
     public void testTableNameLowerCase() {
-        Set<String> tableNames = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1").getTableNamesWithLock();
+        Set<String> tableNames =
+            Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1").getTableNamesWithLock();
         Assert.assertEquals(2, tableNames.size());
         Assert.assertTrue(tableNames.contains("TABLE1"));
         Assert.assertTrue(tableNames.contains("TABLE2"));
@@ -90,11 +91,11 @@ public class TableNameComparedLowercaseTest {
     @Test
     public void testQueryTableNameCaseInsensitive() throws Exception {
         String sql1 = "select Table1.siteid, Table2.k2 from Table1 join Table2 on Table1.siteid = Table2.k1" +
-                " where Table2.k5 > 1000 order by Table1.siteid";
+            " where Table2.k5 > 1000 order by Table1.siteid";
         dorisAssert.query(sql1).explainQuery();
 
         String sql2 = "select Table1.siteid, Table2.k2 from table1 join table2 on TAble1.siteid = TAble2.k1" +
-                " where TABle2.k5 > 1000 order by TABLe1.siteid";
+            " where TABle2.k5 > 1000 order by TABLe1.siteid";
         try {
             dorisAssert.query(sql2).explainQuery();
             Assert.fail("Different references to the same table name are used: 'table1', 'TAble1'");
@@ -106,11 +107,11 @@ public class TableNameComparedLowercaseTest {
     @Test
     public void testCreateSameTableFailed() {
         String TABle2 = "create table db1.TABle2(k1 int, k2 varchar(32), k3 varchar(32)) "
-                + "AGGREGATE KEY(k1, k2, k3) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+            + "AGGREGATE KEY(k1, k2, k3) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         try {
             dorisAssert.withTable(TABle2);
             Assert.fail("The table name is case insensitive, " +
-                    "but the tables 'TABLE2' and 'table2' were successfully created");
+                "but the tables 'TABLE2' and 'table2' were successfully created");
         } catch (Exception e) {
             System.out.println(e.getMessage());
         }
@@ -119,7 +120,7 @@ public class TableNameComparedLowercaseTest {
         try {
             dorisAssert.withView(view2);
             Assert.fail("The table name is case insensitive, " +
-                    "but the table 'TABLE2' and view 'table2' were successfully created");
+                "but the table 'TABLE2' and view 'table2' were successfully created");
         } catch (Exception e) {
             System.out.println(e.getMessage());
         }

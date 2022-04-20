@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,6 +44,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * This class extends the primary identifier of a Backend with ephemeral state,
@@ -417,7 +418,8 @@ public class Backend implements Writable {
         ImmutableMap<String, DiskInfo> diskInfos = disksRef;
         boolean exceedLimit = true;
         for (DiskInfo diskInfo : diskInfos.values()) {
-            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getStorageMedium() == storageMedium && !diskInfo.exceedLimit(true)) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getStorageMedium() == storageMedium &&
+                !diskInfo.exceedLimit(true)) {
                 exceedLimit = false;
                 break;
             }
@@ -582,13 +584,13 @@ public class Backend implements Writable {
         Backend backend = (Backend) obj;
 
         return (id == backend.id) && (host.equals(backend.host)) && (heartbeatPort == backend.heartbeatPort)
-                && (bePort == backend.bePort) && (isAlive.get() == backend.isAlive.get());
+            && (bePort == backend.bePort) && (isAlive.get() == backend.isAlive.get());
     }
 
     @Override
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
-                + ", tag: " + tag + "]";
+            + ", tag: " + tag + "]";
     }
 
     public String getOwnerClusterName() {
@@ -696,8 +698,8 @@ public class Backend implements Writable {
      * Note: This class must be a POJO in order to display in JSON format
      * Add additional information in the class to show in `show backends`
      * if just change new added backendStatus, you can do like following
-     *     BackendStatus status = Backend.getBackendStatus();
-     *     status.newItem = xxx;
+     * BackendStatus status = Backend.getBackendStatus();
+     * status.newItem = xxx;
      */
     public class BackendStatus {
         // this will be output as json, so not using FeConstants.null_string;

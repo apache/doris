@@ -17,8 +17,9 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.common.DdlException;
+
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 
@@ -26,7 +27,7 @@ import java.util.Map;
  * Helper class to drives the convert of session variables according to the converters.
  * You can define your converter that implements interface VariableVarConverterI in here.
  * Each converter should put in map (variable name -> converters) and only converts the variable with specified name.
- *
+ * <p>
  * The converted session variable is a special kind of variable.
  * It's real type is Long or Int, for example, the variable `sql_mode` is Long, when querying `select @@sql_mode`,
  * the return column type is String.

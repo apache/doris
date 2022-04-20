@@ -17,9 +17,6 @@
 
 package org.apache.doris.mysql;
 
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -41,6 +38,10 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
 import java.util.List;
+
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class MysqlProtoTest {
     private static final Logger LOG = org.slf4j.LoggerFactory.getLogger(MysqlProtoTest.class);
@@ -74,7 +75,8 @@ public class MysqlProtoTest {
                 auth.checkPassword(anyString, anyString, (byte[]) any, (byte[]) any, (List<UserIdentity>) any);
                 minTimes = 0;
                 result = new Delegate() {
-                    boolean fakeCheckPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
+                    boolean fakeCheckPassword(String remoteUser, String remoteHost, byte[] remotePasswd,
+                                              byte[] randomString,
                                               List<UserIdentity> currentUser) {
                         UserIdentity userIdentity = new UserIdentity("default_cluster:user", "192.168.1.1");
                         currentUser.add(userIdentity);
@@ -208,7 +210,7 @@ public class MysqlProtoTest {
                 result = new Delegate() {
                     boolean fakeLdapAuthenticate(ConnectContext context, String password, String qualifiedUser) {
                         return password.equals(PASSWORD_CLEAR_TEXT)
-                                && ClusterNamespace.getNameFromFullName(qualifiedUser).equals(user);
+                            && ClusterNamespace.getNameFromFullName(qualifiedUser).equals(user);
                     }
                 };
 

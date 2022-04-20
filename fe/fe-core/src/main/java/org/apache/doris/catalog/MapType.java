@@ -30,10 +30,12 @@ import com.google.common.base.Strings;
 public class MapType extends Type {
     private final Type keyType;
     private final Type valueType;
+
     public MapType() {
         this.keyType = NULL;
         this.valueType = NULL;
     }
+
     public MapType(Type keyType, Type valueType) {
         Preconditions.checkNotNull(keyType);
         Preconditions.checkNotNull(valueType);
@@ -61,7 +63,7 @@ public class MapType extends Type {
         }
         MapType otherMapType = (MapType) other;
         return otherMapType.keyType.equals(keyType)
-                && otherMapType.valueType.equals(valueType);
+            && otherMapType.valueType.equals(valueType);
     }
 
     @Override
@@ -70,7 +72,7 @@ public class MapType extends Type {
             return "MAP<...>";
         }
         return String.format("MAP<%s,%s>",
-                keyType.toSql(depth + 1), valueType.toSql(depth + 1));
+            keyType.toSql(depth + 1), valueType.toSql(depth + 1));
     }
 
     @Override

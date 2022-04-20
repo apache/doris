@@ -70,7 +70,7 @@ public class ShowResourcesStmtTest {
         Assert.assertEquals("SHOW RESOURCES WHERE `name` = \'abc\' LIMIT 10", stmt.toString());
 
         LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
-                slotRef, stringLiteral);
+            slotRef, stringLiteral);
         stmt = new ShowResourcesStmt(likePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW RESOURCES WHERE `name` LIKE \'abc\' LIMIT 10", stmt.toString());

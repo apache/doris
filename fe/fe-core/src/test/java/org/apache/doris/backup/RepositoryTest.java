@@ -24,12 +24,12 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -141,24 +141,25 @@ public class RepositoryTest {
 
         // "location/__palo_repository_repo_name/__ss_my_sp1/__info_2018-01-01-08-00-00"
         String expected = location + "/" + Repository.PREFIX_REPO + name + "/" + Repository.PREFIX_SNAPSHOT_DIR
-                + label + "/" + Repository.PREFIX_JOB_INFO + createTime2;
+            + label + "/" + Repository.PREFIX_JOB_INFO + createTime2;
         Assert.assertEquals(expected, repo.assembleJobInfoFilePath(label, creastTs));
 
         // meta info
         expected = location + "/" + Repository.PREFIX_REPO + name + "/" + Repository.PREFIX_SNAPSHOT_DIR
-                + label + "/" + Repository.FILE_META_INFO;
+            + label + "/" + Repository.FILE_META_INFO;
         Assert.assertEquals(expected, repo.assembleMetaInfoFilePath(label));
 
         // snapshot path
         // /location/__palo_repository_repo_name/__ss_my_ss1/__ss_content/__db_10001/__tbl_10020/__part_10031/__idx_10032/__10023/__3481721
         expected = location + "/" + Repository.PREFIX_REPO + name + "/" + Repository.PREFIX_SNAPSHOT_DIR
-                + label + "/" + "__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5/__7";
+            + label + "/" + "__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5/__7";
         Assert.assertEquals(expected, repo.assembleRemoteSnapshotPath(label, info));
 
         String rootTabletPath = "/__db_10000/__tbl_10001/__part_10002/_idx_10001/__10003";
         String path = repo.getRepoPath(label, rootTabletPath);
-        Assert.assertEquals("bos://backup-cmy/__palo_repository_repo/__ss_label/__ss_content/__db_10000/__tbl_10001/__part_10002/_idx_10001/__10003",
-                path);
+        Assert.assertEquals(
+            "bos://backup-cmy/__palo_repository_repo/__ss_label/__ss_content/__db_10000/__tbl_10001/__part_10002/_idx_10001/__10003",
+            path);
     }
 
     @Test
@@ -170,7 +171,7 @@ public class RepositoryTest {
                 result = Status.OK;
             }
         };
-        
+
         repo = new Repository(10000, "repo", false, location, storage);
         Assert.assertTrue(repo.ping());
         Assert.assertTrue(repo.getErrorMsg() == null);
@@ -291,8 +292,8 @@ public class RepositoryTest {
                     public Status list(String remotePath, List<RemoteFile> result) {
                         if (remotePath.contains(Repository.PREFIX_JOB_INFO)) {
                             result.add(new RemoteFile(" __info_2018-04-18-20-11-00.12345678123456781234567812345678",
-                                    true,
-                                    100));
+                                true,
+                                100));
                         } else {
                             result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s1", false, 100));
                             result.add(new RemoteFile(Repository.PREFIX_SNAPSHOT_DIR + "s2", false, 100));
@@ -331,15 +332,15 @@ public class RepositoryTest {
             repo.write(out);
             out.flush();
             out.close();
-            
+
             DataInputStream in = new DataInputStream(new FileInputStream(file));
             Repository newRepo = Repository.read(in);
             in.close();
-            
+
             Assert.assertEquals(repo.getName(), newRepo.getName());
             Assert.assertEquals(repo.getId(), newRepo.getId());
             Assert.assertEquals(repo.getLocation(), newRepo.getLocation());
-            
+
         } catch (IOException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
@@ -354,16 +355,22 @@ public class RepositoryTest {
         String newLoc = "bos://cmy_bucket/bos_repo/";
         repo = new Repository(10000, "repo", false, newLoc, storage);
         String path = repo.getRepoPath("label1", "/_ss_my_ss/_ss_content/__db_10000/");
-        Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000/", path);
+        Assert.assertEquals(
+            "bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000/",
+            path);
 
         path = repo.getRepoPath("label1", "/_ss_my_ss/_ss_content///__db_10000");
-        Assert.assertEquals("bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000", path);
+        Assert.assertEquals(
+            "bos://cmy_bucket/bos_repo/__palo_repository_repo/__ss_label1/__ss_content/_ss_my_ss/_ss_content/__db_10000",
+            path);
 
         newLoc = "hdfs://path/to/repo";
         repo = new Repository(10000, "repo", false, newLoc, storage);
         SnapshotInfo snapshotInfo = new SnapshotInfo(1, 2, 3, 4, 5, 6, 7, "/path", Lists.newArrayList());
         path = repo.getRepoTabletPathBySnapshotInfo("label1", snapshotInfo);
-        Assert.assertEquals("hdfs://path/to/repo/__palo_repository_repo/__ss_label1/__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5", path);
+        Assert.assertEquals(
+            "hdfs://path/to/repo/__palo_repository_repo/__ss_label1/__ss_content/__db_1/__tbl_2/__part_3/__idx_4/__5",
+            path);
     }
 
 }

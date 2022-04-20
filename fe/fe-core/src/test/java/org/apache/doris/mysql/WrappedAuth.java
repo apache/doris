@@ -25,7 +25,7 @@ import java.util.List;
 public class WrappedAuth extends PaloAuth {
     @Override
     public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) {
+                                 List<UserIdentity> currentUser) {
         return true;
     }
 }

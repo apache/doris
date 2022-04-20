@@ -36,9 +36,9 @@ import java.util.List;
 public class PartitionColumnFilter {
     private static final Logger LOG = LogManager.getLogger(PartitionColumnFilter.class);
     public LiteralExpr lowerBound;
-    public boolean     lowerBoundInclusive;
+    public boolean lowerBoundInclusive;
     public LiteralExpr upperBound;
-    public boolean     upperBoundInclusive;
+    public boolean upperBoundInclusive;
     // InPredicate
     private InPredicate inPredicate;
 
@@ -61,7 +61,7 @@ public class PartitionColumnFilter {
                 lowerBound = newLowerBound;
                 lowerBoundInclusive = newLowerBoundInclusive;
             } else if (ret == 0) {
-                if (newLowerBoundInclusive == false) {
+                if (!newLowerBoundInclusive) {
                     lowerBoundInclusive = newLowerBoundInclusive;
                 }
             } else {
@@ -80,7 +80,7 @@ public class PartitionColumnFilter {
             if (ret < 0) {
                 // pass
             } else if (ret == 0) {
-                if (newUpperBoundInclusive == false) {
+                if (!newUpperBoundInclusive) {
                     upperBoundInclusive = newUpperBoundInclusive;
                 }
             } else {
@@ -100,9 +100,9 @@ public class PartitionColumnFilter {
             // cmy mod, catch AnalysisException
             try {
                 lowerKey = PartitionKey.createPartitionKey(
-                        Lists.newArrayList(new PartitionValue(lowerBound.getStringValue())), columns);
+                    Lists.newArrayList(new PartitionValue(lowerBound.getStringValue())), columns);
                 upperKey = PartitionKey.createPartitionKey(
-                        Lists.newArrayList(new PartitionValue(upperBound.getStringValue())), columns);
+                    Lists.newArrayList(new PartitionValue(upperBound.getStringValue())), columns);
             } catch (AnalysisException e) {
                 LOG.warn(e.getMessage());
                 return null;
@@ -119,13 +119,13 @@ public class PartitionColumnFilter {
             str += "lowerBound is UNSET";
         } else {
             str += "lowerBound is " + lowerBound.getStringValue() + " and lowerBoundInclusive is " +
-                    lowerBoundInclusive;
+                lowerBoundInclusive;
         }
         if (null == upperBound) {
             str += "\nupperBound is UNSET";
         } else {
             str += "\nupperBound is " + upperBound.getStringValue() + " and upperBoundInclusive is " +
-                    upperBoundInclusive;
+                upperBoundInclusive;
         }
         if (null == inPredicate) {
             str += "\ninPredicate is UNSET";
@@ -134,5 +134,5 @@ public class PartitionColumnFilter {
         }
         return str;
     }
-};
+}
 /* vim: set ts=4 sw=4 sts=4 tw=100 noet: */

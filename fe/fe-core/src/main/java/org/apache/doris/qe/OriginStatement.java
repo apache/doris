@@ -21,15 +21,15 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+import com.google.gson.annotations.SerializedName;
+
 /*
  * This class represents an origin statement
- * in multiple statements. 
+ * in multiple statements.
  */
 public class OriginStatement implements Writable {
     // the origin stmt from client. this may includes more than one statement.

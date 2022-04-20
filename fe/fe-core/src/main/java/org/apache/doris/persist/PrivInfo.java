@@ -52,7 +52,7 @@ public class PrivInfo implements Writable {
     }
 
     public PrivInfo(UserIdentity userIdent, TablePattern tablePattern, PrivBitSet privs,
-            byte[] passwd, String role) {
+                    byte[] passwd, String role) {
         this.userIdent = userIdent;
         this.tblPattern = tablePattern;
         this.resourcePattern = null;

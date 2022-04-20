@@ -67,7 +67,7 @@ import java.util.stream.Collectors;
 public class HashJoinNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(HashJoinNode.class);
 
-    private final TableRef     innerRef;
+    private final TableRef innerRef;
     private final JoinOperator joinOp;
     // predicates of the form 'a=b' or 'a<=>b'
     private List<BinaryPredicate> eqJoinConjuncts = Lists.newArrayList();
@@ -97,7 +97,7 @@ public class HashJoinNode extends PlanNode {
         // TODO: Support not vec exec engine cut unless tupleid in semi/anti join
         if (VectorizedUtil.isVectorized()) {
             if (joinOp.equals(JoinOperator.LEFT_ANTI_JOIN) || joinOp.equals(JoinOperator.LEFT_SEMI_JOIN)
-                    || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
+                || joinOp.equals(JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN)) {
                 tupleIds.addAll(outer.getTupleIds());
             } else if (joinOp.equals(JoinOperator.RIGHT_ANTI_JOIN) || joinOp.equals(JoinOperator.RIGHT_SEMI_JOIN)) {
                 tupleIds.addAll(inner.getTupleIds());
@@ -172,11 +172,11 @@ public class HashJoinNode extends PlanNode {
         isColocate = colocate;
         colocateReason = reason;
     }
-    
+
     /**
      * Calculate the slots output after going through the hash table in the hash join node.
      * The most essential difference between 'hashOutputSlots' and 'outputSlots' is that
-     *   it's output needs to contain other conjunct and conjunct columns.
+     * it's output needs to contain other conjunct and conjunct columns.
      * hash output slots = output slots + conjunct slots + other conjunct slots
      * For example:
      * select b.k1 from test.t1 a right join test.t1 b on a.k1=b.k1 and b.k2>1 where a.k2>1;
@@ -185,6 +185,7 @@ public class HashJoinNode extends PlanNode {
      * conjuncts: b.k2>1
      * hash output slots: a.k2, b.k2, b.k1
      * eq conjuncts: a.k1=b.k1
+     *
      * @param slotIdList
      */
     private void initHashOutputSlotIds(List<SlotId> slotIdList) {
@@ -205,7 +206,7 @@ public class HashJoinNode extends PlanNode {
         for (TupleId tupleId : tupleIds) {
             for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getSlots()) {
                 if (slotDescriptor.isMaterialized() &&
-                        (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
+                    (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
                     outputSlotIds.add(slotDescriptor.getId());
                 }
             }
@@ -245,12 +246,12 @@ public class HashJoinNode extends PlanNode {
 
         ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
         List<Expr> newEqJoinConjuncts =
-                Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
+            Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
         eqJoinConjuncts = newEqJoinConjuncts.stream()
-                .map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
+            .map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
         assignedConjuncts = analyzer.getAssignedConjuncts();
         otherJoinConjuncts =
-                Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
+            Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
     }
 
     private void replaceOutputSmapForOuterJoin() {
@@ -329,17 +330,27 @@ public class HashJoinNode extends PlanNode {
          * table/column of at least one side is missing stats.
          */
         public static EqJoinConjunctScanSlots create(Expr eqJoinConjunct) {
-            if (!Expr.IS_EQ_BINARY_PREDICATE.apply(eqJoinConjunct)) return null;
+            if (!Expr.IS_EQ_BINARY_PREDICATE.apply(eqJoinConjunct)) {
+                return null;
+            }
             SlotDescriptor lhsScanSlot = eqJoinConjunct.getChild(0).findSrcScanSlot();
-            if (lhsScanSlot == null || !hasNumRowsAndNdvStats(lhsScanSlot)) return null;
+            if (lhsScanSlot == null || !hasNumRowsAndNdvStats(lhsScanSlot)) {
+                return null;
+            }
             SlotDescriptor rhsScanSlot = eqJoinConjunct.getChild(1).findSrcScanSlot();
-            if (rhsScanSlot == null || !hasNumRowsAndNdvStats(rhsScanSlot)) return null;
+            if (rhsScanSlot == null || !hasNumRowsAndNdvStats(rhsScanSlot)) {
+                return null;
+            }
             return new EqJoinConjunctScanSlots(eqJoinConjunct, lhsScanSlot, rhsScanSlot);
         }
 
         private static boolean hasNumRowsAndNdvStats(SlotDescriptor slotDesc) {
-            if (slotDesc.getColumn() == null) return false;
-            if (!slotDesc.getStats().hasNumDistinctValues()) return false;
+            if (slotDesc.getColumn() == null) {
+                return false;
+            }
+            if (!slotDesc.getStats().hasNumDistinctValues()) {
+                return false;
+            }
             return true;
         }
 
@@ -350,7 +361,7 @@ public class HashJoinNode extends PlanNode {
         public static Map<Pair<TupleId, TupleId>, List<EqJoinConjunctScanSlots>>
         groupByJoinedTupleIds(List<EqJoinConjunctScanSlots> eqJoinConjunctSlots) {
             Map<Pair<TupleId, TupleId>, List<EqJoinConjunctScanSlots>> scanSlotsByJoinedTids =
-                    new LinkedHashMap<>();
+                new LinkedHashMap<>();
             for (EqJoinConjunctScanSlots slots : eqJoinConjunctSlots) {
                 Pair<TupleId, TupleId> tids = Pair.create(slots.lhsTid(), slots.rhsTid());
                 List<EqJoinConjunctScanSlots> scanSlots = scanSlotsByJoinedTids.get(tids);
@@ -382,7 +393,9 @@ public class HashJoinNode extends PlanNode {
         List<EqJoinConjunctScanSlots> eqJoinConjunctSlots = new ArrayList<>();
         for (Expr eqJoinConjunct : eqJoinConjuncts) {
             EqJoinConjunctScanSlots slots = EqJoinConjunctScanSlots.create(eqJoinConjunct);
-            if (slots != null) eqJoinConjunctSlots.add(slots);
+            if (slots != null) {
+                eqJoinConjunctSlots.add(slots);
+            }
         }
 
         if (eqJoinConjunctSlots.isEmpty()) {
@@ -408,7 +421,8 @@ public class HashJoinNode extends PlanNode {
      * - we adjust the NDVs from both sides to account for predicates that may
      * might have reduce the cardinality and NDVs
      */
-    private long getGenericJoinCardinality(List<EqJoinConjunctScanSlots> eqJoinConjunctSlots, long lhsCard, long rhsCard) {
+    private long getGenericJoinCardinality(List<EqJoinConjunctScanSlots> eqJoinConjunctSlots, long lhsCard,
+                                           long rhsCard) {
         Preconditions.checkState(joinOp.isInnerJoin() || joinOp.isOuterJoin());
         Preconditions.checkState(!eqJoinConjunctSlots.isEmpty());
         Preconditions.checkState(lhsCard >= 0 && rhsCard >= 0);
@@ -428,7 +442,7 @@ public class HashJoinNode extends PlanNode {
             // A lower limit of 1 on the max Adjusted Ndv ensures we don't estimate
             // cardinality more than the max possible.
             long joinCard = CheckedMath.checkedMultiply(
-                    Math.round((lhsCard / Math.max(1, Math.max(lhsAdjNdv, rhsAdjNdv)))), rhsCard);
+                Math.round((lhsCard / Math.max(1, Math.max(lhsAdjNdv, rhsAdjNdv)))), rhsCard);
             if (result == -1) {
                 result = joinCard;
             } else {
@@ -524,7 +538,7 @@ public class HashJoinNode extends PlanNode {
             cardinality = getChild(0).cardinality;
         } else {
             cardinality = Math.round((double) getChild(0).cardinality * (double) getChild(
-                    1).cardinality / (double) maxNumDistinct);
+                1).cardinality / (double) maxNumDistinct);
             LOG.debug("lhs card: {}, rhs card: {}", getChild(0).cardinality, getChild(1).cardinality);
         }
         LOG.debug("stats HashJoin: cardinality {}", cardinality);
@@ -578,7 +592,7 @@ public class HashJoinNode extends PlanNode {
         // Return -1 if the cardinality of the returned side is unknown.
         long cardinality;
         if (joinOp == JoinOperator.RIGHT_SEMI_JOIN
-                || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
+            || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
             if (getChild(1).cardinality == -1) {
                 return -1;
             }
@@ -633,7 +647,7 @@ public class HashJoinNode extends PlanNode {
     @Override
     protected String debugString() {
         return MoreObjects.toStringHelper(this).add("eqJoinConjuncts",
-          eqJoinConjunctsDebugString()).addValue(super.debugString()).toString();
+            eqJoinConjunctsDebugString()).addValue(super.debugString()).toString();
     }
 
     private String eqJoinConjunctsDebugString() {
@@ -664,7 +678,7 @@ public class HashJoinNode extends PlanNode {
         msg.hash_join_node.join_op = joinOp.toThrift();
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
             TEqJoinCondition eqJoinCondition = new TEqJoinCondition(eqJoinPredicate.getChild(0).treeToThrift(),
-                    eqJoinPredicate.getChild(1).treeToThrift());
+                eqJoinPredicate.getChild(1).treeToThrift());
             eqJoinCondition.setOpcode(eqJoinPredicate.getOp().getOpcode());
             msg.hash_join_node.addToEqJoinConjuncts(eqJoinCondition);
         }
@@ -686,22 +700,24 @@ public class HashJoinNode extends PlanNode {
     @Override
     public String getNodeExplainString(String detailPrefix, TExplainLevel detailLevel) {
         String distrModeStr =
-                (distrMode != DistributionMode.NONE) ? (" (" + distrMode.toString() + ")") : "";
+            (distrMode != DistributionMode.NONE) ? (" (" + distrMode.toString() + ")") : "";
         StringBuilder output = new StringBuilder()
-                .append(detailPrefix).append("join op: ").append(joinOp.toString()).append(distrModeStr).append("\n");
+            .append(detailPrefix).append("join op: ").append(joinOp.toString()).append(distrModeStr).append("\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
             return output.toString();
         }
 
         output.append(detailPrefix).append("hash predicates:\n")
-                .append(detailPrefix).append("colocate: ").append(isColocate).append(isColocate ? "" : ", reason: " + colocateReason).append("\n");
+            .append(detailPrefix).append("colocate: ").append(isColocate)
+            .append(isColocate ? "" : ", reason: " + colocateReason).append("\n");
 
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
             output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql()).append("\n");
         }
         if (!otherJoinConjuncts.isEmpty()) {
-            output.append(detailPrefix).append("other join predicates: ").append(getExplainString(otherJoinConjuncts)).append("\n");
+            output.append(detailPrefix).append("other join predicates: ").append(getExplainString(otherJoinConjuncts))
+                .append("\n");
         }
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix).append("other predicates: ").append(getExplainString(conjuncts)).append("\n");
@@ -711,7 +727,7 @@ public class HashJoinNode extends PlanNode {
             output.append(getRuntimeFilterExplainString(true));
         }
         output.append(detailPrefix).append(String.format(
-                "cardinality=%s", cardinality)).append("\n");
+            "cardinality=%s", cardinality)).append("\n");
         // todo unify in plan node
         if (outputSlotIds != null) {
             output.append(detailPrefix).append("output slot ids: ");

@@ -29,6 +29,7 @@ import java.util.List;
 
 /**
  * Utils to visit doris and iceberg type
+ *
  * @param <T>
  */
 public class DorisTypeVisitor<T> {
@@ -39,19 +40,19 @@ public class DorisTypeVisitor<T> {
 
             for (StructField field : fields) {
                 fieldResults.add(visitor.field(
-                        field,
-                        visit(field.getType(), visitor)));
+                    field,
+                    visit(field.getType(), visitor)));
             }
 
             return visitor.struct((StructType) type, fieldResults);
         } else if (type instanceof MapType) {
             return visitor.map((MapType) type,
-                    visit(((MapType) type).getKeyType(), visitor),
-                    visit(((MapType) type).getValueType(), visitor));
+                visit(((MapType) type).getKeyType(), visitor),
+                visit(((MapType) type).getValueType(), visitor));
         } else if (type instanceof ArrayType) {
             return visitor.array(
-                    (ArrayType) type,
-                    visit(((ArrayType) type).getItemType(), visitor));
+                (ArrayType) type,
+                visit(((ArrayType) type).getItemType(), visitor));
         } else {
             return visitor.atomic(type);
         }

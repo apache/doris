@@ -35,15 +35,15 @@ import mockit.Mock;
 import mockit.MockUp;
 
 public class FakeEditLog extends MockUp<EditLog> {
-    
+
     private Map<Long, TransactionState> allTransactionState = new HashMap<>();
-    
+
     @Mock
     public void $init(String nodeName) {
         // do nothing
         System.out.println("abc");
     }
-    
+
     @Mock
     public void logInsertTransactionState(TransactionState transactionState) {
         // do nothing
@@ -57,17 +57,17 @@ public class FakeEditLog extends MockUp<EditLog> {
         System.out.println("delete transaction state is deleted");
         allTransactionState.remove(transactionState.getTransactionId());
     }
-    
+
     @Mock
     public void logSaveNextId(long nextId) {
         // do nothing
     }
-    
+
     @Mock
     public void logCreateCluster(Cluster cluster) {
         // do nothing
     }
-    
+
     @Mock
     public void logOpRoutineLoadJob(RoutineLoadOperation operation) {
     }

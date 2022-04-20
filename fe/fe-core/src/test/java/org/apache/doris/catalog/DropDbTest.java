@@ -51,9 +51,9 @@ public class DropDbTest {
         String createDbStmtStr2 = "create database test2;";
         String createDbStmtStr3 = "create database test3;";
         String createTablleStr1 = "create table test1.tbl1(k1 int, k2 bigint) duplicate key(k1) "
-                + "distributed by hash(k2) buckets 1" + " properties('replication_num' = '1');";
+            + "distributed by hash(k2) buckets 1" + " properties('replication_num' = '1');";
         String createTablleStr2 = "create table test2.tbl1" + "(k1 int, k2 bigint)" + " duplicate key(k1) "
-                + "distributed by hash(k2) buckets 1 " + "properties('replication_num' = '1');";
+            + "distributed by hash(k2) buckets 1 " + "properties('replication_num' = '1');";
         createDb(createDbStmtStr1);
         createDb(createDbStmtStr2);
         createDb(createDbStmtStr3);
@@ -92,7 +92,8 @@ public class DropDbTest {
         dropDb(dropDbSql);
         db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test1");
         Assert.assertNull(db);
-        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        List<Replica> replicaList =
+            Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertEquals(1, replicaList.size());
         String recoverDbSql = "recover database test1";
         RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
@@ -127,14 +128,15 @@ public class DropDbTest {
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         dropDb(dropDbSql);
         db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test2");
-        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        List<Replica> replicaList =
+            Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertNull(db);
         Assert.assertTrue(replicaList.isEmpty());
         String recoverDbSql = "recover database test2";
         RecoverDbStmt recoverDbStmt = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown database 'default_cluster:test2'",
-                () -> Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt));
+            "Unknown database 'default_cluster:test2'",
+            () -> Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt));
 
         dropDbSql = "drop schema test3 force";
         db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test3");
@@ -145,8 +147,8 @@ public class DropDbTest {
         recoverDbSql = "recover database test3";
         RecoverDbStmt recoverDbStmt2 = (RecoverDbStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown database 'default_cluster:test3'",
-                () -> Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt2));
+            "Unknown database 'default_cluster:test3'",
+            () -> Catalog.getCurrentCatalog().recoverDatabase(recoverDbStmt2));
 
         dropDbSql = "drop schema if exists test3 force";
         dropDb(dropDbSql);

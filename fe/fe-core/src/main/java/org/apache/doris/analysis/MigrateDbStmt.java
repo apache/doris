@@ -69,7 +69,7 @@ public class MigrateDbStmt extends DdlStmt {
 
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "ADMIN");
+                "ADMIN");
         }
 
         srcCluster = src.getCluster();

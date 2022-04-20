@@ -17,13 +17,14 @@
 
 package org.apache.doris.udf;
 
+import org.apache.doris.catalog.Type;
+import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
+import org.apache.doris.thrift.TPrimitiveType;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
-import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -47,7 +48,7 @@ public class UdfExecutor {
 
     // Object to deserialize ctor params from BE.
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY =
-            new TBinaryProtocol.Factory();
+        new TBinaryProtocol.Factory();
 
     private Object udf;
     // setup by init() and cleared by close()
@@ -145,7 +146,9 @@ public class UdfExecutor {
 
         public static boolean isSupported(Type t) {
             for (JavaUdfDataType javaType : JavaUdfDataType.values()) {
-                if (javaType == JavaUdfDataType.INVALID_TYPE) continue;
+                if (javaType == JavaUdfDataType.INVALID_TYPE) {
+                    continue;
+                }
                 if (javaType.getPrimitiveType() == t.getPrimitiveType().toThrift()) {
                     return true;
                 }
@@ -223,7 +226,7 @@ public class UdfExecutor {
         int batch_size = UdfUtils.UNSAFE.getInt(null, batchSizePtr);
         try {
             if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.VARCHAR)
-                    || retType.equals(JavaUdfDataType.CHAR)) {
+                || retType.equals(JavaUdfDataType.CHAR)) {
                 // If this udf return variable-size type (e.g.) String, we have to allocate output
                 // buffer multiple times until buffer size is enough to store output column. So we
                 // always begin with the last evaluated row instead of beginning of this batch.
@@ -240,9 +243,9 @@ public class UdfExecutor {
                     // Currently, -1 indicates this column is not nullable. So input argument is
                     // null iff inputNullsPtrs_ != -1 and nullCol[row_idx] != 0.
                     if (UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) == -1 ||
-                            UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                                    UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) + rowIdx) == 0) {
+                        UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) == -1 ||
+                        UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
+                            UdfUtils.getAddressAtOffset(inputNullsPtrs, i)) + rowIdx) == 0) {
                         inputArgs[i] = inputObjects[i];
                     } else {
                         inputArgs[i] = null;
@@ -297,7 +300,7 @@ public class UdfExecutor {
                 UdfUtils.UNSAFE.putChar(null, UdfUtils.UNSAFE.getLong(null, outputBufferPtr) +
                     outputOffset - 1, UdfUtils.END_OF_STRING);
                 UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) +
-                        4L * row, Integer.parseUnsignedInt(String.valueOf(outputOffset)));
+                    4L * row, Integer.parseUnsignedInt(String.valueOf(outputOffset)));
             }
             return true;
         }
@@ -307,31 +310,38 @@ public class UdfExecutor {
         switch (retType) {
             case BOOLEAN: {
                 boolean val = (boolean) obj;
-                UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), val ? (byte) 1 : 0);
+                UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                    val ? (byte) 1 : 0);
                 return true;
             }
             case TINYINT: {
-                UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), (byte) obj);
+                UdfUtils.UNSAFE.putByte(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                    (byte) obj);
                 return true;
             }
             case SMALLINT: {
-                UdfUtils.UNSAFE.putShort(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), (short) obj);
+                UdfUtils.UNSAFE.putShort(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                    (short) obj);
                 return true;
             }
             case INT: {
-                UdfUtils.UNSAFE.putInt(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), (int) obj);
+                UdfUtils.UNSAFE.putInt(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                    (int) obj);
                 return true;
             }
             case BIGINT: {
-                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), (long) obj);
+                UdfUtils.UNSAFE.putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                    (long) obj);
                 return true;
             }
             case FLOAT: {
-                UdfUtils.UNSAFE.putFloat(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), (float) obj);
+                UdfUtils.UNSAFE.putFloat(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                    (float) obj);
                 return true;
             }
             case DOUBLE: {
-                UdfUtils.UNSAFE.putDouble(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(), (double) obj);
+                UdfUtils.UNSAFE.putDouble(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + row * retType.getLen(),
+                    (double) obj);
                 return true;
             }
             case CHAR:
@@ -346,10 +356,10 @@ public class UdfExecutor {
                 UdfUtils.UNSAFE.putChar(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) +
                     outputOffset - 1, UdfUtils.END_OF_STRING);
                 UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 4L * row,
-                        Integer.parseUnsignedInt(String.valueOf(outputOffset)));
+                    Integer.parseUnsignedInt(String.valueOf(outputOffset)));
                 UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                        UdfUtils.UNSAFE.getLong(null, outputBufferPtr) +
-                            outputOffset - bytes.length - 1, bytes.length);
+                    UdfUtils.UNSAFE.getLong(null, outputBufferPtr) +
+                        outputOffset - bytes.length - 1, bytes.length);
                 return true;
             default:
                 throw new UdfRuntimeException("Unsupported return type: " + retType);
@@ -365,44 +375,53 @@ public class UdfExecutor {
         for (int i = 0; i < argTypes.length; ++i) {
             switch (argTypes[i]) {
                 case BOOLEAN:
-                    inputObjects[i] = UdfUtils.UNSAFE.getBoolean(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
-                        inputBufferPtrs, i)) + row);
+                    inputObjects[i] =
+                        UdfUtils.UNSAFE.getBoolean(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
+                            inputBufferPtrs, i)) + row);
                     break;
                 case TINYINT:
-                    inputObjects[i] = UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
-                        inputBufferPtrs, i)) + row);
+                    inputObjects[i] =
+                        UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
+                            inputBufferPtrs, i)) + row);
                     break;
                 case SMALLINT:
-                    inputObjects[i] = UdfUtils.UNSAFE.getShort(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
-                        inputBufferPtrs, i)) + 2L * row);
+                    inputObjects[i] =
+                        UdfUtils.UNSAFE.getShort(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
+                            inputBufferPtrs, i)) + 2L * row);
                     break;
                 case INT:
-                    inputObjects[i] = UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
-                        inputBufferPtrs, i)) + 4L * row);
+                    inputObjects[i] =
+                        UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
+                            inputBufferPtrs, i)) + 4L * row);
                     break;
                 case BIGINT:
-                    inputObjects[i] = UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
-                        inputBufferPtrs, i)) + 8L * row);
+                    inputObjects[i] =
+                        UdfUtils.UNSAFE.getLong(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
+                            inputBufferPtrs, i)) + 8L * row);
                     break;
                 case FLOAT:
-                    inputObjects[i] = UdfUtils.UNSAFE.getFloat(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
-                        inputBufferPtrs, i)) + 4L * row);
+                    inputObjects[i] =
+                        UdfUtils.UNSAFE.getFloat(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
+                            inputBufferPtrs, i)) + 4L * row);
                     break;
                 case DOUBLE:
-                    inputObjects[i] = UdfUtils.UNSAFE.getDouble(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
-                        inputBufferPtrs, i)) + 8L * row);
+                    inputObjects[i] =
+                        UdfUtils.UNSAFE.getDouble(null, UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(
+                            inputBufferPtrs, i)) + 8L * row);
                     break;
                 case CHAR:
                 case VARCHAR:
                 case STRING:
                     long offset = Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
-                            UdfUtils.UNSAFE.getLong(null,
-                                    UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i)) + 4L * row));
+                        UdfUtils.UNSAFE.getLong(null,
+                            UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i)) + 4L * row));
                     long numBytes = row == 0 ? offset - 1 : offset - Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
-                            UdfUtils.UNSAFE.getLong(null,
-                                    UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i)) + 4L * (row - 1))) - 1;
-                    long base = row == 0 ? UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) :
-                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + offset - numBytes - 1;
+                        UdfUtils.UNSAFE.getLong(null,
+                            UdfUtils.getAddressAtOffset(inputOffsetsPtrs, i)) + 4L * (row - 1))) - 1;
+                    long base =
+                        row == 0 ? UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) :
+                            UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, i)) + offset -
+                                numBytes - 1;
                     byte[] bytes = new byte[(int) numBytes];
                     UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
                     inputObjects[i] = new String(bytes, StandardCharsets.UTF_8);
@@ -424,7 +443,7 @@ public class UdfExecutor {
      * if the return type is not supported.
      */
     private boolean setReturnType(Type retType, Class<?> udfReturnType)
-            throws InternalException {
+        throws InternalException {
         if (!JavaUdfDataType.isSupported(retType)) {
             throw new InternalException("Unsupported return type: " + retType.toSql());
         }
@@ -449,7 +468,7 @@ public class UdfExecutor {
         for (int i = 0; i < udfArgTypes.length; ++i) {
             argTypes[i] = JavaUdfDataType.getType(udfArgTypes[i]);
             if (argTypes[i].getPrimitiveType()
-                    != parameterTypes[i].getPrimitiveType().toThrift()) {
+                != parameterTypes[i].getPrimitiveType().toThrift()) {
                 return false;
             }
         }
@@ -476,32 +495,42 @@ public class UdfExecutor {
             Method[] methods = c.getMethods();
             for (Method m : methods) {
                 // By convention, the udf must contain the function "evaluate"
-                if (!m.getName().equals(UDF_FUNCTION_NAME)) continue;
+                if (!m.getName().equals(UDF_FUNCTION_NAME)) {
+                    continue;
+                }
                 signatures.add(m.toGenericString());
                 Class<?>[] methodTypes = m.getParameterTypes();
 
                 // Try to match the arguments
-                if (methodTypes.length != parameterTypes.length) continue;
+                if (methodTypes.length != parameterTypes.length) {
+                    continue;
+                }
                 method = m;
                 if (methodTypes.length == 0 && parameterTypes.length == 0) {
                     // Special case where the UDF doesn't take any input args
-                    if (!setReturnType(retType, m.getReturnType())) continue;
+                    if (!setReturnType(retType, m.getReturnType())) {
+                        continue;
+                    }
                     LOG.debug("Loaded UDF '" + udfPath + "' from " + jarPath);
                     return;
                 }
-                if (!setReturnType(retType, m.getReturnType())) continue;
-                if (!setArgTypes(parameterTypes, methodTypes)) continue;
+                if (!setReturnType(retType, m.getReturnType())) {
+                    continue;
+                }
+                if (!setArgTypes(parameterTypes, methodTypes)) {
+                    continue;
+                }
                 LOG.debug("Loaded UDF '" + udfPath + "' from " + jarPath);
                 return;
             }
 
             StringBuilder sb = new StringBuilder();
             sb.append("Unable to find evaluate function with the correct signature: ")
-                    .append(udfPath + ".evaluate(")
-                    .append(Joiner.on(", ").join(parameterTypes))
-                    .append(")\n")
-                    .append("UDF contains: \n    ")
-                    .append(Joiner.on("\n    ").join(signatures));
+                .append(udfPath + ".evaluate(")
+                .append(Joiner.on(", ").join(parameterTypes))
+                .append(")\n")
+                .append("UDF contains: \n    ")
+                .append(Joiner.on("\n    ").join(signatures));
             throw new UdfRuntimeException(sb.toString());
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("Unable to load jar.", e);
@@ -511,10 +540,10 @@ public class UdfExecutor {
             throw new UdfRuntimeException("Unable to find class.", e);
         } catch (NoSuchMethodException e) {
             throw new UdfRuntimeException(
-                    "Unable to find constructor with no arguments.", e);
+                "Unable to find constructor with no arguments.", e);
         } catch (IllegalArgumentException e) {
             throw new UdfRuntimeException(
-                    "Unable to call UDF constructor with no arguments.", e);
+                "Unable to call UDF constructor with no arguments.", e);
         } catch (Exception e) {
             throw new UdfRuntimeException("Unable to call create UDF instance.", e);
         }

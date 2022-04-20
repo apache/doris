@@ -67,7 +67,7 @@ public class SystemMetrics {
             procFile = getClass().getClassLoader().getResource("data/net_snmp_normal").getFile();
         }
         try (FileReader fileReader = new FileReader(procFile);
-                BufferedReader br = new BufferedReader(fileReader)) {
+             BufferedReader br = new BufferedReader(fileReader)) {
             String line = null;
             boolean found = false;
             while ((line = br.readLine()) != null) {

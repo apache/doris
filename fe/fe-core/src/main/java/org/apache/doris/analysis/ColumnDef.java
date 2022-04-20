@@ -49,11 +49,11 @@ public class ColumnDef {
      *     k1 INT NOT NULL DEFAULT "10"
      *     k1 INT NULL
      *     k1 INT NULL DEFAULT NULL
-     *     
+     *
      * ColumnnDef will be transformed to Column in Analysis phase, and in Column, default value is a String.
      * No matter does the user set the default value as NULL explicitly, or not set default value,
      * the default value in Column will be "null", so that Doris can not distinguish between "not set" and "set as null".
-     * 
+     *
      * But this is OK because Column has another attribute "isAllowNull".
      * If the column is not allowed to be null, and user does not set the default value,
      * even if default value saved in Column is null, the "null" value can not be loaded into this column,
@@ -72,7 +72,7 @@ public class ColumnDef {
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
         public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(true, null);
-        public static String ZERO = new String(new byte[] {0});
+        public static String ZERO = new String(new byte[]{0});
         // default "value", "0" means empty hll
         public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
         // default "value", "0" means empty bitmap
@@ -95,13 +95,14 @@ public class ColumnDef {
         this.comment = "";
         this.defaultValue = DefaultValue.NOT_SET;
     }
+
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
                      boolean isAllowNull, DefaultValue defaultValue, String comment) {
         this(name, typeDef, isKey, aggregateType, isAllowNull, defaultValue, comment, true);
     }
 
     public ColumnDef(String name, TypeDef typeDef, boolean isKey, AggregateType aggregateType,
-            boolean isAllowNull, DefaultValue defaultValue, String comment, boolean visible) {
+                     boolean isAllowNull, DefaultValue defaultValue, String comment, boolean visible) {
         this.name = name;
         this.typeDef = typeDef;
         this.isKey = isKey;
@@ -114,33 +115,60 @@ public class ColumnDef {
 
     public static ColumnDef newDeleteSignColumnDef() {
         return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, null, false,
-                new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
+            new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
     }
 
     public static ColumnDef newDeleteSignColumnDef(AggregateType aggregateType) {
         return new ColumnDef(Column.DELETE_SIGN, TypeDef.create(PrimitiveType.TINYINT), false, aggregateType, false,
-                new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
+            new ColumnDef.DefaultValue(true, "0"), "doris delete flag hidden column", false);
     }
 
     public static ColumnDef newSequenceColumnDef(Type type) {
         return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, null, true, DefaultValue.NULL_DEFAULT_VALUE,
-                "sequence column hidden column", false);
+            "sequence column hidden column", false);
     }
 
     public static ColumnDef newSequenceColumnDef(Type type, AggregateType aggregateType) {
-        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, aggregateType, true, DefaultValue.NULL_DEFAULT_VALUE,
-                "sequence column hidden column", false);
+        return new ColumnDef(Column.SEQUENCE_COL, new TypeDef(type), false, aggregateType, true,
+            DefaultValue.NULL_DEFAULT_VALUE,
+            "sequence column hidden column", false);
     }
 
-    public boolean isAllowNull() { return isAllowNull; }
-    public String getDefaultValue() { return defaultValue.value; }
-    public String getName() { return name; }
-    public AggregateType getAggregateType() { return aggregateType; }
-    public void setAggregateType(AggregateType aggregateType) { this.aggregateType = aggregateType; }
-    public boolean isKey() { return isKey; }
-    public void setIsKey(boolean isKey) { this.isKey = isKey; }
-    public TypeDef getTypeDef() { return typeDef; }
-    public Type getType() { return typeDef.getType(); }
+    public boolean isAllowNull() {
+        return isAllowNull;
+    }
+
+    public String getDefaultValue() {
+        return defaultValue.value;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public AggregateType getAggregateType() {
+        return aggregateType;
+    }
+
+    public void setAggregateType(AggregateType aggregateType) {
+        this.aggregateType = aggregateType;
+    }
+
+    public boolean isKey() {
+        return isKey;
+    }
+
+    public void setIsKey(boolean isKey) {
+        this.isKey = isKey;
+    }
+
+    public TypeDef getTypeDef() {
+        return typeDef;
+    }
+
+    public Type getType() {
+        return typeDef.getType();
+    }
 
     public String getComment() {
         return comment;
@@ -160,7 +188,7 @@ public class ColumnDef {
         if (typeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) typeDef.getType();
             if (targetType.getPrimitiveType().isStringType()
-                    && !targetType.isAssignedStrLenInColDefinition()) {
+                && !targetType.isAssignedStrLenInColDefinition()) {
                 targetType.setLength(1);
             }
         }
@@ -169,9 +197,9 @@ public class ColumnDef {
 
         Type type = typeDef.getType();
 
-        if(!Config.enable_quantile_state_type && type.isQuantileStateType()) {
+        if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
             throw new AnalysisException("quantile_state is disabled" +
-                    "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
+                "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
         }
 
         // disable Bitmap Hll type in keys, values without aggregate function.
@@ -195,7 +223,7 @@ public class ColumnDef {
             // check if aggregate type is valid
             if (!aggregateType.checkCompatibility(type.getPrimitiveType())) {
                 throw new AnalysisException(String.format("Aggregate type %s is not compatible with primitive type %s",
-                        toString(), type.toSql()));
+                    toString(), type.toSql()));
             }
         }
 
@@ -226,7 +254,7 @@ public class ColumnDef {
         }
         if (isKey() && type.getPrimitiveType() == PrimitiveType.STRING) {
             throw new AnalysisException("String Type should not be used in key column[" + getName()
-                    + "].");
+                + "].");
         }
         if (type.getPrimitiveType() == PrimitiveType.MAP) {
             if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
@@ -342,9 +370,11 @@ public class ColumnDef {
 
     public Column toColumn() {
         return new Column(name, typeDef.getType(), isKey, aggregateType, isAllowNull, defaultValue.value, comment,
-                visible);
+            visible);
     }
 
     @Override
-    public String toString() { return toSql(); }
+    public String toString() {
+        return toSql();
+    }
 }

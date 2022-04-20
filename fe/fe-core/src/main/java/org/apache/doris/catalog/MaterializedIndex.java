@@ -22,7 +22,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -32,6 +31,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
@@ -49,7 +50,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
             return this == IndexState.NORMAL;
         }
     }
-    
+
     public enum IndexExtState {
         ALL,
         VISIBLE, // index state in NORMAL
@@ -272,7 +273,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
         }
 
         return (state.equals(table.state))
-                && (rowCount == table.rowCount);
+            && (rowCount == table.rowCount);
     }
 
     @Override

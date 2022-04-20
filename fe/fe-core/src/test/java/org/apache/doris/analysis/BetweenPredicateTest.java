@@ -26,12 +26,13 @@ import mockit.Injectable;
 import mockit.Mocked;
 
 public class BetweenPredicateTest {
-    @Mocked Analyzer analyzer;
+    @Mocked
+    Analyzer analyzer;
 
     @Test
     public void testWithCompareAndBoundSubquery(@Injectable Subquery compareExpr,
-                                 @Injectable Subquery lowerBound,
-                                 @Injectable Expr upperBound) {
+                                                @Injectable Subquery lowerBound,
+                                                @Injectable Expr upperBound) {
         BetweenPredicate betweenPredicate = new BetweenPredicate(compareExpr, lowerBound, upperBound, false);
         try {
             betweenPredicate.analyzeImpl(analyzer);

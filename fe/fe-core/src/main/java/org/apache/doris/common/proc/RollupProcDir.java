@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.RollupJobV2;
@@ -29,12 +28,14 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.OrderByPair;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.OrderByPair;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,10 +48,10 @@ public class RollupProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(RollupProcDir.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("TableName").add("CreateTime").add("FinishTime")
-            .add("BaseIndexName").add("RollupIndexName").add("RollupId").add("TransactionId")
-            .add("State").add("Msg").add("Progress").add("Timeout")
-            .build();
+        .add("JobId").add("TableName").add("CreateTime").add("FinishTime")
+        .add("BaseIndexName").add("RollupIndexName").add("RollupId").add("TransactionId")
+        .add("State").add("Msg").add("Progress").add("Timeout")
+        .build();
 
     private MaterializedViewHandler materializedViewHandler;
     private Database db;
@@ -88,14 +89,14 @@ public class RollupProcDir implements ProcDirInterface {
         List<List<Comparable>> jobInfos = Lists.newArrayList();
 
         //where
-        if (filter == null || filter.size() == 0){
+        if (filter == null || filter.size() == 0) {
             jobInfos = rollupJobInfos;
         } else {
             jobInfos = Lists.newArrayList();
             for (List<Comparable> infoStr : rollupJobInfos) {
                 if (infoStr.size() != TITLE_NAMES.size()) {
                     LOG.warn("RollupJobInfos.size() " + rollupJobInfos.size()
-                            + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
+                        + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
                     continue;
                 }
                 boolean isNeed = true;
@@ -126,7 +127,7 @@ public class RollupProcDir implements ProcDirInterface {
             if (endIndex > jobInfos.size()) {
                 endIndex = jobInfos.size();
             }
-            jobInfos = jobInfos.subList(beginIndex,endIndex);
+            jobInfos = jobInfos.subList(beginIndex, endIndex);
         }
 
         BaseProcResult result = new BaseProcResult();

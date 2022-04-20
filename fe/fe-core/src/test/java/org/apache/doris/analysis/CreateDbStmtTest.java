@@ -27,10 +27,10 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Mocked;
-
 import java.util.HashMap;
 import java.util.Map;
+
+import mockit.Mocked;
 
 public class CreateDbStmtTest {
     private Analyzer analyzer;
@@ -71,10 +71,10 @@ public class CreateDbStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:test", stmt.getFullDbName());
         Assert.assertEquals("CREATE DATABASE `testCluster:test`\n" +
-                "PROPERTIES (\n" +
-                "\"iceberg.database\" = \"doris\",\n" +
-                "\"iceberg.hive.metastore.uris\" = \"thrift://127.0.0.1:9087\"\n" +
-                ")", stmt.toString());
+            "PROPERTIES (\n" +
+            "\"iceberg.database\" = \"doris\",\n" +
+            "\"iceberg.hive.metastore.uris\" = \"thrift://127.0.0.1:9087\"\n" +
+            ")", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

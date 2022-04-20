@@ -22,7 +22,7 @@ public enum AlterUserType {
     DELETE_USER_WHITELIST("delete_whiteList");
 
     private String type;
-    
+
     private AlterUserType(String type) {
         this.type = type;
     }

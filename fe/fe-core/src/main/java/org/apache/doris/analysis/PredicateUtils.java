@@ -17,16 +17,16 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.Lists;
+
 import java.util.ArrayList;
 import java.util.List;
-
-import com.google.common.collect.Lists;
 
 public class PredicateUtils {
     /**
      * Split predicates in disjunctive form recursively, i.e., split the input expression
      * if the root node of the expression tree is `or` predicate.
-     *
+     * <p>
      * Some examples:
      * a or b -> a, b
      * a or b or c -> a, b, c

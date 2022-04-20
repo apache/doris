@@ -25,8 +25,8 @@ import java.util.Set;
 public class TabletQuorumFailedException extends TransactionException {
 
     private static final String TABLET_QUORUM_FAILED_MSG = "Failed to commit txn %s. "
-            + "Tablet [%s] success replica num %s is less than quorum "
-            + "replica num %s while error backends %s";
+        + "Tablet [%s] success replica num %s is less than quorum "
+        + "replica num %s while error backends %s";
 
     private long tabletId;
     private Set<Long> errorBackendIdsForTablet = Sets.newHashSet();
@@ -35,9 +35,9 @@ public class TabletQuorumFailedException extends TransactionException {
                                        int successReplicaNum, int quorumReplicaNum,
                                        Set<Long> errorBackendIdsForTablet) {
         super(String.format(TABLET_QUORUM_FAILED_MSG, transactionId, tabletId,
-                            successReplicaNum, quorumReplicaNum,
-                            Joiner.on(",").join(errorBackendIdsForTablet)),
-              transactionId);
+                successReplicaNum, quorumReplicaNum,
+                Joiner.on(",").join(errorBackendIdsForTablet)),
+            transactionId);
         this.tabletId = tabletId;
         this.errorBackendIdsForTablet = errorBackendIdsForTablet;
     }

@@ -22,12 +22,12 @@ import org.apache.doris.common.Status;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TAgentServiceVersion;
-import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
-import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
-import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
 import org.apache.doris.thrift.TDeleteEtlFilesRequest;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
+import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
+import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
+import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
@@ -41,7 +41,7 @@ public class AgentClient {
 
     private String host;
     private int port;
-    
+
     private BackendService.Client client;
     private TNetworkAddress address;
     private boolean ok;
@@ -50,7 +50,7 @@ public class AgentClient {
         this.host = host;
         this.port = port;
     }
-    
+
     public TAgentResult submitEtlTask(TMiniLoadEtlTaskRequest request) {
         TAgentResult result = null;
         LOG.debug("submit etl task. request: {}", request);
@@ -66,7 +66,7 @@ public class AgentClient {
         }
         return result;
     }
-    
+
     public TAgentResult makeSnapshot(TSnapshotRequest request) {
         TAgentResult result = null;
         LOG.debug("submit make snapshot task. request: {}", request);
@@ -82,7 +82,7 @@ public class AgentClient {
         }
         return result;
     }
-    
+
     public TAgentResult releaseSnapshot(String snapshotPath) {
         TAgentResult result = null;
         LOG.debug("submit release snapshot task. snapshotPath: {}", snapshotPath);
@@ -98,7 +98,7 @@ public class AgentClient {
         }
         return result;
     }
-    
+
     public Status submitExportTask(TExportTaskRequest request) {
         Status result = Status.CANCELLED;
         LOG.debug("submit export task. request: {}", request);
@@ -114,11 +114,11 @@ public class AgentClient {
         }
         return result;
     }
-    
+
     public TMiniLoadEtlStatusResult getEtlStatus(long jobId, long taskId) {
         TMiniLoadEtlStatusResult result = null;
-        TMiniLoadEtlStatusRequest request = new TMiniLoadEtlStatusRequest(TAgentServiceVersion.V1, 
-                new TUniqueId(jobId, taskId));
+        TMiniLoadEtlStatusRequest request = new TMiniLoadEtlStatusRequest(TAgentServiceVersion.V1,
+            new TUniqueId(jobId, taskId));
         LOG.debug("get mini load etl task status. request: {}", request);
         try {
             borrowClient();
@@ -132,7 +132,7 @@ public class AgentClient {
         }
         return result;
     }
-    
+
     public TExportStatusResult getExportStatus(long jobId, long taskId) {
         TExportStatusResult result = null;
         TUniqueId request = new TUniqueId(jobId, taskId);
@@ -149,7 +149,7 @@ public class AgentClient {
         }
         return result;
     }
-    
+
     public Status eraseExportTask(long jobId, long taskId) {
         Status result = Status.CANCELLED;
         TUniqueId request = new TUniqueId(jobId, taskId);
@@ -168,8 +168,8 @@ public class AgentClient {
     }
 
     public void deleteEtlFiles(long dbId, long jobId, String dbName, String label) {
-        TDeleteEtlFilesRequest request = new TDeleteEtlFilesRequest(TAgentServiceVersion.V1, 
-                new TUniqueId(dbId, jobId), dbName, label);
+        TDeleteEtlFilesRequest request = new TDeleteEtlFilesRequest(TAgentServiceVersion.V1,
+            new TUniqueId(dbId, jobId), dbName, label);
         LOG.debug("delete etl files. request: {}", request);
         try {
             borrowClient();
@@ -182,14 +182,14 @@ public class AgentClient {
             returnClient();
         }
     }
-    
+
     private void borrowClient() throws Exception {
         // create agent client
         ok = false;
         address = new TNetworkAddress(host, port);
         client = ClientPool.backendPool.borrowObject(address);
     }
-    
+
     private void returnClient() {
         if (ok) {
             ClientPool.backendPool.returnObject(address, client);

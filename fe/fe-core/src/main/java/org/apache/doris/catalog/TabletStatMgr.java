@@ -28,10 +28,10 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TTabletStat;
 import org.apache.doris.thrift.TTabletStatResult;
 
+import com.google.common.collect.ImmutableMap;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
@@ -73,7 +73,7 @@ public class TabletStatMgr extends MasterDaemon {
             }
         });
         LOG.info("finished to get tablet stat of all backends. cost: {} ms",
-                (System.currentTimeMillis() - start));
+            (System.currentTimeMillis() - start));
 
         // after update replica in all backends, update index row num
         start = System.currentTimeMillis();
@@ -101,7 +101,7 @@ public class TabletStatMgr extends MasterDaemon {
                                 long tabletRowCount = 0L;
                                 for (Replica replica : tablet.getReplicas()) {
                                     if (replica.checkVersionCatchUp(version, false)
-                                            && replica.getRowCount() > tabletRowCount) {
+                                        && replica.getRowCount() > tabletRowCount) {
                                         tabletRowCount = replica.getRowCount();
                                     }
                                 }
@@ -111,14 +111,14 @@ public class TabletStatMgr extends MasterDaemon {
                         } // end for indices
                     } // end for partitions
                     LOG.debug("finished to set row num for table: {} in database: {}",
-                             table.getName(), db.getFullName());
+                        table.getName(), db.getFullName());
                 } finally {
                     table.writeUnlock();
                 }
             }
         }
         LOG.info("finished to update index row num of all databases. cost: {} ms",
-                (System.currentTimeMillis() - start));
+            (System.currentTimeMillis() - start));
     }
 
     private void updateTabletStat(Long beId, TTabletStatResult result) {

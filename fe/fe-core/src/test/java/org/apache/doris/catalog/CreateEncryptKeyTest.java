@@ -70,7 +70,8 @@ public class CreateEncryptKeyTest {
 
         String createFuncStr = "create encryptkey db1.my_key as \"beijing\";";
 
-        CreateEncryptKeyStmt createFunctionStmt = (CreateEncryptKeyStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
+        CreateEncryptKeyStmt createFunctionStmt =
+            (CreateEncryptKeyStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         EncryptKeyHelper.createEncryptKey(createFunctionStmt);
 
         List<EncryptKey> encryptKeys = db.getEncryptKeys();
@@ -86,7 +87,7 @@ public class CreateEncryptKeyTest {
         Assert.assertEquals(1, planner.getFragments().size());
         PlanFragment fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        UnionNode unionNode =  (UnionNode)fragment.getPlanRoot();
+        UnionNode unionNode = (UnionNode) fragment.getPlanRoot();
         List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists_");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());

@@ -22,13 +22,13 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Objects;
+
+import com.google.gson.annotations.SerializedName;
 
 public class CanalDestination implements Writable {
 
@@ -99,19 +99,21 @@ public class CanalDestination implements Writable {
 
     @Override
     public boolean equals(Object other) {
-        if (other == this) return true;
+        if (other == this) {
+            return true;
+        }
         if (!(other instanceof CanalDestination)) {
             return false;
         }
         CanalDestination otherDestination = (CanalDestination) other;
         return ip.equalsIgnoreCase(otherDestination.getIp()) && port == otherDestination.getPort() &&
-                destination.equalsIgnoreCase(otherDestination.getDestination());
+            destination.equalsIgnoreCase(otherDestination.getDestination());
     }
 
     @Override
     public String toString() {
         return "CanalDestination [ip=" + ip + ", port=" + port +
-                ", destination=" + destination + "]";
+            ", destination=" + destination + "]";
     }
 
     @Override

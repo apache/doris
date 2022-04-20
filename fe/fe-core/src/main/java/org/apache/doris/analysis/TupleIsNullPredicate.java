@@ -20,13 +20,13 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTupleIsNullPredicate;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -64,7 +64,9 @@ public class TupleIsNullPredicate extends Predicate {
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
         for (TupleId tid : tids) {
-            if (tupleIds.contains(tid)) return true;
+            if (tupleIds.contains(tid)) {
+                return true;
+            }
         }
         return false;
     }
@@ -98,7 +100,7 @@ public class TupleIsNullPredicate extends Predicate {
         }
         TupleIsNullPredicate other = (TupleIsNullPredicate) o;
         return other.tupleIds.containsAll(tupleIds)
-                && tupleIds.containsAll(other.tupleIds);
+            && tupleIds.containsAll(other.tupleIds);
     }
 
     /**
@@ -131,7 +133,7 @@ public class TupleIsNullPredicate extends Predicate {
      * if required to make expr nullable. Otherwise, returns expr.
      */
     public static Expr wrapExpr(Expr expr, List<TupleId> tids, Analyzer analyzer)
-            throws UserException {
+        throws UserException {
         if (!requiresNullWrapping(expr, analyzer)) {
             return expr;
         }
@@ -176,8 +178,8 @@ public class TupleIsNullPredicate extends Predicate {
             FunctionCallExpr fnCallExpr = (FunctionCallExpr) expr;
             List<Expr> params = fnCallExpr.getParams().exprs();
             if (fnCallExpr.getFnName().getFunction().equals("if") &&
-                    params.get(0) instanceof TupleIsNullPredicate &&
-                    Expr.IS_NULL_LITERAL.apply(params.get(1))) {
+                params.get(0) instanceof TupleIsNullPredicate &&
+                Expr.IS_NULL_LITERAL.apply(params.get(1))) {
                 return unwrapExpr(params.get(2));
             }
         }

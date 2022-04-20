@@ -65,11 +65,11 @@ public class AlterTableStmt extends DdlStmt {
         }
         tbl.analyze(analyzer);
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
-                PrivPredicate.ALTER)) {
+            PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
-                    tbl.getDb() + ": " + tbl.getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                tbl.getDb() + ": " + tbl.getTbl());
         }
         if (ops == null || ops.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_ALTER_OPERATION);
@@ -83,14 +83,16 @@ public class AlterTableStmt extends DdlStmt {
         List<AlterClause> clauses = new ArrayList<>();
         for (AlterClause alterClause : ops) {
             if (alterClause instanceof EnableFeatureClause) {
-                EnableFeatureClause.Features alterFeature  = ((EnableFeatureClause) alterClause).getFeature();
+                EnableFeatureClause.Features alterFeature = ((EnableFeatureClause) alterClause).getFeature();
                 if (alterFeature == null || alterFeature == EnableFeatureClause.Features.UNKNOWN) {
                     throw new AnalysisException("unknown feature for alter clause");
                 }
-                if (table.getKeysType() != KeysType.UNIQUE_KEYS && alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
+                if (table.getKeysType() != KeysType.UNIQUE_KEYS &&
+                    alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                     throw new AnalysisException("Batch delete only supported in unique tables.");
                 }
-                if (table.getKeysType() != KeysType.UNIQUE_KEYS && alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
+                if (table.getKeysType() != KeysType.UNIQUE_KEYS &&
+                    alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                     throw new AnalysisException("Sequence load only supported in unique tables.");
                 }
                 // analyse sequence column
@@ -118,10 +120,10 @@ public class AlterTableStmt extends DdlStmt {
                         AddColumnClause addColumnClause = null;
                         if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                             addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
-                                    table.getIndexNameById(idx.getId()), null);
+                                table.getIndexNameById(idx.getId()), null);
                         } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                             addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
-                                    table.getIndexNameById(idx.getId()), null);
+                                table.getIndexNameById(idx.getId()), null);
                         } else {
                             throw new AnalysisException("unknown feature : " + alterFeature);
                         }
@@ -133,15 +135,15 @@ public class AlterTableStmt extends DdlStmt {
                     AddColumnClause addColumnClause = null;
                     if (alterFeature == EnableFeatureClause.Features.BATCH_DELETE) {
                         addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
-                                null, null);
+                            null, null);
                     } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
                         addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
-                                null, null);
+                            null, null);
                     }
                     addColumnClause.analyze(analyzer);
                     clauses.add(addColumnClause);
                 }
-            // add hidden column to rollup table
+                // add hidden column to rollup table
             } else {
                 clauses.add(alterClause);
             }
@@ -153,16 +155,16 @@ public class AlterTableStmt extends DdlStmt {
         List<AlterClause> clauses = new ArrayList<>();
         for (AlterClause alterClause : ops) {
             if (alterClause instanceof TableRenameClause ||
-                    alterClause instanceof AddColumnClause ||
-                    alterClause instanceof AddColumnsClause ||
-                    alterClause instanceof DropColumnClause ||
-                    alterClause instanceof ModifyColumnClause ||
-                    alterClause instanceof ReorderColumnsClause ||
-                    alterClause instanceof ModifyEngineClause) {
+                alterClause instanceof AddColumnClause ||
+                alterClause instanceof AddColumnsClause ||
+                alterClause instanceof DropColumnClause ||
+                alterClause instanceof ModifyColumnClause ||
+                alterClause instanceof ReorderColumnsClause ||
+                alterClause instanceof ModifyEngineClause) {
                 clauses.add(alterClause);
             } else {
                 throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] " +
-                        "do not support " + alterClause.getOpType().toString() + " clause now");
+                    "do not support " + alterClause.getOpType().toString() + " clause now");
             }
         }
         ops = clauses;

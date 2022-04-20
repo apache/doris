@@ -37,6 +37,7 @@ public enum InternalErrorCode {
     TASKS_ABORT_ERR(104);
 
     private long errCode;
+
     private InternalErrorCode(long code) {
         this.errCode = code;
     }

@@ -23,7 +23,7 @@ import org.apache.doris.thrift.TUnit;
  * This profile is mainly used to record the time-consuming situation related to
  * executing SQL parsing, planning, scheduling, and fetching results on the FE side.
  * Can be expanded later.
- *
+ * <p>
  * All timestamp is in nona second
  */
 public class QueryPlannerProfile {

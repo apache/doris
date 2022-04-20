@@ -51,9 +51,9 @@ public class TableRowCountAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_count", method = RequestMethod.GET)
     public Object count(
-            @PathVariable(value = DB_KEY) final String dbName,
-            @PathVariable(value = TABLE_KEY) final String tblName,
-            HttpServletRequest request, HttpServletResponse response) {
+        @PathVariable(value = DB_KEY) final String dbName,
+        @PathVariable(value = TABLE_KEY) final String tblName,
+        HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);

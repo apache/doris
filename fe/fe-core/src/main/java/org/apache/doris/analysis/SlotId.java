@@ -31,9 +31,14 @@ public class SlotId extends Id<SlotId> {
     public static IdGenerator<SlotId> createGenerator() {
         return new IdGenerator<SlotId>() {
             @Override
-            public SlotId getNextId() { return new SlotId(nextId_++); }
+            public SlotId getNextId() {
+                return new SlotId(nextId_++);
+            }
+
             @Override
-            public SlotId getMaxId() { return new SlotId(nextId_ - 1); }
+            public SlotId getMaxId() {
+                return new SlotId(nextId_ - 1);
+            }
         };
     }
 }

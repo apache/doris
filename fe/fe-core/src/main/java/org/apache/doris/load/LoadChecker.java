@@ -78,9 +78,10 @@ public class LoadChecker extends MasterDaemon {
         super("load checker " + jobState.name().toLowerCase(), intervalMs);
         this.jobState = jobState;
     }
-    
+
     /**
      * init dpp config and load checker threads executors
+     *
      * @param intervalMs
      */
     public static void init(long intervalMs) {
@@ -88,20 +89,26 @@ public class LoadChecker extends MasterDaemon {
         checkers.put(JobState.ETL, new LoadChecker(JobState.ETL, intervalMs));
         checkers.put(JobState.LOADING, new LoadChecker(JobState.LOADING, intervalMs));
         checkers.put(JobState.QUORUM_FINISHED, new LoadChecker(JobState.QUORUM_FINISHED, intervalMs));
-        
+
         Map<TPriority, MasterTaskExecutor> pendingPriorityMap = Maps.newHashMap();
         pendingPriorityMap.put(TPriority.NORMAL,
-                               new MasterTaskExecutor("load_pending_thread_num_normal_priority", Config.load_pending_thread_num_normal_priority, true));
+            new MasterTaskExecutor("load_pending_thread_num_normal_priority",
+                Config.load_pending_thread_num_normal_priority, true));
         pendingPriorityMap.put(TPriority.HIGH,
-                               new MasterTaskExecutor("load_pending_thread_num_high_priority", Config.load_pending_thread_num_high_priority, true));
+            new MasterTaskExecutor("load_pending_thread_num_high_priority",
+                Config.load_pending_thread_num_high_priority, true));
         executors.put(JobState.PENDING, pendingPriorityMap);
 
         Map<TPriority, MasterTaskExecutor> etlPriorityMap = Maps.newHashMap();
-        etlPriorityMap.put(TPriority.NORMAL, new MasterTaskExecutor("load_etl_thread_num_normal_priority", Config.load_etl_thread_num_normal_priority, true));
-        etlPriorityMap.put(TPriority.HIGH, new MasterTaskExecutor("load_etl_thread_num_high_priority", Config.load_etl_thread_num_high_priority, true));
+        etlPriorityMap.put(TPriority.NORMAL,
+            new MasterTaskExecutor("load_etl_thread_num_normal_priority", Config.load_etl_thread_num_normal_priority,
+                true));
+        etlPriorityMap.put(TPriority.HIGH,
+            new MasterTaskExecutor("load_etl_thread_num_high_priority", Config.load_etl_thread_num_high_priority,
+                true));
         executors.put(JobState.ETL, etlPriorityMap);
     }
-    
+
     /**
      * start all load checker threads
      */
@@ -115,7 +122,7 @@ public class LoadChecker extends MasterDaemon {
             }
         }
     }
-    
+
     @Override
     protected void runAfterCatalogReady() {
         LOG.debug("start check load jobs. job state: {}", jobState.name());
@@ -147,8 +154,8 @@ public class LoadChecker extends MasterDaemon {
         if (runningJobNumLimit > 0 && !pendingJobs.isEmpty()) {
             // pending executor running + etl state
             int runningJobNum = executors.get(JobState.PENDING).get(TPriority.NORMAL).getTaskNum()
-                    + executors.get(JobState.PENDING).get(TPriority.HIGH).getTaskNum()
-                    + load.getLoadJobs(JobState.ETL).size();
+                + executors.get(JobState.PENDING).get(TPriority.HIGH).getTaskNum()
+                + load.getLoadJobs(JobState.ETL).size();
             if (runningJobNum >= runningJobNumLimit) {
                 LOG.debug("running load job num {} exceeds system limit {}", runningJobNum, runningJobNumLimit);
                 return;
@@ -170,7 +177,7 @@ public class LoadChecker extends MasterDaemon {
                         break;
                     default:
                         LOG.warn("unknown etl job type. type: {}, job id: {}, label: {}, db: {}",
-                                etlJobType.name(), job.getId(), job.getLabel(), job.getDbId());
+                            etlJobType.name(), job.getId(), job.getLabel(), job.getDbId());
                         break;
                 }
                 if (task != null) {
@@ -208,7 +215,7 @@ public class LoadChecker extends MasterDaemon {
             }
         }
     }
-    
+
     private void runLoadingJobs() {
         List<LoadJob> loadingJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(JobState.LOADING);
         for (LoadJob job : loadingJobs) {
@@ -220,7 +227,7 @@ public class LoadChecker extends MasterDaemon {
             }
         }
     }
-    
+
     private void runOneLoadingJob(LoadJob job) {
         // check timeout
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
@@ -247,26 +254,28 @@ public class LoadChecker extends MasterDaemon {
         try {
             tables = db.getTablesOnIdOrderOrThrowException(tableIds);
         } catch (UserException e) {
-            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "table does not exist. dbId: " + dbId + ", err: " + e.getMessage());
+            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL,
+                "table does not exist. dbId: " + dbId + ", err: " + e.getMessage());
             return;
         }
 
         if (job.getTransactionId() < 0) {
             LOG.warn("cancel load job {}  because it is an old type job, user should resubmit it", job);
-            load.cancelLoadJob(job, CancelType.UNKNOWN, "cancelled because system is during upgrade, user should resubmit it");
+            load.cancelLoadJob(job, CancelType.UNKNOWN,
+                "cancelled because system is during upgrade, user should resubmit it");
             return;
         }
         // check if the job is aborted in transaction manager
         TransactionState state = Catalog.getCurrentGlobalTransactionMgr()
-                .getTransactionState(job.getDbId(), job.getTransactionId());
+            .getTransactionState(job.getDbId(), job.getTransactionId());
         if (state == null) {
             LOG.warn("cancel load job {}  because could not find transaction state", job);
             load.cancelLoadJob(job, CancelType.UNKNOWN, "transaction state lost");
             return;
         }
         if (state.getTransactionStatus() == TransactionStatus.ABORTED) {
-            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, 
-                    "job is aborted in transaction manager [" + state + "]");
+            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL,
+                "job is aborted in transaction manager [" + state + "]");
             return;
         } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED) {
             // if job is committed and then fe restart, the progress is not persisted, so that set it here
@@ -279,7 +288,7 @@ public class LoadChecker extends MasterDaemon {
             }
             return;
         }
-        
+
         if (checkTimeout(job)) {
             load.cancelLoadJob(job, CancelType.TIMEOUT, "loading timeout to cancel");
             return;
@@ -290,7 +299,7 @@ public class LoadChecker extends MasterDaemon {
             load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "submit push tasks fail");
             return;
         }
-        
+
         // yiguolei: for real time load we use full finished replicas
         Set<Long> fullTablets = job.getFullTablets();
         if (state.isRunning()) {
@@ -298,9 +307,9 @@ public class LoadChecker extends MasterDaemon {
         } else {
             job.setProgress(100);
         }
-        
-        long stragglerTimeout = job.isSyncDeleteJob() ? job.getDeleteJobTimeout() / 2 
-                                                    : Config.load_straggler_wait_second * 1000;
+
+        long stragglerTimeout = job.isSyncDeleteJob() ? job.getDeleteJobTimeout() / 2
+            : Config.load_straggler_wait_second * 1000;
         Set<Long> unfinishedTablets = Sets.newHashSet();
         unfinishedTablets.addAll(jobTotalTablets);
         unfinishedTablets.removeAll(job.getQuorumTablets());
@@ -314,7 +323,7 @@ public class LoadChecker extends MasterDaemon {
 
             // if all tablets are finished or stay in quorum finished for long time, try to commit it.
             if (System.currentTimeMillis() - job.getQuorumFinishTimeMs() > stragglerTimeout
-                    || job.getFullTablets().containsAll(jobTotalTablets)) {
+                || job.getFullTablets().containsAll(jobTotalTablets)) {
                 tryCommitJob(job, tables);
             }
         }
@@ -324,7 +333,8 @@ public class LoadChecker extends MasterDaemon {
         // check transaction state
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        TransactionState transactionState = globalTransactionMgr.getTransactionState(job.getDbId(), job.getTransactionId());
+        TransactionState transactionState =
+            globalTransactionMgr.getTransactionState(job.getDbId(), job.getTransactionId());
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
         // when be finish load task, fe will update job's finish task info, use lock here to prevent
         // concurrent problems
@@ -333,7 +343,8 @@ public class LoadChecker extends MasterDaemon {
         try {
             MetaLockUtils.writeLockTablesOrMetaException(tables);
         } catch (UserException e) {
-            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL, "table does not exist. dbId: " + job.getDbId() + ", err: " + e.getMessage());
+            load.cancelLoadJob(job, CancelType.LOAD_RUN_FAIL,
+                "table does not exist. dbId: " + job.getDbId() + ", err: " + e.getMessage());
             return;
         }
         try {
@@ -351,8 +362,8 @@ public class LoadChecker extends MasterDaemon {
         } catch (TabletQuorumFailedException e) {
             // wait the upper application retry
         } catch (UserException e) {
-            LOG.warn("errors while commit transaction [{}], cancel the job {}, reason is {}", 
-                    transactionState.getTransactionId(), job, e);
+            LOG.warn("errors while commit transaction [{}], cancel the job {}, reason is {}",
+                transactionState.getTransactionId(), job, e);
             load.cancelLoadJob(job, CancelType.UNKNOWN, transactionState.getReason());
         } finally {
             MetaLockUtils.writeUnlockTables(tables);
@@ -377,7 +388,7 @@ public class LoadChecker extends MasterDaemon {
             TableLoadInfo tableLoadInfo = tableEntry.getValue();
             // check if the job is submit during rollup
             boolean autoLoadToTwoTablet = true;
-            
+
             for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
                 long partitionId = partitionEntry.getKey();
                 PartitionLoadInfo partitionLoadInfo = partitionEntry.getValue();
@@ -393,13 +404,14 @@ public class LoadChecker extends MasterDaemon {
                         // if partition is 
                         return null;
                     }
-                    
-                    short replicationNum = table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
+
+                    short replicationNum =
+                        table.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
                     // check all indices (base + roll up (not include ROLLUP state index))
                     List<MaterializedIndex> indices = partition.getMaterializedIndices(IndexExtState.ALL);
                     for (MaterializedIndex index : indices) {
                         long indexId = index.getId();
-                        
+
                         // 1. the load job's etl is started before rollup finished
                         // 2. rollup job comes into finishing state, add rollup index to catalog
                         // 3. load job's etl finished, begin to load
@@ -413,7 +425,7 @@ public class LoadChecker extends MasterDaemon {
                             // new process, just continue
                             continue;
                         }
-                        
+
                         // add to jobTotalTablets first.
                         for (Tablet tablet : index.getTablets()) {
                             // the job is submitted before rollup finished and try to finish after rollup finished
@@ -424,7 +436,7 @@ public class LoadChecker extends MasterDaemon {
                                 jobTotalTablets.add(tablet.getId());
                             }
                         }
-                        
+
                         int schemaHash = tableLoadInfo.getIndexSchemaHash(indexId);
                         short quorumNum = (short) (replicationNum / 2 + 1);
                         for (Tablet tablet : index.getTablets()) {
@@ -447,7 +459,7 @@ public class LoadChecker extends MasterDaemon {
                             if (job.isSyncDeleteJob()) {
                                 type = TPushType.DELETE;
                             }
-                            
+
                             // add task to batchTask
                             Set<Long> allReplicas = new HashSet<Long>();
                             Set<Long> finishedReplicas = new HashSet<Long>();
@@ -458,15 +470,16 @@ public class LoadChecker extends MasterDaemon {
                                 // check replica state and replica version
                                 if (!tabletLoadInfo.isReplicaSent(replicaId)) {
                                     PushTask pushTask = new PushTask(job.getResourceInfo(),
-                                                                      replica.getBackendId(), db.getId(), tableId,
-                                                                      partitionId, indexId,
-                                                                      tabletId, replicaId, schemaHash,
-                                                                      -1, filePath, fileSize, 0,
-                                                                      job.getId(), type, job.getConditions(),
-                                                                      needDecompress, job.getPriority(), 
-                                                                      TTaskType.REALTIME_PUSH, 
-                                                                      job.getTransactionId(), 
-                                                                      Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
+                                        replica.getBackendId(), db.getId(), tableId,
+                                        partitionId, indexId,
+                                        tabletId, replicaId, schemaHash,
+                                        -1, filePath, fileSize, 0,
+                                        job.getId(), type, job.getConditions(),
+                                        needDecompress, job.getPriority(),
+                                        TTaskType.REALTIME_PUSH,
+                                        job.getTransactionId(),
+                                        Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator()
+                                            .getNextTransactionId());
                                     pushTask.setIsSchemaChanging(autoLoadToTwoTablet);
                                     if (AgentTaskQueue.addTask(pushTask)) {
                                         batchTask.addTask(pushTask);
@@ -507,10 +520,10 @@ public class LoadChecker extends MasterDaemon {
         }
         return jobTotalTablets;
     }
-    
+
     private void runQuorumFinishedJobs() {
         List<LoadJob> quorumFinishedJobs = Catalog.getCurrentCatalog().getLoadInstance().getLoadJobs(
-                JobState.QUORUM_FINISHED);
+            JobState.QUORUM_FINISHED);
         for (LoadJob job : quorumFinishedJobs) {
             try {
                 LOG.info("run quorum finished job. job: {}", job);
@@ -520,7 +533,7 @@ public class LoadChecker extends MasterDaemon {
             }
         }
     }
-    
+
     private void runOneQuorumFinishedJob(LoadJob job) {
         // if db is null, cancel load job
         Load load = Catalog.getCurrentCatalog().getLoadInstance();
@@ -541,7 +554,7 @@ public class LoadChecker extends MasterDaemon {
         if (timeoutSecond == 0) {
             return false;
         }
-        
+
         long deltaSecond = (System.currentTimeMillis() - job.getCreateTimeMs()) / 1000;
         if (deltaSecond > timeoutSecond) {
             return true;
@@ -549,5 +562,5 @@ public class LoadChecker extends MasterDaemon {
 
         return false;
     }
-   
+
 }

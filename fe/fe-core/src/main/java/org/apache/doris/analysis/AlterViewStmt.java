@@ -51,15 +51,17 @@ public class AlterViewStmt extends BaseViewStmt {
 
         Table table = analyzer.getTableOrAnalysisException(tableName);
         if (!(table instanceof View)) {
-            throw new AnalysisException(String.format("ALTER VIEW not allowed on a table:%s.%s", getDbName(), getTable()));
+            throw new AnalysisException(
+                String.format("ALTER VIEW not allowed on a table:%s.%s", getDbName(), getTable()));
         }
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
+        if (!Catalog.getCurrentCatalog().getAuth()
+            .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
                 PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER VIEW",
-                    ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(),
-                    tableName.getDb() + ": " + tableName.getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                tableName.getDb() + ": " + tableName.getTbl());
         }
 
         if (cols != null) {
@@ -80,7 +82,7 @@ public class AlterViewStmt extends BaseViewStmt {
         sb.append(tableName.toSql()).append("\n");
         if (cols != null) {
             sb.append("(\n");
-            for (int i = 0 ; i < cols.size(); i++) {
+            for (int i = 0; i < cols.size(); i++) {
                 if (i != 0) {
                     sb.append(",\n");
                 }

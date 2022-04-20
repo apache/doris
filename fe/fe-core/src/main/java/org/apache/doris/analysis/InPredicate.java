@@ -51,7 +51,7 @@ public class InPredicate extends Predicate {
 
     private static final String IN_SET_LOOKUP = "in_set_lookup";
     private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
-    private static final String IN_ITERATE= "in_iterate";
+    private static final String IN_ITERATE = "in_iterate";
     private static final String NOT_IN_ITERATE = "not_in_iterate";
     private final boolean isNotIn;
     private static final String IN = "in";
@@ -60,31 +60,35 @@ public class InPredicate extends Predicate {
     private static final NullLiteral NULL_LITERAL = new NullLiteral();
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t: Type.getSupportedTypes()) {
-            if (t.isNull()) continue;
+        for (Type t : Type.getSupportedTypes()) {
+            if (t.isNull()) {
+                continue;
+            }
             // TODO we do not support codegen for CHAR and the In predicate must be codegened
             // because it has variable number of arguments. This will force CHARs to be
             // cast up to strings; meaning that "in" comparisons will not have CHAR comparison
             // semantics.
-            if (t.getPrimitiveType() == PrimitiveType.CHAR) continue;
+            if (t.getPrimitiveType() == PrimitiveType.CHAR) {
+                continue;
+            }
 
             String typeString = Function.getUdfTypeName(t.getPrimitiveType());
 
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(IN_ITERATE,
-                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    "doris::InPredicate::in_iterate", null, null, false));
+                Type.BOOLEAN, Lists.newArrayList(t, t), true,
+                "doris::InPredicate::in_iterate", null, null, false));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(NOT_IN_ITERATE,
-                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    "doris::InPredicate::not_in_iterate", null, null, false));
+                Type.BOOLEAN, Lists.newArrayList(t, t), true,
+                "doris::InPredicate::not_in_iterate", null, null, false));
 
             String prepareFn = "doris::InPredicate::set_lookup_prepare_" + typeString;
             String closeFn = "doris::InPredicate::set_lookup_close_" + typeString;
             functionSet.addBuiltin(ScalarFunction.createBuiltin(IN_SET_LOOKUP,
-                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    "doris::InPredicate::in_set_lookup", prepareFn, closeFn, false));
+                Type.BOOLEAN, Lists.newArrayList(t, t), true,
+                "doris::InPredicate::in_set_lookup", prepareFn, closeFn, false));
             functionSet.addBuiltin(ScalarFunction.createBuiltin(NOT_IN_SET_LOOKUP,
-                    Type.BOOLEAN, Lists.newArrayList(t, t), true,
-                    "doris::InPredicate::not_in_set_lookup", prepareFn, closeFn, false));
+                Type.BOOLEAN, Lists.newArrayList(t, t), true,
+                "doris::InPredicate::not_in_set_lookup", prepareFn, closeFn, false));
 
         }
     }
@@ -126,12 +130,12 @@ public class InPredicate extends Predicate {
      */
     @Override
     public Expr negate() {
-      return new InPredicate(getChild(0), children.subList(1, children.size()),
-          !isNotIn);
+        return new InPredicate(getChild(0), children.subList(1, children.size()),
+            !isNotIn);
     }
 
     public List<Expr> getListChildren() {
-        return  children.subList(1, children.size());
+        return children.subList(1, children.size());
     }
 
     public boolean isNotIn() {
@@ -147,11 +151,11 @@ public class InPredicate extends Predicate {
         return true;
     }
 
-   @Override
-   public void vectorizedAnalyze(Analyzer analyzer) {
+    @Override
+    public void vectorizedAnalyze(Analyzer analyzer) {
         super.vectorizedAnalyze(analyzer);
 
-       PrimitiveType type = getChild(0).getType().getPrimitiveType();
+        PrimitiveType type = getChild(0).getType().getPrimitiveType();
 
 //       OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
 //               FunctionOperator.FILTER_IN, true, true, type);
@@ -159,23 +163,23 @@ public class InPredicate extends Predicate {
 //       Preconditions.checkState(match.getReturnType().equals(Type.BOOLEAN));
 //       this.vectorOpcode = match.opcode;
 //       LOG.info(debugString() + " opcode: " + vectorOpcode);
-   }
+    }
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        
+
         if (contains(Subquery.class)) {
             // An [NOT] IN predicate with a subquery must contain two children, the second of
             // which is a Subquery.
             if (children.size() != 2 || !(getChild(1) instanceof Subquery)) {
                 throw new AnalysisException("Unsupported IN predicate with a subquery: " +
                     toSql());
-            } 
-            Subquery subquery = (Subquery)getChild(1);
+            }
+            Subquery subquery = (Subquery) getChild(1);
             if (!subquery.returnsScalarColumn()) {
                 throw new AnalysisException("Subquery must return a single column: " +
-                subquery.toSql());
+                    subquery.toSql());
             }
 
             // Ensure that the column in the lhs of the IN predicate and the result of
@@ -209,16 +213,16 @@ public class InPredicate extends Predicate {
             opcode = isNotIn ? TExprOpcode.FILTER_NOT_IN : TExprOpcode.FILTER_IN;
         } else {
             fn = getBuiltinFunction(analyzer, isNotIn ? NOT_IN_ITERATE : IN_ITERATE,
-                    argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             opcode = isNotIn ? TExprOpcode.FILTER_NEW_NOT_IN : TExprOpcode.FILTER_NEW_IN;
         }
 
         Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
         Reference<Integer> idxRef = new Reference<Integer>();
         if (isSingleColumnPredicate(slotRefRef, idxRef)
-                && idxRef.getRef() == 0 && slotRefRef.getRef().getNumDistinctValues() > 0) {
+            && idxRef.getRef() == 0 && slotRefRef.getRef().getNumDistinctValues() > 0) {
             selectivity = (double) (getChildren().size() - 1) / (double) slotRefRef.getRef()
-                    .getNumDistinctValues();
+                .getNumDistinctValues();
             selectivity = Math.max(0.0, Math.min(1.0, selectivity));
         } else {
             selectivity = Expr.DEFAULT_SELECTIVITY;

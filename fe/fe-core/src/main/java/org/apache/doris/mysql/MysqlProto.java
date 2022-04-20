@@ -49,13 +49,14 @@ public class MysqlProto {
     // scramble: data receive from server.
     // randomString: data send by server in plug-in data field
     // user_name#HIGH@cluster_name
-    private static boolean authenticate(ConnectContext context, byte[] scramble, byte[] randomString, String qualifiedUser) {
+    private static boolean authenticate(ConnectContext context, byte[] scramble, byte[] randomString,
+                                        String qualifiedUser) {
         String usePasswd = scramble.length == 0 ? "NO" : "YES";
         String remoteIp = context.getMysqlChannel().getRemoteIp();
 
         List<UserIdentity> currentUserIdentity = Lists.newArrayList();
         if (!Catalog.getCurrentCatalog().getAuth().checkPassword(qualifiedUser, remoteIp,
-                scramble, randomString, currentUserIdentity)) {
+            scramble, randomString, currentUserIdentity)) {
             ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, context.getRemoteIP(), usePasswd);
             return false;
         }
@@ -85,7 +86,7 @@ public class MysqlProto {
             try {
                 // if cluster does not exist and it is not a valid cluster id, authenticate failed
                 if (Catalog.getCurrentCatalog().getCluster(clusterName) == null
-                        && Integer.valueOf(strList[1]) != context.getCatalog().getClusterId()) {
+                    && Integer.valueOf(strList[1]) != context.getCatalog().getClusterId()) {
                     ErrorReport.report(ErrorCode.ERR_UNKNOWN_CLUSTER_ID, strList[1]);
                     return null;
                 }
@@ -138,7 +139,7 @@ public class MysqlProto {
         // If LDAP authentication is enabled and the user exists in LDAP, use LDAP authentication,
         // otherwise use Doris authentication.
         if (LdapConfig.ldap_authentication_enabled
-                && LdapClient.doesUserExist(ClusterNamespace.getNameFromFullName(qualifiedUser))) {
+            && LdapClient.doesUserExist(ClusterNamespace.getNameFromFullName(qualifiedUser))) {
             return true;
         }
         return false;
@@ -246,7 +247,7 @@ public class MysqlProto {
             // Note: Check the authPacket whether support plugin auth firstly, before we check AuthPlugin between doris and client
             // to compatible with older version: like mysql 5.1
             if (authPacket.getCapability().isPluginAuth() &&
-                    !handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
+                !handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
                 // 1. clear the serializer
                 serializer.reset();
                 // 2. build the auth switch request and send to the client
@@ -306,12 +307,12 @@ public class MysqlProto {
 
     public static int readInt3(ByteBuffer buffer) {
         return (readByte(buffer) & 0xFF) | ((readByte(buffer) & 0xFF) << 8) | ((readByte(
-                buffer) & 0xFF) << 16);
+            buffer) & 0xFF) << 16);
     }
 
     public static int readInt4(ByteBuffer buffer) {
         return (readByte(buffer) & 0xFF) | ((readByte(buffer) & 0xFF) << 8) | ((readByte(
-                buffer) & 0xFF) << 16) | ((readByte(buffer) & 0XFF) << 24);
+            buffer) & 0xFF) << 16) | ((readByte(buffer) & 0XFF) << 24);
     }
 
     public static long readInt6(ByteBuffer buffer) {

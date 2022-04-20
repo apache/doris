@@ -29,10 +29,10 @@ import com.google.common.collect.ImmutableList;
 public class MVExprEquivalent {
 
     private static final ImmutableList<MVExprEqualRule> exprRewriteRuleList = ImmutableList
-            .<MVExprEqualRule>builder()
-            .add(FunctionCallEqualRule.INSTANCE)
-            .add(SlotRefEqualRule.INSTANCE)
-            .build();
+        .<MVExprEqualRule>builder()
+        .add(FunctionCallEqualRule.INSTANCE)
+        .add(SlotRefEqualRule.INSTANCE)
+        .build();
 
     public static boolean mvExprEqual(Expr queryExpr, Expr mvColumnExpr) {
         for (MVExprEqualRule rule : exprRewriteRuleList) {

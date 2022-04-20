@@ -19,9 +19,9 @@ package org.apache.doris.common;
 
 import org.apache.doris.analysis.LiteralExpr;
 
-import org.checkerframework.checker.nullness.qual.Nullable;
-
 import com.google.common.base.Predicate;
+
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 public class NotLiteralExprPredicate implements Predicate {
 

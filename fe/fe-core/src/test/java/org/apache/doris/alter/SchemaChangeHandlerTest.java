@@ -53,8 +53,8 @@ public class SchemaChangeHandlerTest {
 
         try {
             Deencapsulation.invoke(schemaChangeHandler, "addColumnInternal", olapTable, newColumn, columnPosition,
-                                   new Long(2), new Long(1),
-                                   Maps.newHashMap(), Sets.newHashSet());
+                new Long(2), new Long(1),
+                Maps.newHashMap(), Sets.newHashSet());
             Assert.fail();
         } catch (Exception e) {
             System.out.println(e.getMessage());

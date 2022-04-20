@@ -45,7 +45,7 @@ public class SelectList {
 
     // END: Members that need to be reset()
     // ///////////////////////////////////////
-    
+
     public SelectList(SelectList other) {
         items = Lists.newArrayList();
         for (SelectListItem item : other.items) {
@@ -58,7 +58,7 @@ public class SelectList {
         items = Lists.newArrayList();
         this.isDistinct = false;
     }
-    
+
     public SelectList(List<SelectListItem> items, boolean isDistinct) {
         this.isDistinct = isDistinct;
         this.items = items;
@@ -99,7 +99,7 @@ public class SelectList {
     }
 
     public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
-            throws AnalysisException {
+        throws AnalysisException {
         for (SelectListItem item : items) {
             if (item.isStar()) {
                 continue;
@@ -115,7 +115,7 @@ public class SelectList {
             item.setExpr(rewriter.rewrite(item.getExpr(), analyzer));
         }
     }
-    
+
     @Override
     public SelectList clone() {
         return new SelectList(this);

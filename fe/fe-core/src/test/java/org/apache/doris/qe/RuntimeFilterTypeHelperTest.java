@@ -84,10 +84,12 @@ public class RuntimeFilterTypeHelperTest {
         Assert.assertEquals("BLOOM_FILTER,IN", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue)); // Orderly
 
         runtimeFilterTypeValue = 7L;
-        Assert.assertEquals("BLOOM_FILTER,IN,MIN_MAX", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue)); // Orderly
+        Assert.assertEquals("BLOOM_FILTER,IN,MIN_MAX",
+            RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue)); // Orderly
 
         runtimeFilterTypeValue = 15L;
-        Assert.assertEquals("BLOOM_FILTER,IN,IN_OR_BLOOM_FILTER,MIN_MAX", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue)); // Orderly
+        Assert.assertEquals("BLOOM_FILTER,IN,IN_OR_BLOOM_FILTER,MIN_MAX",
+            RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue)); // Orderly
     }
 
     @Test(expected = DdlException.class)

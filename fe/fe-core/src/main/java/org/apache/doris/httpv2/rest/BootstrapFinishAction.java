@@ -35,16 +35,16 @@ import javax.servlet.http.HttpServletResponse;
 /**
  * Api for checking the whether the FE has been started successfully.
  * Response
- *     {
- *     	"msg": "OK",
- *     	"code": 0,
- *     	"data": {
- *     		"queryPort": 9030,
- *     		"rpcPort": 9020,
- *     		"maxReplayedJournal": 17287
- *       },
- *     	"count": 0
- *     }
+ * {
+ * "msg": "OK",
+ * "code": 0,
+ * "data": {
+ * "queryPort": 9030,
+ * "rpcPort": 9020,
+ * "maxReplayedJournal": 17287
+ * },
+ * "count": 0
+ * }
  */
 @RestController
 public class BootstrapFinishAction {

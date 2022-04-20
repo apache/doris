@@ -25,10 +25,10 @@ import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
 
-import java.util.Set;
-
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.Set;
 
 public class RangeCompareTest {
 
@@ -171,10 +171,12 @@ public class RangeCompareTest {
     public void testMergeRangeWithIntersection1() {
         LiteralExpr lowerBoundOfRange1 = new IntLiteral(1);
         LiteralExpr upperBoundOfRange1 = new IntLiteral(10);
-        Range<LiteralExpr> range1 = Range.range(lowerBoundOfRange1, BoundType.CLOSED, upperBoundOfRange1, BoundType.CLOSED);
+        Range<LiteralExpr> range1 =
+            Range.range(lowerBoundOfRange1, BoundType.CLOSED, upperBoundOfRange1, BoundType.CLOSED);
         LiteralExpr lowerBoundOfRange2 = new IntLiteral(10);
         LiteralExpr upperBoundOfRange2 = new IntLiteral(20);
-        Range<LiteralExpr> range2 = Range.range(lowerBoundOfRange2, BoundType.CLOSED, upperBoundOfRange2, BoundType.CLOSED);
+        Range<LiteralExpr> range2 =
+            Range.range(lowerBoundOfRange2, BoundType.CLOSED, upperBoundOfRange2, BoundType.CLOSED);
         RangeSet<LiteralExpr> rangeSet = TreeRangeSet.create();
         rangeSet.add(range1);
         rangeSet.add(range2);
@@ -196,10 +198,12 @@ public class RangeCompareTest {
     public void testMergeRangeWithIntersection2() {
         LiteralExpr lowerBoundOfRange1 = new IntLiteral(1);
         LiteralExpr upperBoundOfRange1 = new IntLiteral(10);
-        Range<LiteralExpr> range1 = Range.range(lowerBoundOfRange1, BoundType.CLOSED, upperBoundOfRange1, BoundType.OPEN);
+        Range<LiteralExpr> range1 =
+            Range.range(lowerBoundOfRange1, BoundType.CLOSED, upperBoundOfRange1, BoundType.OPEN);
         LiteralExpr lowerBoundOfRange2 = new IntLiteral(5);
         LiteralExpr upperBoundOfRange2 = new IntLiteral(20);
-        Range<LiteralExpr> range2 = Range.range(lowerBoundOfRange2, BoundType.CLOSED, upperBoundOfRange2, BoundType.CLOSED);
+        Range<LiteralExpr> range2 =
+            Range.range(lowerBoundOfRange2, BoundType.CLOSED, upperBoundOfRange2, BoundType.CLOSED);
         RangeSet<LiteralExpr> rangeSet = TreeRangeSet.create();
         rangeSet.add(range1);
         rangeSet.add(range2);

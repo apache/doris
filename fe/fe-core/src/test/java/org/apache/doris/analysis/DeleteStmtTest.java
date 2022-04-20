@@ -24,11 +24,11 @@ import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -53,44 +53,45 @@ public class DeleteStmtTest {
     @Test
     public void getMethodTest() {
         BinaryPredicate wherePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
-                                                             new StringLiteral("abc"));
+            new StringLiteral("abc"));
         DeleteStmt deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
-                new PartitionNames(false, Lists.newArrayList("partition")), wherePredicate);
+            new PartitionNames(false, Lists.newArrayList("partition")), wherePredicate);
 
         Assert.assertEquals("testDb", deleteStmt.getDbName());
         Assert.assertEquals("testTbl", deleteStmt.getTableName());
         Assert.assertEquals(Lists.newArrayList("partition"), deleteStmt.getPartitionNames());
         Assert.assertEquals("DELETE FROM `testDb`.`testTbl` PARTITION (partition) WHERE `k1` = 'abc'",
-                            deleteStmt.toSql());
+            deleteStmt.toSql());
 
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), null, wherePredicate);
         Assert.assertEquals("DELETE FROM `testDb`.`testTbl` WHERE `k1` = 'abc'",
-                deleteStmt.toSql());
+            deleteStmt.toSql());
     }
 
     @Test
     public void testAnalyze() {
         // case 1
         LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
-                                                        new SlotRef(null, "k1"),
-                                                        new StringLiteral("abc"));
+            new SlotRef(null, "k1"),
+            new StringLiteral("abc"));
         DeleteStmt deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
-                new PartitionNames(false, Lists.newArrayList("partition")), likePredicate);
+            new PartitionNames(false, Lists.newArrayList("partition")), likePredicate);
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate"));
+            Assert.assertTrue(e.getMessage().contains(
+                "Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate"));
         }
 
         // case 2
         BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
-                                                              new StringLiteral("abc"));
+            new StringLiteral("abc"));
         CompoundPredicate compoundPredicate =
-                new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.OR, binaryPredicate,
-                                      binaryPredicate);
+            new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.OR, binaryPredicate,
+                binaryPredicate);
 
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
-                new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
+            new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
 
         try {
             deleteStmt.analyze(analyzer);
@@ -100,26 +101,27 @@ public class DeleteStmtTest {
 
         // case 3
         compoundPredicate = new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,
-                                                  binaryPredicate,
-                                                  likePredicate);
+            binaryPredicate,
+            likePredicate);
 
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
-                new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
+            new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate"));
+            Assert.assertTrue(e.getMessage().contains(
+                "Where clause only supports compound predicate, binary predicate, is_null predicate or in predicate"));
         }
 
         // case 4
         binaryPredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
-                                              new SlotRef(null, "k1"));
+            new SlotRef(null, "k1"));
         compoundPredicate = new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,
-                                                  binaryPredicate,
-                                                  binaryPredicate);
+            binaryPredicate,
+            binaryPredicate);
 
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
-                new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
+            new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
@@ -128,24 +130,24 @@ public class DeleteStmtTest {
 
         // case 5
         binaryPredicate = new BinaryPredicate(Operator.EQ, new StringLiteral("abc"),
-                                              new SlotRef(null, "k1"));
+            new SlotRef(null, "k1"));
         compoundPredicate = new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,
-                                                  binaryPredicate,
-                                                  binaryPredicate);
+            binaryPredicate,
+            binaryPredicate);
 
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
-                new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
+            new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Left expr of binary predicate should be column name"));
         }
-        
+
         // case 6 partition is null
         binaryPredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"), new StringLiteral("abc"));
         compoundPredicate = new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,
-                                                  binaryPredicate,
-                                                  binaryPredicate);
+            binaryPredicate,
+            binaryPredicate);
 
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"), null, compoundPredicate);
         try {
@@ -157,7 +159,7 @@ public class DeleteStmtTest {
 
         // normal
         binaryPredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
-                                              new StringLiteral("abc"));
+            new StringLiteral("abc"));
         List<Expr> inList = Lists.newArrayList();
         inList.add(new StringLiteral("2323"));
         inList.add(new StringLiteral("1518"));
@@ -165,15 +167,15 @@ public class DeleteStmtTest {
         inList.add(new StringLiteral("6725"));
         InPredicate inPredicate = new InPredicate(new SlotRef(null, "k2"), inList, true);
         CompoundPredicate compoundPredicate2 =
-                new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,
-                                      binaryPredicate,
-                                      inPredicate);
+            new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,
+                binaryPredicate,
+                inPredicate);
         compoundPredicate = new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,
-                                                  binaryPredicate,
-                                                  compoundPredicate2);
+            binaryPredicate,
+            compoundPredicate2);
 
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
-                new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
+            new PartitionNames(false, Lists.newArrayList("partition")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
@@ -182,7 +184,7 @@ public class DeleteStmtTest {
 
         // multi partition
         deleteStmt = new DeleteStmt(new TableName("testDb", "testTbl"),
-                new PartitionNames(false, Lists.newArrayList("partition1", "partiton2")), compoundPredicate);
+            new PartitionNames(false, Lists.newArrayList("partition1", "partiton2")), compoundPredicate);
         try {
             deleteStmt.analyze(analyzer);
             Assert.assertEquals(Lists.newArrayList("partition1", "partiton2"), deleteStmt.getPartitionNames());

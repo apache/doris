@@ -45,7 +45,7 @@ import lombok.Data;
 public class LdapClient {
     private static final Logger LOG = LogManager.getLogger(LdapClient.class);
 
-    private volatile static ClientInfo clientInfo;
+    private static volatile ClientInfo clientInfo;
 
     @Data
     private static class ClientInfo {
@@ -115,7 +115,7 @@ public class LdapClient {
         }
 
         String ldapPassword = SymmetricEncryption.decrypt(ldapInfo.getLdapPasswdEncrypted(),
-                ldapInfo.getSecretKey(), ldapInfo.getIv());
+            ldapInfo.getSecretKey(), ldapInfo.getIv());
         if (clientInfo == null || clientInfo.checkUpdate(ldapPassword)) {
             synchronized (LdapClient.class) {
                 if (clientInfo == null || clientInfo.checkUpdate(ldapPassword)) {
@@ -138,8 +138,8 @@ public class LdapClient {
         init();
         try {
             clientInfo.getLdapTemplateNoPool().authenticate(org.springframework.ldap.query.LdapQueryBuilder.query()
-                    .base(LdapConfig.ldap_user_basedn)
-                    .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)), password);
+                .base(LdapConfig.ldap_user_basedn)
+                .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)), password);
             return true;
         } catch (Exception e) {
             return false;
@@ -157,8 +157,8 @@ public class LdapClient {
             return groups;
         }
         List<String> groupDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
-                .base(LdapConfig.ldap_group_basedn)
-                .where("member").is(userDn));
+            .base(LdapConfig.ldap_group_basedn)
+            .where("member").is(userDn));
         if (groupDns == null) {
             return groups;
         }
@@ -175,14 +175,14 @@ public class LdapClient {
 
     private static String getUserDn(String userName) {
         List<String> userDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query().
-                base(LdapConfig.ldap_user_basedn)
-                .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)));
+            base(LdapConfig.ldap_user_basedn)
+            .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)));
         if (userDns == null || userDns.isEmpty()) {
             return null;
         }
         if (userDns.size() > 1) {
             LOG.error("{} not unique in LDAP server:{}",
-                    getUserFilter(LdapConfig.ldap_user_filter, userName), userDns);
+                getUserFilter(LdapConfig.ldap_user_filter, userName), userDns);
             ErrorReport.report(ErrorCode.ERROR_LDAP_USER_NOT_UNIQUE_ERR, userName);
             throw new RuntimeException("User is not unique");
         }

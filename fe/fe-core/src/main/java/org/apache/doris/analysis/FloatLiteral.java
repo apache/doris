@@ -34,7 +34,7 @@ import java.nio.ByteOrder;
 
 public class FloatLiteral extends LiteralExpr {
     private double value;
-    
+
     public FloatLiteral() {
     }
 
@@ -189,7 +189,7 @@ public class FloatLiteral extends LiteralExpr {
         super.readFields(in);
         value = in.readDouble();
     }
-    
+
     public static FloatLiteral read(DataInput in) throws IOException {
         FloatLiteral literal = new FloatLiteral();
         literal.readFields(in);
@@ -201,7 +201,7 @@ public class FloatLiteral extends LiteralExpr {
         return 31 * super.hashCode() + Double.hashCode(value);
     }
 
-    private String timeStrFromFloat (double time) {
+    private String timeStrFromFloat(double time) {
         String timeStr = "";
 
         if (time < 0) {
@@ -209,7 +209,7 @@ public class FloatLiteral extends LiteralExpr {
             time = -time;
         }
         int hour = (int) (time / 60 / 60);
-        int minute = (int)((time / 60)) % 60;
+        int minute = (int) ((time / 60)) % 60;
         int second = (int) (time) % 60;
 
         return "'" + timeStr + String.format("%02d:%02d:%02d", hour, minute, second) + "'";

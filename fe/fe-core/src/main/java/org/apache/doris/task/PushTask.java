@@ -61,18 +61,18 @@ public class PushTask extends AgentTask {
     private TPriority priority;
     private boolean isSyncDelete;
     private long asyncDeleteJobId;
-    
+
     private long transactionId;
     private boolean isSchemaChanging;
 
     // for load v2 (spark load)
     private TBrokerScanRange tBrokerScanRange;
     private TDescriptorTable tDescriptorTable;
-    
+
     public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
                     long indexId, long tabletId, long replicaId, int schemaHash, long version,
                     String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
-                    List<Predicate> conditions, boolean needDecompress, TPriority priority, TTaskType taskType, 
+                    List<Predicate> conditions, boolean needDecompress, TPriority priority, TTaskType taskType,
                     long transactionId, long signature) {
         super(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, signature);
         this.replicaId = replicaId;
@@ -95,13 +95,13 @@ public class PushTask extends AgentTask {
     }
 
     public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
-            long indexId, long tabletId, long replicaId, int schemaHash, long version, 
-            String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
-            List<Predicate> conditions, boolean needDecompress, TPriority priority) {
-        this(resourceInfo, backendId, dbId, tableId, partitionId, indexId, 
-             tabletId, replicaId, schemaHash, version, filePath, 
-             fileSize, timeoutSecond, loadJobId, pushType, conditions, needDecompress, 
-             priority, TTaskType.PUSH, -1, tableId);
+                    long indexId, long tabletId, long replicaId, int schemaHash, long version,
+                    String filePath, long fileSize, int timeoutSecond, long loadJobId, TPushType pushType,
+                    List<Predicate> conditions, boolean needDecompress, TPriority priority) {
+        this(resourceInfo, backendId, dbId, tableId, partitionId, indexId,
+            tabletId, replicaId, schemaHash, version, filePath,
+            fileSize, timeoutSecond, loadJobId, pushType, conditions, needDecompress,
+            priority, TTaskType.PUSH, -1, tableId);
     }
 
     // for load v2 (SparkLoadJob)
@@ -110,9 +110,9 @@ public class PushTask extends AgentTask {
                     TPriority priority, long transactionId, long signature,
                     TBrokerScanRange tBrokerScanRange, TDescriptorTable tDescriptorTable) {
         this(null, backendId, dbId, tableId, partitionId, indexId,
-             tabletId, replicaId, schemaHash, -1, null,
-             0, timeoutSecond, loadJobId, pushType, null, false,
-             priority, TTaskType.REALTIME_PUSH, transactionId, signature);
+            tabletId, replicaId, schemaHash, -1, null,
+            0, timeoutSecond, loadJobId, pushType, null, false,
+            priority, TTaskType.REALTIME_PUSH, transactionId, signature);
         this.tBrokerScanRange = tBrokerScanRange;
         this.tDescriptorTable = tDescriptorTable;
     }
@@ -164,7 +164,7 @@ public class PushTask extends AgentTask {
                         tCondition.setColumnName(columnName);
                         tCondition.setConditionOp(op);
                         for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
-                            conditionValues.add(((LiteralExpr)inPredicate.getChild(i)).getStringValue());
+                            conditionValues.add(((LiteralExpr) inPredicate.getChild(i)).getStringValue());
                         }
                     }
 
@@ -185,7 +185,7 @@ public class PushTask extends AgentTask {
 
         return request;
     }
-    
+
     public void setCountDownLatch(MarkedCountDownLatch latch) {
         this.latch = latch;
     }
@@ -194,7 +194,7 @@ public class PushTask extends AgentTask {
         if (this.latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {
                 LOG.debug("pushTask current latch count: {}. backend: {}, tablet:{}",
-                         latch.getCount(), backendId, tabletId);
+                    latch.getCount(), backendId, tabletId);
             }
         }
     }
@@ -202,11 +202,11 @@ public class PushTask extends AgentTask {
     public long getReplicaId() {
         return replicaId;
     }
-    
+
     public int getSchemaHash() {
         return schemaHash;
     }
-    
+
     public long getVersion() {
         return version;
     }
@@ -214,7 +214,7 @@ public class PushTask extends AgentTask {
     public long getLoadJobId() {
         return loadJobId;
     }
-    
+
     public TPushType getPushType() {
         return pushType;
     }
@@ -242,7 +242,7 @@ public class PushTask extends AgentTask {
     public long getTransactionId() {
         return transactionId;
     }
-    
+
     public void setIsSchemaChanging(boolean isSchemaChanging) {
         this.isSchemaChanging = isSchemaChanging;
     }

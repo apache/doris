@@ -89,14 +89,15 @@ public class TmpFileMgr {
      */
     public synchronized TmpFile upload(UploadFile uploadFile) throws TmpFileException {
         if (uploadFile.file.getSize() > MAX_SINGLE_FILE_SIZE) {
-            throw new TmpFileException("File size " + uploadFile.file.getSize() + " exceed limit " + MAX_SINGLE_FILE_SIZE);
+            throw new TmpFileException(
+                "File size " + uploadFile.file.getSize() + " exceed limit " + MAX_SINGLE_FILE_SIZE);
         }
 
         if (totalFileSize + uploadFile.file.getSize() > MAX_TOTAL_FILE_SIZE_BYTES) {
             throw new TmpFileException("Total file size will exceed limit " + MAX_TOTAL_FILE_SIZE_BYTES);
         }
 
-        if(fileMap.size() > MAX_TOTAL_FILE_NUM) {
+        if (fileMap.size() > MAX_TOTAL_FILE_NUM) {
             throw new TmpFileException("Number of temp file " + fileMap.size() + " exceed limit " + MAX_TOTAL_FILE_NUM);
         }
 
@@ -104,7 +105,7 @@ public class TmpFileMgr {
         String fileUUID = UUID.randomUUID().toString();
 
         TmpFile tmpFile = new TmpFile(fileId, fileUUID, uploadFile.file.getOriginalFilename(),
-                uploadFile.file.getSize(), uploadFile.columnSeparator);
+            uploadFile.file.getSize(), uploadFile.columnSeparator);
         try {
             tmpFile.save(uploadFile.file);
         } catch (IOException e) {
@@ -129,6 +130,7 @@ public class TmpFileMgr {
 
     /**
      * Delete the specified file and remove it from fileMap
+     *
      * @param fileId
      * @param fileUUID
      */
@@ -205,7 +207,8 @@ public class TmpFileMgr {
         // make a copy without lines and maxColNum.
         // so that can call `setPreview` and will not affect other instance
         public TmpFile copy() {
-            TmpFile copiedFile = new TmpFile(this.id, this.uuid, this.originFileName, this.fileSize, this.columnSeparator);
+            TmpFile copiedFile =
+                new TmpFile(this.id, this.uuid, this.originFileName, this.fileSize, this.columnSeparator);
             copiedFile.absPath = this.absPath;
             return copiedFile;
         }
@@ -220,7 +223,7 @@ public class TmpFileMgr {
         public String toString() {
             StringBuilder sb = new StringBuilder();
             sb.append("[id=").append(id).append(", uuid=").append(uuid).append("， origin name=").append(originFileName)
-                    .append(", size=").append(fileSize).append("]");
+                .append(", size=").append(fileSize).append("]");
             return sb.toString();
         }
     }

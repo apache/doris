@@ -20,14 +20,14 @@
 
 package org.apache.doris.analysis;
 
-import java.util.List;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
+import java.util.List;
 
 /**
  * Map of expression substitutions: lhs[i] gets substituted with rhs[i].
@@ -65,7 +65,7 @@ public final class ExprSubstitutionMap {
      */
     public void put(Expr lhsExpr, Expr rhsExpr) {
         Preconditions.checkState(!checkAnalyzed_ || rhsExpr.isAnalyzed(),
-                "Rhs expr must be analyzed.");
+            "Rhs expr must be analyzed.");
         lhs_.add(lhsExpr);
         rhs_.add(rhsExpr);
     }
@@ -75,7 +75,9 @@ public final class ExprSubstitutionMap {
      */
     public Expr get(Expr lhsExpr) {
         for (int i = 0; i < lhs_.size(); ++i) {
-            if (lhsExpr.equals(lhs_.get(i))) return rhs_.get(i);
+            if (lhsExpr.equals(lhs_.get(i))) {
+                return rhs_.get(i);
+            }
         }
         return null;
     }
@@ -94,9 +96,15 @@ public final class ExprSubstitutionMap {
      */
     public static ExprSubstitutionMap compose(ExprSubstitutionMap f, ExprSubstitutionMap g,
                                               Analyzer analyzer) {
-        if (f == null && g == null) return new ExprSubstitutionMap();
-        if (f == null) return g;
-        if (g == null) return f;
+        if (f == null && g == null) {
+            return new ExprSubstitutionMap();
+        }
+        if (f == null) {
+            return g;
+        }
+        if (g == null) {
+            return f;
+        }
         ExprSubstitutionMap result = new ExprSubstitutionMap();
         // f's substitution targets need to be substituted via g
         result.lhs_ = Expr.cloneList(f.lhs_);
@@ -128,9 +136,15 @@ public final class ExprSubstitutionMap {
      */
     public static ExprSubstitutionMap combine(ExprSubstitutionMap f,
                                               ExprSubstitutionMap g) {
-        if (f == null && g == null) return new ExprSubstitutionMap();
-        if (f == null) return g;
-        if (g == null) return f;
+        if (f == null && g == null) {
+            return new ExprSubstitutionMap();
+        }
+        if (f == null) {
+            return g;
+        }
+        if (g == null) {
+            return f;
+        }
         ExprSubstitutionMap result = new ExprSubstitutionMap();
         result.lhs_ = Lists.newArrayList(f.lhs_);
         result.lhs_.addAll(g.lhs_);
@@ -144,10 +158,17 @@ public final class ExprSubstitutionMap {
         lhs_ = Expr.substituteList(lhs_, lhsSmap, analyzer, false);
     }
 
-    public List<Expr> getLhs() { return lhs_; }
-    public List<Expr> getRhs() { return rhs_; }
+    public List<Expr> getLhs() {
+        return lhs_;
+    }
 
-    public int size() { return lhs_.size(); }
+    public List<Expr> getRhs() {
+        return rhs_;
+    }
+
+    public int size() {
+        return lhs_.size();
+    }
 
     public String debugString() {
         Preconditions.checkState(lhs_.size() == rhs_.size());

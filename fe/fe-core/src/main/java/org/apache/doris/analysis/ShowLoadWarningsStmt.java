@@ -39,11 +39,11 @@ public class ShowLoadWarningsStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowLoadWarningsStmt.class);
 
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("JobId", ScalarType.createVarchar(15)))
-                    .addColumn(new Column("Label", ScalarType.createVarchar(15)))
-                    .addColumn(new Column("ErrorMsgDetail", ScalarType.createVarchar(100)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("JobId", ScalarType.createVarchar(15)))
+            .addColumn(new Column("Label", ScalarType.createVarchar(15)))
+            .addColumn(new Column("ErrorMsgDetail", ScalarType.createVarchar(100)))
+            .build();
 
     private String dbName;
     private String rawUrl;
@@ -108,7 +108,7 @@ public class ShowLoadWarningsStmt extends ShowStmt {
 
             if (dbName != null || whereClause != null || limitElement != null) {
                 throw new AnalysisException(
-                        "Can not set database, where or limit clause if getting error log from url");
+                    "Can not set database, where or limit clause if getting error log from url");
             }
 
             // url should like:
@@ -127,7 +127,7 @@ public class ShowLoadWarningsStmt extends ShowStmt {
             // analyze where clause if not null
             if (whereClause == null) {
                 throw new AnalysisException("should supply condition like: LABEL = \"your_load_label\","
-                        + " or LOAD_JOB_ID = $job_id");
+                    + " or LOAD_JOB_ID = $job_id");
             }
 
             if (whereClause != null) {
@@ -219,7 +219,7 @@ public class ShowLoadWarningsStmt extends ShowStmt {
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\","
-                    + " or LOAD_JOB_ID = $job_id");
+                + " or LOAD_JOB_ID = $job_id");
         }
     }
 

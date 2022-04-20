@@ -63,7 +63,8 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         super.analyze(analyzer);
 
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
+                dbName);
         }
 
         if (Strings.isNullOrEmpty(dbName)) {
@@ -80,6 +81,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        return "ALTER DATABASE " + dbName + " SET " + (quotaType == QuotaType.DATA ? "DATA" : "REPLICA") +" QUOTA " + quotaValue;
+        return "ALTER DATABASE " + dbName + " SET " + (quotaType == QuotaType.DATA ? "DATA" : "REPLICA") + " QUOTA " +
+            quotaValue;
     }
 }

@@ -98,7 +98,7 @@ public class SparkLoadPendingTaskTest {
         Map<BrokerFileGroupAggInfo.FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                null, null, null, false, null);
+            null, null, null, false, null);
         BrokerFileGroup brokerFileGroup = new BrokerFileGroup(desc);
         brokerFileGroups.add(brokerFileGroup);
         BrokerFileGroupAggInfo.FileGroupAggKey aggKey = new BrokerFileGroupAggInfo.FileGroupAggKey(tableId, null);
@@ -151,7 +151,8 @@ public class SparkLoadPendingTaskTest {
                                                    @Injectable BrokerDesc brokerDesc,
                                                    @Mocked Catalog catalog,
                                                    @Injectable Database database,
-                                                   @Injectable OlapTable table) throws LoadException, DdlException, AnalysisException {
+                                                   @Injectable OlapTable table)
+        throws LoadException, DdlException, AnalysisException {
         long dbId = 0L;
         long tableId = 1L;
 
@@ -172,19 +173,23 @@ public class SparkLoadPendingTaskTest {
         long partition1Id = 2L;
         long partition2Id = 5L;
         int distributionColumnIndex = 1;
-        DistributionInfo distributionInfo = new HashDistributionInfo(3, Lists.newArrayList(columns.get(distributionColumnIndex)));
+        DistributionInfo distributionInfo =
+            new HashDistributionInfo(3, Lists.newArrayList(columns.get(distributionColumnIndex)));
         Partition partition1 = new Partition(partition1Id, "p1", null,
-                distributionInfo);
+            distributionInfo);
         Partition partition2 = new Partition(partition2Id, "p2", null,
-                new HashDistributionInfo(4, Lists.newArrayList(columns.get(distributionColumnIndex))));
+            new HashDistributionInfo(4, Lists.newArrayList(columns.get(distributionColumnIndex))));
         int partitionColumnIndex = 0;
         List<Partition> partitions = Lists.newArrayList(partition1, partition2);
-        RangePartitionInfo partitionInfo = new RangePartitionInfo(Lists.newArrayList(columns.get(partitionColumnIndex)));
-        PartitionKeyDesc partitionKeyDesc1 = PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("10")));
+        RangePartitionInfo partitionInfo =
+            new RangePartitionInfo(Lists.newArrayList(columns.get(partitionColumnIndex)));
+        PartitionKeyDesc partitionKeyDesc1 =
+            PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("10")));
         SinglePartitionDesc partitionDesc1 = new SinglePartitionDesc(false, "p1", partitionKeyDesc1, null);
         partitionDesc1.analyze(1, null);
         partitionInfo.handleNewSinglePartitionDesc(partitionDesc1, partition1Id, false);
-        PartitionKeyDesc partitionKeyDesc2 = PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("20")));
+        PartitionKeyDesc partitionKeyDesc2 =
+            PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("20")));
         SinglePartitionDesc partitionDesc2 = new SinglePartitionDesc(false, "p2", partitionKeyDesc2, null);
         partitionDesc2.analyze(1, null);
         partitionInfo.handleNewSinglePartitionDesc(partitionDesc2, partition2Id, false);
@@ -193,7 +198,7 @@ public class SparkLoadPendingTaskTest {
         Map<BrokerFileGroupAggInfo.FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                null, null, null, false, null);
+            null, null, null, false, null);
         BrokerFileGroup brokerFileGroup = new BrokerFileGroup(desc);
         brokerFileGroups.add(brokerFileGroup);
         BrokerFileGroupAggInfo.FileGroupAggKey aggKey = new BrokerFileGroupAggInfo.FileGroupAggKey(tableId, null);

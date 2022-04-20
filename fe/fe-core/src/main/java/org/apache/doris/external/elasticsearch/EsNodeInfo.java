@@ -62,7 +62,7 @@ public class EsNodeInfo {
             this.isIngest = false;
         } else {
             List<String> roles = (List<String>) map.get("roles");
-            this.isClient = roles.contains("data") == false;
+            this.isClient = !roles.contains("data");
             this.isData = roles.contains("data");
             this.isIngest = roles.contains("ingest");
         }
@@ -74,7 +74,8 @@ public class EsNodeInfo {
                 // the publish_address contains hostname like "localhost/127.0.0.1:9200"
                 address = address.substring(address.lastIndexOf('/') + 1);
                 String[] scratch = address.split(":");
-                this.publishAddress = new TNetworkAddress((httpSslEnabled ? "https://" : "") + scratch[0], Integer.parseInt(scratch[1]));
+                this.publishAddress =
+                    new TNetworkAddress((httpSslEnabled ? "https://" : "") + scratch[0], Integer.parseInt(scratch[1]));
                 this.hasHttp = true;
             } else {
                 this.publishAddress = null;
@@ -164,8 +165,12 @@ public class EsNodeInfo {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
 
         EsNodeInfo nodeInfo = (EsNodeInfo) o;
 
@@ -193,8 +198,10 @@ public class EsNodeInfo {
         if (hasThrift != nodeInfo.hasThrift) {
             return false;
         }
-        return (publishAddress != null ? publishAddress.equals(nodeInfo.publishAddress) : nodeInfo.publishAddress == null)
-                && (thriftAddress != null ? thriftAddress.equals(nodeInfo.thriftAddress) : nodeInfo.thriftAddress == null);
+        return
+            (publishAddress != null ? publishAddress.equals(nodeInfo.publishAddress) : nodeInfo.publishAddress == null)
+                &&
+                (thriftAddress != null ? thriftAddress.equals(nodeInfo.thriftAddress) : nodeInfo.thriftAddress == null);
     }
 
     @Override
@@ -215,17 +222,17 @@ public class EsNodeInfo {
     @Override
     public String toString() {
         return "EsNodeInfo{" +
-                "id='" + id + '\'' +
-                ", name='" + name + '\'' +
-                ", host='" + host + '\'' +
-                ", ip='" + ip + '\'' +
-                ", publishAddress=" + publishAddress +
-                ", hasHttp=" + hasHttp +
-                ", isClient=" + isClient +
-                ", isData=" + isData +
-                ", isIngest=" + isIngest +
-                ", hasThrift=" + hasThrift +
-                ", thriftAddress=" + thriftAddress +
-                '}';
+            "id='" + id + '\'' +
+            ", name='" + name + '\'' +
+            ", host='" + host + '\'' +
+            ", ip='" + ip + '\'' +
+            ", publishAddress=" + publishAddress +
+            ", hasHttp=" + hasHttp +
+            ", isClient=" + isClient +
+            ", isData=" + isData +
+            ", isIngest=" + isIngest +
+            ", hasThrift=" + hasThrift +
+            ", thriftAddress=" + thriftAddress +
+            '}';
     }
 }

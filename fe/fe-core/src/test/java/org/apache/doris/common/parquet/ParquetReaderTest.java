@@ -52,7 +52,7 @@ public class ParquetReaderTest {
             properties.put("bos_secret_accesskey", "2");
             BrokerDesc brokerDesc = new BrokerDesc("dummy", properties);
 
-            ParquetReader reader2 = ParquetReader.create(file2, brokerDesc,"127.0.0.1", 8118);
+            ParquetReader reader2 = ParquetReader.create(file2, brokerDesc, "127.0.0.1", 8118);
             LOG.info(reader2.getSchema(false));
         } catch (Exception e) {
             LOG.info("error: ", e);

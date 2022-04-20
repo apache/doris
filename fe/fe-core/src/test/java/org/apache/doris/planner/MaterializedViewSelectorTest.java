@@ -34,12 +34,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.doris.thrift.TStorageType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -131,18 +131,18 @@ public class MaterializedViewSelectorTest {
 
         MaterializedViewSelector materializedViewSelector = new MaterializedViewSelector(selectStmt, analyzer);
         Map<Long, Set<String>> columnNamesInPredicates =
-                Deencapsulation.getField(materializedViewSelector, "columnNamesInPredicates");
+            Deencapsulation.getField(materializedViewSelector, "columnNamesInPredicates");
         Assert.assertEquals(0, columnNamesInPredicates.size());
         Assert.assertFalse(Deencapsulation.getField(materializedViewSelector, "isSPJQuery"));
         Map<Long, Set<String>> columnNamesInGrouping =
-                Deencapsulation.getField(materializedViewSelector, "columnNamesInGrouping");
+            Deencapsulation.getField(materializedViewSelector, "columnNamesInGrouping");
         Assert.assertEquals(1, columnNamesInGrouping.size());
         Set<String> tableAColumnNamesInGrouping = columnNamesInGrouping.get(new Long(1));
         Assert.assertNotEquals(tableAColumnNamesInGrouping, null);
         Assert.assertEquals(1, tableAColumnNamesInGrouping.size());
         Assert.assertTrue(tableAColumnNamesInGrouping.contains("c1"));
         Map<Long, Set<FunctionCallExpr>> aggregateColumnsInQuery =
-                Deencapsulation.getField(materializedViewSelector, "aggColumnsInQuery");
+            Deencapsulation.getField(materializedViewSelector, "aggColumnsInQuery");
         Assert.assertEquals(2, aggregateColumnsInQuery.size());
         Set<FunctionCallExpr> tableAAgggregatedColumns = aggregateColumnsInQuery.get(new Long(1));
         Assert.assertEquals(1, tableAAgggregatedColumns.size());
@@ -164,10 +164,10 @@ public class MaterializedViewSelectorTest {
 
     @Test
     public void testCheckCompensatingPredicates(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
-            @Injectable MaterializedIndexMeta indexMeta1,
-            @Injectable MaterializedIndexMeta indexMeta2,
-            @Injectable MaterializedIndexMeta indexMeta3,
-            @Injectable MaterializedIndexMeta indexMeta4) {
+                                                @Injectable MaterializedIndexMeta indexMeta1,
+                                                @Injectable MaterializedIndexMeta indexMeta2,
+                                                @Injectable MaterializedIndexMeta indexMeta3,
+                                                @Injectable MaterializedIndexMeta indexMeta4) {
         Set<String> tableAColumnNames = Sets.newHashSet();
         tableAColumnNames.add("C1");
         Map<Long, MaterializedIndexMeta> candidateIndexIdToSchema = Maps.newHashMap();
@@ -211,9 +211,9 @@ public class MaterializedViewSelectorTest {
 
     @Test
     public void testCheckGrouping(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
-            @Injectable MaterializedIndexMeta indexMeta1,
-            @Injectable MaterializedIndexMeta indexMeta2,
-            @Injectable MaterializedIndexMeta indexMeta3) {
+                                  @Injectable MaterializedIndexMeta indexMeta1,
+                                  @Injectable MaterializedIndexMeta indexMeta2,
+                                  @Injectable MaterializedIndexMeta indexMeta3) {
         Set<String> tableAColumnNames = Sets.newHashSet();
         tableAColumnNames.add("C1");
         Map<Long, MaterializedIndexMeta> candidateIndexIdToSchema = Maps.newHashMap();
@@ -258,9 +258,9 @@ public class MaterializedViewSelectorTest {
 
     @Test
     public void testCheckAggregationFunction(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
-            @Injectable MaterializedIndexMeta indexMeta1,
-            @Injectable MaterializedIndexMeta indexMeta2,
-            @Injectable MaterializedIndexMeta indexMeta3) {
+                                             @Injectable MaterializedIndexMeta indexMeta1,
+                                             @Injectable MaterializedIndexMeta indexMeta2,
+                                             @Injectable MaterializedIndexMeta indexMeta3) {
         Map<Long, MaterializedIndexMeta> candidateIndexIdToSchema = Maps.newHashMap();
         List<Column> index1Columns = Lists.newArrayList();
         Column index1Column1 = new Column("c2", Type.INT, true, null, true, "", "");
@@ -301,7 +301,7 @@ public class MaterializedViewSelectorTest {
         aggregatedColumnsInQueryOutput.add(functionCallExpr);
         Deencapsulation.setField(selector, "isSPJQuery", false);
         Deencapsulation.invoke(selector, "checkAggregationFunction", aggregatedColumnsInQueryOutput,
-                               candidateIndexIdToSchema);
+            candidateIndexIdToSchema);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(1)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(3)));
@@ -309,9 +309,9 @@ public class MaterializedViewSelectorTest {
 
     @Test
     public void testCheckOutputColumns(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
-            @Injectable MaterializedIndexMeta indexMeta1,
-            @Injectable MaterializedIndexMeta indexMeta2,
-            @Injectable MaterializedIndexMeta indexMeta3) {
+                                       @Injectable MaterializedIndexMeta indexMeta1,
+                                       @Injectable MaterializedIndexMeta indexMeta2,
+                                       @Injectable MaterializedIndexMeta indexMeta3) {
         Map<Long, MaterializedIndexMeta> candidateIndexIdToSchema = Maps.newHashMap();
         List<Column> index1Columns = Lists.newArrayList();
         Column index1Column1 = new Column("c2", Type.INT, true, null, true, "", "");
@@ -347,7 +347,7 @@ public class MaterializedViewSelectorTest {
         columnNamesInQueryOutput.add("c1");
         columnNamesInQueryOutput.add("c2");
         Deencapsulation.invoke(selector, "checkOutputColumns", columnNamesInQueryOutput,
-                               candidateIndexIdToSchema);
+            candidateIndexIdToSchema);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(2)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(3)));
@@ -355,28 +355,28 @@ public class MaterializedViewSelectorTest {
 
     @Test
     public void testCompensateIndex(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
-            @Injectable OlapTable table) {
+                                    @Injectable OlapTable table) {
         Map<Long, MaterializedIndexMeta> candidateIndexIdToSchema = Maps.newHashMap();
         Map<Long, MaterializedIndexMeta> allVisibleIndexes = Maps.newHashMap();
         List<Column> index1Columns = Lists.newArrayList();
         Column index1Column1 = new Column("c2", Type.INT, true, AggregateType.SUM, true, "", "");
         index1Columns.add(index1Column1);
         allVisibleIndexes.put(new Long(1), new MaterializedIndexMeta(
-                0, index1Columns, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.AGG_KEYS, null));
+            0, index1Columns, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.AGG_KEYS, null));
         List<Column> index2Columns = Lists.newArrayList();
         Column index2Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index2Columns.add(index2Column1);
         Column index2Column2 = new Column("c2", Type.INT, false, AggregateType.SUM, true, "", "");
         index2Columns.add(index2Column2);
         allVisibleIndexes.put(new Long(2), new MaterializedIndexMeta(
-                0, index2Columns, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.AGG_KEYS, null));
+            0, index2Columns, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.AGG_KEYS, null));
         List<Column> index3Columns = Lists.newArrayList();
         Column index3Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index3Columns.add(index3Column1);
         Column index3Column2 = new Column("c3", Type.INT, false, AggregateType.SUM, true, "", "");
         index3Columns.add(index3Column2);
         allVisibleIndexes.put(new Long(3), new MaterializedIndexMeta(
-                0, index3Columns, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.AGG_KEYS, null));
+            0, index3Columns, 0, 0, (short) 0, TStorageType.COLUMN, KeysType.AGG_KEYS, null));
         List<Column> keyColumns = Lists.newArrayList();
         keyColumns.add(index2Column1);
         new Expectations() {
@@ -398,7 +398,7 @@ public class MaterializedViewSelectorTest {
 
         MaterializedViewSelector selector = new MaterializedViewSelector(selectStmt, analyzer);
         Deencapsulation.invoke(selector, "compensateCandidateIndex", candidateIndexIdToSchema,
-                               allVisibleIndexes, table);
+            allVisibleIndexes, table);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(2)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(3)));
@@ -445,7 +445,7 @@ public class MaterializedViewSelectorTest {
 
         MaterializedViewSelector selector = new MaterializedViewSelector(selectStmt, analyzer);
         Set<Long> result = Deencapsulation.invoke(selector, "matchBestPrefixIndex", candidateIndexIdToSchema,
-                               equivalenceColumns, unequivalenceColumns);
+            equivalenceColumns, unequivalenceColumns);
         Assert.assertEquals(2, result.size());
         Assert.assertTrue(result.contains(new Long(1)));
         Assert.assertTrue(result.contains(new Long(2)));

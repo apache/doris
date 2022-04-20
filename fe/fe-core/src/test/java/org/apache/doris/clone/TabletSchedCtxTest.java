@@ -39,17 +39,17 @@ public class TabletSchedCtxTest {
         PriorityQueue<TabletSchedCtx> pendingTablets = new PriorityQueue<>();
         ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         TabletSchedCtx ctx1 = new TabletSchedCtx(Type.REPAIR, "default_cluster",
-                1, 2, 3, 4, 1000, replicaAlloc, System.currentTimeMillis());
+            1, 2, 3, 4, 1000, replicaAlloc, System.currentTimeMillis());
         ctx1.setOrigPriority(Priority.NORMAL);
         ctx1.setLastVisitedTime(2);
 
         TabletSchedCtx ctx2 = new TabletSchedCtx(Type.REPAIR, "default_cluster",
-                1, 2, 3, 4, 1001, replicaAlloc, System.currentTimeMillis());
+            1, 2, 3, 4, 1001, replicaAlloc, System.currentTimeMillis());
         ctx2.setOrigPriority(Priority.NORMAL);
         ctx2.setLastVisitedTime(3);
 
         TabletSchedCtx ctx3 = new TabletSchedCtx(Type.REPAIR, "default_cluster",
-                1, 2, 3, 4, 1001, replicaAlloc, System.currentTimeMillis());
+            1, 2, 3, 4, 1001, replicaAlloc, System.currentTimeMillis());
         ctx3.setOrigPriority(Priority.NORMAL);
         ctx3.setLastVisitedTime(1);
 

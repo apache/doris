@@ -104,7 +104,7 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_USER_CONNECTIONS + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE + ".", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + "."
-                + DppConfig.PRIORITY + "$", Pattern.CASE_INSENSITIVE));
+            + DppConfig.PRIORITY + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_QUERY_INSTANCES + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_SQL_BLOCK_RULES + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_CPU_RESOURCE_LIMIT + "$", Pattern.CASE_INSENSITIVE));
@@ -115,7 +115,7 @@ public class UserProperty implements Writable {
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + ".",
-                Pattern.CASE_INSENSITIVE));
+            Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -134,7 +134,7 @@ public class UserProperty implements Writable {
     }
 
     public long getMaxQueryInstances() {
-        return commonProperties.getMaxQueryInstances();// maxQueryInstances;
+        return commonProperties.getMaxQueryInstances(); // maxQueryInstances;
     }
 
     public String[] getSqlBlockRules() {
@@ -276,8 +276,8 @@ public class UserProperty implements Writable {
                 }
 
                 // check if sql_block_rule has already exist
-                for (String ruleName : value.replaceAll(" ","").split(",")){
-                    if (!ruleName.equals("") && !Catalog.getCurrentCatalog().getSqlBlockRuleMgr().existRule(ruleName)){
+                for (String ruleName : value.replaceAll(" ", "").split(",")) {
+                    if (!ruleName.equals("") && !Catalog.getCurrentCatalog().getSqlBlockRuleMgr().existRule(ruleName)) {
                         throw new DdlException("the sql block rule " + ruleName + " not exist");
                     }
                 }
@@ -376,7 +376,7 @@ public class UserProperty implements Writable {
     }
 
     private void updateLoadCluster(String[] keyArr, String value, Map<String, DppConfig> newDppConfigs)
-            throws DdlException {
+        throws DdlException {
         if (keyArr.length == 1 && Strings.isNullOrEmpty(value)) {
             // set property "load_cluster" = '';
             newDppConfigs.clear();
@@ -451,7 +451,8 @@ public class UserProperty implements Writable {
         result.add(Lists.newArrayList(PROP_MAX_USER_CONNECTIONS, String.valueOf(commonProperties.getMaxConn())));
 
         // max query instance
-        result.add(Lists.newArrayList(PROP_MAX_QUERY_INSTANCES, String.valueOf(commonProperties.getMaxQueryInstances())));
+        result.add(
+            Lists.newArrayList(PROP_MAX_QUERY_INSTANCES, String.valueOf(commonProperties.getMaxQueryInstances())));
 
         // sql block rules
         result.add(Lists.newArrayList(PROP_SQL_BLOCK_RULES, commonProperties.getSqlBlockRules()));
@@ -472,7 +473,7 @@ public class UserProperty implements Writable {
         ResourceGroup group = resource.getResource();
         for (Map.Entry<ResourceType, Integer> entry : group.getQuotaMap().entrySet()) {
             result.add(Lists.newArrayList(PROP_RESOURCE + dot + entry.getKey().getDesc().toLowerCase(),
-                    entry.getValue().toString()));
+                entry.getValue().toString()));
         }
 
         // quota
@@ -500,7 +501,7 @@ public class UserProperty implements Writable {
 
             // http port
             result.add(Lists.newArrayList(clusterPrefix + DppConfig.getHttpPortKey(),
-                    String.valueOf(dppConfig.getHttpPort())));
+                String.valueOf(dppConfig.getHttpPort())));
 
             // hadoop configs
             if (dppConfig.getHadoopConfigs() != null) {
@@ -509,12 +510,12 @@ public class UserProperty implements Writable {
                     configs.add(String.format("%s=%s", configEntry.getKey(), configEntry.getValue()));
                 }
                 result.add(Lists.newArrayList(clusterPrefix + DppConfig.getHadoopConfigsKey(),
-                        StringUtils.join(configs, ";")));
+                    StringUtils.join(configs, ";")));
             }
 
             // priority
             result.add(Lists.newArrayList(clusterPrefix + DppConfig.getPriorityKey(),
-                    String.valueOf(dppConfig.getPriority())));
+                String.valueOf(dppConfig.getPriority())));
         }
 
         // get resolved ips if user has domain

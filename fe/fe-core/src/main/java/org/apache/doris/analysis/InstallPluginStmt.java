@@ -57,7 +57,7 @@ public class InstallPluginStmt extends DdlStmt {
 
         if (!Config.plugin_enable) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_OPERATION_DISABLED, "INSTALL PLUGIN",
-                    "Please enable it by setting 'plugin_enable' = 'true'");
+                "Please enable it by setting 'plugin_enable' = 'true'");
         }
 
         // check operation privilege

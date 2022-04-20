@@ -75,7 +75,7 @@ public class SetStmt extends StatementBase {
     public String toString() {
         return toSql();
     }
-    
+
     @Override
     public RedirectStatus getRedirectStatus() {
         if (setVars != null) {

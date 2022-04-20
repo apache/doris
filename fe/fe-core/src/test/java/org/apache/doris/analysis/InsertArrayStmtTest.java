@@ -65,19 +65,19 @@ public class InsertArrayStmtTest {
 
     private static InsertStmt parseAndAnalyze(String sql) throws Exception {
         SqlParser parser = new SqlParser(new SqlScanner(
-                new StringReader(sql), connectContext.getSessionVariable().getSqlMode()
+            new StringReader(sql), connectContext.getSessionVariable().getSqlMode()
         ));
         InsertStmt insertStmt = (InsertStmt) SqlParserUtils.getFirstStmt(parser);
         Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
         insertStmt.analyze(analyzer);
         return insertStmt;
-    };
+    }
 
     @Test
     public void testInsertArrayStmt() throws Exception {
         ExceptionChecker.expectThrowsNoException(() -> {
             createTable("create table test.table1 (k1 INT, v1 Array<int>) duplicate key (k1) " +
-                    " distributed by hash (k1) buckets 1 properties ('replication_num' = '1');");
+                " distributed by hash (k1) buckets 1 properties ('replication_num' = '1');");
         });
 
         connectContext.setQueryId(new TUniqueId(1, 0));
@@ -88,7 +88,7 @@ public class InsertArrayStmtTest {
         ArrayLiteral arrayLiteral = (ArrayLiteral) row.get(1);
         Assert.assertEquals(3, arrayLiteral.getChildren().size());
         Assert.assertTrue(arrayLiteral.isAnalyzed);
-        for (int i = 1; i <= 3; ++ i) {
+        for (int i = 1; i <= 3; ++i) {
             Expr child = arrayLiteral.getChild(i - 1);
             Assert.assertTrue(child.isAnalyzed);
             Assert.assertSame(PrimitiveType.INT, child.getType().getPrimitiveType());
@@ -107,7 +107,7 @@ public class InsertArrayStmtTest {
         Assert.assertSame(PrimitiveType.INT, ((ArrayType) arrayLiteral.getType()).getItemType().getPrimitiveType());
 
         connectContext.setQueryId(new TUniqueId(3, 0));
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "type not match", ()-> {
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "type not match", () -> {
             parseAndAnalyze("insert into test.table1 values (1, [[1, 2], [3, 4]]);");
         });
     }

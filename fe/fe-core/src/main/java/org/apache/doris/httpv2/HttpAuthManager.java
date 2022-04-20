@@ -46,9 +46,9 @@ public final class HttpAuthManager {
 
     // session_id => session value
     private Cache<String, SessionValue> authSessions = CacheBuilder.newBuilder()
-            .maximumSize(SESSION_MAX_SIZE)
-            .expireAfterAccess(SESSION_EXPIRE_TIME, TimeUnit.HOURS)
-            .build();
+        .maximumSize(SESSION_MAX_SIZE)
+        .expireAfterAccess(SESSION_EXPIRE_TIME, TimeUnit.HOURS)
+        .build();
 
     private HttpAuthManager() {
         // do nothing
@@ -63,14 +63,14 @@ public final class HttpAuthManager {
             SessionValue sv = authSessions.getIfPresent(sessionId);
             if (sv != null) {
                 LOG.debug("get session value {} by session id: {}, left size: {}",
-                        sv == null ? null : sv.currentUser, sessionId, authSessions.size());
+                    sv == null ? null : sv.currentUser, sessionId, authSessions.size());
                 return sv;
             }
         }
         return null;
     }
 
-    public void removeSession(String sessionId){
+    public void removeSession(String sessionId) {
         if (!Strings.isNullOrEmpty(sessionId)) {
             authSessions.invalidate(sessionId);
             LOG.debug("remove session id: {}, left size: {}", sessionId, authSessions.size());

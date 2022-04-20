@@ -29,10 +29,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 
@@ -41,7 +41,7 @@ import java.util.List;
  * For example:
  * Table: (k1 int ,k2 varchar)
  * MV: (k1 int, mv_count_k2 bigint sum)
- *       mv_count_k1 = case when k2 is null then 0 else 1
+ * mv_count_k1 = case when k2 is null then 0 else 1
  * Query: select k1, count(k2) from table group by k1
  * Rewritten query: select k1, sum(mv_count_k2) from table group by k1
  */

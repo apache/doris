@@ -85,21 +85,21 @@ public class PartitionCache extends Cache {
 
         rewriteSelectStmt(null);
         range = new PartitionRange(this.partitionPredicate, this.olapTable,
-                this.partitionInfo);
+            this.partitionInfo);
         if (!range.analytics()) {
             status.setStatus("analytics range error");
             return null;
         }
 
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
-                .setSqlKey(CacheProxy.getMd5(getSqlWithViewStmt()))
-                .addAllParams(range.getPartitionSingleList().stream().map(
-                        p -> InternalService.PCacheParam.newBuilder()
-                                .setPartitionKey(p.getCacheKey().realValue())
-                                .setLastVersion(p.getPartition().getVisibleVersion())
-                                .setLastVersionTime(p.getPartition().getVisibleVersionTime())
-                                .build()).collect(Collectors.toList())
-                ).build();
+            .setSqlKey(CacheProxy.getMd5(getSqlWithViewStmt()))
+            .addAllParams(range.getPartitionSingleList().stream().map(
+                p -> InternalService.PCacheParam.newBuilder()
+                    .setPartitionKey(p.getCacheKey().realValue())
+                    .setLastVersion(p.getPartition().getVisibleVersion())
+                    .setLastVersionTime(p.getPartition().getVisibleVersionTime())
+                    .build()).collect(Collectors.toList())
+            ).build();
         InternalService.PFetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
         if (status.ok() && cacheResult != null && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
             for (InternalService.PCacheValue value : cacheResult.getValuesList()) {
@@ -124,7 +124,7 @@ public class PartitionCache extends Cache {
         if (rowBatchBuilder == null) {
             rowBatchBuilder = new RowBatchBuilder(CacheAnalyzer.CacheMode.Partition);
             rowBatchBuilder.buildPartitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
-                    partColumn, range.buildUpdatePartitionRange());
+                partColumn, range.buildUpdatePartitionRange());
         }
         rowBatchBuilder.copyRowData(rowBatch);
     }
@@ -135,7 +135,7 @@ public class PartitionCache extends Cache {
         }
 
         InternalService.PUpdateCacheRequest updateRequest
-                = rowBatchBuilder.buildPartitionUpdateRequest(getSqlWithViewStmt());
+            = rowBatchBuilder.buildPartitionUpdateRequest(getSqlWithViewStmt());
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();
@@ -147,9 +147,9 @@ public class PartitionCache extends Cache {
                 dataSize += value.getDataSize();
             }
             LOG.info("update cache model {}, queryid {}, sqlkey {}, value count {}, row count {}, data size {}",
-                    CacheAnalyzer.CacheMode.Partition, DebugUtil.printId(queryId),
-                    DebugUtil.printId(updateRequest.getSqlKey()),
-                    updateRequest.getValuesCount(), rowCount, dataSize);
+                CacheAnalyzer.CacheMode.Partition, DebugUtil.printId(queryId),
+                DebugUtil.printId(updateRequest.getSqlKey()),
+                updateRequest.getValuesCount(), rowCount, dataSize);
         }
     }
 
@@ -169,7 +169,7 @@ public class PartitionCache extends Cache {
     private void rewriteSelectStmt(SelectStmt newStmt, CompoundPredicate predicate,
                                    List<PartitionRange.PartitionSingle> newRangeList) {
         newStmt.setWhereClause(
-                rewriteWhereClause(newStmt.getWhereClause(), predicate, newRangeList)
+            rewriteWhereClause(newStmt.getWhereClause(), predicate, newRangeList)
         );
         List<TableRef> tableRefs = newStmt.getTableRefs();
         for (TableRef tblRef : tableRefs) {
@@ -185,7 +185,7 @@ public class PartitionCache extends Cache {
 
     /**
      * Rewrite the query scope of partition key in the where condition
-     * origin expr : where eventdate>="2020-01-12" and eventdate<="2020-01-15" 
+     * origin expr : where eventdate>="2020-01-12" and eventdate<="2020-01-15"
      * rewrite expr : where eventdate>="2020-01-14" and eventdate<="2020-01-15"
      */
     private Expr rewriteWhereClause(Expr expr, CompoundPredicate predicate,
@@ -226,7 +226,7 @@ public class PartitionCache extends Cache {
     public PartitionRange getPartitionRange() {
         if (range == null) {
             range = new PartitionRange(this.partitionPredicate,
-                    this.olapTable, this.partitionInfo);
+                this.olapTable, this.partitionInfo);
             return range;
         } else {
             return range;

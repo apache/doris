@@ -18,12 +18,15 @@
 package org.apache.doris.load.sync.canal;
 
 import org.apache.doris.load.sync.SyncDataReceiver;
-import com.alibaba.otter.canal.client.CanalConnector;
-import com.alibaba.otter.canal.protocol.Message;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
+
+import com.alibaba.otter.canal.client.CanalConnector;
+import com.alibaba.otter.canal.protocol.Message;
 
 public class CanalSyncDataReceiver extends SyncDataReceiver {
     private static Logger LOG = LogManager.getLogger(CanalSyncDataReceiver.class);
@@ -56,7 +59,7 @@ public class CanalSyncDataReceiver extends SyncDataReceiver {
     public void start() {
         super.start();
         LOG.info("receiver has been started. destination: {}, filter: {}, batch size: {}",
-                destination, filter, readBatchSize);
+            destination, filter, readBatchSize);
     }
 
     @Override
@@ -73,7 +76,7 @@ public class CanalSyncDataReceiver extends SyncDataReceiver {
                     holdGetLock();
                     try {
                         message = connector.getWithoutAck(readBatchSize,
-                                CanalConfigs.getWaitingTimeoutMs, TimeUnit.MILLISECONDS);
+                            CanalConfigs.getWaitingTimeoutMs, TimeUnit.MILLISECONDS);
                     } finally {
                         releaseGetLock();
                     }

@@ -21,11 +21,11 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+
+import com.google.gson.annotations.SerializedName;
 
 public class DropPartitionInfo implements Writable {
     @SerializedName(value = "dbId")
@@ -38,22 +38,23 @@ public class DropPartitionInfo implements Writable {
     private boolean isTempPartition = false;
     @SerializedName(value = "forceDrop")
     private boolean forceDrop = false;
-    
+
     private DropPartitionInfo() {
     }
 
-    public DropPartitionInfo(Long dbId, Long tableId, String partitionName, boolean isTempPartition, boolean forceDrop) {
+    public DropPartitionInfo(Long dbId, Long tableId, String partitionName, boolean isTempPartition,
+                             boolean forceDrop) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionName = partitionName;
         this.isTempPartition = isTempPartition;
         this.forceDrop = forceDrop;
     }
-    
+
     public Long getDbId() {
         return dbId;
     }
-    
+
     public Long getTableId() {
         return tableId;
     }
@@ -96,13 +97,13 @@ public class DropPartitionInfo implements Writable {
         if (!(obj instanceof DropPartitionInfo)) {
             return false;
         }
-        
+
         DropPartitionInfo info = (DropPartitionInfo) obj;
-        
+
         return (dbId.equals(info.dbId))
-                && (tableId.equals(info.tableId))
-                && (partitionName.equals(info.partitionName))
-                && (isTempPartition == info.isTempPartition)
-                && (forceDrop == info.forceDrop);
+            && (tableId.equals(info.tableId))
+            && (partitionName.equals(info.partitionName))
+            && (isTempPartition == info.isTempPartition)
+            && (forceDrop == info.forceDrop);
     }
 }

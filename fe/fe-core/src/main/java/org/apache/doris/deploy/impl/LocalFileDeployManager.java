@@ -67,9 +67,9 @@ public class LocalFileDeployManager extends DeployManager {
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+                                    String envBackendServiceGroup, String envBrokerServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                               envBrokerServiceGroup);
+            envBrokerServiceGroup);
 
         // namespace
         clusterInfoFile = Strings.nullToEmpty(System.getenv(ENV_APP_NAMESPACE));

@@ -49,61 +49,59 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.HashMap;
-import java.util.Map;
 
 public class SqlBlockRuleMgrTest {
 
     private static String runningDir = "fe/mocked/SqlBlockRuleMgrTest/" + UUID.randomUUID().toString() + "/";
-    
+
     private static ConnectContext connectContext;
-    
+
     @BeforeClass
     public static void beforeClass() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
-        
+
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
-        
+
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        
+
         MetricRepo.init();
         createTable("create table test.table1\n" +
-                "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
-                "properties(\"replication_num\" = \"1\");");
+            "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
+            "properties(\"replication_num\" = \"1\");");
 
         createTable("create table test.table2\n" +
-                "(k1 datetime, k2 int)\n" +
-                "ENGINE=OLAP\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "PARTITION p20211213 VALUES [('2021-12-13 00:00:00'), ('2021-12-14 00:00:00')),\n" +
-                "PARTITION p20211214 VALUES [('2021-12-14 00:00:00'), ('2021-12-15 00:00:00')),\n" +
-                "PARTITION p20211215 VALUES [('2021-12-15 00:00:00'), ('2021-12-16 00:00:00')),\n" +
-                "PARTITION p20211216 VALUES [('2021-12-16 00:00:00'), ('2021-12-17 00:00:00'))\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k1)\n" +
-                "BUCKETS 10\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");");
-        
+            "(k1 datetime, k2 int)\n" +
+            "ENGINE=OLAP\n" +
+            "PARTITION BY RANGE(k1)\n" +
+            "(\n" +
+            "PARTITION p20211213 VALUES [('2021-12-13 00:00:00'), ('2021-12-14 00:00:00')),\n" +
+            "PARTITION p20211214 VALUES [('2021-12-14 00:00:00'), ('2021-12-15 00:00:00')),\n" +
+            "PARTITION p20211215 VALUES [('2021-12-15 00:00:00'), ('2021-12-16 00:00:00')),\n" +
+            "PARTITION p20211216 VALUES [('2021-12-16 00:00:00'), ('2021-12-17 00:00:00'))\n" +
+            ")\n" +
+            "DISTRIBUTED BY HASH(k1)\n" +
+            "BUCKETS 10\n" +
+            "PROPERTIES (\n" +
+            "\"replication_num\" = \"1\"\n" +
+            ");");
+
     }
-    
+
     @AfterClass
     public static void tearDown() {
         File file = new File(runningDir);
         file.delete();
     }
-    
+
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
-    
+
     @Test
     public void testUserMatchSql() throws Exception {
         String sql = "select * from table1 limit 10";
@@ -113,12 +111,14 @@ public class SqlBlockRuleMgrTest {
         mgr.replayCreate(sqlRule);
         // sql block rules
         String setPropertyStr = "set property for \"root\" \"sql_block_rules\" = \"test_rule1\"";
-        SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(setPropertyStr, connectContext);
+        SetUserPropertyStmt setUserPropertyStmt =
+            (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(setPropertyStr, connectContext);
         Catalog.getCurrentCatalog().getAuth().updateUserProperty(setUserPropertyStmt);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql match hash sql block rule: " + sqlRule.getName(),
-                () -> mgr.matchSql(sql, sqlHash, "root"));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "sql match hash sql block rule: " + sqlRule.getName(),
+            () -> mgr.matchSql(sql, sqlHash, "root"));
     }
-    
+
     @Test
     public void testGlobalMatchSql() throws AnalysisException {
         String sql = "select * from test_table1 limit 10";
@@ -126,10 +126,11 @@ public class SqlBlockRuleMgrTest {
         SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", null, sqlHash, 0L, 0L, 0L, true, true);
         SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
         mgr.replayCreate(sqlRule);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql match hash sql block rule: " + sqlRule.getName(),
-                () -> mgr.matchSql(sql, sqlHash, "test"));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "sql match hash sql block rule: " + sqlRule.getName(),
+            () -> mgr.matchSql(sql, sqlHash, "test"));
     }
-    
+
     @Test
     public void testRegexMatchSql() throws AnalysisException {
         String sql = "select * from test_table1 tt1 join test_table2 tt2 on tt1.testId=tt2.testId limit 5";
@@ -137,10 +138,11 @@ public class SqlBlockRuleMgrTest {
         SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", ".* join .*", null, 0L, 0L, 0L, true, true);
         SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
         mgr.replayCreate(sqlRule);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql match regex sql block rule: " + sqlRule.getName(),
-                () -> mgr.matchSql(sqlRule, sql, sqlHash));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "sql match regex sql block rule: " + sqlRule.getName(),
+            () -> mgr.matchSql(sqlRule, sql, sqlHash));
     }
-    
+
     @Test
     public void testHashMatchSql() throws AnalysisException {
         String sql = "select * from test_table1 tt1 join test_table2 tt2 on tt1.testId=tt2.testId limit 5";
@@ -149,8 +151,9 @@ public class SqlBlockRuleMgrTest {
         SqlBlockRule sqlRule = new SqlBlockRule("test_rule1", null, sqlHash, 0L, 0L, 0L, true, true);
         SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
         mgr.replayCreate(sqlRule);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql match hash sql block rule: " + sqlRule.getName(),
-                () -> mgr.matchSql(sqlRule, sql, sqlHash));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "sql match hash sql block rule: " + sqlRule.getName(),
+            () -> mgr.matchSql(sqlRule, sql, sqlHash));
     }
 
     @Test
@@ -182,9 +185,10 @@ public class SqlBlockRuleMgrTest {
         Assert.assertEquals(0L, (long) sqlBlockRule.getTabletNum());
         Assert.assertEquals(0L, (long) sqlBlockRule.getCardinality());
 
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = sql hits sql block rule: "
-                        + sqlBlockRule.getName() + ", reach partition_num : " + sqlBlockRule.getPartitionNum(),
-                () -> mgr.checkLimitaions(sqlBlockRule, selectedPartitionLongValue, selectedTablet, cardinality));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "errCode = 2, detailMessage = sql hits sql block rule: "
+                + sqlBlockRule.getName() + ", reach partition_num : " + sqlBlockRule.getPartitionNum(),
+            () -> mgr.checkLimitaions(sqlBlockRule, selectedPartitionLongValue, selectedTablet, cardinality));
 
         // test reach tablet_num :
         SqlBlockRule sqlBlockRule2 = new SqlBlockRule("test_rule3", "NULL", "NULL", 0L, -1L, 0L, true, true);
@@ -196,9 +200,10 @@ public class SqlBlockRuleMgrTest {
         Assert.assertEquals(-1L, (long) sqlBlockRule2.getTabletNum());
         Assert.assertEquals(0L, (long) sqlBlockRule2.getCardinality());
 
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = sql hits sql block rule: "
-                        + sqlBlockRule2.getName() + ", reach tablet_num : " + sqlBlockRule2.getTabletNum(),
-                () -> mgr.checkLimitaions(sqlBlockRule2, selectedPartitionLongValue, selectedTablet, cardinality));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "errCode = 2, detailMessage = sql hits sql block rule: "
+                + sqlBlockRule2.getName() + ", reach tablet_num : " + sqlBlockRule2.getTabletNum(),
+            () -> mgr.checkLimitaions(sqlBlockRule2, selectedPartitionLongValue, selectedTablet, cardinality));
 
         // test reach cardinality :
         SqlBlockRule sqlBlockRule3 = new SqlBlockRule("test_rule4", "NULL", "NULL", 0L, 0L, -1L, true, true);
@@ -210,9 +215,10 @@ public class SqlBlockRuleMgrTest {
         Assert.assertEquals(0L, (long) sqlBlockRule3.getTabletNum());
         Assert.assertEquals(-1L, (long) sqlBlockRule3.getCardinality());
 
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "errCode = 2, detailMessage = sql hits sql block rule: "
-                        + sqlBlockRule3.getName() + ", reach cardinality : " + sqlBlockRule3.getCardinality(),
-                () -> mgr.checkLimitaions(sqlBlockRule3, selectedPartitionLongValue, selectedTablet, cardinality));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "errCode = 2, detailMessage = sql hits sql block rule: "
+                + sqlBlockRule3.getName() + ", reach cardinality : " + sqlBlockRule3.getCardinality(),
+            () -> mgr.checkLimitaions(sqlBlockRule3, selectedPartitionLongValue, selectedTablet, cardinality));
     }
 
     @Test
@@ -223,7 +229,8 @@ public class SqlBlockRuleMgrTest {
         // create : sql
         // alter : sqlHash
         // AnalysisException : Only sql or sqlHash can be configured
-        SqlBlockRule sqlBlockRule = new SqlBlockRule("test_rule", "select \\* from test_table", "NULL", 0L, 0L, 0L, true, true);
+        SqlBlockRule sqlBlockRule =
+            new SqlBlockRule("test_rule", "select \\* from test_table", "NULL", 0L, 0L, 0L, true, true);
         mgr.unprotectedAdd(sqlBlockRule);
         Assert.assertEquals(true, mgr.existRule("test_rule"));
 
@@ -233,7 +240,7 @@ public class SqlBlockRuleMgrTest {
         stmt.analyze(analyzer);
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Only sql or sqlHash can be configured",
-                () -> mgr.alterSqlBlockRule(stmt));
+            () -> mgr.alterSqlBlockRule(stmt));
 
         // create : sql
         // alter : tabletNum
@@ -243,8 +250,9 @@ public class SqlBlockRuleMgrTest {
         AlterSqlBlockRuleStmt stmt2 = new AlterSqlBlockRuleStmt("test_rule", properties2);
 
         stmt2.analyze(analyzer);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
-                () -> mgr.alterSqlBlockRule(stmt2));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
+            () -> mgr.alterSqlBlockRule(stmt2));
 
         // create : cardinality
         // alter : sqlHash
@@ -257,14 +265,17 @@ public class SqlBlockRuleMgrTest {
         properties3.put(CreateSqlBlockRuleStmt.SQL_HASH_PROPERTY, "xxxx");
         AlterSqlBlockRuleStmt stmt3 = new AlterSqlBlockRuleStmt("test_rule2", properties3);
         stmt3.analyze(analyzer);
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
-                () -> mgr.alterSqlBlockRule(stmt3));
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+            "sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
+            () -> mgr.alterSqlBlockRule(stmt3));
     }
 
     @Test
     public void testNormalCreate() throws Exception {
-        String createSql = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"sql\"=\"select \\\\* from test_table\",\"enable\"=\"true\")";
-        CreateSqlBlockRuleStmt createSqlBlockRuleStmt = (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql, connectContext);
+        String createSql =
+            "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"sql\"=\"select \\\\* from test_table\",\"enable\"=\"true\")";
+        CreateSqlBlockRuleStmt createSqlBlockRuleStmt =
+            (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql, connectContext);
     }
 
     @Test
@@ -295,23 +306,26 @@ public class SqlBlockRuleMgrTest {
         // create sql_block_rule with partition_num = -1
         // DdlException: the value of partition_num can't be a negative
         String createSql = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"partition_num\"=\"-1\",\"enable\"=\"true\")";
-        CreateSqlBlockRuleStmt stmt = (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql, connectContext);
+        CreateSqlBlockRuleStmt stmt =
+            (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of partition_num can't be a negative",
-                () -> mgr.createSqlBlockRule(stmt));
+            () -> mgr.createSqlBlockRule(stmt));
 
         // create sql_block_rule with tablet_num = -1
         // DdlException: the value of tablet_num can't be a negative
         String createSql1 = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"tablet_num\"=\"-1\",\"enable\"=\"true\")";
-        CreateSqlBlockRuleStmt stmt1 = (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql1, connectContext);
+        CreateSqlBlockRuleStmt stmt1 =
+            (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql1, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of tablet_num can't be a negative",
-                () -> mgr.createSqlBlockRule(stmt1));
+            () -> mgr.createSqlBlockRule(stmt1));
 
         // create sql_block_rule with cardinality = -1
         // DdlException: the value of cardinality can't be a negative
         String createSql2 = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"cardinality\"=\"-1\",\"enable\"=\"true\")";
-        CreateSqlBlockRuleStmt stmt2 = (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql2, connectContext);
+        CreateSqlBlockRuleStmt stmt2 =
+            (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql2, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the value of cardinality can't be a negative",
-                () -> mgr.createSqlBlockRule(stmt2));
+            () -> mgr.createSqlBlockRule(stmt2));
     }
 
     @Test
@@ -319,21 +333,24 @@ public class SqlBlockRuleMgrTest {
         // sql block rules
         String ruleName = "test_rule_name";
         String setPropertyStr = String.format("set property for \"root\" \"sql_block_rules\" = \"%s\"", ruleName);
-        SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(setPropertyStr, connectContext);
+        SetUserPropertyStmt setUserPropertyStmt =
+            (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(setPropertyStr, connectContext);
 
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, String.format("the sql block rule %s not exist", ruleName),
-                () -> Catalog.getCurrentCatalog().getAuth().updateUserProperty(setUserPropertyStmt));
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+            String.format("the sql block rule %s not exist", ruleName),
+            () -> Catalog.getCurrentCatalog().getAuth().updateUserProperty(setUserPropertyStmt));
 
     }
 
     @Test
-    public void testAlterSqlBlock() throws Exception{
+    public void testAlterSqlBlock() throws Exception {
         Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), connectContext);
         SqlBlockRuleMgr mgr = Catalog.getCurrentCatalog().getSqlBlockRuleMgr();
 
         // create : sql
         // alter : global
-        SqlBlockRule sqlBlockRule = new SqlBlockRule("test_rule", "select \\* from test_table", "NULL", 0L, 0L, 0L, true, true);
+        SqlBlockRule sqlBlockRule =
+            new SqlBlockRule("test_rule", "select \\* from test_table", "NULL", 0L, 0L, 0L, true, true);
         mgr.unprotectedAdd(sqlBlockRule);
         Assert.assertEquals(true, mgr.existRule("test_rule"));
 
@@ -348,9 +365,9 @@ public class SqlBlockRuleMgrTest {
 
         Assert.assertEquals("select \\* from test_table", alteredSqlBlockRule.getSql());
         Assert.assertEquals("NULL", alteredSqlBlockRule.getSqlHash());
-        Assert.assertEquals(0L, (long)alteredSqlBlockRule.getPartitionNum());
-        Assert.assertEquals(0L, (long)alteredSqlBlockRule.getTabletNum());
-        Assert.assertEquals(0L, (long)alteredSqlBlockRule.getCardinality());
+        Assert.assertEquals(0L, (long) alteredSqlBlockRule.getPartitionNum());
+        Assert.assertEquals(0L, (long) alteredSqlBlockRule.getTabletNum());
+        Assert.assertEquals(0L, (long) alteredSqlBlockRule.getCardinality());
         Assert.assertEquals(false, alteredSqlBlockRule.getGlobal());
         Assert.assertEquals(true, alteredSqlBlockRule.getEnable());
 
@@ -371,9 +388,9 @@ public class SqlBlockRuleMgrTest {
 
         Assert.assertEquals("NULL", alteredSqlBlockRule2.getSql());
         Assert.assertEquals("NULL", alteredSqlBlockRule2.getSqlHash());
-        Assert.assertEquals(100L, (long)alteredSqlBlockRule2.getPartitionNum());
-        Assert.assertEquals(500L, (long)alteredSqlBlockRule2.getTabletNum());
-        Assert.assertEquals(0L, (long)alteredSqlBlockRule2.getCardinality());
+        Assert.assertEquals(100L, (long) alteredSqlBlockRule2.getPartitionNum());
+        Assert.assertEquals(500L, (long) alteredSqlBlockRule2.getTabletNum());
+        Assert.assertEquals(0L, (long) alteredSqlBlockRule2.getCardinality());
         Assert.assertEquals(true, alteredSqlBlockRule2.getGlobal());
         Assert.assertEquals(true, alteredSqlBlockRule2.getEnable());
 

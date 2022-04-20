@@ -23,10 +23,10 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowWhiteListStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("user_name", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("white_list", ScalarType.createVarchar(1000)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("user_name", ScalarType.createVarchar(20)))
+            .addColumn(new Column("white_list", ScalarType.createVarchar(1000)))
+            .build();
 
     @Override
     public void analyze(Analyzer analyzer) {

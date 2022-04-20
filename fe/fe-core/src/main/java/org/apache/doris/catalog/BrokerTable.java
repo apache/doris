@@ -59,7 +59,7 @@ public class BrokerTable extends Table {
     }
 
     public BrokerTable(long id, String name, List<Column> schema, Map<String, String> properties)
-            throws DdlException {
+        throws DdlException {
         super(id, name, TableType.BROKER, schema);
         validate(properties);
     }
@@ -135,14 +135,14 @@ public class BrokerTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of broker table, "
-                    + "they are: broker_name, path, column_delimiter, line_delimiter and format.");
+                + "they are: broker_name, path, column_delimiter, line_delimiter and format.");
         }
 
         Map<String, String> copiedProps = Maps.newHashMap(properties);
         brokerName = copiedProps.get(BROKER_NAME);
         if (Strings.isNullOrEmpty(brokerName)) {
             throw new DdlException("Broker name is null. "
-                    + "Please add properties('broker_name'='xxx') when create table");
+                + "Please add properties('broker_name'='xxx') when create table");
         }
         copiedProps.remove(BROKER_NAME);
 
@@ -152,7 +152,7 @@ public class BrokerTable extends Table {
         String pathsStr = copiedProps.get(PATH);
         if (Strings.isNullOrEmpty(pathsStr)) {
             throw new DdlException("Path is null. "
-                    + "Please add properties('path'='xxx') when create table");
+                + "Please add properties('path'='xxx') when create table");
         }
         copiedProps.remove(PATH);
         String[] origPaths = pathsStr.split(",");
@@ -191,7 +191,8 @@ public class BrokerTable extends Table {
                 case "parquet":
                     break;
                 default:
-                    throw new DdlException("Invalid file type: " + copiedProps.toString() + ".Only support csv and parquet.");
+                    throw new DdlException(
+                        "Invalid file type: " + copiedProps.toString() + ".Only support csv and parquet.");
             }
         }
 
@@ -205,7 +206,7 @@ public class BrokerTable extends Table {
     public TTableDescriptor toThrift() {
         TBrokerTable tBrokerTable = new TBrokerTable();
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.BROKER_TABLE,
-                fullSchema.size(), 0, getName(), "");
+            fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setBrokerTable(tBrokerTable);
         return tTableDescriptor;
     }

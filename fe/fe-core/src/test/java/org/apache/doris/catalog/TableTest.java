@@ -26,7 +26,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -39,7 +38,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class TableTest {
@@ -95,13 +93,15 @@ public class TableTest {
     public void lockTestWithException() {
         table.markDropped();
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "errCode = 2, detailMessage = unknown table, tableName=test", () -> table.writeLockOrDdlException());
+            "errCode = 2, detailMessage = unknown table, tableName=test", () -> table.writeLockOrDdlException());
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
-                "errCode = 7, detailMessage = unknown table, tableName=test", () -> table.writeLockOrMetaException());
+            "errCode = 7, detailMessage = unknown table, tableName=test", () -> table.writeLockOrMetaException());
         ExceptionChecker.expectThrowsWithMsg(AlterCancelException.class,
-                "errCode = 2, detailMessage = unknown table, tableName=test", () -> table.writeLockOrAlterCancelException());
+            "errCode = 2, detailMessage = unknown table, tableName=test",
+            () -> table.writeLockOrAlterCancelException());
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
-                "errCode = 7, detailMessage = unknown table, tableName=test", () -> table.tryWriteLockOrMetaException(1000, TimeUnit.MILLISECONDS));
+            "errCode = 7, detailMessage = unknown table, tableName=test",
+            () -> table.tryWriteLockOrMetaException(1000, TimeUnit.MILLISECONDS));
         table.unmarkDropped();
     }
 
@@ -114,36 +114,37 @@ public class TableTest {
 
         List<Column> columns = new ArrayList<Column>();
         Column column2 = new Column("column2",
-                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
+            ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
         columns.add(column2);
-        columns.add(new Column("column3", 
-                        ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
-        columns.add(new Column("column4", 
-                        ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column5", 
-                        ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column6", 
-                        ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column7", 
-                        ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("column3",
+            ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
+        columns.add(new Column("column4",
+            ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("column5",
+            ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("column6",
+            ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
+        columns.add(new Column("column7",
+            ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
         columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
         columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
         columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
 
         OlapTable table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
-                                                  new SinglePartitionInfo(), new RandomDistributionInfo(10));
+            new SinglePartitionInfo(), new RandomDistributionInfo(10));
         short shortKeyColumnCount = 1;
-        table1.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table1.setIndexMeta(1000, "group1", columns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
         List<Column> column = Lists.newArrayList();
         column.add(column2);
 
-        table1.setIndexMeta(new Long(2), "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table1.setIndexMeta(new Long(2), "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN,
+            KeysType.AGG_KEYS);
         Deencapsulation.setField(table1, "baseIndexId", 1000);
         table1.write(dos);
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
@@ -151,7 +152,7 @@ public class TableTest {
         Assert.assertTrue(table1.equals(rFamily1));
         Assert.assertEquals(table1.getCreateTime(), rFamily1.getCreateTime());
         Assert.assertEquals(table1.getIndexMetaByIndexId(2).getKeysType(), KeysType.AGG_KEYS);
-        
+
         // 3. delete files
         dis.close();
         file.delete();

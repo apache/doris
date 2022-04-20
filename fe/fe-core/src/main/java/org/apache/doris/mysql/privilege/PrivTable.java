@@ -127,7 +127,7 @@ public abstract class PrivTable implements Writable {
         if (existingEntry == null) {
             if (errOnNonExist) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_NONEXISTING_GRANT, entry.getOrigUser(),
-                        entry.getOrigHost());
+                    entry.getOrigHost());
             }
             return;
         }
@@ -140,7 +140,7 @@ public abstract class PrivTable implements Writable {
         if (tmp.isEmpty()) {
             if (errOnNonExist) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_NONEXISTING_GRANT, entry.getOrigUser(),
-                        entry.getOrigHost());
+                    entry.getOrigHost());
             }
             // there is no such priv, nothing need to be done
             return;
@@ -148,7 +148,7 @@ public abstract class PrivTable implements Writable {
 
         // revoke privs from existing priv entry
         LOG.debug("before revoke: {}, privs to be revoked: {}",
-                  existingEntry.getPrivSet(), entry.getPrivSet());
+            existingEntry.getPrivSet(), entry.getPrivSet());
         tmp = existingEntry.getPrivSet().copy();
         tmp.xor(entry.getPrivSet());
         existingEntry.getPrivSet().and(tmp);
@@ -169,7 +169,7 @@ public abstract class PrivTable implements Writable {
     protected void checkOperationAllowed(PrivEntry existingEntry, PrivEntry newEntry, String op) throws DdlException {
         if (!existingEntry.isSetByDomainResolver() && newEntry.isSetByDomainResolver()) {
             throw new DdlException("the existing entry is NOT set by resolver: " + existingEntry + ","
-                    + " can not be set by resolver " + newEntry + ", op: " + op);
+                + " can not be set by resolver " + newEntry + ", op: " + op);
         }
     }
 
@@ -216,14 +216,14 @@ public abstract class PrivTable implements Writable {
         try {
             Class<? extends PrivTable> derivedClass = (Class<? extends PrivTable>) Class.forName(className);
             privTable = derivedClass.newInstance();
-            Class[] paramTypes = { DataInput.class };
+            Class[] paramTypes = {DataInput.class};
             Method readMethod = derivedClass.getMethod("readFields", paramTypes);
-            Object[] params = { in };
+            Object[] params = {in};
             readMethod.invoke(privTable, params);
 
             return privTable;
         } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | NoSuchMethodException
-                | SecurityException | IllegalArgumentException | InvocationTargetException e) {
+            | SecurityException | IllegalArgumentException | InvocationTargetException e) {
             throw new IOException("failed read PrivTable", e);
         }
     }

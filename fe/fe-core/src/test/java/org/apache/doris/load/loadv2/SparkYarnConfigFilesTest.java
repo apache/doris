@@ -17,10 +17,9 @@
 
 package org.apache.doris.load.loadv2;
 
-import mockit.Mocked;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.LoadException;
+
 import com.google.common.collect.Maps;
 
 import org.junit.After;
@@ -30,6 +29,8 @@ import org.junit.Test;
 
 import java.io.File;
 import java.util.Map;
+
+import mockit.Mocked;
 
 public class SparkYarnConfigFilesTest {
     private static final String RESOURCE_NAME = "spark0";
@@ -52,7 +53,8 @@ public class SparkYarnConfigFilesTest {
 
     @Test
     public void testNormal() {
-        SparkYarnConfigFiles sparkYarnConfigFiles = new SparkYarnConfigFiles(RESOURCE_NAME, YARN_CONFIG_DIR, properties);
+        SparkYarnConfigFiles sparkYarnConfigFiles =
+            new SparkYarnConfigFiles(RESOURCE_NAME, YARN_CONFIG_DIR, properties);
         try {
             // prepare config files
             sparkYarnConfigFiles.prepare();
@@ -61,7 +63,7 @@ public class SparkYarnConfigFilesTest {
             File dir = new File(configDir);
             File[] configFiles = dir.listFiles();
             Assert.assertEquals(2, configFiles.length);
-        } catch (LoadException  e) {
+        } catch (LoadException e) {
             Assert.fail();
         }
     }

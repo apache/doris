@@ -32,6 +32,11 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 
+import org.junit.AfterClass;
+import org.junit.Assert;
+import org.junit.BeforeClass;
+import org.junit.Test;
+
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,10 +44,6 @@ import java.util.UUID;
 
 import mockit.Expectations;
 import mockit.Injectable;
-import org.junit.AfterClass;
-import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
 
 public class InsertStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -57,7 +58,7 @@ public class InsertStmtTest {
     public static void setUp() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
         String createTblStmtStr = "create table db.tbl(kk1 int, kk2 varchar(32), kk3 int, kk4 int) "
-                + "AGGREGATE KEY(kk1, kk2,kk3,kk4) distributed by hash(kk1) buckets 3 properties('replication_num' = '1');";
+            + "AGGREGATE KEY(kk1, kk2,kk3,kk4) distributed by hash(kk1) buckets 3 properties('replication_num' = '1');";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db").useDatabase("db");
         dorisAssert.withTable(createTblStmtStr);
@@ -121,13 +122,13 @@ public class InsertStmtTest {
         columns.add(v2);
 
         Column v3 = new Column(CreateMaterializedViewStmt.mvColumnBuilder("bitmap_union", "k1"),
-                PrimitiveType.BITMAP);
+            PrimitiveType.BITMAP);
         v3.setIsKey(false);
         v3.setAggregationType(AggregateType.BITMAP_UNION, false);
         v3.setIsAllowNull(false);
         ArrayList<Expr> params = new ArrayList<>();
 
-        SlotRef slotRef = new SlotRef(null , "k1");
+        SlotRef slotRef = new SlotRef(null, "k1");
         slotRef.setType(Type.BIGINT);
         params.add(slotRef.uncheckedCastTo(Type.VARCHAR));
 
@@ -149,9 +150,12 @@ public class InsertStmtTest {
     }
 
 
-    @Injectable InsertTarget target;
-    @Injectable InsertSource source;
-    @Injectable Table targetTable;
+    @Injectable
+    InsertTarget target;
+    @Injectable
+    InsertSource source;
+    @Injectable
+    Table targetTable;
 
     @Test
     public void testNormal() throws Exception {
@@ -178,9 +182,12 @@ public class InsertStmtTest {
         QueryStmt queryStmt = (QueryStmt) statementBase;
 
         new Expectations() {{
-            targetTable.getBaseSchema(); result = getBaseSchema();
-            targetTable.getBaseSchema(anyBoolean); result = getBaseSchema();
-            targetTable.getFullSchema(); result = getFullSchema();
+            targetTable.getBaseSchema();
+            result = getBaseSchema();
+            targetTable.getBaseSchema(anyBoolean);
+            result = getBaseSchema();
+            targetTable.getFullSchema();
+            result = getFullSchema();
         }};
 
 
@@ -236,9 +243,12 @@ public class InsertStmtTest {
         QueryStmt queryStmt = (QueryStmt) statementBase;
 
         new Expectations() {{
-            targetTable.getBaseSchema(); result = getBaseSchema();
-            targetTable.getBaseSchema(anyBoolean); result = getBaseSchema();
-            targetTable.getFullSchema(); result = getFullSchema();
+            targetTable.getBaseSchema();
+            result = getBaseSchema();
+            targetTable.getBaseSchema(anyBoolean);
+            result = getBaseSchema();
+            targetTable.getFullSchema();
+            result = getFullSchema();
         }};
 
 

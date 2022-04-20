@@ -45,8 +45,8 @@ import com.google.common.collect.Lists;
 
 import org.apache.commons.lang.StringUtils;
 
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -54,34 +54,34 @@ import java.util.Set;
 
 public class DescribeStmt extends ShowStmt {
     private static final ShowResultSetMetaData DESC_OLAP_TABLE_ALL_META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("IndexKeysType", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Field", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Null", ScalarType.createVarchar(10)))
-                    .addColumn(new Column("Key", ScalarType.createVarchar(10)))
-                    .addColumn(new Column("Default", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("Extra", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("Visible", ScalarType.createVarchar(10)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
+            .addColumn(new Column("IndexKeysType", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Field", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Null", ScalarType.createVarchar(10)))
+            .addColumn(new Column("Key", ScalarType.createVarchar(10)))
+            .addColumn(new Column("Default", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Extra", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Visible", ScalarType.createVarchar(10)))
+            .build();
 
     private static final ShowResultSetMetaData DESC_MYSQL_TABLE_ALL_META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Host", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("Port", ScalarType.createVarchar(10)))
-                    .addColumn(new Column("User", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("Password", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("Database", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("Table", ScalarType.createVarchar(30)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Host", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Port", ScalarType.createVarchar(10)))
+            .addColumn(new Column("User", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Password", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Database", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Table", ScalarType.createVarchar(30)))
+            .build();
 
     // empty col num equals to DESC_OLAP_TABLE_ALL_META_DATA.size()
     private static final List<String> EMPTY_ROW = initEmptyRow();
 
     private TableName dbTableName;
     private ProcNodeInterface node;
-    
+
     List<List<String>> totalRows;
 
     private boolean isAllTables;
@@ -100,13 +100,13 @@ public class DescribeStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         dbTableName.analyze(analyzer);
-        
+
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
-                                                                dbTableName.getTbl(), PrivPredicate.SHOW)) {
+            dbTableName.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                dbTableName.getDb() + ": " + dbTableName.getTbl());
+                ConnectContext.get().getQualifiedUser(),
+                ConnectContext.get().getRemoteIP(),
+                dbTableName.getDb() + ": " + dbTableName.getTbl());
         }
 
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbTableName.getDb());
@@ -117,7 +117,7 @@ public class DescribeStmt extends ShowStmt {
             if (!isAllTables) {
                 // show base table schema only
                 String procString = "/dbs/" + db.getId() + "/" + table.getId() + "/" + TableProcDir.INDEX_SCHEMA
-                        + "/";
+                    + "/";
                 if (table.getType() == TableType.OLAP) {
                     procString += ((OlapTable) table).getBaseIndexId();
                 } else {
@@ -164,15 +164,15 @@ public class DescribeStmt extends ShowStmt {
                             String extraStr = StringUtils.join(extras, ",");
 
                             List<String> row = Arrays.asList(
-                                    "",
-                                    "",
-                                    column.getDisplayName(),
-                                    column.getOriginType().toString(),
-                                    column.isAllowNull() ? "Yes" : "No",
-                                    ((Boolean) column.isKey()).toString(),
-                                    column.getDefaultValue() == null ? FeConstants.null_string : column.getDefaultValue(),
-                                    extraStr,
-                                    ((Boolean) column.isVisible()).toString()
+                                "",
+                                "",
+                                column.getDisplayName(),
+                                column.getOriginType().toString(),
+                                column.isAllowNull() ? "Yes" : "No",
+                                ((Boolean) column.isKey()).toString(),
+                                column.getDefaultValue() == null ? FeConstants.null_string : column.getDefaultValue(),
+                                extraStr,
+                                ((Boolean) column.isVisible()).toString()
                             );
 
                             if (j == 0) {
@@ -191,23 +191,23 @@ public class DescribeStmt extends ShowStmt {
                     isOlapTable = false;
                     OdbcTable odbcTable = (OdbcTable) table;
                     List<String> row = Arrays.asList(odbcTable.getHost(),
-                            odbcTable.getPort(),
-                            odbcTable.getUserName(),
-                            odbcTable.getPasswd(),
-                            odbcTable.getOdbcDatabaseName(),
-                            odbcTable.getOdbcTableName(),
-                            odbcTable.getOdbcDriver(),
-                            odbcTable.getOdbcTableTypeName());
+                        odbcTable.getPort(),
+                        odbcTable.getUserName(),
+                        odbcTable.getPasswd(),
+                        odbcTable.getOdbcDatabaseName(),
+                        odbcTable.getOdbcTableName(),
+                        odbcTable.getOdbcDriver(),
+                        odbcTable.getOdbcTableTypeName());
                     totalRows.add(row);
                 } else if (table.getType() == TableType.MYSQL) {
                     isOlapTable = false;
                     MysqlTable mysqlTable = (MysqlTable) table;
                     List<String> row = Arrays.asList(mysqlTable.getHost(),
-                                                     mysqlTable.getPort(),
-                                                     mysqlTable.getUserName(),
-                                                     mysqlTable.getPasswd(),
-                                                     mysqlTable.getMysqlDatabaseName(),
-                                                     mysqlTable.getMysqlTableName());
+                        mysqlTable.getPort(),
+                        mysqlTable.getUserName(),
+                        mysqlTable.getPasswd(),
+                        mysqlTable.getMysqlDatabaseName(),
+                        mysqlTable.getMysqlTableName());
                     totalRows.add(row);
                 } else {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, table.getType());
@@ -221,6 +221,7 @@ public class DescribeStmt extends ShowStmt {
     public String getTableName() {
         return dbTableName.getTbl();
     }
+
     public String getDb() {
         return dbTableName.getDb();
     }

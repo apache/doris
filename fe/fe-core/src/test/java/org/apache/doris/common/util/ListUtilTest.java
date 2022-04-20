@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.util;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -26,6 +25,9 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Rule;
@@ -99,9 +101,9 @@ public class ListUtilTest {
         List<List<Integer>> splitLists = ListUtil.splitBySize(lists, expectSize);
 
         Assert.assertEquals(splitLists.size(), lists.size());
-        Assert.assertTrue( splitLists.get(0).get(0) == 1);
-        Assert.assertTrue( splitLists.get(1).get(0) == 2);
-        Assert.assertTrue( splitLists.get(2).get(0) == 3);
+        Assert.assertTrue(splitLists.get(0).get(0) == 1);
+        Assert.assertTrue(splitLists.get(1).get(0) == 2);
+        Assert.assertTrue(splitLists.get(2).get(0) == 3);
     }
 
     @Test
@@ -158,7 +160,7 @@ public class ListUtilTest {
     public void testListMatchDiffSize() throws DdlException {
         List<PartitionItem> list1 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB));
         List<PartitionItem> list2 = Arrays.asList(new ListPartitionItem(listA), new ListPartitionItem(listB),
-                new ListPartitionItem(listC));
+            new ListPartitionItem(listC));
 
         ListUtil.checkPartitionKeyListsMatch(list1, list2);
     }

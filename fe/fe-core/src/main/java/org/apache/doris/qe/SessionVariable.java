@@ -160,12 +160,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String PARTITION_PRUNE_ALGORITHM_VERSION = "partition_prune_algorithm_version";
 
-    public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000; // If user set a very small value, use this value instead.
+    public static final long MIN_INSERT_VISIBLE_TIMEOUT_MS = 1000;
+        // If user set a very small value, use this value instead.
 
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
-    
+
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
@@ -221,19 +222,19 @@ public class SessionVariable implements Serializable, Writable {
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = TX_ISOLATION)
     public String txIsolation = "REPEATABLE-READ";
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TX_READ_ONLY)
     public boolean txReadonly = false;
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_READ_ONLY)
     public boolean transactionReadonly = false;
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION)
     public String transactionIsolation = "REPEATABLE-READ";
-    
+
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
     public String charsetClient = "utf8";
@@ -438,7 +439,7 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
-  
+
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = false;
 
@@ -449,6 +450,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setBlockEncryptionMode(String blockEncryptionMode) {
         this.blockEncryptionMode = blockEncryptionMode;
     }
+
     public long getMaxExecMemByte() {
         return maxExecMemByte;
     }
@@ -477,12 +479,14 @@ public class SessionVariable implements Serializable, Writable {
         this.sqlMode = sqlMode;
     }
 
-    public boolean isEnableJoinReorderBasedCost() { return enableJoinReorderBasedCost; }
+    public boolean isEnableJoinReorderBasedCost() {
+        return enableJoinReorderBasedCost;
+    }
 
     public boolean isAutoCommit() {
         return autoCommit;
     }
-    
+
     public boolean isTxReadonly() {
         return txReadonly;
     }
@@ -490,11 +494,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isTransactionReadonly() {
         return transactionReadonly;
     }
-    
+
     public String getTransactionIsolation() {
         return transactionIsolation;
     }
-    
+
     public String getTxIsolation() {
         return txIsolation;
     }
@@ -598,6 +602,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setSqlQuoteShowCreate(boolean sqlQuoteShowCreate) {
         this.sqlQuoteShowCreate = sqlQuoteShowCreate;
     }
+
     public void setLoadMemLimit(long loadMemLimit) {
         this.loadMemLimit = loadMemLimit;
     }
@@ -634,9 +639,13 @@ public class SessionVariable implements Serializable, Writable {
         this.preferJoinMethod = preferJoinMethod;
     }
 
-    public boolean isEnableFoldConstantByBe() { return enableFoldConstantByBe; }
+    public boolean isEnableFoldConstantByBe() {
+        return enableFoldConstantByBe;
+    }
 
-    public void setEnableFoldConstantByBe(boolean foldConstantByBe) {this.enableFoldConstantByBe = foldConstantByBe; }
+    public void setEnableFoldConstantByBe(boolean foldConstantByBe) {
+        this.enableFoldConstantByBe = foldConstantByBe;
+    }
 
     public int getParallelExecInstanceNum() {
         return parallelExecInstanceNum;
@@ -904,7 +913,9 @@ public class SessionVariable implements Serializable, Writable {
         return enableInferPredicate;
     }
 
-    public void setEnableInferPredicate(boolean enableInferPredicate) { this.enableInferPredicate = enableInferPredicate; }
+    public void setEnableInferPredicate(boolean enableInferPredicate) {
+        this.enableInferPredicate = enableInferPredicate;
+    }
 
     public boolean isEnableProjection() {
         return enableProjection;

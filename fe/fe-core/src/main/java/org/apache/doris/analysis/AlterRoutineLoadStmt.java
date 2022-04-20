@@ -46,19 +46,19 @@ public class AlterRoutineLoadStmt extends DdlStmt {
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
 
     private static final ImmutableSet<String> CONFIGURABLE_JOB_PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)
-            .add(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)
-            .add(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)
-            .add(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)
-            .add(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)
-            .add(CreateRoutineLoadStmt.JSONPATHS)
-            .add(CreateRoutineLoadStmt.JSONROOT)
-            .add(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)
-            .add(CreateRoutineLoadStmt.NUM_AS_STRING)
-            .add(CreateRoutineLoadStmt.FUZZY_PARSE)
-            .add(LoadStmt.STRICT_MODE)
-            .add(LoadStmt.TIMEZONE)
-            .build();
+        .add(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)
+        .add(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)
+        .add(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)
+        .add(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)
+        .add(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)
+        .add(CreateRoutineLoadStmt.JSONPATHS)
+        .add(CreateRoutineLoadStmt.JSONROOT)
+        .add(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)
+        .add(CreateRoutineLoadStmt.NUM_AS_STRING)
+        .add(CreateRoutineLoadStmt.FUZZY_PARSE)
+        .add(LoadStmt.STRICT_MODE)
+        .add(LoadStmt.TIMEZONE)
+        .build();
 
     private final LabelName labelName;
     private final Map<String, String> jobProperties;
@@ -113,54 +113,54 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
     private void checkJobProperties() throws UserException {
         Optional<String> optional = jobProperties.keySet().stream().filter(
-                entity -> !CONFIGURABLE_JOB_PROPERTIES_SET.contains(entity)).findFirst();
+            entity -> !CONFIGURABLE_JOB_PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid property");
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY)) {
             long desiredConcurrentNum = ((Long) Util.getLongPropertyOrDefault(
-                    jobProperties.get(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY),
-                    -1, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PRED,
-                    CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY + " should > 0")).intValue();
+                jobProperties.get(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY),
+                -1, CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PRED,
+                CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY + " should > 0")).intValue();
             analyzedJobProperties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY,
-                    String.valueOf(desiredConcurrentNum));
+                String.valueOf(desiredConcurrentNum));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY)) {
             long maxErrorNum = Util.getLongPropertyOrDefault(
-                    jobProperties.get(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY),
-                    -1, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PRED,
-                    CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY + " should >= 0");
+                jobProperties.get(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY),
+                -1, CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PRED,
+                CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY + " should >= 0");
             analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_ERROR_NUMBER_PROPERTY,
-                    String.valueOf(maxErrorNum));
+                String.valueOf(maxErrorNum));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY)) {
             long maxBatchIntervalS = Util.getLongPropertyOrDefault(
-                    jobProperties.get(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY),
-                    -1, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_PRED,
-                    CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 5 and 60");
+                jobProperties.get(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY),
+                -1, CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_PRED,
+                CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 5 and 60");
             analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_INTERVAL_SEC_PROPERTY,
-                    String.valueOf(maxBatchIntervalS));
+                String.valueOf(maxBatchIntervalS));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY)) {
             long maxBatchRows = Util.getLongPropertyOrDefault(
-                    jobProperties.get(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY),
-                    -1, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PRED,
-                    CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY + " should > 200000");
+                jobProperties.get(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY),
+                -1, CreateRoutineLoadStmt.MAX_BATCH_ROWS_PRED,
+                CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY + " should > 200000");
             analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_ROWS_PROPERTY,
-                    String.valueOf(maxBatchRows));
+                String.valueOf(maxBatchRows));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY)) {
             long maxBatchSizeBytes = Util.getLongPropertyOrDefault(
-                    jobProperties.get(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY),
-                    -1, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PRED,
-                    CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
+                jobProperties.get(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY),
+                -1, CreateRoutineLoadStmt.MAX_BATCH_SIZE_PRED,
+                CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
             analyzedJobProperties.put(CreateRoutineLoadStmt.MAX_BATCH_SIZE_PROPERTY,
-                    String.valueOf(maxBatchSizeBytes));
+                String.valueOf(maxBatchSizeBytes));
         }
 
         if (jobProperties.containsKey(LoadStmt.STRICT_MODE)) {
@@ -174,11 +174,13 @@ public class AlterRoutineLoadStmt extends DdlStmt {
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.JSONPATHS)) {
-            analyzedJobProperties.put(CreateRoutineLoadStmt.JSONPATHS, jobProperties.get(CreateRoutineLoadStmt.JSONPATHS));
+            analyzedJobProperties.put(CreateRoutineLoadStmt.JSONPATHS,
+                jobProperties.get(CreateRoutineLoadStmt.JSONPATHS));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.JSONROOT)) {
-            analyzedJobProperties.put(CreateRoutineLoadStmt.JSONROOT, jobProperties.get(CreateRoutineLoadStmt.JSONROOT));
+            analyzedJobProperties.put(CreateRoutineLoadStmt.JSONROOT,
+                jobProperties.get(CreateRoutineLoadStmt.JSONROOT));
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadStmt.STRIP_OUTER_ARRAY)) {
@@ -199,7 +201,8 @@ public class AlterRoutineLoadStmt extends DdlStmt {
 
     private void checkDataSourceProperties() throws UserException {
         if (!FeConstants.runningUnitTest) {
-            RoutineLoadJob job = Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(getDbName(), getLabel());
+            RoutineLoadJob job =
+                Catalog.getCurrentCatalog().getRoutineLoadManager().checkPrivAndGetJob(getDbName(), getLabel());
             dataSourceProperties.setTimezone(job.getTimezone());
         } else {
             dataSourceProperties.setTimezone(TimeUtils.DEFAULT_TIME_ZONE);

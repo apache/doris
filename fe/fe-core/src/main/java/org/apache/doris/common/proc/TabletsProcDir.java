@@ -43,12 +43,12 @@ import java.util.List;
  */
 public class TabletsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
-            .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
-            .add("DataSize").add("RowCount").add("State")
-            .add("LstConsistencyCheckTime").add("CheckVersion")
-            .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
-            .build();
+        .add("TabletId").add("ReplicaId").add("BackendId").add("SchemaHash").add("Version")
+        .add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
+        .add("DataSize").add("RowCount").add("State")
+        .add("LstConsistencyCheckTime").add("CheckVersion")
+        .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
+        .build();
 
     private Table table;
     private MaterializedIndex index;
@@ -98,8 +98,8 @@ public class TabletsProcDir implements ProcDirInterface {
                 } else {
                     for (Replica replica : tablet.getReplicas()) {
                         if ((version > -1 && replica.getVersion() != version)
-                                || (backendId > -1 && replica.getBackendId() != backendId)
-                                || (state != null && replica.getState() != state)) {
+                            || (backendId > -1 && replica.getBackendId() != backendId)
+                            || (state != null && replica.getState() != state)) {
                             continue;
                         }
                         List<Comparable> tabletInfo = new ArrayList<Comparable>();
@@ -121,17 +121,17 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(replica.getVersionCount());
                         tabletInfo.add(replica.getPathHash());
                         String metaUrl = String.format("http://%s:%d/api/meta/header/%d",
-                                backendMap.get(replica.getBackendId()).getHost(),
-                                backendMap.get(replica.getBackendId()).getHttpPort(),
-                                tabletId,
-                                replica.getSchemaHash());
+                            backendMap.get(replica.getBackendId()).getHost(),
+                            backendMap.get(replica.getBackendId()).getHttpPort(),
+                            tabletId,
+                            replica.getSchemaHash());
                         tabletInfo.add(metaUrl);
                         String compactionUrl = String.format(
-                                "http://%s:%d/api/compaction/show?tablet_id=%d",
-                                backendMap.get(replica.getBackendId()).getHost(),
-                                backendMap.get(replica.getBackendId()).getHttpPort(),
-                                tabletId,
-                                replica.getSchemaHash());
+                            "http://%s:%d/api/compaction/show?tablet_id=%d",
+                            backendMap.get(replica.getBackendId()).getHost(),
+                            backendMap.get(replica.getBackendId()).getHttpPort(),
+                            tabletId,
+                            replica.getSchemaHash());
                         tabletInfo.add(compactionUrl);
                         tabletInfos.add(tabletInfo);
                     }

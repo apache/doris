@@ -71,7 +71,7 @@ import java.util.Set;
  * this node, ie, they only reference tuples materialized by this node or one of
  * its children (= are bound by tupleIds).
  */
-abstract public class PlanNode extends TreeNode<PlanNode> {
+public abstract class PlanNode extends TreeNode<PlanNode> {
     private static final Logger LOG = LogManager.getLogger(PlanNode.class);
 
     protected String planNodeName;
@@ -143,7 +143,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.tblRefIds = Lists.newArrayList(tupleIds);
         this.cardinality = -1;
         this.planNodeName = VectorizedUtil.isVectorized() ?
-                "V" + planNodeName : planNodeName;
+            "V" + planNodeName : planNodeName;
         this.numInstances = 1;
     }
 
@@ -154,7 +154,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.tblRefIds = Lists.newArrayList();
         this.cardinality = -1;
         this.planNodeName = VectorizedUtil.isVectorized() ?
-                "V" + planNodeName : planNodeName;
+            "V" + planNodeName : planNodeName;
         this.numInstances = 1;
     }
 
@@ -171,7 +171,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.cardinality = -1;
         this.compactData = node.compactData;
         this.planNodeName = VectorizedUtil.isVectorized() ?
-                "V" + planNodeName : planNodeName;
+            "V" + planNodeName : planNodeName;
         this.numInstances = 1;
     }
 
@@ -275,7 +275,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         List<TupleId> tupleIds = Lists.newArrayList();
         List<ScanNode> scanNodes = Lists.newArrayList();
         collectAll(Predicates.instanceOf(ScanNode.class), scanNodes);
-        for(ScanNode node: scanNodes) {
+        for (ScanNode node : scanNodes) {
             tupleIds.addAll(node.getTupleIds());
         }
         return tupleIds;
@@ -314,7 +314,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             List<Type> args = new ArrayList<>();
             args.add(Type.BOOLEAN);
             args.add(Type.BOOLEAN);
-            Function function = new Function(new FunctionName("", compoundPredicate.getOp().toString()), args, Type.BOOLEAN, false);
+            Function function =
+                new Function(new FunctionName("", compoundPredicate.getOp().toString()), args, Type.BOOLEAN, false);
             function.setBinaryType(TFunctionBinaryType.BUILTIN);
             expr.setFn(function);
         }
@@ -328,8 +329,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
         while (targetConjuncts.size() > 1) {
             List<Expr> newTargetConjuncts = Lists.newArrayList();
-            for (int i = 0; i < targetConjuncts.size(); i+= 2) {
-                Expr expr = i + 1 < targetConjuncts.size() ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
+            for (int i = 0; i < targetConjuncts.size(); i += 2) {
+                Expr expr = i + 1 < targetConjuncts.size() ?
+                    new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
                         targetConjuncts.get(i + 1)) : targetConjuncts.get(i);
                 newTargetConjuncts.add(expr);
             }
@@ -365,7 +367,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     public void transferConjuncts(PlanNode recipient) {
         recipient.vconjunct = vconjunct;
         vconjunct = null;
-        
+
         recipient.conjuncts.addAll(conjuncts);
         conjuncts.clear();
     }
@@ -385,8 +387,6 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             analyzer.getDescTbl().getTupleDesc(id).computeStatAndMemLayout();
         }
     }
-
-
 
 
     public String getExplainString() {
@@ -413,8 +413,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         StringBuilder expBuilder = new StringBuilder();
         String detailPrefix = prefix;
         boolean traverseChildren = children != null
-                && children.size() > 0
-                && !(this instanceof ExchangeNode);
+            && children.size() > 0
+            && !(this instanceof ExchangeNode);
         // if (children != null && children.size() > 0) {
         if (traverseChildren) {
             detailPrefix += "|  ";
@@ -448,8 +448,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             String childDetailPrefix = prefix + "|    ";
             for (int i = 1; i < children.size(); ++i) {
                 expBuilder.append(
-                        children.get(i).getExplainString(childHeadlinePrefix, childDetailPrefix,
-                                detailLevel));
+                    children.get(i).getExplainString(childHeadlinePrefix, childDetailPrefix,
+                        detailLevel));
                 expBuilder.append(childDetailPrefix + "\n");
             }
             expBuilder.append(children.get(0).getExplainString(prefix, prefix, detailLevel));
@@ -555,10 +555,10 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     /**
      * This function will calculate the cardinality when the old join reorder algorithm is enabled.
      * This value is used to determine the distributed way(broadcast of shuffle) of join in the distributed planning.
-     *
+     * <p>
      * If the new join reorder and the old join reorder have the same cardinality calculation method,
-     *   also the calculation is completed in the init(),
-     *   there is no need to override this function.
+     * also the calculation is completed in the init(),
+     * there is no need to override this function.
      */
     protected void computeOldCardinality() {
     }
@@ -622,7 +622,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         }
 
         ExprSubstitutionMap result = ExprSubstitutionMap.combine(
-                getChild(0).getOutputSmap(), getChild(1).getOutputSmap());
+            getChild(0).getOutputSmap(), getChild(1).getOutputSmap());
 
         for (int i = 2; i < getChildren().size(); ++i) {
             result = ExprSubstitutionMap.combine(result, getChild(i).getOutputSmap());
@@ -639,12 +639,12 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
             return getChild(0).getWithoutTupleIsNullOutputSmap();
         }
         ExprSubstitutionMap result = ExprSubstitutionMap.combine(
-                getChild(0).getWithoutTupleIsNullOutputSmap(),
-                getChild(1).getWithoutTupleIsNullOutputSmap());
+            getChild(0).getWithoutTupleIsNullOutputSmap(),
+            getChild(1).getWithoutTupleIsNullOutputSmap());
 
         for (int i = 2; i < getChildren().size(); ++i) {
             result = ExprSubstitutionMap.combine(
-                    result, getChild(i).getWithoutTupleIsNullOutputSmap());
+                result, getChild(i).getWithoutTupleIsNullOutputSmap());
         }
 
         return result;
@@ -659,7 +659,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     protected void createDefaultSmap(Analyzer analyzer) throws UserException {
         ExprSubstitutionMap combinedChildSmap = getCombinedChildSmap();
         outputSmap =
-                ExprSubstitutionMap.compose(outputSmap, combinedChildSmap, analyzer);
+            ExprSubstitutionMap.compose(outputSmap, combinedChildSmap, analyzer);
 
         conjuncts = Expr.substituteList(conjuncts, outputSmap, analyzer, false);
     }
@@ -749,7 +749,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
         for (Expr e : conjuncts) {
-            if (e.hasSelectivity()) selectivities.add(e.getSelectivity());
+            if (e.hasSelectivity()) {
+                selectivities.add(e.getSelectivity());
+            }
         }
         if (selectivities.size() != conjuncts.size()) {
             // Some conjuncts have no estimated selectivity. Use a single default
@@ -835,16 +837,24 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return null;
     }
 
-    protected void addRuntimeFilter(RuntimeFilter filter) { runtimeFilters.add(filter); }
+    protected void addRuntimeFilter(RuntimeFilter filter) {
+        runtimeFilters.add(filter);
+    }
 
-    protected Collection<RuntimeFilter> getRuntimeFilters() { return runtimeFilters; }
+    protected Collection<RuntimeFilter> getRuntimeFilters() {
+        return runtimeFilters;
+    }
 
-    public void clearRuntimeFilters() { runtimeFilters.clear(); }
+    public void clearRuntimeFilters() {
+        runtimeFilters.clear();
+    }
 
     protected String getRuntimeFilterExplainString(boolean isBuildNode) {
-        if (runtimeFilters.isEmpty()) return "";
+        if (runtimeFilters.isEmpty()) {
+            return "";
+        }
         List<String> filtersStr = new ArrayList<>();
-        for (RuntimeFilter filter: runtimeFilters) {
+        for (RuntimeFilter filter : runtimeFilters) {
             StringBuilder filterStr = new StringBuilder();
             filterStr.append(filter.getFilterId());
             filterStr.append("[");
@@ -875,27 +885,26 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     /**
      * If an plan node implements this method, the plan node itself supports project optimization.
+     *
      * @param requiredSlotIdSet: The upper plan node's requirement slot set for the current plan node.
-     *                        The requiredSlotIdSet could be null when the upper plan node cannot
-     *                         calculate the required slot.
+     *                           The requiredSlotIdSet could be null when the upper plan node cannot
+     *                           calculate the required slot.
      * @param analyzer
-     * @throws NotImplementedException
-     *
-     * For example:
-     * Query: select a.k1 from a, b where a.k1=b.k1
-     * PlanNodeTree:
-     *     output exprs: a.k1
-     *           |
-     *     hash join node
-     *   (input slots: a.k1, b.k1)
-     *        |      |
-     *  scan a(k1)   scan b(k1)
-     *
-     * Function params: requiredSlotIdSet = a.k1
-     * After function:
-     *     hash join node
-     *   (output slots: a.k1)
-     *   (input slots: a.k1, b.k1)
+     * @throws NotImplementedException For example:
+     *                                 Query: select a.k1 from a, b where a.k1=b.k1
+     *                                 PlanNodeTree:
+     *                                 output exprs: a.k1
+     *                                 |
+     *                                 hash join node
+     *                                 (input slots: a.k1, b.k1)
+     *                                 |      |
+     *                                 scan a(k1)   scan b(k1)
+     *                                 <p>
+     *                                 Function params: requiredSlotIdSet = a.k1
+     *                                 After function:
+     *                                 hash join node
+     *                                 (output slots: a.k1)
+     *                                 (input slots: a.k1, b.k1)
      */
     public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) throws NotImplementedException {
         throw new NotImplementedException("The `initOutputSlotIds` hasn't been implemented in " + planNodeName);
@@ -904,21 +913,20 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     /**
      * If an plan node implements this method, its child plan node has the ability to implement the project.
      * The return value of this method will be used as
-     *     the input(requiredSlotIdSet) of child plan node method initOutputSlotIds.
+     * the input(requiredSlotIdSet) of child plan node method initOutputSlotIds.
      * That is to say, only when the plan node implements this method,
-     *     its children can realize project optimization.
+     * its children can realize project optimization.
      *
      * @return The requiredSlotIdSet of this plan node
-     * @throws NotImplementedException
-     * PlanNodeTree:
-     *         agg node(group by a.k1)
-     *           |
-     *     hash join node(a.k1=b.k1)
-     *        |      |
-     *  scan a(k1)   scan b(k1)
-     * After function:
-     *         agg node
-     *    (required slots: a.k1)
+     * @throws NotImplementedException PlanNodeTree:
+     *                                 agg node(group by a.k1)
+     *                                 |
+     *                                 hash join node(a.k1=b.k1)
+     *                                 |      |
+     *                                 scan a(k1)   scan b(k1)
+     *                                 After function:
+     *                                 agg node
+     *                                 (required slots: a.k1)
      */
     public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
         throw new NotImplementedException("The `computeInputSlotIds` hasn't been implemented in " + planNodeName);

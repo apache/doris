@@ -23,13 +23,14 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Set;
+
+import com.google.gson.annotations.SerializedName;
 
 public class RoutineLoadStatistic implements Writable {
     /*
@@ -90,7 +91,7 @@ public class RoutineLoadStatistic implements Writable {
         summary.put("taskExecuteTimeMs", Long.valueOf(this.totalTaskExcutionTimeMs));
         summary.put("receivedBytesRate", Long.valueOf(this.receivedBytes / this.totalTaskExcutionTimeMs * 1000));
         summary.put("loadRowsRate", Long.valueOf((this.totalRows - this.errorRows - this.unselectedRows)
-                / this.totalTaskExcutionTimeMs * 1000));
+            / this.totalTaskExcutionTimeMs * 1000));
         summary.put("committedTaskNum", Long.valueOf(this.committedTaskNum));
         summary.put("abortedTaskNum", Long.valueOf(this.abortedTaskNum));
         summary.put("runningTxns", runningTxnIds);

@@ -38,7 +38,7 @@ public class MetaJsonHeader {
     public static void write(RandomAccessFile raf) throws IOException {
         MetaJsonHeader metaJsonHeader = new MetaJsonHeader();
         metaJsonHeader.imageVersion = IMAGE_VERSION;
-        String jsonHeader =  MetaJsonHeader.toJson(metaJsonHeader);
+        String jsonHeader = MetaJsonHeader.toJson(metaJsonHeader);
         Text.writeString(raf, jsonHeader);
     }
 

@@ -25,18 +25,18 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 // TODO(zhaochun): only for support MySQL
 public class ShowPluginsStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Name", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Type", ScalarType.createVarchar(10)))
-                    .addColumn(new Column("Description", ScalarType.createVarchar(200)))
-                    .addColumn(new Column("Version", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("JavaVersion", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("ClassName", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("SoName", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Sources", ScalarType.createVarchar(200)))
-                    .addColumn(new Column("Status", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Properties", ScalarType.createVarchar(250)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Name", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Type", ScalarType.createVarchar(10)))
+            .addColumn(new Column("Description", ScalarType.createVarchar(200)))
+            .addColumn(new Column("Version", ScalarType.createVarchar(20)))
+            .addColumn(new Column("JavaVersion", ScalarType.createVarchar(20)))
+            .addColumn(new Column("ClassName", ScalarType.createVarchar(64)))
+            .addColumn(new Column("SoName", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Sources", ScalarType.createVarchar(200)))
+            .addColumn(new Column("Status", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Properties", ScalarType.createVarchar(250)))
+            .build();
 
     @Override
     public void analyze(Analyzer analyzer) {

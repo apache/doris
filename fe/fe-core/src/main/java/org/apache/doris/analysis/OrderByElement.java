@@ -37,18 +37,18 @@ public class OrderByElement {
     // Represents the NULLs ordering specified: true when "NULLS FIRST", false when
     // "NULLS LAST", and null if not specified.
     private final Boolean nullsFirstParam;
-    
+
     public OrderByElement(Expr expr, boolean isAsc, Boolean nullsFirstParam) {
         super();
         this.expr = expr;
         this.isAsc = isAsc;
         this.nullsFirstParam = nullsFirstParam;
     }
-    
+
     public void setExpr(Expr e) {
         this.expr = e;
     }
-    
+
     public Expr getExpr() {
         return expr;
     }
@@ -56,15 +56,17 @@ public class OrderByElement {
     public boolean getIsAsc() {
         return isAsc;
     }
-    
+
     public Boolean getNullsFirstParam() {
         return nullsFirstParam;
     }
+
     public OrderByElement clone() {
         OrderByElement clone = new OrderByElement(
-                expr.clone(), isAsc, nullsFirstParam);
+            expr.clone(), isAsc, nullsFirstParam);
         return clone;
     }
+
     /**
      * Returns a new list of OrderByElements with the same (cloned) expressions but the
      * ordering direction reversed (asc becomes desc, nulls first becomes nulls last, etc.)
@@ -76,19 +78,20 @@ public class OrderByElement {
             OrderByElement element = src.get(i);
             OrderByElement reverseElement =
                 new OrderByElement(element.getExpr().clone(), !element.isAsc,
-                       Boolean.valueOf(!nullsFirst(element.nullsFirstParam, element.isAsc)));
+                    Boolean.valueOf(!nullsFirst(element.nullsFirstParam, element.isAsc)));
             result.add(reverseElement);
         }
 
         return result;
     }
+
     /**
      * Extracts the order-by exprs from the list of order-by elements and returns them.
      */
     public static List<Expr> getOrderByExprs(List<OrderByElement> src) {
         List<Expr> result = Lists.newArrayListWithCapacity(src.size());
 
-        for (OrderByElement element: src) {
+        for (OrderByElement element : src) {
             result.add(element.getExpr());
         }
 
@@ -98,19 +101,22 @@ public class OrderByElement {
     /**
      * Returns a new list of order-by elements with the order by exprs of src substituted
      * according to smap. Preserves the other sort params from src.
+     *
      * @throws AnalysisException
      */
     public static ArrayList<OrderByElement> substitute(List<OrderByElement> src,
-            ExprSubstitutionMap smap, Analyzer analyzer) throws AnalysisException {
+                                                       ExprSubstitutionMap smap, Analyzer analyzer)
+        throws AnalysisException {
         ArrayList<OrderByElement> result = Lists.newArrayListWithCapacity(src.size());
 
-        for (OrderByElement element: src) {
+        for (OrderByElement element : src) {
             result.add(new OrderByElement(element.getExpr().substitute(smap, analyzer, false),
-                    element.isAsc, element.nullsFirstParam));
+                element.isAsc, element.nullsFirstParam));
         }
 
         return result;
     }
+
     public String toSql() {
         StringBuilder strBuilder = new StringBuilder();
         strBuilder.append(expr.toSql());
@@ -148,9 +154,10 @@ public class OrderByElement {
             return false;
         }
 
-        OrderByElement o = (OrderByElement)obj;
-        return expr.equals(o.expr) && isAsc == o.isAsc  && nullsFirstParam == o.nullsFirstParam;
+        OrderByElement o = (OrderByElement) obj;
+        return expr.equals(o.expr) && isAsc == o.isAsc && nullsFirstParam == o.nullsFirstParam;
     }
+
     /**
      * Compute nullsFirst.
      *
@@ -158,7 +165,7 @@ public class OrderByElement {
      *                        the NULLs order was not specified.
      * @param isAsc
      * @return Returns true if nulls are ordered first or false if nulls are ordered last.
-     *         Independent of isAsc.
+     * Independent of isAsc.
      */
     public static boolean nullsFirst(Boolean nullsFirstParam, boolean isAsc) {
         return nullsFirstParam == null ? !isAsc : nullsFirstParam;

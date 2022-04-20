@@ -29,9 +29,9 @@ import java.util.List;
 public class DeleteInfoProcDir implements ProcNodeInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TableName").add("PartitionName").add("CreateTime").add("DeleteCondition")
-            .add("State")
-            .build();
+        .add("TableName").add("PartitionName").add("CreateTime").add("DeleteCondition")
+        .add("State")
+        .build();
 
     private Load load;
     private DeleteHandler deleteHandler;

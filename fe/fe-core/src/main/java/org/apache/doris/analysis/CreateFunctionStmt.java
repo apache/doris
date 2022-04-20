@@ -239,10 +239,12 @@ public class CreateFunctionStmt extends DdlStmt {
         if (binaryType == TFunctionBinaryType.RPC) {
             throw new AnalysisException("RPC UDAF is not supported.");
         }
-        AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
+        AggregateFunction.AggregateFunctionBuilder builder =
+            AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
 
         builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType()).
-                hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType()).location(URI.create(userFile));
+            hasVarArgs(argsDef.isVariadic()).intermediateType(intermediateType.getType())
+            .location(URI.create(userFile));
         String initFnSymbol = properties.get(INIT_KEY);
         if (initFnSymbol == null) {
             throw new AnalysisException("No 'init_fn' in properties");
@@ -256,10 +258,10 @@ public class CreateFunctionStmt extends DdlStmt {
             throw new AnalysisException("No 'merge_fn' in properties");
         }
         function = builder.initFnSymbol(initFnSymbol)
-                .updateFnSymbol(updateFnSymbol).mergeFnSymbol(mergeFnSymbol)
-                .serializeFnSymbol(properties.get(SERIALIZE_KEY)).finalizeFnSymbol(properties.get(FINALIZE_KEY))
-                .getValueFnSymbol(properties.get(GET_VALUE_KEY)).removeFnSymbol(properties.get(REMOVE_KEY))
-                .build();
+            .updateFnSymbol(updateFnSymbol).mergeFnSymbol(mergeFnSymbol)
+            .serializeFnSymbol(properties.get(SERIALIZE_KEY)).finalizeFnSymbol(properties.get(FINALIZE_KEY))
+            .getValueFnSymbol(properties.get(GET_VALUE_KEY)).removeFnSymbol(properties.get(REMOVE_KEY))
+            .build();
         function.setChecksum(checksum);
     }
 
@@ -283,10 +285,10 @@ public class CreateFunctionStmt extends DdlStmt {
             String host = url[0];
             int port = Integer.valueOf(url[1]);
             ManagedChannel channel = NettyChannelBuilder.forAddress(host, port)
-                    .flowControlWindow(Config.grpc_max_message_size_bytes)
-                    .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
-                    .enableRetry().maxRetryAttempts(3)
-                    .usePlaintext().build();
+                .flowControlWindow(Config.grpc_max_message_size_bytes)
+                .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
+                .enableRetry().maxRetryAttempts(3)
+                .usePlaintext().build();
             PFunctionServiceGrpc.PFunctionServiceBlockingStub stub = PFunctionServiceGrpc.newBlockingStub(channel);
             FunctionService.PCheckFunctionRequest.Builder builder = FunctionService.PCheckFunctionRequest.newBuilder();
             builder.getFunctionBuilder().setFunctionName(symbol);
@@ -306,9 +308,9 @@ public class CreateFunctionStmt extends DdlStmt {
         }
         URI location = URI.create(userFile);
         function = ScalarFunction.createUdf(binaryType,
-                functionName, argsDef.getArgTypes(),
-                returnType.getType(), argsDef.isVariadic(),
-                location, symbol, prepareFnSymbol, closeFnSymbol);
+            functionName, argsDef.getArgTypes(),
+            returnType.getType(), argsDef.isVariadic(),
+            location, symbol, prepareFnSymbol, closeFnSymbol);
         function.setChecksum(checksum);
     }
 
@@ -328,28 +330,28 @@ public class CreateFunctionStmt extends DdlStmt {
                     eval = m;
                 } else if (EVAL_METHOD_KEY.equals(name)) {
                     throw new AnalysisException(String.format(
-                            "UDF class '%s' has multiple methods with name '%s' ", udfClass.getCanonicalName(),
-                            EVAL_METHOD_KEY));
+                        "UDF class '%s' has multiple methods with name '%s' ", udfClass.getCanonicalName(),
+                        EVAL_METHOD_KEY));
                 }
             }
             if (eval == null) {
                 throw new AnalysisException(String.format(
-                        "No method '%s' in class '%s'!", EVAL_METHOD_KEY, udfClass.getCanonicalName()));
+                    "No method '%s' in class '%s'!", EVAL_METHOD_KEY, udfClass.getCanonicalName()));
             }
             if (Modifier.isStatic(eval.getModifiers())) {
                 throw new AnalysisException(
-                        String.format("Method '%s' in class '%s' should be non-static", eval.getName(),
-                                udfClass.getCanonicalName()));
+                    String.format("Method '%s' in class '%s' should be non-static", eval.getName(),
+                        udfClass.getCanonicalName()));
             }
             if (!Modifier.isPublic(eval.getModifiers())) {
                 throw new AnalysisException(
-                        String.format("Method '%s' in class '%s' should be public", eval.getName(),
-                                udfClass.getCanonicalName()));
+                    String.format("Method '%s' in class '%s' should be public", eval.getName(),
+                        udfClass.getCanonicalName()));
             }
             if (eval.getParameters().length != argsDef.getArgTypes().length) {
                 throw new AnalysisException(
-                        String.format("The number of parameters for method '%s' in class '%s' should be %d",
-                                eval.getName(), udfClass.getCanonicalName(), argsDef.getArgTypes().length));
+                    String.format("The number of parameters for method '%s' in class '%s' should be %d",
+                        eval.getName(), udfClass.getCanonicalName(), argsDef.getArgTypes().length));
             }
 
             checkUdfType(udfClass, eval, returnType.getType(), eval.getReturnType(), "return");
@@ -365,37 +367,37 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     private static final ImmutableMap<PrimitiveType, Set<Class>> PrimitiveTypeToJavaClassType =
-            new ImmutableMap.Builder<PrimitiveType, Set<Class>>()
-                    .put(PrimitiveType.BOOLEAN, Sets.newHashSet(Boolean.class, boolean.class))
-                    .put(PrimitiveType.TINYINT, Sets.newHashSet(Byte.class, byte.class))
-                    .put(PrimitiveType.SMALLINT, Sets.newHashSet(Short.class, short.class))
-                    .put(PrimitiveType.INT, Sets.newHashSet(Integer.class, int.class))
-                    .put(PrimitiveType.FLOAT, Sets.newHashSet(Float.class, float.class))
-                    .put(PrimitiveType.DOUBLE, Sets.newHashSet(Double.class, double.class))
-                    .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
-                    .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
-                    .build();
+        new ImmutableMap.Builder<PrimitiveType, Set<Class>>()
+            .put(PrimitiveType.BOOLEAN, Sets.newHashSet(Boolean.class, boolean.class))
+            .put(PrimitiveType.TINYINT, Sets.newHashSet(Byte.class, byte.class))
+            .put(PrimitiveType.SMALLINT, Sets.newHashSet(Short.class, short.class))
+            .put(PrimitiveType.INT, Sets.newHashSet(Integer.class, int.class))
+            .put(PrimitiveType.FLOAT, Sets.newHashSet(Float.class, float.class))
+            .put(PrimitiveType.DOUBLE, Sets.newHashSet(Double.class, double.class))
+            .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
+            .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
+            .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
+            .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
+            .build();
 
     private void checkUdfType(Class clazz, Method method, Type expType, Class pType, String pname)
-            throws AnalysisException {
+        throws AnalysisException {
         if (!(expType instanceof ScalarType)) {
             throw new AnalysisException(
-                    String.format("Method '%s' in class '%s' does not support non-scalar type '%s'",
-                            method.getName(), clazz.getCanonicalName(), expType));
+                String.format("Method '%s' in class '%s' does not support non-scalar type '%s'",
+                    method.getName(), clazz.getCanonicalName(), expType));
         }
         ScalarType scalarType = (ScalarType) expType;
         Set<Class> javaTypes = PrimitiveTypeToJavaClassType.get(scalarType.getPrimitiveType());
         if (javaTypes == null) {
             throw new AnalysisException(
-                    String.format("Method '%s' in class '%s' does not support type '%s'",
-                            method.getName(), clazz.getCanonicalName(), scalarType));
+                String.format("Method '%s' in class '%s' does not support type '%s'",
+                    method.getName(), clazz.getCanonicalName(), scalarType));
         }
         if (!javaTypes.contains(pType)) {
             throw new AnalysisException(
-                    String.format("UDF class '%s' method '%s' %s[%s] type is not supported!",
-                            clazz.getCanonicalName(), method.getName(), pname, pType.getCanonicalName()));
+                String.format("UDF class '%s' method '%s' %s[%s] type is not supported!",
+                    clazz.getCanonicalName(), method.getName(), pname, pType.getCanonicalName()));
         }
     }
 
@@ -445,9 +447,9 @@ public class CreateFunctionStmt extends DdlStmt {
                 break;
             case DECIMALV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DECIMAL128)
-                        .getDecimalTypeBuilder()
-                        .setPrecision(((ScalarType) arg).getScalarPrecision())
-                        .setScale(((ScalarType) arg).getScalarScale());
+                    .getDecimalTypeBuilder()
+                    .setPrecision(((ScalarType) arg).getScalarPrecision())
+                    .setScale(((ScalarType) arg).getScalarScale());
                 break;
             case LARGEINT:
                 typeBuilder.setId(Types.PGenericType.TypeId.INT128);
@@ -470,7 +472,7 @@ public class CreateFunctionStmt extends DdlStmt {
 
     private void analyzeAliasFunction() throws AnalysisException {
         function = AliasFunction.createFunction(functionName, argsDef.getArgTypes(),
-                Type.VARCHAR, argsDef.isVariadic(), parameters, originFunction);
+            Type.VARCHAR, argsDef.isVariadic(), parameters, originFunction);
         ((AliasFunction) function).analyze();
     }
 
@@ -489,9 +491,9 @@ public class CreateFunctionStmt extends DdlStmt {
         stringBuilder.append(argsDef.toSql());
         if (isAlias) {
             stringBuilder.append(" WITH PARAMETER (")
-                    .append(parameters.toString())
-                    .append(") AS ")
-                    .append(originFunction.toSql());
+                .append(parameters.toString())
+                .append(") AS ")
+                .append(originFunction.toSql());
         } else {
             stringBuilder.append(" RETURNS ");
             stringBuilder.append(returnType.toString());

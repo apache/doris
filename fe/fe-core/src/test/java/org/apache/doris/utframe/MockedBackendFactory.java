@@ -67,11 +67,11 @@ import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.thrift.TException;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+
+import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.util.List;
@@ -82,8 +82,8 @@ import io.grpc.stub.StreamObserver;
 /*
  * This class is used to create mock backends.
  * Usage can be found in Demon.java's beforeClass()
- * 
- * 
+ *
+ *
  */
 public class MockedBackendFactory {
 
@@ -94,12 +94,13 @@ public class MockedBackendFactory {
     public static final int BE_DEFAULT_HTTP_PORT = 8040;
 
     // create a mocked backend with customize parameters
-    public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort, int httpPort,
-            HeartbeatService.Iface hbService, BeThriftService beThriftService,
+    public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort,
+                                              int httpPort,
+                                              HeartbeatService.Iface hbService, BeThriftService beThriftService,
                                               PBackendServiceGrpc.PBackendServiceImplBase pBackendService)
-            throws IOException {
+        throws IOException {
         MockedBackend backend = new MockedBackend(host, heartbeatPort, thriftPort, brpcPort, httpPort, hbService,
-                beThriftService, pBackendService);
+            beThriftService, pBackendService);
         return backend;
     }
 
@@ -124,7 +125,7 @@ public class MockedBackendFactory {
             return result;
         }
     }
-    
+
     // abstract BeThriftService.
     // User can extends this abstract class to create other custom be thrift service
     public static abstract class BeThriftService implements BackendService.Iface {
@@ -159,9 +160,9 @@ public class MockedBackendFactory {
                         try {
                             TAgentTaskRequest request = taskQueue.take();
                             System.out.println("get agent task request. type: " + request.getTaskType()
-                                    + ", signature: " + request.getSignature() + ", fe addr: " + backend.getFeAddress());
+                                + ", signature: " + request.getSignature() + ", fe addr: " + backend.getFeAddress());
                             TFinishTaskRequest finishTaskRequest = new TFinishTaskRequest(tBackend,
-                                    request.getTaskType(), request.getSignature(), new TStatus(TStatusCode.OK));
+                                request.getTaskType(), request.getSignature(), new TStatus(TStatusCode.OK));
                             TTaskType taskType = request.getTaskType();
                             switch (taskType) {
                                 case CREATE:
@@ -177,7 +178,8 @@ public class MockedBackendFactory {
                             }
                             finishTaskRequest.setReportVersion(reportVersion);
 
-                            FrontendService.Client client = ClientPool.frontendPool.borrowObject(backend.getFeAddress(), 2000);
+                            FrontendService.Client client =
+                                ClientPool.frontendPool.borrowObject(backend.getFeAddress(), 2000);
                             System.out.println("get fe " + backend.getFeAddress() + " client: " + client);
                             client.finishTask(finishTaskRequest);
                         } catch (Exception e) {
@@ -190,7 +192,7 @@ public class MockedBackendFactory {
                     TCloneReq req = request.getCloneReq();
                     List<TTabletInfo> tabletInfos = Lists.newArrayList();
                     TTabletInfo tabletInfo = new TTabletInfo(req.tablet_id, req.schema_hash, req.committed_version,
-                            req.committed_version_hash, 1, 1);
+                        req.committed_version_hash, 1, 1);
                     tabletInfo.setStorageMedium(req.storage_medium);
                     tabletInfo.setPathHash(req.dest_path_hash);
                     tabletInfo.setUsed(true);
@@ -225,7 +227,7 @@ public class MockedBackendFactory {
             for (TAgentTaskRequest request : tasks) {
                 taskQueue.add(request);
                 System.out.println("receive agent task request. type: " + request.getTaskType() + ", signature: "
-                        + request.getSignature());
+                    + request.getSignature());
             }
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
@@ -277,7 +279,7 @@ public class MockedBackendFactory {
 
         @Override
         public long getTrashUsedCapacity() throws TException {
-            return  0l;
+            return 0L;
         }
 
         @Override
@@ -323,83 +325,94 @@ public class MockedBackendFactory {
 
     // The default Brpc service.
     public static class DefaultPBackendServiceImpl extends PBackendServiceGrpc.PBackendServiceImplBase {
-       @Override
-        public void transmitData(InternalService.PTransmitDataParams request, StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
-           responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
-                   .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
-           responseObserver.onCompleted();
+        @Override
+        public void transmitData(InternalService.PTransmitDataParams request,
+                                 StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
+            responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
+                .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onCompleted();
         }
 
         @Override
-        public void execPlanFragment(InternalService.PExecPlanFragmentRequest request, StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
+        public void execPlanFragment(InternalService.PExecPlanFragmentRequest request,
+                                     StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
             System.out.println("get exec_plan_fragment request");
             responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+                .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
         }
 
         @Override
-        public void cancelPlanFragment(InternalService.PCancelPlanFragmentRequest request, StreamObserver<InternalService.PCancelPlanFragmentResult> responseObserver) {
+        public void cancelPlanFragment(InternalService.PCancelPlanFragmentRequest request,
+                                       StreamObserver<InternalService.PCancelPlanFragmentResult> responseObserver) {
             System.out.println("get cancel_plan_fragment request");
             responseObserver.onNext(InternalService.PCancelPlanFragmentResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+                .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
         }
 
         @Override
-        public void fetchData(InternalService.PFetchDataRequest request, StreamObserver<InternalService.PFetchDataResult> responseObserver) {
+        public void fetchData(InternalService.PFetchDataRequest request,
+                              StreamObserver<InternalService.PFetchDataResult> responseObserver) {
             System.out.println("get fetch_data request");
             responseObserver.onNext(InternalService.PFetchDataResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0))
-                    .setQueryStatistics(Data.PQueryStatistics.newBuilder()
-                            .setScanRows(0L)
-                            .setScanBytes(0L))
-                    .setEos(true)
-                    .setPacketSeq(0L)
-                    .build());
+                .setStatus(Types.PStatus.newBuilder().setStatusCode(0))
+                .setQueryStatistics(Data.PQueryStatistics.newBuilder()
+                    .setScanRows(0L)
+                    .setScanBytes(0L))
+                .setEos(true)
+                .setPacketSeq(0L)
+                .build());
             responseObserver.onCompleted();
         }
 
         @Override
-        public void tabletWriterOpen(InternalService.PTabletWriterOpenRequest request, StreamObserver<InternalService.PTabletWriterOpenResult> responseObserver) {
+        public void tabletWriterOpen(InternalService.PTabletWriterOpenRequest request,
+                                     StreamObserver<InternalService.PTabletWriterOpenResult> responseObserver) {
             responseObserver.onNext(null);
             responseObserver.onCompleted();
         }
 
         @Override
-        public void tabletWriterAddBatch(InternalService.PTabletWriterAddBatchRequest request, StreamObserver<InternalService.PTabletWriterAddBatchResult> responseObserver) {
+        public void tabletWriterAddBatch(InternalService.PTabletWriterAddBatchRequest request,
+                                         StreamObserver<InternalService.PTabletWriterAddBatchResult> responseObserver) {
             responseObserver.onNext(null);
             responseObserver.onCompleted();
         }
 
         @Override
-        public void tabletWriterCancel(InternalService.PTabletWriterCancelRequest request, StreamObserver<InternalService.PTabletWriterCancelResult> responseObserver) {
+        public void tabletWriterCancel(InternalService.PTabletWriterCancelRequest request,
+                                       StreamObserver<InternalService.PTabletWriterCancelResult> responseObserver) {
             responseObserver.onNext(null);
             responseObserver.onCompleted();
         }
 
         @Override
-        public void getInfo(InternalService.PProxyRequest request, StreamObserver<InternalService.PProxyResult> responseObserver) {
+        public void getInfo(InternalService.PProxyRequest request,
+                            StreamObserver<InternalService.PProxyResult> responseObserver) {
             System.out.println("get get_info request");
             responseObserver.onNext(InternalService.PProxyResult.newBuilder()
-                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+                .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
         }
 
         @Override
-        public void updateCache(InternalService.PUpdateCacheRequest request, StreamObserver<InternalService.PCacheResponse> responseObserver) {
+        public void updateCache(InternalService.PUpdateCacheRequest request,
+                                StreamObserver<InternalService.PCacheResponse> responseObserver) {
             responseObserver.onNext(null);
             responseObserver.onCompleted();
         }
 
         @Override
-        public void fetchCache(InternalService.PFetchCacheRequest request, StreamObserver<InternalService.PFetchCacheResult> responseObserver) {
+        public void fetchCache(InternalService.PFetchCacheRequest request,
+                               StreamObserver<InternalService.PFetchCacheResult> responseObserver) {
             responseObserver.onNext(null);
             responseObserver.onCompleted();
         }
 
         @Override
-        public void clearCache(InternalService.PClearCacheRequest request, StreamObserver<InternalService.PCacheResponse> responseObserver) {
+        public void clearCache(InternalService.PClearCacheRequest request,
+                               StreamObserver<InternalService.PCacheResponse> responseObserver) {
             responseObserver.onNext(null);
             responseObserver.onCompleted();
         }

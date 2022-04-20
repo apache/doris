@@ -28,9 +28,9 @@ import java.util.List;
 public class LoadJobProcNode implements ProcNodeInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("TabletId").add("ReplicaId").add("Version")
-            .add("PartitionId").add("LoadVersion")
-            .build();
+        .add("BackendId").add("TabletId").add("ReplicaId").add("Version")
+        .add("PartitionId").add("LoadVersion")
+        .build();
 
     private Load load;
     private long jobId;

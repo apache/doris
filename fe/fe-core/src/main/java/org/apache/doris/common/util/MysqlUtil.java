@@ -45,11 +45,11 @@ public class MysqlUtil {
     private static String buildMysqlUrl(String host, int port, String db) {
         StringBuilder builder = new StringBuilder();
         builder.append(MYSQL_URL_PREFIX)
-                .append(host).append(":")
-                .append(port).append("/")
-                .append(db).append("?")
-                .append("connectTimeout=").append(CONNECT_TIMEOUT_MS)
-                .append("&").append("socketTimeout=").append(SOCKET_TIMEOUT_MS);
+            .append(host).append(":")
+            .append(port).append("/")
+            .append(db).append("?")
+            .append("connectTimeout=").append(CONNECT_TIMEOUT_MS)
+            .append("&").append("socketTimeout=").append(SOCKET_TIMEOUT_MS);
 
         return builder.toString();
     }
@@ -62,7 +62,7 @@ public class MysqlUtil {
             conn = DriverManager.getConnection(url, user, passwd);
         } catch (SQLException e) {
             LOG.warn("fail to get connection to mysql. url={}, user={}, passwd={}, exception={}",
-                    url, user, passwd, e.getMessage());
+                url, user, passwd, e.getMessage());
             return null;
         }
         return conn;

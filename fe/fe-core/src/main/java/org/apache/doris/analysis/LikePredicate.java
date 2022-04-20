@@ -55,17 +55,17 @@ public class LikePredicate extends Predicate {
 
     public static void initBuiltins(FunctionSet functionSet) {
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
-                Operator.LIKE.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                false,
-                "_ZN5doris13LikePredicate4likeEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
-                "_ZN5doris13LikePredicate12like_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
-                "_ZN5doris13LikePredicate10like_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
+            Operator.LIKE.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
+            false,
+            "_ZN5doris13LikePredicate4likeEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
+            "_ZN5doris13LikePredicate12like_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
+            "_ZN5doris13LikePredicate10like_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
-                Operator.REGEXP.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                false,
-                "_ZN5doris13LikePredicate5regexEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
-                "_ZN5doris13LikePredicate13regex_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
-                "_ZN5doris13LikePredicate11regex_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
+            Operator.REGEXP.name(), Type.BOOLEAN, Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
+            false,
+            "_ZN5doris13LikePredicate5regexEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
+            "_ZN5doris13LikePredicate13regex_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE",
+            "_ZN5doris13LikePredicate11regex_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE", true));
     }
 
     private final Operator op;
@@ -118,7 +118,7 @@ public class LikePredicate extends Predicate {
         super.analyzeImpl(analyzer);
         if (getChild(0).getType().isObjectStored()) {
             throw new AnalysisException(
-                    "left operand of " + op.toString() + " must not be Bitmap or HLL: " + toSql());
+                "left operand of " + op.toString() + " must not be Bitmap or HLL: " + toSql());
         }
         if (!getChild(1).getType().isStringType() && !getChild(1).getType().isNull()) {
             throw new AnalysisException("right operand of " + op.toString() + " must be of type STRING: " + toSql());
@@ -129,7 +129,7 @@ public class LikePredicate extends Predicate {
         }
 
         fn = getBuiltinFunction(analyzer, op.toString(),
-                collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
 
         if (!getChild(1).getType().isNull() && getChild(1).isLiteral() && (op == Operator.REGEXP)) {
             // let's make sure the pattern works

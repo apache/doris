@@ -87,7 +87,8 @@ public class UserIdentity implements Writable {
     }
 
     public static UserIdentity fromThrift(TUserIdentity tUserIdent) {
-        UserIdentity userIdentity = new UserIdentity(tUserIdent.getUsername(), tUserIdent.getHost(), tUserIdent.is_domain);
+        UserIdentity userIdentity =
+            new UserIdentity(tUserIdent.getUsername(), tUserIdent.getHost(), tUserIdent.is_domain);
         userIdentity.setIsAnalyzed();
         return userIdentity;
     }
@@ -153,12 +154,12 @@ public class UserIdentity implements Writable {
         String host = parts[1];
         if (host.startsWith("['") && host.endsWith("']")) {
             UserIdentity userIdent = new UserIdentity(user.substring(1, user.length() - 1),
-                    host.substring(2, host.length() - 2), true);
+                host.substring(2, host.length() - 2), true);
             userIdent.setIsAnalyzed();
             return userIdent;
         } else if (host.startsWith("'") && host.endsWith("'")) {
             UserIdentity userIdent = new UserIdentity(user.substring(1, user.length() - 1),
-                    host.substring(1, host.length() - 1));
+                host.substring(1, host.length() - 1));
             userIdent.setIsAnalyzed();
             return userIdent;
         }

@@ -24,6 +24,13 @@ import org.apache.log4j.Logger;
 import org.codehaus.jackson.JsonFactory;
 import org.codehaus.jackson.JsonGenerator;
 
+import java.io.IOException;
+import java.io.StringWriter;
+import java.lang.management.ManagementFactory;
+import java.lang.reflect.Array;
+import java.util.Iterator;
+import java.util.Set;
+
 import javax.management.AttributeNotFoundException;
 import javax.management.InstanceNotFoundException;
 import javax.management.IntrospectionException;
@@ -38,12 +45,6 @@ import javax.management.RuntimeMBeanException;
 import javax.management.openmbean.CompositeData;
 import javax.management.openmbean.CompositeType;
 import javax.management.openmbean.TabularData;
-import java.io.IOException;
-import java.io.StringWriter;
-import java.lang.management.ManagementFactory;
-import java.lang.reflect.Array;
-import java.util.Iterator;
-import java.util.Set;
 
 /**
  * Utility class that returns a JSON representation of the JMX beans.
@@ -73,7 +74,7 @@ import java.util.Set;
 public class JMXJsonUtil {
     // MBean server instance
     protected static transient MBeanServer mBeanServer =
-            ManagementFactory.getPlatformMBeanServer();
+        ManagementFactory.getPlatformMBeanServer();
 
     private static final Logger LOG = Logger.getLogger(JMXJsonUtil.class);
 
@@ -134,24 +135,24 @@ public class JMXJsonUtil {
                     // If the modelerType attribute was not found, the class name is used
                     // instead.
                     LOG.error("getting attribute " + prs + " of " + oname
-                            + " threw an exception", e);
+                        + " threw an exception", e);
                 } catch (MBeanException e) {
                     // The code inside the attribute getter threw an exception so log it,
                     // and fall back on the class name
                     LOG.error("getting attribute " + prs + " of " + oname
-                            + " threw an exception", e);
+                        + " threw an exception", e);
                 } catch (RuntimeException e) {
                     // For some reason even with an MBeanException available to them
                     // Runtime exceptionscan still find their way through, so treat them
                     // the same as MBeanException
                     LOG.error("getting attribute " + prs + " of " + oname
-                            + " threw an exception", e);
+                        + " threw an exception", e);
                 } catch (ReflectionException e) {
                     // This happens when the code inside the JMX bean (setter?? from the
                     // java docs) threw an exception, so log it and fall back on the
                     // class name
                     LOG.error("getting attribute " + prs + " of " + oname
-                            + " threw an exception", e);
+                        + " threw an exception", e);
                 }
             } catch (InstanceNotFoundException e) {
                 //Ignored for some reason the bean was not found so don't output it
@@ -165,7 +166,7 @@ public class JMXJsonUtil {
             jg.writeStartObject();
             jg.writeStringField("name", oname.toString());
             jg.writeStringField("modelerType", code);
-            MBeanAttributeInfo attrs[] = minfo.getAttributes();
+            MBeanAttributeInfo[] attrs = minfo.getAttributes();
             for (int i = 0; i < attrs.length; i++) {
                 writeAttribute(jg, oname, attrs[i]);
             }
@@ -185,7 +186,7 @@ public class JMXJsonUtil {
             return;
         }
         if (attName.indexOf("=") >= 0 || attName.indexOf(":") >= 0
-                || attName.indexOf(" ") >= 0) {
+            || attName.indexOf(" ") >= 0) {
             return;
         }
         Object value = null;
@@ -235,7 +236,7 @@ public class JMXJsonUtil {
     }
 
     private static void writeAttribute(JsonGenerator jg, String attName, Object value)
-            throws IOException {
+        throws IOException {
         jg.writeFieldName(attName);
         writeObject(jg, value);
     }

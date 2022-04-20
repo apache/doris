@@ -29,11 +29,11 @@ import com.google.common.collect.ImmutableList;
 
 public class ShowSnapshotStmt extends ShowStmt {
     public static final ImmutableList<String> SNAPSHOT_ALL = new ImmutableList.Builder<String>()
-            .add("Snapshot").add("Timestamp").add("Status")
-            .build();
+        .add("Snapshot").add("Timestamp").add("Status")
+        .build();
     public static final ImmutableList<String> SNAPSHOT_DETAIL = new ImmutableList.Builder<String>()
-            .add("Snapshot").add("Timestamp").add("Database").add("Details").add("Status")
-            .build();
+        .add("Snapshot").add("Timestamp").add("Database").add("Details").add("Status")
+        .build();
 
     private String repoName;
     private Expr where;
@@ -53,7 +53,8 @@ public class ShowSnapshotStmt extends ShowStmt {
         if (where != null) {
             // eg: WHERE snapshot="snapshot_label" [and timestamp="2018-04-19-11-11:11"];
             boolean ok = true;
-            CHECK: {
+            CHECK:
+            {
                 if (where instanceof BinaryPredicate) {
                     if (!analyzeSubExpr((BinaryPredicate) where)) {
                         ok = false;
@@ -67,13 +68,13 @@ public class ShowSnapshotStmt extends ShowStmt {
                     }
 
                     if (!(cp.getChild(0) instanceof BinaryPredicate)
-                            || !(cp.getChild(1) instanceof BinaryPredicate)) {
+                        || !(cp.getChild(1) instanceof BinaryPredicate)) {
                         ok = false;
                         break CHECK;
                     }
 
                     if (!analyzeSubExpr((BinaryPredicate) cp.getChild(0))
-                            || !analyzeSubExpr((BinaryPredicate) cp.getChild(1))) {
+                        || !analyzeSubExpr((BinaryPredicate) cp.getChild(1))) {
                         ok = false;
                         break CHECK;
                     }
@@ -87,7 +88,7 @@ public class ShowSnapshotStmt extends ShowStmt {
 
             if (!ok) {
                 throw new AnalysisException("Where clause should looks like: SNAPSHOT = 'your_snapshot_name'"
-                        + " [AND TIMESTAMP = '2018-04-18-19-19-10']");
+                    + " [AND TIMESTAMP = '2018-04-18-19-19-10']");
             }
         }
     }
@@ -119,7 +120,7 @@ public class ShowSnapshotStmt extends ShowStmt {
         }
 
         return false;
-       
+
     }
 
     public String getRepoName() {

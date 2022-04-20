@@ -45,9 +45,6 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionState;
 
-import com.alibaba.otter.canal.common.CanalException;
-import com.alibaba.otter.canal.protocol.CanalEntry;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -60,6 +57,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
+
+import com.alibaba.otter.canal.common.CanalException;
+import com.alibaba.otter.canal.protocol.CanalEntry;
 
 public class CanalSyncChannel extends SyncChannel {
     private static final Logger LOG = LogManager.getLogger(CanalSyncChannel.class);
@@ -76,7 +76,8 @@ public class CanalSyncChannel extends SyncChannel {
     private Data<InternalService.PDataRow> batchBuffer;
     private InsertStreamTxnExecutor txnExecutor;
 
-    public CanalSyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns, String srcDataBase, String srcTable) {
+    public CanalSyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns,
+                            String srcDataBase, String srcTable) {
         super(id, syncJob, db, table, columns, srcDataBase, srcTable);
         this.index = SyncTaskPool.getNextIndex();
         this.batchBuffer = new Data<>();
@@ -88,7 +89,8 @@ public class CanalSyncChannel extends SyncChannel {
         private final InsertStreamTxnExecutor executor;
         private final Data<InternalService.PDataRow> rows;
 
-        public SendTask(long signature, int index, SyncChannelCallback callback, Data<InternalService.PDataRow> rows, InsertStreamTxnExecutor executor) {
+        public SendTask(long signature, int index, SyncChannelCallback callback, Data<InternalService.PDataRow> rows,
+                        InsertStreamTxnExecutor executor) {
             super(signature, index, callback);
             this.executor = executor;
             this.rows = rows;
@@ -114,11 +116,11 @@ public class CanalSyncChannel extends SyncChannel {
 
     @Override
     public void beginTxn(long batchId) throws UserException, TException, TimeoutException,
-            InterruptedException, ExecutionException {
+        InterruptedException, ExecutionException {
         if (!isTxnBegin()) {
             long currentTime = System.currentTimeMillis();
-            String label = "label_job" + + jobId + "_channel" + id + "_db" + db.getId() + "_tbl" + tbl.getId()
-                    + "_batch" + batchId + "_" + currentTime;
+            String label = "label_job" + +jobId + "_channel" + id + "_db" + db.getId() + "_tbl" + tbl.getId()
+                + "_batch" + batchId + "_" + currentTime;
             String targetColumn = Joiner.on(",").join(columns) + "," + DELETE_COLUMN;
             GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
             TransactionEntry txnEntry = txnExecutor.getTxnEntry();
@@ -127,25 +129,27 @@ public class CanalSyncChannel extends SyncChannel {
             TStreamLoadPutRequest request = null;
             try {
                 long txnId = globalTransactionMgr.beginTransaction(db.getId(), Lists.newArrayList(tbl.getId()), label,
-                        new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()), sourceType, timeoutSecond);
+                    new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE,
+                        FrontendOptions.getLocalHostAddress()), sourceType, timeoutSecond);
                 String authCodeUuid = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(
-                        db.getId(), txnId).getAuthCode();
+                    db.getId(), txnId).getAuthCode();
                 request = new TStreamLoadPutRequest()
-                        .setTxnId(txnId).setDb(txnConf.getDb()).setTbl(txnConf.getTbl())
-                        .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
-                        .setThriftRpcTimeoutMs(5000).setLoadId(txnExecutor.getLoadId())
-                        .setMergeType(TMergeType.MERGE).setDeleteCondition(DELETE_CONDITION)
-                        .setColumns(targetColumn);
+                    .setTxnId(txnId).setDb(txnConf.getDb()).setTbl(txnConf.getTbl())
+                    .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
+                    .setThriftRpcTimeoutMs(5000).setLoadId(txnExecutor.getLoadId())
+                    .setMergeType(TMergeType.MERGE).setDeleteCondition(DELETE_CONDITION)
+                    .setColumns(targetColumn);
                 txnConf.setTxnId(txnId).setAuthCodeUuid(authCodeUuid);
                 txnEntry.setLabel(label);
                 txnExecutor.setTxnId(txnId);
             } catch (DuplicatedRequestException e) {
                 LOG.warn("duplicate request for sync channel. channel: {}, request id: {}, txn: {}, table: {}",
-                        id, e.getDuplicatedRequestId(), e.getTxnId(), targetTable);
+                    id, e.getDuplicatedRequestId(), e.getTxnId(), targetTable);
                 txnExecutor.setTxnId(e.getTxnId());
             } catch (LabelAlreadyUsedException e) {
                 // this happens when channel re-consume same batch, we should just pass through it without begin a new txn
-                LOG.warn("Label already used in channel {}, label: {}, table: {}, batch: {}", id, label, targetTable, batchId);
+                LOG.warn("Label already used in channel {}, label: {}, table: {}, batch: {}", id, label, targetTable,
+                    batchId);
                 return;
             } catch (AnalysisException | BeginTransactionException e) {
                 LOG.warn("encounter an error when beginning txn in channel {}, table: {}", id, targetTable);
@@ -159,14 +163,16 @@ public class CanalSyncChannel extends SyncChannel {
                 long txnId = txnExecutor.getTxnId();
                 if (txnId != -1L) {
                     this.txnExecutor.beginTransaction(request);
-                    LOG.info("begin txn in channel {}, table: {}, label:{}, txn id: {}", id, targetTable, label, txnExecutor.getTxnId());
+                    LOG.info("begin txn in channel {}, table: {}, label:{}, txn id: {}", id, targetTable, label,
+                        txnExecutor.getTxnId());
                 }
             } catch (TException e) {
-                LOG.warn("Failed to begin txn in channel {}, table: {}, txn: {}, msg:{}", id, targetTable, txnExecutor.getTxnId(), e.getMessage());
+                LOG.warn("Failed to begin txn in channel {}, table: {}, txn: {}, msg:{}", id, targetTable,
+                    txnExecutor.getTxnId(), e.getMessage());
                 throw e;
             } catch (TimeoutException | InterruptedException | ExecutionException e) {
                 LOG.warn("Error occur while waiting begin txn response in channel {}, table: {}, txn: {}, msg:{}",
-                        id, targetTable, txnExecutor.getTxnId(), e.getMessage());
+                    id, targetTable, txnExecutor.getTxnId(), e.getMessage());
                 throw e;
             }
         }
@@ -181,15 +187,16 @@ public class CanalSyncChannel extends SyncChannel {
         try {
             this.txnExecutor.abortTransaction();
             LOG.info("abort txn in channel {}, table: {}, txn id: {}, last batch: {}, reason: {}",
-                    id, targetTable, txnExecutor.getTxnId(), lastBatchId, reason);
+                id, targetTable, txnExecutor.getTxnId(), lastBatchId, reason);
         } catch (TException e) {
-            LOG.warn("Failed to abort txn in channel {}, table: {}, txn: {}, msg:{}", id, targetTable, txnExecutor.getTxnId(), e.getMessage());
+            LOG.warn("Failed to abort txn in channel {}, table: {}, txn: {}, msg:{}", id, targetTable,
+                txnExecutor.getTxnId(), e.getMessage());
             throw e;
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             LOG.warn("Error occur while waiting abort txn response in channel {}, table: {}, txn: {}, msg:{}",
-                    id, targetTable, txnExecutor.getTxnId(), e.getMessage());
+                id, targetTable, txnExecutor.getTxnId(), e.getMessage());
             throw e;
-        }  finally {
+        } finally {
             this.batchBuffer = new Data<>();
             updateBatchId(-1L);
         }
@@ -205,13 +212,14 @@ public class CanalSyncChannel extends SyncChannel {
             flushData();
             this.txnExecutor.commitTransaction();
             LOG.info("commit txn in channel {}, table: {}, txn id: {}, last batch: {}",
-                    id, targetTable, txnExecutor.getTxnId(), lastBatchId);
+                id, targetTable, txnExecutor.getTxnId(), lastBatchId);
         } catch (TException e) {
-            LOG.warn("Failed to commit txn in channel {}, table: {}, txn: {}, msg:{}", id, targetTable, txnExecutor.getTxnId(), e.getMessage());
+            LOG.warn("Failed to commit txn in channel {}, table: {}, txn: {}, msg:{}", id, targetTable,
+                txnExecutor.getTxnId(), e.getMessage());
             throw e;
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             LOG.warn("Error occur while waiting commit txn return in channel {}, table: {}, txn: {}, msg:{}",
-                    id, targetTable, txnExecutor.getTxnId(), e.getMessage());
+                id, targetTable, txnExecutor.getTxnId(), e.getMessage());
             throw e;
         } finally {
             this.batchBuffer = new Data<>();
@@ -226,7 +234,7 @@ public class CanalSyncChannel extends SyncChannel {
             TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             this.timeoutSecond = timeoutSecond;
             TTxnParams txnConf = new TTxnParams().setNeedTxn(true).setThriftRpcTimeoutMs(5000)
-                    .setTxnId(-1).setDb(db.getFullName()).setTbl(tbl.getName()).setDbId(db.getId());
+                .setTxnId(-1).setDb(db.getFullName()).setTbl(tbl.getName()).setDbId(db.getId());
             this.txnExecutor = new InsertStreamTxnExecutor(new TransactionEntry(txnConf, db, tbl));
             txnExecutor.setTxnId(-1L);
             txnExecutor.setLoadId(loadId);
@@ -254,7 +262,7 @@ public class CanalSyncChannel extends SyncChannel {
                 }
             } catch (Exception e) {
                 String errMsg = "encounter exception when submit in channel " + id + ", table: "
-                        + targetTable + ", batch: " + batchId;
+                    + targetTable + ", batch: " + batchId;
                 LOG.error(errMsg, e);
                 throw new CanalException(errMsg, e);
             }
@@ -306,7 +314,7 @@ public class CanalSyncChannel extends SyncChannel {
     }
 
     public void flushData() throws TException, TimeoutException,
-            InterruptedException, ExecutionException {
+        InterruptedException, ExecutionException {
         if (this.batchBuffer.isNotEmpty()) {
             TransactionEntry txnEntry = txnExecutor.getTxnEntry();
             txnEntry.setDataToSend(batchBuffer.getDatas());

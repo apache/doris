@@ -90,7 +90,7 @@ public class SystemInfoService {
 
         public boolean isMatch(Backend backend) {
             if (scheduleAvailable && !backend.isScheduleAvailable() || queryAvailable && !backend.isQueryAvailable() ||
-                    loadAvailable && !backend.isLoadAvailable()) {
+                loadAvailable && !backend.isLoadAvailable()) {
                 return false;
             }
             return true;
@@ -140,8 +140,8 @@ public class SystemInfoService {
 
     /**
      * @param hostPortPairs : backend's host and port
-     * @param isFree : if true the backend is not owned by any cluster
-     * @param destCluster : if not null or empty backend will be added to destCluster 
+     * @param isFree        : if true the backend is not owned by any cluster
+     * @param destCluster   : if not null or empty backend will be added to destCluster
      * @throws DdlException
      */
     public void addBackends(List<Pair<String, Integer>> hostPortPairs,
@@ -384,8 +384,8 @@ public class SystemInfoService {
     public List<Long> createCluster(String clusterName, int instanceNum) {
         final List<Long> chosenBackendIds = Lists.newArrayList();
         final Map<String, List<Backend>> hostBackendsMap = getHostBackendsMap(true /* need alive*/,
-                true /* need free */,
-                false /* can not be in decommission*/);
+            true /* need free */,
+            false /* can not be in decommission*/);
 
         LOG.info("begin to create cluster {} with instance num: {}", clusterName, instanceNum);
         int availableBackendsCount = 0;
@@ -398,7 +398,7 @@ public class SystemInfoService {
 
         if (instanceNum > availableBackendsCount) {
             LOG.warn("not enough available backends. requires :" + instanceNum
-                    + ", available:" + availableBackendsCount);
+                + ", available:" + availableBackendsCount);
             return null;
         }
 
@@ -418,7 +418,7 @@ public class SystemInfoService {
                 chosenBackendIds.add(hostBackendsList.get(i).remove(0).getId());
             } else {
                 // avoid counting repeatedly
-                if (hostIsEmpty[i] == false) {
+                if (!hostIsEmpty[i]) {
                     hostIsEmpty[i] = true;
                     numOfHost--;
                 }
@@ -516,7 +516,7 @@ public class SystemInfoService {
 
         if (decomBackendIds.size() != shrinkNum) {
             LOG.info("failed to get enough backends to shrink in cluster: {}. required: {}, get: {}",
-                    clusterName, shrinkNum, decomBackendIds.size());
+                clusterName, shrinkNum, decomBackendIds.size());
             return null;
         }
 
@@ -541,8 +541,8 @@ public class SystemInfoService {
         ImmutableMap<Long, Backend> idToBackends = idToBackendRef;
         // host -> backends
         final Map<String, List<Backend>> hostBackendsMap = getHostBackendsMap(true /* need alive*/,
-                true /* need free */,
-                false /* can not be in decommission */);
+            true /* need free */,
+            false /* can not be in decommission */);
         final List<Long> clusterBackends = getClusterBackendIds(clusterName);
 
         // hosts not in cluster
@@ -569,7 +569,7 @@ public class SystemInfoService {
 
         if (expansionNum > availableBackendsCount) {
             LOG.info("not enough available backends. requires :" + expansionNum
-                    + ", available:" + availableBackendsCount);
+                + ", available:" + availableBackendsCount);
             return null;
         }
 
@@ -590,7 +590,7 @@ public class SystemInfoService {
                     chosenBackendIds.add(hostsNotInCluster.get(i).remove(0).getId());
                 } else {
                     // avoid counting repeatedly
-                    if (hostIsEmpty[i] == false) {
+                    if (!hostIsEmpty[i]) {
                         hostIsEmpty[i] = true;
                         numOfHost--;
                     }
@@ -612,7 +612,7 @@ public class SystemInfoService {
                 if (hostsInCluster.get(i).size() > 0) {
                     chosenBackendIds.add(hostsInCluster.get(i).remove(0).getId());
                 } else {
-                    if (hostIsEmpty[i] == false) {
+                    if (!hostIsEmpty[i]) {
                         hostIsEmpty[i] = true;
                         numOfHost--;
                     }
@@ -625,7 +625,7 @@ public class SystemInfoService {
 
         if (chosenBackendIds.size() != expansionNum) {
             LOG.info("not enough available backends. requires :" + expansionNum
-                    + ", get:" + chosenBackendIds.size());
+                + ", get:" + chosenBackendIds.size());
             return null;
         }
 
@@ -680,7 +680,7 @@ public class SystemInfoService {
         if (needAlive) {
             for (Backend backend : copiedBackends.values()) {
                 if (backend != null && name.equals(backend.getOwnerClusterName())
-                        && backend.isAlive()) {
+                    && backend.isAlive()) {
                     ret.add(backend);
                 }
             }
@@ -734,7 +734,7 @@ public class SystemInfoService {
         if (needAlive) {
             for (Backend backend : copiedBackends.values()) {
                 if (backend != null && clusterName.equals(backend.getOwnerClusterName())
-                        && backend.isAlive()) {
+                    && backend.isAlive()) {
                     ret.add(backend.getId());
                 }
             }
@@ -762,7 +762,7 @@ public class SystemInfoService {
         // to select backend where state is free
         for (Backend backend : copiedBackends.values()) {
             if ((needAlive && !backend.isAlive()) || (needFree && !backend.isFreeFromCluster())
-                    || (!canBeDecommission && backend.isDecommissioned())) {
+                || (!canBeDecommission && backend.isDecommissioned())) {
                 continue;
             }
             if (classMap.containsKey(backend.getHost())) {
@@ -781,19 +781,20 @@ public class SystemInfoService {
 
     // Find enough backend to allocate replica of a tablet.
     // filters include: tag, cluster, storage medium
-    public Map<Tag, List<Long>> chooseBackendIdByFilters(ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium storageMedium)
-            throws DdlException {
+    public Map<Tag, List<Long>> chooseBackendIdByFilters(ReplicaAllocation replicaAlloc, String clusterName,
+                                                         TStorageMedium storageMedium)
+        throws DdlException {
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
         BeAvailablePredicate beAvailablePredicate = new BeAvailablePredicate(true, false, false);
         for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
             List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(entry.getValue(),
-                    beAvailablePredicate, true, clusterName, storageMedium, entry.getKey());
+                beAvailablePredicate, true, clusterName, storageMedium, entry.getKey());
             if (beIds == null) {
                 throw new DdlException("Failed to find enough host with storage medium and tag("
-                        + (storageMedium == null ? "NaN" : storageMedium) + "/" + entry.getKey()
-                        + ") in all backends. need: " + entry.getValue());
+                    + (storageMedium == null ? "NaN" : storageMedium) + "/" + entry.getKey()
+                    + ") in all backends. need: " + entry.getValue());
             }
             chosenBackendIds.put(entry.getKey(), beIds);
             totalReplicaNum += beIds.size();
@@ -802,7 +803,8 @@ public class SystemInfoService {
         return chosenBackendIds;
     }
 
-    public List<Long> seqChooseBackendIdsByStorageMediumAndTag(int backendNum, BeAvailablePredicate beAvailablePredicate,
+    public List<Long> seqChooseBackendIdsByStorageMediumAndTag(int backendNum,
+                                                               BeAvailablePredicate beAvailablePredicate,
                                                                boolean isCreate, String clusterName,
                                                                TStorageMedium storageMedium, Tag tag) {
         Stream<Backend> beStream = getClusterBackends(clusterName).stream();
@@ -991,7 +993,8 @@ public class SystemInfoService {
                 return;
             }
             atomicLong.set(newReportVersion);
-            LOG.debug("update backend {} report version: {}, db: {}, table: {}", backendId, newReportVersion, dbId, tableId);
+            LOG.debug("update backend {} report version: {}, db: {}, table: {}", backendId, newReportVersion, dbId,
+                tableId);
         }
     }
 
@@ -1212,7 +1215,7 @@ public class SystemInfoService {
                 DiskInfo diskInfo = pathHashToDiskInfo.get(pathHash);
                 if (diskInfo != null && diskInfo.exceedLimit(floodStage)) {
                     return new Status(TStatusCode.CANCELLED,
-                            "disk " + pathHash + " on backend " + beId + " exceed limit usage");
+                        "disk " + pathHash + " on backend " + beId + " exceed limit usage");
                 }
             }
         }
@@ -1289,9 +1292,9 @@ public class SystemInfoService {
         List<Backend> backends = getClusterBackends(cluster);
         for (Map.Entry<Tag, Short> entry : replicaAlloc.getAllocMap().entrySet()) {
             if (backends.stream().filter(b -> b.getTag().equals(entry.getKey())).count()
-                    < entry.getValue()) {
+                < entry.getValue()) {
                 throw new DdlException("Failed to find enough host with tag(" + entry.getKey()
-                        + ") in all backends. need: " + entry.getValue());
+                    + ") in all backends. need: " + entry.getValue());
             }
         }
     }

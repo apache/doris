@@ -18,6 +18,7 @@
 package org.apache.doris.load;
 
 import org.apache.doris.common.io.Writable;
+
 import com.google.common.collect.Maps;
 
 import java.io.DataInput;
@@ -34,12 +35,12 @@ public class TableLoadInfo implements Writable {
     public TableLoadInfo() {
         this(new HashMap<Long, PartitionLoadInfo>());
     }
-    
+
     public TableLoadInfo(Map<Long, PartitionLoadInfo> idToPartitionLoadInfo) {
         this.idToPartitionLoadInfo = idToPartitionLoadInfo;
         this.indexIdToSchemaHash = Maps.newHashMap();
     }
-    
+
     public boolean containsIndex(long indexId) {
         if (indexIdToSchemaHash.containsKey(indexId)) {
             return true;
@@ -50,11 +51,11 @@ public class TableLoadInfo implements Writable {
     public Map<Long, PartitionLoadInfo> getIdToPartitionLoadInfo() {
         return idToPartitionLoadInfo;
     }
-    
+
     public PartitionLoadInfo getPartitionLoadInfo(long partitionId) {
         return idToPartitionLoadInfo.get(partitionId);
     }
-    
+
     public void addIndexSchemaHash(long indexId, int schemaHash) {
         indexIdToSchemaHash.put(indexId, schemaHash);
     }
@@ -62,7 +63,7 @@ public class TableLoadInfo implements Writable {
     public void addAllSchemaHash(Map<Long, Integer> m) {
         indexIdToSchemaHash.putAll(m);
     }
-    
+
     public int getIndexSchemaHash(long indexId) {
         if (indexIdToSchemaHash.containsKey(indexId)) {
             return indexIdToSchemaHash.get(indexId);
@@ -78,7 +79,7 @@ public class TableLoadInfo implements Writable {
             out.writeLong(entry.getKey());
             entry.getValue().write(out);
         }
-        
+
         count = indexIdToSchemaHash.size();
         out.writeInt(count);
         for (Entry<Long, Integer> entry : indexIdToSchemaHash.entrySet()) {
@@ -86,7 +87,7 @@ public class TableLoadInfo implements Writable {
             out.writeInt(entry.getValue());
         }
     }
- 
+
     public void readFields(DataInput in) throws IOException {
         int count = in.readInt();
         for (int i = 0; i < count; i++) {
@@ -95,7 +96,7 @@ public class TableLoadInfo implements Writable {
             value.readFields(in);
             idToPartitionLoadInfo.put(key, value);
         }
-        
+
         count = in.readInt();
         for (int i = 0; i < count; i++) {
             long key = in.readLong();
@@ -114,13 +115,13 @@ public class TableLoadInfo implements Writable {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof TableLoadInfo)) {
             return false;
         }
-        
+
         TableLoadInfo tableLoadInfo = (TableLoadInfo) obj;
-        
+
         // check idToPartitionLoadInfo
         if (idToPartitionLoadInfo != tableLoadInfo.idToPartitionLoadInfo) {
             if (idToPartitionLoadInfo.size() != tableLoadInfo.idToPartitionLoadInfo.size()) {
@@ -151,7 +152,7 @@ public class TableLoadInfo implements Writable {
                 }
             }
         }
- 
+
         return true;
     }
 

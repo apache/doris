@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 
 public class ParseUtil {
     private static ImmutableMap<String, Long> validDataVolumnUnitMultiplier =
-            ImmutableMap.<String, Long>builder().put("B", 1L)
+        ImmutableMap.<String, Long>builder().put("B", 1L)
             .put("K", 1024L)
             .put("KB", 1024L)
             .put("M", 1024L * 1024)

@@ -67,7 +67,7 @@ public class SetUserPropertyVar extends SetVar {
             if (matcher.find()) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                        "ADMIN");
+                        "ADMIN");
                 }
                 return;
             }
@@ -77,9 +77,9 @@ public class SetUserPropertyVar extends SetVar {
             Matcher matcher = commPattern.matcher(key);
             if (matcher.find()) {
                 if (!isSelf && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                                                                                      PrivPredicate.ADMIN)) {
+                    PrivPredicate.ADMIN)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                        "GRANT");
+                        "GRANT");
                 }
                 return;
             }

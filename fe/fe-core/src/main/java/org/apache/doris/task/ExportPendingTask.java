@@ -84,7 +84,7 @@ public class ExportPendingTask extends MasterTask {
             return;
         }
     }
-    
+
     private Status makeSnapshots() {
         List<TScanRangeLocations> tabletLocations = job.getTabletLocations();
         if (tabletLocations == null) {
@@ -120,8 +120,8 @@ public class ExportPendingTask extends MasterTask {
                 TAgentResult result = client.makeSnapshot(snapshotRequest);
                 if (result == null || result.getStatus().getStatusCode() != TStatusCode.OK) {
                     String err = "snapshot for tablet " + paloScanRange.getTabletId() + " failed on backend "
-                            + address.toString() + ". reason: "
-                            + (result == null ? "unknown" : result.getStatus().error_msgs);
+                        + address.toString() + ". reason: "
+                        + (result == null ? "unknown" : result.getStatus().error_msgs);
                     LOG.warn("{}, export job: {}", err, job.getId());
                     return new Status(TStatusCode.CANCELLED, err);
                 }

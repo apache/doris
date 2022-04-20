@@ -99,6 +99,7 @@ public class RestoreJobTest {
         public MockBackupHandler(Catalog catalog) {
             super(catalog);
         }
+
         @Override
         public RepositoryMgr getRepoMgr() {
             return repoMgr;
@@ -110,6 +111,7 @@ public class RestoreJobTest {
         public MockRepositoryMgr() {
             super();
         }
+
         @Override
         public Repository getRepo(long repoId) {
             return repo;
@@ -123,7 +125,7 @@ public class RestoreJobTest {
 
     @Injectable
     private Repository repo = new Repository(repoId, "repo", false, "bos://my_repo",
-            BlobStorage.create("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
+        BlobStorage.create("broker", StorageBackend.StorageType.BROKER, Maps.newHashMap()));
 
     private BackupMeta backupMeta;
 
@@ -140,29 +142,30 @@ public class RestoreJobTest {
                 catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
-        
+
                 Catalog.getCurrentCatalogJournalVersion();
                 minTimes = 0;
                 result = FeConstants.meta_version;
-        
+
                 catalog.getNextId();
                 minTimes = 0;
                 result = id.getAndIncrement();
-        
+
                 catalog.getEditLog();
                 minTimes = 0;
                 result = editLog;
-        
+
                 Catalog.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
             }
         };
-        
+
         new Expectations() {
             {
-                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, (SystemInfoService.BeAvailablePredicate) any,
-                        anyBoolean, anyString, (TStorageMedium) any, (Tag) any);
+                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt,
+                    (SystemInfoService.BeAvailablePredicate) any,
+                    anyBoolean, anyString, (TStorageMedium) any, (Tag) any);
                 minTimes = 0;
                 result = new Delegate() {
                     public synchronized List<Long> seqChooseBackendIds(int backendNum, boolean needAlive,
@@ -176,7 +179,7 @@ public class RestoreJobTest {
                 };
             }
         };
-        
+
         new Expectations() {
             {
                 editLog.logBackupJob((BackupJob) any);
@@ -188,7 +191,7 @@ public class RestoreJobTest {
                 };
             }
         };
-        
+
         new Expectations() {
             {
                 repo.upload(anyString, anyString);
@@ -206,7 +209,7 @@ public class RestoreJobTest {
                 };
             }
         };
-        
+
         new MockUp<MarkedCountDownLatch>() {
             @Mock
             boolean await(long timeout, TimeUnit unit) {
@@ -221,38 +224,38 @@ public class RestoreJobTest {
         jobInfo.dbName = CatalogMocker.TEST_DB_NAME;
         jobInfo.name = label;
         jobInfo.success = true;
-        
+
         expectedRestoreTbl = (OlapTable) db.getTableNullable(CatalogMocker.TEST_TBL2_ID);
         BackupOlapTableInfo tblInfo = new BackupOlapTableInfo();
         tblInfo.id = CatalogMocker.TEST_TBL2_ID;
         jobInfo.backupOlapTableObjects.put(CatalogMocker.TEST_TBL2_NAME, tblInfo);
-        
+
         for (Partition partition : expectedRestoreTbl.getPartitions()) {
             BackupPartitionInfo partInfo = new BackupPartitionInfo();
             partInfo.id = partition.getId();
             tblInfo.partitions.put(partition.getName(), partInfo);
-            
+
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 BackupIndexInfo idxInfo = new BackupIndexInfo();
                 idxInfo.id = index.getId();
                 idxInfo.schemaHash = expectedRestoreTbl.getSchemaHashByIndexId(index.getId());
                 partInfo.indexes.put(expectedRestoreTbl.getIndexNameById(index.getId()), idxInfo);
-                
+
                 for (Tablet tablet : index.getTablets()) {
                     List<String> files = Lists.newArrayList(tablet.getId() + ".dat",
-                            tablet.getId()+ ".idx",  tablet.getId()+".hdr");
+                        tablet.getId() + ".idx", tablet.getId() + ".hdr");
                     BackupTabletInfo tabletInfo = new BackupTabletInfo(tablet.getId(), files);
                     idxInfo.sortedTabletInfoList.add(tabletInfo);
                 }
             }
         }
-        
+
         // drop this table, cause we want to try restoring this table
         db.dropTable(expectedRestoreTbl.getName());
 
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
-                jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, catalog, repo.getId());
-        
+            jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, catalog, repo.getId());
+
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
         tbls.add(expectedRestoreTbl);
@@ -292,7 +295,7 @@ public class RestoreJobTest {
             TStatus taskStatus = new TStatus(TStatusCode.OK);
             TBackend tBackend = new TBackend("", 0, 1);
             TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.MAKE_SNAPSHOT,
-                    task.getSignature(), taskStatus);
+                task.getSignature(), taskStatus);
             request.setSnapshotPath(snapshotPath);
             Assert.assertTrue(job.finishTabletSnapshotTask(task, request));
         }
@@ -319,13 +322,13 @@ public class RestoreJobTest {
         downloadTasks.addAll(AgentTaskQueue.getDiffTasks(CatalogMocker.BACKEND2_ID, runningTasks));
         downloadTasks.addAll(AgentTaskQueue.getDiffTasks(CatalogMocker.BACKEND3_ID, runningTasks));
         Assert.assertEquals(9, downloadTasks.size());
-        
+
         List<Long> downloadedTabletIds = Lists.newArrayList();
         for (AgentTask agentTask : downloadTasks) {
             TStatus taskStatus = new TStatus(TStatusCode.OK);
             TBackend tBackend = new TBackend("", 0, 1);
             TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.MAKE_SNAPSHOT,
-                    agentTask.getSignature(), taskStatus);
+                agentTask.getSignature(), taskStatus);
             request.setDownloadedTabletIds(downloadedTabletIds);
             Assert.assertTrue(job.finishTabletDownloadTask((DownloadTask) agentTask, request));
         }
@@ -352,12 +355,12 @@ public class RestoreJobTest {
         dirMoveTasks.addAll(AgentTaskQueue.getDiffTasks(CatalogMocker.BACKEND2_ID, runningTasks));
         dirMoveTasks.addAll(AgentTaskQueue.getDiffTasks(CatalogMocker.BACKEND3_ID, runningTasks));
         Assert.assertEquals(12, dirMoveTasks.size());
-        
+
         for (AgentTask agentTask : dirMoveTasks) {
             TStatus taskStatus = new TStatus(TStatusCode.OK);
             TBackend tBackend = new TBackend("", 0, 1);
             TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.MAKE_SNAPSHOT,
-                    agentTask.getSignature(), taskStatus);
+                agentTask.getSignature(), taskStatus);
             job.finishDirMoveTask((DirMoveTask) agentTask, request);
         }
 

@@ -81,7 +81,7 @@ public class UtFrameUtils {
 
     // Parse an origin stmt and analyze it. Return a StatementBase instance.
     public static StatementBase parseAndAnalyzeStmt(String originStmt, ConnectContext ctx)
-            throws Exception {
+        throws Exception {
         System.out.println("begin to parse stmt: " + originStmt);
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
@@ -135,7 +135,7 @@ public class UtFrameUtils {
     }
 
     public static int startFEServer(String runningDir) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+        FeStartException, NotInitException, DdlException, InterruptedException {
         // get DORIS_HOME
         String dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
@@ -168,12 +168,12 @@ public class UtFrameUtils {
     }
 
     public static void createDorisCluster(String runningDir) throws InterruptedException, NotInitException,
-            IOException, DdlException, EnvVarNotSetException, FeStartException {
+        IOException, DdlException, EnvVarNotSetException, FeStartException {
         createDorisCluster(runningDir, 1);
     }
 
     public static void createDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+        FeStartException, NotInitException, DdlException, InterruptedException {
         int fe_rpc_port = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
             createBackend("127.0.0.1", fe_rpc_port);
@@ -184,8 +184,9 @@ public class UtFrameUtils {
 
     // Create multi backends with different host for unit test.
     // the host of BE will be "127.0.0.1", "127.0.0.2"
-    public static void createDorisClusterWithMultiTag(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+    public static void createDorisClusterWithMultiTag(String runningDir, int backendNum)
+        throws EnvVarNotSetException, IOException,
+        FeStartException, NotInitException, DdlException, InterruptedException {
         // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1" to make cluster running well.
         FeConstants.runningUnitTest = true;
         int fe_rpc_port = startFEServer(runningDir);
@@ -205,14 +206,15 @@ public class UtFrameUtils {
 
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend(beHost,
-                be_heartbeat_port, be_thrift_port, be_brpc_port, be_http_port,
-                new DefaultHeartbeatServiceImpl(be_thrift_port, be_http_port, be_brpc_port),
-                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+            be_heartbeat_port, be_thrift_port, be_brpc_port, be_http_port,
+            new DefaultHeartbeatServiceImpl(be_thrift_port, be_http_port, be_brpc_port),
+            new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", fe_rpc_port));
         backend.start();
 
         // add be
-        Backend be = new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(), backend.getHeartbeatPort());
+        Backend be =
+            new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(), backend.getHeartbeatPort());
         Map<String, DiskInfo> disks = Maps.newHashMap();
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
@@ -245,7 +247,7 @@ public class UtFrameUtils {
                     datagramSocket.setReuseAddress(true);
                     break;
                 } catch (SocketException e) {
-                    System.out.println("The port " + port  + " is invalid and try another port.");
+                    System.out.println("The port " + port + " is invalid and try another port.");
                 }
             } catch (IOException e) {
                 throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");

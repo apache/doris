@@ -34,12 +34,12 @@ import java.util.List;
  */
 public class ReplicasProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("ReplicaId").add("BackendId").add("Version")
-            .add("LstSuccessVersion").add("LstFailedVersion")
-            .add("LstFailedTime").add("SchemaHash").add("DataSize").add("RowCount").add("State")
-            .add("IsBad").add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
-            .build();
-    
+        .add("ReplicaId").add("BackendId").add("Version")
+        .add("LstSuccessVersion").add("LstFailedVersion")
+        .add("LstFailedTime").add("SchemaHash").add("DataSize").add("RowCount").add("State")
+        .add("IsBad").add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
+        .build();
+
     private long tabletId;
     private List<Replica> replicas;
 
@@ -59,31 +59,31 @@ public class ReplicasProcNode implements ProcNodeInterface {
             String host = (be == null ? Backend.DUMMY_IP : be.getHost());
             int port = (be == null ? 0 : be.getHttpPort());
             String metaUrl = String.format("http://%s:%d/api/meta/header/%d",
-                    host, port,
-                    tabletId,
-                    replica.getSchemaHash());
+                host, port,
+                tabletId,
+                replica.getSchemaHash());
 
             String compactionUrl = String.format(
-                    "http://%s:%d/api/compaction/show?tablet_id=%d",
-                    host, port,
-                    tabletId,
-                    replica.getSchemaHash());
+                "http://%s:%d/api/compaction/show?tablet_id=%d",
+                host, port,
+                tabletId,
+                replica.getSchemaHash());
 
             result.addRow(Arrays.asList(String.valueOf(replica.getId()),
-                                        String.valueOf(replica.getBackendId()),
-                                        String.valueOf(replica.getVersion()),
-                                        String.valueOf(replica.getLastSuccessVersion()),
-                                        String.valueOf(replica.getLastFailedVersion()),
-                                        TimeUtils.longToTimeString(replica.getLastFailedTimestamp()),
-                                        String.valueOf(replica.getSchemaHash()),
-                                        String.valueOf(replica.getDataSize()),
-                                        String.valueOf(replica.getRowCount()),
-                                        String.valueOf(replica.getState()),
-                                        String.valueOf(replica.isBad()),
-                                        String.valueOf(replica.getVersionCount()),
-                                        String.valueOf(replica.getPathHash()),
-                                        metaUrl,
-                                        compactionUrl));
+                String.valueOf(replica.getBackendId()),
+                String.valueOf(replica.getVersion()),
+                String.valueOf(replica.getLastSuccessVersion()),
+                String.valueOf(replica.getLastFailedVersion()),
+                TimeUtils.longToTimeString(replica.getLastFailedTimestamp()),
+                String.valueOf(replica.getSchemaHash()),
+                String.valueOf(replica.getDataSize()),
+                String.valueOf(replica.getRowCount()),
+                String.valueOf(replica.getState()),
+                String.valueOf(replica.isBad()),
+                String.valueOf(replica.getVersionCount()),
+                String.valueOf(replica.getPathHash()),
+                metaUrl,
+                compactionUrl));
         }
         return result;
     }

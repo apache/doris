@@ -44,14 +44,14 @@ public class GlobalPrivEntry extends PrivEntry {
     }
 
     protected GlobalPrivEntry(PatternMatcher hostPattern, String origHost,
-            PatternMatcher userPattern, String origUser, boolean isDomain,
-            byte[] password, PrivBitSet privSet) {
+                              PatternMatcher userPattern, String origUser, boolean isDomain,
+                              byte[] password, PrivBitSet privSet) {
         super(hostPattern, origHost, userPattern, origUser, isDomain, privSet);
         this.password = password;
     }
 
     public static GlobalPrivEntry create(String host, String user, boolean isDomain, byte[] password, PrivBitSet privs)
-            throws AnalysisException {
+        throws AnalysisException {
         PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
         PatternMatcher userPattern = PatternMatcher.createMysqlPattern(user, CaseSensibility.USER.getCaseSensibility());
         return new GlobalPrivEntry(hostPattern, host, userPattern, user, isDomain, password, privs);
@@ -88,9 +88,9 @@ public class GlobalPrivEntry extends PrivEntry {
      * | localhost | root     | ...
      * | localhost |          | ...
      * +-----------+----------+-
-     * 
+     *
      * will be sorted like:
-     * 
+     *
      * +-----------+----------+-
      * | Host      | User     | ...
      * +-----------+----------+-
@@ -99,7 +99,7 @@ public class GlobalPrivEntry extends PrivEntry {
      * | %         | jeffrey  | ...
      * | %         | root     | ...
      * +-----------+----------+-
-     * 
+     *
      * https://dev.mysql.com/doc/refman/8.0/en/connection-access.html
      */
     @Override
@@ -125,7 +125,7 @@ public class GlobalPrivEntry extends PrivEntry {
 
         GlobalPrivEntry otherEntry = (GlobalPrivEntry) other;
         if (origHost.equals(otherEntry.origHost) && origUser.equals(otherEntry.origUser)
-                && isDomain == otherEntry.isDomain) {
+            && isDomain == otherEntry.isDomain) {
             return true;
         }
         return false;

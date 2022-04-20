@@ -69,6 +69,7 @@ import java.util.UUID;
 
 import mockit.Injectable;
 import mockit.Mocked;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -83,11 +84,12 @@ public class GlobalTransactionMgrTest {
     private static Catalog masterCatalog;
     private static Catalog slaveCatalog;
 
-    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
+    private TransactionState.TxnCoordinator transactionSource =
+        new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
-            InvocationTargetException, NoSuchMethodException, SecurityException {
+        InvocationTargetException, NoSuchMethodException, SecurityException {
         fakeEditLog = new FakeEditLog();
         fakeCatalog = new FakeCatalog();
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
@@ -106,13 +108,15 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testBeginTransaction() throws LabelAlreadyUsedException, AnalysisException,
-            BeginTransactionException, DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
+        BeginTransactionException, DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
         FakeCatalog.setCatalog(masterCatalog);
-        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
+        long transactionId =
+            masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel1,
                 transactionSource,
                 LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
-        TransactionState transactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, transactionId);
+        TransactionState transactionState =
+            masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, transactionId);
         assertNotNull(transactionState);
         assertEquals(transactionId, transactionState.getTransactionId());
         assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
@@ -122,14 +126,15 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testBeginTransactionWithSameLabel() throws LabelAlreadyUsedException, AnalysisException,
-            BeginTransactionException, DuplicatedRequestException {
+        BeginTransactionException, DuplicatedRequestException {
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId = 0;
         try {
-            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
-                    CatalogTestUtil.testTxnLabel1,
-                    transactionSource,
-                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1),
+                CatalogTestUtil.testTxnLabel1,
+                transactionSource,
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         } catch (AnalysisException | LabelAlreadyUsedException e) {
             e.printStackTrace();
         } catch (MetaNotFoundException e) {
@@ -137,7 +142,8 @@ public class GlobalTransactionMgrTest {
         } catch (QuotaExceedException e) {
             e.printStackTrace();
         }
-        TransactionState transactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, transactionId);
+        TransactionState transactionState =
+            masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, transactionId);
         assertNotNull(transactionState);
         assertEquals(transactionId, transactionState.getTransactionId());
         assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
@@ -145,10 +151,11 @@ public class GlobalTransactionMgrTest {
         assertEquals(transactionSource.toString(), transactionState.getCoordinator().toString());
 
         try {
-            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
-                    CatalogTestUtil.testTxnLabel1,
-                    transactionSource,
-                    LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+            transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1),
+                CatalogTestUtil.testTxnLabel1,
+                transactionSource,
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         } catch (Exception e) {
             // TODO: handle exception
         }
@@ -158,29 +165,33 @@ public class GlobalTransactionMgrTest {
     @Test
     public void testCommitTransaction1() throws UserException {
         FakeCatalog.setCatalog(masterCatalog);
-        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
+        long transactionId =
+            masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel1,
                 transactionSource,
                 LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId1);
+            CatalogTestUtil.testBackendId1);
         TabletCommitInfo tabletCommitInfo2 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId2);
+            CatalogTestUtil.testBackendId2);
         TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId3);
+            CatalogTestUtil.testBackendId3);
         List<TabletCommitInfo> transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
+        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
+            transTablets);
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
         // check status is committed
         assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         // check replica version
-        Partition testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1)
-                .getPartition(CatalogTestUtil.testPartition1);
+        Partition testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1)
+            .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
         assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getNextVersion());
@@ -200,20 +211,23 @@ public class GlobalTransactionMgrTest {
     public void testCommitTransactionWithOneFailed() throws UserException {
         TransactionState transactionState = null;
         FakeCatalog.setCatalog(masterCatalog);
-        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
+        long transactionId =
+            masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel1,
                 transactionSource,
                 LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction with 1,2 success
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId1);
+            CatalogTestUtil.testBackendId1);
         TabletCommitInfo tabletCommitInfo2 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId2);
+            CatalogTestUtil.testBackendId2);
         List<TabletCommitInfo> transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
-        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
+        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
+            transTablets);
 
         // follower catalog replay the transaction
         transactionState = fakeEditLog.getTransaction(transactionId);
@@ -223,18 +237,20 @@ public class GlobalTransactionMgrTest {
 
         FakeCatalog.setCatalog(masterCatalog);
         // commit another transaction with 1,3 success
-        long transactionId2 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
+        long transactionId2 =
+            masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel2,
                 transactionSource,
                 LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
         TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId3);
+            CatalogTestUtil.testBackendId3);
         transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
         try {
-            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2, transTablets);
+            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+                transTablets);
             Assert.fail();
         } catch (TabletQuorumFailedException e) {
             transactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, transactionId2);
@@ -242,8 +258,9 @@ public class GlobalTransactionMgrTest {
             assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
         }
         // check replica version
-        Partition testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1)
-                .getPartition(CatalogTestUtil.testPartition1);
+        Partition testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1)
+            .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
         assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getNextVersion());
@@ -263,13 +280,15 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2, transTablets);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+            transTablets);
         transactionState = fakeEditLog.getTransaction(transactionId2);
         // check status is commit
         assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         // check replica version
-        testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1)
-                .getPartition(CatalogTestUtil.testPartition1);
+        testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1)
+            .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
         assertEquals(CatalogTestUtil.testStartVersion, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 3, testPartition.getNextVersion());
@@ -304,31 +323,35 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testCommitRoutineLoadTransaction(@Injectable TabletCommitInfo tabletCommitInfo,
-            @Mocked KafkaConsumer kafkaConsumer,
-            @Mocked EditLog editLog)
-            throws UserException {
+                                                 @Mocked KafkaConsumer kafkaConsumer,
+                                                 @Mocked EditLog editLog)
+        throws UserException {
         FakeCatalog.setCatalog(masterCatalog);
 
-        TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
-        TabletCommitInfo tabletCommitInfo2 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId2);
-        TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId3);
+        TabletCommitInfo tabletCommitInfo1 =
+            new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
+        TabletCommitInfo tabletCommitInfo2 =
+            new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId2);
+        TabletCommitInfo tabletCommitInfo3 =
+            new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId3);
         List<TabletCommitInfo> transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
 
         KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "test", "default_cluster", 1L, 1L, "host:port",
-                "topic");
-        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
+            "topic");
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList =
+            Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
         Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
         partitionIdToOffset.put(1, 0L);
         KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "default_cluster", 20000,
-                partitionIdToOffset);
+            partitionIdToOffset);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
-                LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
-                Config.stream_load_default_timeout_second);
+            LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
+            Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
         // Deencapsulation.setField(transactionState, "txnStateChangeListener", routineLoadJob);
@@ -358,10 +381,12 @@ public class GlobalTransactionMgrTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(routineLoadJob, "db");
 
-        Deencapsulation.setField(masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
-        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1);
+        Deencapsulation.setField(masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1),
+            "idToRunningTransactionState", idToTransactionState);
+        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
-        RoutineLoadStatistic jobStatistic =  Deencapsulation.getField(routineLoadJob,"jobStatistic");
+        RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
 
         Assert.assertEquals(Long.valueOf(101), Deencapsulation.getField(jobStatistic, "currentTotalRows"));
         Assert.assertEquals(Long.valueOf(1), Deencapsulation.getField(jobStatistic, "currentErrorRows"));
@@ -373,31 +398,36 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testCommitRoutineLoadTransactionWithErrorMax(@Injectable TabletCommitInfo tabletCommitInfo,
-            @Mocked EditLog editLog,
-            @Mocked KafkaConsumer kafkaConsumer)
-            throws UserException {
+                                                             @Mocked EditLog editLog,
+                                                             @Mocked KafkaConsumer kafkaConsumer)
+        throws UserException {
 
         FakeCatalog.setCatalog(masterCatalog);
-        
-        TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
-        TabletCommitInfo tabletCommitInfo2 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId2);
-        TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId3);
+
+        TabletCommitInfo tabletCommitInfo1 =
+            new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
+        TabletCommitInfo tabletCommitInfo2 =
+            new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId2);
+        TabletCommitInfo tabletCommitInfo3 =
+            new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId3);
         List<TabletCommitInfo> transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
 
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "test", "default_cluster", 1L, 1L, "host:port", "topic");
-        List<RoutineLoadTaskInfo> routineLoadTaskInfoList = Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
+        KafkaRoutineLoadJob routineLoadJob =
+            new KafkaRoutineLoadJob(1L, "test", "default_cluster", 1L, 1L, "host:port", "topic");
+        List<RoutineLoadTaskInfo> routineLoadTaskInfoList =
+            Deencapsulation.getField(routineLoadJob, "routineLoadTaskInfoList");
         Map<Integer, Long> partitionIdToOffset = Maps.newHashMap();
         partitionIdToOffset.put(1, 0L);
         KafkaTaskInfo routineLoadTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), 1L, "defualt_cluster", 20000,
-                partitionIdToOffset);
+            partitionIdToOffset);
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
-                LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
-                Config.stream_load_default_timeout_second);
+            LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
+            Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
         Map<Long, TransactionState> idToTransactionState = Maps.newHashMap();
@@ -426,16 +456,18 @@ public class GlobalTransactionMgrTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(routineLoadJob, "db");
 
-        Deencapsulation.setField(masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
-        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1);
+        Deencapsulation.setField(masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1),
+            "idToRunningTransactionState", idToTransactionState);
+        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(1L, Lists.newArrayList(testTable1), 1L, transTablets, txnCommitAttachment);
 
         // current total rows and error rows will be reset after job pause, so here they should be 0.
-        RoutineLoadStatistic jobStatistic =  Deencapsulation.getField(routineLoadJob,"jobStatistic");
+        RoutineLoadStatistic jobStatistic = Deencapsulation.getField(routineLoadJob, "jobStatistic");
         Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(jobStatistic, "currentTotalRows"));
         Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(jobStatistic, "currentErrorRows"));
         Assert.assertEquals(Long.valueOf(111L),
-                ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
+            ((KafkaProgress) routineLoadJob.getProgress()).getOffsetByPartition(1));
         // todo(ml): change to assert queue
         // Assert.assertEquals(0, routineLoadManager.getNeedScheduleTasksQueue().size());
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
@@ -443,23 +475,26 @@ public class GlobalTransactionMgrTest {
 
     @Test
     public void testFinishTransaction() throws UserException {
-        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
+        long transactionId =
+            masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel1,
                 transactionSource,
                 LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId1);
+            CatalogTestUtil.testBackendId1);
         TabletCommitInfo tabletCommitInfo2 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId2);
+            CatalogTestUtil.testBackendId2);
         TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId3);
+            CatalogTestUtil.testBackendId3);
         List<TabletCommitInfo> transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
+        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
+            transTablets);
         TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
         assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         slaveTransMgr.replayUpsertTransactionState(transactionState);
@@ -469,8 +504,9 @@ public class GlobalTransactionMgrTest {
         transactionState = fakeEditLog.getTransaction(transactionId);
         assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
         // check replica version
-        Partition testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1)
-                .getPartition(CatalogTestUtil.testPartition1);
+        Partition testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1)
+            .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
         assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 2, testPartition.getNextVersion());
@@ -492,24 +528,28 @@ public class GlobalTransactionMgrTest {
     @Test
     public void testFinishTransactionWithOneFailed() throws UserException {
         TransactionState transactionState = null;
-        Partition testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1)
-                .getPartition(CatalogTestUtil.testPartition1);
+        Partition testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1)
+            .getPartition(CatalogTestUtil.testPartition1);
         Tablet tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
         FakeCatalog.setCatalog(masterCatalog);
-        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
+        long transactionId =
+            masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel1,
                 transactionSource,
                 LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         // commit a transaction with 1,2 success
         TabletCommitInfo tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId1);
+            CatalogTestUtil.testBackendId1);
         TabletCommitInfo tabletCommitInfo2 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId2);
+            CatalogTestUtil.testBackendId2);
         List<TabletCommitInfo> transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
-        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId, transTablets);
+        Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId,
+            transTablets);
 
         // follower catalog replay the transaction
         transactionState = fakeEditLog.getTransaction(transactionId);
@@ -551,18 +591,20 @@ public class GlobalTransactionMgrTest {
 
         FakeCatalog.setCatalog(masterCatalog);
         // commit another transaction with 1,3 success
-        long transactionId2 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
+        long transactionId2 =
+            masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel2,
                 transactionSource,
                 LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
         tabletCommitInfo1 = new TabletCommitInfo(CatalogTestUtil.testTabletId1, CatalogTestUtil.testBackendId1);
         TabletCommitInfo tabletCommitInfo3 = new TabletCommitInfo(CatalogTestUtil.testTabletId1,
-                CatalogTestUtil.testBackendId3);
+            CatalogTestUtil.testBackendId3);
         transTablets = Lists.newArrayList();
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo3);
         try {
-            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2, transTablets);
+            masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+                transTablets);
             Assert.fail();
         } catch (TabletQuorumFailedException e) {
             transactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, transactionId2);
@@ -578,13 +620,15 @@ public class GlobalTransactionMgrTest {
         transTablets.add(tabletCommitInfo1);
         transTablets.add(tabletCommitInfo2);
         transTablets.add(tabletCommitInfo3);
-        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2, transTablets);
+        masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId2,
+            transTablets);
         transactionState = fakeEditLog.getTransaction(transactionId2);
         // check status is commit
         assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
         // check replica version
-        testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1)
-                .getPartition(CatalogTestUtil.testPartition1);
+        testPartition = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1)
+            .getTableOrMetaException(CatalogTestUtil.testTableId1)
+            .getPartition(CatalogTestUtil.testPartition1);
         // check partition version
         assertEquals(CatalogTestUtil.testStartVersion + 1, testPartition.getVisibleVersion());
         assertEquals(CatalogTestUtil.testStartVersion + 3, testPartition.getNextVersion());

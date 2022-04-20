@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,6 +50,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import com.google.gson.Gson;
 
 /**
  * Internal representation of an alias function.
@@ -73,7 +74,7 @@ public class AliasFunction extends Function {
     }
 
     public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
-            boolean hasVarArgs, List<String> parameters, Expr originFunction) {
+                                               boolean hasVarArgs, List<String> parameters, Expr originFunction) {
         AliasFunction aliasFunction = new AliasFunction(functionName, Arrays.asList(argTypes), retType, hasVarArgs);
         aliasFunction.setBinaryType(TFunctionBinaryType.NATIVE);
         aliasFunction.setUserVisible(true);
@@ -89,10 +90,10 @@ public class AliasFunction extends Function {
              * Please ensure that the condition checks in {@link #analyze} are satisfied
              */
             functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
-                    false, Lists.newArrayList("id"), getExpr(oriStmt), true, false));
+                false, Lists.newArrayList("id"), getExpr(oriStmt), true, false));
 
             functionSet.addBuiltin(createBuiltin(DIGITAL_MASKING, Lists.newArrayList(Type.BIGINT), Type.VARCHAR,
-                    false, Lists.newArrayList("id"), getExpr(oriStmt), true, true));
+                false, Lists.newArrayList("id"), getExpr(oriStmt), true, true));
 
         } catch (AnalysisException e) {
             LOG.error("Add builtin alias function error {}", e);
@@ -112,7 +113,7 @@ public class AliasFunction extends Function {
         } catch (AnalysisException e) {
             String syntaxError = parser.getErrorMsg(sql);
             LOG.info("analysis exception happened when parsing stmt {}, error: {}",
-                    sql, syntaxError, e);
+                sql, syntaxError, e);
             if (syntaxError == null) {
                 throw e;
             } else {
@@ -122,7 +123,7 @@ public class AliasFunction extends Function {
             // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
             // should be removed this try-catch clause future.
             LOG.info("unexpected exception happened when parsing stmt {}, error: {}",
-                    sql, parser.getErrorMsg(sql), e);
+                sql, parser.getErrorMsg(sql), e);
             throw new AnalysisException("Unexpected exception: " + e.getMessage());
         }
 
@@ -130,8 +131,8 @@ public class AliasFunction extends Function {
     }
 
     private static AliasFunction createBuiltin(String name, ArrayList<Type> argTypes, Type retType,
-            boolean hasVarArgs, List<String> parameters, Expr originFunction,
-            boolean userVisible, boolean isVectorized) {
+                                               boolean hasVarArgs, List<String> parameters, Expr originFunction,
+                                               boolean userVisible, boolean isVectorized) {
         AliasFunction aliasFunction = new AliasFunction(new FunctionName(name), argTypes, retType, hasVarArgs);
         aliasFunction.setBinaryType(TFunctionBinaryType.BUILTIN);
         aliasFunction.setUserVisible(userVisible);
@@ -160,7 +161,7 @@ public class AliasFunction extends Function {
     public void analyze() throws AnalysisException {
         if (parameters.size() != getArgs().length) {
             throw new AnalysisException(
-                    "Alias function [" + functionName() + "] args number is not equal to parameters number");
+                "Alias function [" + functionName() + "] args number is not equal to parameters number");
         }
         List<Expr> exprs;
         if (originFunction instanceof FunctionCallExpr) {
@@ -195,7 +196,7 @@ public class AliasFunction extends Function {
         for (String str : parameters) {
             if (!set.add(str)) {
                 throw new AnalysisException(
-                        "Alias function [" + functionName() + "] has duplicate parameter [" + str + "].");
+                    "Alias function [" + functionName() + "] has duplicate parameter [" + str + "].");
             }
             boolean existFlag = false;
             // check exprs
@@ -208,7 +209,7 @@ public class AliasFunction extends Function {
             }
             if (!existFlag) {
                 throw new AnalysisException(
-                        "Alias function [" + functionName() + "]  do not contain parameter [" + str + "].");
+                    "Alias function [" + functionName() + "]  do not contain parameter [" + str + "].");
             }
         }
     }
@@ -235,11 +236,11 @@ public class AliasFunction extends Function {
             sb.append("IF NOT EXISTS ");
         }
         sb.append(signatureString())
-                .append(" WITH PARAMETER(")
-                .append(getParamsSting(parameters))
-                .append(") AS ")
-                .append(originFunction.toSql())
-                .append(";");
+            .append(" WITH PARAMETER(")
+            .append(getParamsSting(parameters))
+            .append(") AS ")
+            .append(originFunction.toSql())
+            .append(";");
         return sb.toString();
     }
 
@@ -281,7 +282,7 @@ public class AliasFunction extends Function {
 
     /**
      * set slotRef label to column name
-     * 
+     *
      * @param expr
      */
     private void setSlotRefLabel(Expr expr) {
@@ -295,7 +296,7 @@ public class AliasFunction extends Function {
 
     private String getParamsSting(List<String> parameters) {
         return parameters.stream()
-                .map(String::toString)
-                .collect(Collectors.joining(", "));
+            .map(String::toString)
+            .collect(Collectors.joining(", "));
     }
 }

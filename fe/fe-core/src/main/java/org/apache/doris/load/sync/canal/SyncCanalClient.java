@@ -19,8 +19,6 @@ package org.apache.doris.load.sync.canal;
 
 import org.apache.doris.load.sync.SyncChannel;
 
-import com.alibaba.otter.canal.client.CanalConnector;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
@@ -30,6 +28,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
+
+import com.alibaba.otter.canal.client.CanalConnector;
 
 public class SyncCanalClient {
     protected static Logger logger = LogManager.getLogger(SyncCanalClient.class);
@@ -61,7 +61,8 @@ public class SyncCanalClient {
                            int batchSize, boolean debug, String filter) {
         this.connector = connector;
         this.consumer = new CanalSyncDataConsumer(syncJob, connector, getLock, debug);
-        this.receiver = new CanalSyncDataReceiver(syncJob, connector, destination, filter, consumer, batchSize, getLock);
+        this.receiver =
+            new CanalSyncDataReceiver(syncJob, connector, destination, filter, consumer, batchSize, getLock);
         this.idToChannels = Maps.newHashMap();
     }
 

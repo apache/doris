@@ -38,32 +38,33 @@ public class ErrorReport {
     }
 
     public static void reportAnalysisException(String pattern, Object... objs)
-            throws AnalysisException {
-        throw new AnalysisException(reportCommon(pattern, ErrorCode.ERR_UNKNOWN_ERROR, objs), ErrorCode.ERR_UNKNOWN_ERROR);
+        throws AnalysisException {
+        throw new AnalysisException(reportCommon(pattern, ErrorCode.ERR_UNKNOWN_ERROR, objs),
+            ErrorCode.ERR_UNKNOWN_ERROR);
     }
 
     public static void reportAnalysisException(ErrorCode errorCode, Object... objs)
-            throws AnalysisException {
+        throws AnalysisException {
         reportAnalysisException(null, errorCode, objs);
     }
 
     public static void reportAnalysisException(String pattern, ErrorCode errorCode, Object... objs)
-            throws AnalysisException {
+        throws AnalysisException {
         throw new AnalysisException(reportCommon(pattern, errorCode, objs), errorCode);
     }
 
     public static void reportDdlException(String pattern, Object... objs)
-            throws DdlException {
+        throws DdlException {
         reportDdlException(pattern, ErrorCode.ERR_UNKNOWN_ERROR, objs);
     }
 
     public static void reportDdlException(ErrorCode errorCode, Object... objs)
-            throws DdlException {
+        throws DdlException {
         reportDdlException(null, errorCode, objs);
     }
 
     public static void reportDdlException(String pattern, ErrorCode errorCode, Object... objs)
-            throws DdlException {
+        throws DdlException {
         throw new DdlException(reportCommon(pattern, errorCode, objs));
     }
 

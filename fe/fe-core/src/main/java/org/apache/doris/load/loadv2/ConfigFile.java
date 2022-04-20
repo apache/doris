@@ -24,5 +24,6 @@ import org.apache.doris.common.LoadException;
 // config file exists in the specified path, and if not, create them.
 public interface ConfigFile {
     public void createFile() throws LoadException;
+
     public String getFilePath();
 }

@@ -24,11 +24,11 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 // Used to test show executor.
 public class ShowAuthorStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Name", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("Location", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("Comment", ScalarType.createVarchar(30)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Name", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Location", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Comment", ScalarType.createVarchar(30)))
+            .build();
 
     @Override
     public void analyze(Analyzer analyzer) {

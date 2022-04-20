@@ -23,39 +23,39 @@ import java.io.IOException;
 import java.util.List;
 
 public interface Journal {
-    
+
     // Open the journal environment
     public void open();
-    
+
     // Roll Edit file or database
     public void rollJournal();
-    
+
     // Get the newest journal id 
     public long getMaxJournalId();
-    
+
     // Get the oldest journal id
     public long getMinJournalId();
-    
+
     // Close the environment
     public void close();
-    
+
     // Get the journal which id = journalId
     public JournalEntity read(long journalId);
-    
+
     // Get all the journals whose id: fromKey <= id <= toKey
     // toKey = -1 means toKey = Long.Max_Value
     public JournalCursor read(long fromKey, long toKey);
 
     // Write a journal and sync to disk
     public void write(short op, Writable writable) throws IOException;
-    
+
     // Delete journals whose max id is less than deleteToJournalId
     public void deleteJournals(long deleteJournalToId);
-    
+
     // Current db's min journal id - 1
     public long getFinalizedJournalId();
-    
+
     // Get all the dbs' name
     public List<Long> getDatabaseNames();
-    
+
 }

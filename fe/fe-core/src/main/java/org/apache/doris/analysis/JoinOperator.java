@@ -40,7 +40,7 @@ public enum JoinOperator {
     NULL_AWARE_LEFT_ANTI_JOIN("NULL AWARE LEFT ANTI JOIN",
         TJoinOp.NULL_AWARE_LEFT_ANTI_JOIN);
 
-    private final String  description;
+    private final String description;
     private final TJoinOp thriftJoinOp;
 
     private JoinOperator(String description, TJoinOp thriftJoinOp) {
@@ -67,8 +67,8 @@ public enum JoinOperator {
 
     public boolean isSemiJoin() {
         return this == JoinOperator.LEFT_SEMI_JOIN || this == JoinOperator.LEFT_ANTI_JOIN ||
-                this == JoinOperator.RIGHT_SEMI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN ||
-                this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+            this == JoinOperator.RIGHT_SEMI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN ||
+            this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
     public boolean isLeftSemiJoin() {
@@ -81,7 +81,7 @@ public enum JoinOperator {
 
     public boolean isAntiJoin() {
         return this == JoinOperator.LEFT_ANTI_JOIN || this == JoinOperator.RIGHT_ANTI_JOIN ||
-                this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
+            this == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN;
     }
 
     public boolean isCrossJoin() {
@@ -93,7 +93,7 @@ public enum JoinOperator {
     }
 
     public boolean isLeftOuterJoin() {
-        return this == LEFT_OUTER_JOIN; 
+        return this == LEFT_OUTER_JOIN;
     }
 
     public boolean isRightOuterJoin() {

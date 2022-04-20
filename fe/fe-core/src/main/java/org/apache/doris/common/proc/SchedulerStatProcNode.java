@@ -25,7 +25,7 @@ import com.google.common.collect.ImmutableList;
 
 public class SchedulerStatProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Item").add("Value").build();
+        .add("Item").add("Value").build();
 
     private TabletSchedulerStat stat;
 

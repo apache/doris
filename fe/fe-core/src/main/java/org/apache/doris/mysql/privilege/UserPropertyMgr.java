@@ -78,7 +78,7 @@ public class UserPropertyMgr implements Writable {
     }
 
     public void setPasswordForDomain(UserIdentity userIdentity, byte[] password, boolean errOnExist,
-            boolean errOnNonExist) throws DdlException {
+                                     boolean errOnNonExist) throws DdlException {
         Preconditions.checkArgument(userIdentity.isDomain());
         UserProperty property = propertyMap.get(userIdentity.getQualifiedUser());
         if (property == null) {
@@ -226,7 +226,8 @@ public class UserPropertyMgr implements Writable {
 
     public void addUserPrivEntriesByResolvedIPs(Map<String, Set<String>> resolvedIPsMap) {
         for (UserProperty userProperty : propertyMap.values()) {
-            userProperty.getWhiteList().addUserPrivEntriesByResolvedIPs(userProperty.getQualifiedUser(), resolvedIPsMap);
+            userProperty.getWhiteList()
+                .addUserPrivEntriesByResolvedIPs(userProperty.getQualifiedUser(), resolvedIPsMap);
         }
     }
 

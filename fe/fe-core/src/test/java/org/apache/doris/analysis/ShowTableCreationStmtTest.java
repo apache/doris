@@ -17,14 +17,16 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Mocked;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import mockit.Mocked;
 
 public class ShowTableCreationStmtTest {
     private Analyzer analyzer;

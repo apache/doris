@@ -73,8 +73,8 @@ public class MysqlCapability {
     private static final EnumSet<Flag> FLAG_SET = EnumSet.allOf(Flag.class);
 
     private static final int DEFAULT_FLAGS = Flag.CLIENT_PROTOCOL_41.getFlagBit()
-            | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
-            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit();
+        | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
+        | Flag.CLIENT_PLUGIN_AUTH.getFlagBit();
     public static final MysqlCapability DEFAULT_CAPABILITY = new MysqlCapability(DEFAULT_FLAGS);
 
     private int flags;

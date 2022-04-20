@@ -17,8 +17,6 @@
 
 package org.apache.doris.alter;
 
-import static org.junit.Assert.assertEquals;
-
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddRollupClause;
@@ -63,7 +61,6 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -86,6 +83,8 @@ import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
 
+import static org.junit.Assert.assertEquals;
+
 public class RollupJobV2Test {
     private static String fileName = "./RollupJobV2Test";
 
@@ -105,7 +104,7 @@ public class RollupJobV2Test {
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
-            InvocationTargetException, NoSuchMethodException, SecurityException, AnalysisException {
+        InvocationTargetException, NoSuchMethodException, SecurityException, AnalysisException {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
@@ -121,11 +120,11 @@ public class RollupJobV2Test {
         slaveTransMgr.setEditLog(slaveCatalog.getEditLog());
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         clause = new AddRollupClause(CatalogTestUtil.testRollupIndex2, Lists.newArrayList("k1", "v"), null,
-                CatalogTestUtil.testIndex1, null);
+            CatalogTestUtil.testIndex1, null);
         clause.analyze(analyzer);
 
         clause2 = new AddRollupClause(CatalogTestUtil.testRollupIndex3, Lists.newArrayList("k1", "v"), null,
-                CatalogTestUtil.testIndex1, null);
+            CatalogTestUtil.testIndex1, null);
         clause2.analyze(analyzer);
 
         FeConstants.runningUnitTest = true;
@@ -161,7 +160,8 @@ public class RollupJobV2Test {
 
         materializedViewHandler.runAfterCatalogReady();
 
-        Assert.assertEquals(Config.max_running_rollup_job_num_per_table, materializedViewHandler.getTableRunningJobMap().get(CatalogTestUtil.testTableId1).size());
+        Assert.assertEquals(Config.max_running_rollup_job_num_per_table,
+            materializedViewHandler.getTableRunningJobMap().get(CatalogTestUtil.testTableId1).size());
         Assert.assertEquals(2, alterJobsV2.size());
         Assert.assertEquals(OlapTableState.ROLLUP, olapTable.getState());
     }
@@ -226,8 +226,8 @@ public class RollupJobV2Test {
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
                 shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(),
-                        shadowReplica.getDataSize(),
-                        shadowReplica.getRowCount());
+                    shadowReplica.getDataSize(),
+                    shadowReplica.getRowCount());
             }
         }
 
@@ -305,8 +305,8 @@ public class RollupJobV2Test {
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
                 shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(),
-                        shadowReplica.getDataSize(),
-                        shadowReplica.getRowCount());
+                    shadowReplica.getDataSize(),
+                    shadowReplica.getRowCount());
             }
         }
 
@@ -317,22 +317,22 @@ public class RollupJobV2Test {
 
     @Test
     public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt) throws IOException,
-            AnalysisException {
+        AnalysisException {
         Config.enable_materialized_view = true;
         // prepare file
         File file = new File(fileName);
         file.createNewFile();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
-        
+
         short keysCount = 1;
         List<Column> columns = Lists.newArrayList();
         String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + "to_bitmap_" + "c1";
         Column column = new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", "");
         columns.add(column);
         RollupJobV2 rollupJobV2 = new RollupJobV2(1, 1, 1, "test", 1, 1, 1, "test", "rollup", columns, 1, 1,
-                KeysType.AGG_KEYS, keysCount,
-                new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
-                        0));
+            KeysType.AGG_KEYS, keysCount,
+            new OriginStatement("create materialized view rollup as select bitmap_union(to_bitmap(c1)) from test",
+                0));
         rollupJobV2.setStorageFormat(TStorageFormat.V2);
 
         // write rollup job
@@ -350,7 +350,7 @@ public class RollupJobV2Test {
         new Expectations() {
             {
                 stmt.getMVColumnItemList();
-                result =  mvColumnItemList;
+                result = mvColumnItemList;
             }
         };
 
@@ -366,7 +366,7 @@ public class RollupJobV2Test {
         Assert.assertEquals(1, resultColumns.size());
         Column resultColumn1 = resultColumns.get(0);
         Assert.assertEquals(mvColumnName,
-                resultColumn1.getName());
+            resultColumn1.getName());
         Assert.assertTrue(resultColumn1.getDefineExpr() instanceof FunctionCallExpr);
         FunctionCallExpr resultFunctionCall = (FunctionCallExpr) resultColumn1.getDefineExpr();
         Assert.assertEquals("to_bitmap", resultFunctionCall.getFnName().getFunction());
@@ -382,9 +382,11 @@ public class RollupJobV2Test {
         Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
 
-        AddRollupClause addRollupClause = new AddRollupClause("r1", Lists.newArrayList("k1", "v1", "v2"), null, CatalogTestUtil.testIndex2, null);
+        AddRollupClause addRollupClause =
+            new AddRollupClause("r1", Lists.newArrayList("k1", "v1", "v2"), null, CatalogTestUtil.testIndex2, null);
 
-        List<Column> columns = materializedViewHandler.checkAndPrepareMaterializedView(addRollupClause, olapTable, CatalogTestUtil.testIndexId2, false);
+        List<Column> columns = materializedViewHandler.checkAndPrepareMaterializedView(addRollupClause, olapTable,
+            CatalogTestUtil.testIndexId2, false);
         for (Column column : columns) {
             if (column.nameEquals("v1", true)) {
                 Assert.assertNull(column.getAggregationType());

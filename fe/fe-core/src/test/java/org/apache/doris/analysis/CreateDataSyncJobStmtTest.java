@@ -96,10 +96,11 @@ public class CreateDataSyncJobStmtTest {
 
         Config.enable_create_sync_job = true;
     }
+
     @Test
     public void testNoDb() {
         CreateDataSyncJobStmt stmt = new CreateDataSyncJobStmt(
-                null, null, null, null, null);
+            null, null, null, null, null);
         try {
             stmt.analyze(analyzer);
             Assert.fail();
@@ -112,7 +113,7 @@ public class CreateDataSyncJobStmtTest {
     public void testNoType() {
         BinlogDesc binlogDesc = new BinlogDesc(properties);
         CreateDataSyncJobStmt stmt = new CreateDataSyncJobStmt(
-                jobName, dbName, null, binlogDesc, null);
+            jobName, dbName, null, binlogDesc, null);
         try {
             stmt.analyze(analyzer);
             Assert.fail();
@@ -129,9 +130,9 @@ public class CreateDataSyncJobStmtTest {
         colNames.add("a");
         colNames.add("a");
         ChannelDescription channelDescription = new ChannelDescription(
-                "mysql_db", "mysql_tbl", tblName, null, colNames);
+            "mysql_db", "mysql_tbl", tblName, null, colNames);
         CreateDataSyncJobStmt stmt = new CreateDataSyncJobStmt(
-                jobName, dbName, Lists.newArrayList(channelDescription), binlogDesc, null);
+            jobName, dbName, Lists.newArrayList(channelDescription), binlogDesc, null);
         try {
             stmt.analyze(analyzer);
             Assert.fail();
@@ -145,9 +146,9 @@ public class CreateDataSyncJobStmtTest {
         properties.put("type", "canal");
         BinlogDesc binlogDesc = new BinlogDesc(properties);
         ChannelDescription channelDescription = new ChannelDescription(
-                "mysql_db", "mysql_tbl", tblName, null, null);
+            "mysql_db", "mysql_tbl", tblName, null, null);
         CreateDataSyncJobStmt stmt = new CreateDataSyncJobStmt(
-                jobName, dbName, Lists.newArrayList(channelDescription), binlogDesc, null);
+            jobName, dbName, Lists.newArrayList(channelDescription), binlogDesc, null);
         try {
             stmt.analyze(analyzer);
             Assert.fail();
@@ -169,9 +170,9 @@ public class CreateDataSyncJobStmtTest {
         properties.put("type", "canal");
         BinlogDesc binlogDesc = new BinlogDesc(properties);
         ChannelDescription channelDescription = new ChannelDescription(
-                "mysql_db", "mysql_tbl", tblName, null, null);
+            "mysql_db", "mysql_tbl", tblName, null, null);
         CreateDataSyncJobStmt stmt = new CreateDataSyncJobStmt(
-                jobName, dbName, Lists.newArrayList(channelDescription), binlogDesc, null);
+            jobName, dbName, Lists.newArrayList(channelDescription), binlogDesc, null);
         try {
             stmt.analyze(analyzer);
             Assert.assertEquals(jobName, stmt.getJobName());

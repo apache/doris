@@ -34,7 +34,6 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,16 +43,18 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import com.google.gson.Gson;
+
 public class BackendsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(BackendsProcDir.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
-            .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
-            .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
-            .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("Tag").add("ErrMsg").add("Version").add("Status")
-            .build();
+        .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
+        .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
+        .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
+        .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
+        .add("MaxDiskUsedPct").add("Tag").add("ErrMsg").add("Version").add("Status")
+        .build();
 
     public static final int HOSTNAME_INDEX = 3;
 
@@ -78,12 +79,13 @@ public class BackendsProcDir implements ProcDirInterface {
         }
         return result;
     }
-   
+
     /**
      * get backends of cluster
+     *
      * @param clusterName
      * @return
-     */ 
+     */
     public static List<List<String>> getClusterBackendInfos(String clusterName) {
         final SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
         List<List<String>> backendInfos = new LinkedList<>();
@@ -132,7 +134,7 @@ public class BackendsProcDir implements ProcDirInterface {
                 backendInfo.add("false");
                 backendInfo.add("true");
             } else if (backend.isDecommissioned()
-                    && backend.getDecommissionType() == DecommissionType.SystemDecommission) {
+                && backend.getDecommissionType() == DecommissionType.SystemDecommission) {
                 backendInfo.add("true");
                 backendInfo.add("false");
             } else {
@@ -178,7 +180,7 @@ public class BackendsProcDir implements ProcDirInterface {
 
         // backends proc node get result too slow, add log to observer.
         LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
-                watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+            watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
 
         // sort by cluster name, host name
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1, 3);
@@ -191,7 +193,7 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfos.add(oneInfo);
         }
-        
+
         return backendInfos;
     }
 

@@ -86,7 +86,8 @@ public class MetaLockUtils {
         }
     }
 
-    public static boolean tryWriteLockTablesOrMetaException(List<Table> tableList, long timeout, TimeUnit unit) throws MetaNotFoundException {
+    public static boolean tryWriteLockTablesOrMetaException(List<Table> tableList, long timeout, TimeUnit unit)
+        throws MetaNotFoundException {
         for (int i = 0; i < tableList.size(); i++) {
             try {
                 if (!tableList.get(i).tryWriteLockOrMetaException(timeout, unit)) {

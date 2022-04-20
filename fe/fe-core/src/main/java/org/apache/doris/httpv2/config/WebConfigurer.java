@@ -38,19 +38,19 @@ public class WebConfigurer implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new AuthInterceptor())
-                .addPathPatterns("/rest/v1/**")
-                .excludePathPatterns("/", "/api/**", "/rest/v1/login", "/rest/v1/logout", "/static/**", "/metrics")
-                .excludePathPatterns("/image","/info","/version","/put","/journal_id","/role","/check","/dump");
+            .addPathPatterns("/rest/v1/**")
+            .excludePathPatterns("/", "/api/**", "/rest/v1/login", "/rest/v1/logout", "/static/**", "/metrics")
+            .excludePathPatterns("/image", "/info", "/version", "/put", "/journal_id", "/role", "/check", "/dump");
     }
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowCredentials(false)
-                .allowedMethods("*")
-                .allowedOrigins("*")
-                .allowedHeaders("*")
-                .maxAge(3600);
+            .allowCredentials(false)
+            .allowedMethods("*")
+            .allowedOrigins("*")
+            .allowedHeaders("*")
+            .maxAge(3600);
     }
 
     @Override
@@ -62,9 +62,10 @@ public class WebConfigurer implements WebMvcConfigurer {
     public WebServerFactoryCustomizer<ConfigurableServletWebServerFactory> containerCustomizer() {
         return container -> {
             container.addErrorPages(new ErrorPage(HttpStatus.NOT_FOUND,
-                    "/notFound"));
+                "/notFound"));
         };
     }
+
     @Bean(name = "multipartResolver")
     public CommonsMultipartResolver multipartResolver() {
         CommonsMultipartResolver multipartResolver = new CommonsMultipartResolver();

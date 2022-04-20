@@ -37,7 +37,7 @@ public class SymmetricEncryption {
     private static final String AES = "AES";
 
     private static Cipher getCipher(int cipherMode, byte[] key, byte[] iv) throws InvalidAlgorithmParameterException,
-            InvalidKeyException, NoSuchPaddingException, NoSuchAlgorithmException {
+        InvalidKeyException, NoSuchPaddingException, NoSuchAlgorithmException {
         Cipher cipher = Cipher.getInstance(ALGORITHM);
         SecretKeySpec secretKey = new SecretKeySpec(key, AES);
         IvParameterSpec ivSpec = new IvParameterSpec(iv);

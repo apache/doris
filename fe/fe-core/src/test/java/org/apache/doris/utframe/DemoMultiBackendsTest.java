@@ -75,13 +75,14 @@ public class DemoMultiBackendsTest {
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
     private static String runningDirBase = "fe";
-    private static String runningDir = runningDirBase + "/mocked/DemoMultiBackendsTest/" + UUID.randomUUID().toString() + "/";
+    private static String runningDir =
+        runningDirBase + "/mocked/DemoMultiBackendsTest/" + UUID.randomUUID().toString() + "/";
     private static List<Backend> backends = Lists.newArrayList();
     private static Random random = new Random(System.currentTimeMillis());
 
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+        FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.runningUnitTest = true;
         FeConstants.tablet_checker_interval_ms = 1000;
         FeConstants.default_scheduler_interval_millisecond = 100;
@@ -132,7 +133,8 @@ public class DemoMultiBackendsTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
         // 3. create table tbl1
-        String createTblStmtStr = "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '3'," +
+        String createTblStmtStr =
+            "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '3'," +
                 "'colocate_with' = 'g1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
@@ -161,7 +163,8 @@ public class DemoMultiBackendsTest {
         Assert.assertEquals(1, alterJobs.size());
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
-                System.out.println("alter job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
+                System.out.println(
+                    "alter job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(1000);
             }
             System.out.println("alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
@@ -199,8 +202,9 @@ public class DemoMultiBackendsTest {
         ProcResult result = dir.fetchResult();
         Assert.assertEquals(BackendsProcDir.TITLE_NAMES.size(), result.getColumnNames().size());
         Assert.assertEquals("{\"location\" : \"default\"}", result.getRows().get(0).get(19));
-        Assert.assertEquals("{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,\"isLoadDisabled\":false}",
-                result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 1));
+        Assert.assertEquals(
+            "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,\"isLoadDisabled\":false}",
+            result.getRows().get(0).get(BackendsProcDir.TITLE_NAMES.size() - 1));
     }
 
     private static void updateReplicaPathHash() {

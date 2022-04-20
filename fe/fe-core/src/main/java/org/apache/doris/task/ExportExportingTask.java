@@ -118,8 +118,8 @@ public class ExportExportingTask extends MasterTask {
                     TUniqueId newQueryId = new TUniqueId(queryId.hi, uuid.getLeastSignificantBits());
                     coord.setQueryId(newQueryId);
                     LOG.warn("export exporting job fail. err: {}. query_id: {}, job: {}. retry. {}, new query id: {}",
-                            coord.getExecStatus().getErrorMsg(), DebugUtil.printId(queryId), job.getId(), j,
-                            DebugUtil.printId(newQueryId));
+                        coord.getExecStatus().getErrorMsg(), DebugUtil.printId(queryId), job.getId(), j,
+                        DebugUtil.printId(newQueryId));
                 }
             }
 
@@ -132,7 +132,7 @@ public class ExportExportingTask extends MasterTask {
                 }
                 job.setProgress(progress);
                 LOG.info("finish coordinator with query id {}, export job: {}. progress: {}",
-                        DebugUtil.printId(coord.getQueryId()), job.getId(), progress);
+                    DebugUtil.printId(coord.getQueryId()), job.getId(), progress);
             }
 
             RuntimeProfile queryProfile = coord.getQueryProfile();
@@ -168,7 +168,7 @@ public class ExportExportingTask extends MasterTask {
             // even if release snapshot failed, do nothing cancel this job.
             // snapshot will be removed by GC thread on BE, finally.
             LOG.warn("failed to release snapshot for export job: {}. err: {}", job.getId(),
-                    releaseSnapshotStatus.getErrorMsg());
+                releaseSnapshotStatus.getErrorMsg());
         }
 
         if (job.updateState(ExportJob.JobState.FINISHED)) {
@@ -205,7 +205,7 @@ public class ExportExportingTask extends MasterTask {
             onTimeout();
             return;
         }
-        
+
         try {
             coord.setTimeout(leftTimeSecond);
             coord.exec();
@@ -236,7 +236,7 @@ public class ExportExportingTask extends MasterTask {
         this.failStatus = coordinator.getExecStatus();
         cancelType = ExportFailMsg.CancelType.RUN_FAIL;
         String failMsg = "export exporting job fail. query id: " + DebugUtil.printId(coordinator.getQueryId())
-                + ", ";
+            + ", ";
         failMsg += failStatus.getErrorMsg();
         job.setFailMsg(new ExportFailMsg(cancelType, failMsg));
         LOG.warn("export exporting job fail. err: {}. job: {}", failMsg, job);
@@ -314,13 +314,13 @@ public class ExportExportingTask extends MasterTask {
             String failMsg = "";
             try {
                 TBrokerRenamePathRequest request = new TBrokerRenamePathRequest(
-                        TBrokerVersion.VERSION_ONE, exportedFile, destPath, job.getBrokerDesc().getProperties());
+                    TBrokerVersion.VERSION_ONE, exportedFile, destPath, job.getBrokerDesc().getProperties());
                 TBrokerOperationStatus tBrokerOperationStatus = null;
                 tBrokerOperationStatus = client.renamePath(request);
                 if (tBrokerOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     failed = true;
                     failMsg = "Broker renamePath failed. srcPath=" + exportedFile + ", destPath=" + destPath
-                            + ", broker=" + address  + ", msg=" + tBrokerOperationStatus.getMessage();
+                        + ", broker=" + address + ", msg=" + tBrokerOperationStatus.getMessage();
                     return new Status(TStatusCode.CANCELLED, failMsg);
                 } else {
                     newFiles.add(destPath);
@@ -328,7 +328,7 @@ public class ExportExportingTask extends MasterTask {
             } catch (TException e) {
                 failed = true;
                 failMsg = "Broker renamePath failed. srcPath=" + exportedFile + ", destPath=" + destPath
-                        + ", broker=" + address  + ", msg=" + e.getMessage();
+                    + ", broker=" + address + ", msg=" + e.getMessage();
                 return new Status(TStatusCode.CANCELLED, failMsg);
             } finally {
                 if (failed) {

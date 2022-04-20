@@ -19,11 +19,11 @@ package org.apache.doris.qe;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import org.apache.doris.qe.QueryDetail;
 
 // Queue of QueryDetail.
 // It's used to collect queries for monitor.
@@ -57,13 +57,13 @@ public class QueryDetailQueue {
     public static synchronized List<QueryDetail> getQueryDetails(long eventTime) {
         List<QueryDetail> results = Lists.newArrayList();
         Iterator<QueryDetail> it = totalQueries.iterator();
-        while(it.hasNext()) {
+        while (it.hasNext()) {
             QueryDetail queryDetail = it.next();
             if (queryDetail.getEventTime() > eventTime) {
                 results.add(queryDetail);
             }
         }
-        return results; 
+        return results;
     }
 
-};
+}

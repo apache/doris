@@ -35,7 +35,7 @@ public class FailMsg implements Writable {
         UNKNOWN,
         TXN_UNKNOWN // cancelled because txn status is unknown
     }
-    
+
     private CancelType cancelType;
     private String msg = "";
 
@@ -46,7 +46,7 @@ public class FailMsg implements Writable {
     public FailMsg(CancelType cancelType) {
         this.cancelType = cancelType;
     }
-    
+
     public FailMsg(CancelType cancelType, String msg) {
         this.cancelType = cancelType;
         this.msg = msg;
@@ -77,24 +77,25 @@ public class FailMsg implements Writable {
         Text.writeString(out, cancelType.name());
         Text.writeString(out, msg);
     }
+
     public void readFields(DataInput in) throws IOException {
         cancelType = CancelType.valueOf(Text.readString(in));
         msg = Text.readString(in);
     }
-    
+
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof FailMsg)) {
             return false;
         }
-        
+
         FailMsg failMsg = (FailMsg) obj;
-        
+
         return cancelType.equals(failMsg.cancelType)
-                && msg.equals(failMsg.msg);
+            && msg.equals(failMsg.msg);
     }
 
 }

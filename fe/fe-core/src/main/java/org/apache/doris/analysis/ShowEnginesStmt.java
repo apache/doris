@@ -23,14 +23,14 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowEnginesStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Engine", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Support", ScalarType.createVarchar(8)))
-                    .addColumn(new Column("Comment", ScalarType.createVarchar(80)))
-                    .addColumn(new Column("Transactions", ScalarType.createVarchar(3)))
-                    .addColumn(new Column("XA", ScalarType.createVarchar(3)))
-                    .addColumn(new Column("Savepoints", ScalarType.createVarchar(3)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Engine", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Support", ScalarType.createVarchar(8)))
+            .addColumn(new Column("Comment", ScalarType.createVarchar(80)))
+            .addColumn(new Column("Transactions", ScalarType.createVarchar(3)))
+            .addColumn(new Column("XA", ScalarType.createVarchar(3)))
+            .addColumn(new Column("Savepoints", ScalarType.createVarchar(3)))
+            .build();
 
     @Override
     public void analyze(Analyzer analyzer) {

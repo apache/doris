@@ -71,7 +71,7 @@ public class BeLoadRebalancer extends Rebalancer {
      */
     @Override
     protected List<TabletSchedCtx> selectAlternativeTabletsForCluster(
-            ClusterLoadStatistic clusterStat, TStorageMedium medium) {
+        ClusterLoadStatistic clusterStat, TStorageMedium medium) {
         String clusterName = clusterStat.getClusterName();
         List<TabletSchedCtx> alternativeTablets = Lists.newArrayList();
 
@@ -90,19 +90,19 @@ public class BeLoadRebalancer extends Rebalancer {
         // if all low backends is not available, we should not start balance
         if (lowBEs.stream().noneMatch(BackendLoadStatistic::isAvailable)) {
             LOG.info("all low load backends is dead: {} with medium: {}. skip",
-                    lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
+                lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
             return alternativeTablets;
         }
 
         if (lowBEs.stream().noneMatch(BackendLoadStatistic::hasAvailDisk)) {
             LOG.info("all low load backends {} have no available disk with medium: {}. skip",
-                    lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
+                lowBEs.stream().mapToLong(BackendLoadStatistic::getBeId).toArray(), medium);
             return alternativeTablets;
         }
 
         // get the number of low load paths. and we should at most select this number of tablets
         long numOfLowPaths = lowBEs.stream().filter(b -> b.isAvailable() && b.hasAvailDisk()).mapToLong(
-                b -> b.getAvailPathNum(medium)).sum();
+            b -> b.getAvailPathNum(medium)).sum();
         LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
 
         int clusterAvailableBEnum = infoService.getClusterBackendIds(clusterName, true).size();
@@ -162,9 +162,9 @@ public class BeLoadRebalancer extends Rebalancer {
                     }
 
                     TabletSchedCtx tabletCtx = new TabletSchedCtx(TabletSchedCtx.Type.BALANCE, clusterName,
-                            tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId(),
-                            tabletMeta.getIndexId(), tabletId, null /* replica alloc is not used for balance*/,
-                            System.currentTimeMillis());
+                        tabletMeta.getDbId(), tabletMeta.getTableId(), tabletMeta.getPartitionId(),
+                        tabletMeta.getIndexId(), tabletId, null /* replica alloc is not used for balance*/,
+                        System.currentTimeMillis());
                     tabletCtx.setTag(clusterStat.getTag());
                     // balance task's priority is always LOW
                     tabletCtx.setOrigPriority(Priority.LOW);
@@ -187,8 +187,8 @@ public class BeLoadRebalancer extends Rebalancer {
         } // end for high backends
 
         LOG.info("select alternative tablets for cluster: {}, medium: {}, num: {}, detail: {}",
-                clusterName, medium, alternativeTablets.size(),
-                alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
+            clusterName, medium, alternativeTablets.size(),
+            alternativeTablets.stream().mapToLong(TabletSchedCtx::getTabletId).toArray());
         return alternativeTablets;
     }
 
@@ -199,7 +199,8 @@ public class BeLoadRebalancer extends Rebalancer {
      * 2. Select a low load backend as destination. And tablet should not has replica on this backend.
      */
     @Override
-    public void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots) throws SchedException {
+    public void completeSchedCtx(TabletSchedCtx tabletCtx, Map<Long, PathSlot> backendsWorkingSlots)
+        throws SchedException {
         ClusterLoadStatistic clusterStat = statisticMap.get(tabletCtx.getCluster(), tabletCtx.getTag());
         if (clusterStat == null) {
             throw new SchedException(Status.UNRECOVERABLE, "cluster does not exist");
@@ -276,13 +277,13 @@ public class BeLoadRebalancer extends Rebalancer {
                 List<RootPathLoadStatistic> availPaths = Lists.newArrayList();
                 BalanceStatus bs;
                 if ((bs = beStat.isFit(tabletCtx.getTabletSize(), tabletCtx.getStorageMedium(), availPaths,
-                        false /* not supplement */)) != BalanceStatus.OK) {
+                    false /* not supplement */)) != BalanceStatus.OK) {
                     LOG.debug("tablet not fit in BE {}, reason: {}", beStat.getBeId(), bs.getErrMsgs());
                     continue;
                 }
 
                 if (!clusterStat.isMoreBalanced(tabletCtx.getSrcBackendId(), beStat.getBeId(),
-                        tabletCtx.getTabletId(), tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
+                    tabletCtx.getTabletId(), tabletCtx.getTabletSize(), tabletCtx.getStorageMedium())) {
                     continue;
                 }
 

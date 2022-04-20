@@ -17,9 +17,9 @@
 
 package org.apache.doris.load.sync.position;
 
-import com.alibaba.otter.canal.protocol.CanalEntry;
-
 import com.google.common.base.Strings;
+
+import com.alibaba.otter.canal.protocol.CanalEntry;
 
 public class EntryPosition {
     private String journalName;
@@ -30,7 +30,7 @@ public class EntryPosition {
     public static final EntryPosition MIN_POS = new EntryPosition("", -1L, null);
 
     public EntryPosition() {
-        this(null, (Long)null, (Long)null);
+        this(null, (Long) null, (Long) null);
     }
 
     public EntryPosition(String journalName, Long position, Long timestamp) {
@@ -41,7 +41,7 @@ public class EntryPosition {
     }
 
     public EntryPosition(String journalName, Long position) {
-        this(journalName, position, (Long)null);
+        this(journalName, position, (Long) null);
     }
 
     public String getJournalName() {
@@ -87,7 +87,7 @@ public class EntryPosition {
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
-        }  else if (!(obj instanceof EntryPosition)) {
+        } else if (!(obj instanceof EntryPosition)) {
             return false;
         } else {
             EntryPosition other = (EntryPosition) obj;
@@ -118,6 +118,7 @@ public class EntryPosition {
             return true;
         }
     }
+
     @Override
     public String toString() {
         return "[" + journalName + ":" + position + "]";
@@ -164,7 +165,8 @@ public class EntryPosition {
 
     public static boolean checkPosition(CanalEntry.Header header, EntryPosition entryPosition) {
         boolean result = entryPosition.getExecuteTime().equals(header.getExecuteTime());
-        boolean isEmptyPosition = (Strings.isNullOrEmpty(entryPosition.getJournalName()) && entryPosition.getPosition() == null);
+        boolean isEmptyPosition =
+            (Strings.isNullOrEmpty(entryPosition.getJournalName()) && entryPosition.getPosition() == null);
         if (!isEmptyPosition) {
             result &= entryPosition.getPosition().equals(header.getLogfileOffset());
             if (result) {

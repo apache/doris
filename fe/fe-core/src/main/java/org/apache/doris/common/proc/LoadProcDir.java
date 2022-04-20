@@ -32,11 +32,11 @@ import java.util.List;
 
 public class LoadProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("Label").add("State").add("Progress")
-            .add("Type").add("EtlInfo").add("TaskInfo").add("ErrorMsg").add("CreateTime")
-            .add("EtlStartTime").add("EtlFinishTime").add("LoadStartTime").add("LoadFinishTime")
-            .add("URL").add("JobDetails").add("TransactionId").add("ErrorTablets")
-            .build();
+        .add("JobId").add("Label").add("State").add("Progress")
+        .add("Type").add("EtlInfo").add("TaskInfo").add("ErrorMsg").add("CreateTime")
+        .add("EtlStartTime").add("EtlFinishTime").add("LoadStartTime").add("LoadFinishTime")
+        .add("URL").add("JobDetails").add("TransactionId").add("ErrorTablets")
+        .build();
 
     // label and state column index of result
     public static final int LABEL_INDEX = 1;
@@ -65,10 +65,10 @@ public class LoadProcDir implements ProcDirInterface {
 
         // merge load job from load and loadManager
         LinkedList<List<Comparable>> loadJobInfos = load.getLoadJobInfosByDb(db.getId(), db.getFullName(),
-                null, false, null);
+            null, false, null);
         loadJobInfos.addAll(Catalog.getCurrentCatalog().getLoadManager().getLoadJobInfosByDb(db.getId(), null,
-                false,
-                null));
+            false,
+            null));
         int counter = 0;
         Iterator<List<Comparable>> iterator = loadJobInfos.descendingIterator();
         while (iterator.hasNext()) {

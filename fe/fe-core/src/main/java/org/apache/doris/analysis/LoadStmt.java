@@ -90,8 +90,8 @@ public class LoadStmt extends DdlStmt {
 
     // mini load params
     public static final String KEY_IN_PARAM_COLUMNS = "columns";
-    public static final String KEY_IN_PARAM_SET= "set";
-    public static final String KEY_IN_PARAM_HLL= "hll";
+    public static final String KEY_IN_PARAM_SET = "set";
+    public static final String KEY_IN_PARAM_HLL = "hll";
     public static final String KEY_IN_PARAM_COLUMN_SEPARATOR = "column_separator";
     public static final String KEY_IN_PARAM_LINE_DELIMITER = "line_delimiter";
     public static final String KEY_IN_PARAM_PARTITIONS = "partitions";
@@ -105,8 +105,8 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_STRICT_MODE = "strict_mode";
     public static final String KEY_IN_PARAM_TIMEZONE = "timezone";
     public static final String KEY_IN_PARAM_EXEC_MEM_LIMIT = "exec_mem_limit";
-    public static final String KEY_IN_PARAM_JSONPATHS  = "jsonpaths";
-    public static final String KEY_IN_PARAM_JSONROOT  = "json_root";
+    public static final String KEY_IN_PARAM_JSONPATHS = "jsonpaths";
+    public static final String KEY_IN_PARAM_JSONROOT = "json_root";
     public static final String KEY_IN_PARAM_STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String KEY_IN_PARAM_FUZZY_PARSE = "fuzzy_parse";
     public static final String KEY_IN_PARAM_NUM_AS_STRING = "num_as_string";
@@ -126,61 +126,61 @@ public class LoadStmt extends DdlStmt {
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
 
     public static final ImmutableMap<String, Function> PROPERTIES_MAP = new ImmutableMap.Builder<String, Function>()
-            .put(TIMEOUT_PROPERTY, new Function<String, Long>() {
-                @Override
-                public @Nullable Long apply(@Nullable String s) {
-                    return Long.valueOf(s);
-                }
-            })
-            .put(MAX_FILTER_RATIO_PROPERTY, new Function<String, Double>() {
-                @Override
-                public @Nullable Double apply(@Nullable String s) {
-                    return Double.valueOf(s);
-                }
-            })
-            .put(EXEC_MEM_LIMIT, new Function<String, Long>() {
-                @Override
-                public @Nullable Long apply(@Nullable String s) {
-                    return Long.valueOf(s);
-                }
-            })
-            .put(STRICT_MODE, new Function<String, Boolean>() {
-                @Override
-                public @Nullable Boolean apply(@Nullable String s) {
-                    return Boolean.valueOf(s);
-                }
-            })
-            .put(TIMEZONE, new Function<String, String>() {
-                @Override
-                public @Nullable String apply(@Nullable String s) {
-                    return s;
-                }
-            })
-            .put(LOAD_PARALLELISM, new Function<String, Integer>() {
-                @Override
-                public @Nullable Integer apply(@Nullable String s) {
-                    return Integer.valueOf(s);
-                }
-            })
-            .put(SEND_BATCH_PARALLELISM, new Function<String, Integer>() {
-                @Override
-                public @Nullable Integer apply(@Nullable String s) {
-                    return Integer.valueOf(s);
-                }
-            })
-            .put(CLUSTER_PROPERTY, new Function<String, String>() {
-                @Override
-                public @Nullable String apply(@Nullable String s) {
-                    return s;
-                }
-            })
-            .put(LOAD_TO_SINGLE_TABLET, new Function<String, Boolean>() {
-                @Override
-                public @Nullable Boolean apply(@Nullable String s) {
-                    return Boolean.valueOf(s);
-                }
-            })
-            .build();
+        .put(TIMEOUT_PROPERTY, new Function<String, Long>() {
+            @Override
+            public @Nullable Long apply(@Nullable String s) {
+                return Long.valueOf(s);
+            }
+        })
+        .put(MAX_FILTER_RATIO_PROPERTY, new Function<String, Double>() {
+            @Override
+            public @Nullable Double apply(@Nullable String s) {
+                return Double.valueOf(s);
+            }
+        })
+        .put(EXEC_MEM_LIMIT, new Function<String, Long>() {
+            @Override
+            public @Nullable Long apply(@Nullable String s) {
+                return Long.valueOf(s);
+            }
+        })
+        .put(STRICT_MODE, new Function<String, Boolean>() {
+            @Override
+            public @Nullable Boolean apply(@Nullable String s) {
+                return Boolean.valueOf(s);
+            }
+        })
+        .put(TIMEZONE, new Function<String, String>() {
+            @Override
+            public @Nullable String apply(@Nullable String s) {
+                return s;
+            }
+        })
+        .put(LOAD_PARALLELISM, new Function<String, Integer>() {
+            @Override
+            public @Nullable Integer apply(@Nullable String s) {
+                return Integer.valueOf(s);
+            }
+        })
+        .put(SEND_BATCH_PARALLELISM, new Function<String, Integer>() {
+            @Override
+            public @Nullable Integer apply(@Nullable String s) {
+                return Integer.valueOf(s);
+            }
+        })
+        .put(CLUSTER_PROPERTY, new Function<String, String>() {
+            @Override
+            public @Nullable String apply(@Nullable String s) {
+                return s;
+            }
+        })
+        .put(LOAD_TO_SINGLE_TABLET, new Function<String, Boolean>() {
+            @Override
+            public @Nullable Boolean apply(@Nullable String s) {
+                return Boolean.valueOf(s);
+            }
+        })
+        .build();
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
                     BrokerDesc brokerDesc, String cluster, Map<String, String> properties) {
@@ -290,7 +290,7 @@ public class LoadStmt extends DdlStmt {
         final String strictModeProperty = properties.get(STRICT_MODE);
         if (strictModeProperty != null) {
             if (!strictModeProperty.equalsIgnoreCase("true")
-                    && !strictModeProperty.equalsIgnoreCase("false")) {
+                && !strictModeProperty.equalsIgnoreCase("false")) {
                 throw new DdlException(STRICT_MODE + " is not a boolean");
             }
         }
@@ -299,7 +299,7 @@ public class LoadStmt extends DdlStmt {
         final String timezone = properties.get(TIMEZONE);
         if (timezone != null) {
             properties.put(TIMEZONE, TimeUtils.checkTimeZoneValidAndStandardize(
-                    properties.getOrDefault(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE)));
+                properties.getOrDefault(LoadStmt.TIMEZONE, TimeUtils.DEFAULT_TIME_ZONE)));
         }
 
         // send batch parallelism
@@ -338,7 +338,8 @@ public class LoadStmt extends DdlStmt {
             }
             Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(label.getDbName());
             OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
-            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && table.getKeysType() != KeysType.UNIQUE_KEYS) {
+            if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND &&
+                table.getKeysType() != KeysType.UNIQUE_KEYS) {
                 throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
             }
             if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND && !table.hasDeleteSign()) {
@@ -371,11 +372,11 @@ public class LoadStmt extends DdlStmt {
             }
             // check resource usage privilege
             if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(),
-                                                                         resourceDesc.getName(),
-                                                                         PrivPredicate.USAGE)) {
+                resourceDesc.getName(),
+                PrivPredicate.USAGE)) {
                 throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
-                                                    + "'@'" + ConnectContext.get().getRemoteIP()
-                                                    + "' for resource '" + resourceDesc.getName() + "'");
+                    + "'@'" + ConnectContext.get().getRemoteIP()
+                    + "' for resource '" + resourceDesc.getName() + "'");
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;

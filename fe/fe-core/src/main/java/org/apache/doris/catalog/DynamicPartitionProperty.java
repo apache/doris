@@ -86,9 +86,11 @@ public class DynamicPartitionProperty {
             this.buckets = Integer.parseInt(properties.get(BUCKETS));
             this.replicaAlloc = analyzeReplicaAllocation(properties);
             this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
-            this.historyPartitionNum = Integer.parseInt(properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
+            this.historyPartitionNum = Integer.parseInt(
+                properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
             this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
-            this.reservedHistoryPeriods = properties.getOrDefault(RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
+            this.reservedHistoryPeriods =
+                properties.getOrDefault(RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
             createStartOfs(properties);
         } else {
             this.exist = false;
@@ -200,17 +202,17 @@ public class DynamicPartitionProperty {
     public String getProperties(ReplicaAllocation tableReplicaAlloc) {
         ReplicaAllocation tmpAlloc = this.replicaAlloc.isNotSet() ? tableReplicaAlloc : this.replicaAlloc;
         String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
-                ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
-                ",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\"" +
-                ",\n\"" + START + "\" = \"" + start + "\"" +
-                ",\n\"" + END + "\" = \"" + end + "\"" +
-                ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
-                ",\n\"" + REPLICATION_ALLOCATION + "\" = \"" + tmpAlloc.toCreateStmt() + "\"" +
-                ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"" +
-                ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"" +
-                ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\"" +
-                ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"" +
-                ",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\"";
+            ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
+            ",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\"" +
+            ",\n\"" + START + "\" = \"" + start + "\"" +
+            ",\n\"" + END + "\" = \"" + end + "\"" +
+            ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
+            ",\n\"" + REPLICATION_ALLOCATION + "\" = \"" + tmpAlloc.toCreateStmt() + "\"" +
+            ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"" +
+            ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"" +
+            ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\"" +
+            ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"" +
+            ",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
         } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {

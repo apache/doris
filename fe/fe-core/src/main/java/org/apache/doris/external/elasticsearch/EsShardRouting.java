@@ -32,7 +32,7 @@ public class EsShardRouting {
 
     private TNetworkAddress httpAddress;
     private final String nodeId;
-    
+
     public EsShardRouting(String indexName, int shardId, boolean isPrimary, TNetworkAddress address, String nodeId) {
         this.indexName = indexName;
         this.shardId = shardId;
@@ -40,9 +40,9 @@ public class EsShardRouting {
         this.address = address;
         this.nodeId = nodeId;
     }
-    
+
     public static EsShardRouting newSearchShard(String indexName, int shardId, boolean isPrimary,
-            String nodeId, JSONObject nodesMap) {
+                                                String nodeId, JSONObject nodesMap) {
         JSONObject nodeInfo = (JSONObject) nodesMap.get(nodeId);
         String[] transportAddr = ((String) nodeInfo.get("transport_address")).split(":");
         // get thrift port from node info
@@ -54,7 +54,7 @@ public class EsShardRouting {
         }
         return new EsShardRouting(indexName, shardId, isPrimary, addr, nodeId);
     }
-    
+
     public int getShardId() {
         return shardId;
     }
@@ -86,12 +86,12 @@ public class EsShardRouting {
     @Override
     public String toString() {
         return "EsShardRouting{" +
-                "indexName='" + indexName + '\'' +
-                ", shardId=" + shardId +
-                ", isPrimary=" + isPrimary +
-                ", address=" + address +
-                ", httpAddress=" + httpAddress +
-                ", nodeId='" + nodeId + '\'' +
-                '}';
+            "indexName='" + indexName + '\'' +
+            ", shardId=" + shardId +
+            ", isPrimary=" + isPrimary +
+            ", address=" + address +
+            ", httpAddress=" + httpAddress +
+            ", nodeId='" + nodeId + '\'' +
+            '}';
     }
 }

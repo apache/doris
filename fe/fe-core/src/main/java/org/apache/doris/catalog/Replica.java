@@ -20,8 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
-import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -29,6 +27,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Comparator;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * This class represents the olap replica related metadata.
@@ -142,9 +142,9 @@ public class Replica implements Writable {
     }
 
     public Replica(long replicaId, long backendId, long version, int schemaHash,
-                       long dataSize, long rowCount, ReplicaState state, 
-                       long lastFailedVersion,
-                       long lastSuccessVersion) {
+                   long dataSize, long rowCount, ReplicaState state,
+                   long lastFailedVersion,
+                   long lastSuccessVersion) {
         this.id = replicaId;
         this.backendId = backendId;
         this.version = version;
@@ -255,8 +255,9 @@ public class Replica implements Writable {
     public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRowCount) {
         updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion, newDataSize, newRowCount);
     }
-    
-    public synchronized void updateVersionWithFailedInfo(long newVersion, long lastFailedVersion, long lastSuccessVersion) {
+
+    public synchronized void updateVersionWithFailedInfo(long newVersion, long lastFailedVersion,
+                                                         long lastSuccessVersion) {
         updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, rowCount);
     }
 
@@ -284,9 +285,9 @@ public class Replica implements Writable {
      *      the V(hash) equals to LSV(hash), and V equals to LFV, but LFV hash is 0 or some unknown number.
      *      We just reset the LFV(hash) to recovery this replica.
      */
-    private void updateReplicaInfo(long newVersion, 
-            long lastFailedVersion, long lastSuccessVersion, 
-            long newDataSize, long newRowCount) {
+    private void updateReplicaInfo(long newVersion,
+                                   long lastFailedVersion, long lastSuccessVersion,
+                                   long newDataSize, long newRowCount) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("before update: {}", this.toString());
         }
@@ -301,7 +302,7 @@ public class Replica implements Writable {
             // to update replica. Finally, it find the newer version(5) is lower than replica version(6) in fe.
             if (LOG.isDebugEnabled()) {
                 LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
-                        + "not to continue to update replica", id, backendId, newVersion, this.version);
+                    + "not to continue to update replica", id, backendId, newVersion, this.version);
             }
             return;
         }
@@ -323,8 +324,8 @@ public class Replica implements Writable {
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
             LOG.debug("current version {} is larger than last failed version {}, "
-                        + "maybe a fatal error or be report version, print a stack here ", 
-                    this.version, lastFailedVersion, new Exception());
+                    + "maybe a fatal error or be report version, print a stack here ",
+                this.version, lastFailedVersion, new Exception());
         }
 
         if (lastFailedVersion != this.lastFailedVersion) {
@@ -359,7 +360,7 @@ public class Replica implements Writable {
             LOG.debug("after update {}", this.toString());
         }
     }
-    
+
     public synchronized void updateLastFailedVersion(long lastFailedVersion) {
         updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion, dataSize, rowCount);
     }
@@ -376,7 +377,7 @@ public class Replica implements Writable {
         if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION) {
             return true;
         }
-        
+
         if (expectedVersion == Partition.PARTITION_INIT_VERSION) {
             // no data is loaded into this replica, just return true
             return true;
@@ -384,7 +385,7 @@ public class Replica implements Writable {
 
         if (this.version < expectedVersion) {
             LOG.debug("replica version does not catch up with version: {}. replica: {}",
-                      expectedVersion, this);
+                expectedVersion, this);
             return false;
         }
         return true;
@@ -487,13 +488,13 @@ public class Replica implements Writable {
 
         Replica replica = (Replica) obj;
         return (id == replica.id)
-                && (backendId == replica.backendId)
-                && (version == replica.version)
-                && (dataSize == replica.dataSize)
-                && (rowCount == replica.rowCount)
-                && (state.equals(replica.state))
-                && (lastFailedVersion == replica.lastFailedVersion)
-                && (lastSuccessVersion == replica.lastSuccessVersion);
+            && (backendId == replica.backendId)
+            && (version == replica.version)
+            && (dataSize == replica.dataSize)
+            && (rowCount == replica.rowCount)
+            && (state.equals(replica.state))
+            && (lastFailedVersion == replica.lastFailedVersion)
+            && (lastSuccessVersion == replica.lastSuccessVersion);
     }
 
     private static class VersionComparator<T extends Replica> implements Comparator<T> {
@@ -522,7 +523,7 @@ public class Replica implements Writable {
 
     public boolean isAlive() {
         return getState() != ReplicaState.CLONE
-                && getState() != ReplicaState.DECOMMISSION
-                && !isBad();
+            && getState() != ReplicaState.DECOMMISSION
+            && !isBad();
     }
 }

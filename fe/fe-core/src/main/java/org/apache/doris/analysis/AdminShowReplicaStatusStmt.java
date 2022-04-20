@@ -39,10 +39,10 @@ import java.util.List;
 
 public class AdminShowReplicaStatusStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TabletId").add("ReplicaId").add("BackendId").add("Version").add("LastFailedVersion")
-            .add("LastSuccessVersion").add("CommittedVersion").add("SchemaHash").add("VersionNum")
-            .add("IsBad").add("State").add("Status")
-            .build();
+        .add("TabletId").add("ReplicaId").add("BackendId").add("Version").add("LastFailedVersion")
+        .add("LastSuccessVersion").add("CommittedVersion").add("SchemaHash").add("VersionNum")
+        .add("IsBad").add("State").add("Status")
+        .build();
 
     private TableRef tblRef;
     private Expr where;
@@ -87,7 +87,7 @@ public class AdminShowReplicaStatusStmt extends ShowStmt {
 
         if (!analyzeWhere()) {
             throw new AnalysisException(
-                    "Where clause should looks like: status =/!= 'OK/DEAD/VERSION_ERROR/SCHEMA_ERROR/MISSING'");
+                "Where clause should looks like: status =/!= 'OK/DEAD/VERSION_ERROR/SCHEMA_ERROR/MISSING'");
         }
     }
 

@@ -23,24 +23,24 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-
-import com.google.common.base.Strings;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+
 /**
  * create a encryptKey
- *
+ * <p>
  * The syntax is:
  * CREATE ENCRYPTKEY key_name
- *     AS "key_string";
+ * AS "key_string";
  * `key_name`: The name of the key to be created, which can include the name of the database. For example: `db1.my_key`.
  * `key_string`: The string to create the key
- *
+ * <p>
  * for example:
- *     CREATE ENCRYPTKEY test.key1 AS "beijing";
+ * CREATE ENCRYPTKEY test.key1 AS "beijing";
  */
-public class CreateEncryptKeyStmt extends DdlStmt{
+public class CreateEncryptKeyStmt extends DdlStmt {
     private final EncryptKeyName encryptKeyName;
     private final String keyString;
     private EncryptKey encryptKey;
@@ -82,7 +82,7 @@ public class CreateEncryptKeyStmt extends DdlStmt{
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE ENCRYPTKEY ")
-                .append(encryptKeyName.getKeyName()).append(" AS \"").append(keyString).append("\"");
+            .append(encryptKeyName.getKeyName()).append(" AS \"").append(keyString).append("\"");
         return stringBuilder.toString();
     }
 }

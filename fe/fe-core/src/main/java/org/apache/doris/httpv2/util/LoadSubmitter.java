@@ -26,8 +26,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,6 +46,9 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
+
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 public class LoadSubmitter {
     private static final Logger LOG = LogManager.getLogger(LoadSubmitter.class);
@@ -83,11 +84,13 @@ public class LoadSubmitter {
             // choose a backend to submit the stream load
             Backend be = selectOneBackend();
 
-            String loadUrlStr = String.format(STREAM_LOAD_URL_PATTERN, be.getHost(), be.getHttpPort(), loadContext.db, loadContext.tbl);
+            String loadUrlStr =
+                String.format(STREAM_LOAD_URL_PATTERN, be.getHost(), be.getHttpPort(), loadContext.db, loadContext.tbl);
             URL loadUrl = new URL(loadUrlStr);
             HttpURLConnection conn = (HttpURLConnection) loadUrl.openConnection();
             conn.setRequestMethod("PUT");
-            String auth = String.format("%s:%s", ClusterNamespace.getNameFromFullName(loadContext.user), loadContext.passwd);
+            String auth =
+                String.format("%s:%s", ClusterNamespace.getNameFromFullName(loadContext.user), loadContext.passwd);
             String authEncoding = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
             conn.setRequestProperty("Authorization", "Basic " + authEncoding);
             conn.addRequestProperty("Expect", "100-continue");
@@ -138,10 +141,10 @@ public class LoadSubmitter {
 
         private Backend selectOneBackend() throws DdlException {
             SystemInfoService.BeAvailablePredicate beAvailablePredicate =
-                    new SystemInfoService.BeAvailablePredicate(false, false, true);
+                new SystemInfoService.BeAvailablePredicate(false, false, true);
             List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                    1, beAvailablePredicate, false,
-                    SystemInfoService.DEFAULT_CLUSTER, null, null);
+                1, beAvailablePredicate, false,
+                SystemInfoService.DEFAULT_CLUSTER, null, null);
             if (backendIds == null) {
                 throw new DdlException("No alive backend");
             }

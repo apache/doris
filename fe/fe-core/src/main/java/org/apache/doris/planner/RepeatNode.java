@@ -77,7 +77,7 @@ public class RepeatNode extends PlanNode {
 
     // only for unittest
     protected RepeatNode(PlanNodeId id, PlanNode input, List<Set<SlotId>> repeatSlotIdList,
-                      TupleDescriptor outputTupleDesc, List<List<Long>> groupingList) {
+                         TupleDescriptor outputTupleDesc, List<List<Long>> groupingList) {
         super(id, input.getTupleIds(), "REPEAT_NODE");
         this.children.add(input);
         this.repeatSlotIdList = buildIdSetList(repeatSlotIdList);
@@ -113,7 +113,7 @@ public class RepeatNode extends PlanNode {
     public void init(Analyzer analyzer) throws UserException {
         Preconditions.checkState(conjuncts.isEmpty());
         groupByClause.substituteGroupingExprs(groupingInfo.getGroupingSlots(), input.getOutputSmap(),
-                analyzer);
+            analyzer);
 
         for (Expr expr : groupByClause.getGroupingExprs()) {
             if (expr instanceof SlotRef || (expr instanceof GroupingFunctionCallExpr)) {
@@ -201,13 +201,13 @@ public class RepeatNode extends PlanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.REPEAT_NODE;
         msg.repeat_node = new TRepeatNode(outputTupleDesc.getId().asInt(), repeatSlotIdList, groupingList.get(0),
-                groupingList, allSlotId);
+            groupingList, allSlotId);
     }
 
     @Override
     protected String debugString() {
         return MoreObjects.toStringHelper(this).add("Repeat", repeatSlotIdList.size()).addValue(
-                super.debugString()).toString();
+            super.debugString()).toString();
     }
 
     @Override
@@ -224,7 +224,7 @@ public class RepeatNode extends PlanNode {
         if (CollectionUtils.isNotEmpty(outputTupleDesc.getSlots())) {
             output.append(detailPrefix + "generate: ");
             output.append(outputTupleDesc.getSlots().stream().map(slot -> "`" + slot.getColumn().getName() + "`")
-                    .collect(Collectors.joining(", ")) + "\n");
+                .collect(Collectors.joining(", ")) + "\n");
         }
         return output.toString();
     }

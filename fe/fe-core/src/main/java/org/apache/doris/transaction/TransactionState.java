@@ -252,7 +252,8 @@ public class TransactionState implements Writable {
     }
 
     public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
-                            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, long callbackId, long timeoutMs) {
+                            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, long callbackId,
+                            long timeoutMs) {
         this.dbId = dbId;
         this.tableIdList = (tableIdList == null ? Lists.newArrayList() : tableIdList);
         this.transactionId = transactionId;
@@ -290,7 +291,7 @@ public class TransactionState implements Writable {
 
     public boolean isRunning() {
         return transactionStatus == TransactionStatus.PREPARE
-                || transactionStatus == TransactionStatus.COMMITTED;
+            || transactionStatus == TransactionStatus.COMMITTED;
     }
 
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
@@ -415,7 +416,7 @@ public class TransactionState implements Writable {
                 case COMMITTED:
                     // Maybe listener has been deleted. The txn need to be aborted later.
                     throw new TransactionException(
-                            "Failed to commit txn when callback " + callbackId + "could not be found");
+                        "Failed to commit txn when callback " + callbackId + "could not be found");
                 default:
                     break;
             }
@@ -426,8 +427,9 @@ public class TransactionState implements Writable {
         afterStateTransform(transactionStatus, txnOperated, null);
     }
 
-    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated, String txnStatusChangeReason)
-            throws UserException {
+    public void afterStateTransform(TransactionStatus transactionStatus, boolean txnOperated,
+                                    String txnStatusChangeReason)
+        throws UserException {
         // after status changed
         if (callback == null) {
             callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(callbackId);
@@ -451,7 +453,7 @@ public class TransactionState implements Writable {
 
     public void replaySetTransactionStatus() {
         TxnStateChangeCallback callback = Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().getCallback(
-                callbackId);
+            callbackId);
         if (callback != null) {
             if (transactionStatus == TransactionStatus.ABORTED) {
                 callback.replayOnAborted(this);
@@ -535,13 +537,14 @@ public class TransactionState implements Writable {
     // We call these tasks "Short" tasks because they will be cleaned up in a short time after they are finished.
     public boolean isShortTxn() {
         return sourceType == LoadJobSourceType.BACKEND_STREAMING || sourceType == LoadJobSourceType.INSERT_STREAMING
-                || sourceType == LoadJobSourceType.ROUTINE_LOAD_TASK;
+            || sourceType == LoadJobSourceType.ROUTINE_LOAD_TASK;
     }
 
     // return true if txn is running but timeout
     public boolean isTimeout(long currentMillis) {
         return (transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs) ||
-                (transactionStatus == TransactionStatus.PRECOMMITTED && currentMillis - preCommitTime > preCommittedTimeoutMs);
+            (transactionStatus == TransactionStatus.PRECOMMITTED &&
+                currentMillis - preCommitTime > preCommittedTimeoutMs);
     }
 
     public synchronized void addTableIndexes(OlapTable table) {

@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -27,13 +26,10 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.DropInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -45,6 +41,10 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.HashMap;
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class OdbcCatalogResourceTest {
     private String name;
@@ -76,7 +76,7 @@ public class OdbcCatalogResourceTest {
 
     @Test
     public void testFromStmt(@Mocked Catalog catalog, @Injectable PaloAuth auth)
-            throws UserException {
+        throws UserException {
         new Expectations() {
             {
                 catalog.getAuth();

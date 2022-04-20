@@ -100,14 +100,18 @@ public class InlineViewRef extends TableRef {
     public InlineViewRef(View view, TableRef origTblRef) {
         super(origTblRef.getName(), origTblRef.getExplicitAlias());
         queryStmt = view.getQueryStmt().clone();
-        if (view.isLocalView()) queryStmt.reset();
+        if (view.isLocalView()) {
+            queryStmt.reset();
+        }
         this.view = view;
         sMap = new ExprSubstitutionMap();
         baseTblSmap = new ExprSubstitutionMap();
         setJoinAttrs(origTblRef);
         explicitColLabels = view.getColLabels();
         // Set implicit aliases if no explicit one was given.
-        if (hasExplicitAlias()) return;
+        if (hasExplicitAlias()) {
+            return;
+        }
         // TODO(zc)
         // view_.getTableName().toString().toLowerCase(), view.getName().toLowerCase()
         if (view.isLocalView()) {
@@ -133,7 +137,9 @@ public class InlineViewRef extends TableRef {
         baseTblSmap = other.baseTblSmap.clone();
     }
 
-    public List<String> getExplicitColLabels() { return explicitColLabels; }
+    public List<String> getExplicitColLabels() {
+        return explicitColLabels;
+    }
 
     public List<String> getColLabels() {
         if (explicitColLabels != null) {
@@ -145,12 +151,12 @@ public class InlineViewRef extends TableRef {
 
     @Override
     public void reset() {
-      super.reset();
-      queryStmt.reset();
-      inlineViewAnalyzer = null;
-      materializedTupleIds.clear();
-      sMap.clear();
-      baseTblSmap.clear();
+        super.reset();
+        queryStmt.reset();
+        inlineViewAnalyzer = null;
+        materializedTupleIds.clear();
+        sMap.clear();
+        baseTblSmap.clear();
     }
 
     @Override
@@ -187,7 +193,7 @@ public class InlineViewRef extends TableRef {
         queryStmt.getMaterializedTupleIds(materializedTupleIds);
         if (view != null && !hasExplicitAlias() && !view.isLocalView()) {
             name = analyzer.getFqTableName(name);
-            aliases = new String[] { name.toString(), view.getName() };
+            aliases = new String[]{name.toString(), view.getName()};
         }
         //TODO(chenhao16): fix TableName in Db.Table style
         // name.analyze(analyzer);
@@ -243,7 +249,7 @@ public class InlineViewRef extends TableRef {
      */
     public boolean createAuxPredicate(Expr e) {
         if (!(queryStmt instanceof SelectStmt)
-                || !((SelectStmt) queryStmt).hasAnalyticInfo()) {
+            || !((SelectStmt) queryStmt).hasAnalyticInfo()) {
             return true;
         }
         AnalyticInfo analyticInfo = ((SelectStmt) queryStmt).getAnalyticInfo();
@@ -270,16 +276,17 @@ public class InlineViewRef extends TableRef {
             // inline view col cannot have duplicate name
             if (columnSet.contains(colAlias)) {
                 throw new AnalysisException(
-                        "Duplicated inline view column alias: '" + colAlias + "'" + " in inline view "
-                                + "'" + getAlias() + "'");
+                    "Duplicated inline view column alias: '" + colAlias + "'" + " in inline view "
+                        + "'" + getAlias() + "'");
             }
 
             columnSet.add(colAlias);
             columnList.add(new Column(colAlias, selectItemExpr.getType(),
-                    false, null, selectItemExpr.isNullable(),
-                    null, ""));
+                false, null, selectItemExpr.isNullable(),
+                null, ""));
         }
-        InlineView inlineView = (view != null) ? new InlineView(view, columnList) : new InlineView(getExplicitAlias(), columnList);
+        InlineView inlineView =
+            (view != null) ? new InlineView(view, columnList) : new InlineView(getExplicitAlias(), columnList);
 
         // Create the non-materialized tuple and set the fake table in it.
         TupleDescriptor result = analyzer.getDescTbl().createTupleDescriptor();
@@ -324,7 +331,6 @@ public class InlineViewRef extends TableRef {
     //         sMap.rhs.set(i, ifExpr);
     //     }
     // }
-
     protected void makeOutputNullable(Analyzer analyzer) throws AnalysisException, UserException {
         try {
             makeOutputNullableHelper(analyzer, sMap);
@@ -336,7 +342,7 @@ public class InlineViewRef extends TableRef {
     }
 
     protected void makeOutputNullableHelper(Analyzer analyzer, ExprSubstitutionMap smap)
-            throws Exception {
+        throws Exception {
         // Gather all unique rhs SlotRefs into rhsSlotRefs
         List<SlotRef> rhsSlotRefs = Lists.newArrayList();
         Expr.collectList(smap.getRhs(), SlotRef.class, rhsSlotRefs);
@@ -368,7 +374,7 @@ public class InlineViewRef extends TableRef {
      * false otherwise.
      */
     private boolean requiresNullWrapping(Analyzer analyzer, Expr expr, ExprSubstitutionMap nullSMap)
-            throws UserException {
+        throws UserException {
         // If the expr is already wrapped in an IF(TupleIsNull(), NULL, expr)
         // then do not try to execute it.
         if (expr.contains(TupleIsNullPredicate.class)) {
@@ -392,7 +398,7 @@ public class InlineViewRef extends TableRef {
 
     @Override
     public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
-            throws AnalysisException {
+        throws AnalysisException {
         super.rewriteExprs(rewriter, analyzer);
         queryStmt.rewriteExprs(rewriter);
     }
@@ -457,9 +463,9 @@ public class InlineViewRef extends TableRef {
 
         StringBuilder sb = new StringBuilder();
         sb.append("(")
-                .append(queryStmt.toSql())
-                .append(") ")
-                .append(aliasSql);
+            .append(queryStmt.toSql())
+            .append(") ")
+            .append(aliasSql);
 
         return sb.toString();
     }

@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -68,39 +69,41 @@ public class BetweenPredicate extends Predicate {
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
         if (children.get(0) instanceof Subquery &&
-                (children.get(1) instanceof Subquery || children.get(2) instanceof Subquery)) {
+            (children.get(1) instanceof Subquery || children.get(2) instanceof Subquery)) {
             throw new AnalysisException("Comparison between subqueries is not " +
-                    "supported in a BETWEEN predicate: " + toSql());
+                "supported in a BETWEEN predicate: " + toSql());
         }
         // if children has subquery, it will be written and reanalyzed in the future.
         if (children.get(0) instanceof Subquery
-                || children.get(1) instanceof Subquery
-                || children.get(2) instanceof Subquery) {
+            || children.get(1) instanceof Subquery
+            || children.get(2) instanceof Subquery) {
             return;
         }
         analyzer.castAllToCompatibleType(children);
     }
 
-   @Override
-   public boolean isVectorized() {
-       return false;
-   }
+    @Override
+    public boolean isVectorized() {
+        return false;
+    }
 
     @Override
     protected void toThrift(TExprNode msg) {
         throw new IllegalStateException(
-                "BetweenPredicate needs to be rewritten into a CompoundPredicate.");
+            "BetweenPredicate needs to be rewritten into a CompoundPredicate.");
     }
 
     @Override
     public String toSqlImpl() {
         String notStr = (isNotBetween) ? "NOT " : "";
         return children.get(0).toSql() + " " + notStr + "BETWEEN " +
-          children.get(1).toSql() + " AND " + children.get(2).toSql();
+            children.get(1).toSql() + " AND " + children.get(2).toSql();
     }
 
     @Override
-    public Expr clone(ExprSubstitutionMap sMap) { return new BetweenPredicate(this); }
+    public Expr clone(ExprSubstitutionMap sMap) {
+        return new BetweenPredicate(this);
+    }
 
     @Override
     public int hashCode() {

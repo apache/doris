@@ -58,7 +58,8 @@ public class ResponseEntityBuilder {
     }
 
     public static ResponseEntity internalError(Object data) {
-        ResponseBody body = new ResponseBody().code(RestApiStatusCode.INTERNAL_SERVER_ERROR).msg("Internal Error").data(data);
+        ResponseBody body =
+            new ResponseBody().code(RestApiStatusCode.INTERNAL_SERVER_ERROR).msg("Internal Error").data(data);
         return ResponseEntity.status(HttpStatus.OK).body(body);
     }
 

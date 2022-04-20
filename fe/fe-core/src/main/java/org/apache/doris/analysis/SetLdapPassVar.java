@@ -43,7 +43,7 @@ public class SetLdapPassVar extends SetVar {
         }
 
         if (!ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(PaloAuth.ROOT_USER)
-                && !ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(PaloAuth.ADMIN_USER)) {
+            && !ConnectContext.get().getCurrentUserIdentity().getQualifiedUser().equals(PaloAuth.ADMIN_USER)) {
             throw new AnalysisException("Only root and admin user can set ldap admin password.");
         }
     }

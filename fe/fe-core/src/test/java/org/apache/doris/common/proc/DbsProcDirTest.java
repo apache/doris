@@ -185,11 +185,16 @@ public class DbsProcDirTest {
         Assert.assertNotNull(result);
         Assert.assertTrue(result instanceof BaseProcResult);
 
-        Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Quota", "LastConsistencyCheckTime", "ReplicaQuota"),
-                result.getColumnNames());
+        Assert.assertEquals(
+            Lists.newArrayList("DbId", "DbName", "TableNum", "Quota", "LastConsistencyCheckTime", "ReplicaQuota"),
+            result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
-        rows.add(Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "1024.000 TB", FeConstants.null_string, "1073741824"));
-        rows.add(Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "1024.000 TB", FeConstants.null_string, "1073741824"));
+        rows.add(
+            Arrays.asList(String.valueOf(db1.getId()), db1.getFullName(), "0", "1024.000 TB", FeConstants.null_string,
+                "1073741824"));
+        rows.add(
+            Arrays.asList(String.valueOf(db2.getId()), db2.getFullName(), "0", "1024.000 TB", FeConstants.null_string,
+                "1073741824"));
         Assert.assertEquals(rows, result.getRows());
     }
 
@@ -215,8 +220,9 @@ public class DbsProcDirTest {
 
         dir = new DbsProcDir(catalog);
         result = dir.fetchResult();
-        Assert.assertEquals(Lists.newArrayList("DbId", "DbName", "TableNum", "Quota", "LastConsistencyCheckTime", "ReplicaQuota"),
-                            result.getColumnNames());
+        Assert.assertEquals(
+            Lists.newArrayList("DbId", "DbName", "TableNum", "Quota", "LastConsistencyCheckTime", "ReplicaQuota"),
+            result.getColumnNames());
         List<List<String>> rows = Lists.newArrayList();
         Assert.assertEquals(rows, result.getRows());
     }

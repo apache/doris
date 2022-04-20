@@ -78,9 +78,11 @@ public class CreateFunctionTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
 
-        String createTblStmtStr = "create table db1.tbl1(k1 int, k2 bigint, k3 varchar(10), k4 char(5)) duplicate key(k1) "
+        String createTblStmtStr =
+            "create table db1.tbl1(k1 int, k2 bigint, k3 varchar(10), k4 char(5)) duplicate key(k1) "
                 + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, connectContext);
+        CreateTableStmt createTableStmt =
+            (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
         dorisAssert = new DorisAssert();
@@ -90,14 +92,15 @@ public class CreateFunctionTest {
         Assert.assertNotNull(db);
 
         String createFuncStr = "create function db1.my_add(VARCHAR(1024)) RETURNS BOOLEAN properties\n" +
-                "(\n" +
-                "\"symbol\" =  \"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_9StringValE\",\n" +
-                "\"prepare_fn\" = \"_ZN9doris_udf13AddUdfPrepareEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n" +
-                "\"close_fn\" = \"_ZN9doris_udf11AddUdfCloseEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n" +
-                "\"object_file\" = \"http://127.0.0.1:8008/libcmy_udf.so\"\n" +
-                ");";
-        
-        CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
+            "(\n" +
+            "\"symbol\" =  \"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_9StringValE\",\n" +
+            "\"prepare_fn\" = \"_ZN9doris_udf13AddUdfPrepareEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n" +
+            "\"close_fn\" = \"_ZN9doris_udf11AddUdfCloseEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n" +
+            "\"object_file\" = \"http://127.0.0.1:8008/libcmy_udf.so\"\n" +
+            ");";
+
+        CreateFunctionStmt createFunctionStmt =
+            (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
 
         List<Function> functions = db.getFunctions();
@@ -113,14 +116,15 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, planner.getFragments().size());
         PlanFragment fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        UnionNode unionNode =  (UnionNode)fragment.getPlanRoot();
+        UnionNode unionNode = (UnionNode) fragment.getPlanRoot();
         List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists_");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
 
         // create alias function
-        createFuncStr = "create alias function db1.id_masking(bigint) with parameter(id) as concat(left(id,3),'****',right(id,4));";
+        createFuncStr =
+            "create alias function db1.id_masking(bigint) with parameter(id) as concat(left(id,3),'****',right(id,4));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
 
@@ -136,19 +140,20 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, planner.getFragments().size());
         fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        unionNode =  (UnionNode)fragment.getPlanRoot();
+        unionNode = (UnionNode) fragment.getPlanRoot();
         constExprLists = Deencapsulation.getField(unionNode, "constExprLists_");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);
 
         queryStr = "select db1.id_masking(k1) from db1.tbl1";
-        Assert.assertTrue(dorisAssert.query(queryStr).explainQuery().contains("concat(left(`k1`, 3), '****', right(`k1`, 4))"));
+        Assert.assertTrue(
+            dorisAssert.query(queryStr).explainQuery().contains("concat(left(`k1`, 3), '****', right(`k1`, 4))"));
 
         // create alias function with cast
         // cast any type to decimal with specific precision and scale
         createFuncStr = "create alias function db1.decimal(all, int, int) with parameter(col, precision, scale)" +
-                " as cast(col as decimal(precision, scale));";
+            " as cast(col as decimal(precision, scale));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
 
@@ -164,7 +169,7 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, planner.getFragments().size());
         fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        unionNode =  (UnionNode)fragment.getPlanRoot();
+        unionNode = (UnionNode) fragment.getPlanRoot();
         constExprLists = Deencapsulation.getField(unionNode, "constExprLists_");
         System.out.println(constExprLists.get(0).get(0));
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof StringLiteral);
@@ -174,7 +179,7 @@ public class CreateFunctionTest {
 
         // cast any type to varchar with fixed length
         createFuncStr = "create alias function db1.varchar(all, int) with parameter(text, length) as " +
-                "cast(text as varchar(length));";
+            "cast(text as varchar(length));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
 
@@ -190,7 +195,7 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, planner.getFragments().size());
         fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        unionNode =  (UnionNode)fragment.getPlanRoot();
+        unionNode = (UnionNode) fragment.getPlanRoot();
         constExprLists = Deencapsulation.getField(unionNode, "constExprLists_");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
@@ -201,7 +206,7 @@ public class CreateFunctionTest {
 
         // cast any type to char with fixed length
         createFuncStr = "create alias function db1.char(all, int) with parameter(text, length) as " +
-                "cast(text as char(length));";
+            "cast(text as char(length));";
         createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
 
@@ -217,7 +222,7 @@ public class CreateFunctionTest {
         Assert.assertEquals(1, planner.getFragments().size());
         fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        unionNode =  (UnionNode)fragment.getPlanRoot();
+        unionNode = (UnionNode) fragment.getPlanRoot();
         constExprLists = Deencapsulation.getField(unionNode, "constExprLists_");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());

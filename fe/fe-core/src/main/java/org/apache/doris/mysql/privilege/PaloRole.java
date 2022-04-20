@@ -41,11 +41,11 @@ public class PaloRole implements Writable {
     public static String ADMIN_ROLE = "admin";
 
     public static PaloRole OPERATOR = new PaloRole(OPERATOR_ROLE,
-                                                   TablePattern.ALL, PrivBitSet.of(PaloPrivilege.NODE_PRIV, PaloPrivilege.ADMIN_PRIV),
-                                                   ResourcePattern.ALL, PrivBitSet.of(PaloPrivilege.NODE_PRIV, PaloPrivilege.ADMIN_PRIV));
+        TablePattern.ALL, PrivBitSet.of(PaloPrivilege.NODE_PRIV, PaloPrivilege.ADMIN_PRIV),
+        ResourcePattern.ALL, PrivBitSet.of(PaloPrivilege.NODE_PRIV, PaloPrivilege.ADMIN_PRIV));
     public static PaloRole ADMIN = new PaloRole(ADMIN_ROLE,
-                                                TablePattern.ALL, PrivBitSet.of(PaloPrivilege.ADMIN_PRIV),
-                                                ResourcePattern.ALL, PrivBitSet.of(PaloPrivilege.ADMIN_PRIV));
+        TablePattern.ALL, PrivBitSet.of(PaloPrivilege.ADMIN_PRIV),
+        ResourcePattern.ALL, PrivBitSet.of(PaloPrivilege.ADMIN_PRIV));
 
     private String roleName;
     private Map<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();

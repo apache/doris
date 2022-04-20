@@ -98,7 +98,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
     public static final String EXEC_MEM_LIMIT_PROPERTY = "exec_mem_limit";
 
-    public static final String FORMAT = "format";// the value is csv or json, default is csv
+    public static final String FORMAT = "format"; // the value is csv or json, default is csv
     public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
     public static final String JSONPATHS = "jsonpaths";
     public static final String JSONROOT = "json_root";
@@ -113,30 +113,30 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
     public static final String KAFKA_DEFAULT_OFFSETS = "kafka_default_offsets";
     public static final String KAFKA_ORIGIN_DEFAULT_OFFSETS = "kafka_origin_default_offsets";
-    
+
     private static final String NAME_TYPE = "ROUTINE LOAD NAME";
     public static final String ENDPOINT_REGEX = "[-A-Za-z0-9+&@#/%?=~_|!:,.;]+[-A-Za-z0-9+&@#/%=~_|]";
     public static final String SEND_BATCH_PARALLELISM = "send_batch_parallelism";
     public static final String LOAD_TO_SINGLE_TABLET = "load_to_single_tablet";
 
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
-            .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
-            .add(MAX_ERROR_NUMBER_PROPERTY)
-            .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
-            .add(MAX_BATCH_ROWS_PROPERTY)
-            .add(MAX_BATCH_SIZE_PROPERTY)
-            .add(FORMAT)
-            .add(JSONPATHS)
-            .add(STRIP_OUTER_ARRAY)
-            .add(NUM_AS_STRING)
-            .add(FUZZY_PARSE)
-            .add(JSONROOT)
-            .add(LoadStmt.STRICT_MODE)
-            .add(LoadStmt.TIMEZONE)
-            .add(EXEC_MEM_LIMIT_PROPERTY)
-            .add(SEND_BATCH_PARALLELISM)
-            .add(LOAD_TO_SINGLE_TABLET)
-            .build();
+        .add(DESIRED_CONCURRENT_NUMBER_PROPERTY)
+        .add(MAX_ERROR_NUMBER_PROPERTY)
+        .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
+        .add(MAX_BATCH_ROWS_PROPERTY)
+        .add(MAX_BATCH_SIZE_PROPERTY)
+        .add(FORMAT)
+        .add(JSONPATHS)
+        .add(STRIP_OUTER_ARRAY)
+        .add(NUM_AS_STRING)
+        .add(FUZZY_PARSE)
+        .add(JSONROOT)
+        .add(LoadStmt.STRICT_MODE)
+        .add(LoadStmt.TIMEZONE)
+        .add(EXEC_MEM_LIMIT_PROPERTY)
+        .add(SEND_BATCH_PARALLELISM)
+        .add(LOAD_TO_SINGLE_TABLET)
+        .build();
 
     private final LabelName labelName;
     private final String tableName;
@@ -163,8 +163,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     /**
      * RoutineLoad support json data.
      * Require Params:
-     *   1) dataFormat = "json"
-     *   2) jsonPaths = "$.XXX.xxx"
+     * 1) dataFormat = "json"
+     * 2) jsonPaths = "$.XXX.xxx"
      */
     private String format = ""; //default is csv.
     private String jsonPaths = "";
@@ -334,12 +334,12 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
         Table table = db.getTableOrAnalysisException(tableName);
         if (mergeType != LoadTask.MergeType.APPEND
-                && (table.getType() != Table.TableType.OLAP
-                || ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS)) {
+            && (table.getType() != Table.TableType.OLAP
+            || ((OlapTable) table).getKeysType() != KeysType.UNIQUE_KEYS)) {
             throw new AnalysisException("load by MERGE or DELETE is only supported in unique tables.");
         }
         if (mergeType != LoadTask.MergeType.APPEND
-                && !(table.getType() == Table.TableType.OLAP && ((OlapTable) table).hasDeleteSign()) ) {
+            && !(table.getType() == Table.TableType.OLAP && ((OlapTable) table).hasDeleteSign())) {
             throw new AnalysisException("load by MERGE or DELETE need to upgrade table to support batch delete.");
         }
     }
@@ -406,50 +406,51 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             }
         }
         routineLoadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, importColumnsStmt,
-                        precedingImportWhereStmt, importWhereStmt,
-                        partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
-                        importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
+            precedingImportWhereStmt, importWhereStmt,
+            partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
+            importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
     }
 
     private void checkJobProperties() throws UserException {
         Optional<String> optional = jobProperties.keySet().stream().filter(
-                entity -> !PROPERTIES_SET.contains(entity)).findFirst();
+            entity -> !PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid property");
         }
 
-        desiredConcurrentNum = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
+        desiredConcurrentNum =
+            ((Long) Util.getLongPropertyOrDefault(jobProperties.get(DESIRED_CONCURRENT_NUMBER_PROPERTY),
                 Config.max_routine_load_task_concurrent_num, DESIRED_CONCURRENT_NUMBER_PRED,
                 DESIRED_CONCURRENT_NUMBER_PROPERTY + " should > 0")).intValue();
-        
+
         maxErrorNum = Util.getLongPropertyOrDefault(jobProperties.get(MAX_ERROR_NUMBER_PROPERTY),
-                RoutineLoadJob.DEFAULT_MAX_ERROR_NUM, MAX_ERROR_NUMBER_PRED,
-                MAX_ERROR_NUMBER_PROPERTY + " should >= 0");
-        
+            RoutineLoadJob.DEFAULT_MAX_ERROR_NUM, MAX_ERROR_NUMBER_PRED,
+            MAX_ERROR_NUMBER_PROPERTY + " should >= 0");
+
         maxBatchIntervalS = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_INTERVAL_SEC_PROPERTY),
-                RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
-                MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 5 and 60");
-        
+            RoutineLoadJob.DEFAULT_MAX_INTERVAL_SECOND, MAX_BATCH_INTERVAL_PRED,
+            MAX_BATCH_INTERVAL_SEC_PROPERTY + " should between 5 and 60");
+
         maxBatchRows = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_ROWS_PROPERTY),
-                RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,
-                MAX_BATCH_ROWS_PROPERTY + " should > 200000");
+            RoutineLoadJob.DEFAULT_MAX_BATCH_ROWS, MAX_BATCH_ROWS_PRED,
+            MAX_BATCH_ROWS_PROPERTY + " should > 200000");
 
         maxBatchSizeBytes = Util.getLongPropertyOrDefault(jobProperties.get(MAX_BATCH_SIZE_PROPERTY),
-                RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
-                MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
+            RoutineLoadJob.DEFAULT_MAX_BATCH_SIZE, MAX_BATCH_SIZE_PRED,
+            MAX_BATCH_SIZE_PROPERTY + " should between 100MB and 1GB");
 
         strictMode = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.STRICT_MODE),
-                RoutineLoadJob.DEFAULT_STRICT_MODE,
-                LoadStmt.STRICT_MODE + " should be a boolean");
+            RoutineLoadJob.DEFAULT_STRICT_MODE,
+            LoadStmt.STRICT_MODE + " should be a boolean");
         execMemLimit = Util.getLongPropertyOrDefault(jobProperties.get(EXEC_MEM_LIMIT_PROPERTY),
-                RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED, EXEC_MEM_LIMIT_PROPERTY + "should > 0");
-        
+            RoutineLoadJob.DEFAULT_EXEC_MEM_LIMIT, EXEC_MEM_LIMIT_PRED, EXEC_MEM_LIMIT_PROPERTY + "should > 0");
+
         sendBatchParallelism = ((Long) Util.getLongPropertyOrDefault(jobProperties.get(SEND_BATCH_PARALLELISM),
-                ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
-                SEND_BATCH_PARALLELISM + " should > 0")).intValue();
+            ConnectContext.get().getSessionVariable().getSendBatchParallelism(), SEND_BATCH_PARALLELISM_PRED,
+            SEND_BATCH_PARALLELISM + " should > 0")).intValue();
         loadToSingleTablet = Util.getBooleanPropertyOrDefault(jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET),
-                RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
-                LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
+            RoutineLoadJob.DEFAULT_LOAD_TO_SINGLE_TABLET,
+            LoadStmt.LOAD_TO_SINGLE_TABLET + " should be a boolean");
 
         if (ConnectContext.get() != null) {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();

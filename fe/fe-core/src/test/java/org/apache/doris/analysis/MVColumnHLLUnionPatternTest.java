@@ -129,7 +129,7 @@ public class MVColumnHLLUnionPatternTest {
 
     @Test
     public void testAggTableHLLColumn(@Injectable SlotDescriptor desc,
-            @Injectable Column column, @Injectable AggregateFunction aggregateFunction) {
+                                      @Injectable Column column, @Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();

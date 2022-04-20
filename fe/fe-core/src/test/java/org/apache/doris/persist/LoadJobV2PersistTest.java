@@ -28,10 +28,10 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.qe.OriginStatement;
 
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Test;
-
-import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -50,7 +50,7 @@ public class LoadJobV2PersistTest {
         BrokerDesc brokerDesc = new BrokerDesc("bos", Maps.newHashMap());
         OriginStatement originStatement = new OriginStatement(loadStmt, 0);
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob(1L, "label", brokerDesc, originStatement,
-                UserIdentity.ADMIN);
+            UserIdentity.ADMIN);
         Map<String, String> jobProperties = Maps.newHashMap();
         jobProperties.put(LoadStmt.LOAD_PARALLELISM, "5");
         brokerLoadJob.setJobProperties(jobProperties);
@@ -94,7 +94,7 @@ public class LoadJobV2PersistTest {
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
-        BrokerLoadJob rJob = (BrokerLoadJob)  BrokerLoadJob.read(dis);
+        BrokerLoadJob rJob = (BrokerLoadJob) BrokerLoadJob.read(dis);
         Assert.assertEquals(5, rJob.getLoadParallelism());
         Assert.assertEquals(EtlJobType.BROKER, rJob.getJobType());
 

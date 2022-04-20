@@ -153,12 +153,10 @@ public class ShowAction extends RestBaseController {
         feInfo.put("max_mem", String.valueOf(r.maxMemory()));
 
         // Get thread count
-        ThreadGroup parentThread;
-        for (parentThread = Thread.currentThread().getThreadGroup();
-             parentThread.getParent() != null;
-             parentThread = parentThread.getParent()) {
+        ThreadGroup parentThread = Thread.currentThread().getThreadGroup();
+        while (parentThread.getParent() != null) {
+            parentThread = parentThread.getParent();
         }
-        ;
         feInfo.put("thread_cnt", String.valueOf(parentThread.activeCount()));
 
         return ResponseEntityBuilder.ok(feInfo);
@@ -197,10 +195,10 @@ public class ShowAction extends RestBaseController {
         feInfo.put("role", Catalog.getCurrentCatalog().getFeType().toString());
         if (Catalog.getCurrentCatalog().isMaster()) {
             feInfo.put("current_journal_id",
-                    String.valueOf(Catalog.getCurrentCatalog().getEditLog().getMaxJournalId()));
+                String.valueOf(Catalog.getCurrentCatalog().getEditLog().getMaxJournalId()));
         } else {
             feInfo.put("current_journal_id",
-                    String.valueOf(Catalog.getCurrentCatalog().getReplayedJournalId()));
+                String.valueOf(Catalog.getCurrentCatalog().getReplayedJournalId()));
         }
 
         HAProtocol haProtocol = Catalog.getCurrentCatalog().getHaProtocol();

@@ -43,21 +43,21 @@ public class BackendServiceClient {
     public BackendServiceClient(TNetworkAddress address) {
         this.address = address;
         channel = NettyChannelBuilder.forAddress(address.getHostname(), address.getPort())
-                .flowControlWindow(Config.grpc_max_message_size_bytes)
-                .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
-                .enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
-                .usePlaintext().build();
+            .flowControlWindow(Config.grpc_max_message_size_bytes)
+            .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
+            .enableRetry().maxRetryAttempts(MAX_RETRY_NUM)
+            .usePlaintext().build();
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(
-            InternalService.PExecPlanFragmentRequest request) {
+        InternalService.PExecPlanFragmentRequest request) {
         return stub.execPlanFragment(request);
     }
 
     public Future<InternalService.PCancelPlanFragmentResult> cancelPlanFragmentAsync(
-            InternalService.PCancelPlanFragmentRequest request) {
+        InternalService.PCancelPlanFragmentRequest request) {
         return stub.cancelPlanFragment(request);
     }
 

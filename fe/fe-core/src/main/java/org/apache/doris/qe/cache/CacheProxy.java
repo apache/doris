@@ -21,7 +21,6 @@ import org.apache.doris.common.Status;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
 
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -75,9 +74,9 @@ public abstract class CacheProxy {
         }
         final byte[] digest = msgDigest.digest(str.getBytes());
         Types.PUniqueId key = Types.PUniqueId.newBuilder()
-                .setLo(getLongFromByte(digest, 0))
-                .setHi(getLongFromByte(digest, 8))
-                .build();
+            .setLo(getLongFromByte(digest, 0))
+            .setHi(getLongFromByte(digest, 8))
+            .build();
         return key;
     }
 

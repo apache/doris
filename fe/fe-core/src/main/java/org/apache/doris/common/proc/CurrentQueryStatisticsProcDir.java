@@ -35,8 +35,8 @@ import java.util.Map;
  */
 public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("QueryId").add("ConnectionId").add("Database").add("User")
-            .add("ScanBytes").add("ProcessRows").add("ExecTime").build();
+        .add("QueryId").add("ConnectionId").add("Database").add("User")
+        .add("ScanBytes").add("ProcessRows").add("ExecTime").build();
 
     private static final int EXEC_TIME_INDEX = 6;
 
@@ -61,14 +61,14 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         final BaseProcResult result = new BaseProcResult();
-        final Map<String, QueryStatisticsItem> statistic = 
-                QeProcessorImpl.INSTANCE.getQueryStatistics();
+        final Map<String, QueryStatisticsItem> statistic =
+            QeProcessorImpl.INSTANCE.getQueryStatistics();
         result.setNames(TITLE_NAMES.asList());
         final List<List<String>> sortedRowData = Lists.newArrayList();
 
         final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
         final Map<String, CurrentQueryInfoProvider.QueryStatistics> statisticsMap
-                = provider.getQueryStatistics(statistic.values());
+            = provider.getQueryStatistics(statistic.values());
         for (QueryStatisticsItem item : statistic.values()) {
             final List<String> values = Lists.newArrayList();
             values.add(item.getQueryId());
@@ -77,11 +77,11 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(item.getUser());
             if (item.getIsReportSucc()) {
                 final CurrentQueryInfoProvider.QueryStatistics statistics
-                        = statisticsMap.get(item.getQueryId());
+                    = statisticsMap.get(item.getQueryId());
                 values.add(QueryStatisticsFormatter.getScanBytes(
-                        statistics.getScanBytes()));
+                    statistics.getScanBytes()));
                 values.add(QueryStatisticsFormatter.getRowsReturned(
-                        statistics.getRowsReturned()));
+                    statistics.getRowsReturned()));
             } else {
                 values.add("N/A");
                 values.add("N/A");

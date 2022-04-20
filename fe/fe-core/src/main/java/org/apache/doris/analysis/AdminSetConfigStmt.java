@@ -32,7 +32,7 @@ import java.util.Map;
 
 // admin set frontend config ("key" = "value");
 public class AdminSetConfigStmt extends DdlStmt {
-    
+
     public enum ConfigType {
         FRONTEND,
         BACKEND

@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+
 import com.google.gson.annotations.SerializedName;
 
 /**

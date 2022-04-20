@@ -58,13 +58,14 @@ public class MaterializedIndexMetaTest {
 
     @Test
     public void testSerializeMaterializedIndexMeta(@Mocked CreateMaterializedViewStmt stmt)
-            throws IOException, AnalysisException {
+        throws IOException, AnalysisException {
         // 1. Write objects to file
         File file = new File(fileName);
         file.createNewFile();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
-        String mvColumnName = CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + FunctionSet.BITMAP_UNION + "_" + "k1";
+        String mvColumnName =
+            CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX + FunctionSet.BITMAP_UNION + "_" + "k1";
         List<Column> schema = Lists.newArrayList();
         schema.add(new Column("k1", Type.TINYINT, true, null, true, "1", "abc"));
         schema.add(new Column("k2", Type.SMALLINT, true, null, true, "1", "debug"));
@@ -82,11 +83,11 @@ public class MaterializedIndexMetaTest {
         schema.add(new Column(mvColumnName, Type.BITMAP, false, AggregateType.BITMAP_UNION, false, "1", ""));
         short shortKeyColumnCount = 1;
         MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(1, schema, 1, 1, shortKeyColumnCount,
-                TStorageType.COLUMN, KeysType.DUP_KEYS, new OriginStatement(
-                "create materialized view test as select k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, sum(v1), "
-                        + "bitmap_union(to_bitmap(k1)) from test group by k1, k2, k3, k4, k5, "
-                        + "k6, k7, k8, k9, k10, k11, k12",
-                0));
+            TStorageType.COLUMN, KeysType.DUP_KEYS, new OriginStatement(
+            "create materialized view test as select k1, k2, k3, k4, k5, k6, k7, k8, k9, k10, k11, k12, sum(v1), "
+                + "bitmap_union(to_bitmap(k1)) from test group by k1, k2, k3, k4, k5, "
+                + "k6, k7, k8, k9, k10, k11, k12",
+            0));
         indexMeta.write(out);
         out.flush();
         out.close();

@@ -49,9 +49,9 @@ public class DropTableTest {
         // create database
         String createDbStmtStr = "create database test;";
         String createTablleStr1 = "create table test.tbl1(k1 int, k2 bigint) duplicate key(k1) "
-                + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');";
+            + "distributed by hash(k2) buckets 1 properties('replication_num' = '1');";
         String createTablleStr2 = "create table test.tbl2(k1 int, k2 bigint)" + "duplicate key(k1) "
-                + "distributed by hash(k2) buckets 1 " + "properties('replication_num' = '1');";
+            + "distributed by hash(k2) buckets 1 " + "properties('replication_num' = '1');";
         createDb(createDbStmtStr);
         createTable(createTablleStr1);
         createTable(createTablleStr2);
@@ -86,10 +86,12 @@ public class DropTableTest {
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropTableSql = "drop table test.tbl1";
         dropTable(dropTableSql);
-        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        List<Replica> replicaList =
+            Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertEquals(1, replicaList.size());
         String recoverDbSql = "recover table test.tbl1";
-        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
+        RecoverTableStmt recoverTableStmt =
+            (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         Catalog.getCurrentCatalog().recoverTable(recoverTableStmt);
         table = (OlapTable) db.getTableOrMetaException("tbl1");
         Assert.assertNotNull(table);
@@ -104,12 +106,14 @@ public class DropTableTest {
         long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropTableSql = "drop table test.tbl2 force";
         dropTable(dropTableSql);
-        List<Replica> replicaList = Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        List<Replica> replicaList =
+            Catalog.getCurrentCatalog().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
         Assert.assertTrue(replicaList.isEmpty());
         String recoverDbSql = "recover table test.tbl2";
-        RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
+        RecoverTableStmt recoverTableStmt =
+            (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,
-                "Unknown table 'tbl2'",
-                () -> Catalog.getCurrentCatalog().recoverTable(recoverTableStmt));
+            "Unknown table 'tbl2'",
+            () -> Catalog.getCurrentCatalog().recoverTable(recoverTableStmt));
     }
 }

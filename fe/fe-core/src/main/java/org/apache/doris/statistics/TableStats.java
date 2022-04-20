@@ -37,11 +37,11 @@ import com.clearspring.analytics.util.Lists;
  * 1. @rowCount: The row count of table.
  * 2. @dataSize: The data size of table.
  * 3. @nameToColumnStats: <@String columnName, @ColumnStats columnStats>
- *      Each column in the Table will have corresponding @ColumnStats.
- *      Those @ColumnStats are recorded in @nameToColumnStats form of MAP.
- *      This facilitates the optimizer to quickly find the corresponding
- *      @ColumnStats based on the column name.
+ * Each column in the Table will have corresponding @ColumnStats.
+ * Those @ColumnStats are recorded in @nameToColumnStats form of MAP.
+ * This facilitates the optimizer to quickly find the corresponding
  *
+ * @ColumnStats based on the column name.
  * @rowCount: The row count of table.
  * @dataSize: The data size of table.
  * <p>
@@ -66,16 +66,16 @@ public class TableStats {
             String statsName = entry.getKey();
             if (statsName.equalsIgnoreCase(ROW_COUNT)) {
                 rowCount = Util.getLongPropertyOrDefault(entry.getValue(), rowCount,
-                        DESIRED_ROW_COUNT_PRED, ROW_COUNT + " should >= -1");
+                    DESIRED_ROW_COUNT_PRED, ROW_COUNT + " should >= -1");
             } else if (statsName.equalsIgnoreCase(DATA_SIZE)) {
                 dataSize = Util.getLongPropertyOrDefault(entry.getValue(), dataSize,
-                        DESIRED_DATA_SIZE_PRED, DATA_SIZE + " should >= -1");
+                    DESIRED_DATA_SIZE_PRED, DATA_SIZE + " should >= -1");
             }
         }
     }
 
     public void updateColumnStats(String columnName, Type columnType, Map<String, String> statsNameToValue)
-            throws AnalysisException {
+        throws AnalysisException {
         ColumnStats columnStats = nameToColumnStats.get(columnName);
         if (columnStats == null) {
             columnStats = new ColumnStats();

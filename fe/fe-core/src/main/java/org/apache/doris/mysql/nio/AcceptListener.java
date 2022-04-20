@@ -69,7 +69,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                         MysqlProto.sendResponsePacket(context);
                         connection.setCloseListener(streamConnection -> connectScheduler.unregisterConnection(context));
                     } else {
-                        context.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, "Reach limit of connections");
+                        context.getState()
+                            .setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, "Reach limit of connections");
                         MysqlProto.sendResponsePacket(context);
                         throw new AfterConnectedException("Reach limit of connections");
                     }

@@ -17,12 +17,14 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryStatisticsItem;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
+import org.apache.commons.codec.digest.DigestUtils;
 
 import java.util.List;
 import java.util.Map;
@@ -32,8 +34,8 @@ import java.util.Map;
  */
 public class CurrentQueryStatementsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("QueryId").add("ConnectionId").add("Database").add("User")
-            .add("ExecTime").add("SqlHash").add("Statement").build();
+        .add("QueryId").add("ConnectionId").add("Database").add("User")
+        .add("ExecTime").add("SqlHash").add("Statement").build();
 
     private static final int EXEC_TIME_INDEX = 5;
 
@@ -41,13 +43,13 @@ public class CurrentQueryStatementsProcNode implements ProcNodeInterface {
     public ProcResult fetchResult() throws AnalysisException {
         final BaseProcResult result = new BaseProcResult();
         final Map<String, QueryStatisticsItem> statistic =
-                QeProcessorImpl.INSTANCE.getQueryStatistics();
+            QeProcessorImpl.INSTANCE.getQueryStatistics();
         result.setNames(TITLE_NAMES.asList());
         final List<List<String>> sortedRowData = Lists.newArrayList();
 
         final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
         final Map<String, CurrentQueryInfoProvider.QueryStatistics> statisticsMap
-                = provider.getQueryStatistics(statistic.values());
+            = provider.getQueryStatistics(statistic.values());
         for (QueryStatisticsItem item : statistic.values()) {
             final List<String> values = Lists.newArrayList();
             values.add(item.getQueryId());

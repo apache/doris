@@ -31,10 +31,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 
@@ -58,7 +58,7 @@ public class ToBitmapToSlotRefRule implements ExprRewriteRule {
         FunctionCallExpr fnExpr = (FunctionCallExpr) expr;
         String fnNameString = fnExpr.getFnName().getFunction();
         if (!fnNameString.equalsIgnoreCase(FunctionSet.BITMAP_UNION)
-                && !fnNameString.equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)) {
+            && !fnNameString.equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)) {
             return expr;
         }
         if (!(fnExpr.getChild(0) instanceof FunctionCallExpr)) {
@@ -89,7 +89,7 @@ public class ToBitmapToSlotRefRule implements ExprRewriteRule {
         // check column
         String queryColumnName = column.getName();
         String mvColumnName = CreateMaterializedViewStmt
-                .mvColumnBuilder(AggregateType.BITMAP_UNION.name().toLowerCase(), queryColumnName);
+            .mvColumnBuilder(AggregateType.BITMAP_UNION.name().toLowerCase(), queryColumnName);
         mvColumn = olapTable.getVisibleColumn(mvColumnName);
         if (mvColumn == null) {
             return expr;

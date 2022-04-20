@@ -30,8 +30,8 @@ import java.util.List;
 public class TasksProcDir implements ProcDirInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("TaskType").add("FailedNum").add("TotalNum")
-            .build();
+        .add("TaskType").add("FailedNum").add("TotalNum")
+        .build();
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {

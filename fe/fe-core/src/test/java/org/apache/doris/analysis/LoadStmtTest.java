@@ -32,11 +32,11 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 
+import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
 
 import java.io.StringReader;
 import java.util.List;
@@ -80,13 +80,14 @@ public class LoadStmtTest {
 
     @Test
     public void testNormal(@Injectable DataDescription desc, @Mocked Catalog catalog,
-                           @Injectable ResourceMgr resourceMgr, @Injectable PaloAuth auth) throws UserException, AnalysisException {
+                           @Injectable ResourceMgr resourceMgr, @Injectable PaloAuth auth)
+        throws UserException, AnalysisException {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(desc);
         String resourceName = "spark0";
         SparkResource resource = new SparkResource(resourceName);
 
-        new Expectations(){
+        new Expectations() {
             {
                 desc.getMergeType();
                 result = LoadTask.MergeType.APPEND;
@@ -111,17 +112,17 @@ public class LoadStmtTest {
         Assert.assertNull(stmt.getProperties());
 
         Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n"
-                + "(XXX)", stmt.toString());
+            + "(XXX)", stmt.toString());
 
         // test ResourceDesc
         // TODO(wyb): spark-load
         Config.enable_spark_load = true;
         stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList,
-                            new ResourceDesc(resourceName, null), null);
+            new ResourceDesc(resourceName, null), null);
         stmt.analyze(analyzer);
         Assert.assertEquals(EtlJobType.SPARK, stmt.getResourceDesc().getEtlJobType());
         Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n(XXX)\nWITH RESOURCE 'spark0'",
-                            stmt.toString());
+            stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
@@ -140,7 +141,7 @@ public class LoadStmtTest {
     }
 
     @Test
-    public void testRewrite() throws Exception{
+    public void testRewrite() throws Exception {
         LoadTaskInfo.ImportColumnDescs columnDescs = new LoadTaskInfo.ImportColumnDescs();
         List<ImportColumnDesc> columns1 = getColumns("c1,c2,c3,tmp_c4=c1 + 1, tmp_c5 = tmp_c4+1");
         columnDescs.descs = columns1;

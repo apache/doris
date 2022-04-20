@@ -73,16 +73,21 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
 
     private void setProperties(Map<String, String> properties) throws AnalysisException {
         this.sql = properties.getOrDefault(CreateSqlBlockRuleStmt.SQL_PROPERTY, CreateSqlBlockRuleStmt.STRING_NOT_SET);
-        this.sqlHash = properties.getOrDefault(CreateSqlBlockRuleStmt.SQL_HASH_PROPERTY, CreateSqlBlockRuleStmt.STRING_NOT_SET);
+        this.sqlHash =
+            properties.getOrDefault(CreateSqlBlockRuleStmt.SQL_HASH_PROPERTY, CreateSqlBlockRuleStmt.STRING_NOT_SET);
         String partitionNumString = properties.get(CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM);
         String tabletNumString = properties.get(CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM);
         String cardinalityString = properties.get(CreateSqlBlockRuleStmt.SCANNED_CARDINALITY);
 
         SqlBlockUtil.checkSqlAndSqlHashSetBoth(sql, sqlHash);
-        SqlBlockUtil.checkSqlAndLimitationsSetBoth(sql, sqlHash, partitionNumString, tabletNumString, cardinalityString);
-        this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, LONG_NOT_SET, null, CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM + " should be a long");
-        this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, LONG_NOT_SET, null, CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM + " should be a long");
-        this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, LONG_NOT_SET, null, CreateSqlBlockRuleStmt.SCANNED_CARDINALITY + " should be a long");
+        SqlBlockUtil.checkSqlAndLimitationsSetBoth(sql, sqlHash, partitionNumString, tabletNumString,
+            cardinalityString);
+        this.partitionNum = Util.getLongPropertyOrDefault(partitionNumString, LONG_NOT_SET, null,
+            CreateSqlBlockRuleStmt.SCANNED_PARTITION_NUM + " should be a long");
+        this.tabletNum = Util.getLongPropertyOrDefault(tabletNumString, LONG_NOT_SET, null,
+            CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM + " should be a long");
+        this.cardinality = Util.getLongPropertyOrDefault(cardinalityString, LONG_NOT_SET, null,
+            CreateSqlBlockRuleStmt.SCANNED_CARDINALITY + " should be a long");
         // allow null, represents no modification
         String globalStr = properties.get(CreateSqlBlockRuleStmt.GLOBAL_PROPERTY);
         this.global = StringUtils.isNotEmpty(globalStr) ? Boolean.parseBoolean(globalStr) : null;
@@ -127,10 +132,10 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
         // ALTER SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","enable"="true")
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER SQL_BLOCK_RULE ")
-                .append(ruleName)
-                .append(" \nPROPERTIES(\n")
-                .append(new PrintableMap<>(properties, " = ", true, true, true))
-                .append(")");
+            .append(ruleName)
+            .append(" \nPROPERTIES(\n")
+            .append(new PrintableMap<>(properties, " = ", true, true, true))
+            .append(")");
         return sb.toString();
     }
 }

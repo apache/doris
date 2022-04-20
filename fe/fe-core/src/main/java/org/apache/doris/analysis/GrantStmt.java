@@ -59,7 +59,8 @@ public class GrantStmt extends DdlStmt {
         this.privileges = privs.toPrivilegeList();
     }
 
-    public GrantStmt(UserIdentity userIdent, String role, ResourcePattern resourcePattern, List<AccessPrivilege> privileges) {
+    public GrantStmt(UserIdentity userIdent, String role, ResourcePattern resourcePattern,
+                     List<AccessPrivilege> privileges) {
         this.userIdent = userIdent;
         this.role = role;
         this.tblPattern = null;
@@ -159,13 +160,16 @@ public class GrantStmt extends DdlStmt {
                 if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
-            } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE){
-                if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), tblPattern.getQualifiedDb(), PrivPredicate.GRANT)) {
+            } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE) {
+                if (!Catalog.getCurrentCatalog().getAuth()
+                    .checkDbPriv(ConnectContext.get(), tblPattern.getQualifiedDb(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
             } else {
                 // table level
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tblPattern.getQualifiedDb(), tblPattern.getTbl(), PrivPredicate.GRANT)) {
+                if (!Catalog.getCurrentCatalog().getAuth()
+                    .checkTblPriv(ConnectContext.get(), tblPattern.getQualifiedDb(), tblPattern.getTbl(),
+                        PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
             }
@@ -196,7 +200,8 @@ public class GrantStmt extends DdlStmt {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
             } else {
-                if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(), resourcePattern.getResourceName(), PrivPredicate.GRANT)) {
+                if (!Catalog.getCurrentCatalog().getAuth()
+                    .checkResourcePriv(ConnectContext.get(), resourcePattern.getResourceName(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
             }

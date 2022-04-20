@@ -19,8 +19,9 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.qe.QueryStatisticsItem;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.QueryStatisticsItem;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -35,7 +36,7 @@ import java.util.Map;
 public class CurrentQueryBackendInstanceProcDir implements ProcDirInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Backend").add("InstanceNum").add("InstanceId").add("ExecTime").build();
+        .add("Backend").add("InstanceNum").add("InstanceId").add("ExecTime").build();
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {
@@ -61,9 +62,9 @@ public class CurrentQueryBackendInstanceProcDir implements ProcDirInterface {
             for (QueryStatisticsItem.FragmentInstanceInfo info : item.getFragmentInstanceInfos()) {
                 final RowData content = new RowData();
                 final String address = new StringBuilder(info.getAddress().getHostname())
-                        .append(":")
-                        .append(info.getAddress().getPort())
-                        .toString();
+                    .append(":")
+                    .append(info.getAddress().getPort())
+                    .toString();
                 content.setHost(address);
                 content.setInstanceId(DebugUtil.printId(info.getInstanceId()));
                 content.setExecTime(item.getQueryExecTime());

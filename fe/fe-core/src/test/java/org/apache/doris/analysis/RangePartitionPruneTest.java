@@ -189,19 +189,23 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
         addCase("select * from test.multi_not_null where k1 > 10 and k1 is null", "partitions=0/2", "partitions=0/2");
         // others predicates combination
         addCase("select * from test.t2 where k1 > 10 and k2 < 4", "partitions=6/9", "partitions=6/9");
-        addCase("select * from test.t2 where k1 >10 and k1 < 10 and (k1=11 or k1=12)", "partitions=0/9", "partitions=0/9");
+        addCase("select * from test.t2 where k1 >10 and k1 < 10 and (k1=11 or k1=12)", "partitions=0/9",
+            "partitions=0/9");
         addCase("select * from test.t2 where k1 > 20 and k1 < 7 and k1 = 10", "partitions=0/9", "partitions=0/9");
 
         // 4. Disjunctive predicates
         addCase("select * from test.t2 where k1=10 or k1=23", "partitions=9/9", "partitions=3/9");
         addCase("select * from test.t2 where (k1=10 or k1=23) and (k2=4 or k2=5)", "partitions=9/9", "partitions=1/9");
         addCase("select * from test.t2 where (k1=10 or k1=23) and (k2=4 or k2=11)", "partitions=9/9", "partitions=2/9");
-        addCase("select * from test.t2 where (k1=10 or k1=23) and (k2=3 or k2=4 or k2=11)", "partitions=9/9", "partitions=3/9");
+        addCase("select * from test.t2 where (k1=10 or k1=23) and (k2=3 or k2=4 or k2=11)", "partitions=9/9",
+            "partitions=3/9");
         addCase("select * from test.t1 where dt=20211123 or dt=20211124", "partitions=8/8", "partitions=2/8");
-        addCase("select * from test.t1 where ((dt=20211123 and k1=1) or (dt=20211125 and k1=3))", "partitions=8/8", "partitions=2/8");
+        addCase("select * from test.t1 where ((dt=20211123 and k1=1) or (dt=20211125 and k1=3))", "partitions=8/8",
+            "partitions=2/8");
         // TODO: predicates are "PREDICATES: ((`dt` = 20211123 AND `k1` = 1) OR (`dt` = 20211125 AND `k1` = 3)), `k2` > ",
         // maybe something goes wrong with ExtractCommonFactorsRule.
-        addCase("select * from test.t1 where ((dt=20211123 and k1=1) or (dt=20211125 and k1=3)) and k2>0", "partitions=8/8", "partitions=8/8");
+        addCase("select * from test.t1 where ((dt=20211123 and k1=1) or (dt=20211125 and k1=3)) and k2>0",
+            "partitions=8/8", "partitions=8/8");
         addCase("select * from test.t2 where k1 > 10 or k2 < 1", "partitions=9/9", "partitions=9/9");
     }
 

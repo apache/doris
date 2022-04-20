@@ -39,9 +39,9 @@ public class ShowSyncJobStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowSyncJobStmt.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JobId").add("JobName").add("Type").add("State").add("Channel").add("Status")
-            .add("JobConfig").add("CreateTime").add("LastStartTime").add("LastStopTime").add("FinishTime").add("Msg")
-            .build();
+        .add("JobId").add("JobName").add("Type").add("State").add("Channel").add("Status")
+        .add("JobConfig").add("CreateTime").add("LastStartTime").add("LastStopTime").add("FinishTime").add("Msg")
+        .build();
 
     private String dbName;
 

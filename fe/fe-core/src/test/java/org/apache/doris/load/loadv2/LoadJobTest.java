@@ -92,14 +92,14 @@ public class LoadJobTest {
     @Test
     public void testExecute(@Mocked GlobalTransactionMgr globalTransactionMgr,
                             @Mocked MasterTaskExecutor masterTaskExecutor)
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
-            QuotaExceedException, MetaNotFoundException, InterruptedException {
+        throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
+        QuotaExceedException, MetaNotFoundException, InterruptedException {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
                 globalTransactionMgr.beginTransaction(anyLong, Lists.newArrayList(), anyString, (TUniqueId) any,
-                        (TransactionState.TxnCoordinator) any,
-                        (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
+                    (TransactionState.TxnCoordinator) any,
+                    (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
                 minTimes = 0;
                 result = 1;
             }

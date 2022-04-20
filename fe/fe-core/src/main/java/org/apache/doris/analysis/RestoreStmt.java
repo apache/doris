@@ -96,7 +96,7 @@ public class RestoreStmt extends AbstractBackupStmt {
                 allowLoad = false;
             } else {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                        "Invalid allow load value: " + copiedProperties.get(PROP_ALLOW_LOAD));
+                    "Invalid allow load value: " + copiedProperties.get(PROP_ALLOW_LOAD));
             }
             copiedProperties.remove(PROP_ALLOW_LOAD);
         }
@@ -112,7 +112,7 @@ public class RestoreStmt extends AbstractBackupStmt {
             copiedProperties.remove(PROP_BACKUP_TIMESTAMP);
         } else {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                    "Missing " + PROP_BACKUP_TIMESTAMP + " property");
+                "Missing " + PROP_BACKUP_TIMESTAMP + " property");
         }
 
         // meta version
@@ -121,14 +121,14 @@ public class RestoreStmt extends AbstractBackupStmt {
                 metaVersion = Integer.valueOf(copiedProperties.get(PROP_META_VERSION));
             } catch (NumberFormatException e) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                        "Invalid meta version format: " + copiedProperties.get(PROP_META_VERSION));
+                    "Invalid meta version format: " + copiedProperties.get(PROP_META_VERSION));
             }
             copiedProperties.remove(PROP_META_VERSION);
         }
 
         if (!copiedProperties.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                    "Unknown restore job properties: " + copiedProperties.keySet());
+                "Unknown restore job properties: " + copiedProperties.keySet());
         }
     }
 

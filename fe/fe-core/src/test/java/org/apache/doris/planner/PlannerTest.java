@@ -61,17 +61,18 @@ public class PlannerTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         // 3. create table tbl1
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
-                + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+            + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
         createTblStmtStr = "create table db1.tbl2(k1 int, k2 int sum) "
-                + "AGGREGATE KEY(k1) partition by range(k1) () distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+            +
+            "AGGREGATE KEY(k1) partition by range(k1) () distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
 
         createTblStmtStr = "create table db1.tbl3 (k1 date, k2 varchar(128) NULL, k3 varchar(5000) NULL) "
-                + "DUPLICATE KEY(k1, k2, k3) distributed by hash(k1) buckets 1 properties ('replication_num' = '1');";
+            + "DUPLICATE KEY(k1, k2, k3) distributed by hash(k1) buckets 1 properties ('replication_num' = '1');";
         createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
@@ -80,13 +81,13 @@ public class PlannerTest {
     public void testSetOperation() throws Exception {
         // union
         String sql1 = "explain select * from\n"
-                + "  (select k1, k2 from db1.tbl1\n"
-                + "   union all\n"
-                + "   select k1, k2 from db1.tbl1) a\n"
-                + "  inner join\n"
-                + "  db1.tbl1 b\n"
-                + "  on (a.k1 = b.k1)\n"
-                + "where b.k1 = 'a'";
+            + "  (select k1, k2 from db1.tbl1\n"
+            + "   union all\n"
+            + "   select k1, k2 from db1.tbl1) a\n"
+            + "  inner join\n"
+            + "  db1.tbl1 b\n"
+            + "  on (a.k1 = b.k1)\n"
+            + "where b.k1 = 'a'";
         StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
@@ -94,24 +95,24 @@ public class PlannerTest {
         String plan1 = planner1.getExplainString(fragments1, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan1, "UNION"));
         String sql2 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
-                + "union distinct\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
-                + "   union all\n"
-                + "   select * from db1.tbl1 where k1='b' and k4=2)\n"
-                + "union distinct\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
-                + "   union all\n"
-                + "   (select * from db1.tbl1 where k1='b' and k4=3)\n"
-                + "   order by 3 limit 3)\n"
-                + "union all\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
-                + "   union all\n"
-                + "   select * from db1.tbl1 where k1='b' and k4=4)\n"
-                + "union all\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
-                + "   union all\n"
-                + "   (select * from db1.tbl1 where k1='b' and k4=5)\n"
-                + "   order by 3 limit 3)";
+            + "union distinct\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
+            + "   union all\n"
+            + "   select * from db1.tbl1 where k1='b' and k4=2)\n"
+            + "union distinct\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
+            + "   union all\n"
+            + "   (select * from db1.tbl1 where k1='b' and k4=3)\n"
+            + "   order by 3 limit 3)\n"
+            + "union all\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
+            + "   union all\n"
+            + "   select * from db1.tbl1 where k1='b' and k4=4)\n"
+            + "union all\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
+            + "   union all\n"
+            + "   (select * from db1.tbl1 where k1='b' and k4=5)\n"
+            + "   order by 3 limit 3)";
         StmtExecutor stmtExecutor2 = new StmtExecutor(ctx, sql2);
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
@@ -121,13 +122,13 @@ public class PlannerTest {
 
         // intersect
         String sql3 = "explain select * from\n"
-                + "  (select k1, k2 from db1.tbl1\n"
-                + "   intersect\n"
-                + "   select k1, k2 from db1.tbl1) a\n"
-                + "  inner join\n"
-                + "  db1.tbl1 b\n"
-                + "  on (a.k1 = b.k1)\n"
-                + "where b.k1 = 'a'";
+            + "  (select k1, k2 from db1.tbl1\n"
+            + "   intersect\n"
+            + "   select k1, k2 from db1.tbl1) a\n"
+            + "  inner join\n"
+            + "  db1.tbl1 b\n"
+            + "  on (a.k1 = b.k1)\n"
+            + "where b.k1 = 'a'";
         StmtExecutor stmtExecutor3 = new StmtExecutor(ctx, sql3);
         stmtExecutor3.execute();
         Planner planner3 = stmtExecutor3.planner();
@@ -135,24 +136,24 @@ public class PlannerTest {
         String plan3 = planner3.getExplainString(fragments3, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan3, "INTERSECT"));
         String sql4 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
-                + "intersect distinct\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
-                + "   intersect\n"
-                + "   select * from db1.tbl1 where k1='b' and k4=2)\n"
-                + "intersect distinct\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
-                + "   intersect\n"
-                + "   (select * from db1.tbl1 where k1='b' and k4=3)\n"
-                + "   order by 3 limit 3)\n"
-                + "intersect\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
-                + "   intersect\n"
-                + "   select * from db1.tbl1 where k1='b' and k4=4)\n"
-                + "intersect\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
-                + "   intersect\n"
-                + "   (select * from db1.tbl1 where k1='b' and k4=5)\n"
-                + "   order by 3 limit 3)";
+            + "intersect distinct\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
+            + "   intersect\n"
+            + "   select * from db1.tbl1 where k1='b' and k4=2)\n"
+            + "intersect distinct\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
+            + "   intersect\n"
+            + "   (select * from db1.tbl1 where k1='b' and k4=3)\n"
+            + "   order by 3 limit 3)\n"
+            + "intersect\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
+            + "   intersect\n"
+            + "   select * from db1.tbl1 where k1='b' and k4=4)\n"
+            + "intersect\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
+            + "   intersect\n"
+            + "   (select * from db1.tbl1 where k1='b' and k4=5)\n"
+            + "   order by 3 limit 3)";
 
         StmtExecutor stmtExecutor4 = new StmtExecutor(ctx, sql4);
         stmtExecutor4.execute();
@@ -163,13 +164,13 @@ public class PlannerTest {
 
         // except
         String sql5 = "explain select * from\n"
-                + "  (select k1, k2 from db1.tbl1\n"
-                + "   except\n"
-                + "   select k1, k2 from db1.tbl1) a\n"
-                + "  inner join\n"
-                + "  db1.tbl1 b\n"
-                + "  on (a.k1 = b.k1)\n"
-                + "where b.k1 = 'a'";
+            + "  (select k1, k2 from db1.tbl1\n"
+            + "   except\n"
+            + "   select k1, k2 from db1.tbl1) a\n"
+            + "  inner join\n"
+            + "  db1.tbl1 b\n"
+            + "  on (a.k1 = b.k1)\n"
+            + "where b.k1 = 'a'";
         StmtExecutor stmtExecutor5 = new StmtExecutor(ctx, sql5);
         stmtExecutor5.execute();
         Planner planner5 = stmtExecutor5.planner();
@@ -178,13 +179,13 @@ public class PlannerTest {
         Assert.assertEquals(1, StringUtils.countMatches(plan5, "EXCEPT"));
 
         String sql6 = "select * from db1.tbl1 where k1='a' and k4=1\n"
-                + "except\n"
-                + "select * from db1.tbl1 where k1='a' and k4=1\n"
-                + "except\n"
-                + "select * from db1.tbl1 where k1='a' and k4=2\n"
-                + "except distinct\n"
-                + "(select * from db1.tbl1 where k1='a' and k4=2)\n"
-                + "order by 3 limit 3";
+            + "except\n"
+            + "select * from db1.tbl1 where k1='a' and k4=1\n"
+            + "except\n"
+            + "select * from db1.tbl1 where k1='a' and k4=2\n"
+            + "except distinct\n"
+            + "(select * from db1.tbl1 where k1='a' and k4=2)\n"
+            + "order by 3 limit 3";
         StmtExecutor stmtExecutor6 = new StmtExecutor(ctx, sql6);
         stmtExecutor6.execute();
         Planner planner6 = stmtExecutor6.planner();
@@ -193,13 +194,13 @@ public class PlannerTest {
         Assert.assertEquals(1, StringUtils.countMatches(plan6, "EXCEPT"));
 
         String sql7 = "select * from db1.tbl1 where k1='a' and k4=1\n"
-                + "except distinct\n"
-                + "select * from db1.tbl1 where k1='a' and k4=1\n"
-                + "except\n"
-                + "select * from db1.tbl1 where k1='a' and k4=2\n"
-                + "except\n"
-                + "(select * from db1.tbl1 where k1='a' and k4=2)\n"
-                + "order by 3 limit 3";
+            + "except distinct\n"
+            + "select * from db1.tbl1 where k1='a' and k4=1\n"
+            + "except\n"
+            + "select * from db1.tbl1 where k1='a' and k4=2\n"
+            + "except\n"
+            + "(select * from db1.tbl1 where k1='a' and k4=2)\n"
+            + "order by 3 limit 3";
         StmtExecutor stmtExecutor7 = new StmtExecutor(ctx, sql7);
         stmtExecutor7.execute();
         Planner planner7 = stmtExecutor7.planner();
@@ -209,13 +210,13 @@ public class PlannerTest {
 
         // mixed
         String sql8 = "select * from db1.tbl1 where k1='a' and k4=1\n"
-                + "union\n"
-                + "select * from db1.tbl1 where k1='a' and k4=1\n"
-                + "except\n"
-                + "select * from db1.tbl1 where k1='a' and k4=2\n"
-                + "intersect\n"
-                + "(select * from db1.tbl1 where k1='a' and k4=2)\n"
-                + "order by 3 limit 3";
+            + "union\n"
+            + "select * from db1.tbl1 where k1='a' and k4=1\n"
+            + "except\n"
+            + "select * from db1.tbl1 where k1='a' and k4=2\n"
+            + "intersect\n"
+            + "(select * from db1.tbl1 where k1='a' and k4=2)\n"
+            + "order by 3 limit 3";
         StmtExecutor stmtExecutor8 = new StmtExecutor(ctx, sql8);
         stmtExecutor8.execute();
         Planner planner8 = stmtExecutor8.planner();
@@ -226,24 +227,24 @@ public class PlannerTest {
         Assert.assertEquals(1, StringUtils.countMatches(plan8, "EXCEPT"));
 
         String sql9 = "explain select * from db1.tbl1 where k1='a' and k4=1\n"
-                + "intersect distinct\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
-                + "   union all\n"
-                + "   select * from db1.tbl1 where k1='b' and k4=2)\n"
-                + "intersect distinct\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
-                + "   except\n"
-                + "   (select * from db1.tbl1 where k1='b' and k4=3)\n"
-                + "   order by 3 limit 3)\n"
-                + "union all\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
-                + "   intersect\n"
-                + "   select * from db1.tbl1 where k1='b' and k4=4)\n"
-                + "except\n"
-                + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
-                + "   intersect\n"
-                + "   (select * from db1.tbl1 where k1='b' and k4=5)\n"
-                + "   order by 3 limit 3)";
+            + "intersect distinct\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
+            + "   union all\n"
+            + "   select * from db1.tbl1 where k1='b' and k4=2)\n"
+            + "intersect distinct\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=2\n"
+            + "   except\n"
+            + "   (select * from db1.tbl1 where k1='b' and k4=3)\n"
+            + "   order by 3 limit 3)\n"
+            + "union all\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
+            + "   intersect\n"
+            + "   select * from db1.tbl1 where k1='b' and k4=4)\n"
+            + "except\n"
+            + "  (select * from db1.tbl1 where k1='b' and k4=3\n"
+            + "   intersect\n"
+            + "   (select * from db1.tbl1 where k1='b' and k4=5)\n"
+            + "   order by 3 limit 3)";
 
         StmtExecutor stmtExecutor9 = new StmtExecutor(ctx, sql9);
         stmtExecutor9.execute();
@@ -260,37 +261,37 @@ public class PlannerTest {
         Planner planner10 = stmtExecutor10.planner();
         List<PlanFragment> fragments10 = planner10.getFragments();
         Assert.assertTrue(fragments10.get(0).getPlanRoot().getFragment()
-                .getPlanRoot().getChild(0) instanceof AggregationNode);
+            .getPlanRoot().getChild(0) instanceof AggregationNode);
         Assert.assertTrue(fragments10.get(0).getPlanRoot()
-                .getFragment().getPlanRoot().getChild(1) instanceof UnionNode);
+            .getFragment().getPlanRoot().getChild(1) instanceof UnionNode);
 
         String sql11 = "SELECT a.x FROM\n" +
-                "(SELECT '01' x) a \n" +
-                "INNER JOIN\n" +
-                "(SELECT '01' x UNION all SELECT '02') b";
+            "(SELECT '01' x) a \n" +
+            "INNER JOIN\n" +
+            "(SELECT '01' x UNION all SELECT '02') b";
         StmtExecutor stmtExecutor11 = new StmtExecutor(ctx, sql11);
         stmtExecutor11.execute();
         Planner planner11 = stmtExecutor11.planner();
-        SetOperationNode setNode11 = (SetOperationNode)(planner11.getFragments().get(1).getPlanRoot());
+        SetOperationNode setNode11 = (SetOperationNode) (planner11.getFragments().get(1).getPlanRoot());
         Assert.assertEquals(2, setNode11.getMaterializedConstExprLists().size());
 
         String sql12 = "SELECT a.x \n" +
-                "FROM (SELECT '01' x) a \n" +
-                "INNER JOIN \n" +
-                "(SELECT k1 from db1.tbl1 \n" +
-                "UNION all \n" +
-                "SELECT k1 from db1.tbl1) b;";
+            "FROM (SELECT '01' x) a \n" +
+            "INNER JOIN \n" +
+            "(SELECT k1 from db1.tbl1 \n" +
+            "UNION all \n" +
+            "SELECT k1 from db1.tbl1) b;";
         StmtExecutor stmtExecutor12 = new StmtExecutor(ctx, sql12);
         stmtExecutor12.execute();
         Planner planner12 = stmtExecutor12.planner();
-        SetOperationNode setNode12 = (SetOperationNode)(planner12.getFragments().get(1).getPlanRoot());
+        SetOperationNode setNode12 = (SetOperationNode) (planner12.getFragments().get(1).getPlanRoot());
         Assert.assertEquals(2, setNode12.getMaterializedResultExprLists().size());
     }
 
     @Test
-    public void testPushDown() throws Exception{
+    public void testPushDown() throws Exception {
         String sql1 =
-                "SELECT\n" +
+            "SELECT\n" +
                 "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
                 "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n" +
                 "    k4\n" +
@@ -319,28 +320,28 @@ public class PlannerTest {
         Planner planner1 = stmtExecutor1.planner();
         List<PlanFragment> fragments1 = planner1.getFragments();
         Assert.assertEquals("if",
-                fragments1.get(0).getPlanRoot().conjuncts.get(0).getChild(0).getFn().functionName());
+            fragments1.get(0).getPlanRoot().conjuncts.get(0).getChild(0).getFn().functionName());
         Assert.assertEquals(3, fragments1.get(0).getPlanRoot().getChild(0).getChild(0).conjuncts.size());
 
         String sql2 =
-                "SELECT\n" +
-                        "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
-                        "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n" +
-                        "    k4\n" +
-                        "FROM\n" +
-                        "(\n" +
-                        "    SELECT\n" +
-                        "        k1,\n" +
-                        "        k2,\n" +
-                        "        k3,\n" +
-                        "        SUM(k4) AS k4\n" +
-                        "    FROM  db1.tbl1\n" +
-                        "    WHERE k1 = 0\n" +
-                        "        AND k4 = 1\n" +
-                        "        AND k3 = 'foo'\n" +
-                        "    GROUP BY k1, k2, k3\n" +
-                        ") t\n" +
-                        "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
+            "SELECT\n" +
+                "    IF(k2 IS NULL, 'ALL', k2) AS k2,\n" +
+                "    IF(k3 IS NULL, 'ALL', k3) AS k3,\n" +
+                "    k4\n" +
+                "FROM\n" +
+                "(\n" +
+                "    SELECT\n" +
+                "        k1,\n" +
+                "        k2,\n" +
+                "        k3,\n" +
+                "        SUM(k4) AS k4\n" +
+                "    FROM  db1.tbl1\n" +
+                "    WHERE k1 = 0\n" +
+                "        AND k4 = 1\n" +
+                "        AND k3 = 'foo'\n" +
+                "    GROUP BY k1, k2, k3\n" +
+                ") t\n" +
+                "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
         StmtExecutor stmtExecutor2 = new StmtExecutor(ctx, sql2);
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
@@ -353,8 +354,8 @@ public class PlannerTest {
     public void testWithStmtSlotIsAllowNull() throws Exception {
         // union
         String sql1 = "with a as (select NULL as user_id ), " +
-                "b as ( select '543' as user_id) " +
-                "select user_id from a union all select user_id from b";
+            "b as ( select '543' as user_id) " +
+            "select user_id from a union all select user_id from b";
 
         StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
         stmtExecutor1.execute();
@@ -375,10 +376,10 @@ public class PlannerTest {
     @Test
     public void testAnalyticSortNodeLeftJoin() throws Exception {
         String sql = "SELECT a.k1, a.k3, SUM(COUNT(t.k2)) OVER (PARTITION BY a.k3 ORDER BY a.k1) AS c\n" +
-                "FROM ( SELECT k1, k3 FROM db1.tbl3) a\n" +
-                "LEFT JOIN (SELECT 1 AS line, k1, k2, k3 FROM db1.tbl3) t\n" +
-                "ON t.k1 = a.k1 AND t.k3 = a.k3\n" +
-                "GROUP BY a.k1, a.k3";
+            "FROM ( SELECT k1, k3 FROM db1.tbl3) a\n" +
+            "LEFT JOIN (SELECT 1 AS line, k1, k2, k3 FROM db1.tbl3) t\n" +
+            "ON t.k1 = a.k1 AND t.k3 = a.k3\n" +
+            "GROUP BY a.k1, a.k3";
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
         stmtExecutor.execute();
         Assert.assertNotNull(stmtExecutor.planner());
@@ -443,7 +444,7 @@ public class PlannerTest {
     @Test
     public void testStringType() throws Exception {
         String createTbl1 = "create table db1.tbl1(k1 string, k2 varchar(32), k3 varchar(32), k4 int) "
-                + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1')";
+            + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1')";
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("String Type should not be used in key column[k1].");
         UtFrameUtils.parseAndAnalyzeStmt(createTbl1, ctx);

@@ -44,7 +44,7 @@ import java.util.List;
 import java.util.UUID;
 
 /*
- * This demo is mainly used to confirm that 
+ * This demo is mainly used to confirm that
  * repeatedly starting FE and BE in 2 UnitTest will not cause conflict
  */
 public class AnotherDemoTest {
@@ -66,7 +66,7 @@ public class AnotherDemoTest {
 
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+        FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.default_scheduler_interval_millisecond = 10;
         UtFrameUtils.createDorisCluster(runningDir, 1);
     }
@@ -99,7 +99,8 @@ public class AnotherDemoTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
         // 3. create table tbl1
-        String createTblStmtStr = "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        String createTblStmtStr =
+            "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
         // 4. get and test the created db and table

@@ -19,11 +19,12 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 
+import org.junit.Assert;
+import org.junit.Test;
+
 import java.util.List;
 
 import com.clearspring.analytics.util.Lists;
-import org.junit.Assert;
-import org.junit.Test;
 
 public class InPredicateTest {
 

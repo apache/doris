@@ -66,20 +66,22 @@ public class MovesCacheMap {
     // Cyclical update the cache mapping, cuz the cluster may be deleted, we should delete the corresponding cache too.
     public void updateMapping(Table<String, Tag, ClusterLoadStatistic> statisticMap, long expireAfterAccessSecond) {
         if (expireAfterAccessSecond > 0 && lastExpireConfig != expireAfterAccessSecond) {
-            LOG.debug("Reset expireAfterAccess, last {} s, now {} s. Moves will be cleared.", lastExpireConfig, expireAfterAccessSecond);
+            LOG.debug("Reset expireAfterAccess, last {} s, now {} s. Moves will be cleared.", lastExpireConfig,
+                expireAfterAccessSecond);
             cacheMap.clear();
             lastExpireConfig = expireAfterAccessSecond;
         }
 
         cacheMap.cellSet().stream().filter(c -> !statisticMap.contains(c.getRowKey(), c.getColumnKey())).forEach(
-                c -> cacheMap.remove(c.getRowKey(), c.getColumnKey()));
+            c -> cacheMap.remove(c.getRowKey(), c.getColumnKey()));
 
         List<Table.Cell<String, Tag, ClusterLoadStatistic>> toAdd = statisticMap.cellSet().stream()
-                .filter(c -> !cacheMap.contains(c.getRowKey(), c.getColumnKey()))
-                .collect(Collectors.toList());
+            .filter(c -> !cacheMap.contains(c.getRowKey(), c.getColumnKey()))
+            .collect(Collectors.toList());
         for (Table.Cell<String, Tag, ClusterLoadStatistic> cell : toAdd) {
             Map<TStorageMedium, MovesCache> newCacheMap = Maps.newHashMap();
-            Arrays.stream(TStorageMedium.values()).forEach(m -> newCacheMap.put(m, new MovesCache(expireAfterAccessSecond, TimeUnit.SECONDS)));
+            Arrays.stream(TStorageMedium.values())
+                .forEach(m -> newCacheMap.put(m, new MovesCache(expireAfterAccessSecond, TimeUnit.SECONDS)));
             this.cacheMap.put(cell.getRowKey(), cell.getColumnKey(), newCacheMap);
         }
     }
@@ -115,14 +117,15 @@ public class MovesCacheMap {
     }
 
     public long size() {
-        return cacheMap.values().stream().mapToLong(maps -> maps.values().stream().mapToLong(map -> map.get().size()).sum()).sum();
+        return cacheMap.values().stream()
+            .mapToLong(maps -> maps.values().stream().mapToLong(map -> map.get().size()).sum()).sum();
     }
 
     @Override
     public String toString() {
         StringJoiner sj = new StringJoiner("\n", "MovesInProgress detail:\n", "");
         cacheMap.cellSet().forEach(c -> c.getValue().forEach((k, v)
-                -> sj.add("(" + c.getRowKey() + "-" + c.getColumnKey() + "-" + k + ": " + v.get().asMap() + ")")));
+            -> sj.add("(" + c.getRowKey() + "-" + c.getColumnKey() + "-" + k + ": " + v.get().asMap() + ")")));
         return sj.toString();
     }
 }

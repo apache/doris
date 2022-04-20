@@ -55,20 +55,21 @@ public class AlterDatabaseRename extends DdlStmt {
         if (Strings.isNullOrEmpty(dbName)) {
             throw new AnalysisException("Database name is not set");
         }
-        
+
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                                                               PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                                                                                              PaloPrivilege.ALTER_PRIV),
-                                                                                Operator.OR))) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+            PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                    PaloPrivilege.ALTER_PRIV),
+                Operator.OR))) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
+                dbName);
         }
 
         if (Strings.isNullOrEmpty(newDbName)) {
             throw new AnalysisException("New database name is not set");
         }
-        
+
         FeNameFormat.checkDbName(newDbName);
-        
+
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         newDbName = ClusterNamespace.getFullName(getClusterName(), newDbName);
     }

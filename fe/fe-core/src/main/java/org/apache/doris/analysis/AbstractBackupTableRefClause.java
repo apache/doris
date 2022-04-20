@@ -19,11 +19,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

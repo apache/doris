@@ -75,15 +75,16 @@ public class EsShardPartitions {
                 if ("STARTED".equalsIgnoreCase(shardState) || "RELOCATING".equalsIgnoreCase(shardState)) {
                     try {
                         singleShardRouting.add(
-                                EsShardRouting.newSearchShard(
-                                        (String) indexShard.get("index"),
-                                        ((Long) indexShard.get("shard")).intValue(),
-                                        (Boolean) indexShard.get("primary"),
-                                        (String) indexShard.get("node"),
-                                        (JSONObject) jsonObject.get("nodes")));
+                            EsShardRouting.newSearchShard(
+                                (String) indexShard.get("index"),
+                                ((Long) indexShard.get("shard")).intValue(),
+                                (Boolean) indexShard.get("primary"),
+                                (String) indexShard.get("node"),
+                                (JSONObject) jsonObject.get("nodes")));
                     } catch (Exception e) {
                         LOG.error("fetch index [{}] shard partitions failure", indexName, e);
-                        throw new DorisEsException("fetch [" + indexName + "] shard partitions failure [" + e.getMessage() + "]");
+                        throw new DorisEsException(
+                            "fetch [" + indexName + "] shard partitions failure [" + e.getMessage() + "]");
                     }
                 }
             }
@@ -155,6 +156,6 @@ public class EsShardPartitions {
     @Override
     public String toString() {
         return "EsIndexState [indexName=" + indexName + ", partitionDesc=" + partitionDesc + ", partitionKey="
-                + partitionKey + "]";
+            + partitionKey + "]";
     }
 }

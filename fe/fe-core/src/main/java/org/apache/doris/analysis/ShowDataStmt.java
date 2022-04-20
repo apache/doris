@@ -56,20 +56,20 @@ import java.util.TreeSet;
 
 public class ShowDataStmt extends ShowStmt {
     private static final ShowResultSetMetaData SHOW_TABLE_DATA_META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Size", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Size", ScalarType.createVarchar(30)))
+            .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
+            .build();
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Size", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
+            .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Size", ScalarType.createVarchar(30)))
+            .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
+            .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
+            .build();
     public static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN = new ImmutableList.Builder<String>()
         .add("TableName").add("Size").add("ReplicaCount")
         .build();
@@ -105,7 +105,7 @@ public class ShowDataStmt extends ShowStmt {
         } else {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
-        
+
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
 
         // order by
@@ -115,8 +115,8 @@ public class ShowDataStmt extends ShowStmt {
                 if (!(orderByElement.getExpr() instanceof SlotRef)) {
                     throw new AnalysisException("Should order by column");
                 }
-                SlotRef slotRef = (SlotRef)orderByElement.getExpr();
-                int index = analyzeColumn(slotRef.getColumnName(),tableName);
+                SlotRef slotRef = (SlotRef) orderByElement.getExpr();
+                int index = analyzeColumn(slotRef.getColumnName(), tableName);
                 OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
                 orderByPairs.add(orderByPair);
             }
@@ -139,8 +139,8 @@ public class ShowDataStmt extends ShowStmt {
 
                 for (Table table : tables) {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                            table.getName(),
-                            PrivPredicate.SHOW)) {
+                        table.getName(),
+                        PrivPredicate.SHOW)) {
                         continue;
                     }
                     sortedTables.add(table);
@@ -183,7 +183,7 @@ public class ShowDataStmt extends ShowStmt {
                 // for output
                 for (List<Object> row : totalRowsObject) {
                     //|TableName|Size|ReplicaCount|
-                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long)row.get(1));
+                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) row.get(1));
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
                         + tableSizePair.second;
                     List<String> result = Arrays.asList(String.valueOf(row.get(0)), readableSize,
@@ -193,7 +193,7 @@ public class ShowDataStmt extends ShowStmt {
 
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
-                        + totalSizePair.second;
+                    + totalSizePair.second;
                 List<String> total = Arrays.asList("Total", readableSize, String.valueOf(totalReplicaCount));
                 totalRows.add(total);
 
@@ -202,7 +202,7 @@ public class ShowDataStmt extends ShowStmt {
                 long replicaQuota = db.getReplicaQuota();
                 Pair<Double, String> quotaPair = DebugUtil.getByteUint(quota);
                 String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaPair.first) + " "
-                        + quotaPair.second;
+                    + quotaPair.second;
 
                 List<String> quotaRow = Arrays.asList("Quota", readableQuota, String.valueOf(replicaQuota));
                 totalRows.add(quotaRow);
@@ -212,7 +212,7 @@ public class ShowDataStmt extends ShowStmt {
                 long replicaCountLeft = Math.max(0, replicaQuota - totalReplicaCount);
                 Pair<Double, String> leftPair = DebugUtil.getByteUint(left);
                 String readableLeft = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(leftPair.first) + " "
-                        + leftPair.second;
+                    + leftPair.second;
                 List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft));
                 totalRows.add(leftRow);
             } finally {
@@ -220,12 +220,12 @@ public class ShowDataStmt extends ShowStmt {
             }
         } else {
             if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                    tableName,
-                    PrivPredicate.SHOW)) {
+                tableName,
+                PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
-                        ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(),
-                        dbName + ": " + tableName);
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    dbName + ": " + tableName);
             }
 
             OlapTable olapTable = db.getTableOrMetaException(tableName, TableType.OLAP);
@@ -276,28 +276,28 @@ public class ShowDataStmt extends ShowStmt {
                 }
 
                 // for output
-                for (int index = 0;index<= totalRowsObject.size() -1;index++) {
+                for (int index = 0; index <= totalRowsObject.size() - 1; index++) {
                     //| TableName| IndexName | Size | ReplicaCount | RowCount |
                     List<Object> row = totalRowsObject.get(index);
                     List<String> result;
-                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long)row.get(2));
+                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) row.get(2));
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
                         + tableSizePair.second;
                     if (index == 0) {
                         result = Arrays.asList(tableName, String.valueOf(row.get(1)),
-                                readableSize, String.valueOf(row.get(3)),
-                                String.valueOf(row.get(4)));
+                            readableSize, String.valueOf(row.get(3)),
+                            String.valueOf(row.get(4)));
                     } else {
                         result = Arrays.asList("", String.valueOf(row.get(1)),
-                                readableSize, String.valueOf(row.get(3)),
-                                String.valueOf(row.get(4)));
+                            readableSize, String.valueOf(row.get(3)),
+                            String.valueOf(row.get(4)));
                     }
                     totalRows.add(result);
                 }
 
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
-                        + totalSizePair.second;
+                    + totalSizePair.second;
                 List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaCount), "");
                 totalRows.add(row);
             } finally {
@@ -306,9 +306,9 @@ public class ShowDataStmt extends ShowStmt {
         }
     }
 
-    public static int analyzeColumn(String columnName,String tableName) throws AnalysisException {
+    public static int analyzeColumn(String columnName, String tableName) throws AnalysisException {
         ImmutableList<String> titles = SHOW_TABLE_DATA_META_DATA_ORIGIN;
-        if(tableName != null){
+        if (tableName != null) {
             titles = SHOW_INDEX_DATA_META_DATA_ORIGIN;
         }
         for (String title : titles) {

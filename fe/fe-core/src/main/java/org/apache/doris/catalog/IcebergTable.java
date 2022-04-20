@@ -27,6 +27,11 @@ import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.TableProperties;
@@ -35,11 +40,6 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -88,9 +88,9 @@ public class IcebergTable extends Table {
         this.icebergTbl = icebergProperty.getTable();
 
         icebergProperties.put(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS,
-                icebergProperty.getHiveMetastoreUris());
+            icebergProperty.getHiveMetastoreUris());
         icebergProperties.put(IcebergProperty.ICEBERG_CATALOG_TYPE,
-                icebergProperty.getCatalogType());
+            icebergProperty.getCatalogType());
         this.icebergTable = icebergTable;
     }
 
@@ -207,6 +207,7 @@ public class IcebergTable extends Table {
 
     /**
      * Get iceberg data file by file system table location and iceberg predicates
+     *
      * @throws Exception
      */
     public List<TBrokerFileStatus> getIcebergDataFiles(List<Expression> predicates) throws Exception {
@@ -256,7 +257,7 @@ public class IcebergTable extends Table {
     public TTableDescriptor toThrift() {
         TIcebergTable tIcebergTable = new TIcebergTable(getIcebergDb(), getIcebergTbl(), getIcebergProperties());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ICEBERG_TABLE,
-                fullSchema.size(), 0, getName(), "");
+            fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setIcebergTable(tIcebergTable);
         return tTableDescriptor;
     }

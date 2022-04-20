@@ -83,7 +83,7 @@ public class Table extends MetaObject implements Writable {
      *      to query but visible to load process.
      *  If you want to get all visible columns, you should call getBaseSchema() method, which is override in
      *  sub classes.
-     *  
+     *
      *  NOTICE: the order of this fullSchema is meaningless to OlapTable
      */
     /**
@@ -94,7 +94,7 @@ public class Table extends MetaObject implements Writable {
      * Schema change (c3 to bigint)
      * When OlapTable is changing schema, the fullSchema is (c1 int, c2 int, c3 int, SHADOW_NAME_PRFIX_c3 bigint)
      * The fullSchema of OlapTable is mainly used by Scanner of Load job.
-     *
+     * <p>
      * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
      */
     protected List<Column> fullSchema;
@@ -179,7 +179,7 @@ public class Table extends MetaObject implements Writable {
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-           return this.rwLock.writeLock().tryLock(timeout, unit);
+            return this.rwLock.writeLock().tryLock(timeout, unit);
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at table[" + name + "]", e);
             return false;

@@ -32,7 +32,7 @@ public class Frontend implements Writable {
     private String host;
     private int editLogPort;
     private String version;
-    
+
     private int queryPort;
     private int rpcPort;
 
@@ -44,7 +44,7 @@ public class Frontend implements Writable {
 
     public Frontend() {
     }
-    
+
     public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
         this.role = role;
         this.nodeName = nodeName;
@@ -55,7 +55,7 @@ public class Frontend implements Writable {
     public FrontendNodeType getRole() {
         return this.role;
     }
-    
+
     public String getHost() {
         return this.host;
     }
@@ -63,7 +63,7 @@ public class Frontend implements Writable {
     public String getVersion() {
         return version;
     }
-    
+
     public String getNodeName() {
         return nodeName;
     }
@@ -79,7 +79,7 @@ public class Frontend implements Writable {
     public boolean isAlive() {
         return isAlive;
     }
-    
+
     public int getEditLogPort() {
         return this.editLogPort;
     }
@@ -142,13 +142,13 @@ public class Frontend implements Writable {
         editLogPort = in.readInt();
         nodeName = Text.readString(in);
     }
-    
+
     public static Frontend read(DataInput in) throws IOException {
         Frontend frontend = new Frontend();
         frontend.readFields(in);
         return frontend;
     }
-    
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();

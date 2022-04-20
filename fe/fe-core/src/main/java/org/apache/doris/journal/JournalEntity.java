@@ -534,7 +534,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_RESOURCE:
-            case OperationType.OP_ALTER_RESOURCE:{
+            case OperationType.OP_ALTER_RESOURCE: {
                 data = Resource.read(in);
                 isRead = true;
                 break;

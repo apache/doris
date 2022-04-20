@@ -115,19 +115,19 @@ public class ConnectProcessor {
         long elapseMs = endTime - ctx.getStartTime();
 
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-                .setState(ctx.getState().toString()).setQueryTime(elapseMs)
-                .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
-                .setScanRows(statistics == null ? 0 : statistics.getScanRows())
-                .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
-                .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
-                .setReturnRows(ctx.getReturnRows())
-                .setStmtId(ctx.getStmtId())
-                .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
+            .setState(ctx.getState().toString()).setQueryTime(elapseMs)
+            .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
+            .setScanRows(statistics == null ? 0 : statistics.getScanRows())
+            .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
+            .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
+            .setReturnRows(ctx.getReturnRows())
+            .setStmtId(ctx.getStmtId())
+            .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
             if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR
-                    && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
+                && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
                 // err query
                 MetricRepo.COUNTER_QUERY_ERR.increase(1L);
             } else {
@@ -186,11 +186,11 @@ public class ConnectProcessor {
 
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
-                .setTimestamp(System.currentTimeMillis())
-                .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
-                .setUser(ctx.getQualifiedUser())
-                .setDb(ctx.getDatabase())
-                .setSqlHash(ctx.getSqlHash());
+            .setTimestamp(System.currentTimeMillis())
+            .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
+            .setUser(ctx.getQualifiedUser())
+            .setDb(ctx.getDatabase())
+            .setSqlHash(ctx.getSqlHash());
 
         // execute this query.
         StatementBase parsedStmt = null;
@@ -232,7 +232,7 @@ public class ConnectProcessor {
             // If reach here, maybe palo bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+                e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -381,7 +381,7 @@ public class ConnectProcessor {
     private void finalizeCommand() throws IOException {
         ByteBuffer packet = null;
         if (executor != null && executor.isForwardToMaster()
-                && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+            && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
                 packet = executor.getOutputPacket();
@@ -498,9 +498,9 @@ public class ConnectProcessor {
         // and tell the follower the current journalID.
         TMasterOpResult result = new TMasterOpResult();
         if (ctx.queryId() != null &&
-                // If none master FE not set query id or query id was reset in StmtExecutor when a query exec more than once,
-                // return it to none master FE.
-                (!request.isSetQueryId() || !request.getQueryId().equals(ctx.queryId()))
+            // If none master FE not set query id or query id was reset in StmtExecutor when a query exec more than once,
+            // return it to none master FE.
+            (!request.isSetQueryId() || !request.getQueryId().equals(ctx.queryId()))
         ) {
             result.setQueryId(ctx.queryId());
         }

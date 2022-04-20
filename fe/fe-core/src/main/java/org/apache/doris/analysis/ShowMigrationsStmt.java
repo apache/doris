@@ -31,12 +31,12 @@ import com.google.common.collect.ImmutableList;
 
 public class ShowMigrationsStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("cluster").add("srcdb").add("desdb").add("progress").build();
+        .add("cluster").add("srcdb").add("desdb").add("progress").build();
 
     public ShowMigrationsStmt() {
-        
+
     }
-    
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
@@ -60,7 +60,7 @@ public class ShowMigrationsStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "ADMIN");
+                "ADMIN");
         }
     }
 

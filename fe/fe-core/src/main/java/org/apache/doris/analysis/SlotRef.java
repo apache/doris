@@ -183,7 +183,7 @@ public class SlotRef extends Expr {
         }
         if (!type.isSupported()) {
             throw new AnalysisException(
-                    "Unsupported type '" + type.toString() + "' in '" + toSql() + "'.");
+                "Unsupported type '" + type.toString() + "' in '" + toSql() + "'.");
         }
         numDistinctValues = desc.getStats().getNumDistinctValues();
         if (type.equals(Type.BOOLEAN)) {
@@ -313,13 +313,17 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    protected boolean isConstantImpl() { return false; }
+    protected boolean isConstantImpl() {
+        return false;
+    }
 
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
         Preconditions.checkState(desc != null);
-        for (TupleId tid: tids) {
-            if (tid.equals(desc.getParent().getId())) return true;
+        for (TupleId tid : tids) {
+            if (tid.equals(desc.getParent().getId())) {
+                return true;
+            }
         }
         return false;
     }

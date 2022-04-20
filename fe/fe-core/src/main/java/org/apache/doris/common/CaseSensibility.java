@@ -34,13 +34,13 @@ public enum CaseSensibility {
     ROUTINE_LOAD(true);
 
     private boolean caseSensitive;
-    
+
     private CaseSensibility(boolean caseSensitive) {
-        this.caseSensitive  = caseSensitive;
+        this.caseSensitive = caseSensitive;
     }
-    
+
     public boolean getCaseSensibility() {
         return caseSensitive;
     }
-    
+
 }

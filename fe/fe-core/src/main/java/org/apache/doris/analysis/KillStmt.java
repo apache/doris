@@ -59,7 +59,7 @@ public class KillStmt extends StatementBase {
     public String toString() {
         return toSql();
     }
-    
+
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.NO_FORWARD;

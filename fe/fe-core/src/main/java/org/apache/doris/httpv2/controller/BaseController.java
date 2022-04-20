@@ -17,11 +17,6 @@
 
 package org.apache.doris.httpv2.controller;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.base64.Base64;
-import io.netty.util.CharsetUtil;
-
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
@@ -48,6 +43,10 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.UUID;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.base64.Base64;
+import io.netty.util.CharsetUtil;
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -63,7 +62,8 @@ public class BaseController {
         checkWithCookie(request, response, true);
     }
 
-    public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request, HttpServletResponse response, boolean checkAuth) {
+    public ActionAuthorizationInfo checkWithCookie(HttpServletRequest request, HttpServletResponse response,
+                                                   boolean checkAuth) {
         // First we check if the request has Authorization header.
         String encodedAuthString = request.getHeader("Authorization");
         if (encodedAuthString != null) {
@@ -73,7 +73,7 @@ public class BaseController {
 
             if (checkAuth) {
                 checkGlobalAuth(currentUser, PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                        PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR));
+                    PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR));
             }
 
             SessionValue value = new SessionValue();
@@ -89,7 +89,7 @@ public class BaseController {
             ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setThreadLocalInfo();
             LOG.debug("check auth without cookie success for user: {}, thread: {}",
-                    currentUser, Thread.currentThread().getId());
+                currentUser, Thread.currentThread().getId());
             return authInfo;
         }
 
@@ -126,8 +126,8 @@ public class BaseController {
         }
 
         if (checkAuth && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(sessionValue.currentUser,
-                PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
-                        PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR))) {
+            PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+                PaloPrivilege.NODE_PRIV), CompoundPredicate.Operator.OR))) {
             // need to check auth and check auth failed
             return null;
         }
@@ -142,7 +142,7 @@ public class BaseController {
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setThreadLocalInfo();
         LOG.debug("check cookie success for user: {}, thread: {}",
-                sessionValue.currentUser, Thread.currentThread().getId());
+            sessionValue.currentUser, Thread.currentThread().getId());
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         authInfo.fullUserName = sessionValue.currentUser.getQualifiedUser();
         authInfo.remoteIp = request.getRemoteHost();
@@ -194,45 +194,45 @@ public class BaseController {
     protected void checkGlobalAuth(UserIdentity currentUser, PrivPredicate predicate) throws UnauthorizedException {
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(currentUser, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
-                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+                + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
     }
 
     protected void checkDbAuth(UserIdentity currentUser, String db, PrivPredicate predicate)
-            throws UnauthorizedException {
+        throws UnauthorizedException {
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(currentUser, db, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
-                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+                + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
     }
 
     protected void checkTblAuth(UserIdentity currentUser, String db, String tbl, PrivPredicate predicate)
-            throws UnauthorizedException {
+        throws UnauthorizedException {
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, db, tbl, predicate)) {
             throw new UnauthorizedException("Access denied; you need (at least one of) the "
-                    + predicate.getPrivs().toString() + " privilege(s) for this operation");
+                + predicate.getPrivs().toString() + " privilege(s) for this operation");
         }
     }
 
     // return currentUserIdentity from Doris auth
     protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo)
-            throws UnauthorizedException {
+        throws UnauthorizedException {
         List<UserIdentity> currentUser = Lists.newArrayList();
         if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(authInfo.fullUserName,
-                authInfo.remoteIp, authInfo.password, currentUser)) {
+            authInfo.remoteIp, authInfo.password, currentUser)) {
             throw new UnauthorizedException("Access denied for "
-                    + authInfo.fullUserName + "@" + authInfo.remoteIp);
+                + authInfo.fullUserName + "@" + authInfo.remoteIp);
         }
         Preconditions.checkState(currentUser.size() == 1);
         return currentUser.get(0);
     }
 
     public ActionAuthorizationInfo getAuthorizationInfo(HttpServletRequest request)
-            throws UnauthorizedException {
+        throws UnauthorizedException {
         ActionAuthorizationInfo authInfo = new ActionAuthorizationInfo();
         if (!parseAuthInfo(request, authInfo)) {
             LOG.info("parse auth info failed, Authorization header {}, url {}",
-                    request.getHeader("Authorization"), request.getRequestURI());
+                request.getHeader("Authorization"), request.getRequestURI());
             throw new UnauthorizedException("Need auth information.");
         }
         LOG.debug("get auth info: {}", authInfo);
@@ -265,7 +265,7 @@ public class BaseController {
             final String[] elements = authInfo.fullUserName.split("@");
             if (elements != null && elements.length < 2) {
                 authInfo.fullUserName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER,
-                        authInfo.fullUserName);
+                    authInfo.fullUserName);
                 authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
             } else if (elements != null && elements.length == 2) {
                 authInfo.fullUserName = ClusterNamespace.getFullName(elements[1], elements[0]);

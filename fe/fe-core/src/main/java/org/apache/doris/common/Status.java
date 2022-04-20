@@ -34,14 +34,14 @@ public class Status {
         return errorMsg;
     }
 
-    private TStatusCode  errorCode; // anything other than OK
+    private TStatusCode errorCode; // anything other than OK
     private String errorMsg;
-    
+
     public Status() {
         this.errorCode = TStatusCode.OK;
         this.errorMsg = null;
     }
-    
+
     public Status(Status status) {
         this(status.getErrorCode(), status.getErrorMsg());
     }
@@ -61,20 +61,20 @@ public class Status {
     public boolean ok() {
         return this.errorCode == TStatusCode.OK;
     }
-    
+
     public boolean isCancelled() {
         return this.errorCode == TStatusCode.CANCELLED;
     }
-    
+
     public boolean isRpcError() {
         return this.errorCode == TStatusCode.THRIFT_RPC_ERROR;
     }
-    
+
     public void setStatus(Status status) {
         this.errorCode = status.errorCode;
         this.errorMsg = status.getErrorMsg();
     }
-    
+
     public void setStatus(String msg) {
         this.errorCode = TStatusCode.INTERNAL_ERROR;
         this.errorMsg = msg;
@@ -96,33 +96,41 @@ public class Status {
         if (ok()) {
             return;
         }
-        
+
         switch (errorCode) {
             case CANCELLED: {
                 this.errorMsg = "Cancelled";
                 break;
-            } case ANALYSIS_ERROR: {
+            }
+            case ANALYSIS_ERROR: {
                 this.errorMsg = "Analysis_error";
                 break;
-            } case NOT_IMPLEMENTED_ERROR: {
+            }
+            case NOT_IMPLEMENTED_ERROR: {
                 this.errorMsg = "Not_implemented_error";
                 break;
-            } case RUNTIME_ERROR: {
+            }
+            case RUNTIME_ERROR: {
                 this.errorMsg = "Runtime_error";
                 break;
-            } case MEM_LIMIT_EXCEEDED: {
+            }
+            case MEM_LIMIT_EXCEEDED: {
                 this.errorMsg = "Mem_limit_error";
                 break;
-            } case INTERNAL_ERROR: {
+            }
+            case INTERNAL_ERROR: {
                 this.errorMsg = "Internal_error";
                 break;
-            } case THRIFT_RPC_ERROR: {
+            }
+            case THRIFT_RPC_ERROR: {
                 this.errorMsg = "Thrift_rpc_error";
                 break;
-            } case TIMEOUT: {
+            }
+            case TIMEOUT: {
                 this.errorMsg = "Timeout";
                 break;
-            } default: {
+            }
+            default: {
                 this.errorMsg = "Unknown_error";
                 break;
             }

@@ -59,8 +59,14 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         }
     }
 
-    public FromClause() { tableRefs = Lists.newArrayList(); }
-    public List<TableRef> getTableRefs() { return tableRefs; }
+    public FromClause() {
+        tableRefs = Lists.newArrayList();
+    }
+
+    public List<TableRef> getTableRefs() {
+        return tableRefs;
+    }
+
     public void setNeedToSql(boolean needToSql) {
         this.needToSql = needToSql;
     }
@@ -94,7 +100,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
      * For example:
      * Origin stmt: select * from t1 inner join t2 on t1.k1=t2.k1
      * After analyze: select * from t2 on t1.k1=t2.k1 inner join t1
-     *
+     * <p>
      * If this statement just needs to be reanalyze (query rewriter), an error will be reported
      * because the table t1 in the on clause cannot be recognized.
      */
@@ -117,7 +123,9 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (analyzed) return;
+        if (analyzed) {
+            return;
+        }
 
         if (tableRefs.isEmpty()) {
             analyzed = true;
@@ -156,7 +164,9 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     public FromClause clone() {
         ArrayList<TableRef> clone = Lists.newArrayList();
-        for (TableRef tblRef: tableRefs) clone.add(tblRef.clone());
+        for (TableRef tblRef : tableRefs) {
+            clone.add(tblRef.clone());
+        }
         return new FromClause(clone);
     }
 
@@ -193,14 +203,36 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         return builder.toString();
     }
 
-    public boolean isEmpty() { return tableRefs.isEmpty(); }
+    public boolean isEmpty() {
+        return tableRefs.isEmpty();
+    }
 
     @Override
-    public Iterator<TableRef> iterator() { return tableRefs.iterator(); }
-    public int size() { return tableRefs.size(); }
-    public TableRef get(int i) { return tableRefs.get(i); }
-    public void set(int i, TableRef tableRef) { tableRefs.set(i, tableRef); }
-    public void add(TableRef t) { tableRefs.add(t); }
-    public void addAll(List<TableRef> t) { tableRefs.addAll(t); }
-    public void clear() { tableRefs.clear(); }
+    public Iterator<TableRef> iterator() {
+        return tableRefs.iterator();
+    }
+
+    public int size() {
+        return tableRefs.size();
+    }
+
+    public TableRef get(int i) {
+        return tableRefs.get(i);
+    }
+
+    public void set(int i, TableRef tableRef) {
+        tableRefs.set(i, tableRef);
+    }
+
+    public void add(TableRef t) {
+        tableRefs.add(t);
+    }
+
+    public void addAll(List<TableRef> t) {
+        tableRefs.addAll(t);
+    }
+
+    public void clear() {
+        tableRefs.clear();
+    }
 }

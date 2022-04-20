@@ -42,12 +42,14 @@ public class PartitionPhaseTest extends EsTestCase {
     public void testWorkFlow(@Injectable EsRestClient client) throws Exception {
         final EsShardPartitions[] esShardPartitions = {null};
         ExceptionChecker.expectThrowsNoException(() ->
-                esShardPartitions[0] = EsShardPartitions.findShardPartitions("doe",
-                        loadJsonFromFile("data/es/test_search_shards.json")));
+            esShardPartitions[0] = EsShardPartitions.findShardPartitions("doe",
+                loadJsonFromFile("data/es/test_search_shards.json")));
         assertNotNull(esShardPartitions[0]);
         ObjectMapper mapper = new ObjectMapper();
-        JsonParser jsonParser = mapper.getJsonFactory().createJsonParser(loadJsonFromFile("data/es/test_nodes_http.json"));
-        Map<String, Map<String, Object>> nodesData = (Map<String, Map<String, Object>>) mapper.readValue(jsonParser, Map.class).get("nodes");
+        JsonParser jsonParser =
+            mapper.getJsonFactory().createJsonParser(loadJsonFromFile("data/es/test_nodes_http.json"));
+        Map<String, Map<String, Object>> nodesData =
+            (Map<String, Map<String, Object>>) mapper.readValue(jsonParser, Map.class).get("nodes");
         Map<String, EsNodeInfo> nodesMap = new HashMap<>();
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
             EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue(), false);

@@ -31,10 +31,10 @@ import java.util.List;
 
 public class TransDbProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("DbId")
-            .add("DbName")
-            .add("RunningTransactionNum")
-            .build();
+        .add("DbId")
+        .add("DbName")
+        .add("RunningTransactionNum")
+        .build();
 
     public TransDbProcDir() {
     }

@@ -34,14 +34,15 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
+import org.junit.Assert;
+import org.junit.Test;
+
 import java.util.List;
 
 import com.clearspring.analytics.util.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
 
 public class UpdateStmtExecutorTest {
 
@@ -72,7 +73,7 @@ public class UpdateStmtExecutorTest {
         SlotRef slotRef = new SlotRef(tableName, "v1");
         IntLiteral intLiteral = new IntLiteral(1);
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                slotRef, intLiteral);
+            slotRef, intLiteral);
         setExprs.add(binaryPredicate);
         SlotRef keySlotRef = new SlotRef(tableName, "k1");
         Expr whereExpr = new BinaryPredicate(BinaryPredicate.Operator.EQ, keySlotRef, intLiteral);

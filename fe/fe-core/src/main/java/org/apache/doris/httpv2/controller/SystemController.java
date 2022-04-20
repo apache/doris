@@ -67,7 +67,7 @@ public class SystemController extends BaseController {
             currentPath = "/";
         }
         LOG.debug("get /system request, thread id: {}", Thread.currentThread().getId());
-        ResponseEntity entity = appendSystemInfo(currentPath, currentPath,request);
+        ResponseEntity entity = appendSystemInfo(currentPath, currentPath, request);
         return entity;
     }
 
@@ -104,7 +104,7 @@ public class SystemController extends BaseController {
             String showProcStmt = "SHOW PROC \"" + procPath + "\"";
 
             MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0),
-                    ConnectContext.get(), RedirectStatus.FORWARD_NO_SYNC, true);
+                ConnectContext.get(), RedirectStatus.FORWARD_NO_SYNC, true);
             try {
                 masterOpExecutor.execute();
             } catch (Exception e) {
@@ -118,7 +118,7 @@ public class SystemController extends BaseController {
             }
 
             columnNames = resultSet.getMetaData().getColumns().stream().map(c -> c.getName()).collect(
-                    Collectors.toList());
+                Collectors.toList());
             rows = resultSet.getResultRows();
         } else {
             ProcResult result;
@@ -126,9 +126,9 @@ public class SystemController extends BaseController {
                 result = procNode.fetchResult();
             } catch (AnalysisException e) {
                 return ResponseEntityBuilder.internalError("The result is null."
-                        + "Maybe haven't be implemented completely[" + e.getMessage() + "], please check."
-                        + "INFO: ProcNode type is [" + procNode.getClass().getName() + "]: "
-                        + e.getMessage());
+                    + "Maybe haven't be implemented completely[" + e.getMessage() + "], please check."
+                    + "INFO: ProcNode type is [" + procNode.getClass().getName() + "]: "
+                    + e.getMessage());
             }
 
             columnNames = result.getColumnNames();

@@ -114,13 +114,14 @@ public class BrokerUtil {
 
     /**
      * Parse file status in path with broker, except directory
+     *
      * @param path
      * @param brokerDesc
      * @param fileStatuses: file path, size, isDir, isSplittable
      * @throws UserException if broker op failed
      */
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
-            throws UserException {
+        throws UserException {
         if (brokerDesc.getStorageType() == StorageBackend.StorageType.BROKER) {
             TNetworkAddress address = getAddress(brokerDesc);
             TPaloBrokerService.Client client = borrowClient(address);
@@ -159,7 +160,7 @@ public class BrokerUtil {
                 Status st = s3.list(path, rfiles, false);
                 if (!st.ok()) {
                     throw new UserException("S3 list path failed. path=" + path
-                            + ",msg=" + st.getErrMsg());
+                        + ",msg=" + st.getErrMsg());
                 }
             } catch (Exception e) {
                 LOG.warn("s3 list path exception, path={}", path, e);
@@ -172,9 +173,9 @@ public class BrokerUtil {
             }
         } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.HDFS) {
             if (!brokerDesc.getProperties().containsKey(HDFS_FS_KEY)
-                    || !brokerDesc.getProperties().containsKey(HDFS_USER_KEY)) {
+                || !brokerDesc.getProperties().containsKey(HDFS_USER_KEY)) {
                 throw new UserException(String.format(
-                        "The properties of hdfs is invalid. %s and %s are needed", HDFS_FS_KEY, HDFS_USER_KEY));
+                    "The properties of hdfs is invalid. %s and %s are needed", HDFS_FS_KEY, HDFS_USER_KEY));
             }
             String hdfsFsName = brokerDesc.getProperties().get(HDFS_FS_KEY);
             String user = brokerDesc.getProperties().get(HDFS_USER_KEY);
@@ -191,7 +192,7 @@ public class BrokerUtil {
                 for (FileStatus status : statusList) {
                     if (status.isFile()) {
                         fileStatuses.add(new TBrokerFileStatus(status.getPath().toUri().getPath(),
-                                status.isDirectory(), status.getLen(), status.isFile()));
+                            status.isDirectory(), status.getLen(), status.isFile()));
                     }
                 }
             } catch (IOException | InterruptedException | URISyntaxException e) {
@@ -205,13 +206,15 @@ public class BrokerUtil {
         return brokerName + "[" + address.toString() + "]";
     }
 
-    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath) throws UserException {
+    public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
+        throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
         String[] strings = filePath.split("/");
         if (strings.length < 2) {
-            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            throw new UserException(
+                "Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
         }
         String[] columns = new String[columnsFromPath.size()];
         int size = 0;
@@ -221,11 +224,13 @@ public class BrokerUtil {
                 continue;
             }
             if (str == null || !str.contains("=")) {
-                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                throw new UserException(
+                    "Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
             }
             String[] pair = str.split("=", 2);
             if (pair.length != 2) {
-                throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+                throw new UserException(
+                    "Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
             }
             int index = columnsFromPath.indexOf(pair[0]);
             if (index == -1) {
@@ -238,13 +243,15 @@ public class BrokerUtil {
             }
         }
         if (size != columnsFromPath.size()) {
-            throw new UserException("Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
+            throw new UserException(
+                "Fail to parse columnsFromPath, expected: " + columnsFromPath + ", filePath: " + filePath);
         }
         return Lists.newArrayList(columns);
     }
 
     /**
      * Read binary data from path with broker
+     *
      * @param path
      * @param brokerDesc
      * @return byte[]
@@ -258,7 +265,7 @@ public class BrokerUtil {
         try {
             // get file size
             TBrokerListPathRequest request = new TBrokerListPathRequest(
-                    TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
+                TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
             TBrokerListResponse tBrokerListResponse = null;
             try {
                 tBrokerListResponse = client.listPath(request);
@@ -268,12 +275,12 @@ public class BrokerUtil {
             }
             if (tBrokerListResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("Broker list path failed. path=" + path + ", broker=" + address
-                                                + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
+                    + ",msg=" + tBrokerListResponse.getOpStatus().getMessage());
             }
             List<TBrokerFileStatus> fileStatuses = tBrokerListResponse.getFiles();
             if (fileStatuses.size() != 1) {
                 throw new UserException("Broker files num error. path=" + path + ", broker=" + address
-                                                + ", files num: " + fileStatuses.size());
+                    + ", files num: " + fileStatuses.size());
             }
 
             Preconditions.checkState(!fileStatuses.get(0).isIsDir());
@@ -282,7 +289,7 @@ public class BrokerUtil {
             // open reader
             String clientId = FrontendOptions.getLocalHostAddress() + ":" + Config.rpc_port;
             TBrokerOpenReaderRequest tOpenReaderRequest = new TBrokerOpenReaderRequest(
-                    TBrokerVersion.VERSION_ONE, path, 0, clientId, brokerDesc.getProperties());
+                TBrokerVersion.VERSION_ONE, path, 0, clientId, brokerDesc.getProperties());
             TBrokerOpenReaderResponse tOpenReaderResponse = null;
             try {
                 tOpenReaderResponse = client.openReader(tOpenReaderRequest);
@@ -292,7 +299,7 @@ public class BrokerUtil {
             }
             if (tOpenReaderResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("Broker open reader failed. path=" + path + ", broker=" + address
-                                                + ", msg=" + tOpenReaderResponse.getOpStatus().getMessage());
+                    + ", msg=" + tOpenReaderResponse.getOpStatus().getMessage());
             }
             fd = tOpenReaderResponse.getFd();
 
@@ -302,7 +309,7 @@ public class BrokerUtil {
                 readLen = maxReadLen;
             }
             TBrokerPReadRequest tPReadRequest = new TBrokerPReadRequest(
-                    TBrokerVersion.VERSION_ONE, fd, 0, readLen);
+                TBrokerVersion.VERSION_ONE, fd, 0, readLen);
             TBrokerReadResponse tReadResponse = null;
             try {
                 tReadResponse = client.pread(tPReadRequest);
@@ -312,7 +319,7 @@ public class BrokerUtil {
             }
             if (tReadResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("Broker read failed. path=" + path + ", broker=" + address
-                                                + ", msg=" + tReadResponse.getOpStatus().getMessage());
+                    + ", msg=" + tReadResponse.getOpStatus().getMessage());
             }
             failed = false;
             return tReadResponse.getData();
@@ -325,7 +332,7 @@ public class BrokerUtil {
             if (fd != null) {
                 failed = true;
                 TBrokerCloseReaderRequest tCloseReaderRequest = new TBrokerCloseReaderRequest(
-                        TBrokerVersion.VERSION_ONE, fd);
+                    TBrokerVersion.VERSION_ONE, fd);
                 TBrokerOperationStatus tOperationStatus = null;
                 try {
                     tOperationStatus = client.closeReader(tCloseReaderRequest);
@@ -339,7 +346,7 @@ public class BrokerUtil {
                 }
                 if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close reader failed. path={}, address={}, error={}", path, address,
-                             tOperationStatus.getMessage());
+                        tOperationStatus.getMessage());
                 } else {
                     failed = false;
                 }
@@ -352,6 +359,7 @@ public class BrokerUtil {
 
     /**
      * Write binary data to destFilePath with broker
+     *
      * @param data
      * @param destFilePath
      * @param brokerDesc
@@ -370,6 +378,7 @@ public class BrokerUtil {
 
     /**
      * Write srcFilePath file to destFilePath with broker
+     *
      * @param srcFilePath
      * @param destFilePath
      * @param brokerDesc
@@ -417,6 +426,7 @@ public class BrokerUtil {
 
     /**
      * Delete path with broker
+     *
      * @param path
      * @param brokerDesc
      * @throws UserException if broker op failed
@@ -427,7 +437,7 @@ public class BrokerUtil {
         boolean failed = true;
         try {
             TBrokerDeletePathRequest tDeletePathRequest = new TBrokerDeletePathRequest(
-                    TBrokerVersion.VERSION_ONE, path, brokerDesc.getProperties());
+                TBrokerVersion.VERSION_ONE, path, brokerDesc.getProperties());
             TBrokerOperationStatus tOperationStatus = null;
             try {
                 tOperationStatus = client.deletePath(tDeletePathRequest);
@@ -437,7 +447,7 @@ public class BrokerUtil {
             }
             if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("Broker delete path failed. path=" + path + ", broker=" + address
-                                                + ", msg=" + tOperationStatus.getMessage());
+                    + ", msg=" + tOperationStatus.getMessage());
             }
             failed = false;
         } catch (TException e) {
@@ -455,11 +465,11 @@ public class BrokerUtil {
         boolean failed = true;
         try {
             TBrokerCheckPathExistRequest req = new TBrokerCheckPathExistRequest(TBrokerVersion.VERSION_ONE,
-                    remotePath, brokerDesc.getProperties());
+                remotePath, brokerDesc.getProperties());
             TBrokerCheckPathExistResponse rep = client.checkPathExist(req);
             if (rep.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("Broker check path exist failed. path=" + remotePath + ", broker=" + address +
-                        ", msg=" + rep.getOpStatus().getMessage());
+                    ", msg=" + rep.getOpStatus().getMessage());
             }
             failed = false;
             return rep.isPathExist;
@@ -478,25 +488,27 @@ public class BrokerUtil {
         boolean failed = true;
         try {
             TBrokerRenamePathRequest req = new TBrokerRenamePathRequest(TBrokerVersion.VERSION_ONE, origFilePath,
-                    destFilePath, brokerDesc.getProperties());
+                destFilePath, brokerDesc.getProperties());
             TBrokerOperationStatus rep = client.renamePath(req);
             if (rep.getStatusCode() != TBrokerOperationStatusCode.OK) {
                 throw new UserException("failed to rename " + origFilePath + " to " + destFilePath +
-                        ", msg: " + rep.getMessage() + ", broker: " + address);
+                    ", msg: " + rep.getMessage() + ", broker: " + address);
             }
             failed = false;
         } catch (TException e) {
             LOG.warn("Broker rename file failed, origin path={}, dest path={}, address={}, exception={}",
-                    origFilePath, destFilePath, address, e);
+                origFilePath, destFilePath, address, e);
             throw new UserException("Broker rename file exception. origin path=" + origFilePath +
-                    ", dest path=" + destFilePath + ", broker=" + address);
+                ", dest path=" + destFilePath + ", broker=" + address);
         } finally {
             returnClient(client, address, failed);
         }
     }
 
-    public static Pair<TPaloBrokerService.Client, TNetworkAddress> getBrokerAddressAndClient(BrokerDesc brokerDesc) throws UserException {
-        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = new Pair<TPaloBrokerService.Client, TNetworkAddress>(null, null);
+    public static Pair<TPaloBrokerService.Client, TNetworkAddress> getBrokerAddressAndClient(BrokerDesc brokerDesc)
+        throws UserException {
+        Pair<TPaloBrokerService.Client, TNetworkAddress> pair =
+            new Pair<TPaloBrokerService.Client, TNetworkAddress>(null, null);
         TNetworkAddress address = getAddress(brokerDesc);
         TPaloBrokerService.Client client = borrowClient(address);
         pair.first = client;
@@ -565,8 +577,8 @@ public class BrokerUtil {
             try {
                 String clientId = FrontendOptions.getLocalHostAddress() + ":" + Config.rpc_port;
                 TBrokerOpenWriterRequest tOpenWriterRequest = new TBrokerOpenWriterRequest(
-                        TBrokerVersion.VERSION_ONE, brokerFilePath, TBrokerOpenMode.APPEND,
-                        clientId, brokerDesc.getProperties());
+                    TBrokerVersion.VERSION_ONE, brokerFilePath, TBrokerOpenMode.APPEND,
+                    clientId, brokerDesc.getProperties());
                 TBrokerOpenWriterResponse tOpenWriterResponse = null;
                 try {
                     tOpenWriterResponse = client.openWriter(tOpenWriterRequest);
@@ -576,8 +588,8 @@ public class BrokerUtil {
                 }
                 if (tOpenWriterResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                     throw new UserException("Broker open writer failed. destPath=" + brokerFilePath
-                                                    + ", broker=" + address
-                                                    + ", msg=" + tOpenWriterResponse.getOpStatus().getMessage());
+                        + ", broker=" + address
+                        + ", msg=" + tOpenWriterResponse.getOpStatus().getMessage());
                 }
                 failed = false;
                 fd = tOpenWriterResponse.getFd();
@@ -592,13 +604,14 @@ public class BrokerUtil {
 
         public void write(ByteBuffer byteBuffer, long bufferSize) throws UserException {
             if (!isReady) {
-                throw new UserException("Broker writer is not ready. filePath=" + brokerFilePath + ", broker=" + address);
+                throw new UserException(
+                    "Broker writer is not ready. filePath=" + brokerFilePath + ", broker=" + address);
             }
 
             failed = true;
             TBrokerOperationStatus tOperationStatus = null;
             TBrokerPWriteRequest tPWriteRequest = new TBrokerPWriteRequest(
-                    TBrokerVersion.VERSION_ONE, fd, currentOffset, byteBuffer);
+                TBrokerVersion.VERSION_ONE, fd, currentOffset, byteBuffer);
             try {
                 try {
                     tOperationStatus = client.pwrite(tPWriteRequest);
@@ -608,7 +621,7 @@ public class BrokerUtil {
                 }
                 if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     throw new UserException("Broker write failed. filePath=" + brokerFilePath + ", broker=" + address
-                                                    + ", msg=" + tOperationStatus.getMessage());
+                        + ", msg=" + tOperationStatus.getMessage());
                 }
                 failed = false;
                 currentOffset += bufferSize;
@@ -625,7 +638,7 @@ public class BrokerUtil {
             TBrokerOperationStatus tOperationStatus = null;
             if (fd != null) {
                 TBrokerCloseWriterRequest tCloseWriterRequest = new TBrokerCloseWriterRequest(
-                        TBrokerVersion.VERSION_ONE, fd);
+                    TBrokerVersion.VERSION_ONE, fd);
                 try {
                     tOperationStatus = client.closeWriter(tCloseWriterRequest);
                 } catch (TException e) {
@@ -638,7 +651,7 @@ public class BrokerUtil {
                 }
                 if (tOperationStatus == null || tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
                     LOG.warn("Broker close writer failed. filePath={}, address={}, error={}", brokerFilePath,
-                             address, tOperationStatus.getMessage());
+                        address, tOperationStatus.getMessage());
                 } else {
                     failed = false;
                 }

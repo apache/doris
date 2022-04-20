@@ -39,7 +39,6 @@ import java.util.Map;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
 import lombok.Getter;
 import lombok.Setter;
 
@@ -60,22 +59,23 @@ public class ImportAction {
     /**
      * Request body:
      * {
-     *  "fileInfo": {
-     *      "columnSeparator": ",",
-     *      "fileUrl": "hdfs://127.0.0.1:50070/file/test/text*",
-     *      "format": "TXT" // TXT or PARQUET
-     *  },
-     *  "connectInfo": {  // Optional
-     *      "brokerName" : "my_broker",
-     *      "brokerProps" : {
-     *          "username" : "yyy",
-     *          "password" : "xxx"
-     *      }
-     *  }
+     * "fileInfo": {
+     * "columnSeparator": ",",
+     * "fileUrl": "hdfs://127.0.0.1:50070/file/test/text*",
+     * "format": "TXT" // TXT or PARQUET
+     * },
+     * "connectInfo": {  // Optional
+     * "brokerName" : "my_broker",
+     * "brokerProps" : {
+     * "username" : "yyy",
+     * "password" : "xxx"
+     * }
+     * }
      * }
      */
     @RequestMapping(path = "/api/import/file_review", method = RequestMethod.POST)
-    public Object fileReview(@RequestBody FileReviewRequestVo body, HttpServletRequest request, HttpServletResponse response) {
+    public Object fileReview(@RequestBody FileReviewRequestVo body, HttpServletRequest request,
+                             HttpServletResponse response) {
         FileInfo fileInfo = body.getFileInfo();
         ConnectInfo connectInfo = body.getConnectInfo();
         BrokerDesc brokerDesc = new BrokerDesc(connectInfo.getBrokerName(), connectInfo.getBrokerProps());
@@ -137,7 +137,7 @@ public class ImportAction {
     }
 
     private void parseContent(String columnSeparator, String lineDelimiter, byte[] fileContentBytes,
-                                            FileSample fileSample) {
+                              FileSample fileSample) {
         List<List<String>> sampleLines = Lists.newArrayList();
         int maxColSize = 0;
         String content = new String(fileContentBytes);

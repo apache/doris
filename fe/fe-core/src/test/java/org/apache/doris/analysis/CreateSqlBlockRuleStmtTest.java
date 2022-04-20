@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.MockedAuth;
@@ -90,8 +89,8 @@ public class CreateSqlBlockRuleStmtTest {
         CreateSqlBlockRuleStmt stmt = new CreateSqlBlockRuleStmt("test_rule", properties);
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "errCode = 2, detailMessage = Only sql or sqlHash can be configured",
-                () -> stmt.analyze(analyzer));
+            "errCode = 2, detailMessage = Only sql or sqlHash can be configured",
+            () -> stmt.analyze(analyzer));
     }
 
     @Test
@@ -102,8 +101,8 @@ public class CreateSqlBlockRuleStmtTest {
         CreateSqlBlockRuleStmt stmt = new CreateSqlBlockRuleStmt("test_rule", properties);
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "errCode = 2, detailMessage = sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
-                () -> stmt.analyze(analyzer));
+            "errCode = 2, detailMessage = sql/sqlHash and partition_num/tablet_num/cardinality cannot be set in one rule.",
+            () -> stmt.analyze(analyzer));
     }
 
     @Test
@@ -113,8 +112,8 @@ public class CreateSqlBlockRuleStmtTest {
         CreateSqlBlockRuleStmt stmt = new CreateSqlBlockRuleStmt("test_rule", properties);
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "errCode = 2, detailMessage = tablet_num should be a long",
-                () -> stmt.analyze(analyzer));
+            "errCode = 2, detailMessage = tablet_num should be a long",
+            () -> stmt.analyze(analyzer));
     }
 
     @Test(expected = AnalysisException.class)

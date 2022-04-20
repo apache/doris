@@ -134,20 +134,17 @@ public class MarkDownParser {
             if (!lines.get(nextToRead).startsWith("#")) {
                 sb.append(lines.get(nextToRead)).append('\n');
                 nextToRead++;
-            }
-            // Ignore headlevel greater than 2
-            else if (lines.get(nextToRead).startsWith("###")) {
-                sb.append(lines.get(nextToRead).replaceAll("#","")).append('\n');
+            } else if (lines.get(nextToRead).startsWith("###")) { // Ignore headlevel greater than 2
+                sb.append(lines.get(nextToRead).replaceAll("#", "")).append('\n');
                 nextToRead++;
-            } 
-            else {
+            } else {
                 break;
             }
         }
         // Note that multiple line breaks at content's end will be merged to be one,
         // and other whitespace characters will be deleted.
         return Maps.immutableEntry(key.substring(headLevel).trim(),
-                sb.toString().replaceAll("\\s+$", "\n"));
+            sb.toString().replaceAll("\\s+$", "\n"));
     }
 }
 

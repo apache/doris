@@ -183,12 +183,13 @@ public class BackendLoadStatistic {
             if (diskInfo.getState() == DiskState.ONLINE) {
                 // we only collect online disk's capacity
                 totalCapacityMap.put(medium, totalCapacityMap.getOrDefault(medium, 0L) + diskInfo.getTotalCapacityB());
-                totalUsedCapacityMap.put(medium, totalUsedCapacityMap.getOrDefault(medium, 0L) + (diskInfo.getTotalCapacityB() - diskInfo.getAvailableCapacityB()));
+                totalUsedCapacityMap.put(medium, totalUsedCapacityMap.getOrDefault(medium, 0L) +
+                    (diskInfo.getTotalCapacityB() - diskInfo.getAvailableCapacityB()));
             }
 
             RootPathLoadStatistic pathStatistic = new RootPathLoadStatistic(beId, diskInfo.getRootPath(),
-                    diskInfo.getPathHash(), diskInfo.getStorageMedium(),
-                    diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB(), diskInfo.getState());
+                diskInfo.getPathHash(), diskInfo.getStorageMedium(),
+                diskInfo.getTotalCapacityB(), diskInfo.getDataUsedCapacityB(), diskInfo.getState());
             pathStatistics.add(pathStatistic);
         }
 
@@ -232,7 +233,7 @@ public class BackendLoadStatistic {
             }
 
             if (Math.abs(pathStat.getUsedPercent() - avgUsedPercent)
-                    / avgUsedPercent > Config.balance_load_score_threshold) {
+                / avgUsedPercent > Config.balance_load_score_threshold) {
                 if (pathStat.getUsedPercent() > avgUsedPercent) {
                     pathStat.setClazz(Classification.HIGH);
                     highCounter++;
@@ -247,35 +248,35 @@ public class BackendLoadStatistic {
         }
 
         LOG.debug("classify path by load. be id: {} storage: {} avg used percent: {}. low/mid/high: {}/{}/{}",
-                beId, medium, avgUsedPercent, lowCounter, midCounter, highCounter);
+            beId, medium, avgUsedPercent, lowCounter, midCounter, highCounter);
     }
 
     public void calcScore(Map<TStorageMedium, Double> avgClusterUsedCapacityPercentMap,
-            Map<TStorageMedium, Double> avgClusterReplicaNumPerBackendMap) {
-        
+                          Map<TStorageMedium, Double> avgClusterReplicaNumPerBackendMap) {
+
         for (TStorageMedium medium : TStorageMedium.values()) {
             LoadScore loadScore = calcSore(totalUsedCapacityMap.getOrDefault(medium, 0L),
-                    totalCapacityMap.getOrDefault(medium, 1L),
-                    totalReplicaNumMap.getOrDefault(medium, 0L),
-                    avgClusterUsedCapacityPercentMap.getOrDefault(medium, 0.0),
-                    avgClusterReplicaNumPerBackendMap.getOrDefault(medium, 0.0));
+                totalCapacityMap.getOrDefault(medium, 1L),
+                totalReplicaNumMap.getOrDefault(medium, 0L),
+                avgClusterUsedCapacityPercentMap.getOrDefault(medium, 0.0),
+                avgClusterReplicaNumPerBackendMap.getOrDefault(medium, 0.0));
 
             loadScoreMap.put(medium, loadScore);
 
             LOG.debug("backend {}, medium: {}, capacity coefficient: {}, replica coefficient: {}, load score: {}",
-                    beId, medium, loadScore.capacityCoefficient, loadScore.replicaNumCoefficient, loadScore.score);
+                beId, medium, loadScore.capacityCoefficient, loadScore.replicaNumCoefficient, loadScore.score);
         }
     }
 
     public static LoadScore calcSore(long beUsedCapacityB, long beTotalCapacityB, long beTotalReplicaNum,
-            double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
-        
+                                     double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
+
         double usedCapacityPercent = (beUsedCapacityB / (double) beTotalCapacityB);
         double capacityProportion = avgClusterUsedCapacityPercent <= 0 ? 0.0
-                : usedCapacityPercent / avgClusterUsedCapacityPercent;
+            : usedCapacityPercent / avgClusterUsedCapacityPercent;
         double replicaNumProportion = avgClusterReplicaNumPerBackend <= 0 ? 0.0
-                : beTotalReplicaNum / avgClusterReplicaNumPerBackend;
-        
+            : beTotalReplicaNum / avgClusterReplicaNumPerBackend;
+
         LoadScore loadScore = new LoadScore();
 
         // If this backend's capacity used percent < 50%, set capacityCoefficient to 0.5.
@@ -283,17 +284,17 @@ public class BackendLoadStatistic {
         // Else, capacityCoefficient changed smoothly from 0.5 to 1 with used capacity increasing
         // Function: (2 * usedCapacityPercent - 0.5)
         loadScore.capacityCoefficient = usedCapacityPercent < 0.5 ? 0.5
-                : (usedCapacityPercent > Config.capacity_used_percent_high_water ? 1.0
-                        : (2 * usedCapacityPercent - 0.5));
+            : (usedCapacityPercent > Config.capacity_used_percent_high_water ? 1.0
+            : (2 * usedCapacityPercent - 0.5));
         loadScore.replicaNumCoefficient = 1 - loadScore.capacityCoefficient;
         loadScore.score = capacityProportion * loadScore.capacityCoefficient
-                + replicaNumProportion * loadScore.replicaNumCoefficient;
-        
+            + replicaNumProportion * loadScore.replicaNumCoefficient;
+
         return loadScore;
     }
 
     public BalanceStatus isFit(long tabletSize, TStorageMedium medium,
-            List<RootPathLoadStatistic> result, boolean isSupplement) {
+                               List<RootPathLoadStatistic> result, boolean isSupplement) {
         BalanceStatus status = new BalanceStatus(ErrCode.COMMON_ERROR);
         // try choosing path from first to end (low usage to high usage)
         for (int i = 0; i < pathStatistics.size(); i++) {
@@ -315,7 +316,7 @@ public class BackendLoadStatistic {
         return status;
     }
 
-     /*
+    /*
      * Check whether the backend can be more balance if we migrate a tablet with size 'tabletSize' from
      * `srcPath` to 'destPath'
      * 1. recalculate the load score of src and dest path after migrate the tablet.
@@ -341,7 +342,7 @@ public class BackendLoadStatistic {
         }
         if (srcPathStat == null || destPathStat == null) {
             LOG.info("migrate {}(size: {}) from {} to {} failed, medium: {}, src or dest path stat does not exist.",
-                    tabletId, tabletSize, srcPath, destPath, medium);
+                tabletId, tabletSize, srcPath, destPath, medium);
             return false;
         }
         double avgUsedPercent = totalCapacity == 0 ? 0.0 : totalUsedCapacity / (double) totalCapacity;
@@ -360,11 +361,11 @@ public class BackendLoadStatistic {
         double newDiff = Math.abs(newSrcPathScore - avgUsedPercent) + Math.abs(newDestPathScore - avgUsedPercent);
 
         LOG.debug("after migrate {}(size: {}) from {} to {}, medium: {}, the load score changed."
-                        + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
-                        + " more balanced: {}",
-                tabletId, tabletSize, srcPath, destPath, medium, currentSrcPathScore, newSrcPathScore,
-                currentDestPathScore, newDestPathScore, avgUsedPercent, currentDiff, newDiff,
-                (newDiff < currentDiff));
+                + " src: {} -> {}, dest: {}->{}, average score: {}. current diff: {}, new diff: {},"
+                + " more balanced: {}",
+            tabletId, tabletSize, srcPath, destPath, medium, currentSrcPathScore, newSrcPathScore,
+            currentDestPathScore, newDestPathScore, avgUsedPercent, currentDiff, newDiff,
+            (newDiff < currentDiff));
 
         return newDiff < currentDiff;
     }
@@ -380,14 +381,14 @@ public class BackendLoadStatistic {
 
     /**
      * Classify the paths into 'low', 'mid' and 'high',
-     * and skip offline path, and path with different storage medium 
+     * and skip offline path, and path with different storage medium
      */
     public void getPathStatisticByClass(
-            Set<Long> low, Set<Long> mid, Set<Long> high, TStorageMedium storageMedium) {
+        Set<Long> low, Set<Long> mid, Set<Long> high, TStorageMedium storageMedium) {
 
         for (RootPathLoadStatistic pathStat : pathStatistics) {
             if (pathStat.getDiskState() == DiskState.OFFLINE
-                    || (storageMedium != null && pathStat.getStorageMedium() != storageMedium)) {
+                || (storageMedium != null && pathStat.getStorageMedium() != storageMedium)) {
                 continue;
             }
 
@@ -401,7 +402,7 @@ public class BackendLoadStatistic {
         }
 
         LOG.debug("after adjust, backend {} path classification low/mid/high: {}/{}/{}",
-                beId, low.size(), mid.size(), high.size());
+            beId, low.size(), mid.size(), high.size());
     }
 
     public List<RootPathLoadStatistic> getPathStatistics() {
@@ -410,7 +411,7 @@ public class BackendLoadStatistic {
 
     public long getAvailPathNum(TStorageMedium medium) {
         return pathStatistics.stream().filter(
-                p -> p.getDiskState() == DiskState.ONLINE && p.getStorageMedium() == medium).count();
+            p -> p.getDiskState() == DiskState.ONLINE && p.getStorageMedium() == medium).count();
     }
 
     public boolean hasMedium(TStorageMedium medium) {
@@ -444,7 +445,7 @@ public class BackendLoadStatistic {
         info.add(String.valueOf(used));
         info.add(String.valueOf(total));
         info.add(String.valueOf(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(used * 100
-                / (double) total)));
+            / (double) total)));
         info.add(String.valueOf(totalReplicaNumMap.getOrDefault(medium, 0L)));
         LoadScore loadScore = loadScoreMap.getOrDefault(medium, new LoadScore());
         info.add(String.valueOf(loadScore.capacityCoefficient));

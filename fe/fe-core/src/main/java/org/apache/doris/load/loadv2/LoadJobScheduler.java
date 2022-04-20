@@ -64,8 +64,10 @@ public class LoadJobScheduler extends MasterDaemon {
                 return;
             }
 
-            if (needScheduleJobs.peek() instanceof BrokerLoadJob && !Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().hasIdleThread()) {
-                LOG.info("Failed to take one broker load job from queue because of loading_load_task_scheduler is full." +
+            if (needScheduleJobs.peek() instanceof BrokerLoadJob &&
+                !Catalog.getCurrentCatalog().getLoadingLoadTaskScheduler().hasIdleThread()) {
+                LOG.info(
+                    "Failed to take one broker load job from queue because of loading_load_task_scheduler is full." +
                         " Waiting for next round. You can try to increase the value of Config.async_loading_load_task_pool_size");
                 return;
             }
@@ -78,14 +80,14 @@ public class LoadJobScheduler extends MasterDaemon {
                 loadJob.execute();
             } catch (LoadException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
-                        .add("error_msg", "Failed to submit etl job. Job will be cancelled")
-                        .build(), e);
+                    .add("error_msg", "Failed to submit etl job. Job will be cancelled")
+                    .build(), e);
                 loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
-                        true, true);
+                    true, true);
             } catch (RejectedExecutionException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())
-                        .add("error_msg", "Failed to submit etl job. Job queue is full. retry later")
-                        .build(), e);
+                    .add("error_msg", "Failed to submit etl job. Job queue is full. retry later")
+                    .build(), e);
                 needScheduleJobs.put(loadJob);
                 return;
             }

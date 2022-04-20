@@ -17,14 +17,14 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.thrift.BackendService;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.system.Backend;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -46,7 +46,7 @@ public class TrashProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(TrashProcNode.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("BackendId")
-            .add("Backend").add("TrashUsedCapacity").build();
+        .add("Backend").add("TrashUsedCapacity").build();
 
     private List<Backend> backends = Lists.newArrayList();
 
@@ -102,7 +102,7 @@ public class TrashProcDir implements ProcDirInterface {
             if (trashUsedCapacityB != null) {
                 Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
                 backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " "
-                        + trashUsedCapacity.second);
+                    + trashUsedCapacity.second);
             } else {
                 backendInfo.add("");
             }

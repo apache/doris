@@ -46,7 +46,8 @@ public class KafkaUtil {
     private static final Logger LOG = LogManager.getLogger(KafkaUtil.class);
 
     public static List<Integer> getAllKafkaPartitions(String brokerList, String topic,
-            Map<String, String> convertedCustomProperties) throws UserException {
+                                                      Map<String, String> convertedCustomProperties)
+        throws UserException {
         BackendService.Client client = null;
         TNetworkAddress address = null;
         boolean ok = false;
@@ -58,24 +59,24 @@ public class KafkaUtil {
             Collections.shuffle(backendIds);
             Backend be = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
             address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
-            
+
             // create request
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    InternalService.PKafkaMetaProxyRequest.newBuilder()
-                            .setKafkaInfo(InternalService.PKafkaLoadInfo.newBuilder()
-                                    .setBrokers(brokerList)
-                                    .setTopic(topic)
-                                    .addAllProperties(
-                                            convertedCustomProperties.entrySet().stream().map(
-                                            e -> InternalService.PStringPair.newBuilder()
-                                                    .setKey(e.getKey())
-                                                    .setVal(e.getValue())
-                                                    .build()
-                                            ).collect(Collectors.toList())
-                                    )
-                            )
+                InternalService.PKafkaMetaProxyRequest.newBuilder()
+                    .setKafkaInfo(InternalService.PKafkaLoadInfo.newBuilder()
+                        .setBrokers(brokerList)
+                        .setTopic(topic)
+                        .addAllProperties(
+                            convertedCustomProperties.entrySet().stream().map(
+                                e -> InternalService.PStringPair.newBuilder()
+                                    .setKey(e.getKey())
+                                    .setVal(e.getValue())
+                                    .build()
+                            ).collect(Collectors.toList())
+                        )
+                    )
             ).build();
-            
+
             // get info
             Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
             InternalService.PProxyResult result = future.get(5, TimeUnit.SECONDS);
@@ -88,7 +89,7 @@ public class KafkaUtil {
         } catch (Exception e) {
             LOG.warn("failed to get partitions.", e);
             throw new LoadException(
-                    "Failed to get all partitions of kafka topic: " + topic + ". error: " + e.getMessage());
+                "Failed to get all partitions of kafka topic: " + topic + ". error: " + e.getMessage());
         } finally {
             if (ok) {
                 ClientPool.backendPool.returnObject(address, client);
@@ -103,7 +104,8 @@ public class KafkaUtil {
     // Tne return value is <partition, offset>
     public static List<Pair<Integer, Long>> getOffsetsForTimes(String brokerList, String topic,
                                                                Map<String, String> convertedCustomProperties,
-                                                               List<Pair<Integer, Long>> timestampOffsets) throws LoadException {
+                                                               List<Pair<Integer, Long>> timestampOffsets)
+        throws LoadException {
         BackendService.Client client = null;
         TNetworkAddress address = null;
         LOG.debug("begin to get offsets for times of topic: {}, {}", topic, timestampOffsets);
@@ -119,26 +121,26 @@ public class KafkaUtil {
 
             // create request
             InternalService.PKafkaMetaProxyRequest.Builder metaRequestBuilder =
-                    InternalService.PKafkaMetaProxyRequest.newBuilder()
-                            .setKafkaInfo(InternalService.PKafkaLoadInfo.newBuilder()
-                                    .setBrokers(brokerList)
-                                    .setTopic(topic)
-                                    .addAllProperties(
-                                            convertedCustomProperties.entrySet().stream().map(
-                                                    e -> InternalService.PStringPair.newBuilder()
-                                                            .setKey(e.getKey())
-                                                            .setVal(e.getValue())
-                                                            .build()
-                                            ).collect(Collectors.toList())
-                                    )
-                            );
+                InternalService.PKafkaMetaProxyRequest.newBuilder()
+                    .setKafkaInfo(InternalService.PKafkaLoadInfo.newBuilder()
+                        .setBrokers(brokerList)
+                        .setTopic(topic)
+                        .addAllProperties(
+                            convertedCustomProperties.entrySet().stream().map(
+                                e -> InternalService.PStringPair.newBuilder()
+                                    .setKey(e.getKey())
+                                    .setVal(e.getValue())
+                                    .build()
+                            ).collect(Collectors.toList())
+                        )
+                    );
             for (Pair<Integer, Long> pair : timestampOffsets) {
                 metaRequestBuilder.addOffsetTimes(InternalService.PIntegerPair.newBuilder().setKey(pair.first)
-                        .setVal(pair.second).build());
+                    .setVal(pair.second).build());
             }
 
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    metaRequestBuilder).build();
+                metaRequestBuilder).build();
 
             // get info
             Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
@@ -158,7 +160,7 @@ public class KafkaUtil {
         } catch (Exception e) {
             LOG.warn("failed to get offsets for times.", e);
             throw new LoadException(
-                    "Failed to get offsets for times of kafka topic: " + topic + ". error: " + e.getMessage());
+                "Failed to get offsets for times of kafka topic: " + topic + ". error: " + e.getMessage());
         } finally {
             if (ok) {
                 ClientPool.backendPool.returnObject(address, client);
@@ -174,7 +176,7 @@ public class KafkaUtil {
         BackendService.Client client = null;
         TNetworkAddress address = null;
         LOG.debug("begin to get latest offsets for partitions {} in topic: {}, task {}, job {}",
-                partitionIds, topic, taskId, jobId);
+            partitionIds, topic, taskId, jobId);
         boolean ok = false;
         try {
             List<Long> backendIds = Catalog.getCurrentSystemInfo().getBackendIds(true);
@@ -187,24 +189,24 @@ public class KafkaUtil {
 
             // create request
             InternalService.PKafkaMetaProxyRequest.Builder metaRequestBuilder =
-                    InternalService.PKafkaMetaProxyRequest.newBuilder()
-                            .setKafkaInfo(InternalService.PKafkaLoadInfo.newBuilder()
-                                    .setBrokers(brokerList)
-                                    .setTopic(topic)
-                                    .addAllProperties(
-                                            convertedCustomProperties.entrySet().stream().map(
-                                                    e -> InternalService.PStringPair.newBuilder()
-                                                            .setKey(e.getKey())
-                                                            .setVal(e.getValue())
-                                                            .build()
-                                            ).collect(Collectors.toList())
-                                    )
-                            );
+                InternalService.PKafkaMetaProxyRequest.newBuilder()
+                    .setKafkaInfo(InternalService.PKafkaLoadInfo.newBuilder()
+                        .setBrokers(brokerList)
+                        .setTopic(topic)
+                        .addAllProperties(
+                            convertedCustomProperties.entrySet().stream().map(
+                                e -> InternalService.PStringPair.newBuilder()
+                                    .setKey(e.getKey())
+                                    .setVal(e.getValue())
+                                    .build()
+                            ).collect(Collectors.toList())
+                        )
+                    );
             for (Integer partitionId : partitionIds) {
                 metaRequestBuilder.addPartitionIdForLatestOffsets(partitionId);
             }
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
-                    metaRequestBuilder).build();
+                metaRequestBuilder).build();
 
             // get info
             Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
@@ -219,13 +221,13 @@ public class KafkaUtil {
                     partitionOffsets.add(Pair.create(pair.getKey(), pair.getVal()));
                 }
                 LOG.debug("finish to get latest offsets for partitions {} in topic: {}, task {}, job {}",
-                        partitionOffsets, topic, taskId, jobId);
+                    partitionOffsets, topic, taskId, jobId);
                 return partitionOffsets;
             }
         } catch (Exception e) {
             LOG.warn("failed to get latest offsets.", e);
             throw new LoadException(
-                    "Failed to get latest offsets of kafka topic: " + topic + ". error: " + e.getMessage());
+                "Failed to get latest offsets of kafka topic: " + topic + ". error: " + e.getMessage());
         } finally {
             if (ok) {
                 ClientPool.backendPool.returnObject(address, client);

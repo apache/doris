@@ -85,7 +85,7 @@ public class LogController {
                 if (!verboseNames.contains(addVerboseName)) {
                     verboseNames.add(addVerboseName);
                     configs = Log4jConfig.updateLogging(null, verboseNames.toArray(new String[verboseNames.size()]),
-                            null);
+                        null);
                     readEnvironment.reinitializeLoggingSystem();
                 }
             }
@@ -95,7 +95,7 @@ public class LogController {
                 if (verboseNames.contains(delVerboseName)) {
                     verboseNames.remove(delVerboseName);
                     configs = Log4jConfig.updateLogging(null, verboseNames.toArray(new String[verboseNames.size()]),
-                            null);
+                        null);
                     readEnvironment.reinitializeLoggingSystem();
                 }
             }

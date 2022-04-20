@@ -112,7 +112,7 @@ public class SinglePartitionDesc {
 
         // analyze data property
         partitionDataProperty = PropertyAnalyzer.analyzeDataProperty(properties,
-                DataProperty.DEFAULT_DATA_PROPERTY);
+            DataProperty.DEFAULT_DATA_PROPERTY);
         Preconditions.checkNotNull(partitionDataProperty);
 
         // analyze replication num

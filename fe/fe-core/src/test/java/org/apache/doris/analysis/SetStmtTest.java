@@ -51,7 +51,7 @@ public class SetStmtTest {
     @Test
     public void testNormal() throws UserException, AnalysisException {
         List<SetVar> vars = Lists.newArrayList(new SetVar("times", new IntLiteral(100L)),
-                new SetVar(SetType.GLOBAL, "names", new StringLiteral("utf-8")));
+            new SetVar(SetType.GLOBAL, "names", new StringLiteral("utf-8")));
         SetStmt stmt = new SetStmt(vars);
 
         stmt.analyze(analyzer);

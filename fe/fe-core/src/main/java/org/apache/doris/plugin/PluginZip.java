@@ -46,7 +46,6 @@ import java.util.zip.ZipInputStream;
 /**
  * Describe plugin install file(.zip)
  * Support remote(http/https) source and local source
- *
  */
 class PluginZip {
     private static final Logger LOG = LogManager.getLogger(PluginZip.class);
@@ -129,7 +128,8 @@ class PluginZip {
                 BufferedReader br = new BufferedReader(new InputStreamReader(in));
                 expectedChecksum = br.readLine();
             } catch (IOException e) {
-                throw new UserException(e.getMessage() + ". you should set md5sum in plugin properties or provide a md5 URI to check plugin file");
+                throw new UserException(e.getMessage() +
+                    ". you should set md5sum in plugin properties or provide a md5 URI to check plugin file");
             }
         }
 
@@ -137,7 +137,7 @@ class PluginZip {
 
         if (!StringUtils.equalsIgnoreCase(expectedChecksum, actualChecksum)) {
             throw new UserException(
-                    "MD5 check mismatch, expected " + expectedChecksum + " but actual " + actualChecksum);
+                "MD5 check mismatch, expected " + expectedChecksum + " but actual " + actualChecksum);
         }
 
         return zip;
@@ -173,7 +173,7 @@ class PluginZip {
                 // is still rooted with the target plugin directory.
                 if (!targetFile.normalize().startsWith(targetPath)) {
                     throw new UserException("Zip contains entry name '" +
-                            entry.getName() + "' resolving outside of plugin directory");
+                        entry.getName() + "' resolving outside of plugin directory");
                 }
 
                 // be on the safe side: do not rely on that directories are always extracted

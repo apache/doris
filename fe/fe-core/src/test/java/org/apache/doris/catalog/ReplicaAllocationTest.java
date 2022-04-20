@@ -95,7 +95,8 @@ public class ReplicaAllocationTest {
         Assert.assertTrue(properties.isEmpty());
 
         properties = Maps.newHashMap();
-        properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.zone2: 2, tag.location.zone1: 3");
+        properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+            "tag.location.zone2: 2, tag.location.zone1: 3");
         replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
         Assert.assertNotEquals(ReplicaAllocation.DEFAULT_ALLOCATION, replicaAlloc);
         Assert.assertFalse(replicaAlloc.isNotSet());
@@ -105,7 +106,8 @@ public class ReplicaAllocationTest {
         Assert.assertTrue(properties.isEmpty());
 
         properties = Maps.newHashMap();
-        properties.put("dynamic_partition." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.zone2: 1, tag.location.zone1: 3");
+        properties.put("dynamic_partition." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+            "tag.location.zone2: 1, tag.location.zone1: 3");
         replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "dynamic_partition");
         Assert.assertNotEquals(ReplicaAllocation.DEFAULT_ALLOCATION, replicaAlloc);
         Assert.assertFalse(replicaAlloc.isNotSet());
@@ -120,12 +122,12 @@ public class ReplicaAllocationTest {
         final Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "3");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Invalid replication allocation property: 3",
-                ()->PropertyAnalyzer.analyzeReplicaAllocation(properties, ""));
+            () -> PropertyAnalyzer.analyzeReplicaAllocation(properties, ""));
 
         properties.clear();
         properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, "tag.location.12321:1");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Invalid tag format: location:12321",
-                ()->PropertyAnalyzer.analyzeReplicaAllocation(properties, ""));
+            () -> PropertyAnalyzer.analyzeReplicaAllocation(properties, ""));
     }
 
     @Test

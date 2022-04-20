@@ -31,7 +31,7 @@ import mockit.Mocked;
 
 public class DropUserStmtTest {
     private Analyzer analyzer;
-    
+
     @Mocked
     private PaloAuth auth;
     @Mocked

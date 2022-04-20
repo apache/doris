@@ -24,6 +24,7 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.TBrokerFileStatus;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -101,7 +102,8 @@ public class SparkRepository {
         LOG.info("start to init remote repository. local dpp: {}", this.localDppPath);
         boolean needUpload = false;
         boolean needReplace = false;
-        CHECK: {
+        CHECK:
+        {
             if (Strings.isNullOrEmpty(remoteRepositoryPath) || brokerDesc == null) {
                 break CHECK;
             }
@@ -146,7 +148,7 @@ public class SparkRepository {
             uploadArchive(needReplace);
         }
         LOG.info("init spark repository success, current dppVersion={}, archive path={}, libraries size={}",
-                currentDppVersion, currentArchive.remotePath, currentArchive.libraries.size());
+            currentDppVersion, currentArchive.remotePath, currentArchive.libraries.size());
     }
 
     private boolean checkCurrentArchiveExists() {
@@ -176,13 +178,13 @@ public class SparkRepository {
                 srcFilePath = localDppPath;
                 String fileName = getFileName(PATH_DELIMITER, srcFilePath);
                 String origFilePath = remoteArchivePath + PATH_DELIMITER +
-                        assemblyFileName(PREFIX_LIB, "", fileName, "");
+                    assemblyFileName(PREFIX_LIB, "", fileName, "");
                 upload(srcFilePath, origFilePath);
                 // 2. rename dpp
                 String md5sum = getMd5String(srcFilePath);
                 long size = getFileSize(srcFilePath);
                 String destFilePath = remoteArchivePath + PATH_DELIMITER +
-                        assemblyFileName(PREFIX_LIB, md5sum, fileName, "");
+                    assemblyFileName(PREFIX_LIB, md5sum, fileName, "");
                 rename(origFilePath, destFilePath);
                 currentArchive.libraries.add(new SparkLibrary(destFilePath, md5sum, SparkLibrary.LibType.DPP, size));
             }
@@ -191,18 +193,19 @@ public class SparkRepository {
                 // 1. upload spark2x
                 srcFilePath = localSpark2xPath;
                 String origFilePath = remoteArchivePath + PATH_DELIMITER +
-                        assemblyFileName(PREFIX_LIB, "", SPARK_2X, ".zip");
+                    assemblyFileName(PREFIX_LIB, "", SPARK_2X, ".zip");
                 upload(srcFilePath, origFilePath);
                 // 2. rename spark2x
                 String md5sum = getMd5String(srcFilePath);
                 long size = getFileSize(srcFilePath);
                 String destFilePath = remoteArchivePath + PATH_DELIMITER +
-                        assemblyFileName(PREFIX_LIB, md5sum, SPARK_2X, ".zip");
+                    assemblyFileName(PREFIX_LIB, md5sum, SPARK_2X, ".zip");
                 rename(origFilePath, destFilePath);
-                currentArchive.libraries.add(new SparkLibrary(destFilePath, md5sum, SparkLibrary.LibType.SPARK2X, size));
+                currentArchive.libraries.add(
+                    new SparkLibrary(destFilePath, md5sum, SparkLibrary.LibType.SPARK2X, size));
             }
             LOG.info("finished to upload archive to repository, currentDppVersion={}, path={}",
-                    currentDppVersion, remoteArchivePath);
+                currentDppVersion, remoteArchivePath);
         } catch (UserException e) {
             throw new LoadException(e.getMessage());
         }
@@ -245,7 +248,7 @@ public class SparkRepository {
             SparkLibrary remoteFile = new SparkLibrary(fileStatus.path, md5sum, libType, fileStatus.size);
             libraries.add(remoteFile);
             LOG.info("get Libraries from remote archive, archive path={}, library={}, md5sum={}, size={}",
-                    remoteArchivePath, remoteFile.remotePath, remoteFile.md5sum, remoteFile.size);
+                remoteArchivePath, remoteFile.remotePath, remoteFile.md5sum, remoteFile.size);
         }
     }
 
@@ -275,11 +278,11 @@ public class SparkRepository {
 
     private void upload(String srcFilePath, String destFilePath) throws LoadException {
         try {
-            BrokerUtil.writeFile(srcFilePath, destFilePath , brokerDesc);
+            BrokerUtil.writeFile(srcFilePath, destFilePath, brokerDesc);
             LOG.info("finished to upload file, localPath={}, remotePath={}", srcFilePath, destFilePath);
         } catch (UserException e) {
-            throw new LoadException("failed to upload lib to repository, srcPath=" +srcFilePath +
-                    " destPath=" + destFilePath + " message=" + e.getMessage());
+            throw new LoadException("failed to upload lib to repository, srcPath=" + srcFilePath +
+                " destPath=" + destFilePath + " message=" + e.getMessage());
         }
     }
 
@@ -289,7 +292,7 @@ public class SparkRepository {
             LOG.info("finished to rename file, originPath={}, destPath={}", origFilePath, destFilePath);
         } catch (UserException e) {
             throw new LoadException("failed to rename file from " + origFilePath + " to " + destFilePath +
-                    ", message=" + e.getMessage());
+                ", message=" + e.getMessage());
         }
     }
 
@@ -343,7 +346,7 @@ public class SparkRepository {
         public SparkLibrary getDppLibrary() {
             SparkLibrary result = null;
             Optional<SparkLibrary> library = libraries.stream().
-                    filter(lib -> lib.libType == SparkLibrary.LibType.DPP).findFirst();
+                filter(lib -> lib.libType == SparkLibrary.LibType.DPP).findFirst();
             if (library.isPresent()) {
                 result = library.get();
             }
@@ -353,7 +356,7 @@ public class SparkRepository {
         public SparkLibrary getSpark2xLibrary() {
             SparkLibrary result = null;
             Optional<SparkLibrary> library = libraries.stream().
-                    filter(lib -> lib.libType == SparkLibrary.LibType.SPARK2X).findFirst();
+                filter(lib -> lib.libType == SparkLibrary.LibType.SPARK2X).findFirst();
             if (library.isPresent()) {
                 result = library.get();
             }

@@ -35,11 +35,11 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.sync.SyncFailMsg.MsgType;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
 import org.apache.doris.persist.gson.GsonUtils;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,6 +50,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import com.google.gson.annotations.SerializedName;
 
 public abstract class SyncJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(SyncJob.class);
@@ -91,22 +93,22 @@ public abstract class SyncJob implements Writable {
     }
 
     /**
-     *                       +-------------+
-     *           create job  |  PENDING    |    resume job
-     *           +-----------+             | <-------------+
-     *           |           +-------------+               |
-     *           v                                         ^
-     *           |                                         |
-     *      +------------+   pause job             +-------+----+
-     *      |  RUNNING   |   run error             |  PAUSED    |
-     *      |            +-----------------------> |            |
-     *      +----+-------+                         +-------+----+
-     *           |                                         |
-     *           v           +-------------+               v
-     *           |           | CANCELLED   |               |
-     *           +---------> |             |   <-----------+
-     *          stop job     +-------------+    stop job
-     *          system error
+     * +-------------+
+     * create job  |  PENDING    |    resume job
+     * +-----------+             | <-------------+
+     * |           +-------------+               |
+     * v                                         ^
+     * |                                         |
+     * +------------+   pause job             +-------+----+
+     * |  RUNNING   |   run error             |  PAUSED    |
+     * |            +-----------------------> |            |
+     * +----+-------+                         +-------+----+
+     * |                                         |
+     * v           +-------------+               v
+     * |           | CANCELLED   |               |
+     * +---------> |             |   <-----------+
+     * stop job     +-------------+    stop job
+     * system error
      */
     public enum JobState {
         PENDING,
@@ -182,7 +184,7 @@ public abstract class SyncJob implements Writable {
         }
         if (!isReplay) {
             SyncJobUpdateStateInfo info = new SyncJobUpdateStateInfo(id, jobState, lastStartTimeMs, lastStopTimeMs,
-                    finishTimeMs, failMsg);
+                finishTimeMs, failMsg);
             Catalog.getCurrentCatalog().getEditLog().logUpdateSyncJobState(info);
         }
     }
@@ -212,8 +214,8 @@ public abstract class SyncJob implements Writable {
             if (!isCompleted()) {
                 String msg = "The database has been deleted. Change job state to cancelled";
                 LOG.warn(new LogBuilder(LogKey.SYNC_JOB, id)
-                        .add("database", dbId)
-                        .add("msg", msg).build());
+                    .add("database", dbId)
+                    .add("msg", msg).build());
                 cancel(MsgType.SCHEDULE_FAIL, msg);
             }
             return;
@@ -225,9 +227,9 @@ public abstract class SyncJob implements Writable {
                 if (!isCompleted()) {
                     String msg = "The table has been deleted. Change job state to cancelled";
                     LOG.warn(new LogBuilder(LogKey.SYNC_JOB, id)
-                            .add("dbId", dbId)
-                            .add("table", channelDescription.getTargetTable())
-                            .add("msg", msg).build());
+                        .add("dbId", dbId)
+                        .add("table", channelDescription.getTargetTable())
+                        .add("msg", msg).build());
                     cancel(MsgType.SCHEDULE_FAIL, msg);
                 }
                 return;
@@ -236,8 +238,8 @@ public abstract class SyncJob implements Writable {
 
         if (isNeedReschedule()) {
             LOG.info(new LogBuilder(LogKey.SYNC_JOB, id)
-                    .add("msg", "Job need to be scheduled")
-                    .build());
+                .add("msg", "Job need to be scheduled")
+                .build());
             updateState(JobState.PENDING, false);
         }
     }
@@ -294,7 +296,8 @@ public abstract class SyncJob implements Writable {
         @SerializedName(value = "failMsg")
         protected SyncFailMsg failMsg;
 
-        public SyncJobUpdateStateInfo(long id, JobState jobState, long lastStartTimeMs, long lastStopTimeMs, long finishTimeMs, SyncFailMsg failMsg) {
+        public SyncJobUpdateStateInfo(long id, JobState jobState, long lastStartTimeMs, long lastStopTimeMs,
+                                      long finishTimeMs, SyncFailMsg failMsg) {
             this.id = id;
             this.jobState = jobState;
             this.lastStartTimeMs = lastStartTimeMs;
@@ -399,9 +402,9 @@ public abstract class SyncJob implements Writable {
             LOG.error("replay update state error, which should not happen: {}", e.getMessage());
         }
         LOG.info(new LogBuilder(LogKey.SYNC_JOB, info.getId())
-                .add("desired_state:", info.getJobState())
-                .add("msg", "Replay update sync job state")
-                .build());
+            .add("desired_state:", info.getJobState())
+            .add("msg", "Replay update sync job state")
+            .build());
     }
 
     @Override

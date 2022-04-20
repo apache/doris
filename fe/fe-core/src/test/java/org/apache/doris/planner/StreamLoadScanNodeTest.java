@@ -165,11 +165,12 @@ public class StreamLoadScanNodeTest {
 
         return columns;
     }
-    
+
     private StreamLoadScanNode getStreamLoadScanNode(TupleDescriptor dstDesc, TStreamLoadPutRequest request)
-            throws UserException {
+        throws UserException {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(streamLoadTask.getId(), new PlanNodeId(1), dstDesc, dstTable, streamLoadTask);
+        StreamLoadScanNode scanNode =
+            new StreamLoadScanNode(streamLoadTask.getId(), new PlanNodeId(1), dstDesc, dstTable, streamLoadTask);
         return scanNode;
     }
 
@@ -194,13 +195,20 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
         new Expectations() {{
-            dstTable.getBaseSchema(); result = columns;
-            dstTable.getBaseSchema(anyBoolean); result = columns;
-            dstTable.getFullSchema(); result = columns;
-            dstTable.getColumn("k1"); result = columns.get(0);
-            dstTable.getColumn("k2"); result = columns.get(1);
-            dstTable.getColumn("v1"); result = columns.get(2);
-            dstTable.getColumn("v2"); result = columns.get(3);
+            dstTable.getBaseSchema();
+            result = columns;
+            dstTable.getBaseSchema(anyBoolean);
+            result = columns;
+            dstTable.getFullSchema();
+            result = columns;
+            dstTable.getColumn("k1");
+            result = columns.get(0);
+            dstTable.getColumn("k2");
+            result = columns.get(1);
+            dstTable.getColumn("v1");
+            result = columns.get(2);
+            dstTable.getColumn("v2");
+            result = columns.get(3);
         }};
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -331,11 +339,13 @@ public class StreamLoadScanNodeTest {
                 slot.setIsNullable(false);
             }
         }
-        
+
         new Expectations() {
             {
                 catalog.getFunction((Function) any, (Function.CompareMode) any);
-                result = new ScalarFunction(new FunctionName(FunctionSet.HLL_HASH), Lists.newArrayList(), Type.BIGINT, false, true);
+                result =
+                    new ScalarFunction(new FunctionName(FunctionSet.HLL_HASH), Lists.newArrayList(), Type.BIGINT, false,
+                        true);
 
                 dstTable.getColumn("k1");
                 result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
@@ -382,7 +392,8 @@ public class StreamLoadScanNodeTest {
         new Expectations() {
             {
                 catalog.getFunction((Function) any, (Function.CompareMode) any);
-                result = new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(), Type.BIGINT, false, true);
+                result =
+                    new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(), Type.BIGINT, false, true);
                 minTimes = 0;
             }
         };
@@ -616,8 +627,9 @@ public class StreamLoadScanNodeTest {
         request.setColumns("k1,k2,v1, v2=k2");
         request.setWhere("k1   1");
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-        StreamLoadScanNode scanNode = new StreamLoadScanNode(streamLoadTask.getId(), new PlanNodeId(1), dstDesc, dstTable,
-                                                             streamLoadTask);
+        StreamLoadScanNode scanNode =
+            new StreamLoadScanNode(streamLoadTask.getId(), new PlanNodeId(1), dstDesc, dstTable,
+                streamLoadTask);
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -825,8 +837,10 @@ public class StreamLoadScanNodeTest {
                 dstTable.hasSequenceCol();
                 result = true;
 
-                dstTable.getBaseSchema(anyBoolean); result = columns;
-                dstTable.getFullSchema(); result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                result = columns;
+                dstTable.getFullSchema();
+                result = columns;
 
                 dstTable.getColumn("k1");
                 result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();

@@ -17,13 +17,14 @@
 
 package org.apache.doris.task;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
@@ -51,15 +52,15 @@ public class AlterReplicaTask extends AgentTask {
                             long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
                             long version, long jobId, AlterJobV2.JobType jobType) {
         this(backendId, dbId, tableId, partitionId,
-                rollupIndexId, baseIndexId, rollupTabletId,
-                baseTabletId, newReplicaId, newSchemaHash, baseSchemaHash,
-                version, jobId, jobType, null);
+            rollupIndexId, baseIndexId, rollupTabletId,
+            baseTabletId, newReplicaId, newSchemaHash, baseSchemaHash,
+            version, jobId, jobType, null);
     }
 
     public AlterReplicaTask(long backendId, long dbId, long tableId,
-            long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
-            long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
-            long version, long jobId, AlterJobV2.JobType jobType,  Map<String, Expr> defineExprs) {
+                            long partitionId, long rollupIndexId, long baseIndexId, long rollupTabletId,
+                            long baseTabletId, long newReplicaId, int newSchemaHash, int baseSchemaHash,
+                            long version, long jobId, AlterJobV2.JobType jobType, Map<String, Expr> defineExprs) {
         super(null, backendId, TTaskType.ALTER, dbId, tableId, partitionId, rollupIndexId, rollupTabletId);
 
         this.baseTabletId = baseTabletId;

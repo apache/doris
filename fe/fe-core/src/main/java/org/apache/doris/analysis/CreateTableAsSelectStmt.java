@@ -26,15 +26,15 @@ import java.util.List;
 
 /**
  * Represents a CREATE TABLE AS SELECT (CTAS) statement
- *  Syntax:
- *      CREATE TABLE table_name [( column_name_list )]
- *          opt_engine opt_partition opt_properties KW_AS query_stmt
+ * Syntax:
+ * CREATE TABLE table_name [( column_name_list )]
+ * opt_engine opt_partition opt_properties KW_AS query_stmt
  */
 public class CreateTableAsSelectStmt extends DdlStmt {
     private final CreateTableStmt createTableStmt;
     private final List<String> columnNames;
     private QueryStmt queryStmt;
-    
+
     public CreateTableAsSelectStmt(CreateTableStmt createTableStmt,
                                    List<String> columnNames, QueryStmt queryStmt) {
         this.createTableStmt = createTableStmt;
@@ -42,7 +42,7 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         this.queryStmt = queryStmt;
         // Insert is not currently supported
     }
-    
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         // first: we analyze queryStmt before create table.
@@ -63,15 +63,15 @@ public class CreateTableAsSelectStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
         }
     }
-    
+
     public CreateTableStmt getCreateTableStmt() {
         return createTableStmt;
     }
-    
+
     public List<String> getColumnNames() {
         return columnNames;
     }
-    
+
     public QueryStmt getQueryStmt() {
         return queryStmt;
     }

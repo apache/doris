@@ -61,7 +61,7 @@ public class MarkedCountDownLatch<K, V> extends CountDownLatch {
         if (st.ok()) {
             st = status;
         }
-        while(getCount() > 0) {
+        while (getCount() > 0) {
             super.countDown();
         }
     }

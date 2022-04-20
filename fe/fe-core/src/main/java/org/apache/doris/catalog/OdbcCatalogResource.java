@@ -36,20 +36,20 @@ import com.google.gson.annotations.SerializedName;
 
 /**
  * External ODBC Catalog resource for external table query.
- *
+ * <p>
  * External ODBC Catalog resource example:
  * CREATE EXTERNAL RESOURCE "odbc_mysql"
  * PROPERTIES
  * (
- *     "type" = "external_odbc", [required]
- *     "user" = "root", [required]
- *     "password" = "root", [required]
- *     "host" = "192.168.1.1", [required]
- *     "port" = "8086", [required]
- *     "odbc_type" = "mysql", [optional, external table of ODBC should set]
- *     "driver" = "MySQL driver" [optional, external table of ODBC should set]
+ * "type" = "external_odbc", [required]
+ * "user" = "root", [required]
+ * "password" = "root", [required]
+ * "host" = "192.168.1.1", [required]
+ * "port" = "8086", [required]
+ * "odbc_type" = "mysql", [optional, external table of ODBC should set]
+ * "driver" = "MySQL driver" [optional, external table of ODBC should set]
  * );
- *
+ * <p>
  * DROP RESOURCE "odbc_mysql";
  */
 public class OdbcCatalogResource extends Resource {
@@ -121,7 +121,7 @@ public class OdbcCatalogResource extends Resource {
         }
     }
 
-    public String getProperties(String propertiesKey)  {
+    public String getProperties(String propertiesKey) {
         // check the properties key
         String value = configs.get(propertiesKey);
         return value;
@@ -141,7 +141,7 @@ public class OdbcCatalogResource extends Resource {
             adler32.update(type.name().getBytes(charsetName));
             LOG.debug("signature. view type: {}", type.name());
             // configs
-            for (Map.Entry<String, String> config: configs.entrySet()) {
+            for (Map.Entry<String, String> config : configs.entrySet()) {
                 adler32.update(config.getKey().getBytes(charsetName));
                 adler32.update(config.getValue().getBytes(charsetName));
                 LOG.debug("signature. view config: {}", config);

@@ -29,7 +29,7 @@ import com.google.common.base.Strings;
 
 /**
  * DROP MATERIALIZED VIEW [ IF EXISTS ] <mv_name> ON [db_name].<table_name>
- *
+ * <p>
  * Parameters
  * IF EXISTS: Do not throw an error if the materialized view does not exist. A notice is issued in this case.
  * mv_name: The name of the materialized view to remove.
@@ -69,7 +69,7 @@ public class DropMaterializedViewStmt extends DdlStmt {
 
         // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.DROP)) {
+            tableName.getTbl(), PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
     }

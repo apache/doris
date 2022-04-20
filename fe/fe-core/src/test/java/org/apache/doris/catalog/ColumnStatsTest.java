@@ -27,54 +27,54 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
 public class ColumnStatsTest {
-    
+
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
         File file = new File("./columnStats");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         ColumnStats stats1 = new ColumnStats();
         stats1.write(dos);
-        
+
         ColumnStats stats2 = new ColumnStats();
         stats2.setAvgSerializedSize(1.1f);
         stats2.setNumDistinctValues(100L);
         stats2.setMaxSize(1000L);
         stats2.setNumNulls(10000L);
         stats2.write(dos);
-        
+
         ColumnStats stats3 = new ColumnStats();
         stats3.setAvgSerializedSize(3.3f);
         stats3.setNumDistinctValues(200L);
         stats3.setMaxSize(2000L);
         stats3.setNumNulls(20000L);
         stats3.write(dos);
-        
+
         ColumnStats stats4 = new ColumnStats(stats3);
         stats4.write(dos);
 
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         ColumnStats rStats1 = new ColumnStats();
         rStats1.readFields(dis);
         Assert.assertTrue(rStats1.equals(stats1));
-        
+
         ColumnStats rStats2 = new ColumnStats();
         rStats2.readFields(dis);
         Assert.assertTrue(rStats2.equals(stats2));
-        
+
         ColumnStats rStats3 = ColumnStats.read(dis);
         Assert.assertTrue(rStats3.equals(stats3));
-        
+
         ColumnStats rStats4 = ColumnStats.read(dis);
         Assert.assertTrue(rStats4.equals(stats4));
         Assert.assertTrue(rStats4.equals(stats3));
-        
+
         Assert.assertTrue(rStats3.equals(rStats3));
         Assert.assertFalse(rStats3.equals(this));
         Assert.assertFalse(rStats2.equals(rStats3));
@@ -83,5 +83,5 @@ public class ColumnStatsTest {
         dis.close();
         file.delete();
     }
-    
+
 }

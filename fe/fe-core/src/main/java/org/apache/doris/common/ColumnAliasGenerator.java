@@ -20,9 +20,9 @@
 
 package org.apache.doris.common;
 
-import java.util.List;
-
 import com.google.common.base.Preconditions;
+
+import java.util.List;
 
 public class ColumnAliasGenerator extends AliasGenerator {
     private static final String DEFAULT_COL_ALIAS_PREFIX = "$c$";

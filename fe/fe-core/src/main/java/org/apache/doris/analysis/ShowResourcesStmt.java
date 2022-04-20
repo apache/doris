@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.catalog.ResourceMgr;
@@ -27,6 +26,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,7 +54,7 @@ public class ShowResourcesStmt extends ShowStmt {
 
     private ArrayList<OrderByPair> orderByPairs;
 
-   public ShowResourcesStmt() {
+    public ShowResourcesStmt() {
     }
 
     public ShowResourcesStmt(Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
@@ -120,8 +122,8 @@ public class ShowResourcesStmt extends ShowStmt {
 
         if (!isValid) {
             throw new AnalysisException("Where clause should looks like: NAME = \"your_resource_name\","
-                    + " or NAME LIKE \"matcher\", " + " or RESOURCETYPE = \"resource_type\", "
-                    + " or compound predicate with operator AND");
+                + " or NAME LIKE \"matcher\", " + " or RESOURCETYPE = \"resource_type\", "
+                + " or compound predicate with operator AND");
         }
 
         // order by
@@ -232,7 +234,7 @@ public class ShowResourcesStmt extends ShowStmt {
     public String toString() {
         return toSql();
     }
-    
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();

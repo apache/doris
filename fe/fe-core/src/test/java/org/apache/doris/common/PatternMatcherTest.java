@@ -104,7 +104,7 @@ public class PatternMatcherTest {
     }
 
     @Test
-    public void testAbnormal(){
+    public void testAbnormal() {
         try {
             PatternMatcher matcher = PatternMatcher.createMysqlPattern("^abc", false);
             Assert.fail();

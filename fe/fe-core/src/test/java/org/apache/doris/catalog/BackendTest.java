@@ -100,7 +100,7 @@ public class BackendTest {
         // first update
         backend.updateDisks(diskInfos);
         Assert.assertEquals(disk1.getDiskTotalCapacity() + disk2.getDiskTotalCapacity(),
-                backend.getTotalCapacityB());
+            backend.getTotalCapacityB());
         Assert.assertEquals(1, backend.getAvailableCapacityB());
 
         // second update
@@ -125,8 +125,8 @@ public class BackendTest {
         DiskInfo diskInfo1 = new DiskInfo("/disk1");
         DiskInfo diskInfo2 = new DiskInfo("/disk2");
         ImmutableMap<String, DiskInfo> diskRefs = ImmutableMap.of(
-                "disk1", diskInfo1,
-                "disk2", diskInfo2);
+            "disk1", diskInfo1,
+            "disk2", diskInfo2);
         for (int count = 0; count < 100; ++count) {
             Backend backend = new Backend(count, "10.120.22.32" + count, 6000 + count);
             backend.updateOnce(7000 + count, 9000 + count, beRpcPort);
@@ -195,7 +195,8 @@ public class BackendTest {
         back2.updateOnce(1, 1, 1);
         Assert.assertFalse(back1.equals(back2));
 
-        Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true, tag: {\"location\" : \"default\"}]", back1.toString());
+        Assert.assertEquals("Backend [id=1, host=a, heartbeatPort=1, alive=true, tag: {\"location\" : \"default\"}]",
+            back1.toString());
 
         // 3. delete files
         dis.close();

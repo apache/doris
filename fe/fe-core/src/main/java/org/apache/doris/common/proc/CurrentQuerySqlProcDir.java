@@ -32,7 +32,7 @@ import java.util.List;
 public class CurrentQuerySqlProcDir implements ProcDirInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Sql").build();
+        .add("Sql").build();
 
     private final QueryStatisticsItem item;
 
@@ -48,7 +48,7 @@ public class CurrentQuerySqlProcDir implements ProcDirInterface {
     @Override
     public ProcNodeInterface lookup(String name) throws AnalysisException {
         if (Strings.isNullOrEmpty(name)) {
-            return  null;
+            return null;
         }
 
         if (!name.equals("fragments")) {

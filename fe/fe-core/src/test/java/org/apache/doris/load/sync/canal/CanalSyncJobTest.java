@@ -141,9 +141,11 @@ public class CanalSyncJobTest {
             @Mock
             public void startup() {
             }
+
             @Mock
             public void shutdown(boolean needCleanUp) {
             }
+
             @Mock
             public void registerChannels(List<SyncChannel> channels) {
             }
@@ -302,9 +304,11 @@ public class CanalSyncJobTest {
             @Mock
             public void startup() {
             }
+
             @Mock
             public void shutdown(boolean needCleanUp) {
             }
+
             @Mock
             public void registerChannels(List<SyncChannel> channels) {
             }
@@ -393,15 +397,15 @@ public class CanalSyncJobTest {
                 result = "mysqlTbl";
             }
         };
-        
+
         try {
             CanalSyncJob canalSyncJob = new CanalSyncJob(jobId, jobName, dbId);
             canalSyncJob.setChannelDescriptions(channelDescriptions);
             canalSyncJob.checkAndSetBinlogInfo(binlogDesc);
             Assert.assertEquals(JobState.PENDING, canalSyncJob.getJobState());
             SyncJobUpdateStateInfo info = new SyncJobUpdateStateInfo(
-                    jobId, JobState.CANCELLED, 1622469769L, -1L, -1L,
-                    new SyncFailMsg(MsgType.USER_CANCEL, "user cancel"));
+                jobId, JobState.CANCELLED, 1622469769L, -1L, -1L,
+                new SyncFailMsg(MsgType.USER_CANCEL, "user cancel"));
             canalSyncJob.replayUpdateSyncJobState(info);
             Assert.assertTrue(canalSyncJob.isCancelled());
             Assert.assertEquals(JobState.CANCELLED, canalSyncJob.getJobState());

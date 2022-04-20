@@ -49,8 +49,8 @@ public class LdapInfoTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         LdapInfo ldapInfo2 = LdapInfo.read(dis);
         Assert.assertEquals(passwd,
-                SymmetricEncryption.decrypt(ldapInfo2.getLdapPasswdEncrypted(),
-                        ldapInfo2.getSecretKey(), ldapInfo2.getIv()));
+            SymmetricEncryption.decrypt(ldapInfo2.getLdapPasswdEncrypted(),
+                ldapInfo2.getSecretKey(), ldapInfo2.getIv()));
 
         // 3. delete files
         dis.close();

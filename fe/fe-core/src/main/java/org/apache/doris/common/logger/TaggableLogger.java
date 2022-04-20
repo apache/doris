@@ -20,25 +20,26 @@ package org.apache.doris.common.logger;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TUniqueId;
+
 import org.apache.logging.log4j.Logger;
 
 import java.util.UUID;
 
 /**
  * Wrap a log4j Logger and tag on the log. usage:
- *   LOG.tag("query_id", queryId).info("here is an info for a query");
- *
+ * LOG.tag("query_id", queryId).info("here is an info for a query");
+ * <p>
  * TaggableLogger extends log4j Logger, so it's fully compatible with the usual
  * one. You can use method tag(key, value) to add tags and log all the tags and
  * message when log method is called, like info(fmt, ...). Usually the tag key is
  * determined, like "query_id", so we use specified tag methods more often, like
  * query_id(id). You can add a new tag method to TaggableLogger if needed.
- *
+ * <p>
  * You can custom your tagged logging format in LoggerProvider.getTaggedLogFormat,
  * the default is like "#message#|k1=v1|k2=v2". You can also custom all the tag
  * names in TagKey. For example, if you wish to use camelCase style, just set tag
  * name constants like QUERY_ID to "queryId".
- *
+ * <p>
  * The transfer from the variable of tag method to string is immediate. If a tagged
  * logging has time-consuming to-string procedure and is at debug level which may
  * not be processed, check isDebugEnabled() first.

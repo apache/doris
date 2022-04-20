@@ -19,9 +19,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -37,26 +37,26 @@ import com.google.common.collect.Lists;
 public class ShowTableStatusStmt extends ShowStmt {
     private static final TableName TABLE_NAME = new TableName(InfoSchemaDb.DATABASE_NAME, "tables");
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Name", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Engine", ScalarType.createVarchar(10)))
-                    .addColumn(new Column("Version", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Row_format", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Rows", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Avg_row_length", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Data_length", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Max_data_length", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Index_length", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Data_free", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Auto_increment", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Create_time", ScalarType.createType(PrimitiveType.DATETIME)))
-                    .addColumn(new Column("Update_time", ScalarType.createType(PrimitiveType.DATETIME)))
-                    .addColumn(new Column("Check_time", ScalarType.createType(PrimitiveType.DATETIME)))
-                    .addColumn(new Column("Collation", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Checksum", ScalarType.createType(PrimitiveType.BIGINT)))
-                    .addColumn(new Column("Create_options", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("Comment", ScalarType.createVarchar(64)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Name", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Engine", ScalarType.createVarchar(10)))
+            .addColumn(new Column("Version", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Row_format", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Rows", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Avg_row_length", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Data_length", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Max_data_length", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Index_length", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Data_free", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Auto_increment", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Create_time", ScalarType.createType(PrimitiveType.DATETIME)))
+            .addColumn(new Column("Update_time", ScalarType.createType(PrimitiveType.DATETIME)))
+            .addColumn(new Column("Check_time", ScalarType.createType(PrimitiveType.DATETIME)))
+            .addColumn(new Column("Collation", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Checksum", ScalarType.createType(PrimitiveType.BIGINT)))
+            .addColumn(new Column("Create_options", ScalarType.createVarchar(64)))
+            .addColumn(new Column("Comment", ScalarType.createVarchar(64)))
+            .build();
 
     private String db;
     private String wild;
@@ -180,8 +180,8 @@ public class ShowTableStatusStmt extends ShowStmt {
 
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
-                new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
-                where, null, null, null, LimitElement.NO_LIMIT);
+            new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
+            where, null, null, null, LimitElement.NO_LIMIT);
         analyzer.setSchemaInfo(db, null, null);
 
         return selectStmt;

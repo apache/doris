@@ -25,22 +25,22 @@ import org.junit.Test;
 public class EsUtilTest {
 
     private String jsonStr = "{\"settings\": {\n"
-            + "               \"index\": {\n"
-            + "                  \"bpack\": {\n"
-            + "                     \"partition\": {\n"
-            + "                        \"upperbound\": \"12\"\n"
-            + "                     }\n"
-            + "                  },\n"
-            + "                  \"number_of_shards\": \"5\",\n"
-            + "                  \"provided_name\": \"indexa\",\n"
-            + "                  \"creation_date\": \"1539328532060\",\n"
-            + "                  \"number_of_replicas\": \"1\",\n"
-            + "                  \"uuid\": \"plNNtKiiQ9-n6NpNskFzhQ\",\n"
-            + "                  \"version\": {\n"
-            + "                     \"created\": \"5050099\"\n"
-            + "                  }\n"
-            + "               }\n"
-            + "            }}";
+        + "               \"index\": {\n"
+        + "                  \"bpack\": {\n"
+        + "                     \"partition\": {\n"
+        + "                        \"upperbound\": \"12\"\n"
+        + "                     }\n"
+        + "                  },\n"
+        + "                  \"number_of_shards\": \"5\",\n"
+        + "                  \"provided_name\": \"indexa\",\n"
+        + "                  \"creation_date\": \"1539328532060\",\n"
+        + "                  \"number_of_replicas\": \"1\",\n"
+        + "                  \"uuid\": \"plNNtKiiQ9-n6NpNskFzhQ\",\n"
+        + "                  \"version\": {\n"
+        + "                     \"created\": \"5050099\"\n"
+        + "                  }\n"
+        + "               }\n"
+        + "            }}";
 
     @Test
     public void testGetJsonObject() {

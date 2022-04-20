@@ -32,11 +32,11 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 import java.sql.Connection;
@@ -57,11 +57,11 @@ import java.util.concurrent.ThreadPoolExecutor;
  * It uses a fixed-size thread pool to receive query requests,
  * so it is only suitable for a small number of low-frequency request scenarios.
  * Now it support submitting the following type of stmt:
- *      QueryStmt
- *      ShowStmt
- *      InsertStmt
- *      DdlStmt
- *      ExportStmt
+ * QueryStmt
+ * ShowStmt
+ * InsertStmt
+ * DdlStmt
+ * ExportStmt
  */
 public class StatementSubmitter {
     private static final Logger LOG = LogManager.getLogger(StatementSubmitter.class);
@@ -101,14 +101,16 @@ public class StatementSubmitter {
                 conn = DriverManager.getConnection(dbUrl, queryCtx.user, queryCtx.passwd);
                 long startTime = System.currentTimeMillis();
                 if (stmtBase instanceof QueryStmt || stmtBase instanceof ShowStmt) {
-                    stmt = conn.prepareStatement(queryCtx.stmt, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+                    stmt =
+                        conn.prepareStatement(queryCtx.stmt, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
                     // set fetch size to 1 to enable streaming result set to avoid OOM.
                     ((PreparedStatement) stmt).setFetchSize(1);
                     ResultSet rs = ((PreparedStatement) stmt).executeQuery();
                     ExecutionResultSet resultSet = generateResultSet(rs, startTime);
                     rs.close();
                     return resultSet;
-                } else if (stmtBase instanceof InsertStmt || stmtBase instanceof DdlStmt || stmtBase instanceof ExportStmt) {
+                } else if (stmtBase instanceof InsertStmt || stmtBase instanceof DdlStmt ||
+                    stmtBase instanceof ExportStmt) {
                     stmt = conn.createStatement();
                     stmt.execute(queryCtx.stmt);
                     ExecutionResultSet resultSet = generateExecStatus(startTime);
@@ -125,7 +127,9 @@ public class StatementSubmitter {
                     LOG.warn("failed to close stmt", se2);
                 }
                 try {
-                    if (conn != null) conn.close();
+                    if (conn != null) {
+                        conn.close();
+                    }
                 } catch (SQLException se) {
                     LOG.warn("failed to close connection", se);
                 }
@@ -135,17 +139,17 @@ public class StatementSubmitter {
         /**
          * Result json sample:
          * {
-         *  "type": "result_set",
-         *  "data": [
-         *      [1],
-         *      [2]
-         *  ],
-         *  "meta": [{
-         *      "name": "k1",
-         *      "type": "INT"
-         *        }],
-         *  "status": {},
-         *  "time" : 10
+         * "type": "result_set",
+         * "data": [
+         * [1],
+         * [2]
+         * ],
+         * "meta": [{
+         * "name": "k1",
+         * "type": "INT"
+         * }],
+         * "status": {},
+         * "time" : 10
          * }
          */
         private ExecutionResultSet generateResultSet(ResultSet rs, long startTime) throws SQLException {
@@ -173,7 +177,7 @@ public class StatementSubmitter {
                 // index start from 1
                 for (int i = 1; i <= colNum; ++i) {
                     String type = rs.getMetaData().getColumnTypeName(i);
-                    if("DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)){
+                    if ("DATE".equalsIgnoreCase(type) || "DATETIME".equalsIgnoreCase(type)) {
                         row.add(rs.getString(i));
                     } else {
                         row.add(rs.getObject(i));
@@ -191,9 +195,9 @@ public class StatementSubmitter {
         /**
          * Result json sample:
          * {
-         *  "type": "exec_status",
-         *  "status": {},
-         *  "time" : 10
+         * "type": "exec_status",
+         * "status": {},
+         * "time" : 10
          * }
          */
         private ExecutionResultSet generateExecStatus(long startTime) throws SQLException {

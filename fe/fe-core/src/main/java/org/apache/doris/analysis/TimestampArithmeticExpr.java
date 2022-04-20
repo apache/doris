@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -125,7 +126,7 @@ public class TimestampArithmeticExpr extends Expr {
             timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase());
             if (timeUnit == null) {
                 throw new AnalysisException("Invalid time unit '" + timeUnitIdent
-                        + "' in timestamp arithmetic expression '" + toSql() + "'.");
+                    + "' in timestamp arithmetic expression '" + toSql() + "'.");
             }
             Type dateType = fixType();
             if (dateType.isDate() && timeUnit.isDateTime()) {
@@ -135,8 +136,8 @@ public class TimestampArithmeticExpr extends Expr {
             if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
                 if (!dateType.isValid()) {
                     throw new AnalysisException("Operand '" + getChild(0).toSql()
-                            + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                            + getChild(0).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
+                        + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
+                        + getChild(0).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
                 }
                 castChild(dateType, 0);
             }
@@ -145,8 +146,8 @@ public class TimestampArithmeticExpr extends Expr {
             if (!getChild(1).getType().isDateType() && !getChild(1).getType().isNull()) {
                 if (!dateType.isValid()) {
                     throw new AnalysisException("Operand '" + getChild(1).toSql()
-                            + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                            + getChild(1).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
+                        + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
+                        + getChild(1).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
                 }
                 castChild(dateType, 1);
             }
@@ -157,26 +158,26 @@ public class TimestampArithmeticExpr extends Expr {
         } else {
             if (funcName != null) {
                 if (funcName.toUpperCase().equals("DATE_ADD")
-                        || funcName.toUpperCase().equals("DAYS_ADD")
-                        || funcName.toUpperCase().equals("ADDDATE")
-                        || funcName.toUpperCase().equals("TIMESTAMPADD")) {
+                    || funcName.toUpperCase().equals("DAYS_ADD")
+                    || funcName.toUpperCase().equals("ADDDATE")
+                    || funcName.toUpperCase().equals("TIMESTAMPADD")) {
                     op = ArithmeticExpr.Operator.ADD;
                 } else if (funcName.toUpperCase().equals("DATE_SUB")
-                        || funcName.toUpperCase().equals("DAYS_SUB")
-                        || funcName.toUpperCase().equals("SUBDATE")) {
+                    || funcName.toUpperCase().equals("DAYS_SUB")
+                    || funcName.toUpperCase().equals("SUBDATE")) {
                     op = ArithmeticExpr.Operator.SUBTRACT;
                 } else {
                     throw new AnalysisException("Encountered function name '" + funcName
-                            + "' in timestamp arithmetic expression '" + toSql() + "'. "
-                            + "Expected function name 'DATE_ADD/DAYS_ADD/ADDDATE/TIMESTAMPADD'"
-                            + "or 'DATE_SUB/DAYS_SUB/SUBDATE");
+                        + "' in timestamp arithmetic expression '" + toSql() + "'. "
+                        + "Expected function name 'DATE_ADD/DAYS_ADD/ADDDATE/TIMESTAMPADD'"
+                        + "or 'DATE_SUB/DAYS_SUB/SUBDATE");
                 }
             }
 
             timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase());
             if (timeUnit == null) {
                 throw new AnalysisException("Invalid time unit '" + timeUnitIdent
-                        + "' in timestamp arithmetic expression '" + toSql() + "'.");
+                    + "' in timestamp arithmetic expression '" + toSql() + "'.");
             }
 
             Type dateType = fixType();
@@ -187,8 +188,8 @@ public class TimestampArithmeticExpr extends Expr {
             if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
                 if (!dateType.isValid()) {
                     throw new AnalysisException("Operand '" + getChild(0).toSql()
-                            + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                            + getChild(0).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
+                        + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
+                        + getChild(0).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
                 }
                 castChild(dateType, 0);
             }
@@ -201,8 +202,8 @@ public class TimestampArithmeticExpr extends Expr {
             if (!getChild(1).getType().isScalarType(PrimitiveType.INT)) {
                 if (!ScalarType.canCastTo((ScalarType) getChild(1).getType(), Type.INT)) {
                     throw new AnalysisException("Operand '" + getChild(1).toSql()
-                            + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                            + getChild(1).getType() + "' which is incompatible with expected type 'INT'.");
+                        + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
+                        + getChild(1).getType() + "' which is incompatible with expected type 'INT'.");
                 }
                 castChild(Type.INT, 1);
             }
@@ -210,18 +211,18 @@ public class TimestampArithmeticExpr extends Expr {
             type = dateType;
             opcode = getOpCode();
             funcOpName = String.format("%sS_%s", timeUnit,
-                    (op == ArithmeticExpr.Operator.ADD) ? "ADD" : "SUB");
+                (op == ArithmeticExpr.Operator.ADD) ? "ADD" : "SUB");
         }
 
         fn = getBuiltinFunction(analyzer, funcOpName.toLowerCase(),
-                collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         LOG.debug("fn is {} name is {}", fn, funcOpName);
     }
 
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.COMPUTE_FUNCTION_CALL;
-        msg.setOpcode(opcode);                    
+        msg.setOpcode(opcode);
     }
 
     public ArithmeticExpr.Operator getOp() {

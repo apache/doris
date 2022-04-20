@@ -23,11 +23,11 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.BrokerHbResponse;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+
+import com.google.gson.annotations.SerializedName;
 
 public class FsBroker implements Writable, Comparable<FsBroker> {
     @SerializedName(value = "ip")
@@ -37,7 +37,7 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
     // msg for ping result
     public String heartbeatErrMsg = "";
     public long lastUpdateTime = -1;
-    
+
     @SerializedName(value = "lastStartTime")
     public long lastStartTime = -1;
     @SerializedName(value = "isAlive")

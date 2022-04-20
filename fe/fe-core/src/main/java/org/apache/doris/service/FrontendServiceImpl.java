@@ -157,7 +157,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                        CaseSensibility.DATABASE.getCaseSensibility());
+                    CaseSensibility.DATABASE.getCaseSensibility());
             } catch (AnalysisException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
@@ -199,7 +199,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
+                    CaseSensibility.TABLE.getCaseSensibility());
             } catch (AnalysisException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
@@ -218,7 +218,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             for (String tableName : db.getTableNamesWithLock()) {
                 LOG.debug("get table: {}, wait to check", tableName);
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                        tableName, PrivPredicate.SHOW)) {
+                    tableName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
@@ -241,7 +241,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
-                        CaseSensibility.TABLE.getCaseSensibility());
+                    CaseSensibility.TABLE.getCaseSensibility());
             } catch (AnalysisException e) {
                 throw new TException("Pattern is in bad format " + params.getPattern());
             }
@@ -271,13 +271,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             for (Table table : tables) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                        table.getName(), PrivPredicate.SHOW)) {
+                    table.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
                 table.readLock();
                 try {
                     if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                            table.getName(), PrivPredicate.SHOW)) {
+                        table.getName(), PrivPredicate.SHOW)) {
                         continue;
                     }
 
@@ -380,7 +380,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
-                params.getTableName(), PrivPredicate.SHOW)) {
+            params.getTableName(), PrivPredicate.SHOW)) {
             return result;
         }
 
@@ -431,7 +431,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         List<List<String>> rows = VariableMgr.dump(SetType.fromThrift(params.getVarType()), ctx.getSessionVariable(),
-                null);
+            null);
         for (List<String> row : rows) {
             map.put(row.get(0), row.get(1));
         }
@@ -462,7 +462,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TFeResult miniLoad(TMiniLoadRequest request) throws TException {
         LOG.debug("receive mini load request: label: {}, db: {}, tbl: {}, backend: {}",
-                request.getLabel(), request.getDb(), request.getTbl(), request.getBackend());
+            request.getLabel(), request.getDb(), request.getTbl(), request.getBackend());
 
         ConnectContext context = new ConnectContext(null);
         String cluster = SystemInfoService.DEFAULT_CLUSTER;
@@ -514,12 +514,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private void logMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
         String stmt = getMiniLoadStmt(request);
         AuditEvent auditEvent = new AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-                .setClientIp(request.user_ip + ":0")
-                .setUser(request.user)
-                .setDb(request.db)
-                .setState(TStatusCode.OK.name())
-                .setQueryTime(0)
-                .setStmt(stmt).build();
+            .setClientIp(request.user_ip + ":0")
+            .setUser(request.user)
+            .setDb(request.db)
+            .setState(TStatusCode.OK.name())
+            .setQueryTime(0)
+            .setStmt(stmt).build();
 
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
     }
@@ -602,7 +602,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TMiniLoadBeginResult miniLoadBegin(TMiniLoadBeginRequest request) throws TException {
         LOG.debug("receive mini load begin request. label: {}, user: {}, ip: {}",
-                request.getLabel(), request.getUser(), request.getUserIp());
+            request.getLabel(), request.getUser(), request.getUserIp());
 
         TMiniLoadBeginResult result = new TMiniLoadBeginResult();
         TStatus status = new TStatus(TStatusCode.OK);
@@ -614,7 +614,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             // step1: check password and privs
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+                request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
             // step2: check label and record metadata in load manager
             if (request.isSetSubLabel()) {
                 // TODO(ml): multi mini load
@@ -673,15 +673,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
 
     private void checkAuthCodeUuid(String dbName, long txnId, String authCodeUuid) throws AuthenticationException {
-        Database db = Catalog.getCurrentCatalog().getDbOrException(dbName, s -> new AuthenticationException("invalid db name: " + s));
+        Database db = Catalog.getCurrentCatalog()
+            .getDbOrException(dbName, s -> new AuthenticationException("invalid db name: " + s));
         TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr().
-                getTransactionState(db.getId(), txnId);
+            getTransactionState(db.getId(), txnId);
         if (transactionState == null) {
             throw new AuthenticationException("invalid transactionState: " + txnId);
         }
         if (!authCodeUuid.equals(transactionState.getAuthCode())) {
             throw new AuthenticationException(
-                    "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+                "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
         }
     }
 
@@ -698,14 +699,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Preconditions.checkState(currentUser.size() == 1);
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
             throw new AuthenticationException(
-                    "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+                "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
         }
     }
 
     @Override
     public TFeResult loadCheck(TLoadCheckRequest request) throws TException {
         LOG.debug("receive load check request. label: {}, user: {}, ip: {}",
-                request.getLabel(), request.getUser(), request.getUserIp());
+            request.getLabel(), request.getUser(), request.getUserIp());
 
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
@@ -716,7 +717,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+                request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
         } catch (UserException e) {
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
@@ -744,7 +745,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
-            LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(),
+                e.getTxnId());
             result.setTxnId(e.getTxnId());
         } catch (LabelAlreadyUsedException e) {
             status.setStatusCode(TStatusCode.LABEL_ALREADY_EXISTS);
@@ -771,7 +773,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         if (Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+                request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
         }
 
         // check label
@@ -795,12 +797,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         long txnId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
-                new TxnCoordinator(TxnSourceType.BE, clientIp),
-                TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
+            db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
+            new TxnCoordinator(TxnSourceType.BE, clientIp),
+            TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
         if (!Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
             Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId)
-                    .setAuthCode(request.getAuthCodeUuid());
+                .setAuthCode(request.getAuthCodeUuid());
         }
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
@@ -836,12 +838,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        if (request.isSetAuthCode()) {
-        } else if (request.isSetAuthCodeUuid()) {
+//        if (request.isSetAuthCode()) {
+//        } else
+        if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+                request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
         }
 
         // get database
@@ -864,9 +867,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         Catalog.getCurrentGlobalTransactionMgr().preCommitTransaction2PC(
-                db, Lists.newArrayList(table), request.getTxnId(),
-                TabletCommitInfo.fromThrift(request.getCommitInfos()),
-                timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+            db, Lists.newArrayList(table), request.getTxnId(),
+            TabletCommitInfo.fromThrift(request.getCommitInfos()),
+            timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
     }
 
     @Override
@@ -912,7 +915,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + fullDbName);
         }
 
-        DatabaseTransactionMgr dbTransactionMgr = Catalog.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(database.getId());
+        DatabaseTransactionMgr dbTransactionMgr =
+            Catalog.getCurrentGlobalTransactionMgr().getDatabaseTransactionMgr(database.getId());
         TransactionState transactionState = dbTransactionMgr.getTransactionState(request.getTxnId());
         if (transactionState == null) {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
@@ -922,12 +926,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         for (Table table : tableList) {
             // check auth
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    table.getName(), request.getUserIp(), PrivPredicate.LOAD);
+                table.getName(), request.getUserIp(), PrivPredicate.LOAD);
         }
 
         String txnOperation = request.getOperation().trim();
         if (txnOperation.equalsIgnoreCase("commit")) {
-            Catalog.getCurrentGlobalTransactionMgr().commitTransaction2PC(database, tableList, request.getTxnId(), 5000);
+            Catalog.getCurrentGlobalTransactionMgr()
+                .commitTransaction2PC(database, tableList, request.getTxnId(), 5000);
         } else if (txnOperation.equalsIgnoreCase("abort")) {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction2PC(database.getId(), request.getTxnId());
         } else {
@@ -975,7 +980,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+                request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
         }
 
         // get database
@@ -998,9 +1003,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() / 2 : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         boolean ret = Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                db, Lists.newArrayList(table), request.getTxnId(),
-                TabletCommitInfo.fromThrift(request.getCommitInfos()),
-                timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+            db, Lists.newArrayList(table), request.getTxnId(),
+            TabletCommitInfo.fromThrift(request.getCommitInfos()),
+            timeoutMs, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
         if (ret) {
             // if commit and publish is success, load can be regarded as success
             MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
@@ -1043,7 +1048,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
-                    request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
+                request.getTbl(), request.getUserIp(), PrivPredicate.LOAD);
         }
         String dbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db;
@@ -1057,8 +1062,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         long dbId = db.getId();
         Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, request.getTxnId(),
-                request.isSetReason() ? request.getReason() : "system cancel",
-                TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
+            request.isSetReason() ? request.getReason() : "system cancel",
+            TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
     }
 
     @Override
@@ -1103,14 +1108,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         Table table = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
         if (!table.tryReadLock(timeoutMs, TimeUnit.MILLISECONDS)) {
-            throw new UserException("get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
+            throw new UserException(
+                "get table read lock timeout, database=" + fullDbName + ",table=" + table.getName());
         }
         try {
             StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
             StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
             // add table indexes to transaction state
-            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), request.getTxnId());
+            TransactionState txnState =
+                Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), request.getTxnId());
             if (txnState == null) {
                 throw new UserException("txn does not exist: " + request.getTxnId());
             }
@@ -1124,7 +1131,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TStatus snapshotLoaderReport(TSnapshotLoaderReportRequest request) throws TException {
         if (Catalog.getCurrentCatalog().getBackupHandler().report(request.getTaskType(), request.getJobId(),
-                request.getTaskId(), request.getFinishedNum(), request.getTotalNum())) {
+            request.getTaskId(), request.getFinishedNum(), request.getTotalNum())) {
             return new TStatus(TStatusCode.OK);
         }
         return new TStatus(TStatusCode.CANCELLED);

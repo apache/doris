@@ -32,11 +32,11 @@ public class DebugUtil {
     public static int THOUSAND = 1000;
     public static int MILLION = 1000 * THOUSAND;
     public static int BILLION = 1000 * MILLION;
-    
+
     public static int SECOND = 1000; // ms
     public static int MINUTE = 60 * SECOND;
     public static int HOUR = 60 * MINUTE;
-    
+
     public static long KILOBYTE = 1024;
     public static long MEGABYTE = 1024 * KILOBYTE;
     public static long GIGABYTE = 1024 * MEGABYTE;
@@ -54,11 +54,11 @@ public class DebugUtil {
         } else if (value >= THOUSAND) {
             unit = "K";
             doubleValue /= THOUSAND;
-        } 
-        Pair<Double, String> returnValue  = Pair.create(doubleValue, unit);  
+        }
+        Pair<Double, String> returnValue = Pair.create(doubleValue, unit);
         return returnValue;
     }
-    
+
     // Print the value (timestamp in ms) to builder
     // ATTN: for hour and minute granularity, we ignore ms precision.
     public static void printTimeMs(long value, StringBuilder builder) {
@@ -72,7 +72,7 @@ public class DebugUtil {
                 builder.append(newValue / HOUR).append("h");
                 newValue %= HOUR;
                 hour = true;
-            } 
+            }
             if (newValue >= MINUTE) {
                 builder.append(newValue / MINUTE).append("m");
                 newValue %= MINUTE;
@@ -87,13 +87,13 @@ public class DebugUtil {
             }
         }
     }
-    
+
     public static String getPrettyStringMs(long timestampMs) {
         StringBuilder builder = new StringBuilder();
         printTimeMs(timestampMs, builder);
         return builder.toString();
     }
-    
+
     public static Pair<Double, String> getByteUint(long value) {
         Double doubleValue = Double.valueOf(value);
         String unit = "";
@@ -106,23 +106,23 @@ public class DebugUtil {
         } else if (value > GIGABYTE) {
             unit = "GB";
             doubleValue /= GIGABYTE;
-        } else if (value > MEGABYTE ) {
+        } else if (value > MEGABYTE) {
             unit = "MB";
             doubleValue /= MEGABYTE;
-        } else if (value > KILOBYTE)  {
+        } else if (value > KILOBYTE) {
             unit = "KB";
             doubleValue /= KILOBYTE;
         } else {
             unit = "B";
         }
-        Pair<Double, String> returnValue  = Pair.create(doubleValue, unit);  
+        Pair<Double, String> returnValue = Pair.create(doubleValue, unit);
         return returnValue;
     }
 
     public static String printByteWithUnit(long value) {
         Pair<Double, String> quotaUnitPair = getByteUint(value);
         String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
-                + quotaUnitPair.second;
+            + quotaUnitPair.second;
         return readableQuota;
     }
 
@@ -147,7 +147,7 @@ public class DebugUtil {
         builder.append(Long.toHexString(id.getHi())).append("-").append(Long.toHexString(id.getLo()));
         return builder.toString();
     }
-    
+
     public static String getStackTrace(Exception e) {
         StringWriter sw = new StringWriter();
         e.printStackTrace(new PrintWriter(sw));

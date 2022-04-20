@@ -70,6 +70,7 @@ import java.util.stream.LongStream;
 import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Mocked;
+
 import static com.google.common.collect.MoreCollectors.onlyElement;
 
 public class RebalanceTest {
@@ -128,36 +129,39 @@ public class RebalanceTest {
                 Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
                 result = 111;
 
-                Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(anyLong, anyLong, (List<Long>) any);
+                Catalog.getCurrentGlobalTransactionMgr()
+                    .isPreviousTransactionsFinished(anyLong, anyLong, (List<Long>) any);
                 result = true;
             }
         };
         // Test mock validation
-        Assert.assertEquals(111, Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
-        Assert.assertTrue(Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(1, 2, Lists.newArrayList(3L)));
+        Assert.assertEquals(111,
+            Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
+        Assert.assertTrue(
+            Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(1, 2, Lists.newArrayList(3L)));
 
         List<Long> beIds = Lists.newArrayList(10001L, 10002L, 10003L, 10004L);
         beIds.forEach(id -> systemInfoService.addBackend(RebalancerTestUtil.createBackend(id, 2048, 0)));
 
         olapTable = new OlapTable(2, "fake table", new ArrayList<>(), KeysType.DUP_KEYS,
-                new RangePartitionInfo(), new HashDistributionInfo());
+            new RangePartitionInfo(), new HashDistributionInfo());
         db.createTable(olapTable);
 
         // 1 table, 3 partitions p0,p1,p2
         MaterializedIndex materializedIndex = new MaterializedIndex(olapTable.getId(), null);
         createPartitionsForTable(olapTable, materializedIndex, 3L);
         olapTable.setIndexMeta(materializedIndex.getId(), "fake index", Lists.newArrayList(new Column()),
-                0, 0, (short) 0, TStorageType.COLUMN, KeysType.DUP_KEYS);
+            0, 0, (short) 0, TStorageType.COLUMN, KeysType.DUP_KEYS);
 
         // Tablet distribution: we add them to olapTable & build invertedIndex manually
         RebalancerTestUtil.createTablet(invertedIndex, db, olapTable, "p0", TStorageMedium.HDD,
-                50000, Lists.newArrayList(10001L, 10002L, 10003L));
+            50000, Lists.newArrayList(10001L, 10002L, 10003L));
 
         RebalancerTestUtil.createTablet(invertedIndex, db, olapTable, "p1", TStorageMedium.HDD,
-                60000, Lists.newArrayList(10001L, 10002L, 10003L));
+            60000, Lists.newArrayList(10001L, 10002L, 10003L));
 
         RebalancerTestUtil.createTablet(invertedIndex, db, olapTable, "p2", TStorageMedium.HDD,
-                70000, Lists.newArrayList(10001L, 10002L, 10003L));
+            70000, Lists.newArrayList(10001L, 10002L, 10003L));
 
         // be4(10004) doesn't have any replica
 
@@ -166,7 +170,7 @@ public class RebalanceTest {
 
     private void generateStatisticMap() {
         ClusterLoadStatistic loadStatistic = new ClusterLoadStatistic(SystemInfoService.DEFAULT_CLUSTER,
-                Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
+            Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
         loadStatistic.init();
         statisticMap = HashBasedTable.create();
         statisticMap.put(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, loadStatistic);
@@ -179,7 +183,7 @@ public class RebalanceTest {
             Partition partition = new Partition(id, "p" + idx, index, new HashDistributionInfo());
             olapTable.addPartition(partition);
             olapTable.getPartitionInfo().addPartition(id, new DataProperty(TStorageMedium.HDD),
-                    ReplicaAllocation.DEFAULT_ALLOCATION, false);
+                ReplicaAllocation.DEFAULT_ALLOCATION, false);
         });
     }
 
@@ -220,7 +224,8 @@ public class RebalanceTest {
         // Create a new scheduler & checker for redundant tablets handling
         // Call runAfterCatalogReady manually instead of starting daemon thread
         TabletSchedulerStat stat = new TabletSchedulerStat();
-        PartitionRebalancer rebalancer = new PartitionRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
+        PartitionRebalancer rebalancer =
+            new PartitionRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
         TabletScheduler tabletScheduler = new TabletScheduler(catalog, systemInfoService, invertedIndex, stat, "");
         // The rebalancer inside the scheduler will use this rebalancer, for getToDeleteReplicaId
         Deencapsulation.setField(tabletScheduler, "rebalancer", rebalancer);
@@ -238,7 +243,8 @@ public class RebalanceTest {
             LOG.info("try to schedule tablet {}", tabletCtx.getTabletId());
             try {
                 tabletCtx.setStorageMedium(TStorageMedium.HDD);
-                tabletCtx.setTablet(olapTable.getPartition(tabletCtx.getPartitionId()).getIndex(tabletCtx.getIndexId()).getTablet(tabletCtx.getTabletId()));
+                tabletCtx.setTablet(olapTable.getPartition(tabletCtx.getPartitionId()).getIndex(tabletCtx.getIndexId())
+                    .getTablet(tabletCtx.getTabletId()));
                 tabletCtx.setVersionInfo(1, 1);
                 tabletCtx.setSchemaHash(olapTable.getSchemaHashByIndexId(tabletCtx.getIndexId()));
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
@@ -268,14 +274,16 @@ public class RebalanceTest {
 //        tabletScheduler.runAfterCatalogReady();
 
         for (Long tabletId : needCheckTablets) {
-            TabletSchedCtx tabletSchedCtx = alternativeTablets.stream().filter(ctx -> ctx.getTabletId() == tabletId).collect(onlyElement());
+            TabletSchedCtx tabletSchedCtx =
+                alternativeTablets.stream().filter(ctx -> ctx.getTabletId() == tabletId).collect(onlyElement());
             AgentTask task = tasks.stream().filter(t -> t.getTabletId() == tabletId).collect(onlyElement());
 
             LOG.info("try to finish tabletCtx {}", tabletId);
             try {
                 TFinishTaskRequest fakeReq = new TFinishTaskRequest();
                 fakeReq.task_status = new TStatus(TStatusCode.OK);
-                fakeReq.finish_tablet_infos = Lists.newArrayList(new TTabletInfo(tabletSchedCtx.getTabletId(), 5, 1, 0, 0, 0));
+                fakeReq.finish_tablet_infos =
+                    Lists.newArrayList(new TTabletInfo(tabletSchedCtx.getTabletId(), 5, 1, 0, 0, 0));
                 tabletSchedCtx.finishCloneTask((CloneTask) task, fakeReq);
             } catch (SchedException e) {
                 e.printStackTrace();
@@ -294,7 +302,8 @@ public class RebalanceTest {
         needCheckTablets.forEach(t -> {
             List<Replica> replicas = invertedIndex.getReplicasByTabletId(t);
             Assert.assertEquals(4, replicas.size());
-            Replica decommissionedReplica = replicas.stream().filter(r -> r.getState() == Replica.ReplicaState.DECOMMISSION).collect(onlyElement());
+            Replica decommissionedReplica =
+                replicas.stream().filter(r -> r.getState() == Replica.ReplicaState.DECOMMISSION).collect(onlyElement());
             // expected watermarkTxnId is 111
             Assert.assertEquals(111, decommissionedReplica.getWatermarkTxnId());
         });
@@ -315,9 +324,12 @@ public class RebalanceTest {
         Configurator.setLevel("org.apache.doris.clone.MovesInProgressCache", Level.DEBUG);
         MovesCacheMap m = new MovesCacheMap();
         m.updateMapping(statisticMap, 3);
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.HDD).get().put(1L, new Pair<>(null, -1L));
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(2L, new Pair<>(null, -1L));
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.HDD).get()
+            .put(1L, new Pair<>(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get()
+            .put(2L, new Pair<>(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get()
+            .put(3L, new Pair<>(null, -1L));
         // Maintenance won't clean up the entries of cache
         m.maintain();
         Assert.assertEquals(3, m.size());
@@ -326,7 +338,8 @@ public class RebalanceTest {
         m.updateMapping(statisticMap, 1);
         Assert.assertEquals(0, m.size());
 
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get()
+            .put(3L, new Pair<>(null, -1L));
         try {
             Thread.sleep(1000);
             m.maintain();

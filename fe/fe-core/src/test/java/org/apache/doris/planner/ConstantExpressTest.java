@@ -48,128 +48,128 @@ public class ConstantExpressTest {
     @Test
     public void testDate() throws Exception {
         testConstantExpressResult(
-                "select date_format('2020-02-19 16:01:12','%H%i');",
-                "'1601'");
+            "select date_format('2020-02-19 16:01:12','%H%i');",
+            "'1601'");
 
         testConstantExpressResult(
-                "select date_format('2020-02-19 16:01:12','%Y%m%d');",
-                "'20200219'");
+            "select date_format('2020-02-19 16:01:12','%Y%m%d');",
+            "'20200219'");
 
         testConstantExpressResult(
-                "select date_format(date_sub('2018-07-24 07:16:19',1),'yyyyMMdd');",
-                "'20180723'");
+            "select date_format(date_sub('2018-07-24 07:16:19',1),'yyyyMMdd');",
+            "'20180723'");
 
         testConstantExpressResult(
-                "select year('2018-07-24')*12 + month('2018-07-24');",
-                "24223");
+            "select year('2018-07-24')*12 + month('2018-07-24');",
+            "24223");
 
         testConstantExpressResult(
-                "select date_format('2018-08-08 07:16:19', 'yyyyMMdd');",
-                "'20180808'");
+            "select date_format('2018-08-08 07:16:19', 'yyyyMMdd');",
+            "'20180808'");
 
         testConstantExpressResult(
-                "select date_format('2018-08-08 07:16:19', 'yyyy-MM-dd HH:mm:ss');",
-                "'2018-08-08 07:16:19'");
+            "select date_format('2018-08-08 07:16:19', 'yyyy-MM-dd HH:mm:ss');",
+            "'2018-08-08 07:16:19'");
 
         testConstantExpressResult(
-                "select datediff('2018-08-08','1970-01-01');",
-                "17751");
+            "select datediff('2018-08-08','1970-01-01');",
+            "17751");
 
         testConstantExpressResult(
-                "select date_add('2018-08-08', 1);",
-                "'2018-08-09 00:00:00'");
+            "select date_add('2018-08-08', 1);",
+            "'2018-08-09 00:00:00'");
 
         testConstantExpressResult(
-                "select date_add('2018-08-08', -1);",
-                "'2018-08-07 00:00:00'");
+            "select date_add('2018-08-08', -1);",
+            "'2018-08-07 00:00:00'");
 
         testConstantExpressResult(
-                "select date_sub('2018-08-08 07:16:19',1);",
-                "'2018-08-07 07:16:19'");
+            "select date_sub('2018-08-08 07:16:19',1);",
+            "'2018-08-07 07:16:19'");
 
         testConstantExpressResult(
-                "select year('2018-07-24');",
-                "2018");
+            "select year('2018-07-24');",
+            "2018");
 
         testConstantExpressResult(
-                "select month('2018-07-24');",
-                "7");
+            "select month('2018-07-24');",
+            "7");
 
         testConstantExpressResult(
-                "select day('2018-07-24');",
-                "24");
+            "select day('2018-07-24');",
+            "24");
 
         testConstantExpressResult(
-                "select UNIX_TIMESTAMP(\"1970-01-01 08:00:01\");",
-                "1");
+            "select UNIX_TIMESTAMP(\"1970-01-01 08:00:01\");",
+            "1");
 
         testConstantExpressResult(
-                "select now();",
-                "");
+            "select now();",
+            "");
 
         testConstantExpressResult(
-                "select curdate();",
-                "");
+            "select curdate();",
+            "");
 
         testConstantExpressResult(
-                "select current_timestamp();",
-                "");
+            "select current_timestamp();",
+            "");
 
         testConstantExpressResult(
-                "select curtime();",
-                "");
+            "select curtime();",
+            "");
 
         testConstantExpressResult(
-                "select current_time();",
-                "");
+            "select current_time();",
+            "");
     }
 
     @Test
     public void testCast() throws Exception {
         testConstantExpressResult(
-                "select cast ('1' as int) ;",
-                "1");
+            "select cast ('1' as int) ;",
+            "1");
 
         testConstantExpressResult(
-                "select cast ('2020-01-20' as date);",
-                "'2020-01-20'");
+            "select cast ('2020-01-20' as date);",
+            "'2020-01-20'");
     }
 
     @Test
     public void testArithmetic() throws Exception {
         testConstantExpressResult(
-                "select 1 + 10;",
-                "11");
+            "select 1 + 10;",
+            "11");
 
         testConstantExpressResult(
-                "select 1 - 10;",
-                "-9");
+            "select 1 - 10;",
+            "-9");
 
         testConstantExpressResult(
-                "select 1 * 10.0;",
-                "10.0");
+            "select 1 * 10.0;",
+            "10.0");
 
         testConstantExpressResult(
-                "select 1 / 10.0;",
-                "0.1");
+            "select 1 / 10.0;",
+            "0.1");
     }
 
     @Test
     public void testMath() throws Exception {
         testConstantExpressResult(
-                "select floor(2.3);",
-                "2");
+            "select floor(2.3);",
+            "2");
     }
 
     @Test
     public void testPredicate() throws Exception {
         testConstantExpressResult(
-                "select 1 > 2",
-                "FALSE");
+            "select 1 > 2",
+            "FALSE");
 
         testConstantExpressResult(
-                "select 1 = 1",
-                "TRUE");
+            "select 1 = 1",
+            "TRUE");
     }
 
     @Test

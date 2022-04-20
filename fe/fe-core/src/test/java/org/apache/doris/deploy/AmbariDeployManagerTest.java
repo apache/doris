@@ -36,7 +36,7 @@ public class AmbariDeployManagerTest {
 
     @Before
     public void setUp() throws NoSuchFieldException, SecurityException,
-            IllegalArgumentException, IllegalAccessException {
+        IllegalArgumentException, IllegalAccessException {
         manager = new AmbariDeployManager();
 
         Field authInfoF = manager.getClass().getDeclaredField("authInfo");
@@ -66,9 +66,9 @@ public class AmbariDeployManagerTest {
 
     @Test
     public void getPropertyFromBlueprintTest() throws NoSuchMethodException, SecurityException, IllegalAccessException,
-            IllegalArgumentException, InvocationTargetException, NoSuchFieldException {
+        IllegalArgumentException, InvocationTargetException, NoSuchFieldException {
         String res = getBlueprint();
-        
+
         Field bpF = manager.getClass().getDeclaredField("blueprintJson");
         bpF.setAccessible(true);
         bpF.set(manager, res);
@@ -79,7 +79,7 @@ public class AmbariDeployManagerTest {
 
     @Test
     public void getHostTest() throws NoSuchMethodException, SecurityException, IllegalAccessException,
-            IllegalArgumentException, InvocationTargetException, NoSuchFieldException {
+        IllegalArgumentException, InvocationTargetException, NoSuchFieldException {
         String res = getComponent("PALO_FE");
 
         System.out.println(res);
@@ -87,14 +87,14 @@ public class AmbariDeployManagerTest {
 
     private String getBlueprint() throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
         String res = Util.getResultForUrl("http://127.0.0.1:8080/api/v1/clusters/BDP?format=blueprint",
-                null, 2000, 2000);
+            null, 2000, 2000);
         return res;
     }
 
     private String getComponent(String comp)
-            throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
+        throws NoSuchMethodException, IllegalAccessException, InvocationTargetException {
         String res = Util.getResultForUrl("http://127.0.0.1:8080/api/v1/clusters/BDP/services/PALO/components/"
-                + comp, null, 2000, 2000);
+            + comp, null, 2000, 2000);
 
         return res;
     }

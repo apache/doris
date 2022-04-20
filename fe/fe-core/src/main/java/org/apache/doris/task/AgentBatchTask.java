@@ -57,7 +57,7 @@ import java.util.List;
 import java.util.Map;
 
 /*
- * This class group tasks by backend 
+ * This class group tasks by backend
  */
 public class AgentBatchTask implements Runnable {
     private static final Logger LOG = LogManager.getLogger(AgentBatchTask.class);
@@ -96,7 +96,7 @@ public class AgentBatchTask implements Runnable {
         }
         return tasks;
     }
-    
+
     public int getTaskNum() {
         int num = 0;
         for (List<AgentTask> tasks : backendIdToTasks.values()) {
@@ -170,7 +170,7 @@ public class AgentBatchTask implements Runnable {
                 if (LOG.isDebugEnabled()) {
                     for (AgentTask task : tasks) {
                         LOG.debug("send task: type[{}], backend[{}], signature[{}]",
-                                task.getTaskType(), backendId, task.getSignature());
+                            task.getTaskType(), backendId, task.getSignature());
                     }
                 }
                 ok = true;

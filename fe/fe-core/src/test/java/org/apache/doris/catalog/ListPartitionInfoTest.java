@@ -53,7 +53,7 @@ public class ListPartitionInfoTest {
         List<List<PartitionValue>> inValues = new ArrayList<>();
         inValues.add(Lists.newArrayList(new PartitionValue("-128")));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createIn(inValues), null));
+            PartitionKeyDesc.createIn(inValues), null));
 
         partitionInfo = new ListPartitionInfo(partitionColumns);
         PartitionItem partitionItem = null;
@@ -61,7 +61,8 @@ public class ListPartitionInfoTest {
             singlePartitionDesc.analyze(1, null);
             partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
         }
-        Assert.assertEquals("-128", ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
+        Assert.assertEquals("-128",
+            ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
 
     }
 
@@ -73,7 +74,7 @@ public class ListPartitionInfoTest {
         List<List<PartitionValue>> inValues = new ArrayList<>();
         inValues.add(Lists.newArrayList(new PartitionValue("-32768")));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createIn(inValues), null));
+            PartitionKeyDesc.createIn(inValues), null));
 
         partitionInfo = new ListPartitionInfo(partitionColumns);
         PartitionItem partitionItem = null;
@@ -81,7 +82,8 @@ public class ListPartitionInfoTest {
             singlePartitionDesc.analyze(1, null);
             partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
         }
-        Assert.assertEquals("-32768", ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
+        Assert.assertEquals("-32768",
+            ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
     }
 
     @Test
@@ -92,7 +94,7 @@ public class ListPartitionInfoTest {
         List<List<PartitionValue>> inValues = new ArrayList<>();
         inValues.add(Lists.newArrayList(new PartitionValue("-2147483648")));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createIn(inValues), null));
+            PartitionKeyDesc.createIn(inValues), null));
 
         partitionInfo = new ListPartitionInfo(partitionColumns);
         PartitionItem partitionItem = null;
@@ -100,7 +102,8 @@ public class ListPartitionInfoTest {
             singlePartitionDesc.analyze(1, null);
             partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
         }
-        Assert.assertEquals("-2147483648", ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
+        Assert.assertEquals("-2147483648",
+            ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
     }
 
     @Test
@@ -111,7 +114,7 @@ public class ListPartitionInfoTest {
         List<List<PartitionValue>> inValues = new ArrayList<>();
         inValues.add(Lists.newArrayList(new PartitionValue("-9223372036854775808")));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createIn(inValues), null));
+            PartitionKeyDesc.createIn(inValues), null));
 
         partitionInfo = new ListPartitionInfo(partitionColumns);
         PartitionItem partitionItem = null;
@@ -119,7 +122,8 @@ public class ListPartitionInfoTest {
             singlePartitionDesc.analyze(1, null);
             partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
         }
-        Assert.assertEquals("-9223372036854775808", ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
+        Assert.assertEquals("-9223372036854775808",
+            ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
     }
 
     @Test
@@ -130,7 +134,7 @@ public class ListPartitionInfoTest {
         List<List<PartitionValue>> inValues = new ArrayList<>();
         inValues.add(Lists.newArrayList(new PartitionValue("-170141183460469231731687303715884105728")));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createIn(inValues), null));
+            PartitionKeyDesc.createIn(inValues), null));
 
         partitionInfo = new ListPartitionInfo(partitionColumns);
         PartitionItem partitionItem = null;
@@ -138,7 +142,8 @@ public class ListPartitionInfoTest {
             singlePartitionDesc.analyze(1, null);
             partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
         }
-        Assert.assertEquals("-170141183460469231731687303715884105728", ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
+        Assert.assertEquals("-170141183460469231731687303715884105728",
+            ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
     }
 
     @Test
@@ -150,7 +155,7 @@ public class ListPartitionInfoTest {
         inValues.add(Lists.newArrayList(new PartitionValue("Beijing")));
         inValues.add(Lists.newArrayList(new PartitionValue("Shanghai")));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createIn(inValues), null));
+            PartitionKeyDesc.createIn(inValues), null));
 
         partitionInfo = new ListPartitionInfo(partitionColumns);
         PartitionItem partitionItem = null;
@@ -158,8 +163,10 @@ public class ListPartitionInfoTest {
             singlePartitionDesc.analyze(1, null);
             partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
         }
-        Assert.assertEquals("Beijing", ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
-        Assert.assertEquals("Shanghai", ((ListPartitionItem) partitionItem).getItems().get(1).getKeys().get(0).getStringValue());
+        Assert.assertEquals("Beijing",
+            ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getStringValue());
+        Assert.assertEquals("Shanghai",
+            ((ListPartitionItem) partitionItem).getItems().get(1).getKeys().get(0).getStringValue());
     }
 
     @Test
@@ -170,7 +177,7 @@ public class ListPartitionInfoTest {
         List<List<PartitionValue>> inValues = new ArrayList<>();
         inValues.add(Lists.newArrayList(new PartitionValue("true")));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createIn(inValues), null));
+            PartitionKeyDesc.createIn(inValues), null));
 
         partitionInfo = new ListPartitionInfo(partitionColumns);
         PartitionItem partitionItem = null;
@@ -178,7 +185,8 @@ public class ListPartitionInfoTest {
             singlePartitionDesc.analyze(1, null);
             partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
         }
-        Assert.assertEquals(true, ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getRealValue());
+        Assert.assertEquals(true,
+            ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getRealValue());
     }
 
     @Test(expected = DdlException.class)
@@ -189,9 +197,9 @@ public class ListPartitionInfoTest {
         List<List<PartitionValue>> inValues = new ArrayList<>();
         inValues.add(Lists.newArrayList(new PartitionValue("beijing")));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createIn(inValues), null));
+            PartitionKeyDesc.createIn(inValues), null));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p2",
-                PartitionKeyDesc.createIn(inValues), null));
+            PartitionKeyDesc.createIn(inValues), null));
 
 
         partitionInfo = new ListPartitionInfo(partitionColumns);
@@ -211,7 +219,7 @@ public class ListPartitionInfoTest {
         List<List<PartitionValue>> inValues = new ArrayList<>();
         inValues.add(Lists.newArrayList(new PartitionValue("beijing"), new PartitionValue("100")));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
-                PartitionKeyDesc.createIn(inValues), null));
+            PartitionKeyDesc.createIn(inValues), null));
 
 
         partitionInfo = new ListPartitionInfo(partitionColumns);
@@ -221,7 +229,8 @@ public class ListPartitionInfoTest {
             partitionItem = partitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, 20000L, false);
         }
 
-        Assert.assertEquals("beijing", ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getRealValue());
+        Assert.assertEquals("beijing",
+            ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getRealValue());
         Assert.assertEquals(100, ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(1).getLongValue());
     }
 }

@@ -41,7 +41,8 @@ public class ClusterStatePublisher {
     private static final Logger LOG = LogManager.getLogger(ClusterStatePublisher.class);
     private static volatile ClusterStatePublisher INSTANCE;
 
-    private ExecutorService executor = ThreadPoolManager.newDaemonFixedThreadPool(5, 256, "cluster-state-publisher", true);
+    private ExecutorService executor =
+        ThreadPoolManager.newDaemonFixedThreadPool(5, 256, "cluster-state-publisher", true);
 
     private SystemInfoService clusterInfoService;
 
@@ -72,7 +73,7 @@ public class ClusterStatePublisher {
                 Backend[] backends = handler.pendingNodes();
                 if (backends.length > 0) {
                     LOG.warn("timed out waiting for all nodes to publish. (pending nodes: {})",
-                             Arrays.toString(backends));
+                        Arrays.toString(backends));
                 }
             }
         } catch (InterruptedException e) {
@@ -119,7 +120,7 @@ public class ClusterStatePublisher {
                 if (tAgentResult.getStatus().getStatusCode() != TStatusCode.OK) {
                     // Success execute, no dirty data possibility
                     LOG.warn("Backend execute publish failed. backend=[{}], message=[{}]",
-                            addr, tAgentResult.getStatus().getErrorMsgs());
+                        addr, tAgentResult.getStatus().getErrorMsgs());
                 }
                 LOG.debug("Success publish to backend([{}])", addr);
                 // Publish here

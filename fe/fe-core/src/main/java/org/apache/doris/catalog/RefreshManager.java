@@ -57,7 +57,7 @@ public class RefreshManager {
 
         // 3. create new table
         CreateTableStmt createTableStmt = new CreateTableStmt(true, true,
-                stmt.getTableName(), "ICEBERG", icebergProperties, "");
+            stmt.getTableName(), "ICEBERG", icebergProperties, "");
         catalog.createTable(createTableStmt);
 
         LOG.info("Successfully refresh table: {} from db: {}", tableName, dbName);

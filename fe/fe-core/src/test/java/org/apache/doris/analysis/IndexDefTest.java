@@ -42,13 +42,13 @@ public class IndexDefTest {
     public void testAnalyzeExpection() throws AnalysisException {
         try {
             def = new IndexDef(
-                    "index1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxx"
-                            + "xxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxinde"
-                            + "x1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxx"
-                            + "xxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxx"
-                            + "xxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxx", false,
-                    Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP,
-                    "balabala");
+                "index1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxx"
+                    + "xxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxinde"
+                    + "x1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxx"
+                    + "xxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxxindex1xxxxx"
+                    + "xxxxxxxxxxxxindex1xxxxxxxxxxxxxxxxx", false,
+                Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP,
+                "balabala");
             def.analyze();
             Assert.fail("No exception throws.");
         } catch (AnalysisException e) {
@@ -67,6 +67,6 @@ public class IndexDefTest {
     public void toSql() {
         Assert.assertEquals("INDEX index1 (`col1`) USING BITMAP COMMENT 'balabala'", def.toSql());
         Assert.assertEquals("INDEX index1 ON table1 (`col1`) USING BITMAP COMMENT 'balabala'",
-                def.toSql("table1"));
+            def.toSql("table1"));
     }
 }

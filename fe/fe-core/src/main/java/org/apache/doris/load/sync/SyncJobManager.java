@@ -75,18 +75,18 @@ public class SyncJobManager implements Writable {
             writeUnlock();
         }
         LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
-                .add("name", syncJob.getJobName())
-                .add("type", syncJob.getJobType())
-                .add("config", syncJob.getJobConfig())
-                .add("msg", "add sync job.")
-                .build());
+            .add("name", syncJob.getJobName())
+            .add("type", syncJob.getJobType())
+            .add("config", syncJob.getJobConfig())
+            .add("msg", "add sync job.")
+            .build());
     }
 
     private void checkDuplicateRemote(SyncJob syncJob) throws DdlException {
         if (syncJob.getJobType() == DataSyncJobType.CANAL) {
             CanalDestination remote = ((CanalSyncJob) syncJob).getRemote();
             List<SyncJob> unCompletedJobs = idToSyncJob.values().stream().filter(job -> !job.isCompleted())
-                    .collect(Collectors.toList());
+                .collect(Collectors.toList());
             for (SyncJob job : unCompletedJobs) {
                 if (job instanceof CanalSyncJob && ((CanalSyncJob) job).getRemote().equals(remote)) {
                     throw new DdlException("Remote Canal instance already exists. conflict destination: " + remote);
@@ -123,10 +123,10 @@ public class SyncJobManager implements Writable {
             }
 
             List<SyncJob> runningSyncJob = matchJobs.stream().filter(SyncJob::isRunning)
-                    .collect(Collectors.toList());
+                .collect(Collectors.toList());
             if (runningSyncJob.isEmpty()) {
                 throw new DdlException("There is no running job with jobName `"
-                        + stmt.getJobName() + "` to pause");
+                    + stmt.getJobName() + "` to pause");
             }
 
             syncJobs.addAll(runningSyncJob);
@@ -154,10 +154,10 @@ public class SyncJobManager implements Writable {
             }
 
             List<SyncJob> pausedSyncJob = matchJobs.stream().filter(SyncJob::isPaused)
-                    .collect(Collectors.toList());
+                .collect(Collectors.toList());
             if (pausedSyncJob.isEmpty()) {
                 throw new DdlException("There is no paused job with jobName `"
-                        + stmt.getJobName() + "` to resume");
+                    + stmt.getJobName() + "` to resume");
             }
 
             syncJobs.addAll(pausedSyncJob);
@@ -186,10 +186,10 @@ public class SyncJobManager implements Writable {
             }
 
             List<SyncJob> uncompletedSyncJob = matchJobs.stream().filter(entity -> !entity.isCompleted())
-                    .collect(Collectors.toList());
+                .collect(Collectors.toList());
             if (uncompletedSyncJob.isEmpty()) {
                 throw new DdlException("There is no uncompleted job with jobName `"
-                        + stmt.getJobName() + "`");
+                    + stmt.getJobName() + "`");
             }
 
             syncJobs.addAll(uncompletedSyncJob);
@@ -225,7 +225,7 @@ public class SyncJobManager implements Writable {
             Map<String, List<SyncJob>> jobNameToLoadJobs = dbIdToJobNameToSyncJobs.get(dbId);
             List<SyncJob> syncJobs = Lists.newArrayList();
             syncJobs.addAll(jobNameToLoadJobs.values()
-                    .stream().flatMap(Collection::stream).collect(Collectors.toList()));
+                .stream().flatMap(Collection::stream).collect(Collectors.toList()));
             for (SyncJob syncJob : syncJobs) {
                 syncJobInfos.add(syncJob.getShowInfo());
             }
@@ -259,7 +259,7 @@ public class SyncJobManager implements Writable {
             Map<String, List<SyncJob>> jobNameToSyncJobs = dbIdToJobNameToSyncJobs.get(db.getId());
             if (jobNameToSyncJobs != null && jobNameToSyncJobs.containsKey(jobName)) {
                 List<SyncJob> matchJobs = jobNameToSyncJobs.get(jobName);
-                for(SyncJob syncJob : matchJobs) {
+                for (SyncJob syncJob : matchJobs) {
                     if (!syncJob.isCancelled()) {
                         result = true;
                     }
@@ -305,10 +305,10 @@ public class SyncJobManager implements Writable {
                     }
                     iterator.remove();
                     LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
-                            .add("finishTimeMs", syncJob.getFinishTimeMs())
-                            .add("currentTimeMs", currentTimeMs)
-                            .add("jobState", syncJob.getJobState())
-                            .add("msg", "old sync job has been cleaned")
+                        .add("finishTimeMs", syncJob.getFinishTimeMs())
+                        .add("currentTimeMs", currentTimeMs)
+                        .add("jobState", syncJob.getJobState())
+                        .add("msg", "old sync job has been cleaned")
                     );
                 }
             }
@@ -359,13 +359,13 @@ public class SyncJobManager implements Writable {
         try {
             unprotectedAddSyncJob(syncJob);
             LOG.info(new LogBuilder(LogKey.SYNC_JOB, syncJob.getId())
-                    .add("msg", "replay create sync job.")
-                    .build());
+                .add("msg", "replay create sync job.")
+                .build());
         } finally {
             writeUnlock();
         }
     }
-    
+
     public void replayUpdateSyncJobState(SyncJob.SyncJobUpdateStateInfo info) {
         writeLock();
         try {
@@ -373,8 +373,8 @@ public class SyncJobManager implements Writable {
             SyncJob job = idToSyncJob.get(jobId);
             if (job == null) {
                 LOG.warn(new LogBuilder(LogKey.SYNC_JOB, jobId)
-                        .add("msg", "replay update sync job state failed. Job was not found.")
-                        .build());
+                    .add("msg", "replay update sync job state failed. Job was not found.")
+                    .build());
                 return;
             }
             job.replayUpdateSyncJobState(info);

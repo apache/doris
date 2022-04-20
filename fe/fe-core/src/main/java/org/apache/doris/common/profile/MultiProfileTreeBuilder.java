@@ -23,7 +23,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Counter;
 import org.apache.doris.common.util.RuntimeProfile;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -34,6 +33,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import com.clearspring.analytics.util.Lists;
 
 // MultiProfileTreeBuilder saves a set of ProfileTreeBuilder.
 // For a query profile, there is usually only one ExecutionProfile node.
@@ -113,13 +114,13 @@ public class MultiProfileTreeBuilder {
     }
 
     public List<Triple<String, String, Long>> getInstanceList(String executionId, String fragmentId)
-         throws AnalysisException {
+        throws AnalysisException {
         ProfileTreeBuilder singleBuilder = getExecutionProfileTreeBuilder(executionId);
         return singleBuilder.getInstanceList(fragmentId);
     }
 
     public ProfileTreeNode getInstanceTreeRoot(String executionId, String fragmentId, String instanceId)
-            throws AnalysisException {
+        throws AnalysisException {
         ProfileTreeBuilder singleBuilder = getExecutionProfileTreeBuilder(executionId);
         return singleBuilder.getInstanceTreeRoot(fragmentId, instanceId);
     }
@@ -129,7 +130,8 @@ public class MultiProfileTreeBuilder {
         return singleBuilder.getFragmentTreeRoot();
     }
 
-    public List<ProfileTreeBuilder.FragmentInstances> getFragmentInstances(String executionId) throws AnalysisException{
+    public List<ProfileTreeBuilder.FragmentInstances> getFragmentInstances(String executionId)
+        throws AnalysisException {
         return getExecutionProfileTreeBuilder(executionId).getFragmentsInstances();
     }
 

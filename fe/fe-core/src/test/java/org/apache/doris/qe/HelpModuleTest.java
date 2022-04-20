@@ -17,12 +17,11 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Injectable;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -140,7 +139,7 @@ public class HelpModuleTest {
         Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
 
         Assert.assertTrue(Arrays.equals(module.listCategoryByName("ADMIN").toArray(),
-                Lists.newArrayList("Admin").toArray()));
+            Lists.newArrayList("Admin").toArray()));
     }
 
     @Test
@@ -177,6 +176,6 @@ public class HelpModuleTest {
         Assert.assertTrue(Arrays.equals(topics.toArray(), Lists.newArrayList("SHOW TABLES").toArray()));
 
         Assert.assertTrue(Arrays.equals(module.listCategoryByName("ADMIN").toArray(),
-                Lists.newArrayList("Admin").toArray()));
+            Lists.newArrayList("Admin").toArray()));
     }
 }

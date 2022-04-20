@@ -58,16 +58,17 @@ public class InsertStreamTxnExecutor {
     }
 
     public void beginTransaction(TStreamLoadPutRequest request) throws UserException, TException, TimeoutException,
-            InterruptedException, ExecutionException {
+        InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
-        StreamLoadPlanner planner = new StreamLoadPlanner(txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
+        StreamLoadPlanner planner =
+            new StreamLoadPlanner(txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
         SystemInfoService.BeAvailablePredicate beAvailablePredicate =
-                new SystemInfoService.BeAvailablePredicate(false, true, true);
+            new SystemInfoService.BeAvailablePredicate(false, true, true);
         List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                1, beAvailablePredicate, false,
-                txnEntry.getDb().getClusterName(), null, null);
+            1, beAvailablePredicate, false,
+            txnEntry.getDb().getClusterName(), null, null);
         if (beIds == null || beIds.isEmpty()) {
             throw new UserException("there is no backend load available or scanNode backend available.");
         }
@@ -87,7 +88,8 @@ public class InsertStreamTxnExecutor {
         txnEntry.setBackend(backend);
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
-            Future<InternalService.PExecPlanFragmentResult> future = BackendServiceProxy.getInstance().execPlanFragmentAsync(
+            Future<InternalService.PExecPlanFragmentResult> future =
+                BackendServiceProxy.getInstance().execPlanFragmentAsync(
                     address, tRequest);
             InternalService.PExecPlanFragmentResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
@@ -100,16 +102,17 @@ public class InsertStreamTxnExecutor {
     }
 
     public void commitTransaction() throws TException, TimeoutException,
-            InterruptedException, ExecutionException {
+        InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
         Types.PUniqueId fragmentInstanceId = Types.PUniqueId.newBuilder()
-                .setHi(txnConf.getFragmentInstanceId().getHi())
-                .setLo(txnConf.getFragmentInstanceId().getLo()).build();
+            .setHi(txnConf.getFragmentInstanceId().getHi())
+            .setLo(txnConf.getFragmentInstanceId().getLo()).build();
 
         Backend backend = txnEntry.getBackend();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
-            Future<InternalService.PCommitResult> future = BackendServiceProxy.getInstance().commit(address, fragmentInstanceId);
+            Future<InternalService.PCommitResult> future =
+                BackendServiceProxy.getInstance().commit(address, fragmentInstanceId);
             InternalService.PCommitResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
@@ -121,17 +124,17 @@ public class InsertStreamTxnExecutor {
     }
 
     public void abortTransaction() throws TException, TimeoutException,
-            InterruptedException, ExecutionException {
+        InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
         Types.PUniqueId fragmentInstanceId = Types.PUniqueId.newBuilder()
-                .setHi(txnConf.getFragmentInstanceId().getHi())
-                .setLo(txnConf.getFragmentInstanceId().getLo()).build();
+            .setHi(txnConf.getFragmentInstanceId().getHi())
+            .setLo(txnConf.getFragmentInstanceId().getLo()).build();
 
         Backend be = txnEntry.getBackend();
         TNetworkAddress address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
         try {
             Future<InternalService.PRollbackResult> future = BackendServiceProxy.getInstance().rollback(address,
-                    fragmentInstanceId);
+                fragmentInstanceId);
             InternalService.PRollbackResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {
@@ -143,21 +146,21 @@ public class InsertStreamTxnExecutor {
     }
 
     public void sendData() throws TException, TimeoutException,
-            InterruptedException, ExecutionException {
+        InterruptedException, ExecutionException {
         if (txnEntry.getDataToSend() == null || txnEntry.getDataToSend().isEmpty()) {
             return;
         }
 
         TTxnParams txnConf = txnEntry.getTxnConf();
         Types.PUniqueId fragmentInstanceId = Types.PUniqueId.newBuilder()
-                .setHi(txnConf.getFragmentInstanceId().getHi())
-                .setLo(txnConf.getFragmentInstanceId().getLo()).build();
+            .setHi(txnConf.getFragmentInstanceId().getHi())
+            .setLo(txnConf.getFragmentInstanceId().getLo()).build();
 
         Backend backend = txnEntry.getBackend();
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             Future<InternalService.PSendDataResult> future = BackendServiceProxy.getInstance().sendData(
-                    address, fragmentInstanceId, txnEntry.getDataToSend());
+                address, fragmentInstanceId, txnEntry.getDataToSend());
             InternalService.PSendDataResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {

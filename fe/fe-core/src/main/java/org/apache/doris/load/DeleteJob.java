@@ -92,7 +92,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
             Short replicaNum = partitionReplicaNum.get(tDeleteInfo.getPartitionId());
             if (replicaNum == null) {
                 // should not happen
-                throw new MetaNotFoundException("Unknown partition " + tDeleteInfo.getPartitionId() + " when commit delete job");
+                throw new MetaNotFoundException(
+                    "Unknown partition " + tDeleteInfo.getPartitionId() + " when commit delete job");
             }
             if (tDeleteInfo.getFinishedReplicas().size() == replicaNum) {
                 finishedTablets.add(tDeleteInfo.getTabletId());
@@ -117,8 +118,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
             }
         }
 
-        LOG.info("check delete job quorum, transaction id: {}, total tablets: {}, quorum tablets: {}, dropped tablets: {}",
-                signature, totalTablets.size(), quorumTablets.size(), dropCounter);
+        LOG.info(
+            "check delete job quorum, transaction id: {}, total tablets: {}, quorum tablets: {}, dropped tablets: {}",
+            signature, totalTablets.size(), quorumTablets.size(), dropCounter);
 
         if (finishedTablets.containsAll(totalTablets)) {
             setState(DeleteState.FINISHED);
@@ -145,7 +147,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
 
     public boolean addFinishedReplica(long partitionId, long tabletId, Replica replica) {
         tabletDeleteInfoMap.putIfAbsent(tabletId, new TabletDeleteInfo(partitionId, tabletId));
-        TabletDeleteInfo tDeleteInfo =  tabletDeleteInfoMap.get(tabletId);
+        TabletDeleteInfo tDeleteInfo = tabletDeleteInfoMap.get(tabletId);
         return tDeleteInfo.addFinishedReplica(replica);
     }
 
@@ -177,7 +179,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
 
     @Override
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
-            throws UserException {
+        throws UserException {
         // just to clean the callback
         Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getId());
     }

@@ -54,7 +54,7 @@ public class UserResource implements Writable {
         resource = ResourceGroup.builder().cpuShare(cpuShare).build();
 
         ImmutableSortedMap.Builder<String, AtomicInteger> builder =
-                ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
+            ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
 
         // Low, Normal and High.
         builder.put(LOW, new AtomicInteger(defaultLowShare));
@@ -125,7 +125,7 @@ public class UserResource implements Writable {
     public void write(DataOutput out) throws IOException {
         resource.write(out);
         out.writeInt(shareByGroup.size());
-        for (Map.Entry<String , AtomicInteger> entry : shareByGroup.entrySet()) {
+        for (Map.Entry<String, AtomicInteger> entry : shareByGroup.entrySet()) {
             Text.writeString(out, entry.getKey());
             out.writeInt(entry.getValue().get());
         }
@@ -134,7 +134,7 @@ public class UserResource implements Writable {
     public void readFields(DataInput in) throws IOException {
         resource = ResourceGroup.readIn(in);
         ImmutableSortedMap.Builder<String, AtomicInteger> builder =
-                ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
+            ImmutableSortedMap.orderedBy(String.CASE_INSENSITIVE_ORDER);
         int numGroup = in.readInt();
         for (int i = 0; i < numGroup; ++i) {
             String name = Text.readString(in);

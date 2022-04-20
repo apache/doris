@@ -17,11 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Objects;
-
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumnType;
@@ -29,22 +24,29 @@ import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Objects;
+
 import com.google.gson.annotations.SerializedName;
 
 /**
  * Describes a scalar type. For most types this class just wraps a PrimitiveType enum,
  * but for types like CHAR and DECIMAL, this class contain additional information.
- *
+ * <p>
  * Scalar types have a few ways they can be compared to other scalar types. They can be:
- *   1. completely identical,
- *   2. implicitly castable (convertible without loss of precision)
- *   3. subtype. For example, in the case of decimal, a type can be decimal(*, *)
- *   indicating that any decimal type is a subtype of the decimal type.
+ * 1. completely identical,
+ * 2. implicitly castable (convertible without loss of precision)
+ * 3. subtype. For example, in the case of decimal, a type can be decimal(*, *)
+ * indicating that any decimal type is a subtype of the decimal type.
  */
 public class ScalarType extends Type {
     private static final Logger LOG = LogManager.getLogger(ScalarType.class);
@@ -324,7 +326,7 @@ public class ScalarType extends Type {
                 return "CHAR(*)";
             }
             return "CHAR(" + len + ")";
-        } else  if (type == PrimitiveType.DECIMALV2) {
+        } else if (type == PrimitiveType.DECIMALV2) {
             if (isWildcardDecimal()) {
                 return "DECIMAL(*,*)";
             }
@@ -360,9 +362,11 @@ public class ScalarType extends Type {
                 break;
             case DECIMALV2:
                 if (Strings.isNullOrEmpty(precisionStr)) {
-                    stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale).append(")");
+                    stringBuilder.append("decimal").append("(").append(precision).append(", ").append(scale)
+                        .append(")");
                 } else if (!Strings.isNullOrEmpty(precisionStr) && !Strings.isNullOrEmpty(scaleStr)) {
-                    stringBuilder.append("decimal").append("(`").append(precisionStr).append("`, `").append(scaleStr).append("`)");
+                    stringBuilder.append("decimal").append("(`").append(precisionStr).append("`, `").append(scaleStr)
+                        .append("`)");
                 } else {
                     stringBuilder.append("decimal").append("(`").append(precisionStr).append("`)");
                 }
@@ -414,7 +418,7 @@ public class ScalarType extends Type {
         TScalarType scalarType = new TScalarType();
         scalarType.setType(type.toThrift());
 
-        switch(type) {
+        switch (type) {
             case VARCHAR:
             case CHAR:
             case HLL:
@@ -444,18 +448,39 @@ public class ScalarType extends Type {
     }
 
     @Override
-    public PrimitiveType getPrimitiveType() { return type; }
-    public int ordinal() { return type.ordinal(); }
+    public PrimitiveType getPrimitiveType() {
+        return type;
+    }
+
+    public int ordinal() {
+        return type.ordinal();
+    }
 
     @Override
-    public int getLength() { return len; }
-    public void setLength(int len) {this.len = len; }
-    public boolean isAssignedStrLenInColDefinition() { return isAssignedStrLenInColDefinition; }
-    public void setAssignedStrLenInColDefinition() { this.isAssignedStrLenInColDefinition = true; }
+    public int getLength() {
+        return len;
+    }
+
+    public void setLength(int len) {
+        this.len = len;
+    }
+
+    public boolean isAssignedStrLenInColDefinition() {
+        return isAssignedStrLenInColDefinition;
+    }
+
+    public void setAssignedStrLenInColDefinition() {
+        this.isAssignedStrLenInColDefinition = true;
+    }
 
     // add scalar infix to override with getPrecision
-    public int getScalarScale() { return scale; }
-    public int getScalarPrecision() { return precision; }
+    public int getScalarScale() {
+        return scale;
+    }
+
+    public int getScalarPrecision() {
+        return precision;
+    }
 
     public String getScalarPrecisionStr() {
         return precisionStr;
@@ -472,7 +497,7 @@ public class ScalarType extends Type {
     @Override
     public boolean isWildcardDecimal() {
         return (type == PrimitiveType.DECIMALV2)
-                && precision == -1 && scale == -1;
+            && precision == -1 && scale == -1;
     }
 
     @Override
@@ -488,11 +513,11 @@ public class ScalarType extends Type {
     @Override
     public boolean isFixedLengthType() {
         return type == PrimitiveType.BOOLEAN || type == PrimitiveType.TINYINT
-                || type == PrimitiveType.SMALLINT || type == PrimitiveType.INT
-                || type == PrimitiveType.BIGINT || type == PrimitiveType.FLOAT
-                || type == PrimitiveType.DOUBLE || type == PrimitiveType.DATE
-                || type == PrimitiveType.DATETIME || type == PrimitiveType.DECIMALV2
-                || type == PrimitiveType.CHAR;
+            || type == PrimitiveType.SMALLINT || type == PrimitiveType.INT
+            || type == PrimitiveType.BIGINT || type == PrimitiveType.FLOAT
+            || type == PrimitiveType.DOUBLE || type == PrimitiveType.DATE
+            || type == PrimitiveType.DATETIME || type == PrimitiveType.DECIMALV2
+            || type == PrimitiveType.CHAR;
     }
 
     @Override
@@ -561,7 +586,7 @@ public class ScalarType extends Type {
         if (!(o instanceof ScalarType)) {
             return false;
         }
-        ScalarType other = (ScalarType)o;
+        ScalarType other = (ScalarType) o;
         if (type != other.type) {
             return false;
         }
@@ -571,7 +596,7 @@ public class ScalarType extends Type {
         if (type == PrimitiveType.VARCHAR) {
             return len == other.len;
         }
-        if ( type == PrimitiveType.DECIMALV2) {
+        if (type == PrimitiveType.DECIMALV2) {
             return precision == other.precision && scale == other.scale;
         }
         return true;
@@ -588,7 +613,7 @@ public class ScalarType extends Type {
         } else if (isDecimalV2()) {
             return createDecimalV2TypeInternal(MAX_PRECISION, scale);
         } else if (isLargeIntType()) {
-        return ScalarType.LARGEINT;
+            return ScalarType.LARGEINT;
         } else {
             return ScalarType.INVALID;
         }
@@ -656,7 +681,7 @@ public class ScalarType extends Type {
      * is INVALID_TYPE.
      */
     public static ScalarType getAssignmentCompatibleType(
-            ScalarType t1, ScalarType t2, boolean strict) {
+        ScalarType t1, ScalarType t2, boolean strict) {
         if (!t1.isValid() || !t2.isValid()) {
             return INVALID;
         }
@@ -701,7 +726,7 @@ public class ScalarType extends Type {
         }
 
         if (t1.isDecimalV2() && t2.isDate()
-                || t1.isDate() && t2.isDecimalV2()) {
+            || t1.isDate() && t2.isDecimalV2()) {
             return INVALID;
         }
 
@@ -710,9 +735,9 @@ public class ScalarType extends Type {
         }
 
         PrimitiveType smallerType =
-                (t1.type.ordinal() < t2.type.ordinal() ? t1.type : t2.type);
+            (t1.type.ordinal() < t2.type.ordinal() ? t1.type : t2.type);
         PrimitiveType largerType =
-                (t1.type.ordinal() > t2.type.ordinal() ? t1.type : t2.type);
+            (t1.type.ordinal() > t2.type.ordinal() ? t1.type : t2.type);
         PrimitiveType result = null;
         if (strict) {
             result = strictCompatibilityMatrix[smallerType.ordinal()][largerType.ordinal()];
@@ -729,7 +754,7 @@ public class ScalarType extends Type {
      * If strict is true, only consider casts that result in no loss of precision.
      */
     public static boolean isImplicitlyCastable(
-            ScalarType t1, ScalarType t2, boolean strict) {
+        ScalarType t1, ScalarType t2, boolean strict) {
         return getAssignmentCompatibleType(t1, t2, strict).matchesType(t2);
     }
 

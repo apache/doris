@@ -17,13 +17,13 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.system.Backend;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.util.DebugUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,7 +39,7 @@ public class TrashProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(TrashProcNode.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("RootPath")
-            .add("State").add("TrashUsedCapacity").build();
+        .add("State").add("TrashUsedCapacity").build();
 
     private Backend backend;
 
@@ -99,7 +99,7 @@ public class TrashProcNode implements ProcNodeInterface {
             long trashUsedCapacityB = diskTrashInfo.getTrashUsedCapacity();
             Pair<Double, String> trashUsedCapacity = DebugUtil.getByteUint(trashUsedCapacityB);
             diskInfo.add(
-                    DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " " + trashUsedCapacity.second);
+                DebugUtil.DECIMAL_FORMAT_SCALE_3.format(trashUsedCapacity.first) + " " + trashUsedCapacity.second);
 
             infos.add(diskInfo);
         }

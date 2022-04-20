@@ -42,26 +42,29 @@ public final class BetweenToCompoundRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
-        if (!(expr instanceof BetweenPredicate)) return expr;
+        if (!(expr instanceof BetweenPredicate)) {
+            return expr;
+        }
         BetweenPredicate bp = (BetweenPredicate) expr;
         Expr result = null;
         if (bp.isNotBetween()) {
             // Rewrite into disjunction.
             Predicate lower = new BinaryPredicate(BinaryPredicate.Operator.LT,
-                    bp.getChild(0), bp.getChild(1));
+                bp.getChild(0), bp.getChild(1));
             Predicate upper = new BinaryPredicate(BinaryPredicate.Operator.GT,
-                    bp.getChild(0), bp.getChild(2));
+                bp.getChild(0), bp.getChild(2));
             result = new CompoundPredicate(CompoundPredicate.Operator.OR, lower, upper);
         } else {
             // Rewrite into conjunction.
             Predicate lower = new BinaryPredicate(BinaryPredicate.Operator.GE,
-                    bp.getChild(0), bp.getChild(1));
+                bp.getChild(0), bp.getChild(1));
             Predicate upper = new BinaryPredicate(BinaryPredicate.Operator.LE,
-                    bp.getChild(0), bp.getChild(2));
+                bp.getChild(0), bp.getChild(2));
             result = new CompoundPredicate(CompoundPredicate.Operator.AND, lower, upper);
         }
         return result;
     }
 
-    private BetweenToCompoundRule() {}
+    private BetweenToCompoundRule() {
+    }
 }

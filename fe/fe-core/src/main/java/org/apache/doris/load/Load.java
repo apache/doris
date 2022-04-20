@@ -105,7 +105,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.Gson;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
@@ -125,6 +124,8 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+
+import com.google.gson.Gson;
 
 public class Load {
     private static final Logger LOG = LogManager.getLogger(Load.class);
@@ -180,11 +181,11 @@ public class Load {
         Gson gson = new Gson();
         try {
             Map<String, String> defaultConfig =
-                    (HashMap<String, String>) gson.fromJson(Config.dpp_default_config_str, HashMap.class);
+                (HashMap<String, String>) gson.fromJson(Config.dpp_default_config_str, HashMap.class);
             dppDefaultConfig = DppConfig.create(defaultConfig);
 
             Map<String, Map<String, String>> clusterToConfig =
-                    (HashMap<String, Map<String, String>>) gson.fromJson(Config.dpp_config_str, HashMap.class);
+                (HashMap<String, Map<String, String>>) gson.fromJson(Config.dpp_config_str, HashMap.class);
             for (Entry<String, Map<String, String>> entry : clusterToConfig.entrySet()) {
                 String cluster = entry.getKey();
                 DppConfig dppConfig = dppDefaultConfig.getCopiedDppConfig();
@@ -309,14 +310,14 @@ public class Load {
         }
 
         DataDescription dataDescription = new DataDescription(
-                tableName,
-                partitionNames != null ? new PartitionNames(false, partitionNames) : null,
-                filePaths,
-                columnNames,
-                columnSeparator,
-                formatType,
-                false,
-                null
+            tableName,
+            partitionNames != null ? new PartitionNames(false, partitionNames) : null,
+            filePaths,
+            columnNames,
+            columnSeparator,
+            formatType,
+            false,
+            null
         );
         dataDescription.setLineDelimiter(lineDelimiter);
         dataDescription.setBeAddr(beAddr);
@@ -332,7 +333,7 @@ public class Load {
                 final String resultColumn = pairList.get(0);
                 final String hashColumn = pairList.get(1);
                 final Pair<String, List<String>> pair = new Pair<String, List<String>>(FunctionSet.HLL_HASH,
-                        Arrays.asList(hashColumn));
+                    Arrays.asList(hashColumn));
                 dataDescription.addColumnMapping(resultColumn, pair);
             }
         }
@@ -392,9 +393,9 @@ public class Load {
             for (Long tblId : job.getIdToTableLoadInfo().keySet()) {
                 Table tbl = db.getTableNullable(tblId);
                 if (tbl != null && tbl.getType() == TableType.OLAP
-                        && ((OlapTable) tbl).getState() == OlapTableState.RESTORE) {
+                    && ((OlapTable) tbl).getState() == OlapTableState.RESTORE) {
                     throw new DdlException("Table " + tbl.getName() + " is in restore process. "
-                            + "Can not load into it");
+                        + "Can not load into it");
                 }
             }
         } finally {
@@ -515,7 +516,7 @@ public class Load {
                 try {
                     TNetworkAddress beAddress = dataDescription.getBeAddr();
                     Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(beAddress.getHostname(),
-                            beAddress.getPort());
+                        beAddress.getPort());
                     if (!Catalog.getCurrentSystemInfo().checkBackendLoadAvailable(backend.getId())) {
                         throw new DdlException("Etl backend is null or not available");
                     }
@@ -548,7 +549,7 @@ public class Load {
             }
 
             Pair<String, DppConfig> clusterInfo = Catalog.getCurrentCatalog().getAuth().getLoadClusterInfo(
-                    stmt.getUser(), cluster);
+                stmt.getUser(), cluster);
             cluster = clusterInfo.first;
             DppConfig clusterConfig = clusterInfo.second;
 
@@ -610,7 +611,8 @@ public class Load {
      * This is only used for hadoop load
      */
     public static void checkAndCreateSource(Database db, DataDescription dataDescription,
-                                            Map<Long, Map<Long, List<Source>>> tableToPartitionSources, EtlJobType jobType) throws DdlException {
+                                            Map<Long, Map<Long, List<Source>>> tableToPartitionSources,
+                                            EtlJobType jobType) throws DdlException {
         Source source = new Source(dataDescription.getFilePaths());
         long tableId = -1;
         Set<Long> sourcePartitionIds = Sets.newHashSet();
@@ -626,12 +628,12 @@ public class Load {
         try {
             if (table.getPartitionInfo().isMultiColumnPartition() && jobType == EtlJobType.HADOOP) {
                 throw new DdlException("Load by hadoop cluster does not support table with multi partition columns."
-                        + " Table: " + table.getName() + ". Try using broker load. See 'help broker load;'");
+                    + " Table: " + table.getName() + ". Try using broker load. See 'help broker load;'");
             }
 
             // check partition
             if (dataDescription.getPartitionNames() != null &&
-                    table.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
+                table.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
 
@@ -675,7 +677,8 @@ public class Load {
             source.setColumnNames(columnNames);
 
             // check default value
-            Map<String, Pair<String, List<String>>> columnToHadoopFunction = dataDescription.getColumnToHadoopFunction();
+            Map<String, Pair<String, List<String>>> columnToHadoopFunction =
+                dataDescription.getColumnToHadoopFunction();
             List<ImportColumnDesc> parsedColumnExprList = dataDescription.getParsedColumnExprList();
             Map<String, Expr> parsedColumnExprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
@@ -750,8 +753,10 @@ public class Load {
                              * ->
                              * (A, B, C) SET (__doris_shadow_B = substitute(B))
                              */
-                            columnToHadoopFunction.put(column.getName(), Pair.create("substitute", Lists.newArrayList(originCol)));
-                            ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
+                            columnToHadoopFunction.put(column.getName(),
+                                Pair.create("substitute", Lists.newArrayList(originCol)));
+                            ImportColumnDesc importColumnDesc =
+                                new ImportColumnDesc(column.getName(), new SlotRef(null, originCol));
                             parsedColumnExprList.add(importColumnDesc);
                         }
                     } else {
@@ -772,11 +777,12 @@ public class Load {
                      * ->
                      * (A, B, C) SET (__DORIS_DELETE_SIGN__ = 0)
                      */
-                    columnToHadoopFunction.put(column.getName(), Pair.create("default_value", Lists.newArrayList(column.getDefaultValue())));
+                    columnToHadoopFunction.put(column.getName(),
+                        Pair.create("default_value", Lists.newArrayList(column.getDefaultValue())));
                     ImportColumnDesc importColumnDesc = null;
                     try {
                         importColumnDesc = new ImportColumnDesc(column.getName(),
-                                new FunctionCallExpr("default_value", Arrays.asList(column.getDefaultValueExpr())));
+                            new FunctionCallExpr("default_value", Arrays.asList(column.getDefaultValueExpr())));
                     } catch (AnalysisException e) {
                         throw new DdlException(e.getMessage());
                     }
@@ -785,7 +791,7 @@ public class Load {
             }
 
             LOG.debug("after add shadow column. parsedColumnExprList: {}, columnToHadoopFunction: {}",
-                    parsedColumnExprList, columnToHadoopFunction);
+                parsedColumnExprList, columnToHadoopFunction);
 
             Map<String, String> columnNameMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
             for (String columnName : columnNames) {
@@ -805,7 +811,7 @@ public class Load {
                     Pair<String, List<String>> function = entry.getValue();
                     try {
                         DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
-                                mappingColumn, dataDescription.isHadoopLoad());
+                            mappingColumn, dataDescription.isHadoopLoad());
                     } catch (AnalysisException e) {
                         throw new DdlException(e.getMessage());
                     }
@@ -909,7 +915,7 @@ public class Load {
                      * (A, B, C) SET (__doris_shadow_B = B)
                      */
                     ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
-                            new SlotRef(null, originCol));
+                        new SlotRef(null, originCol));
                     shadowColumnDescs.add(importColumnDesc);
                 }
             } else {
@@ -930,7 +936,8 @@ public class Load {
      * not init slot desc and analyze exprs
      */
     public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
-                                   Map<String, Pair<String, List<String>>> columnToHadoopFunction) throws UserException {
+                                   Map<String, Pair<String, List<String>>> columnToHadoopFunction)
+        throws UserException {
         initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, false);
     }
 
@@ -941,10 +948,11 @@ public class Load {
     public static void initColumns(Table tbl, LoadTaskInfo.ImportColumnDescs columnDescs,
                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction,
                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
-                                   Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
+                                   Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params)
+        throws UserException {
         rewriteColumns(columnDescs);
         initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer,
-                srcTupleDesc, slotDescByName, params, true);
+            srcTupleDesc, slotDescByName, params, true);
     }
 
     /*
@@ -1034,7 +1042,7 @@ public class Load {
                 Pair<String, List<String>> function = entry.getValue();
                 try {
                     DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
-                            mappingColumn, false);
+                        mappingColumn, false);
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
                 }
@@ -1050,7 +1058,7 @@ public class Load {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
             String realColName = tbl.getColumn(columnName) == null ? columnName
-                    : tbl.getColumn(columnName).getName();
+                : tbl.getColumn(columnName).getName();
             if (importColumnDesc.getExpr() != null) {
                 Expr expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
                 exprsByName.put(realColName, expr);
@@ -1097,7 +1105,7 @@ public class Load {
                         throw new UserException("unknown reference column in ORDER BY clause:" + slot.getColumnName());
                     } else {
                         throw new UserException("unknown reference column, column=" + entry.getKey()
-                                + ", reference=" + slot.getColumnName());
+                            + ", reference=" + slot.getColumnName());
                     }
                 }
                 smap.getLhs().add(slot);
@@ -1125,11 +1133,11 @@ public class Load {
                 if (slotDescByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
-                            new SlotRef(slotDescByName.get(slot.getColumnName()))));
+                        new SlotRef(slotDescByName.get(slot.getColumnName()))));
                 } else if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
-                            exprsByName.get(slot.getColumnName())));
+                        exprsByName.get(slot.getColumnName())));
                 } else {
                     if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
                         throw new UserException("unknown reference column in DELETE ON clause:" + slot.getColumnName());
@@ -1137,7 +1145,7 @@ public class Load {
                         throw new UserException("unknown reference column in ORDER BY clause:" + slot.getColumnName());
                     } else {
                         throw new UserException("unknown reference column, column=" + entry.getKey()
-                                + ", reference=" + slot.getColumnName());
+                            + ", reference=" + slot.getColumnName());
                     }
                 }
             }
@@ -1204,7 +1212,7 @@ public class Load {
      * @throws UserException
      */
     private static Expr transformHadoopFunctionExpr(Table tbl, String columnName, Expr originExpr)
-            throws UserException {
+        throws UserException {
         Column column = tbl.getColumn(columnName);
         if (column == null) {
             // the unknown column will be checked later.
@@ -1279,7 +1287,7 @@ public class Load {
                 FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
                 List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
                 FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
-                        fromUnixName, new FunctionParams(false, fromUnixArgs));
+                    fromUnixName, new FunctionParams(false, fromUnixArgs));
 
                 return fromUnixFunc;
             } else if (funcName.equalsIgnoreCase("time_format")) {
@@ -1287,12 +1295,12 @@ public class Load {
                 FunctionName strToDateName = new FunctionName("STR_TO_DATE");
                 List<Expr> strToDateExprs = Lists.newArrayList(funcExpr.getChild(2), funcExpr.getChild(1));
                 FunctionCallExpr strToDateFuncExpr = new FunctionCallExpr(
-                        strToDateName, new FunctionParams(false, strToDateExprs));
+                    strToDateName, new FunctionParams(false, strToDateExprs));
 
                 FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
                 List<Expr> dateFormatArgs = Lists.newArrayList(strToDateFuncExpr, funcExpr.getChild(0));
                 FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
-                        dateFormatName, new FunctionParams(false, dateFormatArgs));
+                    dateFormatName, new FunctionParams(false, dateFormatArgs));
 
                 return dateFormatFunc;
             } else if (funcName.equalsIgnoreCase("alignment_timestamp")) {
@@ -1306,7 +1314,7 @@ public class Load {
                 FunctionName fromUnixName = new FunctionName("FROM_UNIXTIME");
                 List<Expr> fromUnixArgs = Lists.newArrayList(funcExpr.getChild(1));
                 FunctionCallExpr fromUnixFunc = new FunctionCallExpr(
-                        fromUnixName, new FunctionParams(false, fromUnixArgs));
+                    fromUnixName, new FunctionParams(false, fromUnixArgs));
 
                 // DATE_FORMAT
                 StringLiteral precision = (StringLiteral) funcExpr.getChild(0);
@@ -1325,14 +1333,14 @@ public class Load {
                 FunctionName dateFormatName = new FunctionName("DATE_FORMAT");
                 List<Expr> dateFormatArgs = Lists.newArrayList(fromUnixFunc, format);
                 FunctionCallExpr dateFormatFunc = new FunctionCallExpr(
-                        dateFormatName, new FunctionParams(false, dateFormatArgs));
+                    dateFormatName, new FunctionParams(false, dateFormatArgs));
 
                 // UNIX_TIMESTAMP
                 FunctionName unixTimeName = new FunctionName("UNIX_TIMESTAMP");
                 List<Expr> unixTimeArgs = Lists.newArrayList();
                 unixTimeArgs.add(dateFormatFunc);
                 FunctionCallExpr unixTimeFunc = new FunctionCallExpr(
-                        unixTimeName, new FunctionParams(false, unixTimeArgs));
+                    unixTimeName, new FunctionParams(false, unixTimeArgs));
 
                 return unixTimeFunc;
             } else if (funcName.equalsIgnoreCase("default_value")) {
@@ -1355,7 +1363,7 @@ public class Load {
 
         if (!isReplay && getAllUnfinishedLoadJob() > Config.max_unfinished_load_job) {
             throw new DdlException(
-                    "Number of unfinished load jobs exceed the max number: " + Config.max_unfinished_load_job);
+                "Number of unfinished load jobs exceed the max number: " + Config.max_unfinished_load_job);
         }
 
         Preconditions.checkState(!job.isSyncDeleteJob(), "delete job is deprecated");
@@ -1424,7 +1432,7 @@ public class Load {
 
     private long getAllUnfinishedLoadJob() {
         return idToPendingLoadJob.size() + idToEtlLoadJob.size() + idToLoadingLoadJob.size()
-                + idToQuorumFinishedLoadJob.size();
+            + idToQuorumFinishedLoadJob.size();
     }
 
     public void replayAddLoadJob(LoadJob job) throws DdlException {
@@ -1553,7 +1561,7 @@ public class Load {
      * 4. throw exception if encounter error.
      */
     private boolean unprotectIsLabelUsed(long dbId, String label, long timestamp, boolean checkMini)
-            throws DdlException {
+        throws DdlException {
         // check dbLabelToLoadJobs
         if (dbLabelToLoadJobs.containsKey(dbId)) {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(dbId);
@@ -1571,7 +1579,7 @@ public class Load {
                                 // if the timestamp in request is same as timestamp in existing load job,
                                 // which means this load job is already submitted
                                 LOG.info("get a retry request with label: {}, timestamp: {}. return ok",
-                                        label, timestamp);
+                                    label, timestamp);
                                 return true;
                             } else {
                                 throw new LabelAlreadyUsedException(label);
@@ -1602,7 +1610,7 @@ public class Load {
                         // if the timestamp in request is same as timestamp in existing load job,
                         // which means this load job is already submitted
                         LOG.info("get a retry mini load request with label: {}, timestamp: {}. return ok",
-                                label, timestamp);
+                            label, timestamp);
                         return true;
                     } else {
                         throw new LabelAlreadyUsedException(label);
@@ -1613,7 +1621,8 @@ public class Load {
         return false;
     }
 
-    public boolean isLabelExist(String dbName, String labelValue, boolean isAccurateMatch) throws DdlException, AnalysisException {
+    public boolean isLabelExist(String dbName, String labelValue, boolean isAccurateMatch)
+        throws DdlException, AnalysisException {
         // get load job and check state
         Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         readLock();
@@ -1628,7 +1637,8 @@ public class Load {
                     loadJobs.addAll(labelToLoadJobs.get(labelValue));
                 }
             } else {
-                PatternMatcher matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                PatternMatcher matcher =
+                    PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
                 for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
                     if (matcher.match(entry.getKey())) {
                         loadJobs.addAll(entry.getValue());
@@ -1670,7 +1680,8 @@ public class Load {
                     matchLoadJobs.addAll(labelToLoadJobs.get(label));
                 }
             } else {
-                PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
+                PatternMatcher matcher =
+                    PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
                 for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
                     if (matcher.match(entry.getKey())) {
                         loadJobs.addAll(entry.getValue());
@@ -1689,7 +1700,7 @@ public class Load {
             }).collect(Collectors.toList());
             if (uncompletedLoadJob.isEmpty()) {
                 throw new DdlException("There is no uncompleted job which label " +
-                        (isAccurateMatch ? "is " : "like ") + stmt.getLabel());
+                    (isAccurateMatch ? "is " : "like ") + stmt.getLabel());
             }
             loadJobs.addAll(uncompletedLoadJob);
         } finally {
@@ -1704,16 +1715,16 @@ public class Load {
 
         if (tableNames.isEmpty()) {
             if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                    PrivPredicate.LOAD)) {
+                PrivPredicate.LOAD)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
             }
         } else {
             for (String tblName : tableNames) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
-                        PrivPredicate.LOAD)) {
+                    PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
-                            ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), dbName + ": " + tblName);
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(), dbName + ": " + tblName);
                 }
             }
         }
@@ -1724,8 +1735,8 @@ public class Load {
             boolean ok = cancelLoadJob(loadJob, CancelType.USER_CANCEL, "user cancel", failedMsg);
             if (!ok) {
                 throw new DdlException("Cancel load job [" + loadJob.getId() + "] fail, " +
-                        "label=[" + loadJob.getLabel() + "] failed msg=" +
-                        (failedMsg.isEmpty() ? "Unknown reason" : failedMsg.get(0)));
+                    "label=[" + loadJob.getLabel() + "] failed msg=" +
+                    (failedMsg.isEmpty() ? "Unknown reason" : failedMsg.get(0)));
             }
         }
 
@@ -1768,16 +1779,16 @@ public class Load {
         if (tableNames.isEmpty()) {
             // forward compatibility
             if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                    PrivPredicate.LOAD)) {
+                PrivPredicate.LOAD)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
             }
         } else {
             for (String tblName : tableNames) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
-                        PrivPredicate.LOAD)) {
+                    PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
-                            ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), dbName + ": " + tblName);
+                        ConnectContext.get().getQualifiedUser(),
+                        ConnectContext.get().getRemoteIP(), dbName + ": " + tblName);
                 }
             }
         }
@@ -1785,7 +1796,8 @@ public class Load {
         // cancel job
         List<String> failedMsg = Lists.newArrayList();
         if (!cancelLoadJob(job, CancelType.USER_CANCEL, "user cancel", failedMsg)) {
-            throw new DdlException("Cancel load job fail: " + (failedMsg.isEmpty() ? "Unknown reason" : failedMsg.get(0)));
+            throw new DdlException(
+                "Cancel load job fail: " + (failedMsg.isEmpty() ? "Unknown reason" : failedMsg.get(0)));
         }
 
         return true;
@@ -1919,7 +1931,8 @@ public class Load {
     }
 
     public LinkedList<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName, String labelValue,
-                                                            boolean accurateMatch, Set<JobState> states) throws AnalysisException {
+                                                            boolean accurateMatch, Set<JobState> states)
+        throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         readLock();
         try {
@@ -1963,14 +1976,14 @@ public class Load {
                 if (tableNames.isEmpty()) {
                     // forward compatibility
                     if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                            PrivPredicate.LOAD)) {
+                        PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
                         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
-                                tblName, PrivPredicate.LOAD)) {
+                            tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
                         }
@@ -2027,9 +2040,9 @@ public class Load {
                     for (String key : counters.keySet()) {
                         // XXX: internal etl job return all counters
                         if (key.equalsIgnoreCase("HDFS bytes read")
-                                || key.equalsIgnoreCase("Map input records")
-                                || key.startsWith("dpp.")
-                                || loadJob.getEtlJobType() == EtlJobType.MINI) {
+                            || key.equalsIgnoreCase("Map input records")
+                            || key.startsWith("dpp.")
+                            || loadJob.getEtlJobType() == EtlJobType.MINI) {
                             info.add(key + "=" + counters.get(key));
                         }
                     } // end for counters
@@ -2042,8 +2055,8 @@ public class Load {
 
                 // task info
                 jobInfo.add("cluster:" + loadJob.getHadoopCluster()
-                        + "; timeout(s):" + loadJob.getTimeoutSecond()
-                        + "; max_filter_ratio:" + loadJob.getMaxFilterRatio());
+                    + "; timeout(s):" + loadJob.getTimeoutSecond()
+                    + "; max_filter_ratio:" + loadJob.getMaxFilterRatio());
 
                 // error msg
                 if (loadJob.getState() == JobState.CANCELLED) {
@@ -2122,7 +2135,7 @@ public class Load {
 
         LoadJob loadJob = getLoadJob(jobId);
         if (loadJob == null
-                || (loadJob.getState() != JobState.LOADING && loadJob.getState() != JobState.QUORUM_FINISHED)) {
+            || (loadJob.getState() != JobState.LOADING && loadJob.getState() != JobState.QUORUM_FINISHED)) {
             return infos;
         }
 
@@ -2389,7 +2402,8 @@ public class Load {
                         updatePartitionVersion(partition, partitionLoadInfo.getVersion(), jobId);
 
                         // update table row count
-                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                        for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(
+                            IndexExtState.ALL)) {
                             long indexRowCount = 0L;
                             for (Tablet tablet : materializedIndex.getTablets()) {
                                 long tabletRowCount = 0L;
@@ -2539,7 +2553,7 @@ public class Load {
         List<LoadJob> jobs = dbToLoadJobs.get(job.getDbId());
         if (jobs == null) {
             LOG.warn("Does not find db in dbToLoadJobs. DbId : {}",
-                    job.getDbId());
+                job.getDbId());
             return;
         }
         int pos = 0;
@@ -2551,7 +2565,7 @@ public class Load {
         }
         if (pos == jobs.size()) {
             LOG.warn("Does not find load job for db. DbId : {}, jobId : {}",
-                    job.getDbId(), jobId);
+                job.getDbId(), jobId);
             return;
         }
         jobs.remove(pos);
@@ -2560,13 +2574,13 @@ public class Load {
         // Replace LoadJob in dbLabelToLoadJobs
         if (dbLabelToLoadJobs.get(job.getDbId()) == null) {
             LOG.warn("Does not find db in dbLabelToLoadJobs. DbId : {}",
-                    job.getDbId());
+                job.getDbId());
             return;
         }
         jobs = dbLabelToLoadJobs.get(job.getDbId()).get(job.getLabel());
         if (jobs == null) {
             LOG.warn("Does not find label for db. label : {}, DbId : {}",
-                    job.getLabel(), job.getDbId());
+                job.getLabel(), job.getDbId());
             return;
         }
         pos = 0;
@@ -2578,7 +2592,7 @@ public class Load {
         }
         if (pos == jobs.size()) {
             LOG.warn("Does not find load job for label. label : {}, DbId : {}",
-                    job.getLabel(), job.getDbId());
+                job.getLabel(), job.getDbId());
             return;
         }
         jobs.remove(pos);
@@ -2681,7 +2695,7 @@ public class Load {
                 // hdfs://host:port/outputPath/dbId/loadLabel/
                 DppConfig dppConfig = job.getHadoopDppConfig();
                 String outputPath = DppScheduler.getEtlOutputPath(dppConfig.getFsDefaultName(),
-                        dppConfig.getOutputPath(), job.getDbId(), job.getLabel(), "");
+                    dppConfig.getOutputPath(), job.getDbId(), job.getLabel(), "");
                 try {
                     dppScheduler.deleteEtlOutputPath(outputPath);
                 } catch (Exception e) {
@@ -2759,7 +2773,7 @@ public class Load {
                     Set<JobState> destStates = STATE_CHANGE_MAP.get(srcState);
                     if (!destStates.contains(destState)) {
                         LOG.warn("state change error. src state: {}, dest state: {}",
-                                srcState.name(), destState.name());
+                            srcState.name(), destState.name());
                         return false;
                     }
 
@@ -2805,8 +2819,8 @@ public class Load {
                             // clear push tasks
                             for (PushTask pushTask : job.getPushTasks()) {
                                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                                        pushTask.getVersion(),
-                                        pushTask.getPushType(), pushTask.getTaskType());
+                                    pushTask.getVersion(),
+                                    pushTask.getPushType(), pushTask.getTaskType());
                             }
                             // Clear the Map and Set in this job, reduce the memory cost for finished load job.
                             // for delete job, keep the map and set because some of them is used in show proc method
@@ -2920,7 +2934,7 @@ public class Load {
         long partitionId = partition.getId();
         partition.updateVisibleVersion(version);
         LOG.info("update partition version success. version: {}, job id: {}, partition id: {}",
-                version, jobId, partitionId);
+            version, jobId, partitionId);
     }
 
     private boolean processCancelled(LoadJob job, CancelType cancelType, String msg, List<String> failedMsg) {
@@ -2931,9 +2945,9 @@ public class Load {
         // then there will be rubbish transactions in transaction manager
         try {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                    job.getDbId(),
-                    job.getTransactionId(),
-                    job.getFailMsg().toString());
+                job.getDbId(),
+                job.getTransactionId(),
+                job.getFailMsg().toString());
         } catch (TransactionNotFoundException e) {
             // the transaction may already be aborted due to timeout by transaction manager.
             // just print a log and continue to cancel the job.
@@ -2992,8 +3006,8 @@ public class Load {
         if (srcState == JobState.LOADING || srcState == JobState.QUORUM_FINISHED) {
             for (PushTask pushTask : job.getPushTasks()) {
                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                        pushTask.getVersion(),
-                        pushTask.getPushType(), pushTask.getTaskType());
+                    pushTask.getVersion(),
+                    pushTask.getPushType(), pushTask.getTaskType());
             }
         }
 

@@ -28,12 +28,12 @@ import java.util.Collections;
 
 public class IncompleteTabletsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("ReplicaMissingTablets").add("VersionIncompleteTablets").add("ReplicaRelocatingTablets")
-            .add("RedundantTablets").add("ReplicaMissingInClusterTablets").add("ReplicaMissingForTagTablets")
-            .add("ForceRedundantTablets").add("ColocateMismatchTablets").add("ColocateRedundantTablets")
-            .add("NeedFurtherRepairTablets").add("UnrecoverableTablets").add("ReplicaCompactionTooSlowTablets")
-            .add("InconsistentTablets").add("OversizeTablets")
-            .build();
+        .add("ReplicaMissingTablets").add("VersionIncompleteTablets").add("ReplicaRelocatingTablets")
+        .add("RedundantTablets").add("ReplicaMissingInClusterTablets").add("ReplicaMissingForTagTablets")
+        .add("ForceRedundantTablets").add("ColocateMismatchTablets").add("ColocateRedundantTablets")
+        .add("NeedFurtherRepairTablets").add("UnrecoverableTablets").add("ReplicaCompactionTooSlowTablets")
+        .add("InconsistentTablets").add("OversizeTablets")
+        .build();
     private static final Joiner JOINER = Joiner.on(",");
 
     final Database db;
@@ -46,20 +46,20 @@ public class IncompleteTabletsProcNode implements ProcNodeInterface {
     public ProcResult fetchResult() throws AnalysisException {
         TabletHealthProcDir.DBTabletStatistic statistic = new TabletHealthProcDir.DBTabletStatistic(db);
         return new BaseProcResult(TITLE_NAMES, Collections.singletonList(Arrays.asList(
-                JOINER.join(statistic.replicaMissingTabletIds),
-                JOINER.join(statistic.versionIncompleteTabletIds),
-                JOINER.join(statistic.replicaRelocatingTabletIds),
-                JOINER.join(statistic.redundantTabletIds),
-                JOINER.join(statistic.replicaMissingInClusterTabletIds),
-                JOINER.join(statistic.replicaMissingForTagTabletIds),
-                JOINER.join(statistic.forceRedundantTabletIds),
-                JOINER.join(statistic.colocateMismatchTabletIds),
-                JOINER.join(statistic.colocateRedundantTabletIds),
-                JOINER.join(statistic.needFurtherRepairTabletIds),
-                JOINER.join(statistic.unrecoverableTabletIds),
-                JOINER.join(statistic.replicaCompactionTooSlowTabletIds),
-                JOINER.join(statistic.inconsistentTabletIds),
-                JOINER.join(statistic.oversizeTabletIds)
+            JOINER.join(statistic.replicaMissingTabletIds),
+            JOINER.join(statistic.versionIncompleteTabletIds),
+            JOINER.join(statistic.replicaRelocatingTabletIds),
+            JOINER.join(statistic.redundantTabletIds),
+            JOINER.join(statistic.replicaMissingInClusterTabletIds),
+            JOINER.join(statistic.replicaMissingForTagTabletIds),
+            JOINER.join(statistic.forceRedundantTabletIds),
+            JOINER.join(statistic.colocateMismatchTabletIds),
+            JOINER.join(statistic.colocateRedundantTabletIds),
+            JOINER.join(statistic.needFurtherRepairTabletIds),
+            JOINER.join(statistic.unrecoverableTabletIds),
+            JOINER.join(statistic.replicaCompactionTooSlowTabletIds),
+            JOINER.join(statistic.inconsistentTabletIds),
+            JOINER.join(statistic.oversizeTabletIds)
         )));
     }
 

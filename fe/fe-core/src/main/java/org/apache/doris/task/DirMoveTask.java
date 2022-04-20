@@ -29,8 +29,8 @@ public class DirMoveTask extends AgentTask {
     private boolean overwrite;
 
     public DirMoveTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId, long dbId,
-            long tableId, long partitionId, long indexId, long tabletId, String src, int schemaHash,
-            boolean overwrite) {
+                       long tableId, long partitionId, long indexId, long tabletId, String src, int schemaHash,
+                       boolean overwrite) {
         super(resourceInfo, backendId, TTaskType.MOVE, dbId, tableId, partitionId, indexId, tabletId, signature);
         this.jobId = jobId;
         this.src = src;

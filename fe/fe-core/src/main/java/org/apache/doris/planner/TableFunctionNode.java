@@ -54,7 +54,7 @@ public class TableFunctionNode extends PlanNode {
         tupleIds.addAll(inputNode.getTupleIds());
         tblRefIds.addAll(inputNode.getTupleIds());
         lateralViewTupleIds = lateralViewRefs.stream().map(e -> e.getDesc().getId())
-                .collect(Collectors.toList());
+            .collect(Collectors.toList());
         tupleIds.addAll(lateralViewTupleIds);
         tblRefIds.addAll(lateralViewTupleIds);
         children.add(inputNode);
@@ -86,11 +86,11 @@ public class TableFunctionNode extends PlanNode {
     public void projectSlots(Analyzer analyzer, SelectStmt selectStmt) throws AnalysisException {
         // TODO(ml): Support project calculations that include aggregation and sorting in select stmt
         if ((selectStmt.hasAggInfo() || selectStmt.getSortInfo() != null || selectStmt.hasAnalyticInfo())
-                && selectStmt.hasInlineView()) {
+            && selectStmt.hasInlineView()) {
             // The query must be rewritten like TableFunctionPlanTest.aggColumnInOuterQuery()
             throw new AnalysisException("Please treat the query containing the lateral view as a inline view"
-                    + "and extract your aggregation/sort/window functions to the outer query."
-                    + "For example select sum(a) from (select a from table lateral view xxx) tmp1");
+                + "and extract your aggregation/sort/window functions to the outer query."
+                + "For example select sum(a) from (select a from table lateral view xxx) tmp1");
         }
         Set<SlotRef> outputSlotRef = Sets.newHashSet();
         // case1
@@ -164,7 +164,7 @@ public class TableFunctionNode extends PlanNode {
 
         if (!conjuncts.isEmpty()) {
             output.append(prefix).append("PREDICATES: ").append(
-                    getExplainString(conjuncts)).append("\n");
+                getExplainString(conjuncts)).append("\n");
         }
         output.append(prefix).append(String.format("cardinality=%s", cardinality)).append("\n");
         return output.toString();

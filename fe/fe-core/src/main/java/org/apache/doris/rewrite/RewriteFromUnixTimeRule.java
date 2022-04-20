@@ -55,19 +55,22 @@ public class RewriteFromUnixTimeRule implements ExprRewriteRule {
     // Here, we just support these three format.
     private final ImmutableMap<String, String> beSupportFormatMap;
     private final ImmutableMap<String, Function<String, Long>> parseMillisFunctionMap;
+
     public RewriteFromUnixTimeRule() {
         beSupportFormatMap = ImmutableMap.<String, String>builder()
-                .put("%Y%m%d", "yyyyMMdd")
-                .put("%Y-%m-%d", "yyyy-MM-dd")
-                .put("%Y-%m-%d %H:%i:%s", "yyyy-MM-dd HH:mm:ss")
-                .build();
+            .put("%Y%m%d", "yyyyMMdd")
+            .put("%Y-%m-%d", "yyyy-MM-dd")
+            .put("%Y-%m-%d %H:%i:%s", "yyyy-MM-dd HH:mm:ss")
+            .build();
         parseMillisFunctionMap = ImmutableMap.<String, Function<String, Long>>builder()
-                .put("yyyyMMdd", (str) -> LocalDate.parse(str, DateTimeFormatter.ofPattern("yyyyMMdd")).atStartOfDay().toEpochSecond(OffsetDateTime.now().getOffset()))
-                .put("yyyy-MM-dd", (str) -> LocalDate.parse(str, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-                        .atStartOfDay().toEpochSecond(OffsetDateTime.now().getOffset()))
-                .put("yyyy-MM-dd HH:mm:ss", (str) -> LocalDateTime.parse(str, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
-                        .toEpochSecond(OffsetDateTime.now().getOffset()))
-                .build();
+            .put("yyyyMMdd", (str) -> LocalDate.parse(str, DateTimeFormatter.ofPattern("yyyyMMdd")).atStartOfDay()
+                .toEpochSecond(OffsetDateTime.now().getOffset()))
+            .put("yyyy-MM-dd", (str) -> LocalDate.parse(str, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                .atStartOfDay().toEpochSecond(OffsetDateTime.now().getOffset()))
+            .put("yyyy-MM-dd HH:mm:ss",
+                (str) -> LocalDateTime.parse(str, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                    .toEpochSecond(OffsetDateTime.now().getOffset()))
+            .build();
     }
 
     Function<String, Long> getParseSecondsFunction(String formatStr) {
@@ -132,16 +135,19 @@ public class RewriteFromUnixTimeRule implements ExprRewriteRule {
         }
 
         try {
-            Expr literalExpr = LiteralExpr.create(String.valueOf(parseSecondsFunction.apply(le.getStringValue())), Type.BIGINT);
+            Expr literalExpr =
+                LiteralExpr.create(String.valueOf(parseSecondsFunction.apply(le.getStringValue())), Type.BIGINT);
             // it must adds low bound 0, because when a field contains negative data like -100, it will be queried as a result
             if (bp.getOp() == BinaryPredicate.Operator.LT || bp.getOp() == BinaryPredicate.Operator.LE) {
                 BinaryPredicate r = new BinaryPredicate(bp.getOp(), sr, literalExpr);
-                BinaryPredicate l = new BinaryPredicate(BinaryPredicate.Operator.GE, sr, LiteralExpr.create("0", Type.BIGINT));
+                BinaryPredicate l =
+                    new BinaryPredicate(BinaryPredicate.Operator.GE, sr, LiteralExpr.create("0", Type.BIGINT));
                 return new CompoundPredicate(CompoundPredicate.Operator.AND, r, l);
             } else if (bp.getOp() == BinaryPredicate.Operator.GT || bp.getOp() == BinaryPredicate.Operator.GE) {
                 // also it must adds upper bound 253402271999, because from_unixtime support time range is [1970-01-01 00:00:00 ~ 9999-12-31 23:59:59]
                 BinaryPredicate l = new BinaryPredicate(bp.getOp(), sr, literalExpr);
-                BinaryPredicate r = new BinaryPredicate(BinaryPredicate.Operator.LE, sr, LiteralExpr.create("253402271999", Type.BIGINT));
+                BinaryPredicate r = new BinaryPredicate(BinaryPredicate.Operator.LE, sr,
+                    LiteralExpr.create("253402271999", Type.BIGINT));
                 return new CompoundPredicate(CompoundPredicate.Operator.AND, r, l);
             } else {
                 return new BinaryPredicate(bp.getOp(), sr, literalExpr);

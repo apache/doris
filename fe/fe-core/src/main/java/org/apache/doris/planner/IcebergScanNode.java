@@ -29,11 +29,11 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExplainLevel;
 
+import com.google.common.collect.Lists;
+
 import org.apache.iceberg.expressions.Expression;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,7 +60,7 @@ public class IcebergScanNode extends BrokerScanNode {
     protected void initFileGroup() throws UserException {
         fileGroups = Lists.newArrayList(new BrokerFileGroup(icebergTable));
         brokerDesc = new BrokerDesc("IcebergTableDesc", icebergTable.getStorageType(),
-                icebergTable.getIcebergProperties());
+            icebergTable.getIcebergProperties());
         targetTable = icebergTable;
     }
 
@@ -86,7 +86,7 @@ public class IcebergScanNode extends BrokerScanNode {
         } catch (Exception e) {
             LOG.warn("errors while load iceberg table {} data files.", icebergTable.getName(), e);
             throw new UserException("errors while load Iceberg table ["
-                    + icebergTable.getName() + "] data files.");
+                + icebergTable.getName() + "] data files.");
         }
         fileStatusesList.add(fileStatuses);
         filesAdded += fileStatuses.size();
@@ -101,8 +101,8 @@ public class IcebergScanNode extends BrokerScanNode {
         if (!isLoad()) {
             output.append(prefix).append("TABLE: ").append(icebergTable.getName()).append("\n");
             output.append(prefix).append("PATH: ")
-                    .append(icebergTable.getIcebergProperties().get(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS))
-                    .append("\n");
+                .append(icebergTable.getIcebergProperties().get(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS))
+                .append("\n");
         }
         return output.toString();
     }

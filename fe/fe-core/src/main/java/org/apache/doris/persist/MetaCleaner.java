@@ -17,8 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.io.IOException;
@@ -67,7 +67,7 @@ public class MetaCleaner {
             }
         }
     }
-    
+
     private String fileType(File file) throws IOException {
         String type = null;
         String filename = file.getName();
@@ -83,14 +83,14 @@ public class MetaCleaner {
                 if (filename.startsWith(Storage.IMAGE)) {
                     type = Storage.IMAGE;
                 }
-                
+
                 if (filename.startsWith(Storage.EDITS)) {
                     type = Storage.EDITS;
                 }
             }
         }
-        
+
         return type;
     }
-    
+
 }

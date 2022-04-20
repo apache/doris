@@ -27,7 +27,6 @@ import org.apache.doris.common.io.Writable;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,6 +37,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * Internal representation of partition-related metadata.
@@ -106,12 +107,12 @@ public class Partition extends MetaObject implements Writable {
     private Partition() {
     }
 
-    public Partition(long id, String name, 
-            MaterializedIndex baseIndex, DistributionInfo distributionInfo) {
+    public Partition(long id, String name,
+                     MaterializedIndex baseIndex, DistributionInfo distributionInfo) {
         this.id = id;
         this.name = name;
         this.state = PartitionState.NORMAL;
-        
+
         this.baseIndex = baseIndex;
 
         this.visibleVersion = PARTITION_INIT_VERSION;
@@ -150,7 +151,7 @@ public class Partition extends MetaObject implements Writable {
         this.setVisibleVersion(visibleVersion);
         this.nextVersion = this.visibleVersion + 1;
         LOG.info("update partition {} version for restore: visible: {}, next: {}",
-                name, visibleVersion, nextVersion);
+            name, visibleVersion, nextVersion);
     }
 
     public void updateVisibleVersion(long visibleVersion) {
@@ -160,7 +161,7 @@ public class Partition extends MetaObject implements Writable {
     public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
         this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
     }
-    
+
     public long getVisibleVersion() {
         return visibleVersion;
     }
@@ -168,7 +169,7 @@ public class Partition extends MetaObject implements Writable {
     public long getVisibleVersionTime() {
         return visibleVersionTime;
     }
-    
+
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
     private void setVisibleVersion(long visibleVersion) {
         this.visibleVersion = visibleVersion;
@@ -215,7 +216,7 @@ public class Partition extends MetaObject implements Writable {
     public void setNextVersion(long nextVersion) {
         this.nextVersion = nextVersion;
     }
-    
+
     public long getCommittedVersion() {
         return this.nextVersion - 1;
     }
@@ -272,7 +273,7 @@ public class Partition extends MetaObject implements Writable {
         // So if set FeConstants.runningUnitTest, we can ensure that the number of partitions is not empty,
         // And the test case can continue to execute the logic of 'select best roll up'
         return ((visibleVersion != PARTITION_INIT_VERSION)
-                || FeConstants.runningUnitTest);
+            || FeConstants.runningUnitTest);
     }
 
     /*
@@ -308,7 +309,7 @@ public class Partition extends MetaObject implements Writable {
         out.writeLong(id);
         Text.writeString(out, name);
         Text.writeString(out, state.name());
-        
+
         baseIndex.write(out);
 
         int rollupCount = (idToVisibleRollupIndex != null) ? idToVisibleRollupIndex.size() : 0;
@@ -343,7 +344,7 @@ public class Partition extends MetaObject implements Writable {
         id = in.readLong();
         name = Text.readString(in);
         state = PartitionState.valueOf(Text.readString(in));
-        
+
         baseIndex = MaterializedIndex.read(in);
 
         int rollupCount = in.readInt();
@@ -351,7 +352,7 @@ public class Partition extends MetaObject implements Writable {
             MaterializedIndex rollupTable = MaterializedIndex.read(in);
             idToVisibleRollupIndex.put(rollupTable.getId(), rollupTable);
         }
-        
+
         int shadowIndexCount = in.readInt();
         for (int i = 0; i < shadowIndexCount; i++) {
             MaterializedIndex shadowIndex = MaterializedIndex.read(in);
@@ -400,8 +401,8 @@ public class Partition extends MetaObject implements Writable {
         }
 
         return (visibleVersion == partition.visibleVersion)
-                && (baseIndex.equals(partition.baseIndex)
-                && distributionInfo.equals(partition.distributionInfo));
+            && (baseIndex.equals(partition.baseIndex)
+            && distributionInfo.equals(partition.distributionInfo));
     }
 
     @Override

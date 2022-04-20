@@ -17,13 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import com.clearspring.analytics.util.Lists;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+
+import com.clearspring.analytics.util.Lists;
 
 public class ListPartitionItem extends PartitionItem {
     private List<PartitionKey> partitionKeys;

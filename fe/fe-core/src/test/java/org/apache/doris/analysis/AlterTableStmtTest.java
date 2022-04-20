@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Maps;
-import mockit.Expectations;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -26,6 +24,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -34,6 +33,7 @@ import org.junit.Test;
 import java.util.List;
 import java.util.Map;
 
+import mockit.Expectations;
 import mockit.Mocked;
 
 public class AlterTableStmtTest {
@@ -71,7 +71,7 @@ public class AlterTableStmtTest {
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
         Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` DROP COLUMN `col1`, \nDROP COLUMN `col2`",
-                stmt.toSql());
+            stmt.toSql());
         Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
         Assert.assertEquals(2, stmt.getOps().size());
     }
@@ -83,9 +83,10 @@ public class AlterTableStmtTest {
         ops.add(new AddRollupClause("index2", Lists.newArrayList("col2", "col3"), null, "testTbl", null));
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
-        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` ADD ROLLUP `index1` (`col1`, `col2`) FROM `testTbl`, \n" +
-                        " `index2` (`col2`, `col3`) FROM `testTbl`",
-                stmt.toSql());
+        Assert.assertEquals(
+            "ALTER TABLE `testCluster:testDb`.`testTbl` ADD ROLLUP `index1` (`col1`, `col2`) FROM `testTbl`, \n" +
+                " `index2` (`col2`, `col3`) FROM `testTbl`",
+            stmt.toSql());
         Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
         Assert.assertEquals(2, stmt.getOps().size());
     }
@@ -118,8 +119,9 @@ public class AlterTableStmtTest {
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` ENABLE FEATURE \"sequence_load\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
-                stmt.toSql());
+        Assert.assertEquals(
+            "ALTER TABLE `testCluster:testDb`.`testTbl` ENABLE FEATURE \"sequence_load\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
+            stmt.toSql());
         Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
     }
 }

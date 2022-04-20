@@ -17,13 +17,14 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -37,13 +38,13 @@ import java.util.List;
 public class RoutineLoadsProcDir implements ProcDirInterface {
 
     private static final ImmutableList<String> TITLE_NAMES =
-            new ImmutableList.Builder<String>()
-                    .add("Name")
-                    .add("Id")
-                    .add("DbName")
-                    .add("Statistic")
-                    .add("TaskStatistic")
-                    .build();
+        new ImmutableList.Builder<String>()
+            .add("Name")
+            .add("Id")
+            .add("DbName")
+            .add("Statistic")
+            .add("TaskStatistic")
+            .build();
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {

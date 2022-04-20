@@ -21,12 +21,13 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TTabletCommitInfo;
 
 import com.google.common.collect.Lists;
-import com.google.gson.Gson;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+
+import com.google.gson.Gson;
 
 public class TabletCommitInfo implements Writable {
 

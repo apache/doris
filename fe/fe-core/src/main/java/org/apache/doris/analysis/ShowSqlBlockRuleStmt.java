@@ -39,16 +39,16 @@ import org.apache.commons.lang3.StringUtils;
 public class ShowSqlBlockRuleStmt extends ShowStmt {
 
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Name", ScalarType.createVarchar(50)))
-                    .addColumn(new Column("Sql", ScalarType.createVarchar(65535)))
-                    .addColumn(new Column("SqlHash", ScalarType.createVarchar(65535)))
-                    .addColumn(new Column("PartitionNum", ScalarType.createVarchar(10)))
-                    .addColumn(new Column("TabletNum", ScalarType.createVarchar(10)))
-                    .addColumn(new Column("Cardinality", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Global", ScalarType.createVarchar(4)))
-                    .addColumn(new Column("Enable", ScalarType.createVarchar(4)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Name", ScalarType.createVarchar(50)))
+            .addColumn(new Column("Sql", ScalarType.createVarchar(65535)))
+            .addColumn(new Column("SqlHash", ScalarType.createVarchar(65535)))
+            .addColumn(new Column("PartitionNum", ScalarType.createVarchar(10)))
+            .addColumn(new Column("TabletNum", ScalarType.createVarchar(10)))
+            .addColumn(new Column("Cardinality", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Global", ScalarType.createVarchar(4)))
+            .addColumn(new Column("Enable", ScalarType.createVarchar(4)))
+            .build();
 
     private String ruleName; // optional
 

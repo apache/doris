@@ -25,19 +25,21 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
 
 import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.Map;
+
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-
-import java.util.Map;
 
 public class ResourceDescTest {
 
     @Test
     public void testNormal(@Mocked Catalog catalog, @Injectable ResourceMgr resourceMgr)
-            throws AnalysisException, DdlException {
+        throws AnalysisException, DdlException {
         String resourceName = "spark0";
         Map<String, String> properties = Maps.newHashMap();
         String key = "spark.executor.memory";

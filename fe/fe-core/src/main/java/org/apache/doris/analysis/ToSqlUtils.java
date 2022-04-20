@@ -35,7 +35,7 @@ public class ToSqlUtils {
      * For example, Hive cannot parse its own auto-generated column
      * names "_c0", "_c1" etc. unless they are quoted. Impala and Hive keywords
      * must also be quoted.
-     *
+     * <p>
      * Impala's lexer recognizes a superset of the unquoted identifiers that Hive can.
      * At the same time, Impala's and Hive's list of keywords differ.
      * This method always returns an identifier that Impala and Hive can recognize,
@@ -48,7 +48,7 @@ public class ToSqlUtils {
 
     public static List<String> getIdentSqlList(List<String> identList) {
         List<String> identSqlList = Lists.newArrayList();
-        for (String ident: identList) {
+        for (String ident : identList) {
             identSqlList.add(getIdentSql(ident));
         }
         return identSqlList;

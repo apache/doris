@@ -42,12 +42,12 @@ public class FailMsgTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         FailMsg failMsg1 = new FailMsg();
         failMsg1.readFields(dis);
-           
+
         Assert.assertEquals(failMsg1.getMsg(), "Job failed");
         Assert.assertEquals(failMsg1.getCancelType(), FailMsg.CancelType.ETL_QUALITY_UNSATISFIED);
-        
+
         Assert.assertTrue(failMsg1.equals(failMsg));
- 
+
         dis.close();
         file.delete();
     }

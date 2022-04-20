@@ -56,7 +56,7 @@ public class LoadJobTest {
     public void setUp() {
         UnitTestUtil.initDppConfig();
     }
-    
+
     public Source makeSource(int startId, int size) {
         List<String> files = new ArrayList<String>(size);
         List<String> columns = new ArrayList<String>(size);
@@ -69,7 +69,7 @@ public class LoadJobTest {
         Source source = new Source(files, columns, "\t", "\n", false);
         return source;
     }
-    
+
     public List<Predicate> makeDeleteConditions(int startId, int size) {
         List<Predicate> deletions = new ArrayList<Predicate>();
         for (int count = startId; count < startId + size; ++count) {
@@ -81,7 +81,7 @@ public class LoadJobTest {
         }
         return deletions;
     }
-    
+
     public LoadJob getLoadJob() {
         Source source1 = makeSource(0, 10);
         Source source2 = makeSource(10, 30);
@@ -116,15 +116,15 @@ public class LoadJobTest {
         tabletLoadInfos.put(1L, tabletLoadInfo1);
         tabletLoadInfos.put(2L, tabletLoadInfo2);
         tabletLoadInfos.put(3L, tabletLoadInfo3);
-        
+
         LoadJob loadJob3 = new LoadJob("datalabel-2014-12-5", 1000, 0.1);
         loadJob3.setIdToTableLoadInfo(idToTableLoadInfo);
         loadJob3.setIdToTabletLoadInfo(tabletLoadInfos);
-        
+
         loadJob3.addFullTablet(1);
         loadJob3.addFullTablet(2);
         loadJob3.addFullTablet(3);
-        
+
         loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(1, 1, 1, 1, 1, 1, 0, 1, 1));
         loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(2, 2, 2, 2, 2, 2, 0, 2, 2));
         loadJob3.addReplicaPersistInfos(ReplicaPersistInfo.createForLoad(3, 3, 3, 3, 3, 3, 0, 3, 3));
@@ -141,7 +141,7 @@ public class LoadJobTest {
         File file = new File("./loadJobTest" + System.currentTimeMillis());
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         LoadJob loadJob0 = new LoadJob();
         loadJob0.write(dos);
 
@@ -154,7 +154,7 @@ public class LoadJobTest {
         loadJob1.setProgress(100);
         loadJob1.setHadoopEtlJobId("etl-job-id");
         loadJob1.write(dos);
-        
+
         LoadJob loadJob3 = getLoadJob();
         loadJob3.write(dos);
 
@@ -174,32 +174,32 @@ public class LoadJobTest {
         Assert.assertTrue(loadJob0.equals(rLoadJob0));
         Assert.assertTrue(loadJob1.equals(rLoadJob1));
         Assert.assertTrue(loadJob3.equals(rLoadJob3));
-        
+
         Assert.assertFalse(loadJob0.equals(rLoadJob1));
-        
+
         dis.close();
         file.delete();
     }
-    
+
     @Test
     public void testClear() throws Exception {
         LoadJob job = getLoadJob();
-        
+
         Assert.assertFalse(job.getIdToTableLoadInfo() == null);
         Assert.assertFalse(job.getIdToTabletLoadInfo() == null);
         Assert.assertFalse(job.getQuorumTablets() == null);
         Assert.assertFalse(job.getFullTablets() == null);
         Assert.assertFalse(job.getReplicaPersistInfos() == null);
-        
+
         job.clearRedundantInfoForHistoryJob();
-        
+
         Assert.assertTrue(job.getIdToTableLoadInfo() == null);
         Assert.assertTrue(job.getIdToTabletLoadInfo() == null);
         Assert.assertTrue(job.getQuorumTablets() == null);
         Assert.assertTrue(job.getFullTablets() == null);
         Assert.assertTrue(job.getReplicaPersistInfos() == null);
     }
-    
+
     @Test
     public void testEqual() throws Exception {
         LoadJob job1 = getLoadJob();
@@ -207,25 +207,25 @@ public class LoadJobTest {
         Thread.sleep(10);
         LoadJob job3 = getLoadJob();
     }
-    
+
     @Test
     public void testGetAndSet() throws Exception {
         LoadJob job = new LoadJob();
         job.setId(1);
         Assert.assertEquals(1, job.getId());
-        
+
         job.setDbId(2);
         Assert.assertEquals(2, job.getDbId());
-        
+
         Assert.assertEquals("", job.getLabel());
-        
+
         job.setTimeoutSecond(3);
         Assert.assertEquals(3, job.getTimeoutSecond());
 
         String cluster = Config.dpp_default_cluster;
         job.setClusterInfo(cluster, Load.clusterToDppConfig.get(cluster));
         Assert.assertEquals(cluster, job.getHadoopCluster());
-        
+
         job.setState(JobState.CANCELLED);
         Assert.assertEquals(JobState.CANCELLED, job.getState());
 
@@ -234,7 +234,7 @@ public class LoadJobTest {
 
         job.setEtlStartTimeMs(6);
         Assert.assertEquals(6, job.getEtlStartTimeMs());
-        
+
         job.setEtlFinishTimeMs(7);
         Assert.assertEquals(7, job.getEtlFinishTimeMs());
 

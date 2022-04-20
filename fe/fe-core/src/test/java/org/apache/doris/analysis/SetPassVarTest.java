@@ -57,7 +57,7 @@ public class SetPassVarTest {
         Assert.assertEquals("testCluster:testUser", stmt.getUserIdent().getQualifiedUser());
         Assert.assertEquals("*88EEBA7D913688E7278E2AD071FDB5E76D76D34B", new String(stmt.getPassword()));
         Assert.assertEquals("SET PASSWORD FOR 'testCluster:testUser'@'%' = '*XXX'",
-                stmt.toString());
+            stmt.toString());
 
         // empty password
         stmt = new SetPassVar(new UserIdentity("testUser", "%"), null);

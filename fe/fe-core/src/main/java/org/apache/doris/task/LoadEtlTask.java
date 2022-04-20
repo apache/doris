@@ -75,13 +75,13 @@ public abstract class LoadEtlTask extends MasterTask {
         if (job.getState() != JobState.ETL) {
             return;
         }
-        
+
         // check timeout
         if (LoadChecker.checkTimeout(job)) {
             load.cancelLoadJob(job, CancelType.TIMEOUT, "etl timeout to cancel");
             return;
         }
-        
+
         // check db
         long dbId = job.getDbId();
         db = Catalog.getCurrentCatalog().getDbNullable(dbId);
@@ -131,7 +131,7 @@ public abstract class LoadEtlTask extends MasterTask {
                 break;
         }
     }
-    
+
     private void processEtlFinished() throws LoadException {
         // check data quality when etl finished
         if (!checkDataQuality(job.getMaxFilterRatio())) {
@@ -155,13 +155,13 @@ public abstract class LoadEtlTask extends MasterTask {
     private void tryUpdateLoading() {
         // check job has loading partitions
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
-        
+
         // new version and version hash
         try {
             for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
                 long tableId = tableEntry.getKey();
                 OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
-                
+
                 TableLoadInfo tableLoadInfo = tableEntry.getValue();
                 Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = tableLoadInfo.getIdToPartitionLoadInfo();
                 for (Map.Entry<Long, PartitionLoadInfo> entry : idToPartitionLoadInfo.entrySet()) {
@@ -170,7 +170,7 @@ public abstract class LoadEtlTask extends MasterTask {
                     if (!partitionLoadInfo.isNeedLoad()) {
                         continue;
                     }
-                    
+
                     table.readLock();
                     try {
                         Partition partition = table.getPartition(partitionId);
@@ -183,7 +183,7 @@ public abstract class LoadEtlTask extends MasterTask {
                     }
 
                     LOG.info("load job id: {}, label: {}, partition info: {}-{}-{}, partition load info: {}",
-                            job.getId(), job.getLabel(), db.getId(), tableId, partitionId, partitionLoadInfo);
+                        job.getId(), job.getLabel(), db.getId(), tableId, partitionId, partitionLoadInfo);
                 }
             }
         } catch (MetaNotFoundException e) {
@@ -194,7 +194,7 @@ public abstract class LoadEtlTask extends MasterTask {
             load.cancelLoadJob(job, CancelType.ETL_RUN_FAIL, e.getMessage());
             return;
         }
-        
+
         // update job to loading
         if (load.updateLoadJobState(job, JobState.LOADING)) {
             LOG.info("update job state to loading success. job: {}", job);
@@ -208,7 +208,7 @@ public abstract class LoadEtlTask extends MasterTask {
             }
         }
     }
-    
+
     protected String getPartitionIndexBucketString(String filePath) throws LoadException {
         String fileName = filePath.substring(filePath.lastIndexOf("/") + 1);
         // label.partitionId.indexId.bucket
@@ -216,26 +216,28 @@ public abstract class LoadEtlTask extends MasterTask {
         if (fileNameArr.length != 4) {
             throw new LoadException("etl file name format error, name: " + fileName);
         }
-        
+
         String partitionIndexBucket = fileName.substring(fileName.indexOf(".") + 1);
         return partitionIndexBucket;
     }
-    
+
     protected Map<Long, TabletLoadInfo> getTabletLoadInfos(Map<String, Pair<String, Long>> filePathMap)
-            throws LoadException {
+        throws LoadException {
         Map<Long, TabletLoadInfo> idToTabletLoadInfo = Maps.newHashMap();
         boolean hasLoadFiles = false;
-        
+
         // create tablet load info
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
+            OlapTable table =
+                (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
 
             table.readLock();
             try {
                 TableLoadInfo tableLoadInfo = tableEntry.getValue();
-                for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
+                for (Entry<Long, PartitionLoadInfo> partitionEntry : tableLoadInfo.getIdToPartitionLoadInfo()
+                    .entrySet()) {
                     long partitionId = partitionEntry.getKey();
                     boolean needLoad = false;
 
@@ -243,14 +245,14 @@ public abstract class LoadEtlTask extends MasterTask {
                     if (partition == null) {
                         throw new LoadException("partition does not exist. id: " + partitionId);
                     }
-                    
+
                     DistributionInfo distributionInfo = partition.getDistributionInfo();
                     DistributionInfoType distributionType = distributionInfo.getType();
                     if (distributionType != DistributionInfoType.RANDOM
-                            && distributionType != DistributionInfoType.HASH) {
+                        && distributionType != DistributionInfoType.HASH) {
                         throw new LoadException("unknown distribution type. type: " + distributionType.name());
                     }
-                    
+
                     // yiguolei: how to deal with filesize == -1?
                     for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                         long indexId = materializedIndex.getId();
@@ -268,7 +270,7 @@ public abstract class LoadEtlTask extends MasterTask {
                                 needLoad = true;
                                 hasLoadFiles = true;
                             }
-                            
+
                             TabletLoadInfo tabletLoadInfo = new TabletLoadInfo(filePath, fileSize);
                             idToTabletLoadInfo.put(tablet.getId(), tabletLoadInfo);
                         }
@@ -281,7 +283,7 @@ public abstract class LoadEtlTask extends MasterTask {
                 table.readUnlock();
             }
         }
-        
+
         // all partitions might have no load data
         if (!hasLoadFiles) {
             throw new LoadException("all partitions have no load data");
@@ -295,7 +297,7 @@ public abstract class LoadEtlTask extends MasterTask {
         if (!counters.containsKey(DPP_NORMAL_ALL) || !counters.containsKey(DPP_ABNORMAL_ALL)) {
             return true;
         }
-        
+
         long normalNum = Long.parseLong(counters.get(DPP_NORMAL_ALL));
         long abnormalNum = Long.parseLong(counters.get(DPP_ABNORMAL_ALL));
         if (abnormalNum > (abnormalNum + normalNum) * maxFilterRatio) {
@@ -304,8 +306,10 @@ public abstract class LoadEtlTask extends MasterTask {
 
         return true;
     }
-    
+
     protected abstract boolean updateJobEtlStatus();
+
     protected abstract void processEtlRunning() throws LoadException;
+
     protected abstract Map<String, Pair<String, Long>> getFilePathMap() throws LoadException;
 }

@@ -84,12 +84,12 @@ public class KeysDesc implements Writable {
             if (type == KeysType.AGG_KEYS) {
                 if (cols.get(i).getAggregateType() == null) {
                     throw new AnalysisException(type.name() + " table should specify aggregate type for "
-                            + "non-key column[" + cols.get(i).getName() + "]");
+                        + "non-key column[" + cols.get(i).getName() + "]");
                 }
             } else {
                 if (cols.get(i).getAggregateType() != null) {
                     throw new AnalysisException(type.name() + " table should not specify aggregate type for "
-                            + "non-key column[" + cols.get(i).getName() + "]");
+                        + "non-key column[" + cols.get(i).getName() + "]");
                 }
             }
         }

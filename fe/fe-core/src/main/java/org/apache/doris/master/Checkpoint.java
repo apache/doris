@@ -43,7 +43,7 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * Checkpoint daemon is running on master node. handle the checkpoint work for palo. 
+ * Checkpoint daemon is running on master node. handle the checkpoint work for palo.
  */
 public class Checkpoint extends MasterDaemon {
     public static final Logger LOG = LogManager.getLogger(Checkpoint.class);
@@ -86,7 +86,8 @@ public class Checkpoint extends MasterDaemon {
             imageVersion = storage.getImageSeq();
             // get max finalized journal id
             checkPointVersion = editLog.getFinalizedJournalId();
-            LOG.info("last checkpoint journal id: {}, current finalized journal id: {}", imageVersion, checkPointVersion);
+            LOG.info("last checkpoint journal id: {}, current finalized journal id: {}", imageVersion,
+                checkPointVersion);
             if (imageVersion >= checkPointVersion) {
                 return;
             }
@@ -115,7 +116,8 @@ public class Checkpoint extends MasterDaemon {
             catalog.loadImage(imageDir);
             catalog.replayJournal(checkPointVersion);
             if (catalog.getReplayedJournalId() != checkPointVersion) {
-                throw new CheckpointException(String.format("checkpoint version should be %d, actual replayed journal id is %d",
+                throw new CheckpointException(
+                    String.format("checkpoint version should be %d, actual replayed journal id is %d",
                         checkPointVersion, catalog.getReplayedJournalId()));
             }
             catalog.fixBugAfterMetadataReplayed(false);
@@ -155,7 +157,7 @@ public class Checkpoint extends MasterDaemon {
                 int port = Config.http_port;
 
                 String url = "http://" + host + ":" + port + "/put?version=" + replayedJournalId
-                        + "&port=" + port;
+                    + "&port=" + port;
                 LOG.info("Put image:{}", url);
 
                 try {
@@ -167,7 +169,7 @@ public class Checkpoint extends MasterDaemon {
             }
 
             LOG.info("push image.{} to other nodes. totally {} nodes, push succeed {} nodes",
-                    replayedJournalId, otherNodesCount, successPushed);
+                replayedJournalId, otherNodesCount, successPushed);
         }
         if (successPushed == otherNodesCount) {
             if (MetricRepo.isInit) {
@@ -212,7 +214,8 @@ public class Checkpoint extends MasterDaemon {
                                 minOtherNodesJournalId = id;
                             }
                         } catch (Throwable e) {
-                            throw new CheckpointException(String.format("Exception when getting current replayed journal id. host=%s, port=%d",
+                            throw new CheckpointException(
+                                String.format("Exception when getting current replayed journal id. host=%s, port=%d",
                                     host, port), e);
                         } finally {
                             if (conn != null) {
@@ -228,7 +231,7 @@ public class Checkpoint extends MasterDaemon {
                     MetricRepo.COUNTER_EDIT_LOG_CLEAN_SUCCESS.increase(1L);
                 }
                 LOG.info("journals <= {} are deleted. image version {}, other nodes min version {}",
-                        deleteVersion, checkPointVersion, minOtherNodesJournalId);
+                    deleteVersion, checkPointVersion, minOtherNodesJournalId);
             } catch (Throwable e) {
                 LOG.error("failed to delete old edit log", e);
                 if (MetricRepo.isInit) {
@@ -273,7 +276,7 @@ public class Checkpoint extends MasterDaemon {
 
         if (memUsedPercent > Config.metadata_checkpoint_memory_threshold && !Config.force_do_metadata_checkpoint) {
             LOG.warn("the memory used percent {} exceed the checkpoint memory threshold: {}",
-                    memUsedPercent, Config.metadata_checkpoint_memory_threshold);
+                memUsedPercent, Config.metadata_checkpoint_memory_threshold);
             return false;
         }
 

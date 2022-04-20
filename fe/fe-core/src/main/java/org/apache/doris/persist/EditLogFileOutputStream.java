@@ -79,8 +79,8 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
         int bufSize = bufCurrent.size();
         if (bufSize != 0) {
             throw new IOException("EditStream has " + bufSize
-                    + " bytes still to be flushed and cannot "
-                    + "be closed.");
+                + " bytes still to be flushed and cannot "
+                + "be closed.");
         }
         bufCurrent.close();
         bufReady.close();
@@ -133,9 +133,9 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
             fc.write(fill, newSize);
         }
     }
-    
+
     File getFile() {
         return file;
     }
-    
+
 }

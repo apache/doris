@@ -61,12 +61,13 @@ public class DropDbStmt extends DdlStmt {
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         // Don't allowed to drop 'information_schema'
         if (dbName.equalsIgnoreCase(ClusterNamespace.getFullName(getClusterName(), InfoSchemaDb.DATABASE_NAME))) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
+                dbName);
         }
 
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
-                                                ConnectContext.get().getQualifiedUser(), dbName);
+                ConnectContext.get().getQualifiedUser(), dbName);
         }
     }
 

@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.AlterJobV2.JobType;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaHeader;
 import org.apache.doris.common.io.CountingDataOutputStream;
@@ -39,10 +36,8 @@ import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
 import java.util.Random;
+
 import mockit.Expectations;
 
 public class CatalogTest {
@@ -72,7 +67,7 @@ public class CatalogTest {
             }
         }
     }
-    
+
     public void addFiles(int image, int edit, String metaDir) {
         File imageFile = new File(metaDir + "image." + image);
         try {
@@ -80,7 +75,7 @@ public class CatalogTest {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        
+
         for (int i = 1; i <= edit; i++) {
             File editFile = new File(metaDir + "edits." + i);
             try {
@@ -89,14 +84,14 @@ public class CatalogTest {
                 e.printStackTrace();
             }
         }
-        
+
         File current = new File(metaDir + "edits");
         try {
             current.createNewFile();
         } catch (IOException e) {
             e.printStackTrace();
         }
-        
+
         File version = new File(metaDir + "VERSION");
         try {
             version.createNewFile();
@@ -111,7 +106,7 @@ public class CatalogTest {
             e.printStackTrace();
         }
     }
-    
+
     public void deleteDir(String metaDir) {
         File dir = new File(metaDir);
         if (dir.exists()) {
@@ -121,11 +116,11 @@ public class CatalogTest {
                     file.delete();
                 }
             }
-            
+
             dir.delete();
         }
     }
-    
+
     @Test
     public void testSaveLoadHeader() throws Exception {
         String dir = "testLoadHeader";
@@ -143,16 +138,16 @@ public class CatalogTest {
         catalog.clear();
         catalog = null;
         dos.close();
-        
+
         DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
         catalog = Catalog.getCurrentCatalog();
-        long checksum2 = catalog.loadHeader(dis, MetaHeader.EMPTY_HEADER ,0);
+        long checksum2 = catalog.loadHeader(dis, MetaHeader.EMPTY_HEADER, 0);
         Assert.assertEquals(checksum1, checksum2);
         dis.close();
-        
+
         deleteDir(dir);
     }
-    
+
     @Test
     public void testSaveLoadJob() throws Exception {
         String dir = "testLoadLoadJob";
@@ -173,7 +168,7 @@ public class CatalogTest {
         catalog.clear();
         catalog = null;
         dos.close();
-        
+
         catalog = Catalog.getCurrentCatalog();
 
         Field field2 = catalog.getClass().getDeclaredField("load");
@@ -186,7 +181,7 @@ public class CatalogTest {
         LoadJob job2 = catalog.getLoadInstance().getLoadJob(-1);
         Assert.assertTrue(job1.equals(job2));
         dis.close();
-        
+
         deleteDir(dir);
     }
 }

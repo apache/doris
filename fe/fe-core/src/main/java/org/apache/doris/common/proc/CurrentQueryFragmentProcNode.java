@@ -17,11 +17,13 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.QueryStatisticsFormatter;
+import org.apache.doris.qe.QueryStatisticsItem;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.qe.QueryStatisticsItem;
-import org.apache.doris.common.util.QueryStatisticsFormatter;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,8 +38,8 @@ import java.util.List;
 public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
     private static final Logger LOG = LogManager.getLogger(CurrentQueryFragmentProcNode.class);
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("FragmentId").add("InstanceId").add("Host")
-            .add("ScanBytes").add("ProcessRows").build();
+        .add("FragmentId").add("InstanceId").add("Host")
+        .add("ScanBytes").add("ProcessRows").build();
     private QueryStatisticsItem item;
 
     public CurrentQueryFragmentProcNode(QueryStatisticsItem item) {
@@ -52,19 +54,19 @@ public class CurrentQueryFragmentProcNode implements ProcNodeInterface {
     private ProcResult requestFragmentExecInfos() throws AnalysisException {
         final CurrentQueryInfoProvider provider = new CurrentQueryInfoProvider();
         final Collection<CurrentQueryInfoProvider.InstanceStatistics> instanceStatisticsCollection
-                = provider.getInstanceStatistics(item);
+            = provider.getInstanceStatistics(item);
         final List<List<String>> sortedRowData = Lists.newArrayList();
         for (CurrentQueryInfoProvider.InstanceStatistics instanceStatistics :
-                instanceStatisticsCollection) {
+            instanceStatisticsCollection) {
             final List<String> rowData = Lists.newArrayList();
             rowData.add(instanceStatistics.getFragmentId());
             rowData.add(instanceStatistics.getInstanceId().toString());
             rowData.add(instanceStatistics.getAddress().toString());
             if (item.getIsReportSucc()) {
                 rowData.add(QueryStatisticsFormatter.getScanBytes(
-                        instanceStatistics.getScanBytes()));
+                    instanceStatistics.getScanBytes()));
                 rowData.add(QueryStatisticsFormatter.getRowsReturned(
-                        instanceStatistics.getRowsReturned()));
+                    instanceStatistics.getRowsReturned()));
             } else {
                 rowData.add("N/A");
                 rowData.add("N/A");

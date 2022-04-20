@@ -52,7 +52,7 @@ public class IcebergCatalogMgr {
     private static final Logger LOG = LogManager.getLogger(IcebergCatalogMgr.class);
 
     private static final String PROPERTY_MISSING_MSG = "Iceberg %s is null. " +
-            "Please add properties('%s'='xxx') when create iceberg database.";
+        "Please add properties('%s'='xxx') when create iceberg database.";
 
     // hive metastore uri -> iceberg catalog
     // used to cache iceberg catalogs
@@ -88,7 +88,7 @@ public class IcebergCatalogMgr {
     public static void validateProperties(Map<String, String> properties, boolean isTable) throws DdlException {
         if (properties.size() == 0) {
             throw new DdlException("Please set properties of iceberg, "
-                    + "they are: iceberg.database and 'iceberg.hive.metastore.uris'");
+                + "they are: iceberg.database and 'iceberg.hive.metastore.uris'");
         }
 
         Map<String, String> copiedProps = Maps.newHashMap(properties);
@@ -102,7 +102,8 @@ public class IcebergCatalogMgr {
         // hive.metastore.uris
         String hiveMetastoreUris = copiedProps.get(ICEBERG_HIVE_METASTORE_URIS);
         if (Strings.isNullOrEmpty(hiveMetastoreUris)) {
-            throw new DdlException(String.format(PROPERTY_MISSING_MSG, ICEBERG_HIVE_METASTORE_URIS, ICEBERG_HIVE_METASTORE_URIS));
+            throw new DdlException(
+                String.format(PROPERTY_MISSING_MSG, ICEBERG_HIVE_METASTORE_URIS, ICEBERG_HIVE_METASTORE_URIS));
         }
         copiedProps.remove(ICEBERG_HIVE_METASTORE_URIS);
 
@@ -116,7 +117,8 @@ public class IcebergCatalogMgr {
         }
 
         if (!Enums.getIfPresent(IcebergCatalogMgr.CatalogType.class, icebergCatalogType).isPresent()) {
-            throw new DdlException("Unknown catalog type: " + icebergCatalogType + ". Current only support HiveCatalog.");
+            throw new DdlException(
+                "Unknown catalog type: " + icebergCatalogType + ". Current only support HiveCatalog.");
         }
 
         // only check table property when it's an iceberg table
@@ -135,17 +137,18 @@ public class IcebergCatalogMgr {
 
     /**
      * Get Doris IcebergTable from remote Iceberg by database and table
-     * @param tableId table id in Doris
-     * @param tableName table name in Doris
+     *
+     * @param tableId         table id in Doris
+     * @param tableName       table name in Doris
      * @param icebergProperty Iceberg property
-     * @param identifier Iceberg table identifier
+     * @param identifier      Iceberg table identifier
      * @param isTable
      * @return IcebergTable in Doris
      * @throws DdlException
      */
     public static IcebergTable getTableFromIceberg(long tableId, String tableName, IcebergProperty icebergProperty,
-                                            TableIdentifier identifier,
-                                            boolean isTable) throws DdlException {
+                                                   TableIdentifier identifier,
+                                                   boolean isTable) throws DdlException {
         IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
 
         if (isTable && !icebergCatalog.tableExists(identifier)) {
@@ -167,7 +170,7 @@ public class IcebergCatalogMgr {
 
     /**
      * create iceberg table in Doris
-     *
+     * <p>
      * 1. check table existence in Iceberg
      * 2. get table schema from Iceberg
      * 3. convert Iceberg table schema to Doris table schema
@@ -199,7 +202,7 @@ public class IcebergCatalogMgr {
         } else {
             // get column def from remote Iceberg
             table = getTableFromIceberg(tableId, tableName, icebergProperty,
-                    TableIdentifier.of(icebergDb, icebergTbl), true);
+                TableIdentifier.of(icebergDb, icebergTbl), true);
         }
 
         // check iceberg table if exists in doris database

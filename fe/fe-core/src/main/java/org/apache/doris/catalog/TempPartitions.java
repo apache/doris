@@ -26,7 +26,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,6 +33,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import com.google.gson.annotations.SerializedName;
 
 // This class saved all temp partitions of a table.
 // temp partition is used to implement the overwrite load.
@@ -56,8 +57,9 @@ public class TempPartitions implements Writable, GsonPostProcessable {
         idToPartition.put(partition.getId(), partition);
         nameToPartition.put(partition.getName(), partition);
     }
+
     public long getUpdateTime() {
-        long updateTime = -1l;
+        long updateTime = -1L;
         for (Partition p : idToPartition.values()) {
             if (p.getVisibleVersionTime() > updateTime) {
                 updateTime = p.getVisibleVersionTime();

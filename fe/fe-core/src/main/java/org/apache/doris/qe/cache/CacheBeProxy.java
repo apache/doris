@@ -52,7 +52,7 @@ public class CacheBeProxy extends CacheProxy {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             Future<InternalService.PCacheResponse> future = BackendServiceProxy.getInstance()
-                    .updateCache(address, request);
+                .updateCache(address, request);
             InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (response.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
@@ -76,7 +76,7 @@ public class CacheBeProxy extends CacheProxy {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             Future<InternalService.PFetchCacheResult> future = BackendServiceProxy.getInstance()
-                    .fetchCache(address, request);
+                .fetchCache(address, request);
             return future.get(timeoutMs, TimeUnit.MILLISECONDS);
         } catch (RpcException e) {
             LOG.warn("fetch catch rpc exception, sqlKey {}, backend {}", sqlKey, backend.getId(), e);
@@ -119,12 +119,14 @@ public class CacheBeProxy extends CacheProxy {
         }
     }
 
-    protected boolean clearCache(InternalService.PClearCacheRequest request, Backend backend, int timeoutMs, Status status) {
+    protected boolean clearCache(InternalService.PClearCacheRequest request, Backend backend, int timeoutMs,
+                                 Status status) {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             request = request.toBuilder().setClearType(InternalService.PClearType.CLEAR_ALL).build();
             LOG.info("clear all backend cache, backendId {}", backend.getId());
-            Future<InternalService.PCacheResponse> future = BackendServiceProxy.getInstance().clearCache(address, request);
+            Future<InternalService.PCacheResponse> future =
+                BackendServiceProxy.getInstance().clearCache(address, request);
             InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (response.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
@@ -135,7 +137,6 @@ public class CacheBeProxy extends CacheProxy {
             }
         } catch (Exception e) {
             LOG.warn("clear cache exception, backendId {}", backend.getId(), e);
-        } finally {
         }
         return false;
     }

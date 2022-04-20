@@ -22,13 +22,14 @@ import org.apache.doris.analysis.HashDistributionDesc;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * Hash Distribution Info.
@@ -73,6 +74,7 @@ public class HashDistributionInfo extends DistributionInfo {
         }
         out.writeInt(bucketNum);
     }
+
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int columnCount = in.readInt();
@@ -101,8 +103,8 @@ public class HashDistributionInfo extends DistributionInfo {
         HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) info;
 
         return type == hashDistributionInfo.type
-                && bucketNum == hashDistributionInfo.bucketNum
-                && distributionColumns.equals(hashDistributionInfo.distributionColumns);
+            && bucketNum == hashDistributionInfo.bucketNum
+            && distributionColumns.equals(hashDistributionInfo.distributionColumns);
     }
 
     @Override
@@ -142,7 +144,7 @@ public class HashDistributionInfo extends DistributionInfo {
         }
         builder.append("]; ");
 
-        builder.append("bucket num: ").append(bucketNum).append("; ");;
+        builder.append("bucket num: ").append(bucketNum).append("; ");
 
         return builder.toString();
     }

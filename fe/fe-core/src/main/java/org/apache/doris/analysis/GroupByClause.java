@@ -37,12 +37,12 @@ import java.util.stream.Collectors;
 /**
  * Wraps all information of group by clause. support normal GROUP BY clause and extended GROUP BY clause like
  * ROLLUP, GROUPING SETS, CUBE syntax like
- *   SELECT a, b, SUM( c ) FROM tab1 GROUP BY GROUPING SETS ( (a, b), (a), (b), ( ) );
- *   SELECT a, b,c, SUM( d ) FROM tab1 GROUP BY ROLLUP(a,b,c)
- *   SELECT a, b,c, SUM( d ) FROM tab1 GROUP BY CUBE(a,b,c)
- *   GROUP BY `GROUPING SETS` ｜ `CUBE` ｜ `ROLLUP` is an extension to  GROUP BY clause.
- *   This syntax lets you define multiple groupings in the same query.
- *   GROUPING SETS produce a single result set that is equivalent to a UNION ALL of differently grouped rows.
+ * SELECT a, b, SUM( c ) FROM tab1 GROUP BY GROUPING SETS ( (a, b), (a), (b), ( ) );
+ * SELECT a, b,c, SUM( d ) FROM tab1 GROUP BY ROLLUP(a,b,c)
+ * SELECT a, b,c, SUM( d ) FROM tab1 GROUP BY CUBE(a,b,c)
+ * GROUP BY `GROUPING SETS` ｜ `CUBE` ｜ `ROLLUP` is an extension to  GROUP BY clause.
+ * This syntax lets you define multiple groupings in the same query.
+ * GROUPING SETS produce a single result set that is equivalent to a UNION ALL of differently grouped rows.
  * In this class we produce the rule of generating rows base on the group by clause.
  */
 public class GroupByClause implements ParseNode {
@@ -77,7 +77,7 @@ public class GroupByClause implements ParseNode {
         this.groupingType = other.groupingType;
         this.groupingExprs = (other.groupingExprs != null) ? Expr.cloneAndResetList(other.groupingExprs) : null;
         this.oriGroupingExprs =
-                (other.oriGroupingExprs != null) ? Expr.cloneAndResetList(other.oriGroupingExprs) : null;
+            (other.oriGroupingExprs != null) ? Expr.cloneAndResetList(other.oriGroupingExprs) : null;
 
         if (other.groupingSetList != null) {
             this.groupingSetList = new ArrayList<>();
@@ -152,7 +152,7 @@ public class GroupByClause implements ParseNode {
         if (groupingType == GroupingType.CUBE || groupingType == GroupingType.ROLLUP) {
             if (CollectionUtils.isEmpty(groupingExprs)) {
                 throw new AnalysisException(
-                        "The expressions in GROUPING CUBE or ROLLUP can not be empty");
+                    "The expressions in GROUPING CUBE or ROLLUP can not be empty");
             }
         } else if (groupingType == GroupingType.GROUPING_SETS) {
             if (CollectionUtils.isEmpty(groupingSetList)) {
@@ -179,7 +179,7 @@ public class GroupByClause implements ParseNode {
         for (Expr expr : groupingExprs) {
             if (expr.contains(Predicates.instanceOf(Subquery.class))) {
                 throw new AnalysisException(
-                        "Subqueries are not supported in the GROUP BY clause.");
+                    "Subqueries are not supported in the GROUP BY clause.");
             }
         }
         //TODO add the analysis for grouping and grouping_id functions
@@ -188,14 +188,14 @@ public class GroupByClause implements ParseNode {
             if (groupingExpr.contains(Expr.isAggregatePredicate())) {
                 // reference the original expr in the error msg
                 throw new AnalysisException(
-                        "GROUP BY expression must not contain aggregate functions: "
-                                + groupingExpr.toSql());
+                    "GROUP BY expression must not contain aggregate functions: "
+                        + groupingExpr.toSql());
             }
             if (groupingExpr.contains(AnalyticExpr.class)) {
                 // reference the original expr in the error msg
                 throw new AnalysisException(
-                        "GROUP BY expression must not contain analytic expressions: "
-                                + groupingExpr.toSql());
+                    "GROUP BY expression must not contain analytic expressions: "
+                        + groupingExpr.toSql());
             }
 
             if (groupingExpr.type.isOnlyMetricType()) {
@@ -205,7 +205,7 @@ public class GroupByClause implements ParseNode {
 
         if (isGroupByExtension() && groupingExprs != null && groupingExprs.size() > MAX_GROUPING_SETS_NUM) {
             throw new AnalysisException("Too many sets in GROUP BY clause, the max grouping sets item is "
-                    + MAX_GROUPING_SETS_NUM);
+                + MAX_GROUPING_SETS_NUM);
         }
         analyzed = true;
     }
@@ -287,7 +287,7 @@ public class GroupByClause implements ParseNode {
         groupingExprs = Expr.substituteList(groupingExprs, smap, analyzer, true);
         for (VirtualSlotRef vs : groupingSlots) {
             vs.setRealSlots(Optional.ofNullable(Expr.substituteList(vs.getRealSlots(), smap, analyzer, true)).orElse(
-                    new ArrayList<>()).stream().map(e -> (SlotRef) e).collect(Collectors.toList()));
+                new ArrayList<>()).stream().map(e -> (SlotRef) e).collect(Collectors.toList()));
         }
     }
 

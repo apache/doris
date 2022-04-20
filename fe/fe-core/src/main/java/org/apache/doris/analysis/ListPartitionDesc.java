@@ -76,7 +76,7 @@ public class ListPartitionDesc extends PartitionDesc {
 
     @Override
     public PartitionInfo toPartitionInfo(List<Column> schema, Map<String, Long> partitionNameToId, boolean isTemp)
-            throws DdlException {
+        throws DdlException {
         List<Column> partitionColumns = new ArrayList<>();
 
         // check and get partition column

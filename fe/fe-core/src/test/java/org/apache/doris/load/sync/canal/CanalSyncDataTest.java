@@ -38,11 +38,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
-import com.alibaba.otter.canal.client.CanalConnector;
-import com.alibaba.otter.canal.client.CanalConnectors;
-import com.alibaba.otter.canal.client.impl.SimpleCanalConnector;
-import com.alibaba.otter.canal.protocol.Message;
-import com.alibaba.otter.canal.protocol.exception.CanalClientException;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -60,6 +55,11 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
+import com.alibaba.otter.canal.client.CanalConnector;
+import com.alibaba.otter.canal.client.CanalConnectors;
+import com.alibaba.otter.canal.client.impl.SimpleCanalConnector;
+import com.alibaba.otter.canal.protocol.Message;
+import com.alibaba.otter.canal.protocol.exception.CanalClientException;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
@@ -96,22 +96,22 @@ public class CanalSyncDataTest {
     SystemInfoService systemInfoService;
 
     InternalService.PExecPlanFragmentResult beginOkResult = InternalService.PExecPlanFragmentResult.newBuilder()
-            .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // begin txn OK
+        .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // begin txn OK
 
     InternalService.PExecPlanFragmentResult beginFailResult = InternalService.PExecPlanFragmentResult.newBuilder()
-            .setStatus(Types.PStatus.newBuilder().setStatusCode(1).build()).build(); // begin txn CANCELLED
+        .setStatus(Types.PStatus.newBuilder().setStatusCode(1).build()).build(); // begin txn CANCELLED
 
     InternalService.PCommitResult commitOkResult = InternalService.PCommitResult.newBuilder()
-            .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // commit txn OK
+        .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // commit txn OK
 
     InternalService.PCommitResult commitFailResult = InternalService.PCommitResult.newBuilder()
-            .setStatus(Types.PStatus.newBuilder().setStatusCode(1).build()).build(); // commit txn CANCELLED
+        .setStatus(Types.PStatus.newBuilder().setStatusCode(1).build()).build(); // commit txn CANCELLED
 
     InternalService.PRollbackResult abortOKResult = InternalService.PRollbackResult.newBuilder()
-            .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // abort txn OK
+        .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // abort txn OK
 
     InternalService.PSendDataResult sendDataOKResult = InternalService.PSendDataResult.newBuilder()
-            .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // send data OK
+        .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build()).build(); // send data OK
 
     @Before
     public void setUp() throws Exception {
@@ -120,7 +120,8 @@ public class CanalSyncDataTest {
         Map<Long, Backend> map = Maps.newHashMap();
         map.put(104L, backend);
         ImmutableMap<Long, Backend> backendMap = ImmutableMap.copyOf(map);
-        TExecPlanFragmentParams execPlanFragmentParams = new TExecPlanFragmentParams().setParams(new TPlanFragmentExecParams()
+        TExecPlanFragmentParams execPlanFragmentParams =
+            new TExecPlanFragmentParams().setParams(new TPlanFragmentExecParams()
                 .setFragmentInstanceId(new TUniqueId())
                 .setPerNodeScanRanges(Maps.newHashMap()));
 
@@ -150,8 +151,9 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = execPlanFragmentParams;
 
-                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt, (SystemInfoService.BeAvailablePredicate) any, anyBoolean, anyString,
-                        (TStorageMedium) any, (Tag) any);
+                systemInfoService.seqChooseBackendIdsByStorageMediumAndTag(anyInt,
+                    (SystemInfoService.BeAvailablePredicate) any, anyBoolean, anyString,
+                    (TStorageMedium) any, (Tag) any);
                 minTimes = 0;
                 result = backendIds;
 
@@ -170,27 +172,32 @@ public class CanalSyncDataTest {
         };
 
         connector = CanalConnectors.newSingleConnector(
-                new InetSocketAddress("127.0.0.1", 11111), "test", "user", "passwd");
+            new InetSocketAddress("127.0.0.1", 11111), "test", "user", "passwd");
 
         new MockUp<SimpleCanalConnector>() {
             @Mock
             void connect() throws CanalClientException {
             }
+
             @Mock
             void disconnect() throws CanalClientException {
             }
+
             @Mock
             Message getWithoutAck(int var1, Long var2, TimeUnit var3) throws CanalClientException {
                 offset += batchSize * 1; // Simply set one entry as one byte
                 return CanalTestUtil.fetchMessage(
-                        ++nextId, false, batchSize, binlogFile, offset, "mysql_db", "mysql_tbl");
+                    ++nextId, false, batchSize, binlogFile, offset, "mysql_db", "mysql_tbl");
             }
+
             @Mock
             void rollback() throws CanalClientException {
             }
+
             @Mock
             void ack(long var1) throws CanalClientException {
             }
+
             @Mock
             void subscribe(String var1) throws CanalClientException {
             }
@@ -205,7 +212,7 @@ public class CanalSyncDataTest {
         new Expectations() {
             {
                 transactionMgr.beginTransaction(anyLong, (List<Long>) any, anyString,
-                        (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any, anyLong);
+                    (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any, anyLong);
                 minTimes = 0;
                 result = new AnalysisException("test exception");
 
@@ -216,11 +223,11 @@ public class CanalSyncDataTest {
         };
 
         CanalSyncDataConsumer consumer = new CanalSyncDataConsumer(
-                syncJob, connector, getLock, false);
+            syncJob, connector, getLock, false);
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
-                syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
+            syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+            channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
@@ -250,7 +257,7 @@ public class CanalSyncDataTest {
         new Expectations() {
             {
                 transactionMgr.beginTransaction(anyLong, (List<Long>) any, anyString,
-                        (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any, anyLong);
+                    (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any, anyLong);
                 minTimes = 0;
                 result = 105L;
 
@@ -262,7 +269,8 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = commitFuture;
 
-                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
+                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any,
+                    (List<InternalService.PDataRow>) any);
                 minTimes = 0;
                 result = sendDataFuture;
 
@@ -289,11 +297,11 @@ public class CanalSyncDataTest {
         };
 
         CanalSyncDataConsumer consumer = new CanalSyncDataConsumer(
-                syncJob, connector, getLock, false);
+            syncJob, connector, getLock, false);
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
-                syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
+            syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+            channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
@@ -321,7 +329,7 @@ public class CanalSyncDataTest {
         new Expectations() {
             {
                 transactionMgr.beginTransaction(anyLong, (List<Long>) any, anyString,
-                        (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any, anyLong);
+                    (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any, anyLong);
                 minTimes = 0;
                 result = 105L;
 
@@ -352,11 +360,11 @@ public class CanalSyncDataTest {
         };
 
         CanalSyncDataConsumer consumer = new CanalSyncDataConsumer(
-                syncJob, connector, getLock, false);
+            syncJob, connector, getLock, false);
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
-                syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
+            syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+            channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);
@@ -387,7 +395,7 @@ public class CanalSyncDataTest {
         new Expectations() {
             {
                 transactionMgr.beginTransaction(anyLong, (List<Long>) any, anyString,
-                        (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any, anyLong);
+                    (TransactionState.TxnCoordinator) any, (TransactionState.LoadJobSourceType) any, anyLong);
                 minTimes = 0;
                 result = 105L;
 
@@ -403,7 +411,8 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = abortFuture;
 
-                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
+                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any,
+                    (List<InternalService.PDataRow>) any);
                 minTimes = 0;
                 result = sendDataFuture;
 
@@ -434,11 +443,11 @@ public class CanalSyncDataTest {
         };
 
         CanalSyncDataConsumer consumer = new CanalSyncDataConsumer(
-                syncJob, connector, getLock, false);
+            syncJob, connector, getLock, false);
         CanalSyncDataReceiver receiver = new CanalSyncDataReceiver(
-                syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
+            syncJob, connector, "test", "mysql_db.mysql_tbl", consumer, 8192, getLock);
         CanalSyncChannel channel = new CanalSyncChannel(
-                channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
+            channelId, syncJob, database, table, Lists.newArrayList("a", "b"), "mysql_db", "mysql_tbl");
 
         Map<Long, CanalSyncChannel> idToChannels = Maps.newHashMap();
         idToChannels.put(channel.getId(), channel);

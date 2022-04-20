@@ -43,7 +43,8 @@ public abstract class AgentTask {
     protected long createTime;
 
     public AgentTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
-                     long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature, long createTime) {
+                     long dbId, long tableId, long partitionId, long indexId, long tabletId, long signature,
+                     long createTime) {
         this.backendId = backendId;
         this.signature = signature;
         this.taskType = taskType;
@@ -59,9 +60,9 @@ public abstract class AgentTask {
         this.failedTimes = 0;
         this.createTime = createTime;
     }
-    
+
     public AgentTask(TResourceInfo resourceInfo, long backendId, TTaskType taskType,
-            long dbId, long tableId, long partitionId, long indexId, long tabletId) {
+                     long dbId, long tableId, long partitionId, long indexId, long tabletId) {
         this(resourceInfo, backendId, taskType, dbId, tableId, partitionId, indexId, tabletId, tabletId, -1);
     }
 

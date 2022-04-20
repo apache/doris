@@ -189,7 +189,7 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
                                 filter.upperBoundType() == BoundType.CLOSED ?
                                 BoundType.CLOSED : BoundType.OPEN;
                             result.addAll(rangeMap.subRangeMap(
-                                Range.range(minKey, lowerType, maxKey, upperType))
+                                    Range.range(minKey, lowerType, maxKey, upperType))
                                 .asMapOfRanges().values());
                         } catch (IllegalArgumentException e) {
                         }
@@ -256,8 +256,12 @@ public class RangePartitionPrunerV2 extends PartitionPrunerV2Base {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             RangePartitionUniqueId that = (RangePartitionUniqueId) o;
             return partitionId == that.partitionId;
         }

@@ -80,11 +80,11 @@ import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 
-abstract public class DorisHttpTestCase {
+public abstract class DorisHttpTestCase {
 
     public OkHttpClient networkClient = new OkHttpClient.Builder()
-            .readTimeout(100, TimeUnit.SECONDS)
-            .build();
+        .readTimeout(100, TimeUnit.SECONDS)
+        .build();
 
     public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
 
@@ -142,11 +142,14 @@ abstract public class DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
 
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica1 =
+            new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica2 =
+            new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 2000L,
+        Replica replica3 =
+            new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 2000L,
                 Replica.ReplicaState.NORMAL, -1, 0);
 
         // tablet
@@ -154,7 +157,8 @@ abstract public class DorisHttpTestCase {
 
         // index
         MaterializedIndex baseIndex = new MaterializedIndex(testIndexId, MaterializedIndex.IndexState.NORMAL);
-        TabletMeta tabletMeta = new TabletMeta(testDbId, testTableId, testPartitionId, testIndexId, testSchemaHash, TStorageMedium.HDD);
+        TabletMeta tabletMeta =
+            new TabletMeta(testDbId, testTableId, testPartitionId, testIndexId, testSchemaHash, TStorageMedium.HDD);
         baseIndex.addTablet(tablet, tabletMeta);
 
         tablet.addReplica(replica1);
@@ -172,10 +176,10 @@ abstract public class DorisHttpTestCase {
         partitionInfo.setDataProperty(testPartitionId, DataProperty.DEFAULT_DATA_PROPERTY);
         partitionInfo.setReplicaAllocation(testPartitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(testTableId, name, columns, KeysType.AGG_KEYS, partitionInfo,
-                distributionInfo);
+            distributionInfo);
         table.addPartition(partition);
         table.setIndexMeta(testIndexId, "testIndex", columns, 0, testSchemaHash, (short) 1, TStorageType.COLUMN,
-                KeysType.AGG_KEYS);
+            KeysType.AGG_KEYS);
         table.setBaseIndexId(testIndexId);
         return table;
     }
@@ -339,18 +343,22 @@ abstract public class DorisHttpTestCase {
             SchemaChangeHandler getSchemaChangeHandler() {
                 return new SchemaChangeHandler();
             }
+
             @Mock
             MaterializedViewHandler getRollupHandler() {
                 return new MaterializedViewHandler();
             }
+
             @Mock
             Catalog getCurrentCatalog() {
                 return catalog;
             }
+
             @Mock
             SystemInfoService getCurrentSystemInfo() {
                 return systemInfoService;
             }
+
             @Mock
             TabletInvertedIndex getCurrentInvertedIndex() {
                 return tabletInvertedIndex;
@@ -381,20 +389,23 @@ abstract public class DorisHttpTestCase {
      * Checks a specific exception class is thrown by the given runnable, and returns it.
      */
     public static <T extends Throwable> T expectThrows(Class<T> expectedType, ThrowingRunnable runnable) {
-        return expectThrows(expectedType, "Expected exception " + expectedType.getSimpleName() + " but no exception was thrown", runnable);
+        return expectThrows(expectedType,
+            "Expected exception " + expectedType.getSimpleName() + " but no exception was thrown", runnable);
     }
 
     /**
      * Checks a specific exception class is thrown by the given runnable, and returns it.
      */
-    public static <T extends Throwable> T expectThrows(Class<T> expectedType, String noExceptionMessage, ThrowingRunnable runnable) {
+    public static <T extends Throwable> T expectThrows(Class<T> expectedType, String noExceptionMessage,
+                                                       ThrowingRunnable runnable) {
         try {
             runnable.run();
         } catch (Throwable e) {
             if (expectedType.isInstance(e)) {
                 return expectedType.cast(e);
             }
-            AssertionFailedError assertion = new AssertionFailedError("Unexpected exception type, expected " + expectedType.getSimpleName() + " but got " + e);
+            AssertionFailedError assertion = new AssertionFailedError(
+                "Unexpected exception type, expected " + expectedType.getSimpleName() + " but got " + e);
             assertion.initCause(e);
             throw assertion;
         }

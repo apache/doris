@@ -31,7 +31,7 @@ public class BackendEvent {
     private final String message;
     private final Long[] backendIds;
 
-    public BackendEvent(BackendEventType type, String message, Long...backendIds) {
+    public BackendEvent(BackendEventType type, String message, Long... backendIds) {
         this.type = type;
         this.message = message;
         this.backendIds = backendIds;

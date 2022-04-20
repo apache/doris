@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
@@ -27,6 +25,8 @@ import org.apache.doris.common.UserException;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import mockit.Expectations;
 
 public class CancelLoadStmtTest {
     private Analyzer analyzer;
@@ -78,7 +78,8 @@ public class CancelLoadStmtTest {
         stmt = new CancelLoadStmt(null, likePredicate);
         stmt.analyze(analyzer);
         Assert.assertFalse(stmt.isAccurateMatch());
-        Assert.assertEquals("CANCEL LOAD FROM testCluster:testDb WHERE `label` LIKE 'doris_test_label'", stmt.toString());
+        Assert.assertEquals("CANCEL LOAD FROM testCluster:testDb WHERE `label` LIKE 'doris_test_label'",
+            stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

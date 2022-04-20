@@ -21,12 +21,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+
+import com.google.gson.annotations.SerializedName;
 
 /*
  * For serialize "replace temp partition" operation log
@@ -47,7 +47,8 @@ public class ReplacePartitionOperationLog implements Writable {
     private boolean useTempPartitionName;
 
     public ReplacePartitionOperationLog(long dbId, long tblId, List<String> partitionNames,
-            List<String> tempPartitonNames, boolean strictRange, boolean useTempPartitionName) {
+                                        List<String> tempPartitonNames, boolean strictRange,
+                                        boolean useTempPartitionName) {
         this.dbId = dbId;
         this.tblId = tblId;
         this.partitions = partitionNames;

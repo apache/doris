@@ -52,7 +52,7 @@ public class DropMaterializedViewStmtTest {
         new Expectations() {
             {
                 paloAuth.checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                        tableName.getTbl(), PrivPredicate.DROP);
+                    tableName.getTbl(), PrivPredicate.DROP);
                 result = false;
             }
         };

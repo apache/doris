@@ -27,7 +27,7 @@ public class DropReplicaTask extends AgentTask {
         super(null, backendId, TTaskType.DROP, -1L, -1L, -1L, -1L, tabletId);
         this.schemaHash = schemaHash;
     }
-    
+
     public TDropTabletReq toThrift() {
         TDropTabletReq request = new TDropTabletReq(tabletId);
         if (this.schemaHash != -1) {

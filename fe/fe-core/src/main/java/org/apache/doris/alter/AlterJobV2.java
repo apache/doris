@@ -28,14 +28,14 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
 import java.util.List;
+
+import com.google.gson.annotations.SerializedName;
 
 /*
  * Version 2 of AlterJob, for replacing the old version of AlterJob.
@@ -47,7 +47,7 @@ public abstract class AlterJobV2 implements Writable {
     public enum JobState {
         PENDING, // Job is created
         WAITING_TXN, // New replicas are created and Shadow catalog object is visible for incoming txns,
-                     // waiting for previous txns to be finished
+        // waiting for previous txns to be finished
         RUNNING, // alter tasks are sent to BE, and waiting for them finished.
         FINISHED, // job is done
         CANCELLED; // job is cancelled(failed or be cancelled by user)
@@ -145,10 +145,10 @@ public abstract class AlterJobV2 implements Writable {
      * run() and cancel()
      * Only these 2 methods can be visited by different thread(internal working thread and user connection thread)
      * So using 'synchronized' to make sure only one thread can run the job at one time.
-     * 
+     * <p>
      * lock order:
-     *      synchronized
-     *      db lock
+     * synchronized
+     * db lock
      */
     public synchronized void run() {
         if (isTimeout()) {
@@ -158,17 +158,17 @@ public abstract class AlterJobV2 implements Writable {
 
         try {
             switch (jobState) {
-            case PENDING:
-                runPendingJob();
-                break;
-            case WAITING_TXN:
-                runWaitingTxnJob();
-                break;
-            case RUNNING:
-                runRunningJob();
-                break;
-            default:
-                break;
+                case PENDING:
+                    runPendingJob();
+                    break;
+                case WAITING_TXN:
+                    runWaitingTxnJob();
+                    break;
+                case RUNNING:
+                    runRunningJob();
+                    break;
+                default:
+                    break;
             }
         } catch (AlterCancelException e) {
             cancelImpl(e.getMessage());
@@ -180,9 +180,9 @@ public abstract class AlterJobV2 implements Writable {
     }
 
     /**
-    * should be call before executing the job.
-    * return false if table is not stable.
-    */
+     * should be call before executing the job.
+     * return false if table is not stable.
+     */
     protected boolean checkTableStable(Database db) throws AlterCancelException {
         OlapTable tbl;
         try {
@@ -194,7 +194,7 @@ public abstract class AlterJobV2 implements Writable {
         tbl.writeLockOrAlterCancelException();
         try {
             boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
-                    Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
+                Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
 
             if (!isStable) {
                 errMsg = "table is unstable";

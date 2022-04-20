@@ -21,12 +21,13 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Sets;
-import com.google.gson.Gson;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Set;
+
+import com.google.gson.Gson;
 
 /**
  * This class is used to save the authorization info which needs to be persisted.

@@ -71,6 +71,7 @@ public enum PrimitiveType {
     private static final int DECIMAL_INDEX_LEN = 12;
 
     private static ImmutableSetMultimap<PrimitiveType, PrimitiveType> implicitCastMap;
+
     static {
         ImmutableSetMultimap.Builder<PrimitiveType, PrimitiveType> builder = ImmutableSetMultimap.builder();
         // Nulltype
@@ -293,7 +294,7 @@ public enum PrimitiveType {
 
         // BITMAP
         builder.put(BITMAP, BITMAP);
-        
+
         // QUANTILE_STATE
         builder.put(QUANTILE_STATE, QUANTILE_STATE);
 
@@ -353,9 +354,11 @@ public enum PrimitiveType {
     public static ArrayList<PrimitiveType> getIntegerTypes() {
         return integerTypes;
     }
+
     public static ArrayList<PrimitiveType> getNumericTypes() {
         return numericTypes;
     }
+
     public static ArrayList<PrimitiveType> getSupportedTypes() {
         return supportedTypes;
     }
@@ -401,7 +404,8 @@ public enum PrimitiveType {
         compatibilityMatrix[NULL_TYPE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[NULL_TYPE.ordinal()][TIME.ordinal()] = TIME;
         compatibilityMatrix[NULL_TYPE.ordinal()][BITMAP.ordinal()] = BITMAP;    //TODO(weixiang): bitmap can be null?
-        compatibilityMatrix[NULL_TYPE.ordinal()][QUANTILE_STATE.ordinal()] = QUANTILE_STATE;   //TODO(weixiang): QUANTILE_STATE can be null?
+        compatibilityMatrix[NULL_TYPE.ordinal()][QUANTILE_STATE.ordinal()] =
+            QUANTILE_STATE;   //TODO(weixiang): QUANTILE_STATE can be null?
 
         compatibilityMatrix[BOOLEAN.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
         compatibilityMatrix[BOOLEAN.ordinal()][TINYINT.ordinal()] = TINYINT;
@@ -535,7 +539,7 @@ public enum PrimitiveType {
 
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[DECIMALV2.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        
+
         compatibilityMatrix[HLL.ordinal()][HLL.ordinal()] = HLL;
         compatibilityMatrix[HLL.ordinal()][TIME.ordinal()] = INVALID_TYPE;
 
@@ -684,10 +688,10 @@ public enum PrimitiveType {
 
     public boolean isFixedPointType() {
         return this == TINYINT
-                || this == SMALLINT
-                || this == INT
-                || this == BIGINT
-                || this == LARGEINT;
+            || this == SMALLINT
+            || this == INT
+            || this == BIGINT
+            || this == LARGEINT;
     }
 
     public boolean isFloatingPointType() {
@@ -715,7 +719,7 @@ public enum PrimitiveType {
         return (this == DATE || this == DATETIME);
     }
 
-    public boolean isArrayType(){
+    public boolean isArrayType() {
         return this == ARRAY;
     }
 
@@ -729,7 +733,7 @@ public enum PrimitiveType {
 
     public boolean isIntegerType() {
         return (this == TINYINT || this == SMALLINT
-                || this == INT || this == BIGINT);
+            || this == INT || this == BIGINT);
     }
 
     // TODO(zhaochun): Add Mysql Type to it's private field
@@ -756,7 +760,7 @@ public enum PrimitiveType {
             case DATETIME: {
                 if (isTimeType) {
                     return MysqlColType.MYSQL_TYPE_TIME;
-                }  else {
+                } else {
                     return MysqlColType.MYSQL_TYPE_DATETIME;
                 }
             }

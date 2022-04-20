@@ -20,7 +20,6 @@ package org.apache.doris.service;
 import org.junit.Assert;
 import org.junit.Test;
 
-import javax.validation.constraints.AssertTrue;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -31,7 +30,7 @@ public class ExecuteEnvTest {
     @Test
     public void testGetInstance() {
         Set<Thread> tds = new HashSet<Thread>();
-        for (int i = 0 ;i < THREAD_MAX_NUM; i++) {
+        for (int i = 0; i < THREAD_MAX_NUM; i++) {
             Thread td = new Thread(new MyTest(i, oids));
             tds.add(td);
             td.start();
@@ -45,7 +44,7 @@ public class ExecuteEnvTest {
             }
         }
         for (int i = 1; i < THREAD_MAX_NUM; i++) {
-            Assert.assertEquals(oids[i-1], oids[i]);
+            Assert.assertEquals(oids[i - 1], oids[i]);
         }
     }
 }

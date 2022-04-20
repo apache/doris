@@ -28,8 +28,8 @@ import java.util.List;
 // Show unfinished rollup tasks of rollup job v2
 public class RollupJobProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("BaseTabletId").add("RollupTabletId")
-            .build();
+        .add("BackendId").add("BaseTabletId").add("RollupTabletId")
+        .build();
 
     private RollupJobV2 rollupJob;
 

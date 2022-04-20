@@ -17,13 +17,10 @@
 
 package org.apache.doris.system;
 
-import mockit.Expectations;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.HeartbeatMgr.BrokerHeartbeatHandler;
 import org.apache.doris.system.HeartbeatMgr.FrontendHeartbeatHandler;
@@ -43,6 +40,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;

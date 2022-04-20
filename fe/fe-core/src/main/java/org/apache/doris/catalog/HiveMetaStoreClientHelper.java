@@ -34,6 +34,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.google.common.base.Strings;
+
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -57,8 +59,6 @@ import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-
-import com.google.common.base.Strings;
 
 import java.io.IOException;
 import java.text.ParseException;
@@ -97,6 +97,7 @@ public class HiveMetaStoreClientHelper {
 
         /**
          * convert Hive table inputFormat to file format
+         *
          * @param input inputFormat of Hive file
          * @return
          * @throws DdlException
@@ -133,8 +134,9 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Check to see if the specified table exists in the specified database.
-     * @param client HiveMetaStoreClient
-     * @param dbName the specified database name
+     *
+     * @param client  HiveMetaStoreClient
+     * @param dbName  the specified database name
      * @param tblName the specified table name
      * @return TRUE if specified.tableName exists, FALSE otherwise.
      * @throws DdlException
@@ -159,6 +161,7 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Get data files of partitions in hive table, filter by partition predicate
+     *
      * @param hiveTable
      * @param hivePartitionPredicate
      * @param fileStatuses
@@ -167,7 +170,8 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException
      */
     public static String getHiveDataFiles(HiveTable hiveTable, ExprNodeGenericFuncDesc hivePartitionPredicate,
-                                          List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl) throws DdlException {
+                                          List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl)
+        throws DdlException {
         HiveMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
 
         List<RemoteIterator<LocatedFileStatus>> remoteIterators;
@@ -176,7 +180,8 @@ public class HiveMetaStoreClientHelper {
             List<Partition> hivePartitions = new ArrayList<>();
             try {
                 client.listPartitionsByExpr(hiveTable.getHiveDb(), hiveTable.getHiveTable(),
-                        SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate), null, (short) -1, hivePartitions);
+                    SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate), null, (short) -1,
+                    hivePartitions);
             } catch (TException e) {
                 LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
                 throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
@@ -219,7 +224,8 @@ public class HiveMetaStoreClientHelper {
         return hdfsUrl;
     }
 
-    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(List<Partition> partitions) throws DdlException {
+    private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(List<Partition> partitions)
+        throws DdlException {
         List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
         Configuration configuration = new Configuration(false);
         for (Partition p : partitions) {
@@ -278,6 +284,7 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Convert Doris expr to Hive expr, only for partition column
+     *
      * @param dorisExpr
      * @param partitions
      * @param tblName
@@ -285,7 +292,8 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException
      * @throws SemanticException
      */
-    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(Expr dorisExpr, List<String> partitions, String tblName) throws DdlException {
+    public static ExprNodeGenericFuncDesc convertToHivePartitionExpr(Expr dorisExpr, List<String> partitions,
+                                                                     String tblName) throws DdlException {
         if (dorisExpr == null) {
             return null;
         }
@@ -294,8 +302,10 @@ public class HiveMetaStoreClientHelper {
             CompoundPredicate compoundPredicate = (CompoundPredicate) dorisExpr;
             switch (compoundPredicate.getOp()) {
                 case AND: {
-                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
+                    ExprNodeGenericFuncDesc left =
+                        convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
+                    ExprNodeGenericFuncDesc right =
+                        convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
                     if (left != null && right != null) {
                         List<ExprNodeDesc> andArgs = new ArrayList<>();
                         andArgs.add(left);
@@ -309,8 +319,10 @@ public class HiveMetaStoreClientHelper {
                     return null;
                 }
                 case OR: {
-                    ExprNodeGenericFuncDesc left = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
-                    ExprNodeGenericFuncDesc right = convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
+                    ExprNodeGenericFuncDesc left =
+                        convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
+                    ExprNodeGenericFuncDesc right =
+                        convertToHivePartitionExpr(compoundPredicate.getChild(0), partitions, tblName);
                     if (left != null && right != null) {
                         List<ExprNodeDesc> orArgs = new ArrayList<>();
                         orArgs.add(left);
@@ -361,8 +373,8 @@ public class HiveMetaStoreClientHelper {
                 if (value == null) {
                     if (opcode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
                         return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, "NULL")
-                                .pred("=", 2).build();
+                            .val(hivePrimitiveType, "NULL")
+                            .pred("=", 2).build();
                     } else {
                         return null;
                     }
@@ -371,28 +383,28 @@ public class HiveMetaStoreClientHelper {
                     case EQ:
                     case EQ_FOR_NULL:
                         return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("=", 2).build();
+                            .val(hivePrimitiveType, value)
+                            .pred("=", 2).build();
                     case NE:
                         return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("!=", 2).build();
+                            .val(hivePrimitiveType, value)
+                            .pred("!=", 2).build();
                     case GE:
                         return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred(">=", 2).build();
+                            .val(hivePrimitiveType, value)
+                            .pred(">=", 2).build();
                     case GT:
                         return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred(">", 2).build();
+                            .val(hivePrimitiveType, value)
+                            .pred(">", 2).build();
                     case LE:
                         return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("<=", 2).build();
+                            .val(hivePrimitiveType, value)
+                            .pred("<=", 2).build();
                     case LT:
                         return exprBuilder.col(hivePrimitiveType, colName)
-                                .val(hivePrimitiveType, value)
-                                .pred("<", 2).build();
+                            .val(hivePrimitiveType, value)
+                            .pred("<", 2).build();
                     default:
                         return null;
                 }
@@ -406,7 +418,7 @@ public class HiveMetaStoreClientHelper {
         ExprNodeGenericFuncDesc compoundExpr;
         try {
             compoundExpr = ExprNodeGenericFuncDesc.newInstance(
-                    FunctionRegistry.getFunctionInfo(op).getGenericUDF(), args);
+                FunctionRegistry.getFunctionInfo(op).getGenericUDF(), args);
         } catch (SemanticException e) {
             LOG.warn("Convert to Hive expr failed: {}", e.getMessage());
             throw new DdlException("Convert to Hive expr failed. Error: " + e.getMessage());
@@ -438,11 +450,11 @@ public class HiveMetaStoreClientHelper {
             SimpleDateFormat formatter = new SimpleDateFormat("yyyyMMddHHmmss");
             StringBuilder sb = new StringBuilder();
             sb.append(dateLiteral.getYear())
-                    .append(dateLiteral.getMonth())
-                    .append(dateLiteral.getDay())
-                    .append(dateLiteral.getHour())
-                    .append(dateLiteral.getMinute())
-                    .append(dateLiteral.getSecond());
+                .append(dateLiteral.getMonth())
+                .append(dateLiteral.getDay())
+                .append(dateLiteral.getHour())
+                .append(dateLiteral.getMinute())
+                .append(dateLiteral.getSecond());
             Date date;
             try {
                 date = formatter.parse(sb.toString());
@@ -465,8 +477,10 @@ public class HiveMetaStoreClientHelper {
         }
         return null;
     }
+
     /**
      * Convert from Doris column type to Hive column type
+     *
      * @param dorisType
      * @return hive primitive type info
      * @throws DdlException
@@ -517,7 +531,7 @@ public class HiveMetaStoreClientHelper {
             if (stack.size() != 1) {
                 throw new DdlException("Build Hive expression Failed: " + stack.size());
             }
-            return (ExprNodeGenericFuncDesc)stack.pop();
+            return (ExprNodeGenericFuncDesc) stack.pop();
         }
 
         public ExprBuilder pred(String name, int args) throws DdlException {
@@ -531,7 +545,7 @@ public class HiveMetaStoreClientHelper {
             }
             try {
                 stack.push(new ExprNodeGenericFuncDesc(ti,
-                        FunctionRegistry.getFunctionInfo(name).getGenericUDF(), children));
+                    FunctionRegistry.getFunctionInfo(name).getGenericUDF(), children));
             } catch (SemanticException e) {
                 LOG.warn("Build Hive expression failed: semantic analyze exception: {}", e.getMessage());
                 throw new DdlException("Build Hive expression Failed. Error: " + e.getMessage());

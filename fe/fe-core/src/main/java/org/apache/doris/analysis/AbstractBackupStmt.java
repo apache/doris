@@ -47,7 +47,8 @@ public class AbstractBackupStmt extends DdlStmt {
 
     protected long timeoutMs;
 
-    public AbstractBackupStmt(LabelName labelName, String repoName, AbstractBackupTableRefClause abstractBackupTableRefClause,
+    public AbstractBackupStmt(LabelName labelName, String repoName,
+                              AbstractBackupTableRefClause abstractBackupTableRefClause,
                               Map<String, String> properties) {
         this.labelName = labelName;
         this.repoName = repoName;
@@ -62,7 +63,7 @@ public class AbstractBackupStmt extends DdlStmt {
         // user need database level privilege(not table level), because when doing restore operation,
         // the restore table may be newly created, so we can not judge its privileges.
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(),
-                labelName.getDbName(), PrivPredicate.LOAD)) {
+            labelName.getDbName(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }
 
@@ -83,7 +84,7 @@ public class AbstractBackupStmt extends DdlStmt {
         for (TableRef tblRef : abstractBackupTableRefClause.getTableRefList()) {
             if (!Strings.isNullOrEmpty(tblRef.getName().getDb())) {
                 throw new AnalysisException("Cannot specify database name on backup objects: "
-                        + tblRef.getName().getTbl() + ". Specify database name before label");
+                    + tblRef.getName().getTbl() + ". Specify database name before label");
             }
             // set db name because we can not persist empty string when writing bdbje log
             tblRef.getName().setDb(labelName.getDbName());
@@ -100,7 +101,7 @@ public class AbstractBackupStmt extends DdlStmt {
                 timeoutMs = Long.valueOf(properties.get(PROP_TIMEOUT));
             } catch (NumberFormatException e) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                        "Invalid timeout format: " + properties.get(PROP_TIMEOUT));
+                    "Invalid timeout format: " + properties.get(PROP_TIMEOUT));
             }
 
             if (timeoutMs * 1000 < MIN_TIMEOUT_MS) {

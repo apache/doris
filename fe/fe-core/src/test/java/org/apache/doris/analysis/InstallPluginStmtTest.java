@@ -17,20 +17,21 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Maps;
-import mockit.Expectations;
-import mockit.Mocked;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class InstallPluginStmtTest {
 
@@ -59,7 +60,7 @@ public class InstallPluginStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("7529db41471ec72e165f96fe9fb92742", stmt.getMd5sum());
         Assert.assertEquals("INSTALL PLUGIN FROM \"http://test/test.zip\"\n" +
-                "PROPERTIES (\"md5sum\"  =  \"7529db41471ec72e165f96fe9fb92742\")", stmt.toString());
+            "PROPERTIES (\"md5sum\"  =  \"7529db41471ec72e165f96fe9fb92742\")", stmt.toString());
     }
 
 }

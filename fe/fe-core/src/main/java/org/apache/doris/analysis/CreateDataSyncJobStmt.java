@@ -81,7 +81,7 @@ public class CreateDataSyncJobStmt extends DdlStmt {
 
         if (!Config.enable_create_sync_job) {
             throw new AnalysisException("Mysql sync job is disabled." +
-                    " Set config 'enable_create_sync_job' = 'true' to enable this feature. ");
+                " Set config 'enable_create_sync_job' = 'true' to enable this feature. ");
         }
 
         if (binlogDesc != null) {
@@ -102,10 +102,12 @@ public class CreateDataSyncJobStmt extends DdlStmt {
             Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
             OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
             if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
-                throw new AnalysisException("Table: " + tableName + " is not a unique table, key type: " + olapTable.getKeysType());
+                throw new AnalysisException(
+                    "Table: " + tableName + " is not a unique table, key type: " + olapTable.getKeysType());
             }
             if (!olapTable.hasDeleteSign()) {
-                throw new AnalysisException("Table: " + tableName + " don't support batch delete. Please upgrade it to support, see `help alter table`.");
+                throw new AnalysisException("Table: " + tableName +
+                    " don't support batch delete. Please upgrade it to support, see `help alter table`.");
             }
         }
     }

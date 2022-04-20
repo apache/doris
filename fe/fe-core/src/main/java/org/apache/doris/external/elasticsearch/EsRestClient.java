@@ -41,7 +41,6 @@ import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
-
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -59,8 +58,8 @@ public class EsRestClient {
     }
 
     private static OkHttpClient networkClient = new OkHttpClient.Builder()
-            .readTimeout(10, TimeUnit.SECONDS)
-            .build();
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build();
 
     private static OkHttpClient sslNetworkClient;
 
@@ -75,7 +74,7 @@ public class EsRestClient {
         this.builder = new Request.Builder();
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
             this.builder.addHeader(HttpHeaders.AUTHORIZATION,
-                    Credentials.basic(authUser, authPassword));
+                Credentials.basic(authUser, authPassword));
         }
         this.currentNode = nodes[currentNodeIndex];
         this.httpSslEnable = httpSslEnable;
@@ -162,10 +161,10 @@ public class EsRestClient {
     private synchronized OkHttpClient getOrCreateSslNetworkClient() {
         if (sslNetworkClient == null) {
             sslNetworkClient = new OkHttpClient.Builder()
-                    .readTimeout(10, TimeUnit.SECONDS)
-                    .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
-                    .hostnameVerifier(new TrustAllHostnameVerifier())
-                    .build();
+                .readTimeout(10, TimeUnit.SECONDS)
+                .sslSocketFactory(createSSLSocketFactory(), new TrustAllCerts())
+                .hostnameVerifier(new TrustAllHostnameVerifier())
+                .build();
         }
         return sslNetworkClient;
     }
@@ -197,8 +196,8 @@ public class EsRestClient {
                 currentNode = "http://" + currentNode;
             }
             Request request = builder.get()
-                    .url(currentNode + "/" + path)
-                    .build();
+                .url(currentNode + "/" + path)
+                .build();
             Response response = null;
             if (LOG.isTraceEnabled()) {
                 LOG.trace("es rest client request URL: {}", currentNode + "/" + path);

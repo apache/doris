@@ -17,15 +17,17 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Mocked;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import mockit.Mocked;
 
 public class ShowDbIdStmtTest {
     private Analyzer analyzer;
@@ -43,7 +45,7 @@ public class ShowDbIdStmtTest {
     }
 
     @Test
-    public void testNormal() throws UserException, AnalysisException  {
+    public void testNormal() throws UserException, AnalysisException {
         ShowDbIdStmt stmt = new ShowDbIdStmt(123456);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW DATABASE 123456", stmt.toString());

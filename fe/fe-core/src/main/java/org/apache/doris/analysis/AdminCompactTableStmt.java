@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -27,6 +25,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -82,12 +83,13 @@ public class AdminCompactTableStmt extends DdlStmt {
 
         // analyze where clause if not null
         if (where == null) {
-            throw new AnalysisException("Compaction type must be specified in Where clause like: type = 'BASE/CUMULATIVE'");
+            throw new AnalysisException(
+                "Compaction type must be specified in Where clause like: type = 'BASE/CUMULATIVE'");
         }
 
         if (!analyzeWhere()) {
             throw new AnalysisException(
-                    "Where clause should looks like: type = 'BASE/CUMULATIVE'");
+                "Where clause should looks like: type = 'BASE/CUMULATIVE'");
         }
     }
 

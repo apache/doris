@@ -100,7 +100,8 @@ public class UpdateStmtExecutor {
             LOG.warn("failed to plan update stmt, query id:{}", DebugUtil.printId(queryId), e);
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, txnId, e.getMessage());
             QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
-            throw new DdlException("failed to plan update stmt, query id: " + DebugUtil.printId(queryId) + ", err: " + e.getMessage());
+            throw new DdlException(
+                "failed to plan update stmt, query id: " + DebugUtil.printId(queryId) + ", err: " + e.getMessage());
         } finally {
             targetTable.readUnlock();
         }
@@ -115,24 +116,25 @@ public class UpdateStmtExecutor {
         } catch (Throwable e) {
             LOG.warn("failed to execute update stmt, query id:{}", DebugUtil.printId(queryId), e);
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, txnId, e.getMessage());
-            throw new DdlException("failed to execute update stmt, query id: " + DebugUtil.printId(queryId) + ", err: " + e.getMessage());
+            throw new DdlException(
+                "failed to execute update stmt, query id: " + DebugUtil.printId(queryId) + ", err: " + e.getMessage());
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
         }
-        
+
         // 4. commit and publish
         commitAndPublishTxn();
     }
 
     private void beginTxn() throws LabelAlreadyUsedException, AnalysisException, BeginTransactionException,
-            DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
+        DuplicatedRequestException, QuotaExceedException, MetaNotFoundException {
         LOG.info("begin transaction for update stmt, query id:{}", DebugUtil.printId(queryId));
         MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         label = "update_" + DebugUtil.printId(queryId);
         txnId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, Lists.newArrayList(targetTable.getId()), label,
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                        LoadJobSourceType.INSERT_STREAMING, timeoutSecond);
+            .beginTransaction(dbId, Lists.newArrayList(targetTable.getId()), label,
+                new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                LoadJobSourceType.INSERT_STREAMING, timeoutSecond);
     }
 
     // TODO(ML): Abstract the logic of executing the coordinater and retrying.
@@ -140,7 +142,7 @@ public class UpdateStmtExecutor {
     private void executePlan() throws Exception {
         LOG.info("begin execute update stmt, query id:{}", DebugUtil.printId(queryId));
         coordinator = new Coordinator(Catalog.getCurrentCatalog().getNextId(), queryId, analyzer.getDescTbl(),
-                updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE, false);
+            updatePlanner.getFragments(), updatePlanner.getScanNodes(), TimeUtils.DEFAULT_TIME_ZONE, false);
         coordinator.setQueryType(TQueryType.LOAD);
         coordinator.setExecVecEngine(VectorizedUtil.isVectorized());
         QeProcessorImpl.INSTANCE.registerQuery(queryId, coordinator);
@@ -162,7 +164,7 @@ public class UpdateStmtExecutor {
             LOG.info("finish to execute update stmt, query id:{}", DebugUtil.printId(queryId));
         } else {
             String errMsg = "coordinator could not finished before update timeout: "
-                    + coordinator.getExecStatus().getErrorMsg();
+                + coordinator.getExecStatus().getErrorMsg();
             LOG.warn(errMsg);
             throw new DdlException(errMsg);
         }
@@ -183,15 +185,15 @@ public class UpdateStmtExecutor {
         try {
             LOG.info("commit and publish transaction for update stmt, query id: {}", DebugUtil.printId(queryId));
             isPublished = globalTransactionMgr.commitAndPublishTransaction(
-                    Catalog.getCurrentCatalog().getDbOrMetaException(dbId),
-                    Lists.newArrayList(targetTable),
-                    txnId,
-                    TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
-                    analyzer.getContext().getSessionVariable().getInsertVisibleTimeoutMs());
+                Catalog.getCurrentCatalog().getDbOrMetaException(dbId),
+                Lists.newArrayList(targetTable),
+                txnId,
+                TabletCommitInfo.fromThrift(coordinator.getCommitInfos()),
+                analyzer.getContext().getSessionVariable().getInsertVisibleTimeoutMs());
         } catch (Throwable e) {
             // situation2.1: publish error, throw exception
             String errMsg = "failed to commit and publish transaction for update stmt, query id:"
-                    + DebugUtil.printId(queryId);
+                + DebugUtil.printId(queryId);
             LOG.warn(errMsg, e);
             globalTransactionMgr.abortTransaction(dbId, txnId, e.getMessage());
             throw new DdlException(errMsg, e);
@@ -230,10 +232,10 @@ public class UpdateStmtExecutor {
         updateStmtExecutor.analyzer = updateStmt.getAnalyzer();
         updateStmtExecutor.queryId = updateStmtExecutor.analyzer.getContext().queryId();
         updateStmtExecutor.timeoutSecond = updateStmtExecutor.analyzer.getContext()
-                .getSessionVariable().getQueryTimeoutS();
+            .getSessionVariable().getQueryTimeoutS();
         updateStmtExecutor.updatePlanner = new UpdatePlanner(updateStmtExecutor.dbId, updateStmtExecutor.targetTable,
-                updateStmt.getSetExprs(), updateStmt.getSrcTupleDesc(),
-                updateStmt.getAnalyzer());
+            updateStmt.getSetExprs(), updateStmt.getSrcTupleDesc(),
+            updateStmt.getAnalyzer());
         return updateStmtExecutor;
     }
 

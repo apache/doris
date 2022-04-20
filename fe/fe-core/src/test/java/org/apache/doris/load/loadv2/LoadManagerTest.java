@@ -30,13 +30,13 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.meta.MetaContext;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -115,7 +115,7 @@ public class LoadManagerTest {
     public void testSerializationNormal(@Mocked Catalog catalog,
                                         @Injectable Database database,
                                         @Injectable Table table) throws Exception {
-        new Expectations(){
+        new Expectations() {
             {
                 catalog.getDbNullable(anyLong);
                 minTimes = 0;
@@ -150,7 +150,7 @@ public class LoadManagerTest {
                                                 @Mocked Catalog catalog,
                                                 @Injectable Database database,
                                                 @Injectable Table table) throws Exception {
-        new Expectations(){
+        new Expectations() {
             {
                 catalog.getDbNullable(anyLong);
                 minTimes = 0;

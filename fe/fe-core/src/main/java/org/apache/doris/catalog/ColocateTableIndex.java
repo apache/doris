@@ -35,7 +35,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,6 +50,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * maintain the colocate table related indexes and meta
@@ -110,7 +111,7 @@ public class ColocateTableIndex implements Writable {
             result = 31 * result + grpId.hashCode();
             return result;
         }
-        
+
         @Override
         public String toString() {
             return dbId + "." + grpId;
@@ -173,8 +174,8 @@ public class ColocateTableIndex implements Writable {
                 }
                 HashDistributionInfo distributionInfo = (HashDistributionInfo) tbl.getDefaultDistributionInfo();
                 ColocateGroupSchema groupSchema = new ColocateGroupSchema(groupId,
-                        distributionInfo.getDistributionColumns(), distributionInfo.getBucketNum(),
-                        tbl.getDefaultReplicaAllocation());
+                    distributionInfo.getDistributionColumns(), distributionInfo.getBucketNum(),
+                    tbl.getDefaultReplicaAllocation());
                 groupName2Id.put(fullGroupName, groupId);
                 group2Schema.put(groupId, groupSchema);
                 group2ErrMsgs.put(groupId, "");
@@ -580,7 +581,7 @@ public class ColocateTableIndex implements Writable {
                 info.add(String.valueOf(groupSchema.getBucketsNum()));
                 info.add(String.valueOf(groupSchema.getReplicaAlloc().toCreateStmt()));
                 List<String> cols = groupSchema.getDistributionColTypes().stream().map(
-                        e -> e.toSql()).collect(Collectors.toList());
+                    e -> e.toSql()).collect(Collectors.toList());
                 info.add(Joiner.on(", ").join(cols));
                 info.add(String.valueOf(!unstableGroups.contains(groupId)));
                 info.add(Strings.nullToEmpty(group2ErrMsgs.get(groupId)));

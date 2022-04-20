@@ -69,7 +69,7 @@ public class LoadColumnsInfo implements ParseNode {
         if (columnMappingList != null || columnMappingList.size() != 0) {
             sb.append(" SET (");
             sb.append(Joiner.on(",").join(columnMappingList.parallelStream()
-                                                  .map(entity -> entity.toSql()).collect(Collectors.toList())));
+                .map(entity -> entity.toSql()).collect(Collectors.toList())));
             sb.append(")");
         }
         return sb.toString();
@@ -102,7 +102,7 @@ public class LoadColumnsInfo implements ParseNode {
             BinaryPredicate predicate = (BinaryPredicate) expr;
             if (predicate.getOp() != BinaryPredicate.Operator.EQ) {
                 throw new AnalysisException("Mapping function should only be binary predicate with EQ operator: "
-                        + predicate.getOp());
+                    + predicate.getOp());
             }
 
             Expr child0 = predicate.getChild(0);

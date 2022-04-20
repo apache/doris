@@ -90,7 +90,7 @@ public class EsMajorVersion {
             return new EsMajorVersion((byte) 8, version);
         }
         throw new DorisEsException("Unsupported/Unknown ES Cluster version [" + version + "]." +
-                "Highest supported version is [" + LATEST.version + "].");
+            "Highest supported version is [" + LATEST.version + "].");
     }
 
     @Override
@@ -105,7 +105,7 @@ public class EsMajorVersion {
         EsMajorVersion version = (EsMajorVersion) o;
 
         return major == version.major &&
-                version.equals(version.version);
+            version.equals(version.version);
     }
 
     @Override

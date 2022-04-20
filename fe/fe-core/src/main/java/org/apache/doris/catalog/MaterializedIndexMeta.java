@@ -32,7 +32,6 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -41,6 +40,8 @@ import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
+import com.google.gson.annotations.SerializedName;
 
 public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @SerializedName(value = "indexId")
@@ -61,7 +62,8 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     private OriginStatement defineStmt;
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
-            short shortKeyColumnCount, TStorageType storageType, KeysType keysType, OriginStatement defineStmt) {
+                                 short shortKeyColumnCount, TStorageType storageType, KeysType keysType,
+                                 OriginStatement defineStmt) {
         this.indexId = indexId;
         Preconditions.checkState(schema != null);
         Preconditions.checkState(schema.size() != 0);
@@ -184,7 +186,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         }
         // parse the define stmt to schema
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(defineStmt.originStmt),
-                SqlModeHelper.MODE_DEFAULT));
+            SqlModeHelper.MODE_DEFAULT));
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);

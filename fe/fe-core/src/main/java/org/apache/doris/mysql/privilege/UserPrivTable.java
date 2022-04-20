@@ -82,9 +82,9 @@ public class UserPrivTable extends PrivTable {
     // return true if this connection is valid, and 'savedPrivs' save all global privs got from user table.
     // if currentUser is not null, save the current user identity
     public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) {
+                                 List<UserIdentity> currentUser) {
         LOG.debug("check password for user: {} from {}, password: {}, random string: {}",
-                  remoteUser, remoteHost, remotePasswd, randomString);
+            remoteUser, remoteHost, remotePasswd, randomString);
 
         // TODO(cmy): for now, we check user table from first entry to last,
         // This may not efficient, but works.
@@ -105,8 +105,8 @@ public class UserPrivTable extends PrivTable {
             byte[] saltPassword = MysqlPassword.getSaltFromPassword(globalPrivEntry.getPassword());
             // when the length of password is zero, the user has no password
             if ((remotePasswd.length == saltPassword.length)
-                    && (remotePasswd.length == 0
-                            || MysqlPassword.checkScramble(remotePasswd, randomString, saltPassword))) {
+                && (remotePasswd.length == 0
+                || MysqlPassword.checkScramble(remotePasswd, randomString, saltPassword))) {
                 // found the matched entry
                 if (currentUser != null) {
                     currentUser.add(globalPrivEntry.getDomainUserIdent());
@@ -127,7 +127,7 @@ public class UserPrivTable extends PrivTable {
     }
 
     public boolean checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
-            List<UserIdentity> currentUser) {
+                                      List<UserIdentity> currentUser) {
         for (PrivEntry entry : entries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
 
@@ -160,7 +160,7 @@ public class UserPrivTable extends PrivTable {
      */
     public void setPassword(GlobalPrivEntry passwdEntry, boolean errOnNonExist) throws DdlException {
         GlobalPrivEntry addedEntry = (GlobalPrivEntry) addEntry(passwdEntry, false /* err on exist */,
-                errOnNonExist /* err on non exist */);
+            errOnNonExist /* err on non exist */);
         addedEntry.setPassword(passwdEntry.getPassword());
     }
 

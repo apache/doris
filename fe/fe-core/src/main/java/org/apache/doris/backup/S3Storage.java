@@ -146,41 +146,41 @@ public class S3Storage extends BlobStorage {
             checkS3(caseInsensitiveProperties);
             URI tmpEndpoint = URI.create(caseInsensitiveProperties.get(S3_ENDPOINT).toString());
             AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
-                    caseInsensitiveProperties.get(S3_AK).toString(),
-                    caseInsensitiveProperties.get(S3_SK).toString());
+                caseInsensitiveProperties.get(S3_AK).toString(),
+                caseInsensitiveProperties.get(S3_SK).toString());
             StaticCredentialsProvider scp = StaticCredentialsProvider.create(awsBasic);
             EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
-                    .builder()
-                    .baseDelay(Duration.ofSeconds(1))
-                    .maxBackoffTime(Duration.ofMinutes(1))
-                    .build();
+                .builder()
+                .baseDelay(Duration.ofSeconds(1))
+                .maxBackoffTime(Duration.ofMinutes(1))
+                .build();
             // retry 3 time with Equal backoff
             RetryPolicy retryPolicy = RetryPolicy
-                    .builder()
-                    .numRetries(3)
-                    .backoffStrategy(backoffStrategy)
-                    .build();
+                .builder()
+                .numRetries(3)
+                .backoffStrategy(backoffStrategy)
+                .build();
             ClientOverrideConfiguration clientConf = ClientOverrideConfiguration
-                    .builder()
-                    // set retry policy
-                    .retryPolicy(retryPolicy)
-                    // using AwsS3V4Signer
-                    .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
-                    .build();
+                .builder()
+                // set retry policy
+                .retryPolicy(retryPolicy)
+                // using AwsS3V4Signer
+                .putAdvancedOption(SdkAdvancedClientOption.SIGNER, AwsS3V4Signer.create())
+                .build();
             URI endpoint = StringUtils.isEmpty(bucket) ? tmpEndpoint :
-                    URI.create(new URIBuilder(tmpEndpoint).setHost(bucket + "." + tmpEndpoint.getHost()).toString());
+                URI.create(new URIBuilder(tmpEndpoint).setHost(bucket + "." + tmpEndpoint.getHost()).toString());
             client = S3Client.builder()
-                    .endpointOverride(endpoint)
-                    .credentialsProvider(scp)
-                    .region(Region.of(caseInsensitiveProperties.get(S3_REGION).toString()))
-                    .overrideConfiguration(clientConf)
-                    // disable chunkedEncoding because of bos not supported
-                    // use virtual hosted-style access
-                    .serviceConfiguration(S3Configuration.builder()
-                            .chunkedEncodingEnabled(false)
-                            .pathStyleAccessEnabled(false)
-                            .build())
-                    .build();
+                .endpointOverride(endpoint)
+                .credentialsProvider(scp)
+                .region(Region.of(caseInsensitiveProperties.get(S3_REGION).toString()))
+                .overrideConfiguration(clientConf)
+                // disable chunkedEncoding because of bos not supported
+                // use virtual hosted-style access
+                .serviceConfiguration(S3Configuration.builder()
+                    .chunkedEncodingEnabled(false)
+                    .pathStyleAccessEnabled(false)
+                    .build())
+                .build();
         }
         return client;
     }
@@ -193,32 +193,33 @@ public class S3Storage extends BlobStorage {
         if (localFile.exists()) {
             try {
                 Files.walk(Paths.get(localFilePath), FileVisitOption.FOLLOW_LINKS)
-                        .sorted(Comparator.reverseOrder())
-                        .map(Path::toFile)
-                        .forEach(File::delete);
+                    .sorted(Comparator.reverseOrder())
+                    .map(Path::toFile)
+                    .forEach(File::delete);
             } catch (IOException e) {
                 return new Status(
-                        Status.ErrCode.COMMON_ERROR, "failed to delete exist local file: " + localFilePath);
+                    Status.ErrCode.COMMON_ERROR, "failed to delete exist local file: " + localFilePath);
             }
         }
         try {
             S3URI uri = S3URI.create(remoteFilePath, forceHostedStyle);
-            GetObjectResponse response = getClient(uri.getVirtualBucket()).getObject(GetObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(), localFile.toPath());
+            GetObjectResponse response = getClient(uri.getVirtualBucket()).getObject(
+                GetObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(), localFile.toPath());
             if (localFile.length() == fileSize) {
                 LOG.info(
-                        "finished to download from {} to {} with size: {}. cost {} ms",
-                        remoteFilePath,
-                        localFilePath,
-                        fileSize,
-                        (System.currentTimeMillis() - start));
+                    "finished to download from {} to {} with size: {}. cost {} ms",
+                    remoteFilePath,
+                    localFilePath,
+                    fileSize,
+                    (System.currentTimeMillis() - start));
                 return Status.OK;
             } else {
                 return new Status(Status.ErrCode.COMMON_ERROR, response.toString());
             }
         } catch (S3Exception s3Exception) {
             return new Status(
-                    Status.ErrCode.COMMON_ERROR,
-                    "get file from s3 error: " + s3Exception.awsErrorDetails().errorMessage());
+                Status.ErrCode.COMMON_ERROR,
+                "get file from s3 error: " + s3Exception.awsErrorDetails().errorMessage());
         } catch (UserException ue) {
             LOG.warn("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
@@ -232,10 +233,10 @@ public class S3Storage extends BlobStorage {
         try {
             S3URI uri = S3URI.create(remoteFile, forceHostedStyle);
             PutObjectResponse response =
-                    getClient(uri.getVirtualBucket())
-                            .putObject(
-                                    PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
-                                    RequestBody.fromBytes(content.getBytes()));
+                getClient(uri.getVirtualBucket())
+                    .putObject(
+                        PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
+                        RequestBody.fromBytes(content.getBytes()));
             LOG.info("upload content success: " + response.eTag());
             return Status.OK;
         } catch (S3Exception e) {
@@ -252,12 +253,12 @@ public class S3Storage extends BlobStorage {
             S3URI origUri = S3URI.create(origFilePath);
             S3URI descUri = S3URI.create(destFilePath, forceHostedStyle);
             getClient(descUri.getVirtualBucket())
-                    .copyObject(
-                            CopyObjectRequest.builder()
-                                    .copySource(origUri.getBucket() + "/" + origUri.getKey())
-                                    .destinationBucket(descUri.getBucket())
-                                    .destinationKey(descUri.getKey())
-                                    .build());
+                .copyObject(
+                    CopyObjectRequest.builder()
+                        .copySource(origUri.getBucket() + "/" + origUri.getKey())
+                        .destinationBucket(descUri.getBucket())
+                        .destinationKey(descUri.getKey())
+                        .build());
             return Status.OK;
         } catch (S3Exception e) {
             LOG.error("copy file failed: ", e);
@@ -273,10 +274,10 @@ public class S3Storage extends BlobStorage {
         try {
             S3URI uri = S3URI.create(remotePath, forceHostedStyle);
             PutObjectResponse response =
-                    getClient(uri.getVirtualBucket())
-                            .putObject(
-                                    PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
-                                    RequestBody.fromFile(new File(localPath)));
+                getClient(uri.getVirtualBucket())
+                    .putObject(
+                        PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
+                        RequestBody.fromFile(new File(localPath)));
             LOG.info("upload file " + localPath + " success: " + response.eTag());
             return Status.OK;
         } catch (S3Exception e) {
@@ -303,9 +304,9 @@ public class S3Storage extends BlobStorage {
         try {
             S3URI uri = S3URI.create(remotePath, forceHostedStyle);
             DeleteObjectResponse response =
-                    getClient(uri.getVirtualBucket())
-                            .deleteObject(
-                                    DeleteObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
+                getClient(uri.getVirtualBucket())
+                    .deleteObject(
+                        DeleteObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
             LOG.info("delete file " + remotePath + " success: " + response.toString());
             return Status.OK;
         } catch (S3Exception e) {
@@ -349,7 +350,9 @@ public class S3Storage extends BlobStorage {
                 return Status.OK;
             }
             for (FileStatus fileStatus : files) {
-                RemoteFile remoteFile = new RemoteFile(fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(), !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen());
+                RemoteFile remoteFile =
+                    new RemoteFile(fileNameOnly ? fileStatus.getPath().getName() : fileStatus.getPath().toString(),
+                        !fileStatus.isDirectory(), fileStatus.isDirectory() ? -1 : fileStatus.getLen());
                 result.add(remoteFile);
             }
         } catch (FileNotFoundException e) {
@@ -370,10 +373,10 @@ public class S3Storage extends BlobStorage {
         try {
             S3URI uri = S3URI.create(remotePath, forceHostedStyle);
             PutObjectResponse response =
-                    getClient(uri.getVirtualBucket())
-                            .putObject(
-                                    PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
-                                    RequestBody.empty());
+                getClient(uri.getVirtualBucket())
+                    .putObject(
+                        PutObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build(),
+                        RequestBody.empty());
             LOG.info("makeDir success: " + response.eTag());
             return Status.OK;
         } catch (S3Exception e) {
@@ -390,7 +393,7 @@ public class S3Storage extends BlobStorage {
         try {
             S3URI uri = S3URI.create(remotePath, forceHostedStyle);
             getClient(uri.getVirtualBucket())
-                    .headObject(HeadObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
+                .headObject(HeadObjectRequest.builder().bucket(uri.getBucket()).key(uri.getKey()).build());
             return Status.OK;
         } catch (S3Exception e) {
             if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {

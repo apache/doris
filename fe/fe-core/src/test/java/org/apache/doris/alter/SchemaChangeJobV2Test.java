@@ -17,8 +17,6 @@
 
 package org.apache.doris.alter;
 
-import static org.junit.Assert.assertEquals;
-
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddColumnClause;
@@ -66,7 +64,6 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Maps;
 
-import org.apache.hadoop.yarn.webapp.hamlet.HamletSpec;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -85,6 +82,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.junit.Assert.assertEquals;
+
 public class SchemaChangeJobV2Test {
 
     private static String fileName = "./SchemaChangeV2Test";
@@ -99,7 +98,7 @@ public class SchemaChangeJobV2Test {
 
     private static Analyzer analyzer;
     private static ColumnDef newCol = new ColumnDef("add_v", new TypeDef(ScalarType.createType(PrimitiveType.INT)),
-            false, AggregateType.MAX, false, new DefaultValue(true, "1"), "");
+        false, AggregateType.MAX, false, new DefaultValue(true, "1"), "");
     private static AddColumnClause addColumnClause = new AddColumnClause(newCol, new ColumnPosition("v"), null, null);
 
     @Rule
@@ -107,7 +106,7 @@ public class SchemaChangeJobV2Test {
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
-            InvocationTargetException, NoSuchMethodException, SecurityException, AnalysisException {
+        InvocationTargetException, NoSuchMethodException, SecurityException, AnalysisException {
         FakeCatalog.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         fakeEditLog = new FakeEditLog();
         fakeCatalog = new FakeCatalog();
@@ -210,7 +209,8 @@ public class SchemaChangeJobV2Test {
         MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
-                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), shadowReplica.getDataSize(), shadowReplica.getRowCount());
+                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), shadowReplica.getDataSize(),
+                    shadowReplica.getRowCount());
             }
         }
 
@@ -292,7 +292,8 @@ public class SchemaChangeJobV2Test {
         MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
-                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), shadowReplica.getDataSize(), shadowReplica.getRowCount());
+                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), shadowReplica.getDataSize(),
+                    shadowReplica.getRowCount());
             }
         }
 
@@ -357,8 +358,9 @@ public class SchemaChangeJobV2Test {
         Assert.assertEquals(3, olapTable.getTableProperty().getDynamicPartitionProperty().getBuckets());
     }
 
-    public void modifyDynamicPartitionWithoutTableProperty(String propertyKey, String propertyValue, String missPropertyKey)
-            throws UserException {
+    public void modifyDynamicPartitionWithoutTableProperty(String propertyKey, String propertyValue,
+                                                           String missPropertyKey)
+        throws UserException {
         fakeCatalog = new FakeCatalog();
         FakeCatalog.setCatalog(masterCatalog);
         SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
@@ -371,18 +373,23 @@ public class SchemaChangeJobV2Test {
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("errCode = 2, detailMessage = Table test_db.test_tbl2 is not a dynamic partition table. " +
+        expectedEx.expectMessage(
+            "errCode = 2, detailMessage = Table test_db.test_tbl2 is not a dynamic partition table. " +
                 "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.");
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
     }
 
     @Test
     public void testModifyDynamicPartitionWithoutTableProperty() throws UserException {
-        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.ENABLE, "false", DynamicPartitionProperty.TIME_UNIT);
-        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.TIME_UNIT, "day", DynamicPartitionProperty.ENABLE);
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.ENABLE, "false",
+            DynamicPartitionProperty.TIME_UNIT);
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.TIME_UNIT, "day",
+            DynamicPartitionProperty.ENABLE);
         modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.END, "3", DynamicPartitionProperty.ENABLE);
-        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.PREFIX, "p", DynamicPartitionProperty.ENABLE);
-        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.BUCKETS, "30", DynamicPartitionProperty.ENABLE);
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.PREFIX, "p",
+            DynamicPartitionProperty.ENABLE);
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.BUCKETS, "30",
+            DynamicPartitionProperty.ENABLE);
     }
 
     @Test
@@ -393,7 +400,7 @@ public class SchemaChangeJobV2Test {
         file.deleteOnExit();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
-        SchemaChangeJobV2 schemaChangeJobV2 = new SchemaChangeJobV2(1, 1,1, "test",600000);
+        SchemaChangeJobV2 schemaChangeJobV2 = new SchemaChangeJobV2(1, 1, 1, "test", 600000);
         schemaChangeJobV2.setStorageFormat(TStorageFormat.V2);
         Deencapsulation.setField(schemaChangeJobV2, "jobState", AlterJobV2.JobState.FINISHED);
         Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();
@@ -432,7 +439,8 @@ public class SchemaChangeJobV2Test {
         Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1).get();
         OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1).get();
         Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
-        Assert.assertTrue(olapTable.getDefaultDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
+        Assert.assertTrue(
+            olapTable.getDefaultDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
         Partition partition1 = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         Assert.assertTrue(partition1.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
     }

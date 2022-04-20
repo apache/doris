@@ -117,7 +117,9 @@ public class TupleDescriptor {
     public ArrayList<SlotDescriptor> getMaterializedSlots() {
         ArrayList<SlotDescriptor> result = Lists.newArrayList();
         for (SlotDescriptor slot : slots) {
-            if (slot.isMaterialized()) result.add(slot);
+            if (slot.isMaterialized()) {
+                result.add(slot);
+            }
         }
         return result;
     }
@@ -130,10 +132,10 @@ public class TupleDescriptor {
         for (SlotDescriptor slotDesc : slots) {
             if (slotDesc.getColumn() != null && slotDesc.getColumn().getName().equalsIgnoreCase(columnName)) {
                 return slotDesc;
-            }    
-        }    
+            }
+        }
         return null;
-    } 
+    }
 
     public Table getTable() {
         return table;
@@ -151,7 +153,10 @@ public class TupleDescriptor {
         return isMaterialized;
     }
 
-    public boolean isMaterialized() { return isMaterialized; }
+    public boolean isMaterialized() {
+        return isMaterialized;
+    }
+
     public void setIsMaterialized(boolean value) {
         isMaterialized = value;
     }
@@ -164,8 +169,15 @@ public class TupleDescriptor {
         this.aliases = aliases;
         this.hasExplicitAlias = hasExplicitAlias;
     }
-    public boolean hasExplicitAlias() { return hasExplicitAlias; }
-    public String getAlias() { return (aliases != null) ? aliases[0] : null; }
+
+    public boolean hasExplicitAlias() {
+        return hasExplicitAlias;
+    }
+
+    public String getAlias() {
+        return (aliases != null) ? aliases[0] : null;
+    }
+
     public TableName getAliasAsName() {
         return (aliases != null) ? new TableName(null, aliases[0]) : null;
     }
@@ -183,9 +195,9 @@ public class TupleDescriptor {
      * This function is mainly used to calculate the statistics of the tuple and the layout information.
      * Generally, it occurs after the plan node materializes the slot and before calculating the plan node statistics.
      * PlanNode.init() {
-     *     materializedSlot();
-     *     tupleDesc.computeStatAndMemLayout();
-     *     computeStat();
+     * materializedSlot();
+     * tupleDesc.computeStatAndMemLayout();
+     * computeStat();
      * }
      */
     public void computeStatAndMemLayout() {
@@ -198,12 +210,12 @@ public class TupleDescriptor {
      * such as the average size of each row.
      * This function will be used before the computeStat() of the plan node
      * and is the pre-work for evaluating the statistics of the plan node.
-     *
+     * <p>
      * This function is theoretically only called once when the plan node is init.
      * However, the current code structure is relatively confusing
      * In order to ensure that even if it is wrongly called a second time, no error will occur,
      * so it will be initialized again at the beginning of the function.
-     *
+     * <p>
      * In the future this function will be changed to a private function.
      */
     @Deprecated
@@ -214,7 +226,7 @@ public class TupleDescriptor {
         // compute stat
         for (SlotDescriptor d : slots) {
             if (!d.isMaterialized()) {
-               continue;
+                continue;
             }
             ColumnStats stats = d.getStats();
             if (stats.hasAvgSerializedSize()) {
@@ -314,7 +326,9 @@ public class TupleDescriptor {
      * Materialize all slots.
      */
     public void materializeSlots() {
-        for (SlotDescriptor slot: slots) slot.setIsMaterialized(true);
+        for (SlotDescriptor slot : slots) {
+            slot.setIsMaterialized(true);
+        }
     }
 
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
@@ -350,8 +364,8 @@ public class TupleDescriptor {
             slotStrings.add(slot.debugString());
         }
         return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("tbl", tblStr).add("byte_size", byteSize)
-                   .add("is_materialized", isMaterialized).add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
-                   .toString();
+            .add("is_materialized", isMaterialized).add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
+            .toString();
     }
 
     public String debugString() {
@@ -363,13 +377,13 @@ public class TupleDescriptor {
             slotStrings.add(slot.debugString());
         }
         return MoreObjects.toStringHelper(this)
-                .add("id", id.asInt())
-                .add("name", debugName)
-                .add("tbl", tblStr)
-                .add("byte_size", byteSize)
-                .add("is_materialized", isMaterialized)
-                .add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
-                .toString();
+            .add("id", id.asInt())
+            .add("name", debugName)
+            .add("tbl", tblStr)
+            .add("byte_size", byteSize)
+            .add("is_materialized", isMaterialized)
+            .add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
+            .toString();
     }
 
     public String getExplainString() {
@@ -378,11 +392,11 @@ public class TupleDescriptor {
         String tblStr = (getTable() == null ? "null" : getTable().getName());
 
         builder.append(MoreObjects.toStringHelper(this)
-                .add("id", id.asInt())
-                .add("tbl", tblStr)
-                .add("byteSize", byteSize)
-                .add("materialized", isMaterialized)
-                .toString());
+            .add("id", id.asInt())
+            .add("tbl", tblStr)
+            .add("byteSize", byteSize)
+            .add("materialized", isMaterialized)
+            .toString());
         builder.append("\n");
         for (SlotDescriptor slot : slots) {
             builder.append(slot.getExplainString(prefix)).append("\n");

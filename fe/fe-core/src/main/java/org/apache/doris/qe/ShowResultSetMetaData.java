@@ -20,8 +20,9 @@ package org.apache.doris.qe;
 // Meta data to describe result set of show statement.
 // Because ResultSetMetaData is complicated, redefine it.
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Column;
+
+import com.google.common.collect.Lists;
 
 import java.util.List;
 

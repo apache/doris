@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class TabletSchedulerStat {
 
-    @Target({ ElementType.FIELD })
+    @Target({ElementType.FIELD})
     @Retention(RetentionPolicy.RUNTIME)
     public static @interface StatField {
         String value() default "";
@@ -128,7 +128,7 @@ public class TabletSchedulerStat {
                 if (!field.isAnnotationPresent(StatField.class)) {
                     continue;
                 }
-                
+
                 ((AtomicLong) field.get(lastSnapshot)).set(((AtomicLong) field.get(this)).get());
             }
         } catch (ClassNotFoundException | IllegalArgumentException | IllegalAccessException e) {
@@ -150,7 +150,7 @@ public class TabletSchedulerStat {
                 if (!field.isAnnotationPresent(StatField.class)) {
                     continue;
                 }
-                
+
                 List<String> info = Lists.newArrayList();
                 info.add(field.getAnnotation(StatField.class).value());
                 info.add(String.valueOf(((AtomicLong) field.get(this)).get()));

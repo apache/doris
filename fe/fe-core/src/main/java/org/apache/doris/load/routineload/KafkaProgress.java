@@ -25,7 +25,6 @@ import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,6 +35,8 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import com.google.gson.Gson;
 
 /**
  * this is description of kafka routine load progress
@@ -175,7 +176,7 @@ public class KafkaProgress extends RoutineLoadProgress {
         Map<Integer, String> showPartitionIdToOffset = Maps.newHashMap();
         getReadableProgress(showPartitionIdToOffset);
         return "KafkaProgress [partitionIdToOffset="
-                + Joiner.on("|").withKeyValueSeparator("_").join(showPartitionIdToOffset) + "]";
+            + Joiner.on("|").withKeyValueSeparator("_").join(showPartitionIdToOffset) + "]";
     }
 
     @Override
@@ -191,9 +192,9 @@ public class KafkaProgress extends RoutineLoadProgress {
         KafkaProgress newProgress = (KafkaProgress) attachment.getProgress();
         // + 1 to point to the next msg offset to be consumed
         newProgress.partitionIdToOffset.entrySet().stream()
-                .forEach(entity -> this.partitionIdToOffset.put(entity.getKey(), entity.getValue() + 1));
+            .forEach(entity -> this.partitionIdToOffset.put(entity.getKey(), entity.getValue() + 1));
         LOG.debug("update kafka progress: {}, task: {}, job: {}",
-                newProgress.toJsonString(), DebugUtil.printId(attachment.getTaskId()), attachment.getJobId());
+            newProgress.toJsonString(), DebugUtil.printId(attachment.getTaskId()), attachment.getJobId());
     }
 
     @Override

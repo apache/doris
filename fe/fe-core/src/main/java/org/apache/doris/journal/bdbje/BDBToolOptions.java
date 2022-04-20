@@ -32,7 +32,7 @@ public class BDBToolOptions {
     private int metaVersion;
 
     public BDBToolOptions(boolean isListDbs, String dbName, boolean isDbStat,
-            String fromKey, String endKey, int metaVersion) {
+                          String fromKey, String endKey, int metaVersion) {
         this.isListDbs = isListDbs;
         this.dbName = dbName;
         this.isDbStat = isDbStat;

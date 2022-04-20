@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.common.AnalysisException;
@@ -35,6 +33,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.util.Map;
+
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class BackendProcNodeTest {
     private Backend b1;
@@ -98,7 +99,7 @@ public class BackendProcNodeTest {
 
         Assert.assertTrue(result.getRows().size() >= 1);
         Assert.assertEquals(Lists.newArrayList("RootPath", "DataUsedCapacity", "OtherUsedCapacity", "AvailCapacity",
-                "TotalCapacity", "TotalUsedPct", "State", "PathHash"), result.getColumnNames());
+            "TotalCapacity", "TotalUsedPct", "State", "PathHash"), result.getColumnNames());
     }
 
 }

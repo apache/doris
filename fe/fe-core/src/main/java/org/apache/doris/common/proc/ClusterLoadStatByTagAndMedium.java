@@ -27,7 +27,7 @@ import com.google.common.collect.Lists;
 // SHOW PROC "/cluster_balance/cluster_load_stat/location_default/"
 public class ClusterLoadStatByTagAndMedium implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add(
-            "StorageMedium").build();
+        "StorageMedium").build();
 
     private Tag tag;
 

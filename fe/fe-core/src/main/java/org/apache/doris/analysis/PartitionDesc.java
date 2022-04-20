@@ -81,10 +81,10 @@ public class PartitionDesc {
                     }
                     if (columnDef.getType().isScalarType(PrimitiveType.STRING)) {
                         throw new AnalysisException("String Type should not be used in partition column["
-                                + columnDef.getName() + "].");
+                            + columnDef.getName() + "].");
                     }
                     if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
-                            && columnDef.isAllowNull()) {
+                        && columnDef.isAllowNull()) {
                         throw new AnalysisException("The partition column must be NOT NULL");
                     }
                     if (this instanceof ListPartitionDesc && columnDef.isAllowNull()) {
@@ -131,7 +131,7 @@ public class PartitionDesc {
     }
 
     public PartitionInfo toPartitionInfo(List<Column> schema, Map<String, Long> partitionNameToId, boolean isTemp)
-            throws DdlException {
+        throws DdlException {
         throw new NotImplementedException();
     }
 }

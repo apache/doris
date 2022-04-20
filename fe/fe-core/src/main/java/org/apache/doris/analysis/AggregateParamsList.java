@@ -24,9 +24,9 @@ import java.util.List;
  * parameters.
  */
 class AggregateParamsList {
-    private final boolean    isStar;
-    private final boolean    isDistinct;
-    private       List<Expr> exprs;
+    private final boolean isStar;
+    private final boolean isDistinct;
+    private List<Expr> exprs;
 
     // c'tor for non-star params
     public AggregateParamsList(boolean isDistinct, List<Expr> exprs) {

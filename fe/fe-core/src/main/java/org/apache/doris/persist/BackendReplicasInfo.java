@@ -22,12 +22,13 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+
+import com.google.gson.annotations.SerializedName;
 
 // This class is used to record the replica information that needs to be persisted
 // and synchronized to other FEs when BE reports tablet,

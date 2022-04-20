@@ -46,7 +46,7 @@ public class SerialExecutorService {
 
     public SerialExecutorService(int numOfSlots) {
         this(numOfSlots, ThreadPoolManager.newDaemonFixedThreadPool(
-                numOfSlots, 256, "sync-task-pool", true));
+            numOfSlots, 256, "sync-task-pool", true));
     }
 
     public void submit(Runnable command) {

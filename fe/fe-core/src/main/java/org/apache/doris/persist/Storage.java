@@ -124,7 +124,7 @@ public class Storage {
                 String name = child.getName();
                 try {
                     if (!name.equals(EDITS) && !name.equals(IMAGE_NEW)
-                            && !name.endsWith(".part") && name.contains(".")) {
+                        && !name.endsWith(".part") && name.contains(".")) {
                         if (name.startsWith(IMAGE)) {
                             imageSeq = Math.max(Long.parseLong(name.substring(name.lastIndexOf('.') + 1)), imageSeq);
                         } else if (name.startsWith(EDITS)) {
@@ -228,7 +228,7 @@ public class Storage {
 
         writePropertiesToFile(properties, ROLE_FILE);
     }
-    
+
     private void writePropertiesToFile(Properties properties, String fileName) throws IOException {
         RandomAccessFile file = new RandomAccessFile(new File(metaDir, fileName), "rws");
         FileOutputStream out = null;
@@ -267,7 +267,7 @@ public class Storage {
     public static void rename(File from, File to) throws IOException {
         if (!from.renameTo(to)) {
             throw new IOException("Failed to rename  " + from.getCanonicalPath()
-                    + " to " + to.getCanonicalPath());
+                + " to " + to.getCanonicalPath());
         }
     }
 

@@ -28,7 +28,7 @@ public class MiniEtlTaskInfo implements Writable {
     private long backendId;
     private long tableId;
     private final EtlStatus taskStatus;
-    
+
     public MiniEtlTaskInfo() {
         this(-1L, -1L, -1L);
     }
@@ -55,7 +55,7 @@ public class MiniEtlTaskInfo implements Writable {
     public EtlStatus getTaskStatus() {
         return taskStatus;
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         out.writeLong(id);
@@ -74,19 +74,19 @@ public class MiniEtlTaskInfo implements Writable {
         if (!super.equals(obj)) {
             return false;
         }
- 
+
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof MiniEtlTaskInfo)) {
             return false;
         }
-        
+
         MiniEtlTaskInfo taskInfo = (MiniEtlTaskInfo) obj;
- 
-        return id == taskInfo.id 
-                && backendId == taskInfo.backendId 
-                && tableId == taskInfo.tableId;
+
+        return id == taskInfo.id
+            && backendId == taskInfo.backendId
+            && tableId == taskInfo.tableId;
     }
 }

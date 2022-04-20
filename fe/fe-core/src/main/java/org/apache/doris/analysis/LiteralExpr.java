@@ -93,6 +93,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     /**
      * Init LiteralExpr's Type information
      * only use in rewrite alias function
+     *
      * @param expr
      * @return
      * @throws AnalysisException
@@ -215,7 +216,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
     public void readFields(DataInput in) throws IOException {
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -226,9 +227,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
         //TODO chenhao16, call super.equals()
         if ((obj instanceof StringLiteral && !(this instanceof StringLiteral))
-                || (this instanceof StringLiteral && !(obj instanceof StringLiteral))
-                || (obj instanceof DecimalLiteral && !(this instanceof DecimalLiteral))
-                || (this instanceof DecimalLiteral && !(obj instanceof DecimalLiteral))) {
+            || (this instanceof StringLiteral && !(obj instanceof StringLiteral))
+            || (obj instanceof DecimalLiteral && !(this instanceof DecimalLiteral))
+            || (this instanceof DecimalLiteral && !(obj instanceof DecimalLiteral))) {
             return false;
         }
         return this.compareLiteral(((LiteralExpr) obj)) == 0;

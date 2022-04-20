@@ -69,7 +69,8 @@ public class ResourceTagQueryTest {
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
     private static String runningDirBase = "fe";
-    private static String runningDir = runningDirBase + "/mocked/ResourceTagQueryTest/" + UUID.randomUUID().toString() + "/";
+    private static String runningDir =
+        runningDirBase + "/mocked/ResourceTagQueryTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext connectContext;
 
     private static Random random = new Random(System.currentTimeMillis());
@@ -174,7 +175,8 @@ public class ResourceTagQueryTest {
     }
 
     private static void setProperty(String sql) throws Exception {
-        SetUserPropertyStmt setUserPropertyStmt = (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        SetUserPropertyStmt setUserPropertyStmt =
+            (SetUserPropertyStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().getAuth().updateUserProperty(setUserPropertyStmt);
     }
 
@@ -183,14 +185,14 @@ public class ResourceTagQueryTest {
 
         // create table with default tag
         String createStr = "create table test.tbl1\n" +
-                "(k1 date, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                " partition p1 values less than(\"2021-06-01\"),\n" +
-                " partition p2 values less than(\"2021-07-01\"),\n" +
-                " partition p3 values less than(\"2021-08-01\")\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 10;";
+            "(k1 date, k2 int)\n" +
+            "partition by range(k1)\n" +
+            "(\n" +
+            " partition p1 values less than(\"2021-06-01\"),\n" +
+            " partition p2 values less than(\"2021-07-01\"),\n" +
+            " partition p3 values less than(\"2021-08-01\")\n" +
+            ")\n" +
+            "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
         Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
@@ -236,7 +238,7 @@ public class ResourceTagQueryTest {
                 break;
             }
             String stmtStr = "alter system modify backend \"" + be.getHost() + ":" + be.getHeartbeatPort()
-                    + "\" set ('tag.location' = '" + tag + "')";
+                + "\" set ('tag.location' = '" + tag + "')";
             AlterSystemStmt stmt = (AlterSystemStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, connectContext);
             DdlExecutor.execute(Catalog.getCurrentCatalog(), stmt);
         }
@@ -252,7 +254,8 @@ public class ResourceTagQueryTest {
         // for now, 3 backends with tag zone1, 2 with tag default, so table is not stable.
         ExceptionChecker.expectThrows(UserException.class, () -> tbl.checkReplicaAllocation());
         // alter table's replication allocation to zone1:2 and default:1
-        String alterStr = "alter table test.tbl1 modify partition (p1, p2, p3) set ('replication_allocation' = 'tag.location.zone1:2, tag.location.default:1')";
+        String alterStr =
+            "alter table test.tbl1 modify partition (p1, p2, p3) set ('replication_allocation' = 'tag.location.zone1:2, tag.location.default:1')";
         ExceptionChecker.expectThrowsNoException(() -> alterTable(alterStr));
         Map<Tag, Short> expectedAllocMap = Maps.newHashMap();
         expectedAllocMap.put(Tag.DEFAULT_BACKEND_TAG, (short) 1);

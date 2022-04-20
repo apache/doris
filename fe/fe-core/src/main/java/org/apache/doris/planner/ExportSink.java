@@ -60,13 +60,13 @@ public class ExportSink extends DataSink {
         }
         sb.append(prefix + "  path=" + exportPath + "\n");
         sb.append(prefix + "  columnSeparator="
-                + StringEscapeUtils.escapeJava(columnSeparator) + "\n");
+            + StringEscapeUtils.escapeJava(columnSeparator) + "\n");
         sb.append(prefix + "  lineDelimiter="
-                + StringEscapeUtils.escapeJava(lineDelimiter) + "\n");
+            + StringEscapeUtils.escapeJava(lineDelimiter) + "\n");
         sb.append(prefix + "  broker_name=" + brokerDesc.getName() + " property("
-                + new PrintableMap<String, String>(
-                        brokerDesc.getProperties(), "=", true, false)
-                + ")");
+            + new PrintableMap<String, String>(
+            brokerDesc.getProperties(), "=", true, false)
+            + ")");
         sb.append("\n");
         return sb.toString();
     }

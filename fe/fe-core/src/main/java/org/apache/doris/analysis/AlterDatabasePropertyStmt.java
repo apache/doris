@@ -48,6 +48,6 @@ public class AlterDatabasePropertyStmt extends DdlStmt {
     @Override
     public String toSql() {
         return "ALTER DATABASE " + dbName + " SET PROPERTIES ("
-                + new PrintableMap<String, String>(properties, "=", true, false, ",") + ")";
+            + new PrintableMap<String, String>(properties, "=", true, false, ",") + ")";
     }
 }

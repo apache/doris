@@ -65,7 +65,7 @@ public class GroupingInfo {
     // generate virtual slots for grouping or grouping_id functions
     public VirtualSlotRef addGroupingSlots(List<Expr> realSlots, Analyzer analyzer) throws AnalysisException {
         String colName = realSlots.stream().map(expr -> expr.toSql()).collect(Collectors.joining(
-                "_"));
+            "_"));
         colName = GROUPING_PREFIX + colName;
         VirtualSlotRef virtualSlot = new VirtualSlotRef(colName, Type.BIGINT, virtualTuple, realSlots);
         virtualSlot.analyze(analyzer);
@@ -150,9 +150,9 @@ public class GroupingInfo {
                     int slotSize = ((VirtualSlotRef) slot).getRealSlots().size();
                     for (int i = 0; i < slotSize; ++i) {
                         int j = groupingExprs.indexOf(((VirtualSlotRef) slot).getRealSlots().get(i));
-                        if (j < 0  || j >= bitSet.size()) {
+                        if (j < 0 || j >= bitSet.size()) {
                             throw new AnalysisException("Column " + ((VirtualSlotRef) slot).getRealColumnName()
-                                    + " in GROUP_ID() does not exist in GROUP BY clause.");
+                                + " in GROUP_ID() does not exist in GROUP BY clause.");
                         }
                         l += bitSet.get(j) ? 0L : (1L << (slotSize - i - 1));
                     }
@@ -167,7 +167,7 @@ public class GroupingInfo {
     public void substituteGroupingFn(List<Expr> exprs, Analyzer analyzer) throws AnalysisException {
         if (groupingType == GroupByClause.GroupingType.GROUP_BY) {
             throw new AnalysisException("cannot use GROUPING functions without [grouping sets|rollup|cube] a"
-                    + "clause or grouping sets only have one element.");
+                + "clause or grouping sets only have one element.");
         }
         ListIterator<Expr> i = exprs.listIterator();
         while (i.hasNext()) {
@@ -179,12 +179,12 @@ public class GroupingInfo {
     public void substituteGroupingFn(Expr expr, Analyzer analyzer) throws AnalysisException {
         if (expr instanceof GroupingFunctionCallExpr) {
             // TODO(yangzhengguo) support expression in grouping functions
-            for (Expr child: expr.getChildren()) {
+            for (Expr child : expr.getChildren()) {
                 if (!(child instanceof SlotRef)) {
                     throw new AnalysisException("grouping functions only support column in current version.");
                     // expr from inline view
                 } else if (((SlotRef) child).getDesc().getParent().getTable().getType()
-                        == Table.TableType.INLINE_VIEW) {
+                    == Table.TableType.INLINE_VIEW) {
                     InlineViewRef ref = (InlineViewRef) ((SlotRef) child).getDesc().getParent().getRef();
                     int colIndex = ref.getColLabels().indexOf(((SlotRef) child).getColumnName());
                     if (colIndex != -1 && !(ref.getViewStmt().getResultExprs().get(colIndex) instanceof SlotRef)) {

@@ -27,7 +27,9 @@ import java.util.List;
  */
 public class ExtendedPluginsClassLoader extends ClassLoader {
 
-    /** Loaders of plugins extended by a plugin. */
+    /**
+     * Loaders of plugins extended by a plugin.
+     */
     private final List<ClassLoader> extendedLoaders;
 
     private ExtendedPluginsClassLoader(ClassLoader parent, List<ClassLoader> extendedLoaders) {

@@ -65,7 +65,7 @@ public class ListComparatorTest {
         printCollection();
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(1, false),
-                                                                           new OrderByPair(2, false));
+            new OrderByPair(2, false));
         Collections.sort(listCollection, comparator);
         printCollection();
 
@@ -88,11 +88,11 @@ public class ListComparatorTest {
         list2.add(new Long(200));
         list2.add("abc");
         listCollection.add(list2);
-        
+
         printCollection();
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(1, false),
-                                                                           new OrderByPair(2, false));
+            new OrderByPair(2, false));
         Collections.sort(listCollection, comparator);
         printCollection();
         Assert.assertEquals(list2, listCollection.get(0));
@@ -119,7 +119,7 @@ public class ListComparatorTest {
         printCollection();
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(1, false),
-                                                                           new OrderByPair(3, false));
+            new OrderByPair(3, false));
         Collections.sort(listCollection, comparator);
         Assert.fail();
     }
@@ -144,7 +144,7 @@ public class ListComparatorTest {
         printCollection();
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(2, false),
-                                                                           new OrderByPair(1, false));
+            new OrderByPair(1, false));
         Collections.sort(listCollection, comparator);
         printCollection();
         Assert.assertEquals(list2, listCollection.get(0));
@@ -177,7 +177,7 @@ public class ListComparatorTest {
         printCollection();
 
         ListComparator<List<Comparable>> comparator = new ListComparator<>(new OrderByPair(2, false),
-                                                                           new OrderByPair(1, true));
+            new OrderByPair(1, true));
         Collections.sort(listCollection, comparator);
         printCollection();
         Assert.assertEquals(list3, listCollection.get(0));

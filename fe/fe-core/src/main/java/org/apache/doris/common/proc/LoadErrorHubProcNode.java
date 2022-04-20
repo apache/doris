@@ -24,8 +24,8 @@ import com.google.common.collect.ImmutableList;
 
 public class LoadErrorHubProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Type").add("Properties")
-            .build();
+        .add("Type").add("Properties")
+        .build();
 
     private Catalog catalog;
 

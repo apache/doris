@@ -36,10 +36,10 @@ public class CreateIndexClauseTest {
     @Test
     public void testNormal() throws AnalysisException {
         CreateIndexClause clause = new CreateIndexClause(new TableName("db", "table"), new IndexDef("index1", false,
-                Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala"), false);
+            Lists.newArrayList("col1"), IndexDef.IndexType.BITMAP, "balabala"), false);
         clause.analyze(analyzer);
         Assert.assertEquals("CREATE INDEX index1 ON `db`.`table` (`col1`) USING BITMAP COMMENT 'balabala'",
-                clause.toSql());
+            clause.toSql());
 
     }
 

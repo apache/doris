@@ -89,13 +89,13 @@ public class MiniLoadJob extends LoadJob {
 
     @Override
     public void beginTxn()
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
-            QuotaExceedException, MetaNotFoundException {
+        throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
+        QuotaExceedException, MetaNotFoundException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, Lists.newArrayList(tableId), label, requestId,
-                                  new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                                  TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,
-                                  getTimeout());
+            .beginTransaction(dbId, Lists.newArrayList(tableId), label, requestId,
+                new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,
+                getTimeout());
     }
 
     @Override
@@ -105,11 +105,11 @@ public class MiniLoadJob extends LoadJob {
 
     private void updateLoadingStatue(TransactionState txnState) {
         MiniLoadTxnCommitAttachment miniLoadTxnCommitAttachment =
-                (MiniLoadTxnCommitAttachment) txnState.getTxnCommitAttachment();
+            (MiniLoadTxnCommitAttachment) txnState.getTxnCommitAttachment();
         if (miniLoadTxnCommitAttachment == null) {
             // aborted txn may not has attachment
             LOG.info("no miniLoadTxnCommitAttachment, txn id: {} status: {}", txnState.getTransactionId(),
-                    txnState.getTransactionStatus());
+                txnState.getTransactionStatus());
             return;
         }
         loadingStatus.replaceCounter(DPP_ABNORMAL_ALL, String.valueOf(miniLoadTxnCommitAttachment.getFilteredRows()));

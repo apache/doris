@@ -17,13 +17,14 @@
 
 package org.apache.doris.load.sync.canal;
 
-import com.alibaba.otter.canal.protocol.CanalEntry;
-import com.alibaba.otter.canal.protocol.Message;
 import com.google.common.collect.Lists;
 
 import java.io.Serializable;
 import java.sql.Types;
 import java.util.List;
+
+import com.alibaba.otter.canal.protocol.CanalEntry;
+import com.alibaba.otter.canal.protocol.Message;
 
 public class CanalTestUtil {
 
@@ -64,7 +65,8 @@ public class CanalTestUtil {
         return entryBuilder.build();
     }
 
-    public static CanalEntry.Entry buildEntry(String binlogFile, long offset, long timestamp, String schemaName, String tableName) {
+    public static CanalEntry.Entry buildEntry(String binlogFile, long offset, long timestamp, String schemaName,
+                                              String tableName) {
         CanalEntry.Header.Builder headerBuilder = CanalEntry.Header.newBuilder();
         headerBuilder.setLogfileName(binlogFile);
         headerBuilder.setLogfileOffset(offset);
@@ -82,9 +84,10 @@ public class CanalTestUtil {
         return new Message(-1L, Lists.newArrayList());
     }
 
-    public static Message fetchMessage(long id, boolean isRaw, int batchSize, String binlogFile, long offset, String schemaName, String tableName) {
+    public static Message fetchMessage(long id, boolean isRaw, int batchSize, String binlogFile, long offset,
+                                       String schemaName, String tableName) {
         List<CanalEntry.Entry> entries = Lists.newArrayList();
-        for (int i = 0 ; i < batchSize; i++) {
+        for (int i = 0; i < batchSize; i++) {
             entries.add(buildEntry(binlogFile, offset++, 1024, schemaName, tableName));
         }
         return new Message(id, isRaw, entries);

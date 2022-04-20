@@ -17,15 +17,12 @@
 
 package org.apache.doris.common.profile;
 
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Counter;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.thrift.TUnit;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -40,11 +37,15 @@ import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Getter;
+import lombok.Setter;
+
 /**
  * This class is used to build a tree from the query runtime profile
  * It will build tree for the entire query, and also tree for each instance,
  * So that user can view the profile tree by query id or by instance id.
- *
+ * <p>
  * Each runtime profile of a query should be built once and be read every where.
  */
 public class ProfileTreeBuilder {
@@ -169,14 +170,14 @@ public class ProfileTreeBuilder {
         for (Pair<RuntimeProfile, Boolean> pair : fragmentChildren) {
             Triple<String, String, Long> instanceIdAndActiveTime = getInstanceIdHostAndActiveTime(pair.first);
             instanceIdToTime.put(instanceIdAndActiveTime.getLeft(),
-                    RuntimeProfile.printCounter(instanceIdAndActiveTime.getRight(), TUnit.TIME_NS));
+                RuntimeProfile.printCounter(instanceIdAndActiveTime.getRight(), TUnit.TIME_NS));
             maxActiveTimeNs = Math.max(instanceIdAndActiveTime.getRight(), maxActiveTimeNs);
             instanceIdAndActiveTimeList.add(instanceIdAndActiveTime);
             instances.add(instanceIdAndActiveTime.getLeft());
         }
         instanceActiveTimeMap.put(fragmentId, instanceIdAndActiveTimeList);
         fragmentsInstances.add(new FragmentInstances(fragmentId,
-                RuntimeProfile.printCounter(maxActiveTimeNs, TUnit.TIME_NS), instanceIdToTime));
+            RuntimeProfile.printCounter(maxActiveTimeNs, TUnit.TIME_NS), instanceIdToTime));
 
         // 2. Build tree for all fragments
         //    All instance in a fragment are same, so use first instance to build the fragment tree
@@ -209,16 +210,16 @@ public class ProfileTreeBuilder {
         for (Pair<RuntimeProfile, Boolean> pair : instanceChildren) {
             RuntimeProfile profile = pair.first;
             if (profile.getName().startsWith(PROFILE_NAME_DATA_STREAM_SENDER)
-                    || profile.getName().startsWith(PROFILE_NAME_VDATA_STREAM_SENDER)
-                    || profile.getName().startsWith(PROFILE_NAME_VDATA_BUFFER_SENDER)
-                    || profile.getName().startsWith(PROFILE_NAME_DATA_BUFFER_SENDER)
-                    || profile.getName().startsWith(PROFILE_NAME_OLAP_TABLE_SINK)) {
+                || profile.getName().startsWith(PROFILE_NAME_VDATA_STREAM_SENDER)
+                || profile.getName().startsWith(PROFILE_NAME_VDATA_BUFFER_SENDER)
+                || profile.getName().startsWith(PROFILE_NAME_DATA_BUFFER_SENDER)
+                || profile.getName().startsWith(PROFILE_NAME_OLAP_TABLE_SINK)) {
                 senderNode = buildTreeNode(profile, null, fragmentId, instanceId);
                 if (instanceId == null) {
                     senderNodes.add(senderNode);
                 }
             } else if (profile.getName().startsWith(PROFILE_NAME_BLOCK_MGR)
-                    || profile.getName().startsWith(PROFILE_NAME_BUFFER_POOL)) {
+                || profile.getName().startsWith(PROFILE_NAME_BUFFER_POOL)) {
                 // skip BlockMgr nad Buffer pool profile
                 continue;
             } else {
@@ -322,7 +323,8 @@ public class ProfileTreeBuilder {
             if (root != null) {
                 root.addChild(counterNode);
             }
-            counterNode.setCounter(childCounterName, RuntimeProfile.printCounter(counter.getValue(), counter.getType()));
+            counterNode.setCounter(childCounterName,
+                RuntimeProfile.printCounter(counter.getValue(), counter.getType()));
             buildCounterNode(profile, childCounterName, counterNode);
         }
         return;
@@ -359,7 +361,7 @@ public class ProfileTreeBuilder {
     }
 
     private Triple<String, String, Long> getInstanceIdHostAndActiveTime(RuntimeProfile instanceProfile)
-            throws UserException {
+        throws UserException {
         long activeTimeNs = instanceProfile.getCounterTotalTime().getValue();
         String name = instanceProfile.getName();
         Matcher m = INSTANCE_PATTERN.matcher(name);

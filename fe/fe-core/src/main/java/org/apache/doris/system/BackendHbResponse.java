@@ -38,7 +38,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         super(HeartbeatResponse.Type.BACKEND);
     }
 
-    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, long beStartTime, String version) {
+    public BackendHbResponse(long beId, int bePort, int httpPort, int brpcPort, long hbTime, long beStartTime,
+                             String version) {
         super(HeartbeatResponse.Type.BACKEND);
         this.beId = beId;
         this.status = HbStatus.OK;
@@ -104,7 +105,7 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         httpPort = in.readInt();
         brpcPort = in.readInt();
     }
-	
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();

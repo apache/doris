@@ -32,11 +32,11 @@ import com.google.common.base.Strings;
 //      SHOW ROLLUP { FROM | IN } table [ FROM db ]
 public class ShowRollupStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Table", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("RollupHandler", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("Columns", ScalarType.createVarchar(50)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Table", ScalarType.createVarchar(20)))
+            .addColumn(new Column("RollupHandler", ScalarType.createVarchar(30)))
+            .addColumn(new Column("Columns", ScalarType.createVarchar(50)))
+            .build();
     private TableName tbl;
     private String db;
 
@@ -85,7 +85,7 @@ public class ShowRollupStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         return META_DATA;
     }
-    
+
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_NO_SYNC;

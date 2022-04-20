@@ -20,13 +20,13 @@
 
 package org.apache.doris.common;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.util.Comparator;
+
+import com.google.gson.annotations.SerializedName;
 
 /**
  * The equivalent of C++'s std::pair<>.
- *
+ * <p>
  * Notice: When using Pair for persistence, users need to guarantee that F and S can be serialized through Gson
  */
 public class Pair<F, S> {

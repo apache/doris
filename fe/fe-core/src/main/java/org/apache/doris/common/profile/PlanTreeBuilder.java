@@ -25,9 +25,9 @@ import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.thrift.TExplainLevel;
 
-import com.clearspring.analytics.util.Lists;
-
 import java.util.List;
+
+import com.clearspring.analytics.util.Lists;
 
 public class PlanTreeBuilder {
 
@@ -58,7 +58,7 @@ public class PlanTreeBuilder {
                 StringBuilder sb = new StringBuilder();
                 if (sink.getExchNodeId() != null) {
                     sb.append("[").append(sink.getExchNodeId().asInt()).append(": ")
-                            .append(sink.getClass().getSimpleName()).append("]");
+                        .append(sink.getClass().getSimpleName()).append("]");
                 } else {
                     sb.append("[").append(sink.getClass().getSimpleName()).append("]");
                 }

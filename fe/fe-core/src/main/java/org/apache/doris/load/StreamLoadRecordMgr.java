@@ -112,7 +112,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
 
 
     public StreamLoadRecordMgr(String name, long intervalMs) {
-            super(name, intervalMs);
+        super(name, intervalMs);
     }
 
     public void addStreamLoadRecord(long dbId, String label, StreamLoadRecord streamLoadRecord) {
@@ -124,7 +124,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 long de_dbId = record.getDbId();
 
                 Map<String, StreamLoadRecord> labelToStreamLoadRecord = dbIdToLabelToStreamLoadRecord.get(de_dbId);
-                Iterator<Map.Entry<String, StreamLoadRecord>> iter_record = labelToStreamLoadRecord.entrySet().iterator();
+                Iterator<Map.Entry<String, StreamLoadRecord>> iter_record =
+                    labelToStreamLoadRecord.entrySet().iterator();
                 while (iter_record.hasNext()) {
                     String labelInMap = iter_record.next().getKey();
                     if (labelInMap.equals(de_label)) {
@@ -152,7 +153,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         return new ArrayList<>(streamLoadRecordHeap);
     }
 
-    public List<List<Comparable>> getStreamLoadRecordByDb(long dbId, String label, boolean accurateMatch, StreamLoadState state) {
+    public List<List<Comparable>> getStreamLoadRecordByDb(long dbId, String label, boolean accurateMatch,
+                                                          StreamLoadState state) {
         LinkedList<List<Comparable>> streamLoadRecords = new LinkedList<List<Comparable>>();
 
         readLock();
@@ -246,24 +248,36 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 pullRecordSize += streamLoadRecordBatch.size();
                 long lastStreamLoadTime = -1;
                 for (Map.Entry<String, TStreamLoadRecord> entry : streamLoadRecordBatch.entrySet()) {
-                    TStreamLoadRecord streamLoadItem= entry.getValue();
-                    String startTime = TimeUtils.longToTimeString(streamLoadItem.getStartTime(), new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
-                    String finishTime = TimeUtils.longToTimeString(streamLoadItem.getFinishTime(), new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
+                    TStreamLoadRecord streamLoadItem = entry.getValue();
+                    String startTime = TimeUtils.longToTimeString(streamLoadItem.getStartTime(),
+                        new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
+                    String finishTime = TimeUtils.longToTimeString(streamLoadItem.getFinishTime(),
+                        new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS"));
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("receive stream load record info from backend: {}. label: {}, db: {}, tbl: {}, user: {}, user_ip: {}," +
-                                        " status: {}, message: {}, error_url: {}, total_rows: {}, loaded_rows: {}, filtered_rows: {}," +
-                                        " unselected_rows: {}, load_bytes: {}, start_time: {}, finish_time: {}.",
-                                backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(), streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
-                                streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(), streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
-                                streamLoadItem.getFilteredRows(), streamLoadItem.getUnselectedRows(), streamLoadItem.getLoadBytes(), startTime, finishTime);
+                        LOG.debug(
+                            "receive stream load record info from backend: {}. label: {}, db: {}, tbl: {}, user: {}, user_ip: {}," +
+                                " status: {}, message: {}, error_url: {}, total_rows: {}, loaded_rows: {}, filtered_rows: {}," +
+                                " unselected_rows: {}, load_bytes: {}, start_time: {}, finish_time: {}.",
+                            backend.getHost(), streamLoadItem.getLabel(), streamLoadItem.getDb(),
+                            streamLoadItem.getTbl(), streamLoadItem.getUser(), streamLoadItem.getUserIp(),
+                            streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
+                            streamLoadItem.getTotalRows(), streamLoadItem.getLoadedRows(),
+                            streamLoadItem.getFilteredRows(), streamLoadItem.getUnselectedRows(),
+                            streamLoadItem.getLoadBytes(), startTime, finishTime);
                     }
 
-                    AuditEvent auditEvent = new StreamLoadAuditEvent.AuditEventBuilder().setEventType(EventType.STREAM_LOAD_FINISH)
-                            .setLabel(streamLoadItem.getLabel()).setDb(streamLoadItem.getDb()).setTable(streamLoadItem.getTbl())
-                            .setUser(streamLoadItem.getUser()).setClientIp(streamLoadItem.getUserIp()).setStatus(streamLoadItem.getStatus())
-                            .setMessage(streamLoadItem.getMessage()).setUrl(streamLoadItem.getUrl()).setTotalRows(streamLoadItem.getTotalRows())
-                            .setLoadedRows(streamLoadItem.getLoadedRows()).setFilteredRows(streamLoadItem.getFilteredRows())
-                            .setUnselectedRows(streamLoadItem.getUnselectedRows()).setLoadBytes(streamLoadItem.getLoadBytes())
+                    AuditEvent auditEvent =
+                        new StreamLoadAuditEvent.AuditEventBuilder().setEventType(EventType.STREAM_LOAD_FINISH)
+                            .setLabel(streamLoadItem.getLabel()).setDb(streamLoadItem.getDb())
+                            .setTable(streamLoadItem.getTbl())
+                            .setUser(streamLoadItem.getUser()).setClientIp(streamLoadItem.getUserIp())
+                            .setStatus(streamLoadItem.getStatus())
+                            .setMessage(streamLoadItem.getMessage()).setUrl(streamLoadItem.getUrl())
+                            .setTotalRows(streamLoadItem.getTotalRows())
+                            .setLoadedRows(streamLoadItem.getLoadedRows())
+                            .setFilteredRows(streamLoadItem.getFilteredRows())
+                            .setUnselectedRows(streamLoadItem.getUnselectedRows())
+                            .setLoadBytes(streamLoadItem.getLoadBytes())
                             .setStartTime(startTime).setFinishTime(finishTime).build();
                     Catalog.getCurrentCatalog().getAuditEventProcessor().handleAuditEvent(auditEvent);
                     if (entry.getValue().getFinishTime() > lastStreamLoadTime) {
@@ -273,10 +287,14 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                     if (Config.disable_show_stream_load) {
                         continue;
                     }
-                    StreamLoadRecord streamLoadRecord = new StreamLoadRecord(streamLoadItem.getLabel(), streamLoadItem.getDb(), streamLoadItem.getTbl(),
-                            streamLoadItem.getUser(), streamLoadItem.getUserIp(), streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
-                            String.valueOf(streamLoadItem.getTotalRows()), String.valueOf(streamLoadItem.getLoadedRows()),
-                            String.valueOf(streamLoadItem.getFilteredRows()), String.valueOf(streamLoadItem.getUnselectedRows()),
+                    StreamLoadRecord streamLoadRecord =
+                        new StreamLoadRecord(streamLoadItem.getLabel(), streamLoadItem.getDb(), streamLoadItem.getTbl(),
+                            streamLoadItem.getUser(), streamLoadItem.getUserIp(), streamLoadItem.getStatus(),
+                            streamLoadItem.getMessage(), streamLoadItem.getUrl(),
+                            String.valueOf(streamLoadItem.getTotalRows()),
+                            String.valueOf(streamLoadItem.getLoadedRows()),
+                            String.valueOf(streamLoadItem.getFilteredRows()),
+                            String.valueOf(streamLoadItem.getUnselectedRows()),
                             String.valueOf(streamLoadItem.getLoadBytes()), startTime, finishTime);
 
                     String cluster = streamLoadItem.getCluster();
@@ -294,7 +312,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                         throw new UserException("unknown database, database=" + dbName);
                     }
                     long dbId = db.getId();
-                    Catalog.getCurrentCatalog().getStreamLoadRecordMgr().addStreamLoadRecord(dbId, streamLoadItem.getLabel(), streamLoadRecord);
+                    Catalog.getCurrentCatalog().getStreamLoadRecordMgr()
+                        .addStreamLoadRecord(dbId, streamLoadItem.getLabel(), streamLoadRecord);
                 }
 
                 if (streamLoadRecordBatch.size() > 0) {
@@ -316,7 +335,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
             }
         }
         LOG.info("finished to pull stream load records of all backends. record size: {}, cost: {} ms",
-                                                        pullRecordSize, (System.currentTimeMillis() - start));
+            pullRecordSize, (System.currentTimeMillis() - start));
         if (pullRecordSize > 0) {
             FetchStreamLoadRecord fetchStreamLoadRecord = new FetchStreamLoadRecord(beIdToLastStreamLoad);
             Catalog.getCurrentCatalog().getEditLog().logFetchStreamLoadRecord(fetchStreamLoadRecord);
@@ -333,7 +352,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         for (Backend backend : backends.values()) {
             if (beIdToLastStreamLoad.containsKey(backend.getId())) {
                 long lastStreamLoadTime = beIdToLastStreamLoad.get(backend.getId());
-                LOG.info("Replay stream load bdbje. backend: {}, last stream load time: {}", backend.getHost(), lastStreamLoadTime);
+                LOG.info("Replay stream load bdbje. backend: {}, last stream load time: {}", backend.getHost(),
+                    lastStreamLoadTime);
                 backend.setLastStreamLoadTime(lastStreamLoadTime);
             }
         }

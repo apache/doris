@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
@@ -40,7 +41,7 @@ import java.util.Set;
 public class ListPartitionPruner implements PartitionPruner {
 
     private Map<Long, PartitionItem> partitionListMap;
-    private List<Column>                       partitionColumns;
+    private List<Column> partitionColumns;
     private Map<String, PartitionColumnFilter> partitionColumnFilters;
 
     public ListPartitionPruner(Map<Long, PartitionItem> listMap,
@@ -69,9 +70,10 @@ public class ListPartitionPruner implements PartitionPruner {
 
     /**
      * check literal expr exist in partition range
-     * @param range the partition key range
+     *
+     * @param range       the partition key range
      * @param literalExpr expr to be checked
-     * @param columnId expr column index in partition key
+     * @param columnId    expr column index in partition key
      * @return
      */
     private boolean contain(Range<PartitionKey> range, LiteralExpr literalExpr, int columnId) {
@@ -104,6 +106,7 @@ public class ListPartitionPruner implements PartitionPruner {
 
     /**
      * get min literal expr from partition key list map by partition key column id.
+     *
      * @param columnId
      * @return
      */
@@ -130,12 +133,12 @@ public class ListPartitionPruner implements PartitionPruner {
     }
 
     private Collection<Long> prune(
-            Map<Long, PartitionItem> listMap,
-            int columnId,
-            PartitionKey minKey,
-            PartitionKey maxKey,
-            int complex)
-            throws AnalysisException {
+        Map<Long, PartitionItem> listMap,
+        int columnId,
+        PartitionKey minKey,
+        PartitionKey maxKey,
+        int complex)
+        throws AnalysisException {
         // if partition item map is empty, no need to prune.
         if (listMap.size() == 0) {
             return Lists.newArrayList();
@@ -154,7 +157,7 @@ public class ListPartitionPruner implements PartitionPruner {
         if (null == filter) {
             minKey.pushColumn(getMinLiteral(columnId), keyColumn.getDataType());
             maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
-                                keyColumn.getDataType());
+                keyColumn.getDataType());
             Collection<Long> result = null;
             try {
                 // prune next partition column
@@ -169,9 +172,9 @@ public class ListPartitionPruner implements PartitionPruner {
         InPredicate inPredicate = filter.getInPredicate();
         if (null == inPredicate || inPredicate.getChildren().size() * complex > 100) {
             // case: where k1 = 1;
-            if (filter.lowerBoundInclusive && filter.upperBoundInclusive 
-                    && filter.lowerBound != null && filter.upperBound != null 
-                    && 0 == filter.lowerBound.compareLiteral(filter.upperBound)) {
+            if (filter.lowerBoundInclusive && filter.upperBoundInclusive
+                && filter.lowerBound != null && filter.upperBound != null
+                && 0 == filter.lowerBound.compareLiteral(filter.upperBound)) {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
                 maxKey.pushColumn(filter.upperBound, keyColumn.getDataType());
                 // handle like in predicate
@@ -194,14 +197,14 @@ public class ListPartitionPruner implements PartitionPruner {
                 minKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
             } else {
                 minKey.pushColumn(getMinLiteral(columnId),
-                        keyColumn.getDataType());
+                    keyColumn.getDataType());
                 isPushMin = true;
             }
             if (filter.upperBound != null) {
                 maxKey.pushColumn(filter.upperBound, keyColumn.getDataType());
             } else {
                 maxKey.pushColumn(LiteralExpr.createInfinity(Type.fromPrimitiveType(keyColumn.getDataType()), true),
-                        keyColumn.getDataType());
+                    keyColumn.getDataType());
                 isPushMax = true;
             }
 

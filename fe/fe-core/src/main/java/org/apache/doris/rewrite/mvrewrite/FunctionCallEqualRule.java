@@ -54,7 +54,7 @@ public class FunctionCallEqualRule implements MVExprEqualRule {
         FunctionCallExpr mvColumnFn = (FunctionCallExpr) mvColumnExpr;
         // match fn name
         if (!columnAggTypeMatchFnName.get(mvColumnFn.getFnName().getFunction())
-                .contains(queryFn.getFnName().getFunction().toLowerCase())) {
+            .contains(queryFn.getFnName().getFunction().toLowerCase())) {
             return false;
         }
         // match children

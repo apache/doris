@@ -21,11 +21,11 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+
+import com.google.gson.annotations.SerializedName;
 
 public class ReplaceTableOperationLog implements Writable {
     @SerializedName(value = "dbId")
@@ -66,7 +66,7 @@ public class ReplaceTableOperationLog implements Writable {
         Text.writeString(out, json);
     }
 
-    public static ReplaceTableOperationLog read(DataInput in) throws  IOException {
+    public static ReplaceTableOperationLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, ReplaceTableOperationLog.class);
     }

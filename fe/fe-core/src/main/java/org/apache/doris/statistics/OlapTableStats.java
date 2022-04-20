@@ -24,21 +24,21 @@ import java.util.Map;
 /**
  * There are the statistics of OlapTable.
  * The @OlapTableStats are mainly used to provide input for the Optimizer's cost model.
- *
+ * <p>
  * There are three kinds of statistics of OlapTable.
- * @rowCount: The row count of OlapTable. There are two ways to obtain value:
- *            1. The sum row count of @TabletStats which maybe an inaccurate value.
- *            2. count(*) of OlapTable which is an accurate value.
- * @dataSize: The data size of OlapTable. This is an inaccurate value,
- *             which is obtained by summing the @dataSize of @TabletStats.
- * @idToTabletStats: <@Long tabletId, @TabletStats tabletStats>
- *     Each tablet in the OlapTable will have corresponding @TabletStats.
- *     Those @TabletStats are recorded in @idToTabletStats form of MAP.
- *     This facilitates the optimizer to quickly find the corresponding
- *     @TabletStats based on the tablet id.
- *     At the same time, both @rowCount and @dataSize can also be obtained
- *     from the sum of all @TabletStats.
  *
+ * @rowCount: The row count of OlapTable. There are two ways to obtain value:
+ * 1. The sum row count of @TabletStats which maybe an inaccurate value.
+ * 2. count(*) of OlapTable which is an accurate value.
+ * @dataSize: The data size of OlapTable. This is an inaccurate value,
+ * which is obtained by summing the @dataSize of @TabletStats.
+ * @idToTabletStats: <@Long tabletId, @TabletStats tabletStats>
+ * Each tablet in the OlapTable will have corresponding @TabletStats.
+ * Those @TabletStats are recorded in @idToTabletStats form of MAP.
+ * This facilitates the optimizer to quickly find the corresponding
+ * @TabletStats based on the tablet id.
+ * At the same time, both @rowCount and @dataSize can also be obtained
+ * from the sum of all @TabletStats.
  */
 public class OlapTableStats extends TableStats {
 

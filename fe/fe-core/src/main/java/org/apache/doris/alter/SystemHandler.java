@@ -97,7 +97,7 @@ public class SystemHandler extends AlterHandler {
             }
 
             LOG.info("backend {} lefts {} replicas to decommission: {}", beId, backendTabletIds.size(),
-                    backendTabletIds.size() <= 20 ? backendTabletIds : "too many");
+                backendTabletIds.size() <= 20 ? backendTabletIds : "too many");
         }
     }
 
@@ -109,7 +109,7 @@ public class SystemHandler extends AlterHandler {
     @Override
     // add synchronized to avoid process 2 or more stmts at same time
     public synchronized void process(List<AlterClause> alterClauses, String clusterName, Database dummyDb,
-            OlapTable dummyTbl) throws UserException {
+                                     OlapTable dummyTbl) throws UserException {
         Preconditions.checkArgument(alterClauses.size() == 1);
         AlterClause alterClause = alterClauses.get(0);
 
@@ -117,25 +117,26 @@ public class SystemHandler extends AlterHandler {
             // add backend
             AddBackendClause addBackendClause = (AddBackendClause) alterClause;
             final String destClusterName = addBackendClause.getDestCluster();
-            
-            if ((!Strings.isNullOrEmpty(destClusterName) || addBackendClause.isFree()) && Config.disable_cluster_feature) {
+
+            if ((!Strings.isNullOrEmpty(destClusterName) || addBackendClause.isFree()) &&
+                Config.disable_cluster_feature) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "ADD BACKEND TO CLUSTER");
             }
 
-            if (!Strings.isNullOrEmpty(destClusterName) 
-                    && Catalog.getCurrentCatalog().getCluster(destClusterName) == null) {
+            if (!Strings.isNullOrEmpty(destClusterName)
+                && Catalog.getCurrentCatalog().getCluster(destClusterName) == null) {
                 throw new DdlException("Cluster: " + destClusterName + " does not exist.");
             }
             Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(),
-                    addBackendClause.isFree(), addBackendClause.getDestCluster(), addBackendClause.getTag());
+                addBackendClause.isFree(), addBackendClause.getDestCluster(), addBackendClause.getTag());
         } else if (alterClause instanceof DropBackendClause) {
             // drop backend
             DropBackendClause dropBackendClause = (DropBackendClause) alterClause;
             if (!dropBackendClause.isForce()) {
                 throw new DdlException("It is highly NOT RECOMMENDED to use DROP BACKEND stmt."
-                        + "It is not safe to directly drop a backend. "
-                        + "All data on this backend will be discarded permanently. "
-                        + "If you insist, use DROPP instead of DROP");
+                    + "It is not safe to directly drop a backend. "
+                    + "All data on this backend will be discarded permanently. "
+                    + "If you insist, use DROPP instead of DROP");
             }
             Catalog.getCurrentSystemInfo().dropBackends(dropBackendClause.getHostPortPairs());
         } else if (alterClause instanceof DecommissionBackendClause) {
@@ -179,7 +180,7 @@ public class SystemHandler extends AlterHandler {
     }
 
     private List<Backend> checkDecommission(DecommissionBackendClause decommissionBackendClause)
-            throws DdlException {
+        throws DdlException {
         return checkDecommission(decommissionBackendClause.getHostPortPairs());
     }
 
@@ -190,7 +191,7 @@ public class SystemHandler extends AlterHandler {
      * 3. after decommission, The remaining space capacity can store data on decommissioned backends.
      */
     public static List<Backend> checkDecommission(List<Pair<String, Integer>> hostPortPairs)
-            throws DdlException {
+        throws DdlException {
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
         List<Backend> decommissionBackends = Lists.newArrayList();
         // check if exist

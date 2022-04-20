@@ -22,12 +22,12 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.DataInput;
@@ -52,9 +52,11 @@ public class Util {
 
     private static final long DEFAULT_EXEC_CMD_TIMEOUT_MS = 600000L;
 
-    private static final String[] ORDINAL_SUFFIX = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
+    private static final String[] ORDINAL_SUFFIX =
+        new String[]{"th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th"};
 
-    private static final List<String> REGEX_ESCAPES = Lists.newArrayList("\\", "$", "(", ")", "*", "+", ".", "[", "]", "?", "^", "{", "}", "|");
+    private static final List<String> REGEX_ESCAPES =
+        Lists.newArrayList("\\", "$", "(", ")", "*", "+", ".", "[", "]", "?", "^", "{", "}", "|");
 
     static {
         TYPE_STRING_MAP.put(PrimitiveType.TINYINT, "tinyint(4)");
@@ -73,11 +75,11 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
-        TYPE_STRING_MAP.put(PrimitiveType.QUANTILE_STATE,"quantile_state");
+        TYPE_STRING_MAP.put(PrimitiveType.QUANTILE_STATE, "quantile_state");
         TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "Array<%s>");
         TYPE_STRING_MAP.put(PrimitiveType.NULL_TYPE, "null");
     }
-    
+
     private static class CmdWorker extends Thread {
         private final Process process;
         private Integer exitValue;
@@ -182,14 +184,14 @@ public class Util {
 
         return result;
     }
-    
+
     public static List<String> shellSplit(CharSequence string) {
         List<String> tokens = new ArrayList<String>();
         boolean escaping = false;
         char quoteChar = ' ';
         boolean quoting = false;
-        StringBuilder current = new StringBuilder() ;
-        for (int i = 0; i<string.length(); i++) {
+        StringBuilder current = new StringBuilder();
+        for (int i = 0; i < string.length(); i++) {
             char c = string.charAt(i);
             if (escaping) {
                 current.append(c);
@@ -225,11 +227,11 @@ public class Util {
         }
         return sb.toString();
     }
-    
+
     public static int generateSchemaHash() {
         return Math.abs(new Random().nextInt());
     }
-    
+
     /**
      * Chooses k unique random elements from a population sequence
      */
@@ -241,7 +243,7 @@ public class Util {
         Collections.shuffle(population);
         return population.subList(0, kNum);
     }
-    
+
     /**
      * Delete directory and all contents in this directory
      */
@@ -285,7 +287,7 @@ public class Util {
     //      Base64.encodeBase64String("user:passwd".getBytes());
     // If no auth info, pass a null.
     public static String getResultForUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
-            int readTimeoutMs) {
+                                         int readTimeoutMs) {
         StringBuilder sb = new StringBuilder();
         InputStream stream = null;
         try {
@@ -322,11 +324,11 @@ public class Util {
     }
 
     public static long getLongPropertyOrDefault(String valStr, long defaultVal, Predicate<Long> pred,
-            String hintMsg) throws AnalysisException {
+                                                String hintMsg) throws AnalysisException {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
-        
+
         long result = defaultVal;
         try {
             result = Long.valueOf(valStr);
@@ -346,7 +348,7 @@ public class Util {
     }
 
     public static float getFloatPropertyOrDefault(String valStr, float defaultVal, Predicate<Float> pred,
-                                                String hintMsg) throws AnalysisException {
+                                                  String hintMsg) throws AnalysisException {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
@@ -370,7 +372,7 @@ public class Util {
     }
 
     public static boolean getBooleanPropertyOrDefault(String valStr, boolean defaultVal, String hintMsg)
-            throws AnalysisException {
+        throws AnalysisException {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
@@ -392,7 +394,7 @@ public class Util {
         short B = 128;
 
         while (source > B) {
-            out.write((int)(source & (B - 1) | B));
+            out.write((int) (source & (B - 1) | B));
             source = source >> 7;
         }
         out.write((int) (source & (B - 1)));
@@ -407,7 +409,7 @@ public class Util {
         while (true) {
             int oneByte = in.readUnsignedByte();
             boolean isEnd = (oneByte & B) == 0;
-            result = result | ((long)(oneByte & B - 1) << (shift * 7));
+            result = result | ((long) (oneByte & B - 1) << (shift * 7));
             if (isEnd) {
                 break;
             }
@@ -416,7 +418,7 @@ public class Util {
 
         return result;
     }
-    
+
     // return the ordinal string of an Integer
     public static String ordinal(int i) {
         switch (i % 100) {
@@ -434,7 +436,7 @@ public class Util {
     //      Base64.encodeBase64String("user:passwd".getBytes());
     // If no auth info, pass a null.
     public static InputStream getInputStreamFromUrl(String urlStr, String encodedAuthInfo, int connectTimeoutMs,
-            int readTimeoutMs) throws IOException {
+                                                    int readTimeoutMs) throws IOException {
         URL url = new URL(urlStr);
         URLConnection conn = url.openConnection();
         if (encodedAuthInfo != null) {

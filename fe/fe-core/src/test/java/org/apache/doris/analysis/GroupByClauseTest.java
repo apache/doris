@@ -62,11 +62,11 @@ public class GroupByClauseTest {
         List<ArrayList<Expr>> groupingExprsList = new ArrayList<>();
         ArrayList<Expr> groupByExprs = new ArrayList<>();
         String[][] colsLists = {
-                {"k3", "k1"},
-                {"k2", "k3", "k2"},
-                {"k1", "k3"},
-                {"k4"},
-                {"k1", "k2", "k3", "k4"}
+            {"k3", "k1"},
+            {"k2", "k3", "k2"},
+            {"k1", "k3"},
+            {"k4"},
+            {"k1", "k2", "k3", "k4"}
         };
         for (String[] colsList : colsLists) {
             ArrayList<Expr> exprList = new ArrayList<>();
@@ -80,7 +80,7 @@ public class GroupByClauseTest {
             groupByExprs.add(new SlotRef(new TableName("testdb", "t"), col));
         }
         GroupByClause groupByClause = new GroupByClause(groupingExprsList,
-                GroupByClause.GroupingType.GROUPING_SETS);
+            GroupByClause.GroupingType.GROUPING_SETS);
         GroupingInfo groupingInfo = null;
         try {
             groupByClause.genGroupingExprs();
@@ -94,8 +94,8 @@ public class GroupByClauseTest {
         Assert.assertEquals(5, groupByClause.getGroupingExprs().size());
 
         Assert.assertEquals("GROUPING SETS ((`testdb`.`t`.`k3`, `testdb`.`t`.`k1`), (`testdb`.`t`.`k2`, `testdb`.`t`"
-                + ".`k3`, `testdb`.`t`.`k2`), (`testdb`.`t`.`k1`, `testdb`.`t`.`k3`), (`testdb`.`t`.`k4`), (`testdb`"
-                + ".`t`.`k1`, `testdb`.`t`.`k2`, `testdb`.`t`.`k3`, `testdb`.`t`.`k4`))", groupByClause.toSql());
+            + ".`k3`, `testdb`.`t`.`k2`), (`testdb`.`t`.`k1`, `testdb`.`t`.`k3`), (`testdb`.`t`.`k4`), (`testdb`"
+            + ".`t`.`k1`, `testdb`.`t`.`k2`, `testdb`.`t`.`k3`, `testdb`.`t`.`k4`))", groupByClause.toSql());
         List<BitSet> bitSetList = groupingInfo.getGroupingIdList();
         {
             String[] answer = {"{0, 1, 2, 3}", "{0, 1}", "{0, 2}", "{3}"};
@@ -119,9 +119,9 @@ public class GroupByClauseTest {
         }
 
         GroupByClause groupByClause =
-                new GroupByClause(
-                        Expr.cloneList(groupingExprs),
-                        GroupByClause.GroupingType.ROLLUP);
+            new GroupByClause(
+                Expr.cloneList(groupingExprs),
+                GroupByClause.GroupingType.ROLLUP);
         GroupingInfo groupingInfo = null;
         try {
             groupByClause.genGroupingExprs();
@@ -133,7 +133,7 @@ public class GroupByClauseTest {
         }
         Assert.assertEquals(4, groupByClause.getGroupingExprs().size());
         Assert.assertEquals("ROLLUP (`testdb`.`t`.`k2`, `testdb`.`t`.`k3`, "
-                + "`testdb`.`t`.`k4`, `testdb`.`t`.`k3`)", groupByClause.toSql());
+            + "`testdb`.`t`.`k4`, `testdb`.`t`.`k3`)", groupByClause.toSql());
         List<BitSet> bitSetList = groupingInfo.getGroupingIdList();
         {
             String[] answer = {"{}", "{0}", "{0, 1}", "{0, 1, 2}"};
@@ -157,7 +157,7 @@ public class GroupByClauseTest {
         }
 
         GroupByClause groupByClause = new GroupByClause(Expr.cloneList(groupingExprs),
-                GroupByClause.GroupingType.CUBE);
+            GroupByClause.GroupingType.CUBE);
         GroupingInfo groupingInfo = null;
         try {
             groupByClause.genGroupingExprs();
@@ -168,7 +168,7 @@ public class GroupByClauseTest {
             Assert.assertTrue(false);
         }
         Assert.assertEquals("CUBE (`testdb`.`t`.`k1`, `testdb`.`t`.`k2`, "
-                + "`testdb`.`t`.`k3`, `testdb`.`t`.`k1`)", groupByClause.toSql());
+            + "`testdb`.`t`.`k3`, `testdb`.`t`.`k1`)", groupByClause.toSql());
         Assert.assertEquals(4, groupByClause.getGroupingExprs().size());
 
         List<BitSet> bitSetList = groupingInfo.getGroupingIdList();
@@ -195,17 +195,19 @@ public class GroupByClauseTest {
         }
 
         GroupByClause groupByClause = new GroupByClause(Expr.cloneList(groupingExprs),
-                GroupByClause.GroupingType.GROUP_BY);
+            GroupByClause.GroupingType.GROUP_BY);
         try {
             groupByClause.analyze(analyzer);
         } catch (AnalysisException exception) {
             Assert.assertTrue(false);
         }
-        Assert.assertEquals("`testdb`.`t`.`k2`, `testdb`.`t`.`k2`, `testdb`.`t`.`k3`, `testdb`.`t`.`k1`", groupByClause.toSql());
+        Assert.assertEquals("`testdb`.`t`.`k2`, `testdb`.`t`.`k2`, `testdb`.`t`.`k3`, `testdb`.`t`.`k1`",
+            groupByClause.toSql());
         Assert.assertEquals(3, groupByClause.getGroupingExprs().size());
         groupingExprs.remove(0);
         Assert.assertEquals(groupByClause.getGroupingExprs(), groupingExprs);
     }
+
     @Test
     public void testReset() {
         ArrayList<Expr> groupingExprs = new ArrayList<>();
@@ -216,7 +218,7 @@ public class GroupByClauseTest {
         }
 
         GroupByClause groupByClause = new GroupByClause(Expr.cloneList(groupingExprs),
-                GroupByClause.GroupingType.GROUP_BY);
+            GroupByClause.GroupingType.GROUP_BY);
         try {
             groupByClause.analyze(analyzer);
         } catch (AnalysisException exception) {
@@ -238,7 +240,7 @@ public class GroupByClauseTest {
             groupingExprs.add(expr);
         }
         GroupByClause groupByClause = new GroupByClause(Expr.cloneList(groupingExprs),
-                GroupByClause.GroupingType.GROUP_BY);
+            GroupByClause.GroupingType.GROUP_BY);
         try {
             groupByClause.analyze(analyzer);
         } catch (AnalysisException exception) {
@@ -256,7 +258,7 @@ public class GroupByClauseTest {
         }
 
         GroupByClause groupByClause = new GroupByClause(Expr.cloneList(groupingExprs),
-                GroupByClause.GroupingType.CUBE);
+            GroupByClause.GroupingType.CUBE);
         List<Expr> slots = new ArrayList<>();
         for (String col : cols) {
             SlotRef expr = new SlotRef(new TableName("testdb", "t"), col);

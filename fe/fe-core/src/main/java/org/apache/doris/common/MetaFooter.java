@@ -57,7 +57,7 @@ public class MetaFooter {
     public List<MetaIndex> metaIndices;
 
     public static MetaFooter read(File imageFile) throws IOException {
-        try(RandomAccessFile raf = new RandomAccessFile(imageFile, "r")) {
+        try (RandomAccessFile raf = new RandomAccessFile(imageFile, "r")) {
             long fileLength = raf.length();
             long footerLengthIndex = fileLength - FOOTER_LENGTH_SIZE - MetaMagicNumber.MAGIC_STR.length();
             raf.seek(footerLengthIndex);
@@ -65,7 +65,8 @@ public class MetaFooter {
             MetaMagicNumber magicNumber = MetaMagicNumber.read(raf);
             if (!Arrays.equals(MetaMagicNumber.MAGIC, magicNumber.getBytes())) {
                 LOG.warn("Image file {} format mismatch. Expected magic number is {}, actual is {}",
-                        imageFile.getPath(), Arrays.toString(MetaMagicNumber.MAGIC), Arrays.toString(magicNumber.getBytes()));
+                    imageFile.getPath(), Arrays.toString(MetaMagicNumber.MAGIC),
+                    Arrays.toString(magicNumber.getBytes()));
                 // this will compatible with old image
                 long footerIndex = fileLength - CHECKSUM_LENGTH_SIZE;
                 raf.seek(footerIndex);
@@ -87,7 +88,7 @@ public class MetaFooter {
     }
 
     public static void write(File imageFile, List<MetaIndex> metaIndices, long checksum) throws IOException {
-        try(RandomAccessFile raf = new RandomAccessFile(imageFile, "rw")) {
+        try (RandomAccessFile raf = new RandomAccessFile(imageFile, "rw")) {
             long startIndex = raf.length();
             raf.seek(startIndex);
             raf.writeLong(checksum);

@@ -25,10 +25,10 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.common.DdlException;
 
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -55,7 +55,7 @@ public class EsTablePartitions {
     }
 
     public static EsTablePartitions fromShardPartitions(EsTable esTable, EsShardPartitions shardPartitions)
-            throws DorisEsException, DdlException {
+        throws DorisEsException, DdlException {
         EsTablePartitions esTablePartitions = new EsTablePartitions();
         RangePartitionInfo partitionInfo = null;
         if (esTable.getPartitionInfo() != null) {
@@ -75,15 +75,15 @@ public class EsTablePartitions {
                     }
                     sb.append(")");
                     LOG.debug("begin to parse es table [{}] state from search shards,"
-                            + " with partition info [{}]", esTable.getName(), sb.toString());
+                        + " with partition info [{}]", esTable.getName(), sb.toString());
                 }
             } else if (esTable.getPartitionInfo() instanceof SinglePartitionInfo) {
                 LOG.debug("begin to parse es table [{}] state from search shards, "
-                        + "with no partition info", esTable.getName());
+                    + "with no partition info", esTable.getName());
             } else {
                 throw new DorisEsException("es table only support range partition, "
-                        + "but current partition type is "
-                        + esTable.getPartitionInfo().getType());
+                    + "but current partition type is "
+                    + esTable.getPartitionInfo().getType());
             }
         }
         esTablePartitions.addIndexState(esTable.getIndexName(), shardPartitions);
@@ -91,22 +91,22 @@ public class EsTablePartitions {
         if (partitionInfo != null) {
             // sort the index state according to partition key and then add to range map
             List<EsShardPartitions> esShardPartitionsList = new ArrayList<>(
-                    esTablePartitions.getPartitionedIndexStates().values());
+                esTablePartitions.getPartitionedIndexStates().values());
             esShardPartitionsList.sort(Comparator.comparing(EsShardPartitions::getPartitionKey));
             long partitionId = 0;
             for (EsShardPartitions esShardPartitions : esShardPartitionsList) {
                 PartitionItem item = partitionInfo.handleNewSinglePartitionDesc(
-                        esShardPartitions.getPartitionDesc(), partitionId, false);
+                    esShardPartitions.getPartitionDesc(), partitionId, false);
                 esTablePartitions.addPartition(esShardPartitions.getIndexName(), partitionId);
                 esShardPartitions.setPartitionId(partitionId);
                 ++partitionId;
                 LOG.debug("add partition to es table [{}] with range [{}]", esTable.getName(),
-                        item.getItems());
+                    item.getItems());
             }
         }
         return esTablePartitions;
     }
-    
+
     public PartitionInfo getPartitionInfo() {
         return partitionInfo;
     }
@@ -118,11 +118,11 @@ public class EsTablePartitions {
     public Map<Long, String> getPartitionIdToIndices() {
         return partitionIdToIndices;
     }
-    
+
     public void addPartition(String indexName, long partitionId) {
         partitionIdToIndices.put(partitionId, indexName);
     }
-    
+
     public void addIndexState(String indexName, EsShardPartitions indexState) {
         if (indexState.getPartitionDesc() != null) {
             partitionedIndexStates.put(indexName, indexState);
@@ -138,14 +138,14 @@ public class EsTablePartitions {
     public Map<String, EsShardPartitions> getUnPartitionedIndexStates() {
         return unPartitionedIndexStates;
     }
-    
+
     public EsShardPartitions getEsShardPartitions(long partitionId) {
         if (partitionIdToIndices.containsKey(partitionId)) {
             return partitionedIndexStates.get(partitionIdToIndices.get(partitionId));
         }
         return null;
     }
-    
+
     public EsShardPartitions getEsShardPartitions(String indexName) {
         if (partitionedIndexStates.containsKey(indexName)) {
             return partitionedIndexStates.get(indexName);

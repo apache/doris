@@ -61,14 +61,14 @@ public class AdminShowReplicaTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
         createTable("create table test.tbl1\n" +
-                "(k1 date, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                "    partition p1 values less than(\"2021-07-01\"),\n" +
-                "    partition p2 values less than(\"2021-08-01\")\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 10\n" +
-                "properties(\"replication_num\" = \"1\");");
+            "(k1 date, k2 int)\n" +
+            "partition by range(k1)\n" +
+            "(\n" +
+            "    partition p1 values less than(\"2021-07-01\"),\n" +
+            "    partition p2 values less than(\"2021-08-01\")\n" +
+            ")\n" +
+            "distributed by hash(k2) buckets 10\n" +
+            "properties(\"replication_num\" = \"1\");");
     }
 
     @AfterClass
@@ -86,7 +86,7 @@ public class AdminShowReplicaTest {
     public void testShowReplicaDistribution() throws Exception {
         String stmtStr = "admin show replica distribution from test.tbl1 partition(p1)";
         AdminShowReplicaDistributionStmt stmt = (AdminShowReplicaDistributionStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                stmtStr, connectContext);
+            stmtStr, connectContext);
         ShowExecutor executor = new ShowExecutor(connectContext, stmt);
         ShowResultSet resultSet = executor.execute();
         Assert.assertEquals(1, resultSet.getResultRows().size());
@@ -94,7 +94,7 @@ public class AdminShowReplicaTest {
 
         stmtStr = "show data skew from test.tbl1 partition(p1)";
         ShowDataSkewStmt skewStmt = (ShowDataSkewStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                stmtStr, connectContext);
+            stmtStr, connectContext);
         executor = new ShowExecutor(connectContext, skewStmt);
         resultSet = executor.execute();
         Assert.assertEquals(10, resultSet.getResultRows().size());

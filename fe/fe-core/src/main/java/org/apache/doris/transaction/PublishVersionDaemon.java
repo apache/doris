@@ -47,13 +47,13 @@ import java.util.Map;
 import java.util.Set;
 
 public class PublishVersionDaemon extends MasterDaemon {
-    
+
     private static final Logger LOG = LogManager.getLogger(PublishVersionDaemon.class);
-    
+
     public PublishVersionDaemon() {
         super("PUBLISH_VERSION", Config.publish_version_interval_ms);
     }
-    
+
     @Override
     protected void runAfterCatalogReady() {
         try {
@@ -71,7 +71,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         }
         return true;
     }
-    
+
     private void publishVersion() {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
@@ -103,13 +103,13 @@ public class PublishVersionDaemon extends MasterDaemon {
             }
             List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
             for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
-                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(), 
-                        commitInfo.getVersion(), 0);
+                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(),
+                    commitInfo.getVersion(), 0);
                 partitionVersionInfos.add(versionInfo);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("try to publish version info partitionid [{}], version [{}]", 
-                            commitInfo.getPartitionId(), 
-                            commitInfo.getVersion());
+                    LOG.debug("try to publish version info partitionid [{}], version [{}]",
+                        commitInfo.getPartitionId(),
+                        commitInfo.getVersion());
                 }
             }
             Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
@@ -123,10 +123,10 @@ public class PublishVersionDaemon extends MasterDaemon {
 
             for (long backendId : publishBackends) {
                 PublishVersionTask task = new PublishVersionTask(backendId,
-                        transactionState.getTransactionId(),
-                        transactionState.getDbId(),
-                        partitionVersionInfos,
-                        createPublishVersionTaskTime);
+                    transactionState.getTransactionId(),
+                    transactionState.getDbId(),
+                    partitionVersionInfos,
+                    createPublishVersionTaskTime);
                 // add to AgentTaskQueue for handling finish report.
                 // not check return value, because the add will success
                 AgentTaskQueue.addTask(task);
@@ -139,7 +139,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         if (!batchTask.getAllTasks().isEmpty()) {
             AgentTaskExecutor.submit(batchTask);
         }
-        
+
         TabletInvertedIndex tabletInvertedIndex = Catalog.getCurrentInvertedIndex();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
@@ -161,12 +161,13 @@ public class PublishVersionDaemon extends MasterDaemon {
                             if (tabletInvertedIndex.getTabletMeta(tabletId) == null) {
                                 continue;
                             }
-                            Replica replica = tabletInvertedIndex.getReplica(tabletId, publishVersionTask.getBackendId());
+                            Replica replica =
+                                tabletInvertedIndex.getReplica(tabletId, publishVersionTask.getBackendId());
                             if (replica != null) {
                                 publishErrorReplicaIds.add(replica.getId());
                             } else {
-                                LOG.info("could not find related replica with tabletid={}, backendid={}", 
-                                        tabletId, publishVersionTask.getBackendId());
+                                LOG.info("could not find related replica with tabletid={}, backendid={}",
+                                    tabletId, publishVersionTask.getBackendId());
                             }
                         }
                     }
@@ -211,10 +212,12 @@ public class PublishVersionDaemon extends MasterDaemon {
                                 for (Long errorPartitionId : errorPartitionIds) {
                                     Partition partition = olapTable.getPartition(errorPartitionId);
                                     if (partition != null) {
-                                        List<MaterializedIndex> materializedIndexList = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
+                                        List<MaterializedIndex> materializedIndexList =
+                                            partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
                                         for (MaterializedIndex materializedIndex : materializedIndexList) {
                                             for (Tablet tablet : materializedIndex.getTablets()) {
-                                                Replica replica = tablet.getReplicaByBackendId(unfinishedTask.getBackendId());
+                                                Replica replica =
+                                                    tablet.getReplicaByBackendId(unfinishedTask.getBackendId());
                                                 if (replica != null) {
                                                     publishErrorReplicaIds.add(replica.getId());
                                                 }
@@ -233,11 +236,12 @@ public class PublishVersionDaemon extends MasterDaemon {
                 // all publish tasks are finished, try to finish this txn.
                 shouldFinishTxn = true;
             }
-            
+
             if (shouldFinishTxn) {
                 try {
                     // one transaction exception should not affect other transaction
-                    globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(), publishErrorReplicaIds);
+                    globalTransactionMgr.finishTransaction(transactionState.getDbId(),
+                        transactionState.getTransactionId(), publishErrorReplicaIds);
                 } catch (Exception e) {
                     LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
                 }
@@ -246,7 +250,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     // to finish after some interval
                     transactionState.updateSendTaskTime();
                     LOG.debug("publish version for transaction {} failed, has {} error replicas during publish",
-                            transactionState, publishErrorReplicaIds.size());
+                        transactionState, publishErrorReplicaIds.size());
                 }
             }
 

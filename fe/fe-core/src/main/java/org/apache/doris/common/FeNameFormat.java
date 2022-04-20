@@ -48,8 +48,8 @@ public class FeNameFormat {
 
     public static void checkTableName(String tableName) throws AnalysisException {
         if (Strings.isNullOrEmpty(tableName)
-                || !tableName.matches(COMMON_TABLE_NAME_REGEX)
-                || tableName.length() > Config.table_name_length_limit) {
+            || !tableName.matches(COMMON_TABLE_NAME_REGEX)
+            || tableName.length() > Config.table_name_length_limit) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_TABLE_NAME, tableName);
         }
     }
@@ -95,7 +95,7 @@ public class FeNameFormat {
             res = role.equals(PaloRole.OPERATOR_ROLE) || (!canBeAdmin && role.equals(PaloRole.ADMIN_ROLE));
         } else {
             res = role.equalsIgnoreCase(PaloRole.OPERATOR_ROLE)
-                    || (!canBeAdmin && role.equalsIgnoreCase(PaloRole.ADMIN_ROLE));
+                || (!canBeAdmin && role.equalsIgnoreCase(PaloRole.ADMIN_ROLE));
         }
 
         if (res) {

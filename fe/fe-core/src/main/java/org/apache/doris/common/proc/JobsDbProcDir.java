@@ -33,8 +33,8 @@ import java.util.List;
  */
 public class JobsDbProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("DbId").add("DbName")
-            .build();
+        .add("DbId").add("DbName")
+        .build();
 
     private Catalog catalog;
 

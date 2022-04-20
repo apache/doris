@@ -17,39 +17,39 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.persist.EditLog;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-
-import org.apache.doris.persist.EditLog;
 
 public class TransactionIdGenerator {
 
     public static final long NEXT_ID_INIT_VALUE = 1;
     private static final int BATCH_ID_INTERVAL = 1000;
-    
+
     private long nextId = NEXT_ID_INIT_VALUE;
     // has to set it to an invalid value, then it will be logged when id is firstly increment
     private long batchEndId = 0;
-    
+
     private EditLog editLog;
-    
+
     public TransactionIdGenerator() {
     }
-    
+
     public void setEditLog(EditLog editLog) {
         this.editLog = editLog;
     }
-    
+
     // performance is more quickly
     public synchronized long getNextTransactionId() {
         if (nextId < batchEndId) {
-            ++ nextId;
+            ++nextId;
             return nextId;
         } else {
             batchEndId = batchEndId + BATCH_ID_INTERVAL;
             editLog.logSaveTransactionId(batchEndId);
-            ++ nextId;
+            ++nextId;
             return nextId;
         }
     }
@@ -60,11 +60,12 @@ public class TransactionIdGenerator {
             nextId = id;
         }
     }
-    
+
     // this two function used to read snapshot or write snapshot
     public void write(DataOutput out) throws IOException {
         out.writeLong(batchEndId);
     }
+
     public void readFields(DataInput in) throws IOException {
         batchEndId = in.readLong();
         // maybe a little rough

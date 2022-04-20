@@ -28,7 +28,7 @@ public class CIDRTest {
             CIDR cidr = new CIDR("192.168.17.0/");
             // should not be here
             Assert.assertTrue(false);
-        }  catch (Exception e) {
+        } catch (Exception e) {
             Assert.assertTrue(e instanceof IllegalArgumentException);
         }
 
@@ -37,7 +37,7 @@ public class CIDRTest {
             CIDR cidr = new CIDR("192.168.17.0/88");
             // should not be here
             Assert.assertTrue(false);
-        }  catch (Exception e) {
+        } catch (Exception e) {
             Assert.assertTrue(e instanceof IllegalArgumentException);
         }
 
@@ -46,7 +46,7 @@ public class CIDRTest {
             CIDR cidr = new CIDR("192.168./88");
             // should not be here
             Assert.assertTrue(false);
-        }  catch (Exception e) {
+        } catch (Exception e) {
             Assert.assertTrue(e instanceof IllegalArgumentException);
         }
     }

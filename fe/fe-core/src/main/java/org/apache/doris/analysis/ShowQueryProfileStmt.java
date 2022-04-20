@@ -33,32 +33,32 @@ import com.google.common.base.Strings;
 public class ShowQueryProfileStmt extends ShowStmt {
     // This should be same as ProfileManager.PROFILE_HEADERS
     public static final ShowResultSetMetaData META_DATA_QUERY_IDS =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("QueryId", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("User", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("DefaultDb", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("SQL", ScalarType.createVarchar(65535)))
-                    .addColumn(new Column("QueryType", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("StartTime", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("EndTime", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("TotalTime", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("QueryState", ScalarType.createVarchar(128)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("QueryId", ScalarType.createVarchar(128)))
+            .addColumn(new Column("User", ScalarType.createVarchar(128)))
+            .addColumn(new Column("DefaultDb", ScalarType.createVarchar(128)))
+            .addColumn(new Column("SQL", ScalarType.createVarchar(65535)))
+            .addColumn(new Column("QueryType", ScalarType.createVarchar(128)))
+            .addColumn(new Column("StartTime", ScalarType.createVarchar(128)))
+            .addColumn(new Column("EndTime", ScalarType.createVarchar(128)))
+            .addColumn(new Column("TotalTime", ScalarType.createVarchar(128)))
+            .addColumn(new Column("QueryState", ScalarType.createVarchar(128)))
+            .build();
 
     public static final ShowResultSetMetaData META_DATA_FRAGMENTS =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Fragments", ScalarType.createVarchar(65535)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Fragments", ScalarType.createVarchar(65535)))
+            .build();
     public static final ShowResultSetMetaData META_DATA_INSTANCES =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Instances", ScalarType.createVarchar(128)))
-                    .addColumn(new Column("Host", ScalarType.createVarchar(64)))
-                    .addColumn(new Column("ActiveTime", ScalarType.createVarchar(64)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Instances", ScalarType.createVarchar(128)))
+            .addColumn(new Column("Host", ScalarType.createVarchar(64)))
+            .addColumn(new Column("ActiveTime", ScalarType.createVarchar(64)))
+            .build();
     public static final ShowResultSetMetaData META_DATA_SINGLE_INSTANCE =
-            ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Instance", ScalarType.createVarchar(65535)))
-                    .build();
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("Instance", ScalarType.createVarchar(65535)))
+            .build();
 
     public enum PathType {
         QUERY_IDS,

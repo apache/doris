@@ -134,11 +134,17 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        public boolean isEquivalence() { return this == EQ || this == EQ_FOR_NULL; };
+        public boolean isEquivalence() {
+            return this == EQ || this == EQ_FOR_NULL;
+        }
 
-        public boolean isUnNullSafeEquivalence() { return this == EQ; };
+        public boolean isUnNullSafeEquivalence() {
+            return this == EQ;
+        }
 
-        public boolean isUnequivalence() { return this == NE; }
+        public boolean isUnequivalence() {
+            return this == NE;
+        }
     }
 
     private Operator op;
@@ -163,30 +169,37 @@ public class BinaryPredicate extends Predicate implements Writable {
     protected BinaryPredicate(BinaryPredicate other) {
         super(other);
         op = other.op;
-        slotIsleft= other.slotIsleft;
+        slotIsleft = other.slotIsleft;
         isInferred_ = other.isInferred_;
     }
 
-    public boolean isInferred() { return isInferred_; }
-    public void setIsInferred() { isInferred_ = true; }
+    public boolean isInferred() {
+        return isInferred_;
+    }
+
+    public void setIsInferred() {
+        isInferred_ = true;
+    }
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t: Type.getSupportedTypes()) {
-            if (t.isNull()) continue; // NULL is handled through type promotion.
+        for (Type t : Type.getSupportedTypes()) {
+            if (t.isNull()) {
+                continue; // NULL is handled through type promotion.
+            }
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.EQ.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
+                Operator.EQ.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.NE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
+                Operator.NE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.LE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
+                Operator.LE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.GE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
+                Operator.GE.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.LT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
+                Operator.LT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.GT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
+                Operator.GT.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                    Operator.EQ_FOR_NULL.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
+                Operator.EQ_FOR_NULL.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
         }
     }
 
@@ -199,7 +212,9 @@ public class BinaryPredicate extends Predicate implements Writable {
         return op;
     }
 
-    public void setOp(Operator op) { this.op = op; }
+    public void setOp(Operator op) {
+        this.op = op;
+    }
 
     @Override
     public Expr negate() {
@@ -309,19 +324,19 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.VARCHAR;
         }
         if (t1 == PrimitiveType.STRING && t2 == PrimitiveType.STRING
-                || t1 == PrimitiveType.STRING && t2 == PrimitiveType.VARCHAR
-                || t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.STRING) {
+            || t1 == PrimitiveType.STRING && t2 == PrimitiveType.VARCHAR
+            || t1 == PrimitiveType.VARCHAR && t2 == PrimitiveType.STRING) {
             return Type.STRING;
         }
         if (t1 == PrimitiveType.BIGINT && t2 == PrimitiveType.BIGINT) {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.DECIMALV2)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)) {
+            && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.DECIMALV2)) {
             return Type.DECIMALV2;
         }
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
-                && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
+            && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
         }
 
@@ -332,17 +347,17 @@ public class BinaryPredicate extends Predicate implements Writable {
         // When int column compares with string, Mysql will convert string to int.
         // So it is also compatible with Mysql.
 
-        if (t1 == PrimitiveType.BIGINT && (t2 == PrimitiveType.VARCHAR || t2 ==PrimitiveType.STRING)) {
+        if (t1 == PrimitiveType.BIGINT && (t2 == PrimitiveType.VARCHAR || t2 == PrimitiveType.STRING)) {
             Expr rightChild = getChild(1);
             Long parsedLong = Type.tryParseToLong(rightChild);
-            if(parsedLong != null) {
+            if (parsedLong != null) {
                 return Type.BIGINT;
             }
         }
-        if ((t1 == PrimitiveType.VARCHAR || t1 ==PrimitiveType.STRING) && t2 == PrimitiveType.BIGINT) {
+        if ((t1 == PrimitiveType.VARCHAR || t1 == PrimitiveType.STRING) && t2 == PrimitiveType.BIGINT) {
             Expr leftChild = getChild(0);
             Long parsedLong = Type.tryParseToLong(leftChild);
-            if(parsedLong != null) {
+            if (parsedLong != null) {
                 return Type.BIGINT;
             }
         }
@@ -389,16 +404,16 @@ public class BinaryPredicate extends Predicate implements Writable {
         this.opcode = op.getOpcode();
         String opName = op.getName();
         fn = getBuiltinFunction(analyzer, opName, collectChildReturnTypes(),
-                Function.CompareMode.IS_SUPERTYPE_OF);
+            Function.CompareMode.IS_SUPERTYPE_OF);
         if (fn == null) {
             Preconditions.checkState(false, String.format(
-                    "No match for '%s' with operand types %s and %s", toSql()));
+                "No match for '%s' with operand types %s and %s", toSql()));
         }
 
         // determine selectivity
         Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
         if (op == Operator.EQ && isSingleColumnPredicate(slotRefRef,
-          null) && slotRefRef.getRef().getNumDistinctValues() > 0) {
+            null) && slotRefRef.getRef().getNumDistinctValues() > 0) {
             Preconditions.checkState(slotRefRef.getRef() != null);
             selectivity = 1.0 / slotRefRef.getRef().getNumDistinctValues();
             selectivity = Math.max(0, Math.min(1, selectivity));
@@ -451,7 +466,9 @@ public class BinaryPredicate extends Predicate implements Writable {
      * casts, returns those two slots; otherwise returns null.
      */
     public static Pair<SlotId, SlotId> getEqSlots(Expr e) {
-        if (!(e instanceof BinaryPredicate)) return null;
+        if (!(e instanceof BinaryPredicate)) {
+            return null;
+        }
         return ((BinaryPredicate) e).getEqSlots();
     }
 
@@ -461,11 +478,17 @@ public class BinaryPredicate extends Predicate implements Writable {
      */
     @Override
     public Pair<SlotId, SlotId> getEqSlots() {
-        if (op != Operator.EQ) return null;
+        if (op != Operator.EQ) {
+            return null;
+        }
         SlotRef lhs = getChild(0).unwrapSlotRef(true);
-        if (lhs == null) return null;
+        if (lhs == null) {
+            return null;
+        }
         SlotRef rhs = getChild(1).unwrapSlotRef(true);
-        if (rhs == null) return null;
+        if (rhs == null) {
+            return null;
+        }
         return new Pair<SlotId, SlotId>(lhs.getSlotId(), rhs.getSlotId());
     }
 
@@ -589,11 +612,11 @@ public class BinaryPredicate extends Predicate implements Writable {
         recursiveResetChildrenResult();
         final Expr leftChildValue = getChild(0);
         final Expr rightChildValue = getChild(1);
-        if(!(leftChildValue instanceof LiteralExpr)
-                || !(rightChildValue instanceof LiteralExpr)) {
+        if (!(leftChildValue instanceof LiteralExpr)
+            || !(rightChildValue instanceof LiteralExpr)) {
             return this;
         }
-        return compareLiteral((LiteralExpr)leftChildValue, (LiteralExpr)rightChildValue);
+        return compareLiteral((LiteralExpr) leftChildValue, (LiteralExpr) rightChildValue);
     }
 
     private Expr compareLiteral(LiteralExpr first, LiteralExpr second) throws AnalysisException {
@@ -605,14 +628,14 @@ public class BinaryPredicate extends Predicate implements Writable {
             } else if (isFirstNull || isSecondNull) {
                 return new BoolLiteral(false);
             }
-        } else  {
-            if (isFirstNull || isSecondNull){
+        } else {
+            if (isFirstNull || isSecondNull) {
                 return new NullLiteral();
             }
         }
 
         final int compareResult = first.compareLiteral(second);
-        switch(op) {
+        switch (op) {
             case EQ:
             case EQ_FOR_NULL:
                 return new BoolLiteral(compareResult == 0);
@@ -634,7 +657,7 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     @Override
     public void setSelectivity() {
-        switch(op) {
+        switch (op) {
             case EQ:
             case EQ_FOR_NULL: {
                 Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
@@ -646,7 +669,8 @@ public class BinaryPredicate extends Predicate implements Writable {
                     }
                 }
                 break;
-            } default: {
+            }
+            default: {
                 // Reference hive
                 selectivity = 1.0 / 3.0;
                 break;

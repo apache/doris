@@ -135,7 +135,8 @@ public class CreateUserStmt extends DdlStmt {
         }
 
         // check if current user has GRANT priv on GLOBAL or DATABASE level.
-        if (!Catalog.getCurrentCatalog().getAuth().checkHasPriv(ConnectContext.get(), PrivPredicate.GRANT, PrivLevel.GLOBAL, PrivLevel.DATABASE)) {
+        if (!Catalog.getCurrentCatalog().getAuth()
+            .checkHasPriv(ConnectContext.get(), PrivPredicate.GRANT, PrivLevel.GLOBAL, PrivLevel.DATABASE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }
     }

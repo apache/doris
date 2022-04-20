@@ -40,7 +40,8 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         super(HeartbeatResponse.Type.FRONTEND);
     }
 
-    public FrontendHbResponse(String name, int queryPort, int rpcPort, long replayedJournalId, long hbTime, String version) {
+    public FrontendHbResponse(String name, int queryPort, int rpcPort, long replayedJournalId, long hbTime,
+                              String version) {
         super(HeartbeatResponse.Type.FRONTEND);
         this.status = HbStatus.OK;
         this.name = name;

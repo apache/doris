@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import static org.apache.doris.common.io.IOUtils.writeOptionString;
-
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -38,6 +36,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+
+import static org.apache.doris.common.io.IOUtils.writeOptionString;
 
 
 /**
@@ -136,7 +136,8 @@ public class Function implements Writable {
         this(0, name, args, retType, varArgs, vectorized, NullableMode.DEPEND_ON_ARGUMENT);
     }
 
-    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized, NullableMode mode) {
+    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized,
+                    NullableMode mode) {
         this(0, name, args, retType, varArgs, vectorized, mode);
     }
 
@@ -231,10 +232,21 @@ public class Function implements Writable {
         hasVarArgs = v;
     }
 
-    public void setId(long functionId) { this.id = functionId; }
-    public long getId() { return id; }
-    public void setChecksum(String checksum) { this.checksum = checksum; }
-    public String getChecksum() { return checksum; }
+    public void setId(long functionId) {
+        this.id = functionId;
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public void setChecksum(String checksum) {
+        this.checksum = checksum;
+    }
+
+    public String getChecksum() {
+        return checksum;
+    }
 
     // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.
     // Maybe we should use a separate variable to identify,
@@ -598,6 +610,7 @@ public class Function implements Writable {
         FunctionType(int code) {
             this.code = code;
         }
+
         public int getCode() {
             return code;
         }
@@ -619,10 +632,11 @@ public class Function implements Writable {
         public void write(DataOutput output) throws IOException {
             output.writeInt(code);
         }
+
         public static FunctionType read(DataInput input) throws IOException {
             return fromCode(input.readInt());
         }
-    };
+    }
 
     protected void writeFields(DataOutput output) throws IOException {
         output.writeLong(id);

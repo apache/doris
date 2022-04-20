@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
-
 import org.apache.doris.common.jmockit.Deencapsulation;
+
 import org.junit.Assert;
 import org.junit.Test;
 

@@ -25,12 +25,13 @@ import org.apache.doris.persist.gson.GsonUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+
+import com.google.gson.annotations.SerializedName;
 
 public class DeleteInfo implements Writable, GsonPostProcessable {
 

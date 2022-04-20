@@ -71,7 +71,7 @@ public class StructType extends Type {
             fieldsSql.add(f.prettyPrint(lpad + 2));
         }
         return String.format("%sSTRUCT<\n%s\n%s>",
-                leftPadding, Joiner.on(",\n").join(fieldsSql), leftPadding);
+            leftPadding, Joiner.on(",\n").join(fieldsSql), leftPadding);
     }
 
     public void addField(StructField field) {
@@ -114,6 +114,7 @@ public class StructType extends Type {
             field.toThrift(container, node);
         }
     }
+
     @Override
     public String toString() {
         return toSql(0);

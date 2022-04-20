@@ -109,6 +109,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
         }
         return TFileType.FILE_BROKER;
     }
+
     public StorageBackend.StorageType storageType() {
         return storageType;
     }
@@ -138,7 +139,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (typeStr != null) {
             try {
                 st = StorageBackend.StorageType.valueOf(typeStr);
-            }  catch (IllegalArgumentException e) {
+            } catch (IllegalArgumentException e) {
                 LOG.warn("set to BROKER, because of exception", e);
             }
         }

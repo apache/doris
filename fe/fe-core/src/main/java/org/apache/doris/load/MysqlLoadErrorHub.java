@@ -116,7 +116,7 @@ public class MysqlLoadErrorHub extends LoadErrorHub {
         public void write(DataOutput out) throws IOException {
             Text.writeString(out, host);
             out.writeInt(port);
-            Text.writeString(out, user) ;
+            Text.writeString(out, user);
             Text.writeString(out, passwd);
             Text.writeString(out, db);
             Text.writeString(out, table);
@@ -151,8 +151,8 @@ public class MysqlLoadErrorHub extends LoadErrorHub {
         ResultSet resultSet = null;
 
         conn = MysqlUtil.getConnection(
-                param.getHost(), param.getPort(), param.getDb(),
-                param.getUser(), param.getPasswd());
+            param.getHost(), param.getPort(), param.getDb(),
+            param.getUser(), param.getPasswd());
         if (conn == null) {
             return result;
         }
@@ -172,7 +172,7 @@ public class MysqlLoadErrorHub extends LoadErrorHub {
         } catch (SQLException e) {
             LOG.warn("fail to query load error mysql. "
                     + "sql={}, table={}, jobId={}, max_line={}, exception={}",
-                    sql, param.getTable(), jobId, MAX_LINE, e);
+                sql, param.getTable(), jobId, MAX_LINE, e);
         } finally {
             if (resultSet != null) {
                 try {

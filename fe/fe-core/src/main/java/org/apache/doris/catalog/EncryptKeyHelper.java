@@ -22,6 +22,7 @@ import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.EncryptKeyName;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

@@ -39,9 +39,9 @@ import java.util.Set;
  */
 public class IndexInfoProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("IndexId").add("IndexName").add("SchemaVersion").add("SchemaHash")
-            .add("ShortKeyColumnCount").add("StorageType").add("Keys")
-            .build();
+        .add("IndexId").add("IndexName").add("SchemaVersion").add("SchemaHash")
+        .add("ShortKeyColumnCount").add("StorageType").add("Keys")
+        .build();
 
     private Database db;
     private Table table;
@@ -84,12 +84,12 @@ public class IndexInfoProcDir implements ProcDirInterface {
                     builder.append(Joiner.on(", ").join(columnNames)).append(")");
 
                     result.addRow(Lists.newArrayList(String.valueOf(indexId),
-                            olapTable.getIndexNameById(indexId),
-                            String.valueOf(indexMeta.getSchemaVersion()),
-                            String.valueOf(indexMeta.getSchemaHash()),
-                            String.valueOf(indexMeta.getShortKeyColumnCount()),
-                            indexMeta.getStorageType().name(),
-                            builder.toString()));
+                        olapTable.getIndexNameById(indexId),
+                        String.valueOf(indexMeta.getSchemaVersion()),
+                        String.valueOf(indexMeta.getSchemaHash()),
+                        String.valueOf(indexMeta.getShortKeyColumnCount()),
+                        indexMeta.getStorageType().name(),
+                        builder.toString()));
                 }
             } else {
                 result.addRow(Lists.newArrayList("-1", table.getName(), "", "", "", "", ""));
@@ -110,7 +110,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
     public ProcNodeInterface lookup(String idxIdStr) throws AnalysisException {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(table);
-        
+
         long idxId;
         try {
             idxId = Long.valueOf(idxIdStr);

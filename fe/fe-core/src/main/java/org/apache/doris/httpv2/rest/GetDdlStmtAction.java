@@ -78,7 +78,8 @@ public class GetDdlStmtAction extends RestBaseController {
 
         table.readLock();
         try {
-            Catalog.getDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt, true, false /* show password */);
+            Catalog.getDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt, true,
+                false /* show password */);
         } finally {
             table.readUnlock();
         }

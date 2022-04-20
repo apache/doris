@@ -24,13 +24,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Maps;
+
 import org.apache.commons.io.FileUtils;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import com.google.common.collect.Maps;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -76,7 +76,8 @@ public class PluginMgrTest {
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
-            InstallPluginStmt stmt = new InstallPluginStmt(PluginTestUtil.getTestPathString("auditdemo.zip"), Maps.newHashMap());
+            InstallPluginStmt stmt =
+                new InstallPluginStmt(PluginTestUtil.getTestPathString("auditdemo.zip"), Maps.newHashMap());
             Catalog.getCurrentCatalog().installPlugin(stmt);
 
             PluginMgr pluginMgr = Catalog.getCurrentPluginMgr();
@@ -119,7 +120,8 @@ public class PluginMgrTest {
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
-            InstallPluginStmt stmt = new InstallPluginStmt(PluginTestUtil.getTestPathString("test_local_plugin"), Maps.newHashMap());
+            InstallPluginStmt stmt =
+                new InstallPluginStmt(PluginTestUtil.getTestPathString("test_local_plugin"), Maps.newHashMap());
             Catalog.getCurrentCatalog().installPlugin(stmt);
 
             PluginMgr pluginMgr = Catalog.getCurrentPluginMgr();

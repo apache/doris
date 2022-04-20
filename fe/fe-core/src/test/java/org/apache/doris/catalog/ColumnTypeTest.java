@@ -17,12 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
@@ -31,8 +25,15 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+
 public class ColumnTypeTest {
     private FakeCatalog fakeCatalog;
+
     @Before
     public void setUp() {
         fakeCatalog = new FakeCatalog();
@@ -132,7 +133,7 @@ public class ColumnTypeTest {
         TypeDef type = TypeDef.createDecimal(8, 9);
         type.analyze(null);
     }
-    
+
     @Test
     public void testSerialization() throws Exception {
         // 1. Write objects to file
@@ -142,7 +143,7 @@ public class ColumnTypeTest {
 
         ScalarType type1 = Type.NULL;
         ColumnType.write(dos, type1);
-        
+
         ScalarType type2 = ScalarType.createType(PrimitiveType.BIGINT);
         ColumnType.write(dos, type2);
 
@@ -156,17 +157,17 @@ public class ColumnTypeTest {
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         Type rType1 = ColumnType.read(dis);
         Assert.assertTrue(rType1.equals(type1));
-        
+
         Type rType2 = ColumnType.read(dis);
         Assert.assertTrue(rType2.equals(type2));
-        
+
         Type rType3 = ColumnType.read(dis);
 
         // Change it when remove DecimalV2
         Assert.assertTrue(rType3.equals(type3) || rType3.equals(type4));
 
         Assert.assertFalse(type1.equals(this));
-        
+
         // 3. delete files
         dis.close();
         file.delete();

@@ -78,18 +78,22 @@ public class ArithmeticExpr extends Expr {
         public String toString() {
             return description;
         }
+
         public String getName() {
             return name;
         }
+
         public OperatorPosition getPos() {
             return pos;
         }
+
         public TExprOpcode getOpcode() {
             return opcode;
         }
+
         public boolean isUnary() {
             return pos == OperatorPosition.UNARY_PREFIX
-                    || pos == OperatorPosition.UNARY_POSTFIX;
+                || pos == OperatorPosition.UNARY_POSTFIX;
         }
 
         public boolean isBinary() {
@@ -100,27 +104,27 @@ public class ArithmeticExpr extends Expr {
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t : Type.getNumericTypes()) {
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.MULTIPLY.getName(), Lists.newArrayList(t, t), t));
+                Operator.MULTIPLY.getName(), Lists.newArrayList(t, t), t));
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.ADD.getName(), Lists.newArrayList(t, t), t));
+                Operator.ADD.getName(), Lists.newArrayList(t, t), t));
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.SUBTRACT.getName(), Lists.newArrayList(t, t), t));
+                Operator.SUBTRACT.getName(), Lists.newArrayList(t, t), t));
         }
         functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
-                Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
+            Operator.DIVIDE.getName(),
+            Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
+            Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
         functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
-                Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
+            Operator.DIVIDE.getName(),
+            Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
+            Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
 
         // MOD(), FACTORIAL(), BITAND(), BITOR(), BITXOR(), and BITNOT() are registered as
         // builtins, see palo_functions.py
         for (Type t : Type.getIntegerTypes()) {
             functionSet.addBuiltin(ScalarFunction.createBuiltinOperator(
-                    Operator.INT_DIVIDE.getName(), Lists.newArrayList(t, t),
-                    t, Function.NullableMode.ALWAYS_NULLABLE));
+                Operator.INT_DIVIDE.getName(), Lists.newArrayList(t, t),
+                t, Function.NullableMode.ALWAYS_NULLABLE));
         }
 
         // init vec build function
@@ -130,38 +134,38 @@ public class ArithmeticExpr extends Expr {
                 Type t2 = Type.getNumericTypes().get(j);
 
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.MULTIPLY.getName(), Lists.newArrayList(t1, t2),
-                        Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
+                    Operator.MULTIPLY.getName(), Lists.newArrayList(t1, t2),
+                    Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.ADD.getName(), Lists.newArrayList(t1, t2),
-                        Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
+                    Operator.ADD.getName(), Lists.newArrayList(t1, t2),
+                    Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.SUBTRACT.getName(), Lists.newArrayList(t1, t2),
-                        Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
+                    Operator.SUBTRACT.getName(), Lists.newArrayList(t1, t2),
+                    Type.getNextNumType(Type.getAssignmentCompatibleType(t1, t2, false))));
             }
         }
 
         functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
-                Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
+            Operator.DIVIDE.getName(),
+            Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
+            Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
         functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                Operator.DIVIDE.getName(),
-                Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
-                Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
+            Operator.DIVIDE.getName(),
+            Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
+            Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
 
         functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                Operator.MOD.getName(),
-                Lists.<Type>newArrayList(Type.FLOAT, Type.FLOAT),
-                Type.FLOAT, Function.NullableMode.ALWAYS_NULLABLE));
+            Operator.MOD.getName(),
+            Lists.<Type>newArrayList(Type.FLOAT, Type.FLOAT),
+            Type.FLOAT, Function.NullableMode.ALWAYS_NULLABLE));
         functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                Operator.MOD.getName(),
-                Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
-                Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
+            Operator.MOD.getName(),
+            Lists.<Type>newArrayList(Type.DOUBLE, Type.DOUBLE),
+            Type.DOUBLE, Function.NullableMode.ALWAYS_NULLABLE));
         functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                Operator.MOD.getName(),
-                Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
-                Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
+            Operator.MOD.getName(),
+            Lists.<Type>newArrayList(Type.DECIMALV2, Type.DECIMALV2),
+            Type.DECIMALV2, Function.NullableMode.ALWAYS_NULLABLE));
 
         for (int i = 0; i < Type.getIntegerTypes().size(); i++) {
             Type t1 = Type.getIntegerTypes().get(i);
@@ -169,13 +173,13 @@ public class ArithmeticExpr extends Expr {
                 Type t2 = Type.getIntegerTypes().get(j);
 
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.INT_DIVIDE.getName(), Lists.newArrayList(t1, t2),
-                        Type.getAssignmentCompatibleType(t1, t2, false),
-                        Function.NullableMode.ALWAYS_NULLABLE));
+                    Operator.INT_DIVIDE.getName(), Lists.newArrayList(t1, t2),
+                    Type.getAssignmentCompatibleType(t1, t2, false),
+                    Function.NullableMode.ALWAYS_NULLABLE));
                 functionSet.addBuiltin(ScalarFunction.createVecBuiltinOperator(
-                        Operator.MOD.getName(), Lists.newArrayList(t1, t2),
-                        Type.getAssignmentCompatibleType(t1, t2, false),
-                        Function.NullableMode.ALWAYS_NULLABLE));
+                    Operator.MOD.getName(), Lists.newArrayList(t1, t2),
+                    Type.getAssignmentCompatibleType(t1, t2, false),
+                    Function.NullableMode.ALWAYS_NULLABLE));
             }
         }
     }
@@ -188,7 +192,7 @@ public class ArithmeticExpr extends Expr {
         Preconditions.checkNotNull(e1);
         children.add(e1);
         Preconditions.checkArgument(
-                op == Operator.BITNOT && e2 == null || op != Operator.BITNOT && e2 != null);
+            op == Operator.BITNOT && e2 == null || op != Operator.BITNOT && e2 != null);
         if (e2 != null) {
             children.add(e2);
         }
@@ -310,7 +314,7 @@ public class ArithmeticExpr extends Expr {
                     type = t;
                 }
                 fn = getBuiltinFunction(
-                        analyzer, op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
+                    analyzer, op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
                 if (fn == null) {
                     Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
                 }
@@ -370,7 +374,7 @@ public class ArithmeticExpr extends Expr {
                     t2 = getChild(1).getType().getNumResultType();
                     commonType = findCommonType(t1, t2);
                     if (commonType.getPrimitiveType() == PrimitiveType.BIGINT
-                            || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
+                        || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
                         commonType = Type.DOUBLE;
                     }
                     castBinaryOp(commonType);
@@ -390,14 +394,14 @@ public class ArithmeticExpr extends Expr {
                     break;
                 default:
                     Preconditions.checkState(false,
-                            "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
+                        "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
                     break;
             }
             fn = getBuiltinFunction(analyzer, op.name, collectChildReturnTypes(),
-                    Function.CompareMode.IS_IDENTICAL);
+                Function.CompareMode.IS_IDENTICAL);
             if (fn == null) {
                 Preconditions.checkState(false, String.format(
-                        "No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
+                    "No match for vec function '%s' with operand types %s and %s", toSql(), t1, t2));
             }
             type = fn.getReturnType();
         } else {
@@ -408,7 +412,7 @@ public class ArithmeticExpr extends Expr {
                     castChild(type, 0);
                 }
                 fn = getBuiltinFunction(
-                        analyzer, op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
+                    analyzer, op.getName(), collectChildReturnTypes(), Function.CompareMode.IS_SUPERTYPE_OF);
                 if (fn == null) {
                     Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
                 }
@@ -436,7 +440,7 @@ public class ArithmeticExpr extends Expr {
                 case DIVIDE:
                     commonType = findCommonType(t1, t2);
                     if (commonType.getPrimitiveType() == PrimitiveType.BIGINT
-                            || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
+                        || commonType.getPrimitiveType() == PrimitiveType.LARGEINT) {
                         commonType = Type.DOUBLE;
                     }
                     break;
@@ -450,15 +454,15 @@ public class ArithmeticExpr extends Expr {
                 default:
                     // the programmer forgot to deal with a case
                     Preconditions.checkState(false,
-                            "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
+                        "Unknown arithmetic operation " + op.toString() + " in: " + this.toSql());
                     break;
             }
             type = castBinaryOp(commonType);
             fn = getBuiltinFunction(analyzer, fnName, collectChildReturnTypes(),
-                    Function.CompareMode.IS_IDENTICAL);
+                Function.CompareMode.IS_IDENTICAL);
             if (fn == null) {
                 Preconditions.checkState(false, String.format(
-                        "No match for '%s' with operand types %s and %s", toSql(), t1, t2));
+                    "No match for '%s' with operand types %s and %s", toSql(), t1, t2));
             }
         }
     }

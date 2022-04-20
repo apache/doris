@@ -17,10 +17,10 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -47,9 +47,9 @@ public class ResultFileSink extends DataSink {
         this.exchNodeId = exchNodeId;
         this.fileSinkOptions = outFileClause.toSinkOptions();
         this.brokerName = outFileClause.getBrokerDesc() == null ? null :
-                outFileClause.getBrokerDesc().getName();
+            outFileClause.getBrokerDesc().getName();
         this.storageType = outFileClause.getBrokerDesc() == null ? StorageBackend.StorageType.LOCAL :
-                outFileClause.getBrokerDesc().getStorageType();
+            outFileClause.getBrokerDesc().getStorageType();
     }
 
     //gen header names 
@@ -66,7 +66,7 @@ public class ResultFileSink extends DataSink {
     public ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause, ArrayList<String> labels) {
         this(exchNodeId, outFileClause);
         if (outFileClause.getHeaderType().equals(FeConstants.csv_with_names) ||
-                outFileClause.getHeaderType().equals(FeConstants.csv_with_names_and_types)) {
+            outFileClause.getHeaderType().equals(FeConstants.csv_with_names_and_types)) {
             header = genNames(labels, outFileClause.getColumnSeparator(), outFileClause.getLineDelimiter());
         }
         header_type = outFileClause.getHeaderType();

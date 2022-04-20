@@ -52,8 +52,8 @@ public class MultiAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_desc", method = RequestMethod.POST)
     public Object multi_desc(
-            @PathVariable(value = DB_KEY) final String dbName,
-            HttpServletRequest request, HttpServletResponse response) {
+        @PathVariable(value = DB_KEY) final String dbName,
+        HttpServletRequest request, HttpServletResponse response) {
         try {
             executeCheckPassword(request, response);
 
@@ -83,9 +83,9 @@ public class MultiAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_list", method = RequestMethod.POST)
     public Object multi_list(
-            @PathVariable(value = DB_KEY) final String dbName,
-            HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
+        @PathVariable(value = DB_KEY) final String dbName,
+        HttpServletRequest request, HttpServletResponse response)
+        throws DdlException {
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -109,9 +109,9 @@ public class MultiAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_start", method = RequestMethod.POST)
     public Object multi_start(
-            @PathVariable(value = DB_KEY) final String dbName,
-            HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
+        @PathVariable(value = DB_KEY) final String dbName,
+        HttpServletRequest request, HttpServletResponse response)
+        throws DdlException {
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -154,8 +154,8 @@ public class MultiAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_unload", method = RequestMethod.POST)
     public Object multi_unload(
-            @PathVariable(value = DB_KEY) final String dbName,
-            HttpServletRequest request, HttpServletResponse response) {
+        @PathVariable(value = DB_KEY) final String dbName,
+        HttpServletRequest request, HttpServletResponse response) {
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -187,9 +187,9 @@ public class MultiAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_commit", method = RequestMethod.POST)
     public Object multi_commit(
-            @PathVariable(value = DB_KEY) final String dbName,
-            HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
+        @PathVariable(value = DB_KEY) final String dbName,
+        HttpServletRequest request, HttpServletResponse response)
+        throws DdlException {
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();
@@ -221,9 +221,9 @@ public class MultiAction extends RestBaseController {
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_multi_abort", method = RequestMethod.POST)
     public Object multi_abort(
-            @PathVariable(value = DB_KEY) final String dbName,
-            HttpServletRequest request, HttpServletResponse response)
-            throws DdlException {
+        @PathVariable(value = DB_KEY) final String dbName,
+        HttpServletRequest request, HttpServletResponse response)
+        throws DdlException {
         try {
             executeCheckPassword(request, response);
             execEnv = ExecuteEnv.getInstance();

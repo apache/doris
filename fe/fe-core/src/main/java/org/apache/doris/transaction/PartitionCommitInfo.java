@@ -21,11 +21,11 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+
+import com.google.gson.annotations.SerializedName;
 
 public class PartitionCommitInfo implements Writable {
 
@@ -37,7 +37,7 @@ public class PartitionCommitInfo implements Writable {
     private long versionTime;
 
     public PartitionCommitInfo() {
-        
+
     }
 
     public PartitionCommitInfo(long partitionId, long version, long visibleTime) {
@@ -65,7 +65,7 @@ public class PartitionCommitInfo implements Writable {
     public long getVersion() {
         return version;
     }
-    
+
     public long getVersionTime() {
         return versionTime;
     }
@@ -77,7 +77,7 @@ public class PartitionCommitInfo implements Writable {
     public void setVersionTime(long versionTime) {
         this.versionTime = versionTime;
     }
-    
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("partitionid=");

@@ -17,16 +17,16 @@
 
 package org.apache.doris.analysis;
 
-import org.junit.Assert;
-import org.junit.Test;
-
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
+import org.junit.Assert;
+import org.junit.Test;
+
 public class ShowDbStmtTest {
     @Test
-    public void testNormal() throws UserException, AnalysisException  {
-        final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
+    public void testNormal() throws UserException, AnalysisException {
+        final Analyzer analyzer = AccessTestUtil.fetchBlockAnalyzer();
         ShowDbStmt stmt = new ShowDbStmt(null);
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getPattern());

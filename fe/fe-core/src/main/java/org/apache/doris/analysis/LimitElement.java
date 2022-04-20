@@ -25,16 +25,16 @@ package org.apache.doris.analysis;
  */
 public class LimitElement {
     public static LimitElement NO_LIMIT = new LimitElement();
-    
+
     /////////////////////////////////////////
     // BEGIN: Members that need to be reset()
-    
+
     private long limit;
     private long offset;
 
     // END: Members that need to be reset()
     /////////////////////////////////////////
-    
+
     public LimitElement() {
         limit = -1;
         offset = 0;
@@ -97,9 +97,11 @@ public class LimitElement {
     }
 
     public void analyze(Analyzer analyzer) {
-        if (limit == 0) analyzer.setHasEmptyResultSet();
+        if (limit == 0) {
+            analyzer.setHasEmptyResultSet();
+        }
     }
-    
+
     public void reset() {
     }
 }

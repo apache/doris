@@ -29,15 +29,15 @@ import com.google.common.collect.ImmutableList;
 public class ShowColumnStatsStmt extends ShowStmt {
 
     private static final ImmutableList<String> TITLE_NAMES =
-            new ImmutableList.Builder<String>()
-                    .add("column_name")
-                    .add(ColumnStats.NDV)
-                    .add(ColumnStats.AVG_SIZE)
-                    .add(ColumnStats.MAX_SIZE)
-                    .add(ColumnStats.NUM_NULLS)
-                    .add(ColumnStats.MIN_VALUE)
-                    .add(ColumnStats.MAX_VALUE)
-                    .build();
+        new ImmutableList.Builder<String>()
+            .add("column_name")
+            .add(ColumnStats.NDV)
+            .add(ColumnStats.AVG_SIZE)
+            .add(ColumnStats.MAX_SIZE)
+            .add(ColumnStats.NUM_NULLS)
+            .add(ColumnStats.MIN_VALUE)
+            .add(ColumnStats.MAX_VALUE)
+            .build();
 
     private TableName tableName;
 
