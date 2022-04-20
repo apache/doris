@@ -83,6 +83,18 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
         DCHECK(function != nullptr);
         _agg_functions[cid] = function;
     }
+    _skip_list = new Table(_row_comparator.get(), _table_mem_pool.get(),
+                           _keys_type == KeysType::DUP_KEYS);
+    if (_keys_type == KeysType::DUP_KEYS) {
+        _insert_fn = &MemTable::_insert_dup;
+    } else {
+        _insert_fn = &MemTable::_insert_agg;
+    }
+    if (_tablet_schema->has_sequence_col()) {
+        _aggregate_two_row_fn = &MemTable::_aggregate_two_row_with_sequence;
+    } else {
+        _aggregate_two_row_fn = &MemTable::_aggregate_two_row;
+    }
 }
 
 MemTable::~MemTable() {
@@ -158,42 +170,40 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
     }
 }
 
-void MemTable::insert(const Tuple* tuple) {
+// For non-DUP models, for the data rows passed from the upper layer, when copying the data,
+// we first allocate from _buffer_mem_pool, and then check whether it already exists in
+// _skiplist.  If it exists, we aggregate the new row into the row in skiplist.
+// otherwise, we need to copy it into _table_mem_pool before we can insert it.
+void MemTable::_insert_agg(const Tuple* tuple) {
     _rows++;
-    bool overwritten = false;
-    uint8_t* _tuple_buf = nullptr;
-    if (_keys_type == KeysType::DUP_KEYS) {
-        // Will insert directly, so use memory from _table_mem_pool
-        _tuple_buf = _table_mem_pool->allocate(_schema_size);
-        ContiguousRow row(_schema, _tuple_buf);
-        _tuple_to_row(tuple, &row, _table_mem_pool.get());
-        _skip_list->Insert((TableKey)_tuple_buf, &overwritten);
-        DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
-        return;
-    }
-
-    // For non-DUP models, for the data rows passed from the upper layer, when copying the data,
-    // we first allocate from _buffer_mem_pool, and then check whether it already exists in
-    // _skiplist.  If it exists, we aggregate the new row into the row in skiplist.
-    // otherwise, we need to copy it into _table_mem_pool before we can insert it.
-    _tuple_buf = _buffer_mem_pool->allocate(_schema_size);
-    ContiguousRow src_row(_schema, _tuple_buf);
+    uint8_t* tuple_buf = _buffer_mem_pool->allocate(_schema_size);
+    ContiguousRow src_row(_schema, tuple_buf);
     _tuple_to_row(tuple, &src_row, _buffer_mem_pool.get());
 
-    bool is_exist = _skip_list->Find((TableKey)_tuple_buf, &_hint);
+    bool is_exist = _skip_list->Find((TableKey)tuple_buf, &_hint);
     if (is_exist) {
-        _aggregate_two_row(src_row, _hint.curr->key);
+        (this->*_aggregate_two_row_fn)(src_row, _hint.curr->key);
     } else {
-        _tuple_buf = _table_mem_pool->allocate(_schema_size);
-        ContiguousRow dst_row(_schema, _tuple_buf);
+        tuple_buf = _table_mem_pool->allocate(_schema_size);
+        ContiguousRow dst_row(_schema, tuple_buf);
         _agg_object_pool.acquire_data(&_agg_buffer_pool);
         copy_row_in_memtable(&dst_row, src_row, _table_mem_pool.get());
-        _skip_list->InsertWithHint((TableKey)_tuple_buf, is_exist, &_hint);
+        _skip_list->InsertWithHint((TableKey)tuple_buf, is_exist, &_hint);
     }
 
     // Make MemPool to be reusable, but does not free its memory
     _buffer_mem_pool->clear();
     _agg_buffer_pool.clear();
+}
+
+void MemTable::_insert_dup(const Tuple* tuple) {
+    _rows++;
+    bool overwritten = false;
+    uint8_t* tuple_buf = _table_mem_pool->allocate(_schema_size);
+    ContiguousRow row(_schema, tuple_buf);
+    _tuple_to_row(tuple, &row, _table_mem_pool.get());
+    _skip_list->Insert((TableKey)tuple_buf, &overwritten);
+    DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
 }
 
 void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool) {
@@ -209,12 +219,14 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
 
 void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
     ContiguousRow dst_row(_schema, row_in_skiplist);
-    if (_tablet_schema->has_sequence_col()) {
-        agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(),
-                                     _table_mem_pool.get());
-    } else {
-        agg_update_row(&dst_row, src_row, _table_mem_pool.get());
-    }
+    agg_update_row(&dst_row, src_row, _table_mem_pool.get());
+}
+
+void MemTable::_aggregate_two_row_with_sequence(const ContiguousRow& src_row,
+                                                TableKey row_in_skiplist) {
+    ContiguousRow dst_row(_schema, row_in_skiplist);
+    agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(),
+                                 _table_mem_pool.get());
 }
 
 void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist) {

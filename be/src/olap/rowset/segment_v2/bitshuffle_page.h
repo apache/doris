@@ -93,13 +93,48 @@ public:
     bool is_page_full() override { return _remain_element_capacity == 0; }
 
     Status add(const uint8_t* vals, size_t* count) override {
+        return add_internal<false>(vals, count);
+    }
+
+    Status single_add(const uint8_t* vals, size_t* count) {
+        return add_internal<true>(vals, count);
+    }
+
+    template <bool single>
+    inline Status add_internal(const uint8_t* vals, size_t* count) {
         DCHECK(!_finished);
+        if (_remain_element_capacity <= 0) {
+            *count = 0;
+            return Status::RuntimeError("page is full.");
+        }
         int to_add = std::min<int>(_remain_element_capacity, *count);
-        _data.append(vals, to_add * SIZE_OF_TYPE);
+        int to_add_size = to_add * SIZE_OF_TYPE;
+        size_t orig_size = _data.size();
+        _data.resize(orig_size + to_add_size);
         _count += to_add;
         _remain_element_capacity -= to_add;
         // return added number through count
         *count = to_add;
+        if constexpr (single) {
+            if constexpr (SIZE_OF_TYPE == 1) {
+                *reinterpret_cast<uint8_t*>(&_data[orig_size]) = *vals;
+                return Status::OK();
+            } else if constexpr (SIZE_OF_TYPE == 2) {
+                *reinterpret_cast<uint16_t*>(&_data[orig_size]) =
+                        *reinterpret_cast<const uint16_t*>(vals);
+                return Status::OK();
+            } else if constexpr (SIZE_OF_TYPE == 4) {
+                *reinterpret_cast<uint32_t*>(&_data[orig_size]) =
+                        *reinterpret_cast<const uint32_t*>(vals);
+                return Status::OK();
+            } else if constexpr (SIZE_OF_TYPE == 8) {
+                *reinterpret_cast<uint64_t*>(&_data[orig_size]) =
+                        *reinterpret_cast<const uint64_t*>(vals);
+                return Status::OK();
+            }
+        }
+        // when single is true and SIZE_OF_TYPE > 8 or single is false
+        memcpy(&_data[orig_size], vals, to_add_size);
         return Status::OK();
     }
 

@@ -50,7 +50,7 @@ public:
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     std::shared_ptr<MemTracker>& mem_tracker() { return _mem_tracker; }
 
-    void insert(const Tuple* tuple);
+    inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
     // insert tuple from (row_pos) to (row_pos+num_rows)
     void insert(const vectorized::Block* block, size_t row_pos, size_t num_rows);
 
@@ -140,6 +140,9 @@ public:
 private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    void _aggregate_two_row_with_sequence(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    void _insert_dup(const Tuple* tuple);
+    void _insert_agg(const Tuple* tuple);
     // for vectorized
     void _insert_one_row_from_block(RowInBlock* row_in_block);
     void _aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist);
@@ -185,6 +188,9 @@ private:
     // This is not the rows in this memtable, because rows may be merged
     // in unique or aggragate key model.
     int64_t _rows = 0;
+    void (MemTable::*_insert_fn)(const Tuple* tuple) = nullptr;
+    void (MemTable::*_aggregate_two_row_fn)(const ContiguousRow& new_row,
+                                            TableKey row_in_skiplist) = nullptr;
 
     //for vectorized
     vectorized::MutableBlock _input_mutable_block;
