@@ -233,7 +233,20 @@ Suppose Doris source code is under `/home/doris/doris-src/`.
 
 #### 4. Compile Doris source code
 
-Execute `sh build.sh`.
+First run the following command to check whether the compilation machine supports the avx2 instruction set
+
+```
+$ cat /proc/cpuinfo | grep avx2
+```
+
+If it is not supported, use the following command to compile
+
+```
+$ USE_AVX2=0 sh build.sh
+```
+
+If supported, you can directly execute `sh build.sh` without adding USE_AVX2=0.
+
 
 #### 5. FAQ
 
