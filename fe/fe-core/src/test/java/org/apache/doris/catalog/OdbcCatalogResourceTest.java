@@ -27,7 +27,6 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.DropInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -92,10 +91,10 @@ public class OdbcCatalogResourceTest {
         OdbcCatalogResource resource = (OdbcCatalogResource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, resource.getName());
         Assert.assertEquals(type, resource.getType().name().toLowerCase());
-        Assert.assertEquals(host, resource.getProperties("host"));
-        Assert.assertEquals(port, resource.getProperties("port"));
-        Assert.assertEquals(user, resource.getProperties("user"));
-        Assert.assertEquals(passwd, resource.getProperties("password"));
+        Assert.assertEquals(host, resource.getProperty("host"));
+        Assert.assertEquals(port, resource.getProperty("port"));
+        Assert.assertEquals(user, resource.getProperty("user"));
+        Assert.assertEquals(passwd, resource.getProperty("password"));
 
         // with driver and odbc_type
         properties.put("driver", "mysql");
@@ -103,8 +102,8 @@ public class OdbcCatalogResourceTest {
         stmt = new CreateResourceStmt(true, name, properties);
         stmt.analyze(analyzer);
         resource = (OdbcCatalogResource) Resource.fromStmt(stmt);
-        Assert.assertEquals("mysql", resource.getProperties("driver"));
-        Assert.assertEquals("mysql", resource.getProperties("odbc_type"));
+        Assert.assertEquals("mysql", resource.getProperty("driver"));
+        Assert.assertEquals("mysql", resource.getProperty("odbc_type"));
 
         // test getProcNodeData
         BaseProcResult result = new BaseProcResult();
@@ -147,10 +146,10 @@ public class OdbcCatalogResourceTest {
         Assert.assertEquals("odbc1", rOdbcCatalogResource1.getName());
         Assert.assertEquals("odbc2", rOdbcCatalogResource2.getName());
 
-        Assert.assertEquals(rOdbcCatalogResource2.getProperties("host"), "host");
-        Assert.assertEquals(rOdbcCatalogResource2.getProperties("port"), "port");
-        Assert.assertEquals(rOdbcCatalogResource2.getProperties("user"), "user");
-        Assert.assertEquals(rOdbcCatalogResource2.getProperties("password"), "password");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperty("host"), "host");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperty("port"), "port");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperty("user"), "user");
+        Assert.assertEquals(rOdbcCatalogResource2.getProperty("password"), "password");
 
         // 3. delete files
         dis.close();

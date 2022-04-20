@@ -140,6 +140,12 @@ public class S3Resource extends Resource {
     }
 
     @Override
+    public Map<String, String> getCopiedProperties() {
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+        return copiedProperties;
+    }
+
+    @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
