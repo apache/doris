@@ -33,6 +33,8 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
@@ -50,6 +52,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.StorageMediaMigrationV2Task;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageParam;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
@@ -93,7 +96,7 @@ public class MigrationHandler extends AlterHandler {
     }
 
     private void createJob(long dbId, OlapTable olapTable, Collection<Long> partitionIds,
-                           TStorageMedium destStorageMedium) throws UserException {
+                           TStorageParam destStorageParam) throws UserException {
         // for now table's state can only be NORMAL
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
 
@@ -105,6 +108,7 @@ public class MigrationHandler extends AlterHandler {
                 jobId, dbId, tableId, olapTable.getName(), Config.migration_timeout_second * 1000);
 
         migrationJob.setStorageFormat(olapTable.getStorageFormat());
+        migrationJob.setDestStorageParam(destStorageParam);
 
         for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
             long originIndexId = entry.getKey();
@@ -138,7 +142,7 @@ public class MigrationHandler extends AlterHandler {
                 MaterializedIndex shadowIndex = new MaterializedIndex(shadowIndexId, IndexState.SHADOW);
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 TabletMeta shadowTabletMeta = new TabletMeta(
-                        dbId, tableId, partitionId, shadowIndexId, newSchemaHash, destStorageMedium);
+                        dbId, tableId, partitionId, shadowIndexId, newSchemaHash, destStorageParam.getStorageMedium());
                 ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
                 Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
                 for (Tablet originTablet : originIndex.getTablets()) {
@@ -242,7 +246,7 @@ public class MigrationHandler extends AlterHandler {
     }
 
     public void createMigrationJobs() {
-        HashMap<Long, HashMap<Long, Multimap<TStorageMedium, Long>>> changedPartitionsMap = new HashMap<>();
+        HashMap<Long, HashMap<Long, Multimap<String, Long>>> changedPartitionsMap = new HashMap<>();
         long currentTimeMs = System.currentTimeMillis();
         List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
 
@@ -268,18 +272,24 @@ public class MigrationHandler extends AlterHandler {
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
                         Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:"
                                 + partitionId + ", db: " + dbId + ", tbl: " + tableId);
-                        if (dataProperty.getStorageMedium() != dataProperty.getRemoteColdStorageMedium()
-                                && dataProperty.getRemoteCooldownTimeMs() < currentTimeMs
-                                && dataProperty.getMigrationState() == DataProperty.MigrationState.NONE) {
-                            if (!changedPartitionsMap.containsKey(dbId)) {
-                                changedPartitionsMap.put(dbId, new HashMap<>());
+                        if (dataProperty.getRemoteCooldownTimeMs() < currentTimeMs
+                                && dataProperty.getMigrationState() == DataProperty.MigrationState.NONE
+                                && Catalog.getCurrentCatalog().getResourceMgr().containsResource(
+                                        dataProperty.getRemoteStorageResourceName())) {
+                            Resource remoteStorage = Catalog.getCurrentCatalog().getResourceMgr()
+                                    .getResource(dataProperty.getRemoteStorageResourceName());
+                            TStorageMedium coldStorageMedium = Resource.getStorageMedium(remoteStorage.getType());
+                            if (coldStorageMedium != null && dataProperty.getStorageMedium() != coldStorageMedium) {
+                                if (!changedPartitionsMap.containsKey(dbId)) {
+                                    changedPartitionsMap.put(dbId, new HashMap<>());
+                                }
+                                HashMap<Long, Multimap<String, Long>> tableMultiMap = changedPartitionsMap.get(dbId);
+                                if (!tableMultiMap.containsKey(tableId)) {
+                                    tableMultiMap.put(tableId, HashMultimap.create());
+                                }
+                                Multimap<String, Long> storageNameToPartitions = tableMultiMap.get(tableId);
+                                storageNameToPartitions.put(dataProperty.getRemoteStorageResourceName(), partitionId);
                             }
-                            HashMap<Long, Multimap<TStorageMedium, Long>> tableMultiMap = changedPartitionsMap.get(dbId);
-                            if (!tableMultiMap.containsKey(tableId)) {
-                                tableMultiMap.put(tableId, HashMultimap.create());
-                            }
-                            Multimap<TStorageMedium, Long> multimap = tableMultiMap.get(tableId);
-                            multimap.put(dataProperty.getRemoteColdStorageMedium(), partitionId);
                         }
                     } // end for partitions
                 } finally {
@@ -295,7 +305,7 @@ public class MigrationHandler extends AlterHandler {
                 LOG.warn("db {} does not exist while checking backend storage medium", dbId);
                 continue;
             }
-            HashMap<Long, Multimap<TStorageMedium, Long>> tableIdToStorageMedium = changedPartitionsMap.get(dbId);
+            HashMap<Long, Multimap<String, Long>> tableIdToStorageMedium = changedPartitionsMap.get(dbId);
 
             for (Long tableId : tableIdToStorageMedium.keySet()) {
                 Table table = db.getTableNullable(tableId);
@@ -305,11 +315,14 @@ public class MigrationHandler extends AlterHandler {
                 OlapTable olapTable = (OlapTable) table;
                 olapTable.writeLock();
                 try {
-                    Multimap<TStorageMedium, Long> storageMediumToPartitionIds = tableIdToStorageMedium.get(tableId);
+                    Multimap<String, Long> storageNameToPartitions = tableIdToStorageMedium.get(tableId);
                     PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                    for (TStorageMedium storageMedium : storageMediumToPartitionIds.keySet()) {
-                        Collection<Long> partitionIds = storageMediumToPartitionIds.get(storageMedium);
+                    for (String storageName : storageNameToPartitions.keySet()) {
+                        Collection<Long> partitionIds = storageNameToPartitions.get(storageName);
                         try {
+                            Resource remoteStorageResource = Catalog.getCurrentCatalog().getResourceMgr()
+                                    .getResource(storageName);
+                            TStorageMedium coldStorageMedium = Resource.getStorageMedium(remoteStorageResource.getType());
                             for (Long partitionId : partitionIds) {
                                 Partition partition = olapTable.getPartition(partitionId);
                                 DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
@@ -318,10 +331,10 @@ public class MigrationHandler extends AlterHandler {
                                 }
                                 dataProperty.setMigrationState(DataProperty.MigrationState.RUNNING);
                                 LOG.info("partition[{}-{}-{}] storage medium changed from {} to {}",
-                                        dbId, tableId, partitionId, dataProperty.getStorageMedium(),
-                                        dataProperty.getRemoteColdStorageMedium());
+                                        dbId, tableId, partitionId, dataProperty.getStorageMedium(), coldStorageMedium);
                             } // end for partitions
-                            createJob(db.getId(), olapTable, partitionIds, storageMedium);
+                            TStorageParam storageParam = getStorageParam(remoteStorageResource);
+                            createJob(db.getId(), olapTable, partitionIds, storageParam);
                         } catch (Exception e) {
                             for (Long partitionId : partitionIds) {
                                 Partition partition = olapTable.getPartition(partitionId);
@@ -455,4 +468,12 @@ public class MigrationHandler extends AlterHandler {
         }
     }
 
+    private TStorageParam getStorageParam(Resource storageParamResource) {
+        if (storageParamResource instanceof S3Resource) {
+            S3Resource s3StorageParamResource = (S3Resource) storageParamResource;
+            return s3StorageParamResource.getStorageParam();
+        } else {
+            return null;
+        }
+    }
 }

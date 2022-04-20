@@ -20,6 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.thrift.TS3StorageParam;
+import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageParam;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -27,7 +30,12 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.Map;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * S3 resource for olap table
@@ -48,6 +56,8 @@ import java.util.Map;
  * );
  */
 public class S3Resource extends Resource {
+    private static final Logger LOG = LogManager.getLogger(S3Resource.class);
+
     // required
     private static final String S3_ENDPOINT = "s3_endpoint";
     private static final String S3_REGION = "s3_region";
@@ -66,6 +76,10 @@ public class S3Resource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
+    private TStorageParam storageParam = new TStorageParam();;
+    // storageParamLock is used to lock storageParam.
+    private ReadWriteLock storageParamLock = new ReentrantReadWriteLock();
+
     public S3Resource(String name) {
         this(name, Maps.newHashMap());
     }
@@ -73,6 +87,7 @@ public class S3Resource extends Resource {
     public S3Resource(String name, Map<String, String> properties) {
         super(name, ResourceType.S3);
         this.properties = properties;
+        resetStorageParam();
     }
 
     public String getProperty(String propertyKey) {
@@ -94,6 +109,7 @@ public class S3Resource extends Resource {
         checkOptionalProperty(S3_MAX_CONNECTIONS, DEFAULT_S3_MAX_CONNECTIONS);
         checkOptionalProperty(S3_REQUEST_TIMEOUT_MS, DEFAULT_S3_REQUEST_TIMEOUT_MS);
         checkOptionalProperty(S3_CONNECTION_TIMEOUT_MS, DEFAULT_S3_CONNECTION_TIMEOUT_MS);
+        resetStorageParam();
     }
 
     private void checkRequiredProperty(String propertyKey) throws DdlException {
@@ -119,6 +135,7 @@ public class S3Resource extends Resource {
         replaceIfEffectiveValue(this.properties, S3_MAX_CONNECTIONS, properties.get(S3_MAX_CONNECTIONS));
         replaceIfEffectiveValue(this.properties, S3_REQUEST_TIMEOUT_MS, properties.get(S3_REQUEST_TIMEOUT_MS));
         replaceIfEffectiveValue(this.properties, S3_CONNECTION_TIMEOUT_MS, properties.get(S3_CONNECTION_TIMEOUT_MS));
+        resetStorageParam();
     }
 
     @Override
@@ -150,6 +167,57 @@ public class S3Resource extends Resource {
             } else {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
             }
+        }
+    }
+
+    public TStorageParam getStorageParam() {
+        storageParamLock.readLock().lock();
+        try {
+            return storageParam;
+        } finally {
+            storageParamLock.readLock().unlock();
+        }
+    }
+
+    public void resetStorageParam() {
+        storageParamLock.writeLock().lock();
+        try {
+            storageParam.setStorageMedium(TStorageMedium.S3);
+            storageParam.setStorageName(name);
+            TS3StorageParam s3StorageParam = new TS3StorageParam();
+            storageParam.setS3StorageParam(s3StorageParam);
+            for (Map.Entry<String, String> property : properties.entrySet()) {
+                switch (property.getKey()) {
+                    case S3_ENDPOINT:
+                        s3StorageParam.setS3Endpoint(property.getValue());
+                        break;
+                    case S3_REGION:
+                        s3StorageParam.setS3Region(property.getValue());
+                        break;
+                    case S3_ROOT_PATH:
+                        s3StorageParam.setRootPath(property.getValue());
+                        break;
+                    case S3_ACCESS_KEY:
+                        s3StorageParam.setS3Ak(property.getValue());
+                        break;
+                    case S3_SECRET_KEY:
+                        s3StorageParam.setS3Sk(property.getValue());
+                        break;
+                    case S3_MAX_CONNECTIONS:
+                        s3StorageParam.setS3MaxConn(Integer.parseInt(property.getValue()));
+                        break;
+                    case S3_REQUEST_TIMEOUT_MS:
+                        s3StorageParam.setS3RequestTimeoutMs(Integer.parseInt(property.getValue()));
+                        break;
+                    case S3_CONNECTION_TIMEOUT_MS:
+                        s3StorageParam.setS3ConnTimeoutMs(Integer.parseInt(property.getValue()));
+                        break;
+                    default:
+                        LOG.warn("Invalid s3 storage param key: {}", property.getKey());
+                }
+            }
+        } finally {
+            storageParamLock.writeLock().unlock();
         }
     }
 }

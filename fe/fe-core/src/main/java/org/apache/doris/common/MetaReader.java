@@ -83,13 +83,13 @@ public class MetaReader {
             catalog.recreateTabletInvertIndex();
             // rebuild es state state
             catalog.getEsRepository().loadTableFromCatalog();
+            checksum = catalog.loadResources(dis, checksum);
             checksum = catalog.loadLoadJob(dis, checksum);
             checksum = catalog.loadAlterJob(dis, checksum);
             checksum = catalog.loadRecycleBin(dis, checksum);
             checksum = catalog.loadGlobalVariable(dis, checksum);
             checksum = catalog.loadCluster(dis, checksum);
             checksum = catalog.loadBrokers(dis, checksum);
-            checksum = catalog.loadResources(dis, checksum);
             checksum = catalog.loadExportJob(dis, checksum);
             checksum = catalog.loadSyncJobs(dis,checksum);
             checksum = catalog.loadBackupHandler(dis, checksum);

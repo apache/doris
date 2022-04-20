@@ -27,6 +27,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TStorageMedium;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -77,6 +78,14 @@ public abstract class Resource implements Writable {
         return resource;
     }
 
+    public static TStorageMedium getStorageMedium(ResourceType resourceType) {
+        switch (resourceType) {
+            case S3:
+                return TStorageMedium.S3;
+            default:
+                return null;
+        }
+    }
     /**
      * Get resource instance by resource name and type
      * @param type

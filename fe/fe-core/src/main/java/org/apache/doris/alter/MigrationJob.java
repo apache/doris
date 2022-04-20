@@ -49,7 +49,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.StorageMediaMigrationV2Task;
 import org.apache.doris.thrift.TStorageFormat;
-import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageParam;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 
@@ -107,6 +107,8 @@ public class MigrationJob extends AlterJobV2 {
     protected long watershedTxnId = -1;
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
+    @SerializedName(value = "destStorageParam")
+    private TStorageParam destStorageParam = new TStorageParam();
 
     // save all migration tasks
     private AgentBatchTask migrationBatchTask = new AgentBatchTask();
@@ -144,6 +146,10 @@ public class MigrationJob extends AlterJobV2 {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    public void setDestStorageParam(TStorageParam destStorageParam) {
+        this.destStorageParam = destStorageParam;
     }
 
     /**
@@ -201,8 +207,6 @@ public class MigrationJob extends AlterJobV2 {
                 if (partition == null) {
                     continue;
                 }
-                DataProperty dataProperty = tbl.getPartitionInfo().getDataProperty(partitionId);
-                TStorageMedium shadowStorageMedium = dataProperty.getRemoteColdStorageMedium();
 
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
                 for (Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
@@ -226,13 +230,14 @@ public class MigrationJob extends AlterJobV2 {
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowShortKeyColumnCount, shadowSchemaHash,
                                     Partition.PARTITION_INIT_VERSION,
-                                    originKeysType, TStorageType.COLUMN, shadowStorageMedium,
+                                    originKeysType, TStorageType.COLUMN, destStorageParam.getStorageMedium(),
                                     shadowSchema, null, 0, countDownLatch, null, tbl.isInMemory(),
                                     tbl.getPartitionInfo().getTabletType(partitionId), tbl.getDataSortInfo());
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
+                            createReplicaTask.setStorageParam(destStorageParam);
 
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
@@ -518,9 +523,7 @@ public class MigrationJob extends AlterJobV2 {
                     Catalog.getCurrentInvertedIndex().deleteTablet(originTablet.getId());
                 }
             }
-            TStorageMedium remoteColdStorageMedium = tbl.getPartitionInfo()
-                    .getDataProperty(partition.getId()).getRemoteColdStorageMedium();
-            tbl.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(remoteColdStorageMedium));
+            tbl.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(destStorageParam.getStorageMedium()));
         }
 
         // update index schema info of each index
@@ -632,9 +635,9 @@ public class MigrationJob extends AlterJobV2 {
 
                 DataProperty dataProperty = olapTable.getPartitionInfo().getDataProperty(partitionId);
                 dataProperty.setMigrationState(DataProperty.MigrationState.RUNNING);
+
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
-                        indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash,
-                        dataProperty.getRemoteColdStorageMedium());
+                        indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, destStorageParam.getStorageMedium());
 
                 for (Tablet shadownTablet : shadowIndex.getTablets()) {
                     invertedIndex.addTablet(shadownTablet.getId(), shadowTabletMeta);
