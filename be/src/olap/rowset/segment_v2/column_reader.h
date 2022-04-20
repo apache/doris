@@ -171,7 +171,8 @@ private:
     uint64_t _num_rows;
     FilePathDesc _path_desc;
 
-    const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
+    TypeInfoPtr _type_info =
+            TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
     const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
@@ -386,12 +387,11 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, const TypeInfo* type_info,
-                               size_t schema_length)
+                               bool is_nullable, TypeInfoPtr type_info, size_t schema_length)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
-              _type_info(type_info),
+              _type_info(std::move(type_info)),
               _schema_length(schema_length),
               _is_default_value_null(false),
               _type_size(0),
@@ -426,7 +426,7 @@ private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;
-    const TypeInfo* _type_info;
+    TypeInfoPtr _type_info;
     size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;

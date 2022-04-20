@@ -510,7 +510,8 @@ vectorized::Block TabletSchema::create_block(
     for (int i = 0; i < return_columns.size(); ++i) {
         const auto& col = _cols[return_columns[i]];
         bool is_nullable = (tablet_columns_need_convert_null != nullptr &&
-                tablet_columns_need_convert_null->find(return_columns[i]) != tablet_columns_need_convert_null->end());
+                            tablet_columns_need_convert_null->find(return_columns[i]) !=
+                                    tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
         auto column = data_type->create_column();
         block.insert({std::move(column), data_type, col.name()});

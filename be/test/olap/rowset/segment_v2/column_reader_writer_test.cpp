@@ -345,7 +345,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
             MemTracker tracker;
             MemPool pool(&tracker);
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, field, &cvb);
+            ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
@@ -372,7 +372,7 @@ void test_array_nullable_data(CollectionValue* src_data, uint8_t* src_is_null, i
             MemTracker tracker;
             MemPool pool(&tracker);
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, field, &cvb);
+            ColumnVectorBatch::create(0, true, type_info.get(), field, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
@@ -462,13 +462,14 @@ TEST_F(ColumnReaderWriterTest, test_array_type) {
 template <FieldType type>
 void test_read_default_value(string value, void* result) {
     using Type = typename TypeTraits<type>::CppType;
-    const auto* type_info = get_scalar_type_info(type);
+    const auto* scalar_type_info = get_scalar_type_info<type>();
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
         DefaultValueColumnIterator iter(tablet_column.has_default_value(),
                                         tablet_column.default_value(), tablet_column.is_nullable(),
-                                        type_info, tablet_column.length());
+                                        create_static_type_info_ptr(scalar_type_info),
+                                        tablet_column.length());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());
@@ -480,7 +481,7 @@ void test_read_default_value(string value, void* result) {
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
+            ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
@@ -511,7 +512,7 @@ void test_read_default_value(string value, void* result) {
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(0, true, type_info, nullptr, &cvb);
+            ColumnVectorBatch::create(0, true, scalar_type_info, nullptr, &cvb);
             cvb->resize(1024);
             ColumnBlock col(cvb.get(), &pool);
 
@@ -573,13 +574,14 @@ static vectorized::MutableColumnPtr create_vectorized_column_ptr(FieldType type)
 template <FieldType type>
 void test_v_read_default_value(string value, void* result) {
     using Type = typename TypeTraits<type>::CppType;
-    const auto* type_info = get_scalar_type_info(type);
+    const auto* scalar_type_info = get_scalar_type_info<type>();
     // read and check
     {
         TabletColumn tablet_column = create_with_default_value<type>(value);
         DefaultValueColumnIterator iter(tablet_column.has_default_value(),
                                         tablet_column.default_value(), tablet_column.is_nullable(),
-                                        type_info, tablet_column.length());
+                                        create_static_type_info_ptr(scalar_type_info),
+                                        tablet_column.length());
         ColumnIteratorOptions iter_opts;
         auto st = iter.init(iter_opts);
         EXPECT_TRUE(st.ok());
