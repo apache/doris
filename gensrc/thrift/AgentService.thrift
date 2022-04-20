@@ -150,7 +150,6 @@ struct TStorageMigrationReqV2 {
     3: optional Types.TSchemaHash base_schema_hash
     4: optional Types.TSchemaHash new_schema_hash
     5: optional Types.TVersion migration_version
-    6: optional Types.TVersionHash migration_version_hash // Deprecated
 }
 
 struct TClusterInfo {
