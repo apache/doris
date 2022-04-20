@@ -81,7 +81,7 @@ under the License.
 ```
 wget https://mirrors.tuna.tsinghua.edu.cn/gnu/gcc/gcc-10.1.0/gcc-10.1.0.tar.gz
 ```
-    
+
 解压后，在 `contrib/download_prerequisites` 查看依赖并下载：
 
 ```
@@ -90,7 +90,7 @@ http://gcc.gnu.org/pub/gcc/infrastructure/mpfr-3.1.4.tar.bz2
 http://gcc.gnu.org/pub/gcc/infrastructure/mpc-1.0.3.tar.gz
 http://gcc.gnu.org/pub/gcc/infrastructure/isl-0.18.tar.bz2
 ```
-   
+
 解压这四个依赖，然后移动到 gcc-10.1.0 源码目录下，并重命名为 gmp、isl、mpc、mpfr。
 
 下载并安装 automake-1.15（因为gcc10编译过程中会查找automake 1.15 版本）
@@ -120,7 +120,7 @@ make -j && make install
     `https://www.oracle.com/java/technologies/javase/javase-jdk8-downloads.html`
     
     无需编译，开箱即用。
-        
+    
 2. cmake-3.19.8-Linux-aarch64.tar.gz
 
     `https://cmake.org/download/`
@@ -232,7 +232,19 @@ make -j && make install
 
 #### 4. 编译Doris源码
 
-执行 `sh build.sh` 即可。
+先通过以下命令查看编译机器是否支持avx2指令集
+
+```
+$ cat /proc/cpuinfo | grep avx2
+```
+
+不支持则使用以下命令进行编译
+
+```
+$ USE_AVX2=0  sh build.sh
+```
+
+如果支持，可不加 USE_AVX2=0 ，直接执行 `sh build.sh` 即可。
 
 #### 5. 常见错误
 

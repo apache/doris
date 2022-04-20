@@ -106,6 +106,20 @@ under the License.
 
 4. 编译 Doris
 
+    先通过以下命令查看编译机器是否支持avx2指令集
+    
+    ```
+    $ cat /proc/cpuinfo | grep avx2
+    ```
+    
+    不支持则使用以下命令进行编译
+    
+    ```
+    $ USE_AVX2=0  sh build.sh
+    ```
+    
+    如果支持，可不加 USE_AVX2=0 ，直接进行编译
+    
     ```
     $ sh build.sh
     ```
@@ -178,11 +192,25 @@ under the License.
 
 2. 编译 Doris
 
-    ```
-    $ sh build.sh
-    ```
-    
-    编译完成后，产出文件在 `output/` 目录中。
+   与使用 Docker 开发镜像编译一样，编译之前先检查是否支持avx2指令
+
+   ```
+    $ cat /proc/cpuinfo | grep avx2
+   ```
+
+   支持则使用下面命令进行编译
+
+   ```
+   $ sh build.sh
+   ```
+
+   如不支持需要加 USE_AVX2=0
+
+   ```
+   $ USE_AVX2=0 sh build.sh
+   ```
+
+   编译完成后，产出文件在 `output/` 目录中。
 
 ## 常见问题
 
