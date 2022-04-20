@@ -155,8 +155,9 @@ void common_test_array(CollectionValue src_val) {
     TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
     list_column.add_sub_column(item_column);
 
-    const auto* array_type = dynamic_cast<const ArrayTypeInfo*>(get_type_info(&list_column));
-    EXPECT_EQ(item_type, array_type->item_type_info()->type());
+    auto array_type = get_type_info(&list_column);
+    ASSERT_EQ(item_type,
+              dynamic_cast<const ArrayTypeInfo*>(array_type.get())->item_type_info()->type());
 
     { // test deep copy
         CollectionValue dst_val;
