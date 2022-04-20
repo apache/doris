@@ -372,7 +372,7 @@ public class GsonUtils {
         }
     }
 
-    public final static class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?,?>> {
+    public static final class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?,?>> {
         @Override
         public ImmutableMap<?,?> deserialize(final JsonElement json, final Type type,
                                              final JsonDeserializationContext context) throws JsonParseException

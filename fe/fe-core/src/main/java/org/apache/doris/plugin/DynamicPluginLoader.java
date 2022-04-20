@@ -39,9 +39,9 @@ import java.util.Map;
 import java.util.Set;
 
 public class DynamicPluginLoader extends PluginLoader {
-    private final static Logger LOG = LogManager.getLogger(DynamicPluginLoader.class);
+    private static final Logger LOG = LogManager.getLogger(DynamicPluginLoader.class);
 
-    public final static String MD5SUM_KEY = "md5sum";
+    public static final String MD5SUM_KEY = "md5sum";
 
     // the final dir which contains all plugin files.
     // eg:

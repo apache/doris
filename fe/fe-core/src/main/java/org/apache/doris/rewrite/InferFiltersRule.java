@@ -56,7 +56,7 @@ import java.util.Map;
  * 4. Construct additional numerical connections and isNullPredicate.
  */
 public class InferFiltersRule implements ExprRewriteRule {
-    private final static Logger LOG = LogManager.getLogger(InferFiltersRule.class);
+    private static final Logger LOG = LogManager.getLogger(InferFiltersRule.class);
     public static InferFiltersRule INSTANCE = new InferFiltersRule();
 
     @Override

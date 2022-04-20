@@ -46,10 +46,10 @@ import java.util.stream.Collectors;
  * In this class we produce the rule of generating rows base on the group by clause.
  */
 public class GroupByClause implements ParseNode {
-    private final static Logger LOG = LogManager.getLogger(GroupByClause.class);
+    private static final Logger LOG = LogManager.getLogger(GroupByClause.class);
 
     // max num of distinct sets in grouping sets clause
-    private final static int MAX_GROUPING_SETS_NUM = 64;
+    private static final int MAX_GROUPING_SETS_NUM = 64;
     // max num of distinct expressions
     private boolean analyzed_ = false;
     private boolean exprGenerated = false;

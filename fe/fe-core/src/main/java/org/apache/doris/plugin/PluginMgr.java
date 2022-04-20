@@ -47,9 +47,9 @@ import java.util.Objects;
 import java.util.Set;
 
 public class PluginMgr implements Writable {
-    private final static Logger LOG = LogManager.getLogger(PluginMgr.class);
+    private static final Logger LOG = LogManager.getLogger(PluginMgr.class);
 
-    public final static String BUILTIN_PLUGIN_PREFIX = "__builtin_";
+    public static final String BUILTIN_PLUGIN_PREFIX = "__builtin_";
 
     private final Map<String, PluginLoader>[] plugins;
     // all dynamic plugins should have unique names,

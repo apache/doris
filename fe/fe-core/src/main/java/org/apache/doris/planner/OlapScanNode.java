@@ -90,7 +90,7 @@ public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
 
     // average compression ratio in doris storage engine
-    private final static int COMPRESSION_RATIO = 5;
+    private static final int COMPRESSION_RATIO = 5;
 
     private List<TScanRangeLocations> result = new ArrayList<>();
     /*

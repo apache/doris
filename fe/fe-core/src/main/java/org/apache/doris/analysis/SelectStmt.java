@@ -72,7 +72,7 @@ import java.util.stream.Collectors;
  * clauses.
  */
 public class SelectStmt extends QueryStmt {
-    private final static Logger LOG = LogManager.getLogger(SelectStmt.class);
+    private static final Logger LOG = LogManager.getLogger(SelectStmt.class);
     private UUID id = UUID.randomUUID();
 
     // ///////////////////////////////////////

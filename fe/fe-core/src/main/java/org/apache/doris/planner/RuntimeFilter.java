@@ -55,7 +55,7 @@ import java.util.Map;
  * the filter and the scan nodes that apply the filter (destination nodes).
  */
 public final class RuntimeFilter {
-    private final static Logger LOG = LogManager.getLogger(RuntimeFilter.class);
+    private static final Logger LOG = LogManager.getLogger(RuntimeFilter.class);
 
     // Identifier of the filter (unique within a query)
     private final RuntimeFilterId id;

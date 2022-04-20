@@ -36,7 +36,7 @@ import java.util.List;
  * Node that applies conjuncts and a limit clause. Has exactly one child.
  */
 public class SelectNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(SelectNode.class);
+    private static final Logger LOG = LogManager.getLogger(SelectNode.class);
 
     protected SelectNode(PlanNodeId id, PlanNode child) {
         super(id, child.getTupleIds(), "SELECT");

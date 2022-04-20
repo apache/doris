@@ -96,7 +96,7 @@ import java.util.stream.Collectors;
  * simple.
  */
 public class Analyzer {
-    private final static Logger LOG = LogManager.getLogger(Analyzer.class);
+    private static final Logger LOG = LogManager.getLogger(Analyzer.class);
     // used for contains inlineview analytic function's tuple changed
     private ExprSubstitutionMap changeResSmap = new ExprSubstitutionMap();
 

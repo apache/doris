@@ -91,7 +91,7 @@ import java.util.stream.Collectors;
  * The single-node plan needs to be wrapped in a plan fragment for it to be executable.
  */
 public class SingleNodePlanner {
-    private final static Logger LOG = LogManager.getLogger(SingleNodePlanner.class);
+    private static final Logger LOG = LogManager.getLogger(SingleNodePlanner.class);
 
     private final PlannerContext ctx_;
     private final ArrayList<ScanNode> scanNodes = Lists.newArrayList();

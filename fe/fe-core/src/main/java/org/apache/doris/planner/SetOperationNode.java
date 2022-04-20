@@ -56,7 +56,7 @@ import org.slf4j.LoggerFactory;
  * tuples.
  */
 public abstract class SetOperationNode extends PlanNode {
-    private final static Logger LOG = LoggerFactory.getLogger(SetOperationNode.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SetOperationNode.class);
 
     // List of set operation result exprs of the originating SetOperationStmt. Used for
     // determining passthrough-compatibility of children.

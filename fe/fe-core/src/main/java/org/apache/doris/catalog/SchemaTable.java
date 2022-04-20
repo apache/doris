@@ -36,12 +36,12 @@ import java.util.Map;
  * Palo representation of MySQL information schema table metadata,
  */
 public class SchemaTable extends Table {
-    private final static int FN_REFLEN               = 512;
-    private final static int NAME_CHAR_LEN           = 64;
-    private final static int MY_CS_NAME_SIZE         = 32;
-    private final static int GRANTEE_len             = 81;
-    private final static int PRIVILEGE_TYPE_LEN      = 64;
-    private final static int IS_GRANTABLE_LEN        = 3;
+    private static final int FN_REFLEN               = 512;
+    private static final int NAME_CHAR_LEN           = 64;
+    private static final int MY_CS_NAME_SIZE         = 32;
+    private static final int GRANTEE_len             = 81;
+    private static final int PRIVILEGE_TYPE_LEN      = 64;
+    private static final int IS_GRANTABLE_LEN        = 3;
     private SchemaTableType schemaTableType;
 
     protected SchemaTable(long id, String name, TableType type, List<Column> baseSchema) {

@@ -35,11 +35,11 @@ import org.apache.logging.log4j.Logger;
  * parameters and state such as plan-node and plan-fragment id generators.
  */
 public class PlannerContext {
-    private final static Logger LOG = LogManager.getLogger(PlannerContext.class);
+    private static final Logger LOG = LogManager.getLogger(PlannerContext.class);
 
     // Estimate of the overhead imposed by storing data in a hash tbl;
     // used for determining whether a broadcast join is feasible.
-    public final static double HASH_TBL_SPACE_OVERHEAD = 1.1;
+    public static final double HASH_TBL_SPACE_OVERHEAD = 1.1;
 
     private final IdGenerator<PlanNodeId> nodeIdGenerator_ = PlanNodeId.createGenerator();
     private final IdGenerator<PlanFragmentId> fragmentIdGenerator_ =

@@ -72,7 +72,7 @@ import java.util.List;
  * ...
  */
 public class AnalyticPlanner {
-    private final static Logger LOG = LoggerFactory.getLogger(AnalyticPlanner.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AnalyticPlanner.class);
 
     private final AnalyticInfo analyticInfo;
     private final Analyzer analyzer;

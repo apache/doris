@@ -41,7 +41,7 @@ import java.util.Set;
  * particular input row (materialize all row slots)
  */
 public class SortInfo {
-    private final static Logger LOG = LogManager.getLogger(SortInfo.class);
+    private static final Logger LOG = LogManager.getLogger(SortInfo.class);
     // All ordering exprs with cost greater than this will be materialized. Since we don't
     // currently have any information about actual function costs, this value is intended to
     // ensure that all expensive functions will be materialized while still leaving simple

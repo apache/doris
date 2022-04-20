@@ -50,7 +50,7 @@ import java.util.Objects;
  * Most predicates with two operands..
  */
 public class BinaryPredicate extends Predicate implements Writable {
-    private final static Logger LOG = LogManager.getLogger(BinaryPredicate.class);
+    private static final Logger LOG = LogManager.getLogger(BinaryPredicate.class);
 
     // true if this BinaryPredicate is inferred from slot equivalences, false otherwise.
     private boolean isInferred_ = false;

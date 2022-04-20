@@ -39,7 +39,7 @@ import java.util.Objects;
 
 // large int for the num that native types can not
 public class LargeIntLiteral extends LiteralExpr {
-    private final static Logger LOG = LogManager.getLogger(LargeIntLiteral.class);
+    private static final Logger LOG = LogManager.getLogger(LargeIntLiteral.class);
 
     // -2^127
     public static final BigInteger LARGE_INT_MIN = new BigInteger("-170141183460469231731687303715884105728");

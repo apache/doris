@@ -69,12 +69,12 @@ public class SqlModeHelper {
     public static final long MODE_ANSI = 1L << 18;
     public static final long MODE_TRADITIONAL = 1L << 27;
 
-    public final static long MODE_LAST = 1L << 33;
+    public static final long MODE_LAST = 1L << 33;
 
     /* When a new session is create, its sql mode is set to MODE_DEFAULT */
-    public final static long MODE_DEFAULT = 0L;
+    public static final long MODE_DEFAULT = 0L;
 
-    public final static long MODE_ALLOWED_MASK =
+    public static final long MODE_ALLOWED_MASK =
             (MODE_REAL_AS_FLOAT | MODE_PIPES_AS_CONCAT | MODE_ANSI_QUOTES |
                     MODE_IGNORE_SPACE | MODE_NOT_USED | MODE_ONLY_FULL_GROUP_BY |
                     MODE_NO_UNSIGNED_SUBTRACTION | MODE_NO_DIR_IN_CREATE |
@@ -85,11 +85,11 @@ public class SqlModeHelper {
                     MODE_PAD_CHAR_TO_FULL_LENGTH | MODE_TRADITIONAL | MODE_ANSI |
                     MODE_TIME_TRUNCATE_FRACTIONAL);
 
-    public final static long MODE_COMBINE_MASK = (MODE_ANSI | MODE_TRADITIONAL);
+    public static final long MODE_COMBINE_MASK = (MODE_ANSI | MODE_TRADITIONAL);
 
-    private final static Map<String, Long> sqlModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private static final Map<String, Long> sqlModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
-    private final static Map<String, Long> combineModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private static final Map<String, Long> combineModeSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     static {
         sqlModeSet.put("REAL_AS_FLOAT", MODE_REAL_AS_FLOAT);

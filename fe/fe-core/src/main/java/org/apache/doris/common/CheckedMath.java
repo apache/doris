@@ -24,7 +24,7 @@ import org.apache.logging.log4j.Logger;
 
 public class CheckedMath {
 
-    private final static Logger LOG = LogManager.getLogger(CheckedMath.class);
+    private static final Logger LOG = LogManager.getLogger(CheckedMath.class);
 
     /**
      * Computes and returns the multiply of two longs. If an overflow occurs,

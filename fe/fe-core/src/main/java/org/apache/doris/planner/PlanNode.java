@@ -72,7 +72,7 @@ import java.util.Set;
  * its children (= are bound by tupleIds).
  */
 abstract public class PlanNode extends TreeNode<PlanNode> {
-    private final static Logger LOG = LogManager.getLogger(PlanNode.class);
+    private static final Logger LOG = LogManager.getLogger(PlanNode.class);
 
     protected String planNodeName;
 
@@ -745,7 +745,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * The second issue is addressed by an exponential backoff when multiplying each
      * additional selectivity into the final result.
      */
-    static protected double computeCombinedSelectivity(List<Expr> conjuncts) {
+    protected static double computeCombinedSelectivity(List<Expr> conjuncts) {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
         for (Expr e : conjuncts) {

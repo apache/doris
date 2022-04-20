@@ -55,7 +55,7 @@ import java.util.UUID;
 //          [PROPERTIES("key"="value")]
 //          BY BROKER 'broker_name' [( $broker_attrs)]
 public class ExportStmt extends StatementBase {
-    private final static Logger LOG = LogManager.getLogger(ExportStmt.class);
+    private static final Logger LOG = LogManager.getLogger(ExportStmt.class);
 
     public static final String TABLET_NUMBER_PER_TASK_PROP = "tablet_num_per_task";
     public static final String LABEL = "label";

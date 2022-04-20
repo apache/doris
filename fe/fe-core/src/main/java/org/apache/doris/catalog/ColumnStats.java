@@ -36,7 +36,7 @@ import java.io.IOException;
  * Statistics for a single column.
  */
 public class ColumnStats implements Writable {
-    private final static Logger LOG = LogManager.getLogger(ColumnStats.class);
+    private static final Logger LOG = LogManager.getLogger(ColumnStats.class);
 
     @SerializedName(value = "avgSerializedSize")
     private float avgSerializedSize;  // in bytes; includes serialization overhead

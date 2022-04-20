@@ -37,7 +37,7 @@ import com.clearspring.analytics.util.Lists;
 Schedule statistics task
  */
 public class StatisticsTaskScheduler extends MasterDaemon {
-    private final static Logger LOG = LogManager.getLogger(StatisticsTaskScheduler.class);
+    private static final Logger LOG = LogManager.getLogger(StatisticsTaskScheduler.class);
 
     private Queue<StatisticsTask> queue = Queues.newLinkedBlockingQueue();
 

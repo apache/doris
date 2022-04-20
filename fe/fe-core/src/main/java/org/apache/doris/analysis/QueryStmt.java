@@ -52,7 +52,7 @@ import java.util.stream.Collectors;
  * analysis of the ORDER BY and LIMIT clauses.
  */
 public abstract class QueryStmt extends StatementBase {
-    private final static Logger LOG = LogManager.getLogger(QueryStmt.class);
+    private static final Logger LOG = LogManager.getLogger(QueryStmt.class);
 
     /////////////////////////////////////////
     // BEGIN: Members that need to be reset()

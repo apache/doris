@@ -84,7 +84,7 @@ public class CanalSyncChannel extends SyncChannel {
         this.timeoutSecond = -1L;
     }
 
-    private final static class SendTask extends SyncTask {
+    private static final class SendTask extends SyncTask {
         private final InsertStreamTxnExecutor executor;
         private final Data<InternalService.PDataRow> rows;
 
@@ -101,7 +101,7 @@ public class CanalSyncChannel extends SyncChannel {
         }
     }
 
-    private final static class EOFTask extends SyncTask {
+    private static final class EOFTask extends SyncTask {
 
         public EOFTask(long signature, int index, SyncChannelCallback callback) {
             super(signature, index, callback);

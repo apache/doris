@@ -49,7 +49,7 @@ import java.util.Set;
  * and we need to mark the slots of resolved exprs as materialized.
  */
 public class SetOperationStmt extends QueryStmt {
-    private final static Logger LOG = LogManager.getLogger(SetOperationStmt.class);
+    private static final Logger LOG = LogManager.getLogger(SetOperationStmt.class);
 
     public enum Operation {
         UNION,

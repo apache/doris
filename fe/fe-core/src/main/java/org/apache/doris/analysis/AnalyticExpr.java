@@ -61,7 +61,7 @@ import java.util.List;
  * and need to be substituted as such; example: COUNT(COUNT(..)) OVER (..)
  */
 public class AnalyticExpr extends Expr {
-    private final static Logger LOG = LoggerFactory.getLogger(AnalyticExpr.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AnalyticExpr.class);
 
     private FunctionCallExpr fnCall;
     private final List<Expr> partitionExprs;
@@ -205,7 +205,7 @@ public class AnalyticExpr extends Expr {
         return false;
     }
 
-    static private boolean isOffsetFn(Function fn) {
+    private static boolean isOffsetFn(Function fn) {
         if (!isAnalyticFn(fn)) {
             return false;
         }
@@ -213,7 +213,7 @@ public class AnalyticExpr extends Expr {
         return fn.functionName().equalsIgnoreCase(LEAD) || fn.functionName().equalsIgnoreCase(LAG);
     }
 
-    static private boolean isMinMax(Function fn) {
+    private static boolean isMinMax(Function fn) {
         if (!isAnalyticFn(fn)) {
             return false;
         }
@@ -221,7 +221,7 @@ public class AnalyticExpr extends Expr {
         return fn.functionName().equalsIgnoreCase(MIN) || fn.functionName().equalsIgnoreCase(MAX);
     }
 
-    static private boolean isRankingFn(Function fn) {
+    private static boolean isRankingFn(Function fn) {
         if (!isAnalyticFn(fn)) {
             return false;
         }
@@ -231,7 +231,7 @@ public class AnalyticExpr extends Expr {
                || fn.functionName().equalsIgnoreCase(ROWNUMBER);
     }
 
-    static private boolean isHllAggFn(Function fn) {
+    private static boolean isHllAggFn(Function fn) {
         if (!isAnalyticFn(fn)) {
             return false;
         }

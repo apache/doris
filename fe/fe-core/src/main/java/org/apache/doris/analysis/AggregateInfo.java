@@ -70,7 +70,7 @@ import java.util.List;
  * TODO: Add query tests for aggregation with intermediate tuples with num_nodes=1.
  */
 public final class AggregateInfo extends AggregateInfoBase {
-    private final static Logger LOG = LogManager.getLogger(AggregateInfo.class);
+    private static final Logger LOG = LogManager.getLogger(AggregateInfo.class);
 
     public enum AggPhase {
         FIRST,
@@ -166,7 +166,7 @@ public final class AggregateInfo extends AggregateInfoBase {
      * If an aggTupleDesc is created, also registers eq predicates between the
      * grouping exprs and their respective slots with 'analyzer'.
      */
-    static public AggregateInfo create(
+    public static AggregateInfo create(
             ArrayList<Expr> groupingExprs, ArrayList<FunctionCallExpr> aggExprs,
             TupleDescriptor tupleDesc, Analyzer analyzer)
             throws AnalysisException {

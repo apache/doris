@@ -46,7 +46,7 @@ public class UdfExecutor {
     public static final String UDF_FUNCTION_NAME = "evaluate";
 
     // Object to deserialize ctor params from BE.
-    private final static TBinaryProtocol.Factory PROTOCOL_FACTORY =
+    private static final TBinaryProtocol.Factory PROTOCOL_FACTORY =
             new TBinaryProtocol.Factory();
 
     private Object udf_;

@@ -38,7 +38,7 @@ import com.google.common.collect.Lists;
  * See Expr.substitute() and related functions for details on the actual substitution.
  */
 public final class ExprSubstitutionMap {
-    private final static Logger LOG = LoggerFactory.getLogger(ExprSubstitutionMap.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ExprSubstitutionMap.class);
 
     private boolean checkAnalyzed_ = true;
     private List<Expr> lhs_; // left-hand side

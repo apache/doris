@@ -36,7 +36,7 @@ import org.apache.logging.log4j.Logger;
  * construct a valid row empty batch.
  */
 public class EmptySetNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(EmptySetNode.class);
+    private static final Logger LOG = LogManager.getLogger(EmptySetNode.class);
 
     public EmptySetNode(PlanNodeId id, ArrayList<TupleId> tupleIds) {
         super(id, tupleIds, "EMPTYSET");

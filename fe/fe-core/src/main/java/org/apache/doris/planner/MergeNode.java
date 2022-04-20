@@ -45,7 +45,7 @@ import java.util.List;
  * results.
  */
 public class MergeNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(MergeNode.class);
+    private static final Logger LOG = LogManager.getLogger(MergeNode.class);
 
     // Expr lists corresponding to the input query stmts.
     // The ith resultExprList belongs to the ith child.

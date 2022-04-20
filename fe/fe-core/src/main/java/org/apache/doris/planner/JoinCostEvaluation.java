@@ -36,7 +36,7 @@ import org.apache.logging.log4j.Logger;
  * and result in both "broadcastCost" and "partitionCost" be 0. And this will lead to a SHUFFLE join.
  */
 public class JoinCostEvaluation {
-    private final static Logger LOG = LogManager.getLogger(JoinCostEvaluation.class);
+    private static final Logger LOG = LogManager.getLogger(JoinCostEvaluation.class);
 
     private final long rhsTreeCardinality;
     private final float rhsTreeAvgRowSize;

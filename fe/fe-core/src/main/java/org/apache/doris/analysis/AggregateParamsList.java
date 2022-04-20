@@ -43,7 +43,7 @@ class AggregateParamsList {
         isDistinct = false;
     }
 
-    static public AggregateParamsList createStarParam() {
+    public static AggregateParamsList createStarParam() {
         return new AggregateParamsList();
     }
 

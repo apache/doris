@@ -51,7 +51,7 @@ import java.util.Map;
  * Utility class with methods intended for JNI clients
  */
 public class JniUtil {
-    private final static TBinaryProtocol.Factory protocolFactory_ =
+    private static final TBinaryProtocol.Factory protocolFactory_ =
             new TBinaryProtocol.Factory();
 
     /**

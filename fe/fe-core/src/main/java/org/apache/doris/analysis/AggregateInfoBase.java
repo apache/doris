@@ -39,7 +39,7 @@ import java.util.List;
  * tuple descriptors as well as their smaps for evaluating aggregate functions.
  */
 public abstract class AggregateInfoBase {
-    private final static Logger LOG =
+    private static final Logger LOG =
             LoggerFactory.getLogger(AggregateInfoBase.class);
 
     // For aggregations: All unique grouping expressions from a select block.

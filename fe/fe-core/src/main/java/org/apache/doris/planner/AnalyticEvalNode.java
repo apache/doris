@@ -48,7 +48,7 @@ import java.util.List;
  * Computation of analytic exprs.
  */
 public class AnalyticEvalNode extends PlanNode {
-    private final static Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AnalyticEvalNode.class);
 
     private List<Expr> analyticFnCalls;
 

@@ -40,11 +40,11 @@ import java.util.Map;
 public class RuntimeFilterTypeHelper {
     private static final Logger LOG = LogManager.getLogger(RuntimeFilterTypeHelper.class);
 
-    public final static long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue() |
+    public static final long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue() |
             TRuntimeFilterType.BLOOM.getValue() | TRuntimeFilterType.MIN_MAX.getValue() |
             TRuntimeFilterType.IN_OR_BLOOM.getValue());
 
-    private final static Map<String, Long> varValueSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private static final Map<String, Long> varValueSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     static {
         varValueSet.put("IN", (long) TRuntimeFilterType.IN.getValue());

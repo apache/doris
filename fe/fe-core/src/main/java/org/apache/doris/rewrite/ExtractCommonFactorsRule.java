@@ -56,7 +56,7 @@ import java.util.Set;
  * The second rewriting can be controlled by session variable 'extract_wide_range_expr'
  */
 public class ExtractCommonFactorsRule implements ExprRewriteRule {
-    private final static Logger LOG = LogManager.getLogger(ExtractCommonFactorsRule.class);
+    private static final Logger LOG = LogManager.getLogger(ExtractCommonFactorsRule.class);
     public static ExtractCommonFactorsRule INSTANCE = new ExtractCommonFactorsRule();
 
     @Override

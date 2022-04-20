@@ -37,7 +37,7 @@ import java.util.List;
  * the corresponding analytic result tuple and its substitution map.
  */
 public final class AnalyticInfo extends AggregateInfoBase {
-    private final static Logger LOG = LoggerFactory.getLogger(AnalyticInfo.class);
+    private static final Logger LOG = LoggerFactory.getLogger(AnalyticInfo.class);
 
     // All unique analytic exprs of a select block. Used to populate
     // super.aggregateExprs_ based on AnalyticExpr.getFnCall() for each analytic expr
@@ -80,7 +80,7 @@ public final class AnalyticInfo extends AggregateInfoBase {
      * Creates complete AnalyticInfo for analyticExprs, including tuple descriptors and
      * smaps.
      */
-    static public AnalyticInfo create(
+    public static AnalyticInfo create(
         ArrayList<Expr> analyticExprs, Analyzer analyzer) {
         Preconditions.checkState(analyticExprs != null && !analyticExprs.isEmpty());
         Expr.removeDuplicates(analyticExprs);

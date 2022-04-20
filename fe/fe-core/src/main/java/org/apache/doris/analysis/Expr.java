@@ -72,10 +72,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
 
-    public final static float FUNCTION_CALL_COST = 10;
+    public static final float FUNCTION_CALL_COST = 10;
 
     // returns true if an Expr is a non-analytic aggregate.
-    private final static com.google.common.base.Predicate<Expr> IS_AGGREGATE_PREDICATE =
+    private static final com.google.common.base.Predicate<Expr> IS_AGGREGATE_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 public boolean apply(Expr arg) {
                     return arg instanceof FunctionCallExpr &&
@@ -84,7 +84,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
 
     // Returns true if an Expr is a NOT CompoundPredicate.
-    public final static com.google.common.base.Predicate<Expr> IS_NOT_PREDICATE =
+    public static final com.google.common.base.Predicate<Expr> IS_NOT_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -94,7 +94,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
 
     // Returns true if an Expr is an OR CompoundPredicate.
-    public final static com.google.common.base.Predicate<Expr> IS_OR_PREDICATE =
+    public static final com.google.common.base.Predicate<Expr> IS_OR_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -104,7 +104,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
 
     // Returns true if an Expr is a scalar subquery
-    public final static com.google.common.base.Predicate<Expr> IS_SCALAR_SUBQUERY =
+    public static final com.google.common.base.Predicate<Expr> IS_SCALAR_SUBQUERY =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -114,7 +114,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     // Returns true if an Expr is an aggregate function that returns non-null on
     // an empty set (e.g. count).
-    public final static com.google.common.base.Predicate<Expr>
+    public static final com.google.common.base.Predicate<Expr>
             NON_NULL_EMPTY_AGG = new com.google.common.base.Predicate<Expr>() {
         @Override
         public boolean apply(Expr arg) {
@@ -125,7 +125,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     /* TODO(zc)
     // Returns true if an Expr is a builtin aggregate function.
-    public final static com.google.common.base.Predicate<Expr> IS_BUILTIN_AGG_FN =
+    public static final com.google.common.base.Predicate<Expr> IS_BUILTIN_AGG_FN =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -135,7 +135,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
     */
     // Returns true if an Expr is a builtin aggregate function.
-    public final static com.google.common.base.Predicate<Expr> CORRELATED_SUBQUERY_SUPPORT_AGG_FN =
+    public static final com.google.common.base.Predicate<Expr> CORRELATED_SUBQUERY_SUPPORT_AGG_FN =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -153,7 +153,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             };
 
 
-    public final static com.google.common.base.Predicate<Expr> IS_TRUE_LITERAL =
+    public static final com.google.common.base.Predicate<Expr> IS_TRUE_LITERAL =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -161,7 +161,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
             };
 
-    public final static com.google.common.base.Predicate<Expr> IS_FALSE_LITERAL =
+    public static final com.google.common.base.Predicate<Expr> IS_FALSE_LITERAL =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -169,13 +169,13 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
             };
 
-    public final static com.google.common.base.Predicate<Expr> IS_EQ_BINARY_PREDICATE =
+    public static final com.google.common.base.Predicate<Expr> IS_EQ_BINARY_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) { return BinaryPredicate.getEqSlots(arg) != null; }
             };
 
-    public final static com.google.common.base.Predicate<Expr> IS_BINARY_PREDICATE =
+    public static final com.google.common.base.Predicate<Expr> IS_BINARY_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) { return arg instanceof BinaryPredicate; }
@@ -192,7 +192,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     /* TODO(zc)
-    public final static com.google.common.base.Predicate<Expr>
+    public static final com.google.common.base.Predicate<Expr>
             IS_NONDETERMINISTIC_BUILTIN_FN_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
@@ -202,7 +202,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
             };
 
-    public final static com.google.common.base.Predicate<Expr> IS_UDF_PREDICATE =
+    public static final com.google.common.base.Predicate<Expr> IS_UDF_PREDICATE =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {

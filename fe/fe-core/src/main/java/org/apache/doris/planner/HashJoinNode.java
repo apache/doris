@@ -65,7 +65,7 @@ import java.util.stream.Collectors;
  * a single input tuple.
  */
 public class HashJoinNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(HashJoinNode.class);
+    private static final Logger LOG = LogManager.getLogger(HashJoinNode.class);
 
     private final TableRef     innerRef;
     private final JoinOperator joinOp;

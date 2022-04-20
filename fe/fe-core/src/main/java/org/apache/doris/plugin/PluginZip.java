@@ -49,7 +49,7 @@ import java.util.zip.ZipInputStream;
  *
  */
 class PluginZip {
-    private final static Logger LOG = LogManager.getLogger(PluginZip.class);
+    private static final Logger LOG = LogManager.getLogger(PluginZip.class);
 
     private static final List<String> DEFAULT_PROTOCOL = ImmutableList.of("https://", "http://");
 

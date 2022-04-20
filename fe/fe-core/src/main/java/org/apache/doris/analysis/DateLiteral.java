@@ -86,10 +86,10 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
-    private final static int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-    private final static int ALLOW_SPACE_MASK = 4 | 64;
-    private final static int MAX_DATE_PARTS = 8;
-    private final static int YY_PART_YEAR = 70;
+    private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    private static final int ALLOW_SPACE_MASK = 4 | 64;
+    private static final int MAX_DATE_PARTS = 8;
+    private static final int YY_PART_YEAR = 70;
 
     static {
         try {

@@ -70,7 +70,7 @@ import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 
 // create a user define function
 public class CreateFunctionStmt extends DdlStmt {
-    private final static Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
+    private static final Logger LOG = LogManager.getLogger(CreateFunctionStmt.class);
     @Deprecated
     public static final String OBJECT_FILE_KEY = "object_file";
     public static final String FILE_KEY = "file";

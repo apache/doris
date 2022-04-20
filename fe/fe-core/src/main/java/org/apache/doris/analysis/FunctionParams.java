@@ -58,7 +58,7 @@ public class FunctionParams implements Writable {
         isDistinct = false;
     }
 
-    static public FunctionParams createStarParam() {
+    public static FunctionParams createStarParam() {
         return new FunctionParams();
     }
 

@@ -175,7 +175,7 @@ public abstract class AlterJobV2 implements Writable {
         }
     }
 
-    public synchronized final boolean cancel(String errMsg) {
+    public final synchronized boolean cancel(String errMsg) {
         return cancelImpl(errMsg);
     }
 

@@ -26,7 +26,7 @@ import java.util.ArrayList;
  * Integer ids that cannot accidentally be compared with ints.
  */
 public class Id<IdType extends Id<IdType>> {
-    static private int INVALID_ID = -1;
+    private static int INVALID_ID = -1;
     protected final int id;
 
     public Id() {

@@ -62,7 +62,7 @@ public class SelectListItem {
     }
 
     // select list item corresponding to "[[db.]tbl.]*"
-    static public SelectListItem createStarItem(TableName tblName) {
+    public static SelectListItem createStarItem(TableName tblName) {
         return new SelectListItem(tblName);
     }
 

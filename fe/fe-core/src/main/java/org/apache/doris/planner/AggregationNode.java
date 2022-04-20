@@ -50,7 +50,7 @@ import java.util.Set;
  * Aggregation computation.
  */
 public class AggregationNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(AggregationNode.class);
+    private static final Logger LOG = LogManager.getLogger(AggregationNode.class);
     private final AggregateInfo aggInfo;
 
     // Set to true if this aggregation node needs to run the Finalize step. This

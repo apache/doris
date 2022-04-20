@@ -60,7 +60,7 @@ import java.util.stream.Collectors;
  * from a single-node plan that can be sent to the backend.
  */
 public class DistributedPlanner {
-    private final static Logger LOG = LogManager.getLogger(DistributedPlanner.class);
+    private static final Logger LOG = LogManager.getLogger(DistributedPlanner.class);
 
     private final PlannerContext ctx_;
 

@@ -36,7 +36,7 @@ import org.apache.doris.common.AnalysisException;
  * and be converted to be NULL when in other clause
  */
 public class RewriteDateLiteralRule implements ExprRewriteRule {
-    public final static ExprRewriteRule INSTANCE = new RewriteDateLiteralRule();
+    public static final ExprRewriteRule INSTANCE = new RewriteDateLiteralRule();
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {

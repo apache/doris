@@ -52,7 +52,7 @@ import java.util.Set;
  * Sorting.
  */
 public class SortNode extends PlanNode {
-    private final static Logger LOG = LogManager.getLogger(SortNode.class);
+    private static final Logger LOG = LogManager.getLogger(SortNode.class);
     private final SortInfo info;
     private final boolean  useTopN;
     private final boolean  isDefaultLimit;

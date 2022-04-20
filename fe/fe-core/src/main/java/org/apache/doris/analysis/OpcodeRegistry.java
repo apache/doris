@@ -32,7 +32,7 @@ package org.apache.doris.analysis;
  */
 public class OpcodeRegistry {
 //
-//    private final static Logger         LOG      = LogManager.getLogger(OpcodeRegistry.class);
+//    private static final Logger         LOG      = LogManager.getLogger(OpcodeRegistry.class);
 //    private static       OpcodeRegistry instance = new OpcodeRegistry();
 //    /**
 //     * This is a mapping of Operator,#args to signatures with a fixed number of arguments.

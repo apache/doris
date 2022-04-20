@@ -58,7 +58,7 @@ public class ReflectionUtils {
         return result;
     }
 
-    static private ThreadMXBean threadBean = 
+    private static ThreadMXBean threadBean =
             ManagementFactory.getThreadMXBean();
     
     public static void setContentionTracing(boolean val) {
