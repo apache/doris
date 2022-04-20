@@ -111,7 +111,17 @@ under the License.
 进入 Doris 源码目录，执行：
 
 ```
-sh build.sh
+$ cat /proc/cpuinfo | grep avx2
 ```
+
+查看编译机器是否支持avx2指令集
+
+不支持则使用以下命令进行编译
+
+```
+$ USE_AVX2=0  sh build.sh
+```
+
+若支持则直接执行 `sh build.sh` 即可
 
 该脚本会先编译第三方库，之后再编译 Doris 组件（FE、BE）。编译产出在 `output/` 目录下。
