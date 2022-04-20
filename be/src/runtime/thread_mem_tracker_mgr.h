@@ -107,7 +107,7 @@ public:
     // must increase the control to avoid entering infinite recursion, otherwise it may cause crash or stuck,
     void cache_consume(int64_t size);
 
-    void noncache_consume();
+    void noncache_consume(int64_t size);
 
     bool is_attach_task() { return _task_id != ""; }
 
@@ -253,21 +253,20 @@ inline void ThreadMemTrackerMgr::cache_consume(int64_t size) {
             _untracked_mem += _untracked_mems[_tracker_id];
             _untracked_mems[_tracker_id] = 0;
         }
-        noncache_consume();
+        noncache_consume(_untracked_mem);
+        _untracked_mem = 0;
         start_thread_mem_tracker = true;
     }
 }
 
-inline void ThreadMemTrackerMgr::noncache_consume() {
-    DCHECK(_mem_trackers[_tracker_id]) << print_debug_string();
-    Status st = mem_tracker()->try_consume(_untracked_mem);
+inline void ThreadMemTrackerMgr::noncache_consume(int64_t size) {
+    Status st = mem_tracker()->try_consume(size);
     if (!st) {
         // The memory has been allocated, so when TryConsume fails, need to continue to complete
         // the consume to ensure the accuracy of the statistics.
-        mem_tracker()->consume(_untracked_mem);
-        exceeded(_untracked_mem, st);
+        mem_tracker()->consume(size);
+        exceeded(size, st);
     }
-    _untracked_mem = 0;
 }
 
 inline void ThreadMemTrackerMgr::add_tracker(const std::shared_ptr<MemTracker>& mem_tracker) {

@@ -63,9 +63,9 @@
 #define ADD_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
     doris::tls_ctx()->_thread_mem_tracker_mgr->add_tracker(mem_tracker)
 #define CONSUME_THREAD_LOCAL_MEM_TRACKER(size) \
-    doris::tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()->consume(size)
+    doris::tls_ctx()->_thread_mem_tracker_mgr->noncache_consume(size)
 #define RELEASE_THREAD_LOCAL_MEM_TRACKER(size) \
-    doris::tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()->release(size)
+    doris::tls_ctx()->_thread_mem_tracker_mgr->noncache_consume(-size)
 
 namespace doris {
 
