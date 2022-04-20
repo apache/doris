@@ -20,8 +20,6 @@
 
 #include "vec/columns/column_array.h"
 
-#include <string.h> // memcpy
-
 #include "vec/columns/collator.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
@@ -493,14 +491,9 @@ void ColumnArray::insert_indices_from(const IColumn& src, const int* indices_beg
 ColumnPtr ColumnArray::replicate(const Offsets& replicate_offsets) const {
     if (replicate_offsets.empty()) return clone_empty();
 
+    // keep ColumnUInt8 for ColumnNullable::null_map
     if (typeid_cast<const ColumnUInt8*>(data.get()))
         return replicate_number<UInt8>(replicate_offsets);
-    if (typeid_cast<const ColumnUInt16*>(data.get()))
-        return replicate_number<UInt16>(replicate_offsets);
-    if (typeid_cast<const ColumnUInt32*>(data.get()))
-        return replicate_number<UInt32>(replicate_offsets);
-    if (typeid_cast<const ColumnUInt64*>(data.get()))
-        return replicate_number<UInt64>(replicate_offsets);
     if (typeid_cast<const ColumnInt8*>(data.get()))
         return replicate_number<Int8>(replicate_offsets);
     if (typeid_cast<const ColumnInt16*>(data.get()))
@@ -517,8 +510,38 @@ ColumnPtr ColumnArray::replicate(const Offsets& replicate_offsets) const {
     if (typeid_cast<const ColumnConst*>(data.get())) return replicate_const(replicate_offsets);
     if (typeid_cast<const ColumnNullable*>(data.get()))
         return replicate_nullable(replicate_offsets);
-    //if (typeid_cast<const ColumnTuple *>(data.get()))    return replicateTuple(replicate_offsets);
     return replicate_generic(replicate_offsets);
+}
+
+void ColumnArray::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+    size_t col_size = size();
+    if (col_size == 0) {
+        return;
+    }
+
+    Offsets replicate_offsets(col_size);
+    size_t cur_offset = 0;
+    for (size_t i = 0; i < col_size; ++i) {
+        cur_offset += counts[i];
+        replicate_offsets[i] = cur_offset;
+    }
+    if (cur_offset != target_size) {
+        LOG(WARNING) << "ColumnArray replicate input target_size:" << target_size
+                     << " not equal SUM(counts):" << cur_offset;
+        return;
+    }
+
+    auto rep_res = replicate(replicate_offsets);
+    if (!rep_res) {
+        LOG(WARNING) << "ColumnArray replicate failed, replicate_offsets count="
+                     << replicate_offsets.size() << ", max=" << replicate_offsets.back();
+        return;
+    }
+    auto& rep_res_arr = typeid_cast<const ColumnArray&>(*rep_res);
+
+    ColumnArray& res_arr = typeid_cast<ColumnArray&>(column);
+    res_arr.data = rep_res_arr.get_data_ptr();
+    res_arr.offsets = rep_res_arr.get_offsets_ptr();
 }
 
 template <typename T>

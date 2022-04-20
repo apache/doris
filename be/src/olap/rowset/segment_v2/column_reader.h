@@ -360,7 +360,7 @@ public:
                                            : size_to_read;
                 ColumnBlockView ordinal_view(&ordinal_block);
                 RETURN_IF_ERROR(_length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
-                auto* ordinals = reinterpret_cast<ordinal_t*>(_length_batch->data());
+                auto* ordinals = reinterpret_cast<uint32_t*>(_length_batch->data());
                 for (int i = 0; i < this_read; ++i) {
                     item_ordinal += ordinals[i];
                 }
