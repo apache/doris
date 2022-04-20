@@ -151,7 +151,7 @@ Rollup 建立之后，查询不需要指定 Rollup 进行查询。还是指定�
 
 遇到内存超限时，用户应该尽量通过优化自己的 sql 语句来解决。
 
-如果确切发现2GB内存不能满足，可以手动设置内存参数。
+如果确切发现 2GB 内存不能满足，可以手动设置内存参数。
 
 显示查询内存限制:
 
@@ -207,17 +207,17 @@ mysql> SHOW VARIABLES LIKE "%query_timeout%";
 
 ### 2.3 Broadcast/Shuffle Join
 
-系统提供了两种Join的实现方式，broadcast join和shuffle join（partitioned Join）。
+系统提供了两种 Join 的实现方式，broadcast join 和 shuffle join（partitioned Join）。
 
-broadcast join是指将小表进行条件过滤后，将其广播到大表所在的各个节点上，形成一个内存 Hash 表，然后流式读出大表的数据进行Hash Join。
+broadcast join 是指将小表进行条件过滤后，将其广播到大表所在的各个节点上，形成一个内存 Hash 表，然后流式读出大表的数据进行 Hash Join。
 
-shuffle join是指将小表和大表都按照 Join 的 key 进行 Hash，然后进行分布式的 Join。
+shuffle join 是指将小表和大表都按照 Join 的 key 进行 Hash，然后进行分布式的 Join。
 
-当小表的数据量较小时，broadcast join拥有更好的性能。反之，则shuffle join拥有更好的性能。
+当小表的数据量较小时，broadcast join 拥有更好的性能。反之，则 shuffle join 拥有更好的性能。
 
-系统会自动尝试进行 Broadcast Join，也可以显式指定每个join算子的实现方式。系统提供了可配置的参数`auto_broadcast_join_threshold`，指定使用broadcast join时，hash table使用的内存占整体执行内存比例的上限，取值范围为0到1，默认值为0.8。当系统计算hash table使用的内存会超过此限制时，会自动转换为使用shuffle join。
+系统会自动尝试进行 Broadcast Join，也可以显式指定每个 join 算子的实现方式。系统提供了可配置的参数`auto_broadcast_join_threshold`，指定使用 broadcast join 时，hash table 使用的内存占整体执行内存比例的上限，取值范围为 `0` 到 `1`，默认值为`0.8`。当系统计算 hash table 使用的内存会超过此限制时，会自动转换为使用 shuffle join。
 
-当`auto_broadcast_join_threshold`被设置为小于等于0时，所有的join都将使用shuffle join。
+当`auto_broadcast_join_threshold`被设置为小于等于`0`时，所有的 join 都将使用 shuffle join。
 
 自动选择join方式（默认）:
 
