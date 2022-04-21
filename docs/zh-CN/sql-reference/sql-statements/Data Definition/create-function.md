@@ -79,6 +79,7 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
 >           "prepare_fn": 自定义函数的prepare函数的函数签名，用于从动态库里面找到prepare函数入口。此选项对于自定义函数是可选项
 > 
 >           "close_fn": 自定义函数的close函数的函数签名，用于从动态库里面找到close函数入口。此选项对于自定义函数是可选项
+>           "type"： 自定义函数的类型，如果是远程函数就是则填 RPC，C++的原生 UDF 填 NATIVE， 默认 NATIVE
 
 
 此语句创建一个自定义函数。执行此命令需要用户拥有 `ADMIN` 权限。
@@ -89,35 +90,35 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
 
 1. 创建一个自定义标量函数
 
-	```
-	CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
-   		"symbol" = 	"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-    	"object_file" = "http://host:port/libmyadd.so"
-	);
-	```
+    ```
+    CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
+           "symbol" = 	"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
+        "object_file" = "http://host:port/libmyadd.so"
+    );
+    ```
 	
 2. 创建一个有prepare/close函数的自定义标量函数
 
-	```
-	CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
-   		"symbol" = 	"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
-   		"prepare_fn" = "_ZN9doris_udf14AddUdf_prepareEPNS_15FunctionContextENS0_18FunctionStateScopeE",
-   		"close_fn" = "_ZN9doris_udf12AddUdf_closeEPNS_15FunctionContextENS0_18FunctionStateScopeE",
-    	"object_file" = "http://host:port/libmyadd.so"
-	);
-	```
+    ```
+    CREATE FUNCTION my_add(INT, INT) RETURNS INT PROPERTIES (
+           "symbol" = 	"_ZN9doris_udf6AddUdfEPNS_15FunctionContextERKNS_6IntValES4_",
+           "prepare_fn" = "_ZN9doris_udf14AddUdf_prepareEPNS_15FunctionContextENS0_18FunctionStateScopeE",
+           "close_fn" = "_ZN9doris_udf12AddUdf_closeEPNS_15FunctionContextENS0_18FunctionStateScopeE",
+        "object_file" = "http://host:port/libmyadd.so"
+    );
+    ```
 
 3. 创建一个自定义聚合函数
 
-	```
-	CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
-	    "init_fn"="_ZN9doris_udf9CountInitEPNS_15FunctionContextEPNS_9BigIntValE",
-	    "update_fn"="_ZN9doris_udf11CountUpdateEPNS_15FunctionContextERKNS_6IntValEPNS_9BigIntValE",
-	    "merge_fn"="_ZN9doris_udf10CountMergeEPNS_15FunctionContextERKNS_9BigIntValEPS2_",
-	    "finalize_fn"="_ZN9doris_udf13CountFinalizeEPNS_15FunctionContextERKNS_9BigIntValE",
-	    "object_file"="http://host:port/libudasample.so"
-	);
-	```
+    ```
+    CREATE AGGREGATE FUNCTION my_count (BIGINT) RETURNS BIGINT PROPERTIES (
+        "init_fn"="_ZN9doris_udf9CountInitEPNS_15FunctionContextEPNS_9BigIntValE",
+        "update_fn"="_ZN9doris_udf11CountUpdateEPNS_15FunctionContextERKNS_6IntValEPNS_9BigIntValE",
+        "merge_fn"="_ZN9doris_udf10CountMergeEPNS_15FunctionContextERKNS_9BigIntValEPS2_",
+        "finalize_fn"="_ZN9doris_udf13CountFinalizeEPNS_15FunctionContextERKNS_9BigIntValE",
+        "object_file"="http://host:port/libudasample.so"
+    );
+    ```
 
 4. 创建一个变长参数的标量函数
 
@@ -139,7 +140,14 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
     CREATE ALIAS FUNCTION string(ALL, INT) WITH PARAMETER(col, length) 
         AS CAST(col AS varchar(length));
     ```
-
+6. 创建一个远程自动函数
+    ```
+   CREATE FUNCTION rpc_add(INT, INT) RETURNS INT PROPERTIES (
+    "SYMBOL"="add_int",
+    "OBJECT_FILE"="127.0.0.1:9999",
+    "TYPE"="RPC"
+    );
+    ```
 ## keyword
 
     CREATE,FUNCTION

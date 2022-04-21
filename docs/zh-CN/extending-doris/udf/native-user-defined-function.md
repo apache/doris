@@ -35,8 +35,6 @@ UDF 能满足的分析需求分为两种：UDF 和 UDAF。本文中的 UDF 指�
 
 这篇文档主要讲述了，如何编写自定义的 UDF 函数，以及如何在 Doris 中使用它。
 
-如果用户使用 UDF 功能并扩展了 Doris 的函数分析，并且希望将自己实现的 UDF 函数贡献回 Doris 社区给其他用户使用，这时候请看文档 [Contribute UDF](./contribute_udf.md)。
-
 ## 编写 UDF 函数
 
 在使用UDF之前，用户需要先在 Doris 的 UDF 框架下，编写自己的UDF函数。在`contrib/udf/src/udf_samples/udf_sample.h|cpp`文件中是一个简单的 UDF Demo。

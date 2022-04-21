@@ -20,6 +20,7 @@
 #include <string_view>
 
 #include "exprs/anyval_util.h"
+#include "exprs/rpc_fn.h"
 #include "fmt/format.h"
 #include "fmt/ranges.h"
 #include "udf/udf_internal.h"
@@ -45,8 +46,7 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
         child_expr_name.emplace_back(child->expr_name());
     }
     if (_fn.binary_type == TFunctionBinaryType::RPC) {
-        _function = RPCFnCall::create(_fn.name.function_name, _fn.hdfs_location, argument_template,
-                                      _data_type);
+        _function = FunctionRPC::create(_fn, argument_template, _data_type);
     } else if (_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
 #ifdef LIBJVM
         _function = JavaFunctionCall::create(_fn, argument_template, _data_type);

@@ -21,6 +21,7 @@
 #include "exprs/agg_fn.h"
 
 #include "exprs/anyval_util.h"
+#include "exprs/rpc_fn.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
@@ -67,7 +68,7 @@ AggFn::AggFn(const TExprNode& tnode, const SlotDescriptor& intermediate_slot_des
     }
 }
 
-Status AggFn::Init(const RowDescriptor& row_desc, RuntimeState* state) {
+Status AggFn::init(const RowDescriptor& row_desc, RuntimeState* state) {
     // TODO chenhao , calling expr's prepare in NewAggFnEvaluator create
     // Initialize all children (i.e. input exprs to this aggregate expr).
     //for (Expr* input_expr : children()) {
@@ -89,45 +90,74 @@ Status AggFn::Init(const RowDescriptor& row_desc, RuntimeState* state) {
         ss << "Function " << _fn.name.function_name << " is not implemented.";
         return Status::InternalError(ss.str());
     }
-
-    RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, aggregate_fn.init_fn_symbol, _fn.hdfs_location, _fn.checksum, &init_fn_,
-            &_cache_entry));
-    RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-            _fn.id, aggregate_fn.update_fn_symbol, _fn.hdfs_location, _fn.checksum, &update_fn_,
-            &_cache_entry));
-
-    // Merge() is not defined for purely analytic function.
-    if (!aggregate_fn.is_analytic_only_fn) {
+    if (_fn.binary_type == TFunctionBinaryType::NATIVE ||
+        _fn.binary_type == TFunctionBinaryType::BUILTIN ||
+        _fn.binary_type == TFunctionBinaryType::HIVE) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, aggregate_fn.merge_fn_symbol, _fn.hdfs_location, _fn.checksum, &merge_fn_,
+                _fn.id, aggregate_fn.init_fn_symbol, _fn.hdfs_location, _fn.checksum, &_init_fn,
                 &_cache_entry));
-    }
-    // Serialize(), GetValue(), Remove() and Finalize() are optional
-    if (!aggregate_fn.serialize_fn_symbol.empty()) {
         RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, aggregate_fn.serialize_fn_symbol, _fn.hdfs_location, _fn.checksum,
-                &serialize_fn_, &_cache_entry));
-    }
-    if (!aggregate_fn.get_value_fn_symbol.empty()) {
-        RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, aggregate_fn.get_value_fn_symbol, _fn.hdfs_location, _fn.checksum,
-                &get_value_fn_, &_cache_entry));
-    }
-    if (!aggregate_fn.remove_fn_symbol.empty()) {
-        RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, aggregate_fn.remove_fn_symbol, _fn.hdfs_location, _fn.checksum, &remove_fn_,
+                _fn.id, aggregate_fn.update_fn_symbol, _fn.hdfs_location, _fn.checksum, &_update_fn,
                 &_cache_entry));
-    }
-    if (!aggregate_fn.finalize_fn_symbol.empty()) {
-        RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
-                _fn.id, _fn.aggregate_fn.finalize_fn_symbol, _fn.hdfs_location, _fn.checksum,
-                &finalize_fn_, &_cache_entry));
+
+        // Merge() is not defined for purely analytic function.
+        if (!aggregate_fn.is_analytic_only_fn) {
+            RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+                    _fn.id, aggregate_fn.merge_fn_symbol, _fn.hdfs_location, _fn.checksum,
+                    &_merge_fn, &_cache_entry));
+        }
+        // Serialize(), GetValue(), Remove() and Finalize() are optional
+        if (!aggregate_fn.serialize_fn_symbol.empty()) {
+            RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+                    _fn.id, aggregate_fn.serialize_fn_symbol, _fn.hdfs_location, _fn.checksum,
+                    &_serialize_fn, &_cache_entry));
+        }
+        if (!aggregate_fn.get_value_fn_symbol.empty()) {
+            RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+                    _fn.id, aggregate_fn.get_value_fn_symbol, _fn.hdfs_location, _fn.checksum,
+                    &_get_value_fn, &_cache_entry));
+        }
+        if (!aggregate_fn.remove_fn_symbol.empty()) {
+            RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+                    _fn.id, aggregate_fn.remove_fn_symbol, _fn.hdfs_location, _fn.checksum,
+                    &_remove_fn, &_cache_entry));
+        }
+        if (!aggregate_fn.finalize_fn_symbol.empty()) {
+            RETURN_IF_ERROR(UserFunctionCache::instance()->get_function_ptr(
+                    _fn.id, _fn.aggregate_fn.finalize_fn_symbol, _fn.hdfs_location, _fn.checksum,
+                    &_finalize_fn, &_cache_entry));
+        }
+    } else if (_fn.binary_type == TFunctionBinaryType::RPC) {
+        _rpc_init = std::make_unique<RPCFn>(state, _fn, RPCFn::AggregationStep::INIT, true);
+        _rpc_update = std::make_unique<RPCFn>(state, _fn, RPCFn::AggregationStep::UPDATE, true);
+
+        // Merge() is not defined for purely analytic function.
+        if (!aggregate_fn.is_analytic_only_fn) {
+            _rpc_merge = std::make_unique<RPCFn>(state, _fn, RPCFn::AggregationStep::MERGE, true);
+        }
+        // Serialize(), GetValue(), Remove() and Finalize() are optional
+        if (!aggregate_fn.serialize_fn_symbol.empty()) {
+            _rpc_serialize =
+                    std::make_unique<RPCFn>(state, _fn, RPCFn::AggregationStep::SERIALIZE, true);
+        }
+        if (!aggregate_fn.get_value_fn_symbol.empty()) {
+            _rpc_get_value =
+                    std::make_unique<RPCFn>(state, _fn, RPCFn::AggregationStep::GET_VALUE, true);
+        }
+        if (!aggregate_fn.remove_fn_symbol.empty()) {
+            _rpc_remove = std::make_unique<RPCFn>(state, _fn, RPCFn::AggregationStep::REMOVE, true);
+        }
+        if (!aggregate_fn.finalize_fn_symbol.empty()) {
+            _rpc_finalize =
+                    std::make_unique<RPCFn>(state, _fn, RPCFn::AggregationStep::FINALIZE, true);
+        }
+    } else {
+        return Status::NotSupported(fmt::format("Not supported BinaryType: {}", _fn.binary_type));
     }
     return Status::OK();
 }
 
-Status AggFn::Create(const TExpr& texpr, const RowDescriptor& row_desc,
+Status AggFn::create(const TExpr& texpr, const RowDescriptor& row_desc,
                      const SlotDescriptor& intermediate_slot_desc,
                      const SlotDescriptor& output_slot_desc, RuntimeState* state, AggFn** agg_fn) {
     *agg_fn = nullptr;
@@ -140,9 +170,9 @@ Status AggFn::Create(const TExpr& texpr, const RowDescriptor& row_desc,
     }
     AggFn* new_agg_fn = pool->add(new AggFn(texpr_node, intermediate_slot_desc, output_slot_desc));
     RETURN_IF_ERROR(Expr::create_tree(texpr, pool, new_agg_fn));
-    Status status = new_agg_fn->Init(row_desc, state);
+    Status status = new_agg_fn->init(row_desc, state);
     if (UNLIKELY(!status.ok())) {
-        new_agg_fn->Close();
+        new_agg_fn->close();
         return status;
     }
     for (Expr* input_expr : new_agg_fn->children()) {
@@ -153,24 +183,24 @@ Status AggFn::Create(const TExpr& texpr, const RowDescriptor& row_desc,
     return Status::OK();
 }
 
-FunctionContext::TypeDesc AggFn::GetIntermediateTypeDesc() const {
+FunctionContext::TypeDesc AggFn::get_intermediate_type_desc() const {
     return AnyValUtil::column_type_to_type_desc(intermediate_slot_desc_.type());
 }
 
-FunctionContext::TypeDesc AggFn::GetOutputTypeDesc() const {
+FunctionContext::TypeDesc AggFn::get_output_type_desc() const {
     return AnyValUtil::column_type_to_type_desc(output_slot_desc_.type());
 }
 
-void AggFn::Close() {
+void AggFn::close() {
     // This also closes all the input expressions.
     Expr::close();
 }
 
-void AggFn::Close(const std::vector<AggFn*>& exprs) {
-    for (AggFn* expr : exprs) expr->Close();
+void AggFn::close(const std::vector<AggFn*>& exprs) {
+    for (AggFn* expr : exprs) expr->close();
 }
 
-std::string AggFn::DebugString() const {
+std::string AggFn::debug_string() const {
     std::stringstream out;
     out << "AggFn(op=" << agg_op_;
     for (Expr* input_expr : children()) {
@@ -180,11 +210,11 @@ std::string AggFn::DebugString() const {
     return out.str();
 }
 
-std::string AggFn::DebugString(const std::vector<AggFn*>& agg_fns) {
+std::string AggFn::debug_string(const std::vector<AggFn*>& agg_fns) {
     std::stringstream out;
     out << "[";
     for (int i = 0; i < agg_fns.size(); ++i) {
-        out << (i == 0 ? "" : " ") << agg_fns[i]->DebugString();
+        out << (i == 0 ? "" : " ") << agg_fns[i]->debug_string();
     }
     out << "]";
     return out.str();

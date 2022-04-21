@@ -20,25 +20,28 @@
 #include "vec/functions/function.h"
 
 namespace doris {
-class PFunctionService_Stub;
+class RPCFn;
 
 namespace vectorized {
-class RPCFnCall : public IFunctionBase {
+class FunctionRPC : public IFunctionBase {
 public:
-    RPCFnCall(const std::string& symbol, const std::string& server, const DataTypes& argument_types,
-              const DataTypePtr& return_type);
-    static FunctionBasePtr create(const std::string& symbol, const std::string& server,
-                                  const ColumnsWithTypeAndName& argument_types,
+    FunctionRPC(const TFunction& fn, const DataTypes& argument_types,
+                const DataTypePtr& return_type);
+
+    static FunctionBasePtr create(const TFunction& fn, const ColumnsWithTypeAndName& argument_types,
                                   const DataTypePtr& return_type) {
         DataTypes data_types(argument_types.size());
         for (size_t i = 0; i < argument_types.size(); ++i) {
             data_types[i] = argument_types[i].type;
         }
-        return std::make_shared<RPCFnCall>(symbol, server, data_types, return_type);
+        return std::make_shared<FunctionRPC>(fn, data_types, return_type);
     }
 
     /// Get the main function name.
-    String get_name() const override { return _name; };
+    String get_name() const override {
+        return fmt::format("{}: [{}/{}]", _tfn.name.function_name, _tfn.hdfs_location,
+                           _tfn.scalar_fn.symbol);
+    };
 
     const DataTypes& get_argument_types() const override { return _argument_types; };
     const DataTypePtr& get_return_type() const override { return _return_type; };
@@ -58,12 +61,10 @@ public:
     bool is_deterministic_in_scope_of_query() const override { return false; }
 
 private:
-    std::string _symbol;
-    std::string _server;
-    std::string _name;
     DataTypes _argument_types;
     DataTypePtr _return_type;
-    std::shared_ptr<PFunctionService_Stub> _client = nullptr;
+    TFunction _tfn;
+    std::unique_ptr<RPCFn> _fn;
 };
 
 } // namespace vectorized
