@@ -55,10 +55,24 @@ ParquetReaderWrap::~ParquetReaderWrap() {
 Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                               const std::string& timezone) {
     try {
-        // new file reader for parquet file
-        auto st = parquet::arrow::FileReader::Make(
-                arrow::default_memory_pool(),
-                parquet::ParquetFileReader::Open(_parquet, _properties), &_reader);
+        parquet::ArrowReaderProperties arrow_reader_properties =
+                parquet::default_arrow_reader_properties();
+        arrow_reader_properties.set_pre_buffer(true);
+        arrow_reader_properties.set_use_threads(true);
+
+        // Open Parquet file reader
+        auto reader_builder = parquet::arrow::FileReaderBuilder();
+        reader_builder.properties(arrow_reader_properties);
+
+        auto st = reader_builder.Open(_parquet, _properties);
+
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to create parquet file reader, errmsg=" << st.ToString();
+            return Status::InternalError("Failed to create file reader");
+        }
+
+        st = reader_builder.Build(&_reader);
+
         if (!st.ok()) {
             LOG(WARNING) << "failed to create parquet file reader, errmsg=" << st.ToString();
             return Status::InternalError("Failed to create file reader");
