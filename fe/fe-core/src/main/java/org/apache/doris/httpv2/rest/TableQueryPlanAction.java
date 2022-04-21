@@ -128,10 +128,6 @@ public class TableQueryPlanAction extends RestBaseController {
             // status code  should conforms to HTTP semantic
             resultMap.put("status", e.getCode().code());
             resultMap.put("exception", e.getMessage());
-        } catch (Exception e) {
-            e.printStackTrace();
-            resultMap.put("status", "1");
-            resultMap.put("exception", e.getMessage());
         }
         return ResponseEntityBuilder.ok(resultMap);
     }
