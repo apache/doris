@@ -87,10 +87,9 @@ Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, bool is_vect
         return name.substr(0, name.length() - suffix.length());
     };
 
-    bool is_outer = match_suffix(fn_name_raw, table_function_combinator_suffix::outer);
+    bool is_outer = match_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER);
     std::string fn_name_real =
-            is_outer ? remove_suffix(fn_name_raw, table_function_combinator_suffix::outer)
-                     : fn_name_raw;
+            is_outer ? remove_suffix(fn_name_raw, COMBINATOR_SUFFIX_OUTER) : fn_name_raw;
 
     auto fn_iterator = _function_map.find({fn_name_real, is_vectorized});
     if (fn_iterator != _function_map.end()) {

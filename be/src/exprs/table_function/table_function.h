@@ -30,9 +30,7 @@ namespace doris {
 // Currently, the memory allocated from table function is from malloc directly.
 class TableFunctionState {};
 
-namespace table_function_combinator_suffix {
-static const std::string outer = "_outer";
-}
+const std::string COMBINATOR_SUFFIX_OUTER = "_outer";
 
 class ExprContext;
 class TupleRow;
@@ -108,7 +106,7 @@ public:
             return;
         }
         _is_outer = true;
-        _fn_name += table_function_combinator_suffix::outer;
+        _fn_name += COMBINATOR_SUFFIX_OUTER;
     }
 
     bool current_empty() const { return _is_current_empty; }

@@ -114,7 +114,7 @@ public:
     template <class Function>
     void register_table_function() {
         function_creators[Function::name] = &createDefaultFunction<Function>;
-        function_creators[std::string(Function::name) + table_function_combinator_suffix::outer] =
+        function_creators[std::string(Function::name) + COMBINATOR_SUFFIX_OUTER] =
                 &createDefaultFunction<Function>;
     }
 
