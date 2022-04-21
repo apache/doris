@@ -35,6 +35,8 @@ import org.apache.doris.system.Frontend;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.base.Strings;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
