@@ -261,7 +261,6 @@ public:
 
 protected:
     int64_t _old_tracker_id = 0;
-    std::string _tid;
 };
 
 class SwitchThreadMemTrackerEndClear : public SwitchThreadMemTracker<false> {

@@ -102,7 +102,6 @@ SwitchThreadMemTracker<Existed>::SwitchThreadMemTracker(
 #endif
 #ifndef NDEBUG
         tls_ctx()->_thread_mem_tracker_mgr->switch_count += 1;
-        _tid = tls_ctx()->get_thread_id();
 #endif
     }
 }
@@ -116,7 +115,6 @@ SwitchThreadMemTracker<Existed>::~SwitchThreadMemTracker() {
 #endif
 #ifndef BE_TEST
         tls_ctx()->_thread_mem_tracker_mgr->update_tracker_id(_old_tracker_id);
-        DCHECK(_tid == tls_ctx()->get_thread_id());
 #endif
     }
 }
