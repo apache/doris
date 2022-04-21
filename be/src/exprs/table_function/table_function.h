@@ -30,6 +30,10 @@ namespace doris {
 // Currently, the memory allocated from table function is from malloc directly.
 class TableFunctionState {};
 
+namespace table_function_combinator_suffix {
+static const std::string outer = "_outer";
+}
+
 class ExprContext;
 class TupleRow;
 class TableFunction {
@@ -104,7 +108,7 @@ public:
             return;
         }
         _is_outer = true;
-        _fn_name += "_outer";
+        _fn_name += table_function_combinator_suffix::outer;
     }
 
     bool current_empty() const { return _is_current_empty; }
@@ -125,5 +129,4 @@ protected:
     // set _is_outer to false for explode function, and should not return tuple while array is null or empty
     bool _is_outer = false;
 };
-
 } // namespace doris

@@ -23,6 +23,7 @@
 #include <mutex>
 #include <string>
 
+#include "exprs/table_function/table_function.h"
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
@@ -103,16 +104,17 @@ public:
 
     template <class Function>
     void register_function() {
-        if constexpr (std::is_base_of<IFunction, Function>::value)
+        if constexpr (std::is_base_of<IFunction, Function>::value) {
             register_function(Function::name, &createDefaultFunction<Function>);
-        else
+        } else {
             register_function(Function::name, &Function::create);
+        }
     }
 
     template <class Function>
     void register_table_function() {
         function_creators[Function::name] = &createDefaultFunction<Function>;
-        function_creators[std::string(Function::name) + "_outer"] =
+        function_creators[std::string(Function::name) + table_function_combinator_suffix::outer] =
                 &createDefaultFunction<Function>;
     }
 

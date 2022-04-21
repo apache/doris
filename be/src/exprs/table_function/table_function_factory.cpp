@@ -17,20 +17,7 @@
 
 #include "exprs/table_function/table_function_factory.h"
 
-#include "common/object_pool.h"
-#include "exprs/table_function/explode_bitmap.h"
-#include "exprs/table_function/explode_json_array.h"
-#include "exprs/table_function/explode_split.h"
-#include "exprs/table_function/table_function.h"
-#include "vec/exprs/table_function/vexplode.h"
-#include "vec/exprs/table_function/vexplode_bitmap.h"
-#include "vec/exprs/table_function/vexplode_json_array.h"
-#include "vec/exprs/table_function/vexplode_numbers.h"
-#include "vec/exprs/table_function/vexplode_split.h"
-
 namespace doris {
-
-const std::string TableFunctionFactory::suffix_outer = "_outer";
 
 template <typename TableFunctionType>
 struct TableFunctionCreator {
@@ -87,11 +74,12 @@ const std::unordered_map<std::pair<std::string, bool>, std::function<TableFuncti
                  TableFunctionCreator<vectorized::VExplodeBitmapTableFunction>()},
                 {{"explode", true}, TableFunctionCreator<vectorized::VExplodeTableFunction> {}}};
 
-Status TableFunctionFactory::get_fn(std::string fn_name, bool is_vectorized, ObjectPool* pool,
-                                    TableFunction** fn) {
-    bool is_outer = false;
-
+Status TableFunctionFactory::get_fn(const std::string& fn_name_raw, bool is_vectorized,
+                                    ObjectPool* pool, TableFunction** fn) {
     auto match_suffix = [](const std::string& name, const std::string& suffix) -> bool {
+        if (name.length() < suffix.length()) {
+            return false;
+        }
         return name.substr(name.length() - suffix.length()) == suffix;
     };
 
@@ -99,12 +87,12 @@ Status TableFunctionFactory::get_fn(std::string fn_name, bool is_vectorized, Obj
         return name.substr(0, name.length() - suffix.length());
     };
 
-    if (match_suffix(fn_name, suffix_outer)) {
-        is_outer = true;
-        fn_name = remove_suffix(fn_name, suffix_outer);
-    }
+    bool is_outer = match_suffix(fn_name_raw, table_function_combinator_suffix::outer);
+    std::string fn_name_real =
+            is_outer ? remove_suffix(fn_name_raw, table_function_combinator_suffix::outer)
+                     : fn_name_raw;
 
-    auto fn_iterator = _function_map.find({fn_name, is_vectorized});
+    auto fn_iterator = _function_map.find({fn_name_real, is_vectorized});
     if (fn_iterator != _function_map.end()) {
         *fn = pool->add(fn_iterator->second());
         if (is_outer) {
@@ -115,7 +103,7 @@ Status TableFunctionFactory::get_fn(std::string fn_name, bool is_vectorized, Obj
     }
 
     return Status::NotSupported(std::string(is_vectorized ? "vectorized " : "") +
-                                "table function " + fn_name + " not support");
+                                "table function " + fn_name_raw + " not support");
 }
 
 } // namespace doris
