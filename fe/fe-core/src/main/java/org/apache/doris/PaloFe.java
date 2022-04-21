@@ -320,7 +320,7 @@ public class PaloFe {
             File imageFile = new File(cmdLineOpts.getImagePath());
             if (!imageFile.exists()) {
                 System.out.println("image does not exist: " + imageFile.getAbsolutePath() + " . Please put an absolute path instead");
-                System.exit(0);
+                System.exit(-1);
             } else {
                 System.out.println("Start to load image: ");
                 try {
