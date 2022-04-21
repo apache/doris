@@ -273,9 +273,6 @@ protected:
     // add batches finished means the last rpc has be response, used to check whether this channel can be closed
     std::atomic<bool> _add_batches_finished {false}; // reuse for vectorized
 
-    // TODO(cmy): should be removed
-    std::atomic<bool> _last_patch_processed_finished {true}; // reuse for vectorized
-
     bool _eos_is_produced {false}; // only for restricting producer behaviors
 
     std::unique_ptr<RowDescriptor> _row_desc;

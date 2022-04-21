@@ -28,6 +28,7 @@
 #include "vec/core/block.h"
 #include "vec/common/string_ref.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+
 namespace doris {
 
 struct ContiguousRow;
@@ -37,8 +38,6 @@ class SlotDescriptor;
 class TabletSchema;
 class Tuple;
 class TupleDescriptor;
-class RowInBlock;
-class RowInBlockComparator;
 class MemTable {
 public:
    
@@ -103,8 +102,11 @@ private:
             NullState null_state = is_null ? NullState::IS_NULL : NullState::NOT_NULL;
             return RowCursorCell(ref.data, null_state);
         }
+
         ~RowInBlock() {
-            std::vector<vectorized::AggregateDataPtr>().swap(_agg_places);
+            for (auto agg_place : _agg_places) {
+                delete [] agg_place;
+            }
         }
     };
     class RowInBlockComparator {

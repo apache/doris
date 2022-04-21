@@ -178,18 +178,28 @@ Status VNodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
 
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
-    auto st = none_of({_cancelled, _send_finished});
+        auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
         return 0;
     }
-    bool is_finished = true;
-    if (!_add_block_closure->is_packet_in_flight() && _pending_batches_num > 0 &&
-        _last_patch_processed_finished.compare_exchange_strong(is_finished, false)) {
+
+    if (!_add_block_closure->try_set_in_flight()) {
+        return _send_finished ? 0 : 1;
+    }
+
+    // We are sure that try_send_batch is not running
+    if (_pending_batches_num > 0) {
         auto s = thread_pool_token->submit_func(
-            std::bind(&VNodeChannel::try_send_block, this, state));
+                std::bind(&VNodeChannel::try_send_block, this, state));
         if (!s.ok()) {
             _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
+            // clear in flight
+            _add_block_closure->clear_in_flight();
         }
+        // in_flight is cleared in closure::Run
+    } else {
+        // clear in flight
+        _add_block_closure->clear_in_flight();
     }
     return _send_finished ? 0 : 1;
 }
@@ -221,6 +231,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
                                     &compressed_bytes, &_column_values_buffer);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+            _add_block_closure->clear_in_flight();
             return;
         }
         if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
@@ -234,6 +245,7 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
         if (remain_ms <= 0 && !request.eos()) {
             cancel(fmt::format("{}, err: timeout", channel_info()));
+            _add_block_closure->clear_in_flight();
             return;
         } else {
             remain_ms = config::min_load_rpc_timeout_ms;
@@ -266,7 +278,6 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
                                    _add_block_closure);
 
     _next_packet_seq++;
-    _last_patch_processed_finished = true;
 }
 
 void VNodeChannel::_close_check() {
