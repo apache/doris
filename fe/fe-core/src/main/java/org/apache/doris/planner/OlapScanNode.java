@@ -402,6 +402,12 @@ public class OlapScanNode extends ScanNode {
         }
         // when node scan has no data, cardinality should be 0 instead of a invalid value after computeStats()
         cardinality = cardinality == -1 ? 0 : cardinality;
+
+        // update statsDeriveResult for real statistics
+        // After statistics collection is complete, remove the logic
+        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
+            statsDeriveResult.setRowCount(cardinality);
+        }
     }
 
     @Override
@@ -557,19 +563,6 @@ public class OlapScanNode extends ScanNode {
             bucketSeq2locations.put(tabletId2BucketSeq.get(tabletId), scanRangeLocations);
 
             result.add(scanRangeLocations);
-        }
-
-        // FIXME(dhc): we use cardinality here to simulate ndv
-        // update statsDeriveResult for real statistics
-        // After statistics collection is complete, remove the logic
-        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            statsDeriveResult.setRowCount(cardinality);
-            for (Map.Entry<Long, Long> entry : statsDeriveResult.getColumnToNdv().entrySet()) {
-                if (entry.getValue() > 0) {
-                    cardinality = Math.min(cardinality, entry.getValue());
-                }
-            }
-            statsDeriveResult.setRowCount(cardinality);
         }
 
         if (tablets.size() == 0) {

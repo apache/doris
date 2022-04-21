@@ -1991,6 +1991,8 @@ public class QueryPlanTest {
     public void testExplainInsertInto() throws Exception {
         ExplainTest explainTest = new ExplainTest();
         explainTest.before(connectContext);
+        explainTest.testExplainInsertInto();
+        explainTest.testExplainVerboseInsertInto();
         explainTest.testExplainSelect();
         explainTest.testExplainInsertInto();
         explainTest.testExplainVerboseSelect();
@@ -2088,7 +2090,7 @@ public class QueryPlanTest {
                 "\"storage_medium\" = \"HDD\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");\n");
-        String queryStr = "EXPLAIN INSERT INTO result_exprs\n" +
+        String queryStr = "EXPLAIN VERBOSE INSERT INTO result_exprs\n" +
                 "SELECT a.aid,\n" +
                 "       b.bid\n" +
                 "FROM\n" +

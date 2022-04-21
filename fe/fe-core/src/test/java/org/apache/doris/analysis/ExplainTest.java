@@ -72,6 +72,20 @@ public class ExplainTest {
         Assert.assertEquals(dropDbStmt.toSql(), dropSchemaStmt.toSql());
     }
 
+    public void testExplainInsertInto() throws Exception {
+        String sql = "explain insert into test_explain.explain_t1 select * from test_explain.explain_t2";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, false);
+        System.out.println(explainString);
+        Assert.assertFalse(explainString.contains("CAST"));
+    }
+
+    public void testExplainVerboseInsertInto() throws Exception {
+        String sql = "explain verbose insert into test_explain.explain_t1 select * from test_explain.explain_t2";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("CAST"));
+    }
+
     public void testExplainSelect() throws Exception {
         String sql = "explain select * from test_explain.explain_t1 where dt = '1001';";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, false);
