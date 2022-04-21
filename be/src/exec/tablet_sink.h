@@ -89,7 +89,7 @@ template <typename T>
 class ReusableClosure : public google::protobuf::Closure {
 public:
     ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
-    ~ReusableClosure() {
+    ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
     }
@@ -275,7 +275,11 @@ private:
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
-    ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
+    // ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
+    std::unique_ptr<PBackendService_Stub> _streaming_stub = nullptr;
+    brpc::Channel _channel;
+    brpc::StreamId _stream_id;
+    butil::IOBuf _stream_msg;
 
     std::vector<TTabletWithPartition> _all_tablets;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;

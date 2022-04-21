@@ -16,7 +16,9 @@
 // under the License.
 
 #include "service/internal_service.h"
+#include <brpc/stream.h>
 
+#include "common/compiler_util.h"
 #include "common/config.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/internal_service.pb.h"
@@ -37,8 +39,46 @@
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "vec/runtime/vdata_stream_mgr.h"
-
 namespace doris {
+
+class TabletAddBatchReceiver : public brpc::StreamInputHandler {
+public:
+    TabletAddBatchReceiver(PriorityThreadPool* tablet_worker_pool, ExecEnv* exec_env)
+            : brpc::StreamInputHandler(),
+              _tablet_worker_pool(tablet_worker_pool),
+              _exec_env(exec_env) {}
+    int on_received_messages(brpc::StreamId id, butil::IOBuf* const messages[],
+                             size_t size) override {
+        auto res = Status::OK();
+        LOG(INFO) << "Stream=" << id << " received " << size << " messages";
+        _tablet_worker_pool->offer([&, this] {
+            for (size_t i = 0; i < size; ++i) {
+                if (UNLIKELY(res.ok())) {
+                    return;
+                }
+                PTabletWriterAddBatchRequest request;
+                PTabletWriterAddBatchResult response;
+                butil::IOBufAsZeroCopyInputStream wrapper(*messages[i]);
+                if (!request.ParseFromZeroCopyStream(&wrapper)) {
+                    LOG(INFO) << "Request Parse Error";
+                }
+                res = _exec_env->load_channel_mgr()->add_batch(request, &response);
+                if (!res.ok()) {
+                    LOG(INFO) << "[TabletAddBatchReceiver] " << res.message();
+                }
+            }
+        });
+        return res.code();
+    }
+    void on_idle_timeout(brpc::StreamId id) override {
+        LOG(INFO) << "Stream=" << id << " has no data transmission for a while";
+    }
+    void on_closed(brpc::StreamId id) override { LOG(INFO) << "Stream=" << id << " is closed"; }
+
+private:
+    PriorityThreadPool* _tablet_worker_pool;
+    ExecEnv* _exec_env;
+};
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(add_batch_task_queue_size, MetricUnit::NOUNIT);
 
@@ -51,6 +91,8 @@ PInternalServiceImpl<T>::PInternalServiceImpl(ExecEnv* exec_env)
 
 template <typename T>
 PInternalServiceImpl<T>::~PInternalServiceImpl() {
+    std::for_each(_stream_ids.begin(), _stream_ids.end(),
+                  [](auto& stream_id) { brpc::StreamClose(stream_id); });
     DEREGISTER_HOOK_METRIC(add_batch_task_queue_size);
 }
 
@@ -130,8 +172,7 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
             brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-            attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
-            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
+            auto st = Status::OK();
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add batch failed, message=" << st.get_error_msg()
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
@@ -139,6 +180,15 @@ void PInternalServiceImpl<T>::tablet_writer_add_batch(google::protobuf::RpcContr
                              << ", backend id=" << request->backend_id();
             }
             st.to_protobuf(response->mutable_status());
+            brpc::StreamOptions stream_options;
+            stream_options.handler = _tablet_add_batch_receiver.get();
+            brpc::StreamId stream_id;
+            if (brpc::StreamAccept(&stream_id, *cntl, &stream_options) != 0) {
+                cntl->SetFailed("Fail to accept stream");
+                return;
+            }
+            _stream_ids.push_back(stream_id);
+            LOG(INFO) << "Accept a stream";
         }
         response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
         response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);

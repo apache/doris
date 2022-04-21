@@ -17,6 +17,7 @@
 
 #include "exec/tablet_sink.h"
 
+#include <brpc/stream.h>
 #include <fmt/format.h>
 
 #include <sstream>
@@ -60,11 +61,6 @@ NodeChannel::~NodeChannel() noexcept {
         }
         _open_closure = nullptr;
     }
-    if (_add_batch_closure != nullptr) {
-        // it's safe to delete, but may take some time to wait until brpc joined
-        delete _add_batch_closure;
-        _add_batch_closure = nullptr;
-    }
     _cur_add_batch_request.release_id();
 }
 
@@ -96,6 +92,16 @@ Status NodeChannel::init(RuntimeState* state) {
         _cancelled = true;
         return Status::InternalError("get rpc stub failed");
     }
+
+    brpc::ChannelOptions options;
+    options.timeout_ms = 0x7fffffff;
+    options.protocol = brpc::PROTOCOL_BAIDU_STD;
+    if (_channel.Init(_node_info.host.c_str(), _node_info.brpc_port, nullptr) != 0) {
+        LOG(ERROR) << "Fail to initialize channel";
+        return Status::InternalError("Fail to initialize channel");
+    }
+
+    _streaming_stub = std::make_unique<PBackendService_Stub>(&_channel);
 
     // Initialize _cur_add_batch_request
     _cur_add_batch_request.set_allocated_id(&_parent->_load_id);
@@ -146,6 +152,20 @@ void NodeChannel::open() {
                               _open_closure);
     request.release_id();
     request.release_schema();
+
+    brpc::Controller cntl;
+    brpc::StreamOptions options;
+    options.max_buf_size = 100 * 1024 * 1024;
+    if (brpc::StreamCreate(&_stream_id, cntl, &options) != 0) {
+        LOG(ERROR) << "Fail to create stream";
+    }
+    PTabletWriterAddBatchRequest add_batch_request = _cur_add_batch_request;
+    add_batch_request.set_packet_seq(0);
+    PTabletWriterAddBatchResult add_batch_result;
+    _streaming_stub->tablet_writer_add_batch(&cntl, &add_batch_request, &add_batch_result, nullptr);
+    if (cntl.Failed()) {
+        LOG(ERROR) << "Fail to connect stream, " << cntl.ErrorText();
+    }
 }
 
 void NodeChannel::_cancel_with_msg(const std::string& msg) {
@@ -185,68 +205,6 @@ Status NodeChannel::open_wait() {
         _cancelled = true;
         return status;
     }
-
-    // add batch closure
-    _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
-    _add_batch_closure->addFailedHandler([this](bool is_last_rpc) {
-        std::lock_guard<std::mutex> l(this->_closed_lock);
-        if (this->_is_closed) {
-            // if the node channel is closed, no need to call `mark_as_failed`,
-            // and notice that _index_channel may already be destroyed.
-            return;
-        }
-        // If rpc failed, mark all tablets on this node channel as failed
-        _index_channel->mark_as_failed(this->node_id(), this->host(),
-                                       _add_batch_closure->cntl.ErrorText(), -1);
-        Status st = _index_channel->check_intolerable_failure();
-        if (!st.ok()) {
-            _cancel_with_msg(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
-        } else if (is_last_rpc) {
-            // if this is last rpc, will must set _add_batches_finished. otherwise, node channel's close_wait
-            // will be blocked.
-            _add_batches_finished = true;
-        }
-    });
-
-    _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
-                                                 bool is_last_rpc) {
-        std::lock_guard<std::mutex> l(this->_closed_lock);
-        if (this->_is_closed) {
-            // if the node channel is closed, no need to call the following logic,
-            // and notice that _index_channel may already be destroyed.
-            return;
-        }
-        Status status(result.status());
-        if (status.ok()) {
-            // if has error tablet, handle them first
-            for (auto& error : result.tablet_errors()) {
-                _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(),
-                                               error.tablet_id());
-            }
-
-            Status st = _index_channel->check_intolerable_failure();
-            if (!st.ok()) {
-                _cancel_with_msg(st.get_error_msg());
-            } else if (is_last_rpc) {
-                for (auto& tablet : result.tablet_vec()) {
-                    TTabletCommitInfo commit_info;
-                    commit_info.tabletId = tablet.tablet_id();
-                    commit_info.backendId = _node_id;
-                    _tablet_commit_infos.emplace_back(std::move(commit_info));
-                }
-                _add_batches_finished = true;
-            }
-        } else {
-            _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}",
-                                         channel_info(), status.get_error_msg()));
-        }
-
-        if (result.has_execution_time_us()) {
-            _add_batch_counter.add_batch_execution_time_us += result.execution_time_us();
-            _add_batch_counter.add_batch_wait_execution_time_us += result.wait_execution_time_us();
-            _add_batch_counter.add_batch_num++;
-        }
-    });
     return status;
 }
 
@@ -397,9 +355,8 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    while (!_add_batches_finished && !_cancelled) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+    brpc::StreamWait(_stream_id, nullptr);
+    _add_batches_finished = true;
     _close_time_ms = UnixMillis() - _close_time_ms;
 
     if (_add_batches_finished) {
@@ -411,7 +368,10 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         state->tablet_commit_infos().insert(state->tablet_commit_infos().end(),
                                             std::make_move_iterator(_tablet_commit_infos.begin()),
                                             std::make_move_iterator(_tablet_commit_infos.end()));
-
+        int res = brpc::StreamClose(_stream_id);
+        if (res != 0) {
+            LOG(INFO) << "StreamClose return: " << res;
+        }
         _index_channel->set_error_tablet_in_state(state);
         return Status::OK();
     }
@@ -438,6 +398,11 @@ void NodeChannel::cancel(const std::string& cancel_msg) {
     // But do we need brpc::StartCancel(call_id)?
     _cancel_with_msg(cancel_msg);
 
+    int res = brpc::StreamClose(_stream_id);
+    if (res != 0) {
+        LOG(INFO) << "StreamClose return: " << res;
+    }
+    
     PTabletWriterCancelRequest request;
     request.set_allocated_id(&_parent->_load_id);
     request.set_index_id(_index_channel->_index_id);
@@ -465,103 +430,81 @@ int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
         return 0;
     }
 
-    if (!_add_batch_closure->try_set_in_flight()) {
-        return _send_finished ? 0 : 1;
-    }
-
     // We are sure that try_send_batch is not running
     if (_pending_batches_num > 0) {
-        auto s = thread_pool_token->submit_func(
-                std::bind(&NodeChannel::try_send_batch, this, state));
-        if (!s.ok()) {
-            _cancel_with_msg("submit send_batch task to send_batch_thread_pool failed");
-            // clear in flight
-            _add_batch_closure->clear_in_flight();
-        }
-        // in_flight is cleared in closure::Run
-    } else {
-        // clear in flight
-        _add_batch_closure->clear_in_flight();
+        try_send_batch(state);
     }
-    return _send_finished ? 0 : 1;
+    return (_send_finished && _stream_msg.size() == 0) ? 0 : 1;
 }
 
 void NodeChannel::try_send_batch(RuntimeState* state) {
     SCOPED_ATTACH_TASK_THREAD(state, _node_channel_tracker);
     SCOPED_ATOMIC_TIMER(&_actual_consume_ns);
-    AddBatchReq send_batch;
-    {
-        debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
-        std::lock_guard<std::mutex> l(_pending_batches_lock);
-        DCHECK(!_pending_batches.empty());
-        send_batch = std::move(_pending_batches.front());
-        _pending_batches.pop();
-        _pending_batches_num--;
-        _pending_batches_bytes -= send_batch.first->tuple_data_pool()->total_reserved_bytes();
-    }
-
-    auto row_batch = std::move(send_batch.first);
-    auto request = std::move(send_batch.second); // doesn't need to be saved in heap
-
-    // tablet_ids has already set when add row
-    request.set_packet_seq(_next_packet_seq);
-    if (row_batch->num_rows() > 0) {
-        SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
-        size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes,
-                                         &compressed_bytes, _tuple_data_buffer_ptr);
-        if (!st.ok()) {
-            cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
-            _add_batch_closure->clear_in_flight();
-            return;
-        }
-        if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
-            LOG(WARNING) << "send batch too large, this rpc may failed. send size: "
-                         << compressed_bytes << ", threshold: " << config::brpc_max_body_size
-                         << ", " << channel_info();
-        }
-    }
-
-    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
-    if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
-        if (remain_ms <= 0 && !request.eos()) {
-            cancel(fmt::format("{}, err: timeout", channel_info()));
-            _add_batch_closure->clear_in_flight();
-            return;
-        } else {
-            remain_ms = config::min_load_rpc_timeout_ms;
-        }
-    }
-
-    // After calling reset(), make sure that the rpc will be called finally.
-    // Otherwise, when calling _add_batch_closure->join(), it will be blocked forever.
-    // and _add_batch_closure->join() will be called in ~NodeChannel().
-    _add_batch_closure->reset();
-    _add_batch_closure->cntl.set_timeout_ms(remain_ms);
-    if (config::tablet_writer_ignore_eovercrowded) {
-        _add_batch_closure->cntl.ignore_eovercrowded();
-    }
-
-    if (request.eos()) {
-        for (auto pid : _parent->_partition_ids) {
-            request.add_partition_ids(pid);
+    if (_stream_msg.size() == 0) {
+        AddBatchReq send_batch;
+        {
+            debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
+            std::lock_guard<std::mutex> l(_pending_batches_lock);
+            DCHECK(!_pending_batches.empty());
+            send_batch = std::move(_pending_batches.front());
+            _pending_batches.pop();
+            _pending_batches_num--;
+            _pending_batches_bytes -= send_batch.first->tuple_data_pool()->total_reserved_bytes();
         }
 
-        // eos request must be the last request
-        _add_batch_closure->end_mark();
-        _send_finished = true;
-        CHECK(_pending_batches_num == 0) << _pending_batches_num;
-    }
+        auto row_batch = std::move(send_batch.first);
+        auto request = std::move(send_batch.second); // doesn't need to be saved in heap
 
-    if (_parent->_transfer_data_by_brpc_attachment && request.has_row_batch()) {
-        request_row_batch_transfer_attachment<PTabletWriterAddBatchRequest,
-                                              ReusableClosure<PTabletWriterAddBatchResult>>(
-                &request, _tuple_data_buffer, _add_batch_closure);
-    }
-    _stub->tablet_writer_add_batch(&_add_batch_closure->cntl, &request, &_add_batch_closure->result,
-                                   _add_batch_closure);
+        // tablet_ids has already set when add row
+        request.set_packet_seq(_next_packet_seq);
+        if (row_batch->num_rows() > 0) {
+            SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
+            size_t uncompressed_bytes = 0, compressed_bytes = 0;
+            Status st = row_batch->serialize(request.mutable_row_batch(), &uncompressed_bytes,
+                                             &compressed_bytes, _tuple_data_buffer_ptr);
+            if (!st.ok()) {
+                cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
+                return;
+            }
+            if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
+                LOG(WARNING) << "send batch too large, this rpc may failed. send size: "
+                             << compressed_bytes << ", threshold: " << config::brpc_max_body_size
+                             << ", " << channel_info();
+            }
+        }
 
-    _next_packet_seq++;
+        int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
+        if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
+            if (remain_ms <= 0 && !request.eos()) {
+                cancel(fmt::format("{}, err: timeout", channel_info()));
+                return;
+            } else {
+                remain_ms = config::min_load_rpc_timeout_ms;
+            }
+        }
+
+        if (request.eos()) {
+            for (auto pid : _parent->_partition_ids) {
+                request.add_partition_ids(pid);
+            }
+
+            // eos request must be the last request
+            _send_finished = true;
+            CHECK(_pending_batches_num == 0) << _pending_batches_num;
+        }
+        butil::IOBufAsZeroCopyOutputStream wrapper(&_stream_msg);
+        request.SerializeToZeroCopyStream(&wrapper);
+    }
+    int res = brpc::StreamWrite(_stream_id, _stream_msg);
+    if (res == 0) {
+        _next_packet_seq++;
+        _stream_msg.clear();
+    } else if (res == EINVAL) {
+        cancel(fmt::format("{}, err: StreamWrite return EINVAL", channel_info()));
+    } else if (res == EAGAIN) {
+        LOG(INFO) << "Stream Buffer is full.  waiting...";
+        brpc::StreamWait(_stream_id, nullptr);
+    }
 }
 
 Status NodeChannel::none_of(std::initializer_list<bool> vars) {

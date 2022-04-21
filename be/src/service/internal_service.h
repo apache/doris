@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory>
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/cache/result_cache.h"
@@ -29,6 +30,8 @@ class Controller;
 namespace doris {
 
 class ExecEnv;
+
+class TabletAddBatchReceiver;
 
 template <typename T>
 class PInternalServiceImpl : public T {
@@ -124,6 +127,8 @@ private:
 private:
     ExecEnv* _exec_env;
     PriorityThreadPool _tablet_worker_pool;
+    std::unique_ptr<TabletAddBatchReceiver> _tablet_add_batch_receiver;
+    std::vector<uint64_t> _stream_ids;
 };
 
 } // namespace doris
