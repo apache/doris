@@ -1598,6 +1598,20 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     minMaxSerializeOrFinalize, minMaxGetValue,
                     null, minMaxSerializeOrFinalize, true, true, false, true));
 
+            // vectorized
+            for (Type kt : Type.getSupportedTypes()) {
+                if (kt.isNull()) {
+                    continue;
+                }
+                addBuiltin(AggregateFunction.createBuiltin("max_by", Lists.newArrayList(t, kt), t, Type.VARCHAR,
+                        "", "", "", "", "", null, "",
+                        true, true, false, true));
+                addBuiltin(AggregateFunction.createBuiltin("min_by", Lists.newArrayList(t, kt), t, Type.VARCHAR,
+                        "", "", "", "", "", null, "",
+                        true, true, false, true));
+            }
+
+
             // NDV
             // ndv return string
             addBuiltin(AggregateFunction.createBuiltin("ndv", Lists.newArrayList(t), Type.BIGINT, Type.VARCHAR,

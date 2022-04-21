@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/static-asserts.cpp
+// and modified by Doris
 
 #include "runtime/datetime_value.h"
 #include "runtime/string_value.h"
